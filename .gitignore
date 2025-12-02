@@ -1,0 +1,29 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# C extensions
+*.so
+
+# Django stuff:
+*.log
+*.pot
+
+*/__pycache__/*
+*.pyc
+.idea/
+.DS_Store
+.env
+.env_prod
+.venv
+box_config.json
+__pycache__
+**/__pycache__/**
+__pycache__/
+.pytest_cache
+ipython_config.py
+
+docs/*
+docs/
+
+media/*

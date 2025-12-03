@@ -1,39 +1,87 @@
 from django.db import models
+from django.utils import timezone
+from materials.models import Material
+from timestamps.models import Timestampable
+class InventoryItem(Timestampable):
+    """
+    Current stock level for a material at a given location.
+    """
 
-class Category(models.Model):
-    """
-    E.g., 'Aluminum Profiles', 'Hardware', 'Paint', 'Labor'
-    """
-    name = models.CharField(max_length=100)
-    
+    material = models.ForeignKey(
+        Material,
+        on_delete=models.PROTECT,
+        related_name="inventory_items",
+    )
+
+    quantity = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+
+    location = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Warehouse or storage location (optional)."
+    )
+
+    updated_at = models.DateTimeField(auto_now=True)
+
     class Meta:
-        verbose_name_plural = "Categories"
+        unique_together = ("material", "location")
+        verbose_name = "Inventory Item"
+        verbose_name_plural = "Inventory Items"
 
     def __str__(self):
-        return self.name
+        loc = f" @ {self.location}" if self.location else ""
+        return f"{self.material} — {self.quantity} {self.material.unit_type}{loc}"
 
-class UnitChoices(models.TextChoices):
-    METERS = "m"
-    UNITS = "u"
-    KILOGRAMS = "kg"
-    HOURS = "h"
 
-class Material(models.Model):
+class MovementType(models.TextChoices):
+    IN = "IN", "Stock In"
+    OUT = "OUT", "Stock Out"
+    ADJUST = "ADJUST", "Adjustment"
+
+class InventoryMovement(Timestampable):
     """
-    Represents the database of items found in your 'MATERIALES' section.
-    Matches Excel columns: REFERENCIA, PRECIO.
+    A stock movement (entry, exit, or manual adjustment).
     """
 
+    material = models.ForeignKey(
+        Material,
+        on_delete=models.PROTECT,
+        related_name="inventory_movements",
+    )
 
-    reference_code = models.CharField(max_length=50, unique=True, help_text="e.g., 4058, 4269")
-    name = models.CharField(max_length=200, help_text="e.g., CERCO 50 mm, LAMA 200")
-    category = models.ForeignKey(Category, on_delete=models.PROTECT)
-    unit_type = models.CharField(max_length=2, choices=UnitChoices.choices, default='m')
-    cost_per_unit = models.DecimalField(max_digits=10, decimal_places=4, help_text="Base cost from supplier")
-    
-    # Specific fields for Profiles (Aluminum) to help with weight/optimization
-    is_profile = models.BooleanField(default=False, help_text="Check if this is a bar that needs cutting")
-    bar_length = models.DecimalField(max_digits=6, decimal_places=0, null=True, blank=True, help_text="Standard length of the bar in mm (e.g. 6000)")
+    movement_type = models.CharField(
+        max_length=10,
+        choices=MovementType.choices,
+    )
+
+    quantity_change = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        help_text="Positive for stock-in, negative for stock-out."
+    )
+
+    timestamp = models.DateTimeField(default=timezone.now)
+
+    user = models.ForeignKey(
+        "auth.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        help_text="User who performed the movement.",
+    )
+
+    location = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Location matching InventoryItem.",
+    )
+
+    note = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-timestamp"]
+        verbose_name = "Inventory Movement"
+        verbose_name_plural = "Inventory Movements"
 
     def __str__(self):
-        return f"[{self.reference_code}] {self.name}"
+        return f"{self.timestamp} — {self.material} — {self.quantity_change:+f}"

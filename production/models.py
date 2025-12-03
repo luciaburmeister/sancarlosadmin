@@ -23,7 +23,7 @@ class ManufacturingItem(models.Model):
     Represents a specific line item in the Order.
     Matches the 'MEDIDAS' section of your Excel.
     """
-    order = models.ForeignKey(Order, related_name='items', on_delete=models.CASCADE)
+    order = models.ForeignKey(Order, related_name='manufacturing_items', on_delete=models.CASCADE)
     product_model = models.ForeignKey(ProductModel, on_delete=models.PROTECT)
     width = models.PositiveIntegerField(help_text="Width in mm")
     height = models.PositiveIntegerField(help_text="Height in mm")

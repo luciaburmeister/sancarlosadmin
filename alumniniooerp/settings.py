@@ -47,7 +47,10 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'inventory',
     'production',
-    'sales'
+    'sales',
+    'materials',
+    "configurator",
+    'timestamps',
 ]
 
 MIDDLEWARE = [

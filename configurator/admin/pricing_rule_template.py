@@ -5,6 +5,12 @@ from configurator.models import PricingRuleTemplate
 
 @admin.register(PricingRuleTemplate)
 class PricingRuleTemplateAdmin(ModelAdmin):
-    list_display = ("id", "name", "expression", "is_active")
-    list_filter = ("is_active",)
+    list_display = ("id", "product", "name", "expression", "is_active")
+    list_filter = ("product", "is_active")
     search_fields = ("name", "expression")
+
+    fieldsets = (
+        ("Pricing Rule Template", {
+            "fields": ("product", "name", "expression", "is_active"),
+        }),
+    )

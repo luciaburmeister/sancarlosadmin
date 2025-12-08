@@ -1,9 +1,11 @@
 from django.db import models
 from timestamps.models import Timestampable
 from djmoney.models.fields import MoneyField
+from django.db.models.functions import Lower
+from django.db.models import Index
 
 class Provider(Timestampable):
-    name = models.CharField(max_length=200)
+    name = models.CharField(max_length=200, db_index=True)
     contact = models.CharField(max_length=200, blank=True)
     phone = models.CharField(max_length=50, blank=True)
     email = models.EmailField(blank=True)
@@ -11,6 +13,12 @@ class Provider(Timestampable):
 
     def __str__(self):
         return self.name
+    
+    class Meta:
+        ordering = [Lower("name")]  
+        indexes = [
+            Index(Lower("name"), name="provider_name_ci_idx")
+        ]
 
 class Category(Timestampable):
     """

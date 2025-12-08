@@ -66,7 +66,7 @@ class ProductParameter(models.Model):
         choices=ParameterType.choices,
         default=ParameterType.NUMBER,
     )
-    options = models.JSONField(blank=True, null=True)
+    options = models.JSONField(blank=True, null=True, default=list)
     required = models.BooleanField(default=True)
 
     def __str__(self):
@@ -225,40 +225,49 @@ class Configuration(Timestampable):
                     f"Error evaluating rule '{rule_assignmanet}': {exc}"
                 )
 
-        # Store as Money
         self.total_price = total
         self.save(update_fields=["total_price"])
 
     def generate_bom(self):
-        self.items.all().delete()
+        existing_items = {
+            item.material_id: item
+            for item in self.items.filter(is_template_item=True)
+        }
 
         context = {
             pv.parameter.name: pv.parameter.normalize_value(pv.value)
-        for pv in self.param_values.all()
-    }
+            for pv in self.param_values.select_related("parameter")
+        }
 
         for pv in self.param_values.select_related("parameter"):
             value = pv.value
-
-            # Convert to float **only if number**
             if pv.parameter.type == ParameterType.NUMBER:
                 try:
                     value = float(value)
                 except (TypeError, ValueError):
-                    pass  # If conversion fails, leave the value as-is
-
+                    pass
             context[pv.parameter.name] = value
+
+        processed = set()
 
         for rule in self.product.bom_rules.all():
             qty = safe_eval(rule.quantity_expression, context)
 
             if qty and qty > 0:
-                ConfigurationItem.objects.create(
+                item, _ = ConfigurationItem.objects.update_or_create(
                     configuration=self,
                     material=rule.material,
-                    quantity=qty,
-                    unit_price=rule.material.cost_per_unit,
+                    is_template_item=True,
+                    defaults={
+                        "quantity": qty,
+                        "unit_price": rule.material.cost_per_unit,
+                    }
                 )
+                processed.add(rule.material_id)
+
+        for material_id, item in existing_items.items():
+            if material_id not in processed:
+                item.delete()
 
 
 
@@ -293,6 +302,11 @@ class ConfigurationItem(Timestampable):
         decimal_places=2,
         default_currency="EUR",
         editable=False,
+    )
+
+    is_template_item = models.BooleanField(
+        default=True,
+        help_text="Whether this item comes from a BOM rule or is a user add-on."
     )
 
     def save(self, *args, **kwargs):

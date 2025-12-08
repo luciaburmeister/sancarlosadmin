@@ -27,28 +27,8 @@
             {% endif %}
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {% for field in form %}
-                <div class="form-group">
-                    <label for="{{ field.id_for_label }}"
-                        class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                        {{ field.label }}
-                        {% if field.field.required %}<span class="text-red-500">*</span>{% endif %}
-                    </label>
-
-                    <div class="mt-1">
-                        {{ field }}
-                    </div>
-
-                    {% if field.help_text %}
-                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ field.help_text }}</p>
-                    {% endif %}
-
-                    {% if field.errors %}
-                    <div class="mt-1 text-sm text-red-600 dark:text-red-400">
-                        {{ field.errors }}
-                    </div>
-                    {% endif %}
-                </div>
+                 {% for field in form %}
+                    {% include "unfold/helpers/field.html" with field=field %}
                 {% endfor %}
             </div>
 
@@ -66,30 +46,4 @@
     </div>
 </div>
 
-<style>
-    /* Minimal override to ensure Inputs look decent if Unfold doesn't auto-style vanilla widgets perfectly */
-    input[type="text"],
-    input[type="number"],
-    select {
-        width: 100%;
-        padding: 0.5rem;
-        border-radius: 0.375rem;
-        border: 1px solid #d1d5db;
-        background-color: #fff;
-    }
-
-    .dark input[type="text"],
-    .dark input[type="number"],
-    .dark select {
-        background-color: #374151;
-        border-color: #4b5563;
-        color: #fff;
-    }
-
-    input[type="checkbox"] {
-        height: 1rem;
-        width: 1rem;
-        border-radius: 0.25rem;
-    }
-</style>
 {% endblock %}

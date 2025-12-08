@@ -13,7 +13,10 @@ dependencies = [
     "django-money (>=3.5.4,<4.0.0)",
     "django-timestampable (>=1.1.5,<2.0.0)",
     "pillow (>=12.0.0,<13.0.0)",
-    "django-extensions (>=4.1,<5.0)"
+    "django-extensions (>=4.1,<5.0)",
+    "python-dotenv (>=1.2.1,<2.0.0)",
+    "psycopg2 (>=2.9.11,<3.0.0)",
+    "django-formtools (>=2.5.1,<3.0.0)"
 ]
 
 

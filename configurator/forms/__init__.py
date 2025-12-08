@@ -1,1 +1,2 @@
 from .configuration_form import ConfigurationForm
+from .addon_form import AddonForm,BaseAddonFormSet

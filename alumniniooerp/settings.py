@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'timestamps',
     'django_extensions',
     'formtools',
+    'crispy_forms',
 ]
 
 MIDDLEWARE = [
@@ -146,3 +147,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+
+CRISPY_TEMPLATE_PACK = "unfold_crispy"
+
+CRISPY_ALLOWED_TEMPLATE_PACKS = ["unfold_crispy"]

@@ -1,0 +1,2 @@
+from .configuration.wizard_product_selection_view import ProductSelectionView
+from .configuration.wizard_views import ConfigurationWizardView

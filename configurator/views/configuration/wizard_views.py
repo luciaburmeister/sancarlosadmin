@@ -1,5 +1,4 @@
-from django.shortcuts import render, redirect, get_object_or_404
-from django.views.generic import TemplateView
+from django.shortcuts import redirect, get_object_or_404
 from configurator.models import ProductTemplate,ConfigurationItem
 from unfold.views import UnfoldModelAdminViewMixin
 from configurator.forms import ConfigurationForm,AddonForm,BaseAddonFormSet
@@ -8,16 +7,6 @@ from django.shortcuts import get_object_or_404
 from formtools.wizard.views import SessionWizardView
 from django.forms import formset_factory
 
-
-class ProductSelectionView(UnfoldModelAdminViewMixin, TemplateView):
-    title = "Select Product to Configure" 
-    permission_required = ('configurator.view_producttemplate') 
-    template_name = "configurator/product_selection.html"
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["products"] = ProductTemplate.objects.all()
-        return context
 
 class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
     form_list = [
@@ -41,7 +30,6 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["product"] = self.product
-        context["title"] = f"Configure {self.product.name}"
         return context
 
     def done(self, form_list, **kwargs):

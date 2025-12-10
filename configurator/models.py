@@ -179,34 +179,33 @@ class Configuration(Timestampable):
     
     def get_pricing_context(self):
         """
-        Builds the variables available to PricingRules.
+        Builds the full evaluation context used for:
+        - Pricing rules
+        - Computed product variables
+        - BOM expressions
         """
-        params = {
-    pv.parameter.name: pv.parameter.normalize_value(pv.value)
-    for pv in self.param_values.select_related("parameter")
-}
 
-        if "width" in params and "height" in params:
-            params["area"] = params["width"] * params["height"] / 1_000_000
+        # 1️⃣ Load user parameters
+        context = {
+            pv.parameter.name: pv.parameter.normalize_value(pv.value)
+            for pv in self.param_values.select_related("parameter")
+        }
+
+        # 2️⃣ Basic aggregates (always needed)
         items = self.items.all()
 
-        material_cost = sum(
-            float(i.material.cost_per_unit.amount) * float(i.quantity)
-            for i in items
-        )
+        context.update({
+            "material_cost": sum(float(i.material.cost_per_unit.amount) * float(i.quantity) for i in items),
+            "quantity": sum(float(i.quantity) for i in items),
+            "item_count": items.count(),
+            "base_total": sum(float(i.line_total.amount) for i in items),
+        })
 
-        quantity = sum(float(i.quantity) for i in items)
+        # 3️⃣ 🔥 Evaluate product's computed variables (constants + expressions)
+        context = self.evaluate_computed_variables(context)
 
-        item_count = items.count()
+        return context
 
-        base_total = sum(float(i.line_total.amount) for i in items)
-
-        return {
-            "material_cost": material_cost,
-            "quantity": quantity,
-            "item_count": item_count,
-            "base_total": base_total,
-        }
 
     def recalculate_price(self):
         """
@@ -229,45 +228,64 @@ class Configuration(Timestampable):
         self.save(update_fields=["total_price"])
 
     def generate_bom(self):
-        existing_items = {
-            item.material_id: item
-            for item in self.items.filter(is_template_item=True)
-        }
-
-        context = {
-            pv.parameter.name: pv.parameter.normalize_value(pv.value)
-            for pv in self.param_values.select_related("parameter")
-        }
-
-        for pv in self.param_values.select_related("parameter"):
-            value = pv.value
-            if pv.parameter.type == ParameterType.NUMBER:
-                try:
-                    value = float(value)
-                except (TypeError, ValueError):
-                    pass
-            context[pv.parameter.name] = value
-
+        # Track which items were created this cycle
         processed = set()
 
+        # Build context including computed variables
+        context = self.get_pricing_context()
+
+        # Generate BOM items
         for rule in self.product.bom_rules.all():
             qty = safe_eval(rule.quantity_expression, context)
 
             if qty and qty > 0:
-                item, _ = ConfigurationItem.objects.update_or_create(
+                item = ConfigurationItem.objects.create(
                     configuration=self,
                     material=rule.material,
+                    quantity=qty,
+                    unit_price=rule.material.cost_per_unit,
                     is_template_item=True,
-                    defaults={
-                        "quantity": qty,
-                        "unit_price": rule.material.cost_per_unit,
-                    }
                 )
-                processed.add(rule.material_id)
+                processed.add(item.id)
 
-        for material_id, item in existing_items.items():
-            if material_id not in processed:
-                item.delete()
+        # Cleanup old template items not created this cycle
+        self.items.filter(is_template_item=True).exclude(id__in=processed).delete()
+
+    def evaluate_computed_variables(self, context):
+        """
+        Evaluates ProductComputedVariables, supporting:
+        - constants (e.g. "50")
+        - expressions (e.g. "width / 2")
+        - dependencies between variables
+        """
+
+        computed_vars = list(self.product.computed_vars.all())
+        unresolved = computed_vars.copy()
+        last_count = -1
+
+        # Multi-pass resolution: try until no progress is made
+        while unresolved and len(unresolved) != last_count:
+            last_count = len(unresolved)
+            next_round = []
+
+            for var in unresolved:
+                try:
+                    value = safe_eval(var.expression, context)
+                    context[var.name] = value
+                except Exception:
+                    next_round.append(var)
+
+            unresolved = next_round
+
+        # If still unresolved → circular dependency or missing variables
+        if unresolved:
+            names = ", ".join(v.name for v in unresolved)
+            raise ValueError(
+                f"Could not resolve computed variables: {names}. "
+                f"Check for circular dependencies or missing input variables."
+            )
+
+        return context
 
 
 
@@ -360,3 +378,17 @@ class ConfigurationParameterValue(models.Model):
 
     def __str__(self):
         return f"{self.parameter.name} = {self.value}"
+    
+class ProductComputedVariable(models.Model):
+    product = models.ForeignKey(
+        ProductTemplate,
+        on_delete=models.CASCADE,
+        related_name="computed_vars"
+    )
+    name = models.CharField(max_length=100)
+    expression = models.TextField(
+        help_text="Enter either a number or an expression. Example: 50, width / 2"
+    )
+
+    def __str__(self):
+        return f"{self.product.name}.{self.name}"

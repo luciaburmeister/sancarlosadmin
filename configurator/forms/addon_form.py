@@ -1,12 +1,12 @@
 from django import forms
 from materials.models import Material
-from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminIntegerFieldWidget
+from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminIntegerFieldWidget, UnfoldAdminSelect2Widget
 from django.forms import BaseFormSet
 
 class AddonForm(forms.Form):
     addons = forms.ModelChoiceField(
         queryset=Material.objects.all(),
-        widget=UnfoldAdminSelectWidget, 
+        widget=UnfoldAdminSelect2Widget, 
         required=False,
         label="Select Add-ons"
     )

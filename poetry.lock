@@ -67,6 +67,21 @@ argon2 = ["argon2-cffi (>=19.1.0)"]
 bcrypt = ["bcrypt"]
 
 [[package]]
+name = "django-crispy-forms"
+version = "2.5"
+description = "Best way to have Django DRY forms"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "django_crispy_forms-2.5-py3-none-any.whl", hash = "sha256:adc99d5901baca09479c53bf536b3909e80a9f2bb299438a223de4c106ebf1f9"},
+    {file = "django_crispy_forms-2.5.tar.gz", hash = "sha256:066e72a8f152a1334f1c811cc37740868efe3265e5a218f79079ef89f848c3d8"},
+]
+
+[package.dependencies]
+django = ">=4.2"
+
+[[package]]
 name = "django-extensions"
 version = "4.1"
 description = "Extensions for Django"
@@ -388,4 +403,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.14,<4.0"
-content-hash = "f865a26da6eade679754545b0a8f6a709fc85ab319a3f0f1f422844f8f087db1"
+content-hash = "65d1800d8640484b470e93d3bc134d8ad37645b0ee10f6a6a151c5ec934d2545"

@@ -8,6 +8,7 @@ class BOMRuleAdmin(ModelAdmin):
     list_display = ("id", "product", "material", "quantity_expression")
     list_filter = ("product", "material")
     search_fields = ("material__name", "product__name", "quantity_expression")
+    autocomplete_fields = ["product","material"]
 
     fieldsets = (
         ("BOM Rule", {

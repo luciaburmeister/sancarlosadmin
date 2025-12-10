@@ -1,120 +1,147 @@
 {% extends 'unfold/layouts/base_simple.html' %}
 {% load i18n %}
 
-{% block content %}
-<div class="max-w-4xl mx-auto p-6">
-    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+{% block extrahead %}
+    {{ block.super }}
+    <script src="{% url 'admin:jsi18n' %}"></script>
+    {{ form.media }}
+{% endblock %}
 
-        <div class="p-6 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex items-center space-x-4">
+{% block content %}
+<div class="max-w-3xl mx-auto p-6">
+    
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+
+        <div class="px-8 py-6 border-b border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 flex items-center space-x-5">
             {% if product.image %}
-            <img src="{{ product.image.url }}" alt="{{ product.name }}" class="w-16 h-16 object-cover rounded shadow-sm">
+            <img src="{{ product.image.url }}" alt="{{ product.name }}" class="w-16 h-16 object-cover rounded-lg shadow-sm border border-gray-100 dark:border-gray-600">
             {% endif %}
             <div>
-                <h1 class="text-2xl font-bold text-gray-900 dark:text-white">{{ title }}</h1>
-                <p class="text-sm text-gray-500 dark:text-gray-400">Step {{ wizard.steps.step1 }} of {{ wizard.steps.count }}</p>
+                <h1 class="text-xl font-bold text-gray-900 dark:text-white tracking-tight">{{ title }}</h1>
+                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Step {{ wizard.steps.step1 }} of {{ wizard.steps.count }}</p>
             </div>
         </div>
 
-        <form method="post" class="p-6 space-y-6">
+        <form method="post">
             {% csrf_token %}
             {{ wizard.management_form }}
 
-            {% if wizard.form.forms %}
-                {{ wizard.form.management_form }}
-                
-                <div id="formset-container" class="space-y-4">
-                    {% for form in wizard.form.forms %}
-                        <div class="formset-row relative border p-4 rounded bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700">
+            <div class="p-8">
+                {% if wizard.form.forms %}
+                    {{ wizard.form.management_form }}
+                    
+                    <div id="formset-container" class="space-y-6">
+                        {% for form in wizard.form.forms %}
+                            {{ form.media }}
+                            <div class="formset-row group relative bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 transition-all hover:border-primary-200 dark:hover:border-primary-800 hover:shadow-sm w-full">
+                                
+                                {% if wizard.form.can_delete %}
+                                    <button type="button" 
+                                            class="remove-form-btn text-gray-400 hover:text-red-600 transition-colors p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 z-20"
+                                            style="position: absolute; top: 12px; right: 12px;"
+                                            title="Remove item">
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                    </button>
+                                {% endif %}
+
+                                {% for hidden in form.hidden_fields %}
+                                    {{ hidden }}
+                                {% endfor %}
+
+                                <div class="hidden">
+                                    {% if wizard.form.can_delete %}
+                                        {{ form.DELETE }}
+                                    {% endif %}
+                                </div>
+
+                                <div class="grid grid-cols-1 gap-6 pt-6">
+                                    {% for field in form.visible_fields %}
+                                        {% if field.name != 'DELETE' %}
+                                            <div class="unfold-field-wrapper w-full">
+                                                {% include "unfold/helpers/field.html" with field=field %}
+                                            </div>
+                                        {% endif %}
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="mt-6">
+                        <button type="button" id="add-form-btn" class="inline-flex items-center px-4 py-2 text-sm font-medium text-primary-600 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors dark:bg-primary-900/20 dark:text-primary-400 border border-transparent">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+                            </svg>
+                            {% trans "Add another item" %}
+                        </button>
+                    </div>
+
+                    <div id="empty-form-template" class="hidden">
+                        <div class="formset-row group relative bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 mt-6 transition-all hover:border-primary-200 dark:hover:border-primary-800 hover:shadow-sm w-full">
                             
-                            {% for hidden in form.hidden_fields %}
-                                {{ hidden }}
-                            {% endfor %}
+                            <button type="button" 
+                                    class="remove-form-btn text-gray-400 hover:text-red-600 transition-colors p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 z-20"
+                                    style="position: absolute; top: 12px; right: 12px;">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </button>
 
                             <div class="hidden">
                                 {% if wizard.form.can_delete %}
-                                    {{ form.DELETE }}
+                                    {{ wizard.form.empty_form.DELETE }}
                                 {% endif %}
                             </div>
-
-                            <div class="grid grid-cols-1 gap-4">
-                                {% for field in form.visible_fields %}
+                            
+                            <div class="grid grid-cols-1 gap-6 pt-6">
+                                {% for field in wizard.form.empty_form.visible_fields %}
                                     {% if field.name != 'DELETE' %}
-                                        {% include "unfold/helpers/field.html" with field=field %}
+                                        <div class="unfold-field-wrapper w-full">
+                                            {% include "unfold/helpers/field.html" with field=field %}
+                                        </div>
                                     {% endif %}
                                 {% endfor %}
                             </div>
-
-                            {% if wizard.form.can_delete %}
-                            <button type="button" class="remove-form-btn absolute top-2 right-2 text-red-500 hover:text-red-700 p-1">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                            </button>
-                            {% endif %}
                         </div>
-                    {% endfor %}
-                </div>
-
-                <button type="button" id="add-form-btn" class="mt-4 flex items-center px-4 py-2 text-sm font-medium text-primary-600 bg-primary-50 hover:bg-primary-100 rounded-md transition-colors dark:bg-primary-900/20 dark:text-primary-400">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                    </svg>
-                    {% trans "Add another item" %}
-                </button>
-
-                <div id="empty-form-template" class="hidden">
-                    <div class="formset-row relative border p-4 rounded bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 mt-4">
-                        <div class="hidden">
-                            {% if wizard.form.can_delete %}
-                                {{ wizard.form.empty_form.DELETE }}
-                            {% endif %}
-                        </div>
-                        <div class="grid grid-cols-1 gap-4">
-                            {% for field in wizard.form.empty_form.visible_fields %}
-                                {% if field.name != 'DELETE' %}
-                                    {% include "unfold/helpers/field.html" with field=field %}
-                                {% endif %}
-                            {% endfor %}
-                        </div>
-                        <button type="button" class="remove-form-btn absolute top-2 right-2 text-red-500 hover:text-red-700 p-1">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                            </svg>
-                        </button>
                     </div>
-                </div>
 
-            {% else %}
-                {% if wizard.form.non_field_errors %}
-                <div class="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-4 rounded-md text-sm">
-                    {{ wizard.form.non_field_errors }}
-                </div>
+                {% else %}
+                    {% if wizard.form.non_field_errors %}
+                    <div class="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-4 rounded-lg text-sm mb-6 flex items-start">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                        </svg>
+                        {{ wizard.form.non_field_errors }}
+                    </div>
+                    {% endif %}
+
+                    <div class="space-y-6">
+                        {% for field in wizard.form %}
+                        {% include "unfold/helpers/field.html" with field=field %}
+                        {% endfor %}
+                    </div>
                 {% endif %}
+            </div>
 
-                <div class="space-y-4">
-                    {% for field in wizard.form %}
-                    {% include "unfold/helpers/field.html" with field=field %}
-                    {% endfor %}
-                </div>
-            {% endif %}
-
-            <div class="pt-6 border-t border-gray-200 dark:border-gray-700 flex justify-between space-x-3">
+            <div class="px-8 py-6 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 flex justify-between items-center">
                 {% if wizard.steps.prev %}
                 <button name="wizard_goto_step" type="submit" value="{{ wizard.steps.prev }}"
-                    class="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:text-gray-900 shadow-sm transition-all text-sm font-medium dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700">
                     {% trans "Previous" %}
                 </button>
                 {% else %}
                 <a href="../"
-                    class="px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                    {% trans "Back" %}
+                    class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:text-gray-900 shadow-sm transition-all text-sm font-medium dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700">
+                    {% trans "Cancel" %}
                 </a>
                 {% endif %}
 
                 <button type="submit"
-                    class="px-6 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 shadow-sm transition-colors font-medium">
+                    class="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 shadow-md hover:shadow-lg transition-all text-sm font-medium focus:ring-4 focus:ring-primary-100 dark:focus:ring-primary-900">
                     {% if wizard.steps.next %}
-                    {% trans "Next" %}
+                    {% trans "Next Step" %}
                     {% else %}
                     {% trans "Finish" %}
                     {% endif %}
@@ -129,48 +156,76 @@
         const formsetContainer = document.getElementById('formset-container');
         const addBtn = document.getElementById('add-form-btn');
         const emptyFormTemplate = document.getElementById('empty-form-template');
-        
-        // This is tricky in Wizards: The prefix is usually "step_name". 
-        // We look for the management form ID to guess the prefix.
         const totalFormsInput = document.querySelector('input[name$="-TOTAL_FORMS"]');
         
-        if (!totalFormsInput || !addBtn) return; // Not on the formset step
+        if (!totalFormsInput || !addBtn) return; 
+
+        // --- 1. DETECT JQUERY ---
+        // Django Admin puts jQuery in 'django.jQuery'. Standard sites use 'window.jQuery'.
+        // We assign whichever one exists to '$' so we can use it.
+        const $ = window.jQuery || (window.django && window.django.jQuery);
+
+        if (!$) {
+            console.error("CRITICAL: jQuery not found in global scope or django namespace.");
+            return;
+        }
 
         const prefix = totalFormsInput.name.replace('-TOTAL_FORMS', '');
 
         // --- ADD FUNCTION ---
         addBtn.addEventListener('click', function() {
             const formCount = parseInt(totalFormsInput.value);
-            
-            // Clone the template
             const newRow = emptyFormTemplate.firstElementChild.cloneNode(true);
             
-            // Update regex to replace __prefix__ with the current number
+            // 2. Rename IDs/Names
             const regex = new RegExp(prefix + '-__prefix__', 'g');
             newRow.innerHTML = newRow.innerHTML.replace(regex, prefix + '-' + formCount);
-            
-            // Insert into DOM
+
+            // 3. CLEANUP: Remove "dead" Select2 containers from the clone
+            // (The browser copies the visual dropdowns; we must delete them)
+            const deadContainers = newRow.querySelectorAll('.select2-container');
+            deadContainers.forEach(el => el.remove());
+
+            // 4. RESET: Clean the <select> element itself
+            const selectFields = newRow.querySelectorAll('select');
+            selectFields.forEach(select => {
+                select.classList.remove('select2-hidden-accessible');
+                select.removeAttribute('data-select2-id');
+                select.removeAttribute('aria-hidden');
+                select.removeAttribute('tabindex');
+                select.style.display = 'block'; // Make visible for re-initialization
+            });
+
+            // 5. Append to DOM
             formsetContainer.appendChild(newRow);
-            
-            // Update Management Form
             totalFormsInput.value = formCount + 1;
 
-            // Re-attach delete listeners (or use delegation, see below)
+            // 6. INITIALIZE SELECT2
+            // We use the '$' we detected at the top
+            $(newRow).find('select').each(function() {
+                // We check if .select2() is a function on this specific jQuery instance
+                if (typeof $(this).select2 === 'function') {
+                    $(this).select2({
+                        width: '100%',
+                        allowClear: false,
+                        dropdownParent: $(this).parent() // Fixes some z-index/modal issues
+                    });
+                } else {
+                    console.error("Select2 is not loaded on this jQuery instance.");
+                }
+            });
         });
 
-        // --- DELETE FUNCTION (Delegation) ---
+        // --- DELETE FUNCTION ---
         formsetContainer.addEventListener('click', function(e) {
-            if (e.target.closest('.remove-form-btn')) {
-                const row = e.target.closest('.formset-row');
+            const btn = e.target.closest('.remove-form-btn');
+            if (btn) {
+                const row = btn.closest('.formset-row');
                 const deleteInput = row.querySelector('input[name$="-DELETE"]');
-                
                 if (deleteInput) {
-                    // If it's an existing item (has a database ID usually), we check the delete box and hide the row
                     deleteInput.checked = true;
                     row.style.display = 'none';
                 } else {
-                    // If it's a new dynamic item (no ID), we can remove from DOM
-                    // But we must NOT decrement TOTAL_FORMS because Django expects gaps if not consecutive
                     row.remove();
                 }
             }

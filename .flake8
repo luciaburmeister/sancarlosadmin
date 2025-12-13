@@ -1,0 +1,12 @@
+# .flake8
+[flake8]
+max-line-length = 88
+exclude =
+    .git,
+    __pycache__,
+    build,
+    dist,
+    venv,
+    */__init__.py,
+    /villajets/settings.py,
+extend-ignore = E203,E501,W191,E101,E231,E222

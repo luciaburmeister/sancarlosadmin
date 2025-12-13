@@ -224,7 +224,7 @@ UNFOLD = {
                 "items": [
                     {
                         "title": "Configurator",
-                        "icon": "phone",
+                        "icon": "build",
                         "link": reverse_lazy(
                             "admin:configurator_configuration_changelist"
                         ),
@@ -234,7 +234,7 @@ UNFOLD = {
                     },
                     {
                         "title": "Product Templates",
-                        "icon": "phone",
+                        "icon": "box",
                         "link": reverse_lazy(
                             "admin:configurator_producttemplate_changelist"
                         ),
@@ -252,7 +252,7 @@ UNFOLD = {
                 "items": [
                     {
                         "title": "Material",
-                        "icon": "phone",
+                        "icon": "brick",
                         "link": reverse_lazy(
                             "admin:materials_material_changelist"
                         ),

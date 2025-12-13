@@ -27,6 +27,10 @@ class BOMRuleInline(TabularInline):
     tab=True
     autocomplete_fields = ["material"]
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related("material")
+
 
 class PricingRuleTemplateInline(TabularInline):
     model = PricingRuleTemplate
@@ -40,11 +44,12 @@ class ProductTemplateAdmin(ModelAdmin):
     list_display = ("id", "name")
     search_fields = ("name",)
 
+
     inlines = [
         ProductParameterInline,
+        ProductComputedVariableInline,
         BOMRuleInline,
         PricingRuleTemplateInline,
-        ProductComputedVariableInline
     ]
 
     fieldsets = (
@@ -56,3 +61,5 @@ class ProductTemplateAdmin(ModelAdmin):
     formfield_overrides = {
         models.TextField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 2})},
     }
+
+    

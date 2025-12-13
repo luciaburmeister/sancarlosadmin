@@ -70,7 +70,7 @@ class ProductParameter(models.Model):
     required = models.BooleanField(default=True)
 
     def __str__(self):
-        return f"{self.product} – {self.label}"
+        return f"{self.product_id} – {self.label}"
 
     def normalize_value(self, raw_value):
         """
@@ -107,7 +107,7 @@ class BOMRule(models.Model):
     length_expression = models.TextField(blank=True, null=True)
 
     def __str__(self):
-        return f"{self.product} → {self.material}"
+        return f"{self.product_id} → {self.material}"
 
 
 class PricingRuleTemplate(models.Model):
@@ -391,4 +391,4 @@ class ProductComputedVariable(models.Model):
     )
 
     def __str__(self):
-        return f"{self.product.name}.{self.name}"
+        return f"{self.product_id}.{self.name}"

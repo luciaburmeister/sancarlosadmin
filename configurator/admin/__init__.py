@@ -6,3 +6,4 @@ from .bom_rule import BOMRuleAdmin
 from .pricing_rule_template import PricingRuleTemplateAdmin
 from .pricing_rule_assignment import PricingRuleAssignmentAdmin
 from .user_admin import UserAdmin
+from .configuration_export import ConfigurationExportTemplateAdmin

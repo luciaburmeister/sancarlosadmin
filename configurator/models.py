@@ -1,10 +1,12 @@
 from django.db import models
+from django.db.models import Q
 from djmoney.models.fields import MoneyField
 from sales.models import Client
 from timestamps.models import Timestampable
 from materials.models import Material
 from configurator.utils import safe_eval
 from .validators import pricing_expression_validator
+from configurator.services import ConfigurationExportService
 
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", "Draft"
@@ -286,6 +288,12 @@ class Configuration(Timestampable):
             )
 
         return context
+    
+    def available_export_templates(self):
+        return ConfigurationExportService.get_available_templates(self)
+
+    def render_export(self, template):
+        return ConfigurationExportService.render_html(self, template)
 
 
 
@@ -392,3 +400,27 @@ class ProductComputedVariable(models.Model):
 
     def __str__(self):
         return f"{self.product_id}.{self.name}"
+
+class ConfigurationExportTemplate(models.Model):
+    product = models.ForeignKey(
+        ProductTemplate,
+        on_delete=models.CASCADE,
+        related_name="export_templates",
+        null=True,  # If null → can be used by any product
+        blank=True
+    )
+
+    name = models.CharField(max_length=200)
+    html = models.TextField(
+        help_text="Django template syntax is allowed. Example: {{ config.total_price }}"
+    )
+
+    css = models.TextField(
+        blank=True,
+        help_text="CSS styling. Will be injected inside <style>...</style>"
+    )
+
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.name} (Product {self.product_id or 'Any'})"

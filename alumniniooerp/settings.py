@@ -205,32 +205,10 @@ CRISPY_TEMPLATE_PACK = "unfold_crispy"
 CRISPY_ALLOWED_TEMPLATE_PACKS = ["unfold_crispy"]
 
 
-
 UNFOLD = {
-    "SITE_TITLE": "Smile White - Jarvis",
-    "SITE_HEADER": "Jarvis",
+    "SITE_TITLE": "ERP - Polipus",
+    "SITE_HEADER": "Polipus",
     "SITE_SYMBOL": "speed",
-    "TABS": [
-        {
-            "models": [
-                "dentist.referraldeal",
-            ],
-            "items": [
-                {
-                    "title": "Appointments",
-                    "link": "/admin/dentist/referraldeal/?appointment_status=total",
-                },
-                {
-                    "title": "Missing Scan",
-                    "link": "/admin/dentist/referraldeal/?appointment_status=no_scan",
-                },
-                {
-                    "title": "Missing Fitting",
-                    "link": "/admin/dentist/referraldeal/?appointment_status=no_fit",
-                },
-            ],
-        },
-    ],
     "SIDEBAR": {
         "show_search": True,  
         "show_all_applications": True,  

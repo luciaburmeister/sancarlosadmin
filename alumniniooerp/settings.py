@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from dotenv import load_dotenv
+from django.urls import reverse_lazy
 import os
 load_dotenv()
 
@@ -126,7 +127,7 @@ else:
         },
     }
 
-    
+
 INTERNAL_IPS = ["127.0.0.1", "localhost:8000"]
 AWS_S3_FILE_OVERWRITE = False
 AWS_DEFAULT_ACL = None
@@ -201,3 +202,84 @@ MEDIA_ROOT = BASE_DIR / 'media'
 CRISPY_TEMPLATE_PACK = "unfold_crispy"
 
 CRISPY_ALLOWED_TEMPLATE_PACKS = ["unfold_crispy"]
+
+
+
+UNFOLD = {
+    "SITE_TITLE": "Smile White - Jarvis",
+    "SITE_HEADER": "Jarvis",
+    "SITE_SYMBOL": "speed",
+    "TABS": [
+        {
+            "models": [
+                "dentist.referraldeal",
+            ],
+            "items": [
+                {
+                    "title": "Appointments",
+                    "link": "/admin/dentist/referraldeal/?appointment_status=total",
+                },
+                {
+                    "title": "Missing Scan",
+                    "link": "/admin/dentist/referraldeal/?appointment_status=no_scan",
+                },
+                {
+                    "title": "Missing Fitting",
+                    "link": "/admin/dentist/referraldeal/?appointment_status=no_fit",
+                },
+            ],
+        },
+    ],
+    "SIDEBAR": {
+        "show_search": True,  
+        "show_all_applications": True,  
+        "navigation": [
+            {
+                "title": "Quote",
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": "Configurator",
+                        "icon": "phone",
+                        "link": reverse_lazy(
+                            "admin:configurator_configuration_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "configurator.view_configuration"
+                        ),
+                    },
+                    {
+                        "title": "Product Templates",
+                        "icon": "phone",
+                        "link": reverse_lazy(
+                            "admin:configurator_producttemplate_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "configurator.view_producttemplate"
+                        ),
+                    }
+                ],
+            },
+
+            {
+                "title": "Materials",
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": "Material",
+                        "icon": "phone",
+                        "link": reverse_lazy(
+                            "admin:materials_material_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "materials.view_material"
+                        ),
+                    }
+                ],
+            },
+        
+        ],
+    },
+}

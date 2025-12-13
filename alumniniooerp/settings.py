@@ -89,7 +89,7 @@ ROOT_URLCONF = 'alumniniooerp.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [os.path.join(BASE_DIR, 'templates')],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -100,6 +100,7 @@ TEMPLATES = [
         },
     },
 ]
+
 
 WSGI_APPLICATION = 'alumniniooerp.wsgi.application'
 
@@ -137,6 +138,12 @@ AWS_STORAGE_BUCKET_NAME = os.getenv("AWS_STORAGE_BUCKET_NAME")
 AWS_S3_REGION_NAME = os.getenv("AWS_S3_REGION_NAME")
 AWS_S3_SIGNATURE_VERSION = "s3v4"
 AWS_S3_ADDRESSING_STYLE = "virtual"
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = os.getenv("EMAIL_SMTP_HOST")
+EMAIL_PORT = 587
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
+DEFAULT_FROM_EMAIL = os.getenv("EMAIL_HOST_USER")
 
 
 # Database

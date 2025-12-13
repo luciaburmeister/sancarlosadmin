@@ -67,7 +67,7 @@ def clean_final_html(rendered: str) -> str:
 
     cleaned = rendered
 
-    # 1️⃣ Remove ANY <br> that appears right after a block-level open tag
+    # 1️⃣ Remove <br> after any block-level opening tag
     cleaned = re.sub(
         r'(<(div|section|p|h[1-6]|table|thead|tbody|tr)[^>]*>)\s*(<br\s*/?>\s*)+',
         r'\1',
@@ -75,7 +75,7 @@ def clean_final_html(rendered: str) -> str:
         flags=re.IGNORECASE
     )
 
-    # 2️⃣ Remove ANY <br> that appears right before a block closing tag
+    # 2️⃣ Remove <br> before any block-level closing tag
     cleaned = re.sub(
         r'(<br\s*/?>\s*)+(</(div|section|p|h[1-6]|table|thead|tbody|tr)>)',
         r'\2',
@@ -83,15 +83,7 @@ def clean_final_html(rendered: str) -> str:
         flags=re.IGNORECASE
     )
 
-    # 3️⃣ Remove <br> before a <table>
-    cleaned = re.sub(
-        r'(<br\s*/?>\s*)+(<table)',
-        r'\2',
-        cleaned,
-        flags=re.IGNORECASE
-    )
-
-    # 4️⃣ Remove <br> between </tr> or </td> and next block
+    # 3️⃣ Remove <br> between table cells/rows
     cleaned = re.sub(
         r'(</t[rdh]+>)\s*(<br\s*/?>\s*)+',
         r'\1',
@@ -99,7 +91,23 @@ def clean_final_html(rendered: str) -> str:
         flags=re.IGNORECASE
     )
 
-    # 5️⃣ Remove ANY sequence of 2+ <br> tags ANYWHERE → remove completely
+    # 4️⃣ NEW: Remove <br> between ANY closing block tag and next opening tag
+    cleaned = re.sub(
+        r'(</(div|section|p|h[1-6]|table|thead|tbody|tr|td|th)>)\s*<br\s*/?>',
+        r'\1',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+
+    # 5️⃣ NEW: Remove <br> before ANY block-level opening tag
+    cleaned = re.sub(
+        r'<br\s*/?>\s*(<(div|section|p|h[1-6]|table|thead|tbody|tr|td|th)[^>]*>)',
+        r'\1',
+        cleaned,
+        flags=re.IGNORECASE
+    )
+
+    # 6️⃣ Remove 2+ consecutive <br> anywhere in document
     cleaned = re.sub(
         r'(<br\s*/?>\s*){2,}',
         '',
@@ -107,15 +115,28 @@ def clean_final_html(rendered: str) -> str:
         flags=re.IGNORECASE
     )
 
-    # 6️⃣ Remove stray <br> that sits alone on a line
     cleaned = re.sub(
-        r'^\s*<br\s*/?>\s*$',
-        '',
-        cleaned,
-        flags=re.MULTILINE | re.IGNORECASE
-    )
+    r'(</[^>]+>)\s*<br\s*/?>\s*(<!--.*?-->\s*)?(<[^/][^>]*>)',
+    r'\1\3',
+    cleaned,
+    flags=re.DOTALL | re.IGNORECASE
+)
+    cleaned = re.sub(
+    r'(</span>|</strong>|</b>|</i>)\s*<br\s*/?>\s*(<strong|<span|<b|<i)',
+    r'\1 \2',
+    cleaned,
+    flags=re.IGNORECASE
+)
+    cleaned = re.sub(
+    r'(</div>)\s*<br\s*/?>\s*(<!--.*?-->\s*)?(<div class="section"[^>]*>)',
+    r'\1 \3',
+    cleaned,
+    flags=re.DOTALL | re.IGNORECASE
+)
+
 
     return cleaned.strip()
+
 
 
 

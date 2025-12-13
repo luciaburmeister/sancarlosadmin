@@ -85,7 +85,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.14'
 
       - name: Install pipx
         run: python3 -m pip install --user pipx
@@ -117,7 +117,7 @@ jobs:
         run: poetry export -f requirements.txt --without-hashes --output requirements.txt
 
       - name: Install AWS Elastic Beanstalk CLI
-        run: pip install awsebcli==3.20.10
+        run: pip install awsebcli
 
       - name: Deploy to Elastic Beanstalk
         env:
@@ -127,6 +127,6 @@ jobs:
           APPLICATION_NAME: aluminio_erp
           ENVIRONMENT_NAME: aluminio_erp-prod
         run: |
-          eb init -p python-3.11 $APPLICATION_NAME --region $AWS_REGION
+          eb init -p python-3.14 $APPLICATION_NAME --region $AWS_REGION
           eb use $ENVIRONMENT_NAME
           eb deploy --staged

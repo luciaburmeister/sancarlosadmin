@@ -150,11 +150,13 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD"),  # your DB password
         "HOST": os.getenv("DB_HOST"),
         "PORT": os.getenv("DB_PORT"),
-        "OPTIONS": {
-            "sslmode": "require",
-        },
+        
     }
 }
+if not DEBUG:
+    DATABASES["default"]["OPTIONS"] = {
+            "sslmode": "require",
+        }
 
 
 

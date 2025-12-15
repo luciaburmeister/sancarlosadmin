@@ -6,6 +6,7 @@ from materials.models import Component
 from configurator.utils import safe_eval,_coerce_numeric
 from .validators import pricing_expression_validator
 from configurator.services import ConfigurationExportService
+from decimal import Decimal
 
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", "Draft"
@@ -231,27 +232,32 @@ class Configuration(Timestampable):
         self.save(update_fields=["total_price"])
 
     def generate_bom(self):
-        # Track which items were created this cycle
         processed = set()
 
-        # Build context including computed variables
         context = self.get_pricing_context()
 
-        # Generate BOM items
         for rule in self.product.bom_rules.all():
             qty = safe_eval(rule.quantity_expression, context)
 
-            if qty and qty > 0:
-                item = ConfigurationItem.objects.create(
-                    configuration=self,
-                    component=rule.component,
-                    quantity=qty,
-                    unit_price=rule.component.material.cost_per_unit,
-                    is_template_item=True,
-                )
-                processed.add(item.id)
+            if not qty or qty <= 0:
+                continue
 
-        # Cleanup old template items not created this cycle
+            length = Decimal("1")
+            if rule.length_expression:
+                evaluated_length = safe_eval(rule.length_expression, context)
+                if evaluated_length:
+                    length = Decimal(str(evaluated_length))
+
+            item = ConfigurationItem.objects.create(
+                configuration=self,
+                component=rule.component,
+                quantity=qty,
+                length=length,
+                unit_price=rule.component.material.cost_per_unit,
+                is_template_item=True,
+            )
+            processed.add(item.id)
+
         self.items.filter(is_template_item=True).exclude(id__in=processed).delete()
 
     def evaluate_computed_variables(self, context):
@@ -339,9 +345,17 @@ class ConfigurationItem(Timestampable):
 
     quantity = models.DecimalField(max_digits=10, decimal_places=3, default=1)
 
+    length = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        default=1,
+        help_text="Length factor used for pricing (e.g. meters).",
+        null=True
+    )
+
     unit_price = MoneyField(
         max_digits=12,
-        decimal_places=2,
+        decimal_places=5,
         default_currency="EUR",
     )
 
@@ -358,7 +372,11 @@ class ConfigurationItem(Timestampable):
     )
 
     def save(self, *args, **kwargs):
-        self.line_total = self.unit_price * self.quantity
+        quantity = self.quantity or Decimal("0")
+        length = self.length or Decimal("1")
+
+        # Money * Decimal * Decimal -> Money
+        self.line_total = self.unit_price * quantity * length
         super().save(*args, **kwargs)
 
     def __str__(self):

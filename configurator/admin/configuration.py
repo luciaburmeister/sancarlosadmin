@@ -19,7 +19,7 @@ class ParameterValueInline(TabularInline):
 class ConfigurationItemInline(TabularInline):
     model = ConfigurationItem
     extra = 0
-    fields = ("is_template_item","component", "quantity", "unit_price", "line_total")
+    fields = ("is_template_item","component", "quantity","length", "unit_price", "line_total")
     readonly_fields = ("line_total","is_template_item")
     tab=True
     autocomplete_fields = ["component"]

@@ -11,6 +11,7 @@ _ALLOWED_OPERATORS = {
     ast.Mod: op.mod,
 }
 
+# Allowed comparison operators
 _ALLOWED_CMP_OPS = {
     ast.Eq: op.eq,
     ast.NotEq: op.ne,
@@ -18,12 +19,19 @@ _ALLOWED_CMP_OPS = {
     ast.LtE: op.le,
     ast.Gt: op.gt,
     ast.GtE: op.ge,
+    ast.In: lambda a, b: a in b,
+    ast.NotIn: lambda a, b: a not in b,
 }
 
 def safe_eval(expression: str, context: dict):
     """
-    Safely evaluates a math expression using AST.
-    Only allows numeric operations + variables in context.
+    Safely evaluates a math/boolean/string expression using AST.
+    Supports:
+      - numeric and string operations
+      - variables from context
+      - comparisons: < <= > >= == !=, in, not in
+      - boolean ops: and, or, not
+      - conditional expression: a if cond else b
     """
     node = ast.parse(expression, mode='eval')
 
@@ -32,11 +40,11 @@ def safe_eval(expression: str, context: dict):
         if isinstance(node, ast.Expression):
             return _eval(node.body)
 
-        # Numeric literal
-        if isinstance(node, ast.Constant):  # Python 3.8+
-            if isinstance(node.value, (int, float)):
+        # Numeric / bool / string literal
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, (int, float, bool, str)):
                 return node.value
-            raise ValueError("Only numeric constants allowed.")
+            raise ValueError("Only numeric, boolean and string constants allowed.")
 
         # Variable reference
         if isinstance(node, ast.Name):
@@ -44,7 +52,7 @@ def safe_eval(expression: str, context: dict):
                 return context[node.id]
             raise ValueError(f"Unknown variable: {node.id}")
 
-        # Binary operations (x + y)
+        # Binary operations (x + y, x - y, ...)
         if isinstance(node, ast.BinOp):
             if type(node.op) not in _ALLOWED_OPERATORS:
                 raise ValueError("Operation not allowed.")
@@ -52,28 +60,29 @@ def safe_eval(expression: str, context: dict):
             right = _eval(node.right)
             return _ALLOWED_OPERATORS[type(node.op)](left, right)
 
-        # Unary ops: -x
+        # Unary ops: -x, not x
         if isinstance(node, ast.UnaryOp):
             if isinstance(node.op, ast.USub):
                 return -_eval(node.operand)
+            if isinstance(node.op, ast.Not):
+                return not bool(_eval(node.operand))
             raise ValueError("Unary operator not allowed.")
-    
+
+        # Boolean ops: a and b, a or b
         if isinstance(node, ast.BoolOp):
             if isinstance(node.op, ast.And):
-                # Short-circuit AND
                 for value in node.values:
                     if not bool(_eval(value)):
                         return False
                 return True
             if isinstance(node.op, ast.Or):
-                # Short-circuit OR
                 for value in node.values:
                     if bool(_eval(value)):
                         return True
                 return False
             raise ValueError("Boolean operator not allowed.")
 
-        # Comparisons: a < b, a < b < c, etc.
+        # Comparisons: a < b, a == "x", "a" in b, etc.
         if isinstance(node, ast.Compare):
             left = _eval(node.left)
             for op_node, comparator in zip(node.ops, node.comparators):

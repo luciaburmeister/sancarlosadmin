@@ -3,7 +3,7 @@ from djmoney.models.fields import MoneyField
 from sales.models import Client
 from timestamps.models import Timestampable
 from materials.models import Component
-from configurator.utils import safe_eval
+from configurator.utils import safe_eval,_coerce_numeric
 from .validators import pricing_expression_validator
 from configurator.services import ConfigurationExportService
 
@@ -264,6 +264,7 @@ class Configuration(Timestampable):
         If some variables cannot be resolved, raises a ValueError
         listing each variable, its expression, and the last error.
         """
+        context = {name: _coerce_numeric(value) for name, value in context.items()}
 
         computed_vars = list(self.product.computed_vars.all())
         unresolved = computed_vars.copy()

@@ -11,6 +11,15 @@ _ALLOWED_OPERATORS = {
     ast.Mod: op.mod,
 }
 
+_ALLOWED_CMP_OPS = {
+    ast.Eq: op.eq,
+    ast.NotEq: op.ne,
+    ast.Lt: op.lt,
+    ast.LtE: op.le,
+    ast.Gt: op.gt,
+    ast.GtE: op.ge,
+}
+
 def safe_eval(expression: str, context: dict):
     """
     Safely evaluates a math expression using AST.
@@ -48,6 +57,42 @@ def safe_eval(expression: str, context: dict):
             if isinstance(node.op, ast.USub):
                 return -_eval(node.operand)
             raise ValueError("Unary operator not allowed.")
+    
+        if isinstance(node, ast.BoolOp):
+            if isinstance(node.op, ast.And):
+                # Short-circuit AND
+                for value in node.values:
+                    if not bool(_eval(value)):
+                        return False
+                return True
+            if isinstance(node.op, ast.Or):
+                # Short-circuit OR
+                for value in node.values:
+                    if bool(_eval(value)):
+                        return True
+                return False
+            raise ValueError("Boolean operator not allowed.")
+
+        # Comparisons: a < b, a < b < c, etc.
+        if isinstance(node, ast.Compare):
+            left = _eval(node.left)
+            for op_node, comparator in zip(node.ops, node.comparators):
+                right = _eval(comparator)
+                op_type = type(op_node)
+                if op_type not in _ALLOWED_CMP_OPS:
+                    raise ValueError("Comparison not allowed.")
+                if not _ALLOWED_CMP_OPS[op_type](left, right):
+                    return False
+                left = right  # chain comparisons: a < b < c
+            return True
+
+        # Conditional expression: a if cond else b
+        if isinstance(node, ast.IfExp):
+            condition = bool(_eval(node.test))
+            if condition:
+                return _eval(node.body)
+            else:
+                return _eval(node.orelse)
 
         raise ValueError(f"Unsupported expression: {type(node).__name__}")
 

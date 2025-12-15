@@ -1,7 +1,7 @@
 import ast
 import operator as op
 import math
-from django.core.exceptions import ValidationError
+import textwrap
 
 # Allowed math operations
 _ALLOWED_OPERATORS = {
@@ -31,6 +31,32 @@ _ALLOWED_FUNCTIONS = {
     "ceil": math.ceil,    # ceil(x)
     "floor": math.floor,  # floor(x)
 }
+
+
+def normalize_expression(expression: str) -> str:
+    """
+    Normalise a user-entered expression so it's easier to write multi-line
+    formulas but still parses reliably:
+
+    - Remove common leading indentation.
+    - Normalise newlines (\r\n, \r -> \n).
+    - Collapse all whitespace (spaces, tabs, newlines) into single spaces.
+    - Strip leading/trailing whitespace.
+
+    This means users can write nicely indented multi-line rules and the
+    evaluator/validator always sees a clean one-line expression.
+    """
+    if expression is None:
+        return ""
+
+    # Remove common indent and normalise newlines
+    expr = textwrap.dedent(expression)
+    expr = expr.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    # Collapse all whitespace sequences (including newlines) into single spaces
+    expr = " ".join(expr.split())
+
+    return expr
 
 
 def _walk_ast(node: ast.AST, context: dict, *, mode: str):
@@ -185,7 +211,8 @@ def safe_eval(expression: str, context: dict):
       - conditional expression: a if cond else b
       - functions: round(x[, ndigits]), ceil(x), floor(x)
     """
-    node = ast.parse(expression, mode="eval")
+    expr = normalize_expression(expression)
+    node = ast.parse(expr, mode="eval")
     return _walk_ast(node, context, mode="eval")
 
 def validate_expression_for_safe_eval(expression: str) -> None:
@@ -197,8 +224,9 @@ def validate_expression_for_safe_eval(expression: str) -> None:
     Does NOT check that all variables exist.
     Raises ValueError on invalid expression.
     """
+    expr = normalize_expression(expression)
     try:
-        node = ast.parse(expression, mode="eval")
+        node = ast.parse(expr, mode="eval")
     except SyntaxError as e:
         raise ValueError(f"Syntax error: {e.msg}")  # nicer than full traceback
 

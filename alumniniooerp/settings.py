@@ -268,7 +268,17 @@ UNFOLD = {
                         "permission": lambda request: request.user.has_perm(
                             "materials.view_material"
                         ),
-                    }
+                    },
+                    {
+                        "title": "Components",
+                        "icon": "brick",
+                        "link": reverse_lazy(
+                            "admin:materials_component_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "materials.view_component"
+                        )
+                    },
                 ],
             },
         

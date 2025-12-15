@@ -23,13 +23,13 @@ class ProductParameterInline(TabularInline):
 class BOMRuleInline(TabularInline):
     model = BOMRule
     extra = 0
-    fields = ("material", "quantity_expression", "length_expression")
+    fields = ("component", "quantity_expression", "length_expression")
     tab=True
-    autocomplete_fields = ["material"]
+    autocomplete_fields = ["component"]
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        return qs.select_related("material")
+        return qs.select_related("component")
 
 
 class PricingRuleTemplateInline(TabularInline):

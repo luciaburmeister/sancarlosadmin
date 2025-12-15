@@ -56,3 +56,36 @@ class Material(Timestampable):
     def __str__(self):
         return f"[{self.reference_code}] {self.name}"
     
+
+class Component(Timestampable):
+    """
+    A re-usable building block derived from a Material.
+    Allows multiple components per material with custom logic,
+    names, formulas, and configuration behavior.
+    """
+
+    material = models.ForeignKey(
+        Material,
+        on_delete=models.PROTECT,
+        related_name="components"
+    )
+
+    name = models.CharField(
+        max_length=200,
+        help_text="Human-friendly name, e.g., 'Left Rail', 'Right Rail'"
+    )
+
+    code = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Optional component reference"
+    )
+
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        unique_together = ("material", "name")
+        ordering = ["material__name", "name"]
+
+    def __str__(self):
+        return f"{self.material.reference_code} – {self.name}"

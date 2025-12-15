@@ -1,9 +1,8 @@
 from django.db import models
-from django.db.models import Q
 from djmoney.models.fields import MoneyField
 from sales.models import Client
 from timestamps.models import Timestampable
-from materials.models import Material
+from materials.models import Component
 from configurator.utils import safe_eval
 from .validators import pricing_expression_validator
 from configurator.services import ConfigurationExportService
@@ -18,24 +17,26 @@ class IncompatibilityRule(models.Model):
     Material A is incompatible with Material B.
     """
 
-    material_a = models.ForeignKey(
-        Material,
+    component_a = models.ForeignKey(
+        Component,
         on_delete=models.CASCADE,
         related_name="incompatible_with",
+        null=True
     )
-    material_b = models.ForeignKey(
-        Material,
+    component_b = models.ForeignKey(
+        Component,
         on_delete=models.CASCADE,
         related_name="incompatible_with_reverse",
+        null=True
     )
 
     reason = models.CharField(max_length=200, blank=True)
 
     class Meta:
-        unique_together = ("material_a", "material_b")
+        unique_together = ("component_a", "component_b")
 
     def __str__(self):
-        return f"{self.material_a} ❌ {self.material_b}"
+        return f"{self.component_a} ❌ {self.component_b}"
 
 
     
@@ -100,7 +101,7 @@ class BOMRule(models.Model):
         related_name="bom_rules"
     )
 
-    material = models.ForeignKey(Material, on_delete=models.PROTECT)
+    component = models.ForeignKey(Component, on_delete=models.PROTECT,null=True)
 
     quantity_expression = models.TextField(
         help_text="Expression evaluated with safe_eval"
@@ -109,7 +110,7 @@ class BOMRule(models.Model):
     length_expression = models.TextField(blank=True, null=True)
 
     def __str__(self):
-        return f"{self.product_id} → {self.material}"
+        return f"{self.product_id} → {self.component_id}"
 
 
 class PricingRuleTemplate(models.Model):
@@ -197,7 +198,7 @@ class Configuration(Timestampable):
         items = self.items.all()
 
         context.update({
-            "material_cost": sum(float(i.material.cost_per_unit.amount) * float(i.quantity) for i in items),
+            "material_cost": sum(float(i.component.material.cost_per_unit.amount) * float(i.quantity) for i in items),
             "quantity": sum(float(i.quantity) for i in items),
             "item_count": items.count(),
             "base_total": sum(float(i.line_total.amount) for i in items),
@@ -243,9 +244,9 @@ class Configuration(Timestampable):
             if qty and qty > 0:
                 item = ConfigurationItem.objects.create(
                     configuration=self,
-                    material=rule.material,
+                    component=rule.component,
                     quantity=qty,
-                    unit_price=rule.material.cost_per_unit,
+                    unit_price=rule.component.material.cost_per_unit,
                     is_template_item=True,
                 )
                 processed.add(item.id)
@@ -309,10 +310,11 @@ class ConfigurationItem(Timestampable):
         related_name="items",
     )
 
-    material = models.ForeignKey(
-        Material,
+    component = models.ForeignKey(
+        Component,
         on_delete=models.PROTECT,
-        help_text="Selectable component or part."
+        help_text="Selectable component or part.",
+        null=True
     )
 
     quantity = models.DecimalField(max_digits=10, decimal_places=3, default=1)
@@ -340,7 +342,7 @@ class ConfigurationItem(Timestampable):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.material} x {self.quantity}"
+        return f"{self.component_id} x {self.quantity}"
 
 class PricingRuleAssignment(models.Model):
     """

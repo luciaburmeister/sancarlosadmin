@@ -3,7 +3,8 @@ from djmoney.models.fields import MoneyField
 from sales.models import Client
 from timestamps.models import Timestampable
 from materials.models import Component
-from configurator.utils import safe_eval,_coerce_numeric
+from configurator.utils import safe_eval,_coerce_numeric,validate_expression_for_safe_eval
+from django.core.exceptions import ValidationError
 from .validators import pricing_expression_validator
 from configurator.services import ConfigurationExportService
 from decimal import Decimal
@@ -440,6 +441,22 @@ class ProductComputedVariable(models.Model):
 
     def __str__(self):
         return f"{self.product_id}.{self.name}"
+    
+    def clean(self):
+        super().clean()
+
+        expr = (self.expression or "").strip()
+        if not expr:
+            raise ValidationError(
+                {"expression": "Expression cannot be empty."}
+            )
+
+        try:
+            validate_expression_for_safe_eval(expr)
+        except ValueError as e:
+            raise ValidationError(
+                {"expression": f"Invalid expression: {e}"}
+            )
 
 class ConfigurationExportTemplate(models.Model):
     product = models.ForeignKey(

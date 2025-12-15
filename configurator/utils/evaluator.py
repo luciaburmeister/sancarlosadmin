@@ -1,6 +1,7 @@
 import ast
 import operator as op
 import math
+from django.core.exceptions import ValidationError
 
 # Allowed math operations
 _ALLOWED_OPERATORS = {
@@ -24,12 +25,154 @@ _ALLOWED_CMP_OPS = {
     ast.NotIn: lambda a, b: a not in b,
 }
 
+# Allowed functions
 _ALLOWED_FUNCTIONS = {
     "round": round,       # round(x) or round(x, ndigits)
     "ceil": math.ceil,    # ceil(x)
     "floor": math.floor,  # floor(x)
 }
 
+
+def _walk_ast(node: ast.AST, context: dict, *, mode: str):
+    """
+    Internal recursive AST walker.
+
+    mode:
+      - "eval":    actually evaluate using context
+      - "validate": only check that the expression uses allowed constructs
+                    (no context required; variables are accepted as-is)
+    """
+    assert mode in ("eval", "validate")
+
+    # Expression root
+    if isinstance(node, ast.Expression):
+        return _walk_ast(node.body, context, mode=mode)
+
+    # Function calls: round, ceil, floor
+    if isinstance(node, ast.Call):
+        if not isinstance(node.func, ast.Name):
+            raise ValueError("Only simple function calls are allowed (e.g. round(x)).")
+        func_name = node.func.id
+        if func_name not in _ALLOWED_FUNCTIONS:
+            raise ValueError(f"Function not allowed: {func_name}")
+        if node.keywords:
+            raise ValueError("Keyword arguments are not allowed.")
+
+        # Validate args in both modes
+        args = [_walk_ast(arg, context, mode=mode) for arg in node.args]
+
+        if mode == "validate":
+            # Don't actually call the function, just structural check
+            return None
+
+        func = _ALLOWED_FUNCTIONS[func_name]
+        return func(*args)
+
+    # Numeric / bool / string literal
+    if isinstance(node, ast.Constant):
+        if isinstance(node.value, (int, float, bool, str)):
+            # In validate mode we don't care about the value
+            return node.value if mode == "eval" else None
+        raise ValueError("Only numeric, boolean and string constants are allowed.")
+
+    # Variable reference
+    if isinstance(node, ast.Name):
+        if mode == "validate":
+            # We don't know the context yet; any name is allowed
+            return None
+        # eval mode → must be present in context
+        if node.id in context:
+            return context[node.id]
+        raise ValueError(f"Unknown variable: {node.id}")
+
+    # Binary operations (x + y, x - y, ...)
+    if isinstance(node, ast.BinOp):
+        if type(node.op) not in _ALLOWED_OPERATORS:
+            raise ValueError("Operation not allowed.")
+
+        if mode == "validate":
+            _walk_ast(node.left, context, mode=mode)
+            _walk_ast(node.right, context, mode=mode)
+            return None
+
+        left = _walk_ast(node.left, context, mode=mode)
+        right = _walk_ast(node.right, context, mode=mode)
+        return _ALLOWED_OPERATORS[type(node.op)](left, right)
+
+    # Unary ops: -x, not x
+    if isinstance(node, ast.UnaryOp):
+        if not isinstance(node.op, (ast.USub, ast.Not)):
+            raise ValueError("Unary operator not allowed.")
+
+        if mode == "validate":
+            _walk_ast(node.operand, context, mode=mode)
+            return None
+
+        if isinstance(node.op, ast.USub):
+            return -_walk_ast(node.operand, context, mode=mode)
+        if isinstance(node.op, ast.Not):
+            return not bool(_walk_ast(node.operand, context, mode=mode))
+
+    # Boolean ops: a and b, a or b
+    if isinstance(node, ast.BoolOp):
+        if not isinstance(node.op, (ast.And, ast.Or)):
+            raise ValueError("Boolean operator not allowed.")
+
+        if mode == "validate":
+            for v in node.values:
+                _walk_ast(v, context, mode=mode)
+            return None
+
+        if isinstance(node.op, ast.And):
+            # Short-circuit AND
+            for value in node.values:
+                if not bool(_walk_ast(value, context, mode=mode)):
+                    return False
+            return True
+
+        if isinstance(node.op, ast.Or):
+            # Short-circuit OR
+            for value in node.values:
+                if bool(_walk_ast(value, context, mode=mode)):
+                    return True
+            return False
+
+    # Comparisons: a < b, a == "x", "a" in b, etc.
+    if isinstance(node, ast.Compare):
+        if mode == "validate":
+            _walk_ast(node.left, context, mode=mode)
+            for op_node, comparator in zip(node.ops, node.comparators):
+                if type(op_node) not in _ALLOWED_CMP_OPS:
+                    raise ValueError("Comparison not allowed.")
+                _walk_ast(comparator, context, mode=mode)
+            return None
+
+        left = _walk_ast(node.left, context, mode=mode)
+        for op_node, comparator in zip(node.ops, node.comparators):
+            if type(op_node) not in _ALLOWED_CMP_OPS:
+                raise ValueError("Comparison not allowed.")
+            right = _walk_ast(comparator, context, mode=mode)
+            if not _ALLOWED_CMP_OPS[type(op_node)](left, right):
+                return False
+            left = right  # chain comparisons: a < b < c
+        return True
+
+    # Conditional expression: a if cond else b
+    if isinstance(node, ast.IfExp):
+        if mode == "validate":
+            _walk_ast(node.test, context, mode=mode)
+            _walk_ast(node.body, context, mode=mode)
+            _walk_ast(node.orelse, context, mode=mode)
+            return None
+
+        condition = bool(_walk_ast(node.test, context, mode=mode))
+        if condition:
+            return _walk_ast(node.body, context, mode=mode)
+        else:
+            return _walk_ast(node.orelse, context, mode=mode)
+
+    # Anything else is forbidden
+    raise ValueError(f"Unsupported expression element: {type(node).__name__}")
 
 def safe_eval(expression: str, context: dict):
     """
@@ -40,91 +183,24 @@ def safe_eval(expression: str, context: dict):
       - comparisons: < <= > >= == !=, in, not in
       - boolean ops: and, or, not
       - conditional expression: a if cond else b
+      - functions: round(x[, ndigits]), ceil(x), floor(x)
     """
-    node = ast.parse(expression, mode='eval')
+    node = ast.parse(expression, mode="eval")
+    return _walk_ast(node, context, mode="eval")
 
-    def _eval(node):
-        # Expression root
-        if isinstance(node, ast.Expression):
-            return _eval(node.body)
-        
-        if isinstance(node, ast.Call):
-            # Only allow simple names: round(x), not obj.round(x)
-            if not isinstance(node.func, ast.Name):
-                raise ValueError("Only simple function calls allowed.")
-            func_name = node.func.id
-            if func_name not in _ALLOWED_FUNCTIONS:
-                raise ValueError(f"Function not allowed: {func_name}")
-            func = _ALLOWED_FUNCTIONS[func_name]
+def validate_expression_for_safe_eval(expression: str) -> None:
+    """
+    Validate that 'expression' is:
+    - syntactically valid
+    - only uses constructs supported by safe_eval
 
-            if node.keywords:
-                raise ValueError("Keyword arguments are not allowed.")
-            args = [_eval(arg) for arg in node.args]
-            return func(*args)
+    Does NOT check that all variables exist.
+    Raises ValueError on invalid expression.
+    """
+    try:
+        node = ast.parse(expression, mode="eval")
+    except SyntaxError as e:
+        raise ValueError(f"Syntax error: {e.msg}")  # nicer than full traceback
 
-        # Numeric / bool / string literal
-        if isinstance(node, ast.Constant):
-            if isinstance(node.value, (int, float, bool, str)):
-                return node.value
-            raise ValueError("Only numeric, boolean and string constants allowed.")
-
-        # Variable reference
-        if isinstance(node, ast.Name):
-            if node.id in context:
-                return context[node.id]
-            raise ValueError(f"Unknown variable: {node.id}")
-
-        # Binary operations (x + y, x - y, ...)
-        if isinstance(node, ast.BinOp):
-            if type(node.op) not in _ALLOWED_OPERATORS:
-                raise ValueError("Operation not allowed.")
-            left = _eval(node.left)
-            right = _eval(node.right)
-            return _ALLOWED_OPERATORS[type(node.op)](left, right)
-
-        # Unary ops: -x, not x
-        if isinstance(node, ast.UnaryOp):
-            if isinstance(node.op, ast.USub):
-                return -_eval(node.operand)
-            if isinstance(node.op, ast.Not):
-                return not bool(_eval(node.operand))
-            raise ValueError("Unary operator not allowed.")
-
-        # Boolean ops: a and b, a or b
-        if isinstance(node, ast.BoolOp):
-            if isinstance(node.op, ast.And):
-                for value in node.values:
-                    if not bool(_eval(value)):
-                        return False
-                return True
-            if isinstance(node.op, ast.Or):
-                for value in node.values:
-                    if bool(_eval(value)):
-                        return True
-                return False
-            raise ValueError("Boolean operator not allowed.")
-
-        # Comparisons: a < b, a == "x", "a" in b, etc.
-        if isinstance(node, ast.Compare):
-            left = _eval(node.left)
-            for op_node, comparator in zip(node.ops, node.comparators):
-                right = _eval(comparator)
-                op_type = type(op_node)
-                if op_type not in _ALLOWED_CMP_OPS:
-                    raise ValueError("Comparison not allowed.")
-                if not _ALLOWED_CMP_OPS[op_type](left, right):
-                    return False
-                left = right  # chain comparisons: a < b < c
-            return True
-
-        # Conditional expression: a if cond else b
-        if isinstance(node, ast.IfExp):
-            condition = bool(_eval(node.test))
-            if condition:
-                return _eval(node.body)
-            else:
-                return _eval(node.orelse)
-
-        raise ValueError(f"Unsupported expression: {type(node).__name__}")
-
-    return _eval(node.body)
+    # We don't need a real context for validation
+    _walk_ast(node, context={}, mode="validate")

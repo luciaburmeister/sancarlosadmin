@@ -1,12 +1,12 @@
 from django import forms
 from django.forms import BaseFormSet
-from materials.models import Material
+from materials.models import Component
 from unfold.widgets import (
     UnfoldAdminSelect2Widget,
     UnfoldAdminIntegerFieldWidget,
 )
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Layout, Field, Row, Column,Submit
+from crispy_forms.layout import Layout, Field, Row, Column
 
 class AddonFormsetHelper(FormHelper):
     """
@@ -25,7 +25,7 @@ class AddonFormsetHelper(FormHelper):
 
 class AddonForm(forms.Form):
     addons = forms.ModelChoiceField(
-        queryset=Material.objects.all(),
+        queryset=Component.objects.all(),
         widget=UnfoldAdminSelect2Widget,
         required=False,
         label="Select Add-ons",

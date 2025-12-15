@@ -52,15 +52,15 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
                 continue
             if form.cleaned_data.get("DELETE"):
                 continue
-            material = form.cleaned_data.get("addons")
+            component = form.cleaned_data.get("addons")
             quantity = form.cleaned_data.get("quantity", 1)
 
-            if material:
+            if component:
                 ConfigurationItem.objects.create(
                     configuration=config,
-                    material=material,
+                    component=component,
                     quantity=quantity,
-                    unit_price=material.cost_per_unit,
+                    unit_price=component.material.cost_per_unit,
                     is_template_item=False,
                 )
         config.recalculate_price()

@@ -260,11 +260,15 @@ class Configuration(Timestampable):
         - constants (e.g. "50")
         - expressions (e.g. "width / 2")
         - dependencies between variables
+
+        If some variables cannot be resolved, raises a ValueError
+        listing each variable, its expression, and the last error.
         """
 
         computed_vars = list(self.product.computed_vars.all())
         unresolved = computed_vars.copy()
         last_count = -1
+        errors: dict[str, str] = {}
 
         # Multi-pass resolution: try until no progress is made
         while unresolved and len(unresolved) != last_count:
@@ -275,20 +279,35 @@ class Configuration(Timestampable):
                 try:
                     value = safe_eval(var.expression, context)
                     context[var.name] = value
-                except Exception:
+                    errors.pop(var.name, None)
+                except ValueError as e:
+                    # Likely missing variables or invalid expression → try next round
+                    errors[var.name] = str(e)
+                    next_round.append(var)
+                except Exception as e:
+                    errors[var.name] = f"{type(e).__name__}: {e}"
                     next_round.append(var)
 
             unresolved = next_round
 
         # If still unresolved → circular dependency or missing variables
         if unresolved:
-            names = ", ".join(v.name for v in unresolved)
+            lines = []
+            for v in unresolved:
+                err = errors.get(v.name, "Unknown reason")
+                lines.append(
+                    f"- {v.name}: {v.expression!r} -> {err}"
+                )
+
+            details = "\n".join(lines)
             raise ValueError(
-                f"Could not resolve computed variables: {names}. "
-                f"Check for circular dependencies or missing input variables."
+                "Could not resolve computed variables.\n"
+                "Check for circular dependencies or missing input variables.\n"
+                f"Details:\n{details}"
             )
 
         return context
+
     
     def available_export_templates(self):
         return ConfigurationExportService.get_available_templates(self)

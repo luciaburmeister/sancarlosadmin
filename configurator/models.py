@@ -111,8 +111,32 @@ class BOMRule(models.Model):
 
     length_expression = models.TextField(blank=True, null=True)
 
+    EXPRESSION_FIELDS = {
+        "quantity_expression": True,   # required
+        "length_expression": True,    # optional
+    }
+
+
     def __str__(self):
         return f"{self.product_id} → {self.component_id}"
+    
+    def clean(self):
+        super().clean()
+
+        errors = {}
+
+        for field_name, required in self.EXPRESSION_FIELDS.items():
+            raw = getattr(self, field_name)
+            expr = (raw or "").strip()
+
+            if expr:
+                try:
+                    validate_expression_for_safe_eval(expr)
+                except ValueError as e:
+                    errors[field_name] = f"Invalid expression: {e}"
+
+        if errors:
+            raise ValidationError(errors)
 
 
 class PricingRuleTemplate(models.Model):

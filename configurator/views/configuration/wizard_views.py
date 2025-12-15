@@ -1,7 +1,7 @@
 from django.shortcuts import redirect, get_object_or_404
 from configurator.models import ProductTemplate,ConfigurationItem
 from unfold.views import UnfoldModelAdminViewMixin
-from configurator.forms import ConfigurationForm,AddonForm,BaseAddonFormSet
+from configurator.forms import ConfigurationForm,AddonForm,BaseAddonFormSet,ConfigurationFormHelper,AddonFormsetHelper
 from django.urls import reverse
 from django.shortcuts import get_object_or_404
 from formtools.wizard.views import SessionWizardView
@@ -30,7 +30,17 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["product"] = self.product
+        kwargs['prefix'] = self.steps.current
+
+
+        if self.steps.current == "measures":
+            context["helper"] = ConfigurationFormHelper()
+        elif self.steps.current == "addons":
+            helper = AddonFormsetHelper()
+            context["helper"] = helper
+
         return context
+
 
     def done(self, form_list, **kwargs):
         config_form = form_list[0]

@@ -1,130 +1,29 @@
-{% extends 'unfold/layouts/base_simple.html' %}
-{% load i18n %}
+{% extends "admin/base_site.html" %}
+
+{% load admin_urls crispy_forms_tags i18n unfold %}
 
 {% block extrahead %}
     {{ block.super }}
     <script src="{% url 'admin:jsi18n' %}"></script>
-    {{ form.media }}
 {% endblock %}
 
 {% block content %}
 <div class="max-w-3xl mx-auto p-6">
-    
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+    <h1 class="text-xl font-bold">{{ title }}</h1>
 
-        <div class="px-8 py-6 border-b border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800 flex items-center space-x-5">
-            {% if product.image %}
-            <img src="{{ product.image.url }}" alt="{{ product.name }}" class="w-16 h-16 object-cover rounded-lg shadow-sm border border-gray-100 dark:border-gray-600">
-            {% endif %}
-            <div>
-                <h1 class="text-xl font-bold text-gray-900 dark:text-white tracking-tight">{{ title }}</h1>
-                <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">Step {{ wizard.steps.step1 }} of {{ wizard.steps.count }}</p>
-            </div>
-        </div>
+    <form method="post">
+        {% csrf_token %}
+        {{ wizard.management_form }}
+        {% if wizard.form.forms %}
+        {% for form in wizard.form.forms %}
+            {{ form.media }}
+        {% endfor %}
+            {{ wizard.form.management_form }}
+        {% else %}
+            {{ wizard.form.media }}
+        {% endif %}
 
-        <form method="post">
-            {% csrf_token %}
-            {{ wizard.management_form }}
-
-            <div class="p-8">
-                {% if wizard.form.forms %}
-                    {{ wizard.form.management_form }}
-                    
-                    <div id="formset-container" class="space-y-6">
-                        {% for form in wizard.form.forms %}
-                            {{ form.media }}
-                            <div class="formset-row group relative bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 transition-all hover:border-primary-200 dark:hover:border-primary-800 hover:shadow-sm w-full">
-                                
-                                {% if wizard.form.can_delete %}
-                                    <button type="button" 
-                                            class="remove-form-btn text-gray-400 hover:text-red-600 transition-colors p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 z-20"
-                                            style="position: absolute; top: 12px; right: 12px;"
-                                            title="Remove item">
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                        </svg>
-                                    </button>
-                                {% endif %}
-
-                                {% for hidden in form.hidden_fields %}
-                                    {{ hidden }}
-                                {% endfor %}
-
-                                <div class="hidden">
-                                    {% if wizard.form.can_delete %}
-                                        {{ form.DELETE }}
-                                    {% endif %}
-                                </div>
-
-                                <div class="grid grid-cols-1 gap-6 pt-6">
-                                    {% for field in form.visible_fields %}
-                                        {% if field.name != 'DELETE' %}
-                                            <div class="unfold-field-wrapper w-full">
-                                                {% include "unfold/helpers/field.html" with field=field %}
-                                            </div>
-                                        {% endif %}
-                                    {% endfor %}
-                                </div>
-                            </div>
-                        {% endfor %}
-                    </div>
-
-                    <div class="mt-6">
-                        <button type="button" id="add-form-btn" class="inline-flex items-center px-4 py-2 text-sm font-medium text-primary-600 bg-primary-50 hover:bg-primary-100 rounded-lg transition-colors dark:bg-primary-900/20 dark:text-primary-400 border border-transparent">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-                            </svg>
-                            {% trans "Add another item" %}
-                        </button>
-                    </div>
-
-                    <div id="empty-form-template" class="hidden">
-                        <div class="formset-row group relative bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 mt-6 transition-all hover:border-primary-200 dark:hover:border-primary-800 hover:shadow-sm w-full">
-                            
-                            <button type="button" 
-                                    class="remove-form-btn text-gray-400 hover:text-red-600 transition-colors p-1.5 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 z-20"
-                                    style="position: absolute; top: 12px; right: 12px;">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                            </button>
-
-                            <div class="hidden">
-                                {% if wizard.form.can_delete %}
-                                    {{ wizard.form.empty_form.DELETE }}
-                                {% endif %}
-                            </div>
-                            
-                            <div class="grid grid-cols-1 gap-6 pt-6">
-                                {% for field in wizard.form.empty_form.visible_fields %}
-                                    {% if field.name != 'DELETE' %}
-                                        <div class="unfold-field-wrapper w-full">
-                                            {% include "unfold/helpers/field.html" with field=field %}
-                                        </div>
-                                    {% endif %}
-                                {% endfor %}
-                            </div>
-                        </div>
-                    </div>
-
-                {% else %}
-                    {% if wizard.form.non_field_errors %}
-                    <div class="bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-4 rounded-lg text-sm mb-6 flex items-start">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-                        </svg>
-                        {{ wizard.form.non_field_errors }}
-                    </div>
-                    {% endif %}
-
-                    <div class="space-y-6">
-                        {% for field in wizard.form %}
-                        {% include "unfold/helpers/field.html" with field=field %}
-                        {% endfor %}
-                    </div>
-                {% endif %}
-            </div>
-
+        {% crispy wizard.form helper "unfold_crispy" %}
             <div class="px-8 py-6 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 flex justify-between items-center">
                 {% if wizard.steps.prev %}
                 <button name="wizard_goto_step" type="submit" value="{{ wizard.steps.prev }}"
@@ -147,89 +46,34 @@
                     {% endif %}
                 </button>
             </div>
-        </form>
-    </div>
+
+
+    </form>
 </div>
 
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const formsetContainer = document.getElementById('formset-container');
-        const addBtn = document.getElementById('add-form-btn');
-        const emptyFormTemplate = document.getElementById('empty-form-template');
-        const totalFormsInput = document.querySelector('input[name$="-TOTAL_FORMS"]');
-        
-        if (!totalFormsInput || !addBtn) return; 
+document.addEventListener("formset:added", function (event) {
+    const row = event.target;
+    const selects = row.querySelectorAll("select");
 
-        // --- 1. DETECT JQUERY ---
-        // Django Admin puts jQuery in 'django.jQuery'. Standard sites use 'window.jQuery'.
-        // We assign whichever one exists to '$' so we can use it.
-        const $ = window.jQuery || (window.django && window.django.jQuery);
+    const $ = window.django.jQuery;
 
-        if (!$) {
-            console.error("CRITICAL: jQuery not found in global scope or django namespace.");
-            return;
+    selects.forEach(function (select) {
+        // Destroy existing select2 if cloned with ghost state
+        if ($(select).hasClass("select2-hidden-accessible")) {
+            $(select).select2("destroy");
         }
 
-        const prefix = totalFormsInput.name.replace('-TOTAL_FORMS', '');
-
-        // --- ADD FUNCTION ---
-        addBtn.addEventListener('click', function() {
-            const formCount = parseInt(totalFormsInput.value);
-            const newRow = emptyFormTemplate.firstElementChild.cloneNode(true);
-            
-            // 2. Rename IDs/Names
-            const regex = new RegExp(prefix + '-__prefix__', 'g');
-            newRow.innerHTML = newRow.innerHTML.replace(regex, prefix + '-' + formCount);
-
-            // 3. CLEANUP: Remove "dead" Select2 containers from the clone
-            // (The browser copies the visual dropdowns; we must delete them)
-            const deadContainers = newRow.querySelectorAll('.select2-container');
-            deadContainers.forEach(el => el.remove());
-
-            // 4. RESET: Clean the <select> element itself
-            const selectFields = newRow.querySelectorAll('select');
-            selectFields.forEach(select => {
-                select.classList.remove('select2-hidden-accessible');
-                select.removeAttribute('data-select2-id');
-                select.removeAttribute('aria-hidden');
-                select.removeAttribute('tabindex');
-                select.style.display = 'block'; // Make visible for re-initialization
-            });
-
-            // 5. Append to DOM
-            formsetContainer.appendChild(newRow);
-            totalFormsInput.value = formCount + 1;
-
-            // 6. INITIALIZE SELECT2
-            // We use the '$' we detected at the top
-            $(newRow).find('select').each(function() {
-                // We check if .select2() is a function on this specific jQuery instance
-                if (typeof $(this).select2 === 'function') {
-                    $(this).select2({
-                        width: '100%',
-                        allowClear: false,
-                        dropdownParent: $(this).parent() // Fixes some z-index/modal issues
-                    });
-                } else {
-                    console.error("Select2 is not loaded on this jQuery instance.");
-                }
-            });
-        });
-
-        // --- DELETE FUNCTION ---
-        formsetContainer.addEventListener('click', function(e) {
-            const btn = e.target.closest('.remove-form-btn');
-            if (btn) {
-                const row = btn.closest('.formset-row');
-                const deleteInput = row.querySelector('input[name$="-DELETE"]');
-                if (deleteInput) {
-                    deleteInput.checked = true;
-                    row.style.display = 'none';
-                } else {
-                    row.remove();
-                }
-            }
+        $(select).select2({
+            width: "100%",
+            dropdownParent: $(select).parent()
         });
     });
+});
+
 </script>
+
+
+
+
 {% endblock %}

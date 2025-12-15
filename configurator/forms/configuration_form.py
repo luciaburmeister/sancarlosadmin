@@ -1,15 +1,30 @@
 from django import forms
-from configurator.models import ParameterType, ConfigurationParameterValue, Configuration, ConfigurationStatus
+from configurator.models import ParameterType,Configuration,ConfigurationStatus,ConfigurationParameterValue
 from unfold.widgets import (
     UnfoldAdminDecimalFieldWidget,
     UnfoldAdminTextInputWidget,
     UnfoldAdminSelectWidget,
 )
+from crispy_forms.helper import FormHelper
+from crispy_forms.layout import Layout, Field
+from unfold.layout import Submit
+
+class ConfigurationFormHelper(FormHelper):
+    """
+    Crispy helper for the dynamic configuration form.
+    Matches the style of the official Unfold documentation.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.form_tag = False           # Wizard handles <form>
+        self.disable_csrf = True        # Wizard injects CSRF
+        self.template_pack = "unfold_crispy"
 
 
 class ConfigurationForm(forms.Form):
     """
-    A dynamic form that builds fields based on product parameters.
+    Dynamically builds fields based on the product's parameters.
     """
 
     def __init__(self, *args, product=None, **kwargs):
@@ -19,10 +34,10 @@ class ConfigurationForm(forms.Form):
         if not product:
             raise ValueError("ConfigurationForm requires a product.")
 
+        # Build fields dynamically
         for param in product.parameters.all():
             field_name = f"param_{param.id}"
 
-            # NUMBER → FloatField w/ decimal widget
             if param.type == ParameterType.NUMBER:
                 field = forms.FloatField(
                     label=param.label,
@@ -58,6 +73,15 @@ class ConfigurationForm(forms.Form):
                 )
 
             self.fields[field_name] = field
+
+        self.helper = ConfigurationFormHelper()
+
+        self.helper.layout = Layout(
+            *[
+                Field(name, css_class="mb-4")
+                for name in self.fields.keys()
+            ]
+        )
 
     def save(self):
         """Create the Configuration + Parameter values."""

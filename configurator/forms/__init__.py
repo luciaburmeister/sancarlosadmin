@@ -1,3 +1,3 @@
-from .configuration_form import ConfigurationForm
-from .addon_form import AddonForm,BaseAddonFormSet
+from .configuration_form import ConfigurationForm,ConfigurationFormHelper
+from .addon_form import AddonForm,BaseAddonFormSet,AddonFormsetHelper
 from .configuration_export_form import ConfigurationExportForm

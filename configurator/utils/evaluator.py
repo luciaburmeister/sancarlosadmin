@@ -1,5 +1,6 @@
 import ast
 import operator as op
+import math
 
 # Allowed math operations
 _ALLOWED_OPERATORS = {
@@ -23,6 +24,13 @@ _ALLOWED_CMP_OPS = {
     ast.NotIn: lambda a, b: a not in b,
 }
 
+_ALLOWED_FUNCTIONS = {
+    "round": round,       # round(x) or round(x, ndigits)
+    "ceil": math.ceil,    # ceil(x)
+    "floor": math.floor,  # floor(x)
+}
+
+
 def safe_eval(expression: str, context: dict):
     """
     Safely evaluates a math/boolean/string expression using AST.
@@ -39,6 +47,20 @@ def safe_eval(expression: str, context: dict):
         # Expression root
         if isinstance(node, ast.Expression):
             return _eval(node.body)
+        
+        if isinstance(node, ast.Call):
+            # Only allow simple names: round(x), not obj.round(x)
+            if not isinstance(node.func, ast.Name):
+                raise ValueError("Only simple function calls allowed.")
+            func_name = node.func.id
+            if func_name not in _ALLOWED_FUNCTIONS:
+                raise ValueError(f"Function not allowed: {func_name}")
+            func = _ALLOWED_FUNCTIONS[func_name]
+
+            if node.keywords:
+                raise ValueError("Keyword arguments are not allowed.")
+            args = [_eval(arg) for arg in node.args]
+            return func(*args)
 
         # Numeric / bool / string literal
         if isinstance(node, ast.Constant):

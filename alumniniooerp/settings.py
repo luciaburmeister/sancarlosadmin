@@ -30,7 +30,7 @@ SECRET_KEY = 'django-insecure-s!kcs+p@)v*!76a6vm4w*^pxm0i=r!&if)m%vcsq-(75y&#!43
 DEBUG = os.getenv("DEBUG", "True") == "True"
 if not DEBUG:
     import sentry_sdk
-    
+
     sentry_sdk.init(
         dsn="https://8cfd15496c9ae7936b4180533fceab11@o4510538192125952.ingest.de.sentry.io/4510538193371216",
         send_default_pii=True,
@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    "storages",
     'inventory',
     'production',
     'sales',

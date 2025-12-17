@@ -371,7 +371,7 @@ class ConfigurationItem(Timestampable):
     quantity = models.DecimalField(max_digits=10, decimal_places=3, default=1)
 
     length = models.DecimalField(
-        max_digits=10,
+        max_digits=15,
         decimal_places=3,
         default=1,
         help_text="Length factor used for pricing (e.g. meters).",

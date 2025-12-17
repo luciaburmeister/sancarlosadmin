@@ -385,8 +385,8 @@ class ConfigurationItem(Timestampable):
     )
 
     line_total = MoneyField(
-        max_digits=12,
-        decimal_places=2,
+        max_digits=18,
+        decimal_places=3,
         default_currency="EUR",
         editable=False,
     )

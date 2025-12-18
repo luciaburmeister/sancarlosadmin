@@ -38,6 +38,7 @@ class UnitChoices(models.TextChoices):
     UNITS = "u"
     KILOGRAMS = "kg"
     HOURS = "h"
+    M2 = "m2"
 
 class Material(Timestampable):
     """

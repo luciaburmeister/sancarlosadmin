@@ -224,7 +224,7 @@ class Configuration(Timestampable):
         items = self.items.all()
 
         context.update({
-            "material_cost": sum(float(i.component.material.cost_per_unit.amount) * float(i.quantity) for i in items),
+            "material_cost": sum(float(i.component.cost_per_unit.amount) * float(i.quantity) for i in items),
             "quantity": sum(float(i.quantity) for i in items),
             "item_count": items.count(),
             "base_total": sum(float(i.line_total.amount) for i in items),
@@ -278,7 +278,7 @@ class Configuration(Timestampable):
                 component=rule.component,
                 quantity=qty,
                 length=length,
-                unit_price=rule.component.material.cost_per_unit,
+                unit_price=rule.component.cost_per_unit,
                 is_template_item=True,
             )
             processed.add(item.id)
@@ -400,7 +400,6 @@ class ConfigurationItem(Timestampable):
         quantity = self.quantity or Decimal("0")
         length = self.length or Decimal("1")
 
-        # Money * Decimal * Decimal -> Money
         self.line_total = self.unit_price * quantity * length
         super().save(*args, **kwargs)
 

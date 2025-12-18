@@ -2,7 +2,8 @@ from django.contrib import admin
 from unfold.admin import ModelAdmin
 from materials.models import Category, Material, Provider,Component
 from unfold.admin import TabularInline
-
+from django_json_widget.widgets import JSONEditorWidget
+from django.db import models
 class ComponentInline(TabularInline):
     model = Component
     extra = 1
@@ -31,6 +32,12 @@ class ComponentAdmin(ModelAdmin):
 
     autocomplete_fields = ("material",)
 
+    formfield_overrides = {
+        models.JSONField:{
+            'widget': JSONEditorWidget,
+        }
+        }
+
     fieldsets = [
         (
             None,
@@ -39,6 +46,7 @@ class ComponentAdmin(ModelAdmin):
                     "material",
                     ("name",
                     "code"),
+                    ("unit_price_expression","cost_per_unit")
                 )
             },
         ),

@@ -3,6 +3,7 @@ from timestamps.models import Timestampable
 from djmoney.models.fields import MoneyField
 from django.db.models.functions import Lower
 from django.db.models import Index
+from configurator.utils import validate_expression_for_safe_eval,safe_eval
 
 class Provider(Timestampable):
     name = models.CharField(max_length=200, db_index=True)
@@ -81,6 +82,13 @@ class Component(Timestampable):
         help_text="Optional component reference"
     )
 
+    unit_price_expression = models.TextField(
+        help_text="Enter an expression to calculate cost per material unit. Context available: base_cost",
+        validators=[validate_expression_for_safe_eval]
+    )
+
+    cost_per_unit = MoneyField(max_digits=10, decimal_places=4, help_text="Base cost from supplier", default_currency="EUR",default=0)
+
     metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:
@@ -89,3 +97,28 @@ class Component(Timestampable):
 
     def __str__(self):
         return f"{self.material.reference_code} – {self.name}"
+    
+    def compute_unit_price(self, context: dict | None = None):
+        """
+        Compute component-specific per-unit cost.
+        Only base_cost + component metadata are allowed.
+        """
+        base = float(self.material.cost_per_unit.amount)
+
+        component_context = {"base_cost": base, **self.metadata}
+
+        value = safe_eval(self.unit_price_expression, component_context)
+
+        return self.cost_per_unit.__class__(
+            value, currency=self.cost_per_unit.currency
+        )
+    
+    def save(self, *args, **kwargs):
+        """
+        Automatically compute and store cost_per_unit whenever the component is saved.
+        Uses a minimal context (only base_cost) because component-level prices usually
+        do not depend on configuration-level parameters.
+        """
+        computed_price = self.compute_unit_price(context=None)
+        self.cost_per_unit = computed_price
+        super().save(*args, **kwargs)

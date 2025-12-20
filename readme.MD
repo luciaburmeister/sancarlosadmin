@@ -1,3 +1,7 @@
+For more translations
+django-admin makemessages -l es --no-location --no-wrap
+
+
 ⚙️ How it all works together
 Step 1
 

@@ -3,63 +3,55 @@
 # This file is distributed under the same license as the PACKAGE package.
 # FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
 #
-#, fuzzy
 msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-12-20 10:08+0100\n"
+"POT-Creation-Date: 2025-12-20 10:21+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
-"Language: \n"
+"Language: es\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"Plural-Forms: nplurals=3; plural=n == 1 ? 0 : n != 0 && n % 1000000 == 0 ? 1 : 2;\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: alumniniooerp/settings.py:240
+#: alumniniooerp/settings.py:239
 msgid "Español"
 msgstr ""
-"¡Hola! ¿En qué puedo ayudarte con la traducción de cadenas de UI de Django "
-"al español?"
+"Español"
 
-#: alumniniooerp/settings.py:241
+#: alumniniooerp/settings.py:240
 msgid "English"
 msgstr ""
-"Sure! Please provide the strings or phrases you would like me to translate "
-"into neutral Latin American Spanish."
+"Please provide the English text that you would like to have translated into "
+"neutral Latin American Spanish."
 
-#: alumniniooerp/settings.py:255 sales/models.py:227 sales/models.py:231
+#: alumniniooerp/settings.py:254 sales/models.py:227 sales/models.py:231
 #: sales/models.py:238
 msgid "Quote"
-msgstr "Cita"
+msgstr "Presupuesto"
 
-#: alumniniooerp/settings.py:260
-#, fuzzy
-#| msgid "Configuration"
+#: alumniniooerp/settings.py:259
 msgid "Configurator"
-msgstr "Configuración"
+msgstr "Configurador"
 
-#: alumniniooerp/settings.py:270
-#, fuzzy
-#| msgid "Product templates"
+#: alumniniooerp/settings.py:269
 msgid "Product Templates"
-msgstr "Plantillas de productos"
+msgstr "Plantillas de Producto"
 
-#: alumniniooerp/settings.py:283
+#: alumniniooerp/settings.py:282
 msgid "Materials"
 msgstr "Materiales"
 
-#: alumniniooerp/settings.py:288 sales/models.py:142 sales/models.py:244
+#: alumniniooerp/settings.py:287 sales/models.py:142 sales/models.py:244
 msgid "Material"
 msgstr "Material"
 
-#: alumniniooerp/settings.py:298
-#, fuzzy
-#| msgid "Component"
+#: alumniniooerp/settings.py:297
 msgid "Components"
-msgstr "Componente"
+msgstr "Componentes"
 
 #: configurator/admin/configuration.py:19
 msgid "Parameter value"
@@ -67,31 +59,23 @@ msgstr "Valor del parámetro"
 
 #: configurator/admin/configuration.py:20
 msgid "Parameter values"
-msgstr "Valores de parámetros"
+msgstr "Valores de parámetro"
 
 #: configurator/admin/configuration.py:35
-#, fuzzy
-#| msgid "Configuration"
 msgid "Configuration item"
-msgstr "Configuración"
+msgstr "Elemento de configuración"
 
 #: configurator/admin/configuration.py:36
-#, fuzzy
-#| msgid "Configurations"
 msgid "Configuration items"
-msgstr "Configuraciones"
+msgstr "Elementos de configuración"
 
 #: configurator/admin/configuration.py:43
-#, fuzzy
-#| msgid "Pricing rule template"
 msgid "Pricing rule assignment"
-msgstr "Plantilla de regla de precios"
+msgstr "Asignación de reglas de precios"
 
 #: configurator/admin/configuration.py:44
-#, fuzzy
-#| msgid "Pricing rule templates"
 msgid "Pricing rule assignments"
-msgstr "Plantillas de reglas de precios"
+msgstr "Asignaciones de reglas de precios"
 
 #: configurator/admin/configuration.py:73 configurator/models.py:266
 #: configurator/models.py:426
@@ -243,12 +227,12 @@ msgid ""
 "- item_count\n"
 "Example: base_total * 1.10"
 msgstr ""
-"Expresión reutilizable.  \n"
-"Variables permitidas:  \n"
-"- base_total  \n"
-"- material_cost  \n"
-"- quantity  \n"
-"- item_count  \n"
+"Expresión reutilizable.\n"
+"Variables permitidas:\n"
+"- base_total\n"
+"- material_cost\n"
+"- quantity\n"
+"- item_count\n"
 "Ejemplo: base_total * 1.10"
 
 #: configurator/models.py:212
@@ -290,9 +274,7 @@ msgstr "Cantidad"
 
 #: configurator/models.py:448
 msgid "Length factor used for pricing (e.g. meters)."
-msgstr ""
-"Factor de longitud utilizado para la fijación de precios (por ejemplo, "
-"metros)."
+msgstr "Factor de longitud utilizado para precios (por ejemplo, metros)."
 
 #: configurator/models.py:449
 msgid "Length"
@@ -301,22 +283,20 @@ msgstr "Longitud"
 #: configurator/models.py:454
 msgid "Whether this item comes from a BOM rule or is a user add-on."
 msgstr ""
-"Si este elemento proviene de una regla de BOM o es un complemento agregado "
-"por el usuario."
+"Ya sea que este artículo provenga de una regla de BOM o sea un complemento "
+"agregado por el usuario."
 
 #: configurator/models.py:455
 msgid "Is template item"
-msgstr "Es elemento de plantilla"
+msgstr "¿Es un ítem de plantilla?"
 
 #: configurator/models.py:463 sales/models.py:164
 msgid "Line total"
 msgstr "Total de la línea"
 
 #: configurator/models.py:470 sales/models.py:156 sales/models.py:257
-#, fuzzy
-#| msgid "Total price"
 msgid "Unit price"
-msgstr "Precio total"
+msgstr "Precio unitario"
 
 #: configurator/templates/configurator/export_form.html:23
 msgid "Submit form"
@@ -340,7 +320,7 @@ msgstr "Terminar"
 
 #: sales/models.py:10
 msgid "e.g., SEBASTIAN HERRERO"
-msgstr "Sebastián Herrero"
+msgstr "e.j., SEBASTIAN HERRERO"
 
 #: sales/models.py:16
 msgid "Phone"
@@ -355,20 +335,16 @@ msgid "Address"
 msgstr "Dirección"
 
 #: sales/models.py:29
-#, fuzzy
-#| msgid "Client"
 msgid "Clients"
-msgstr "Cliente"
+msgstr "Clientes"
 
 #: sales/models.py:37
 msgid "Confirmed"
 msgstr "Confirmado"
 
 #: sales/models.py:38
-#, fuzzy
-#| msgid "Product"
 msgid "In production"
-msgstr "Producto"
+msgstr "En producción"
 
 #: sales/models.py:54
 msgid "Work / site name"
@@ -387,38 +363,32 @@ msgid "Deadline"
 msgstr "Fecha límite"
 
 #: sales/models.py:82
-#, fuzzy
-#| msgid "Materials"
 msgid "Material cost"
-msgstr "Materiales"
+msgstr "Costo de material"
 
 #: sales/models.py:90
 msgid "Labor cost"
-msgstr "Costo de mano de obra"
+msgstr "Costo laboral"
 
 #: sales/models.py:98
 msgid "Machine cost"
 msgstr "Costo de la máquina"
 
 #: sales/models.py:107
-#, fuzzy
-#| msgid "Total price"
 msgid "Final price"
-msgstr "Precio total"
+msgstr "Precio final"
 
 #: sales/models.py:111 sales/models.py:135
 msgid "Order"
-msgstr "Pedido"
+msgstr "Orden"
 
 #: sales/models.py:112
 msgid "Orders"
-msgstr "Órdenes"
+msgstr "Pedidos"
 
 #: sales/models.py:141
-#, fuzzy
-#| msgid "Materials"
 msgid "Material used"
-msgstr "Materiales"
+msgstr "Material utilizado"
 
 #: sales/models.py:155
 msgid "Price per unit"
@@ -426,19 +396,19 @@ msgstr "Precio por unidad"
 
 #: sales/models.py:168
 msgid "Order item"
-msgstr "Elemento de pedido"
+msgstr "Elemento del pedido"
 
 #: sales/models.py:169
 msgid "Order items"
-msgstr "Ordenar artículos"
+msgstr "Items del pedido"
 
 #: sales/models.py:198
 msgid "Created at"
-msgstr "Creado el"
+msgstr "Creado en"
 
 #: sales/models.py:204
 msgid "Expires at"
-msgstr "Expira en"
+msgstr "Expira el"
 
 #: sales/models.py:211
 msgid "Sent"
@@ -453,19 +423,13 @@ msgid "Rejected"
 msgstr "Rechazado"
 
 #: sales/models.py:228
-#, fuzzy
-#| msgid "Quote"
 msgid "Quotes"
-msgstr "Cita"
+msgstr "Presupuestos"
 
 #: sales/models.py:261
-#, fuzzy
-#| msgid "Quote"
 msgid "Quote item"
-msgstr "Cita"
+msgstr "artículo de Presupuesto"
 
 #: sales/models.py:262
-#, fuzzy
-#| msgid "Quote"
 msgid "Quote items"
-msgstr "Cita"
+msgstr "articulos de Presupuesto"

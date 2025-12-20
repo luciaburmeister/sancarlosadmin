@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-12-20 11:40+0100\n"
+"POT-Creation-Date: 2025-12-20 12:00+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -244,6 +244,9 @@ msgstr "Terminar"
 
 msgid "Select Product to Configure"
 msgstr "Seleccionar Producto para Configurar"
+
+msgid "Configure your product"
+msgstr "Configura tu producto"
 
 msgid "e.g., SEBASTIAN HERRERO"
 msgstr "e.j., SEBASTIAN HERRERO"

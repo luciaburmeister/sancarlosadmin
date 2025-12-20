@@ -6,7 +6,7 @@ from unfold.widgets import (
     UnfoldAdminSelectWidget,
 )
 from crispy_forms.helper import FormHelper
-from crispy_forms.layout import Layout, Field
+from crispy_forms.layout import Layout, Field, Row, Column
 from unfold.layout import Submit
 
 class ConfigurationFormHelper(FormHelper):
@@ -15,11 +15,36 @@ class ConfigurationFormHelper(FormHelper):
     Matches the style of the official Unfold documentation.
     """
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, form, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self.form = form
         self.form_tag = False           # Wizard handles <form>
         self.disable_csrf = True        # Wizard injects CSRF
         self.template_pack = "unfold_crispy"
+
+        fields = list(form.fields.keys())
+        rows = []
+
+        for i in range(0, len(fields), 2):
+            row_fields = fields[i:i + 2]
+
+            rows.append(
+                Row(
+                    *[
+                        Column(
+                            Field(name),
+                            css_class="col-span-12 md:col-span-6"
+                        )
+                        for name in row_fields
+                    ],
+                    css_class="gap-4 mb-4"
+                )
+            )
+
+        self.layout = Layout(
+            *rows,
+        )
 
 
 class ConfigurationForm(forms.Form):
@@ -74,14 +99,6 @@ class ConfigurationForm(forms.Form):
 
             self.fields[field_name] = field
 
-        self.helper = ConfigurationFormHelper()
-
-        self.helper.layout = Layout(
-            *[
-                Field(name, css_class="mb-4")
-                for name in self.fields.keys()
-            ]
-        )
 
     def save(self):
         """Create the Configuration + Parameter values."""

@@ -18,7 +18,7 @@
         {% for form in wizard.form.forms %}
             {{ form.media }}
         {% endfor %}
-            {{ wizard.form.management_form }}
+            {% crispy wizard.form.management_form helper "unfold_crispy" %}
         {% else %}
             {{ wizard.form.media }}
         {% endif %}

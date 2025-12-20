@@ -6,6 +6,7 @@ from django.urls import reverse
 from django.shortcuts import get_object_or_404
 from formtools.wizard.views import SessionWizardView
 from django.forms import formset_factory
+from django.utils.translation import gettext_lazy as _
 
 
 class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
@@ -15,7 +16,7 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
     ]
     template_name = "configurator/wizard_form.html"
     permission_required = ('configurator.view_producttemplate') 
-    title = "Configure your product" 
+    title = _("Configure your product")
 
     
     def dispatch(self, request, product_id, *args, **kwargs):
@@ -34,7 +35,8 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
 
 
         if self.steps.current == "measures":
-            context["helper"] = ConfigurationFormHelper()
+            helper = ConfigurationFormHelper(self.get_form(step=self.steps.current))
+            context["helper"] = helper
         elif self.steps.current == "addons":
             helper = AddonFormsetHelper()
             context["helper"] = helper

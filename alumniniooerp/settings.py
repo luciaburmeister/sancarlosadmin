@@ -14,6 +14,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from django.urls import reverse_lazy
 import os
+from django.utils.translation import gettext_lazy as _
+
 load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -81,6 +83,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    "django.middleware.locale.LocaleMiddleware",
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -154,6 +157,9 @@ EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("EMAIL_HOST_USER")
 
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+
 
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
@@ -226,22 +232,32 @@ CRISPY_TEMPLATE_PACK = "unfold_crispy"
 
 CRISPY_ALLOWED_TEMPLATE_PACKS = ["unfold_crispy"]
 
+LANGUAGE_CODE = "es"
+
+USE_I18N = True
+
+LANGUAGES = (
+    ("es", _("Español")),
+    ("en", _("English")),
+)
+
 
 UNFOLD = {
     "SITE_TITLE": "ERP - Polipus",
     "SITE_HEADER": "Polipus",
     "SITE_SYMBOL": "speed",
+    "SHOW_LANGUAGES": True,
     "SIDEBAR": {
         "show_search": True,  
         "show_all_applications": True,  
         "navigation": [
             {
-                "title": "Quote",
+                "title": _("Quote"),
                 "separator": True,
                 "collapsible": False,
                 "items": [
                     {
-                        "title": "Configurator",
+                        "title": _("Configurator"),
                         "icon": "build",
                         "link": reverse_lazy(
                             "admin:configurator_configuration_changelist"
@@ -251,7 +267,7 @@ UNFOLD = {
                         ),
                     },
                     {
-                        "title": "Product Templates",
+                        "title": _("Product Templates"),
                         "icon": "box",
                         "link": reverse_lazy(
                             "admin:configurator_producttemplate_changelist"
@@ -264,12 +280,12 @@ UNFOLD = {
             },
 
             {
-                "title": "Materials",
+                "title": _("Materials"),
                 "separator": True,
                 "collapsible": False,
                 "items": [
                     {
-                        "title": "Material",
+                        "title": _("Material"),
                         "icon": "brick",
                         "link": reverse_lazy(
                             "admin:materials_material_changelist"
@@ -279,7 +295,7 @@ UNFOLD = {
                         ),
                     },
                     {
-                        "title": "Components",
+                        "title": _("Components"),
                         "icon": "brick",
                         "link": reverse_lazy(
                             "admin:materials_component_changelist"

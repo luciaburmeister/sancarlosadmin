@@ -1,0 +1,471 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR THE PACKAGE'S COPYRIGHT HOLDER
+# This file is distributed under the same license as the PACKAGE package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PACKAGE VERSION\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2025-12-20 10:08+0100\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=3; plural=n == 1 ? 0 : n != 0 && n % 1000000 == 0 ? 1 : 2;\n"
+
+#: alumniniooerp/settings.py:240
+msgid "Español"
+msgstr ""
+"¡Hola! ¿En qué puedo ayudarte con la traducción de cadenas de UI de Django "
+"al español?"
+
+#: alumniniooerp/settings.py:241
+msgid "English"
+msgstr ""
+"Sure! Please provide the strings or phrases you would like me to translate "
+"into neutral Latin American Spanish."
+
+#: alumniniooerp/settings.py:255 sales/models.py:227 sales/models.py:231
+#: sales/models.py:238
+msgid "Quote"
+msgstr "Cita"
+
+#: alumniniooerp/settings.py:260
+#, fuzzy
+#| msgid "Configuration"
+msgid "Configurator"
+msgstr "Configuración"
+
+#: alumniniooerp/settings.py:270
+#, fuzzy
+#| msgid "Product templates"
+msgid "Product Templates"
+msgstr "Plantillas de productos"
+
+#: alumniniooerp/settings.py:283
+msgid "Materials"
+msgstr "Materiales"
+
+#: alumniniooerp/settings.py:288 sales/models.py:142 sales/models.py:244
+msgid "Material"
+msgstr "Material"
+
+#: alumniniooerp/settings.py:298
+#, fuzzy
+#| msgid "Component"
+msgid "Components"
+msgstr "Componente"
+
+#: configurator/admin/configuration.py:19
+msgid "Parameter value"
+msgstr "Valor del parámetro"
+
+#: configurator/admin/configuration.py:20
+msgid "Parameter values"
+msgstr "Valores de parámetros"
+
+#: configurator/admin/configuration.py:35
+#, fuzzy
+#| msgid "Configuration"
+msgid "Configuration item"
+msgstr "Configuración"
+
+#: configurator/admin/configuration.py:36
+#, fuzzy
+#| msgid "Configurations"
+msgid "Configuration items"
+msgstr "Configuraciones"
+
+#: configurator/admin/configuration.py:43
+#, fuzzy
+#| msgid "Pricing rule template"
+msgid "Pricing rule assignment"
+msgstr "Plantilla de regla de precios"
+
+#: configurator/admin/configuration.py:44
+#, fuzzy
+#| msgid "Pricing rule templates"
+msgid "Pricing rule assignments"
+msgstr "Plantillas de reglas de precios"
+
+#: configurator/admin/configuration.py:73 configurator/models.py:266
+#: configurator/models.py:426
+msgid "Configuration"
+msgstr "Configuración"
+
+#: configurator/admin/configuration.py:79
+msgid "Pricing"
+msgstr "Precios"
+
+#: configurator/admin/configuration.py:123
+msgid "Export HTML"
+msgstr "Exportar HTML"
+
+#: configurator/admin/configuration.py:131 configurator/models.py:262
+#: sales/models.py:223
+msgid "Total price"
+msgstr "Precio total"
+
+#: configurator/models.py:14 sales/models.py:36 sales/models.py:210
+msgid "Draft"
+msgstr "Borrador"
+
+#: configurator/models.py:15 sales/models.py:39
+msgid "Completed"
+msgstr "Completado"
+
+#: configurator/models.py:16
+msgid "Converted to Quote"
+msgstr "Convertido a Cotización"
+
+#: configurator/models.py:28
+msgid "Component A"
+msgstr "Componente A"
+
+#: configurator/models.py:35
+msgid "Component B"
+msgstr "Componente B"
+
+#: configurator/models.py:41
+msgid "Reason"
+msgstr "Razón"
+
+#: configurator/models.py:46
+msgid "Incompatibility rule"
+msgstr "Regla de incompatibilidad"
+
+#: configurator/models.py:47
+msgid "Incompatibility rules"
+msgstr "Reglas de incompatibilidad"
+
+#: configurator/models.py:55 configurator/models.py:85
+#: configurator/models.py:199 configurator/models.py:239 sales/models.py:11
+msgid "Name"
+msgstr "Nombre"
+
+#: configurator/models.py:56
+msgid "Description"
+msgstr "Descripción"
+
+#: configurator/models.py:61
+msgid "Image"
+msgstr "Imagen"
+
+#: configurator/models.py:65
+msgid "Product template"
+msgstr "Plantilla de producto"
+
+#: configurator/models.py:66
+msgid "Product templates"
+msgstr "Plantillas de productos"
+
+#: configurator/models.py:72
+msgid "Number"
+msgstr "Número"
+
+#: configurator/models.py:73
+msgid "Text"
+msgstr "Texto"
+
+#: configurator/models.py:74
+msgid "Boolean"
+msgstr "Booleano"
+
+#: configurator/models.py:75
+msgid "Select"
+msgstr "Seleccionar"
+
+#: configurator/models.py:82 configurator/models.py:132
+#: configurator/models.py:196 configurator/models.py:247
+msgid "Product"
+msgstr "Producto"
+
+#: configurator/models.py:86
+msgid "Label"
+msgstr "Etiqueta"
+
+#: configurator/models.py:91
+msgid "Type"
+msgstr "Tipo"
+
+#: configurator/models.py:97
+msgid "Options"
+msgstr "Opciones"
+
+#: configurator/models.py:99
+msgid "Required"
+msgstr "Requerido"
+
+#: configurator/models.py:102
+msgid "Product parameter"
+msgstr "Parámetro del producto"
+
+#: configurator/models.py:103
+msgid "Product parameters"
+msgstr "Parámetros del producto"
+
+#: configurator/models.py:139 configurator/models.py:433
+msgid "Component"
+msgstr "Componente"
+
+#: configurator/models.py:143
+msgid "Expression evaluated with safe_eval"
+msgstr "Expresión evaluada con safe_eval"
+
+#: configurator/models.py:144
+msgid "Quantity expression"
+msgstr "Expresión de cantidad"
+
+#: configurator/models.py:150
+msgid "Length expression"
+msgstr "Expresión de longitud"
+
+#: configurator/models.py:154
+msgid "BOM rule"
+msgstr "Regla BOM"
+
+#: configurator/models.py:155
+msgid "BOM rules"
+msgstr "Reglas de BOM"
+
+#: configurator/models.py:204
+msgid ""
+"Reusable expression.\n"
+"Allowed variables:\n"
+"- base_total\n"
+"- material_cost\n"
+"- quantity\n"
+"- item_count\n"
+"Example: base_total * 1.10"
+msgstr ""
+"Expresión reutilizable.  \n"
+"Variables permitidas:  \n"
+"- base_total  \n"
+"- material_cost  \n"
+"- quantity  \n"
+"- item_count  \n"
+"Ejemplo: base_total * 1.10"
+
+#: configurator/models.py:212
+msgid "Expression"
+msgstr "Expresión"
+
+#: configurator/models.py:215
+msgid "Is active"
+msgstr "Está activo"
+
+#: configurator/models.py:218
+msgid "Pricing rule template"
+msgstr "Plantilla de regla de precios"
+
+#: configurator/models.py:219
+msgid "Pricing rule templates"
+msgstr "Plantillas de reglas de precios"
+
+#: configurator/models.py:233 sales/models.py:28 sales/models.py:49
+#: sales/models.py:188
+msgid "Client"
+msgstr "Cliente"
+
+#: configurator/models.py:238
+msgid "Internal label for this configuration"
+msgstr "Etiqueta interna para esta configuración"
+
+#: configurator/models.py:254 sales/models.py:73 sales/models.py:216
+msgid "Status"
+msgstr "Estado"
+
+#: configurator/models.py:267
+msgid "Configurations"
+msgstr "Configuraciones"
+
+#: configurator/models.py:440 sales/models.py:148 sales/models.py:250
+msgid "Quantity"
+msgstr "Cantidad"
+
+#: configurator/models.py:448
+msgid "Length factor used for pricing (e.g. meters)."
+msgstr ""
+"Factor de longitud utilizado para la fijación de precios (por ejemplo, "
+"metros)."
+
+#: configurator/models.py:449
+msgid "Length"
+msgstr "Longitud"
+
+#: configurator/models.py:454
+msgid "Whether this item comes from a BOM rule or is a user add-on."
+msgstr ""
+"Si este elemento proviene de una regla de BOM o es un complemento agregado "
+"por el usuario."
+
+#: configurator/models.py:455
+msgid "Is template item"
+msgstr "Es elemento de plantilla"
+
+#: configurator/models.py:463 sales/models.py:164
+msgid "Line total"
+msgstr "Total de la línea"
+
+#: configurator/models.py:470 sales/models.py:156 sales/models.py:257
+#, fuzzy
+#| msgid "Total price"
+msgid "Unit price"
+msgstr "Precio total"
+
+#: configurator/templates/configurator/export_form.html:23
+msgid "Submit form"
+msgstr "Enviar formulario"
+
+#: configurator/templates/configurator/wizard_form.html:31
+msgid "Previous"
+msgstr "Anterior"
+
+#: configurator/templates/configurator/wizard_form.html:36
+msgid "Cancel"
+msgstr "Cancelar"
+
+#: configurator/templates/configurator/wizard_form.html:43
+msgid "Next Step"
+msgstr "Siguiente paso"
+
+#: configurator/templates/configurator/wizard_form.html:45
+msgid "Finish"
+msgstr "Terminar"
+
+#: sales/models.py:10
+msgid "e.g., SEBASTIAN HERRERO"
+msgstr "Sebastián Herrero"
+
+#: sales/models.py:16
+msgid "Phone"
+msgstr "Teléfono"
+
+#: sales/models.py:20
+msgid "Email"
+msgstr "Correo electrónico"
+
+#: sales/models.py:24
+msgid "Address"
+msgstr "Dirección"
+
+#: sales/models.py:29
+#, fuzzy
+#| msgid "Client"
+msgid "Clients"
+msgstr "Cliente"
+
+#: sales/models.py:37
+msgid "Confirmed"
+msgstr "Confirmado"
+
+#: sales/models.py:38
+#, fuzzy
+#| msgid "Product"
+msgid "In production"
+msgstr "Producto"
+
+#: sales/models.py:54
+msgid "Work / site name"
+msgstr "Nombre del trabajo / sitio"
+
+#: sales/models.py:55 sales/models.py:193
+msgid "Project name"
+msgstr "Nombre del proyecto"
+
+#: sales/models.py:60
+msgid "Created date"
+msgstr "Fecha de creación"
+
+#: sales/models.py:66
+msgid "Deadline"
+msgstr "Fecha límite"
+
+#: sales/models.py:82
+#, fuzzy
+#| msgid "Materials"
+msgid "Material cost"
+msgstr "Materiales"
+
+#: sales/models.py:90
+msgid "Labor cost"
+msgstr "Costo de mano de obra"
+
+#: sales/models.py:98
+msgid "Machine cost"
+msgstr "Costo de la máquina"
+
+#: sales/models.py:107
+#, fuzzy
+#| msgid "Total price"
+msgid "Final price"
+msgstr "Precio total"
+
+#: sales/models.py:111 sales/models.py:135
+msgid "Order"
+msgstr "Pedido"
+
+#: sales/models.py:112
+msgid "Orders"
+msgstr "Órdenes"
+
+#: sales/models.py:141
+#, fuzzy
+#| msgid "Materials"
+msgid "Material used"
+msgstr "Materiales"
+
+#: sales/models.py:155
+msgid "Price per unit"
+msgstr "Precio por unidad"
+
+#: sales/models.py:168
+msgid "Order item"
+msgstr "Elemento de pedido"
+
+#: sales/models.py:169
+msgid "Order items"
+msgstr "Ordenar artículos"
+
+#: sales/models.py:198
+msgid "Created at"
+msgstr "Creado el"
+
+#: sales/models.py:204
+msgid "Expires at"
+msgstr "Expira en"
+
+#: sales/models.py:211
+msgid "Sent"
+msgstr "Enviado"
+
+#: sales/models.py:212
+msgid "Accepted"
+msgstr "Aceptado"
+
+#: sales/models.py:213
+msgid "Rejected"
+msgstr "Rechazado"
+
+#: sales/models.py:228
+#, fuzzy
+#| msgid "Quote"
+msgid "Quotes"
+msgstr "Cita"
+
+#: sales/models.py:261
+#, fuzzy
+#| msgid "Quote"
+msgid "Quote item"
+msgstr "Cita"
+
+#: sales/models.py:262
+#, fuzzy
+#| msgid "Quote"
+msgid "Quote items"
+msgstr "Cita"

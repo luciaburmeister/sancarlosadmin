@@ -15,7 +15,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path
+from django.urls import include,path
 from django.conf import settings
 from django.http import JsonResponse
 from django.conf.urls.i18n import i18n_patterns
@@ -26,6 +26,7 @@ def health(request):
 
 urlpatterns = [
     path("health/", health, name="health"),
+    path("i18n/", include("django.conf.urls.i18n")),
 ] 
 
 
@@ -39,5 +40,4 @@ urlpatterns += i18n_patterns(
     path('password_reset/done/', CustomPasswordResetDoneView.as_view(), name='password_reset_done'),
     path('reset/<uidb64>/<token>/', CustomPasswordResetConfirmView.as_view(), name='password_reset_confirm'),
     path('reset/done/', CustomPasswordResetCompleteView.as_view(), name='password_reset_complete'),
-    prefix_default_language=False,
 )

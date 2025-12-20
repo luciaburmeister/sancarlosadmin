@@ -8,11 +8,12 @@ from django.core.exceptions import ValidationError
 from .validators import pricing_expression_validator
 from configurator.services import ConfigurationExportService
 from decimal import Decimal
+from django.utils.translation import gettext_lazy as _
 
 class ConfigurationStatus(models.TextChoices):
-    DRAFT = "draft", "Draft"
-    COMPLETED = "completed", "Completed"
-    CONVERTED = "converted", "Converted to Quote"
+    DRAFT = "draft", _("Draft")
+    COMPLETED = "completed", _("Completed")
+    CONVERTED = "converted", _("Converted to Quote")
 
 class IncompatibilityRule(models.Model):
     """
@@ -23,19 +24,27 @@ class IncompatibilityRule(models.Model):
         Component,
         on_delete=models.CASCADE,
         related_name="incompatible_with",
-        null=True
+        null=True,
+        verbose_name=_("Component A"),
     )
     component_b = models.ForeignKey(
         Component,
         on_delete=models.CASCADE,
         related_name="incompatible_with_reverse",
-        null=True
+        null=True,
+        verbose_name=_("Component B"),
     )
 
-    reason = models.CharField(max_length=200, blank=True)
+    reason = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name=_("Reason"),
+    )
 
     class Meta:
         unique_together = ("component_a", "component_b")
+        verbose_name = _("Incompatibility rule")
+        verbose_name_plural = _("Incompatibility rules")
 
     def __str__(self):
         return f"{self.component_a} ❌ {self.component_b}"
@@ -43,36 +52,55 @@ class IncompatibilityRule(models.Model):
 
     
 class ProductTemplate(models.Model):
-    name = models.CharField(max_length=200)
-    description = models.TextField(blank=True)
-    image = models.ImageField(upload_to="products/", blank=True, null=True)
+    name = models.CharField(max_length=200, verbose_name=_("Name"))
+    description = models.TextField(blank=True, verbose_name=_("Description"))
+    image = models.ImageField(
+        upload_to="products/",
+        blank=True,
+        null=True,
+        verbose_name=_("Image"),
+    )
+
+    class Meta:
+        verbose_name = _("Product template")
+        verbose_name_plural = _("Product templates")
 
     def __str__(self):
         return self.name
 
 class ParameterType(models.TextChoices):
-    NUMBER = "number"
-    TEXT = "text"
-    BOOLEAN = "boolean"
-    SELECT = "select"
-
+    NUMBER = "number", _("Number")
+    TEXT = "text", _("Text")
+    BOOLEAN = "boolean", _("Boolean")
+    SELECT = "select", _("Select")
 
 class ProductParameter(models.Model):
     product = models.ForeignKey(
         ProductTemplate,
         on_delete=models.CASCADE,
-        related_name="parameters"
+        related_name="parameters",
+        verbose_name=_("Product"),
     )
 
-    name = models.CharField(max_length=100)     
-    label = models.CharField(max_length=100)  
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+    label = models.CharField(max_length=100, verbose_name=_("Label"))
     type = models.CharField(
         max_length=10,
         choices=ParameterType.choices,
         default=ParameterType.NUMBER,
+        verbose_name=_("Type"),
     )
-    options = models.JSONField(blank=True, null=True, default=list)
-    required = models.BooleanField(default=True)
+    options = models.JSONField(
+        blank=True,
+        null=True,
+        default=list,
+        verbose_name=_("Options"),
+    )
+    required = models.BooleanField(default=True, verbose_name=_("Required"))
+
+    class Meta:
+        verbose_name = _("Product parameter")
+        verbose_name_plural = _("Product parameters")
 
     def __str__(self):
         return f"{self.product_id} – {self.label}"
@@ -100,16 +128,32 @@ class BOMRule(models.Model):
     product = models.ForeignKey(
         ProductTemplate,
         on_delete=models.CASCADE,
-        related_name="bom_rules"
+        related_name="bom_rules",
+        verbose_name=_("Product"),
     )
 
-    component = models.ForeignKey(Component, on_delete=models.PROTECT,null=True)
+    component = models.ForeignKey(
+        Component,
+        on_delete=models.PROTECT,
+        null=True,
+        verbose_name=_("Component"),
+    )
 
     quantity_expression = models.TextField(
-        help_text="Expression evaluated with safe_eval"
+        help_text=_("Expression evaluated with safe_eval"),
+        verbose_name=_("Quantity expression"),
     )
 
-    length_expression = models.TextField(blank=True, null=True)
+    length_expression = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name=_("Length expression"),
+    )
+
+    class Meta:
+        verbose_name = _("BOM rule")
+        verbose_name_plural = _("BOM rules")
+
 
     EXPRESSION_FIELDS = {
         "quantity_expression": True,   # required
@@ -149,14 +193,14 @@ class PricingRuleTemplate(models.Model):
         on_delete=models.CASCADE,
         related_name="pricing_rules",
         null=True,
-        blank=False
+        verbose_name=_("Product"),
     )
 
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
 
     expression = models.TextField(
         validators=[pricing_expression_validator],
-        help_text=(
+        help_text=_(
             "Reusable expression.\n"
             "Allowed variables:\n"
             "- base_total\n"
@@ -164,10 +208,16 @@ class PricingRuleTemplate(models.Model):
             "- quantity\n"
             "- item_count\n"
             "Example: base_total * 1.10"
-        )
+        ),
+        verbose_name=_("Expression"),
     )
 
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=True, verbose_name=_("Is active"))
+
+    class Meta:
+        verbose_name = _("Pricing rule template")
+        verbose_name_plural = _("Pricing rule templates")
+
 
     def __str__(self):
         return f"{self.name} ({self.expression})"
@@ -175,25 +225,33 @@ class PricingRuleTemplate(models.Model):
 
 
 class Configuration(Timestampable):
-    """
-    Represents a configuration session (CPQ).
-    Created before generating a Quote.
-    """
+    client = models.ForeignKey(
+        Client,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name=_("Client"),
+    )
 
-    client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True)
-    name = models.CharField(max_length=200, help_text="Internal label for this configuration")
+    name = models.CharField(
+        max_length=200,
+        help_text=_("Internal label for this configuration"),
+        verbose_name=_("Name"),
+    )
+
     product = models.ForeignKey(
-    ProductTemplate,
-    on_delete=models.PROTECT,
-    related_name="configurations",
-    null=True,
-    blank=False
+        ProductTemplate,
+        on_delete=models.PROTECT,
+        related_name="configurations",
+        null=True,
+        verbose_name=_("Product"),
     )
 
     status = models.CharField(
         max_length=20,
         choices=ConfigurationStatus.choices,
         default=ConfigurationStatus.DRAFT,
+        verbose_name=_("Status"),
     )
 
     total_price = MoneyField(
@@ -201,7 +259,13 @@ class Configuration(Timestampable):
         decimal_places=2,
         default=0,
         default_currency="EUR",
+        verbose_name=_("Total price"),
     )
+
+    class Meta:
+        verbose_name = _("Configuration")
+        verbose_name_plural = _("Configurations")
+
 
     def __str__(self):
         return f"Config #{self.id} — {self.name or 'Unnamed'}"
@@ -359,29 +423,36 @@ class ConfigurationItem(Timestampable):
         Configuration,
         on_delete=models.CASCADE,
         related_name="items",
+        verbose_name=_("Configuration"),
     )
 
     component = models.ForeignKey(
         Component,
         on_delete=models.PROTECT,
-        help_text="Selectable component or part.",
-        null=True
+        null=True,
+        verbose_name=_("Component"),
     )
 
-    quantity = models.DecimalField(max_digits=10, decimal_places=3, default=1)
+    quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        default=1,
+        verbose_name=_("Quantity"),
+    )
 
     length = models.DecimalField(
         max_digits=15,
         decimal_places=3,
         default=1,
-        help_text="Length factor used for pricing (e.g. meters).",
-        null=True
+        null=True,
+        help_text=_("Length factor used for pricing (e.g. meters)."),
+        verbose_name=_("Length"),
     )
 
-    unit_price = MoneyField(
-        max_digits=12,
-        decimal_places=5,
-        default_currency="EUR",
+    is_template_item = models.BooleanField(
+        default=True,
+        help_text=_("Whether this item comes from a BOM rule or is a user add-on."),
+        verbose_name=_("Is template item"),
     )
 
     line_total = MoneyField(
@@ -389,12 +460,16 @@ class ConfigurationItem(Timestampable):
         decimal_places=3,
         default_currency="EUR",
         editable=False,
+        verbose_name=_("Line total")
     )
 
-    is_template_item = models.BooleanField(
-        default=True,
-        help_text="Whether this item comes from a BOM rule or is a user add-on."
+    unit_price = MoneyField(
+        max_digits=12,
+        decimal_places=5,
+        default_currency="EUR",
+        verbose_name=_("Unit price")
     )
+
 
     def save(self, *args, **kwargs):
         quantity = self.quantity or Decimal("0")

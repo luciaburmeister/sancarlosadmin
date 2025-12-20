@@ -14,21 +14,34 @@ class ParameterValueInline(TabularInline):
     model = ConfigurationParameterValue
     extra = 0
     fields = ("parameter", "value")
-    tab=True
+    tab = True
     autocomplete_fields = ["parameter"]
+    verbose_name = _("Parameter value")
+    verbose_name_plural = _("Parameter values")
 class ConfigurationItemInline(TabularInline):
     model = ConfigurationItem
     extra = 0
-    fields = ("is_template_item","component", "quantity","length", "unit_price", "line_total")
-    readonly_fields = ("line_total","is_template_item")
-    tab=True
+    fields = (
+        "is_template_item",
+        "component",
+        "quantity",
+        "length",
+        "unit_price",
+        "line_total",
+    )
+    readonly_fields = ("line_total", "is_template_item")
+    tab = True
     autocomplete_fields = ["component"]
+    verbose_name = _("Configuration item")
+    verbose_name_plural = _("Configuration items")
 
 class PricingRuleAssignmentInline(TabularInline):
     model = PricingRuleAssignment
     extra = 0
     autocomplete_fields = ["rule"]
-    tab=True
+    tab = True
+    verbose_name = _("Pricing rule assignment")
+    verbose_name_plural = _("Pricing rule assignments")
 
 
 
@@ -39,9 +52,8 @@ class ConfigurationAdmin(ModelAdmin):
         "name",
         "client",
         "status",
-        "total_price",
+        "total_price_display",
         "created_at",
-        "updated_at",
     )
 
     list_filter = ("status", "client", "created_at")
@@ -58,11 +70,13 @@ class ConfigurationAdmin(ModelAdmin):
     ]
 
     fieldsets = (
-        ("Configuration", {
-            "fields": (("name","client"), 
-                       ("product","status")),
+        (_("Configuration"), {
+            "fields": (
+                ("name", "client"),
+                ("product", "status"),
+            ),
         }),
-        ("Pricing", {
+        (_("Pricing"), {
             "fields": ("total_price",),
         }),
     )
@@ -113,3 +127,7 @@ class ConfigurationAdmin(ModelAdmin):
     def export_configuration_to_template(self, request: HttpRequest, object_id: int):
         url = reverse("admin:configurator_configuration_export", args=[object_id])
         return redirect(url)
+    
+    @admin.display(description=_("Total price"))
+    def total_price_display(self, obj):
+        return obj.total_price

@@ -8,43 +8,73 @@ from unfold.widgets import (
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Field, Row, Column
 from unfold.layout import Submit
+from django.forms import CheckboxInput
 
 class ConfigurationFormHelper(FormHelper):
-    """
-    Crispy helper for the dynamic configuration form.
-    Matches the style of the official Unfold documentation.
-    """
-
     def __init__(self, form, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.form = form
-        self.form_tag = False           # Wizard handles <form>
-        self.disable_csrf = True        # Wizard injects CSRF
+        self.form_tag = False
+        self.disable_csrf = True
         self.template_pack = "unfold_crispy"
 
-        fields = list(form.fields.keys())
+        self.layout = Layout(*self.build_rows())
+    
+    def build_rows(self):
         rows = []
+        buffer = []
 
-        for i in range(0, len(fields), 2):
-            row_fields = fields[i:i + 2]
+        for name, field in self.form.fields.items():
+            widget = field.widget
 
-            rows.append(
-                Row(
-                    *[
+            # Checkboxes → full-width row
+            if isinstance(widget, CheckboxInput):
+                rows.append(
+                    Row(
                         Column(
                             Field(name),
-                            css_class="col-span-12 md:col-span-6"
-                        )
-                        for name in row_fields
-                    ],
-                    css_class="gap-4 mb-4"
+                            css_class="col-span-12"
+                        ),
+                        css_class="mb-3"
+                    )
                 )
-            )
+                continue
 
-        self.layout = Layout(
-            *rows,
+            buffer.append(name)
+
+            # Flush 2-column row
+            if len(buffer) == 2:
+                rows.append(self.two_col_row(buffer))
+                buffer = []
+
+        # Remaining single field
+        if buffer:
+            rows.append(self.one_col_row(buffer[0]))
+
+        return rows
+    
+    def two_col_row(self, names):
+        return Row(
+            *[
+                Column(
+                    Field(name),
+                    css_class="col-span-12 md:col-span-6"
+                )
+                for name in names
+            ],
+            css_class="gap-4 mb-4"
         )
+
+    def one_col_row(self, name):
+        return Row(
+            Column(
+                Field(name),
+                css_class="col-span-12"
+            ),
+            css_class="mb-4"
+        )
+
 
 
 class ConfigurationForm(forms.Form):

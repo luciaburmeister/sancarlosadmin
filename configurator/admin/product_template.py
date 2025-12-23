@@ -18,7 +18,8 @@ class ProductParameterInline(TabularInline):
     model = ProductParameter
     extra = 0
     tab=True
-
+    hide_ordering_field = True
+    ordering_field = "order"
 
 class BOMRuleInline(TabularInline):
     model = BOMRule

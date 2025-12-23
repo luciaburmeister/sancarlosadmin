@@ -97,10 +97,22 @@ class ProductParameter(models.Model):
         verbose_name=_("Options"),
     )
     required = models.BooleanField(default=True, verbose_name=_("Required"))
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Sorting Order"),
+        help_text=_("Order of the parameter within the product"),
+        db_index=True
+    )
 
     class Meta:
         verbose_name = _("Product parameter")
         verbose_name_plural = _("Product parameters")
+        ordering = ["order","product"]
+        indexes = [
+        models.Index(
+            fields=["product", "order"],
+        )
+    ]
 
     def __str__(self):
         return f"{self.product_id} – {self.label}"

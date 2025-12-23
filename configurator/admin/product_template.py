@@ -20,6 +20,10 @@ class ProductParameterInline(TabularInline):
     tab=True
     hide_ordering_field = True
     ordering_field = "order"
+    
+    formfield_overrides = {
+        models.JSONField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 2})},
+    }
 
 class BOMRuleInline(TabularInline):
     model = BOMRule

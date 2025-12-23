@@ -7,7 +7,6 @@ from unfold.widgets import (
 )
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Field, Row, Column
-from unfold.layout import Submit
 from django.forms import CheckboxInput
 
 class ConfigurationFormHelper(FormHelper):

@@ -150,6 +150,13 @@ class BOMRule(models.Model):
         verbose_name=_("Length expression"),
     )
 
+    description = models.CharField(
+        max_length=40,
+        null=True,
+        blank=True,
+        verbose_name=_("Description")
+    )
+
     class Meta:
         verbose_name = _("BOM rule")
         verbose_name_plural = _("BOM rules")

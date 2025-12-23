@@ -12,6 +12,6 @@ class BOMRuleAdmin(ModelAdmin):
 
     fieldsets = (
         ("BOM Rule", {
-            "fields": ("product", "component", "quantity_expression", "length_expression"),
+            "fields": (("product", "component"),"description", "quantity_expression", "length_expression"),
         }),
     )

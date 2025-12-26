@@ -26,6 +26,7 @@ files = [
 
 [package.dependencies]
 idna = ">=2.8"
+typing_extensions = {version = ">=4.5", markers = "python_version < \"3.13\""}
 
 [package.extras]
 trio = ["trio (>=0.31.0) ; python_version < \"3.10\"", "trio (>=0.32.0) ; python_version >= \"3.10\""]
@@ -1130,5 +1131,5 @@ zstd = ["backports-zstd (>=1.0.0) ; python_version < \"3.14\""]
 
 [metadata]
 lock-version = "2.1"
-python-versions = ">=3.14,<4.0"
-content-hash = "1d37fae6d39c332bfaf1d63c9356db564e52c1e94d114b8586ee36efe70f785a"
+python-versions = ">=3.11,<4.0"
+content-hash = "291876edcdfe2e97e85525953ba0157d992b86fc7e97f65e42a5afcda160cba9"

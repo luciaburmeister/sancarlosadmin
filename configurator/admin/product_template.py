@@ -43,6 +43,10 @@ class PricingRuleTemplateInline(TabularInline):
     fields = ("name", "expression", "is_active")
     tab=True
 
+    formfield_overrides = {
+        models.TextField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 2})},
+    }
+
 
 @admin.register(ProductTemplate)
 class ProductTemplateAdmin(ModelAdmin):

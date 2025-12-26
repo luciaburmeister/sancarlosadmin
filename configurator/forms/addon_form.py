@@ -25,7 +25,7 @@ class AddonFormsetHelper(FormHelper):
 
 class AddonForm(forms.Form):
     addons = forms.ModelChoiceField(
-        queryset=Component.objects.all(),
+        queryset=Component.objects.filter(component_type="ADD_ON"),
         widget=UnfoldAdminSelect2Widget,
         required=False,
         label="Select Add-ons",

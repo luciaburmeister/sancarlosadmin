@@ -57,6 +57,11 @@ class Material(Timestampable):
 
     def __str__(self):
         return f"[{self.reference_code}] {self.name}"
+
+
+class ComponentType(models.TextChoices):
+    STANDARD = "STANDARD", "Standard"
+    ADD_ON = "ADD_ON", "Add On"
     
 
 class Component(Timestampable):
@@ -89,6 +94,8 @@ class Component(Timestampable):
     )
 
     cost_per_unit = MoneyField(max_digits=10, decimal_places=4, help_text="Base cost from supplier", default_currency="EUR",default=0)
+
+    component_type = models.CharField(max_length=20, choices=ComponentType.choices, default=ComponentType.STANDARD, db_index=True,)
 
     metadata = models.JSONField(default=dict, blank=True)
 

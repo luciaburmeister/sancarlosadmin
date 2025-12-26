@@ -19,9 +19,10 @@ class ComponentAdmin(ModelAdmin):
         "name",
         "material",
         "code",
+        "component_type",
     )
 
-    list_filter = ("material",)
+    list_filter = ("material", "component_type",)
 
     search_fields = (
         "name",
@@ -46,6 +47,7 @@ class ComponentAdmin(ModelAdmin):
                     "material",
                     ("name",
                     "code"),
+                    "component_type", 
                     ("unit_price_expression","cost_per_unit")
                 )
             },

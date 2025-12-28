@@ -46,7 +46,7 @@ class BOMRuleInline(StackedInline):
 
         if obj and obj.production_stages:
             formset.form.base_fields["production_stages"].widget = ArrayWidget(
-                choices=[(s, s) for s in obj.production_stages]
+                choices=[("", "---------")] + [(s, s) for s in obj.production_stages]
             )
 
         return formset

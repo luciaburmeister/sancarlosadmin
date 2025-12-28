@@ -15,7 +15,7 @@ class ParameterValueInline(TabularInline):
     extra = 0
     fields = ("parameter", "value")
     tab = True
-    autocomplete_fields = ["parameter"]
+    readonly_fields = ["parameter"]
     verbose_name = _("Parameter value")
     verbose_name_plural = _("Parameter values")
 class ConfigurationItemInline(TabularInline):

@@ -43,15 +43,11 @@ msgstr "Material"
 msgid "Components"
 msgstr "Componentes"
 
-#, fuzzy
-#| msgid "Product"
 msgid "Production"
-msgstr "Producto"
+msgstr "Producción"
 
-#, fuzzy
-#| msgid "Product Templates"
 msgid "Production Tickets"
-msgstr "Plantillas de Producto"
+msgstr "Tickets de Producción"
 
 msgid "Parameter value"
 msgstr "Valor del parámetro"
@@ -116,10 +112,8 @@ msgstr "Descripción"
 msgid "Ordered list of possible production stages for this product"
 msgstr "Lista ordenada de posibles etapas de producción para este producto"
 
-#, fuzzy
-#| msgid "Product templates"
 msgid "Production Stages"
-msgstr "Plantillas de productos"
+msgstr "Etapas de Producción"
 
 msgid "Image"
 msgstr "Imagen"
@@ -295,18 +289,15 @@ msgstr "En Progreso"
 msgid "Done"
 msgstr "Hecho"
 
-#, fuzzy
-#| msgid "Cancel"
 msgid "Cancelled"
-msgstr "Cancelar"
+msgstr "Cancelado"
 
 msgid "Company-specific context"
 msgstr "Contexto específico de la empresa"
 
 msgid "Contexto"
 msgstr ""
-"Claro, por favor proporciona el texto que necesitas traducir al español "
-"latinoamericano."
+"Contexto"
 
 msgid "Snapshot data (component, dimensions, notes)"
 msgstr "Datos de la instantánea (componente, dimensiones, notas)"
@@ -316,9 +307,6 @@ msgstr "Etapas de producción y progreso por artículo"
 
 msgid "Process Planning"
 msgstr "Planificación del Proceso"
-
-msgid "e.g., SEBASTIAN HERRERO"
-msgstr "e.j., SEBASTIAN HERRERO"
 
 msgid "Phone"
 msgstr "Teléfono"

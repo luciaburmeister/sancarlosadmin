@@ -1,77 +1,85 @@
 from django.db import models
-from inventory.models import Material
-from sales.models import Order
-from djmoney.models.fields import MoneyField
+from django.utils.translation import gettext_lazy as _
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
+from timestamps.models import Timestampable
+from django.contrib.postgres.indexes import GinIndex
 
-class ProductModel(models.Model):
-    """
-    Represents the 'Type' of Excel sheet.
-    e.g., '2 HOJAS ABATIBLES', 'FIJO LAMAS 100', 'CORREDERA'
-    """
-    name = models.CharField(max_length=200)
-    slug = models.SlugField(unique=True)
-    description = models.TextField(blank=True)
+class ProductionTicketStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    IN_PROGRESS = "in_progress", _("In Progress")
+    DONE = "done", _("Done")
+    CANCELLED = "cancelled", _("Cancelled")
+
+class ProductionTicket(Timestampable):
+
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.PROTECT,
+        related_name="production_tickets",
+    )
+    object_id = models.PositiveBigIntegerField()
+    source_object = GenericForeignKey("content_type", "object_id")
+
+    status = models.CharField(
+        max_length=20,
+        choices=ProductionTicketStatus.choices,
+        default=ProductionTicketStatus.PENDING,
+        db_index=True,
+        verbose_name=_("Status")
+    )
+
+    context = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=_("Company-specific context"),
+        verbose_name=_("Contexto")
+    )
+
+
+    def __str__(self):
+        return self.reference
     
-    # Example: 'logic.strategies.TwoLeafDoorStrategy'
-    logic_handler_path = models.CharField(max_length=255, help_text="Path to the python class that calculates cuts")
+    class Meta:
+        indexes = [
+            models.Index(fields=["content_type", "object_id"]),
+            
+        ]
 
-    def __str__(self):
-        return self.name
+class ProductionItemStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    IN_PROGRESS = "in_progress", _("In Progress")
+    DONE = "done", _("Done")
+    CANCELLED = "cancelled", _("Cancelled")
 
-class ManufacturingItem(models.Model):
-    """
-    Represents a specific line item in the Order.
-    Matches the 'MEDIDAS' section of your Excel.
-    """
-    order = models.ForeignKey(Order, related_name='manufacturing_items', on_delete=models.CASCADE)
-    product_model = models.ForeignKey(ProductModel, on_delete=models.PROTECT)
-    width = models.PositiveIntegerField(help_text="Width in mm")
-    height = models.PositiveIntegerField(help_text="Height in mm")
-    quantity = models.PositiveIntegerField(default=1)
-    finish_ral = models.CharField(max_length=50, default="#000000", help_text="Lacado/Color")    
-    observations = models.TextField(blank=True)
+class ProductionItem(Timestampable):
+    ticket = models.ForeignKey(
+        ProductionTicket,
+        on_delete=models.CASCADE,
+        related_name="items",
+    )
 
-    def __str__(self):
-        return f"{self.product_model.name} ({self.width}x{self.height})"
+    data = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=_("Snapshot data (component, dimensions, notes)")
+    )
 
-    def calculate_cut_list(self):
-        """
-        This method would trigger the logic engine (replacing Excel formulas)
-        to generate the CutListEntry objects below.
-        """
-        pass
+    planning = models.JSONField(
+        default=dict,
+        help_text=_("Per-item production stages and progress"),
+        verbose_name=_("Process Planning")
+    )
 
-class CutAngles(models.TextChoices):
-    RECTO = "90/90", "Recto (90/90)"
-    Inglete = "45/45", "Inglete (45/45)"
-    Escuadra = "90/45", "Escuadra (90/45)"
+    status = models.CharField(
+        max_length=20,
+        default=ProductionItemStatus.PENDING,
+        choices=ProductionItemStatus.choices,
+        verbose_name=_("Status")
+    )
 
-class CutListEntry(models.Model):
-    """
-    Represents the calculated rows in your 'DESPIECE' section.
-    This is the output of the system.
-    """
-    manufacturing_item = models.ForeignKey(ManufacturingItem, related_name='cut_list', on_delete=models.CASCADE)
-    material = models.ForeignKey(Material, on_delete=models.PROTECT)
-    
-    description = models.CharField(max_length=100, help_text="e.g. Hoja Lama (Alto)")
-    units_needed = models.DecimalField(max_digits=6, decimal_places=2, help_text="How many pieces")
-    measure_mm = models.PositiveIntegerField(help_text="Length of the cut in mm")
-    cut_type = models.CharField(max_length=10, choices=CutAngles, default='90/90')
-    cost_snapshot = MoneyField(max_digits=10, decimal_places=2, help_text="Cost at time of calculation", default_currency="EUR")
+    class Meta:
+        indexes = [
+            GinIndex(fields=["planning"]),
+        ]
 
-    def __str__(self):
-        return f"{self.description}: {self.units_needed} x {self.measure_mm}mm"
-
-class LaborEntry(models.Model):
-    """
-    Represents the 'CONTROL OPERARIOS' or 'M/O FABRICACION' section.
-    """
-    manufacturing_item = models.ForeignKey(ManufacturingItem, related_name='labor_list', on_delete=models.CASCADE)
-    task_name = models.CharField(max_length=100, help_text="e.g. Corte, Montaje")
-    hours = models.DecimalField(max_digits=5, decimal_places=2)
-    hourly_rate = MoneyField(max_digits=6, decimal_places=2,default_currency="EUR")
-
-    @property
-    def total_cost(self):
-        return self.hours * self.hourly_rate

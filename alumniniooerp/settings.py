@@ -308,6 +308,24 @@ UNFOLD = {
                     },
                 ],
             },
+
+            {
+                "title": _("Production"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Production Tickets"),
+                        "icon": "brick",
+                        "link": reverse_lazy(
+                            "admin:production_productionticket_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "production.view_productionticket"
+                        ),
+                    },
+                ],
+            },
         
         ],
     },

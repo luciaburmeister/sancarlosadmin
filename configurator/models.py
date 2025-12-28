@@ -9,6 +9,7 @@ from .validators import pricing_expression_validator
 from configurator.services import ConfigurationExportService
 from decimal import Decimal
 from django.utils.translation import gettext_lazy as _
+from django.contrib.postgres.fields import ArrayField
 
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")
@@ -54,6 +55,15 @@ class IncompatibilityRule(models.Model):
 class ProductTemplate(models.Model):
     name = models.CharField(max_length=200, verbose_name=_("Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
+    production_stages = ArrayField(
+        base_field=models.CharField(
+            max_length=50
+        ),
+        default=list,
+        blank=True,
+        help_text=_("Ordered list of possible production stages for this product"),
+        verbose_name=_("Production Stages"),
+    )
     image = models.ImageField(
         upload_to="products/",
         blank=True,
@@ -67,6 +77,26 @@ class ProductTemplate(models.Model):
 
     def __str__(self):
         return self.name
+    
+    def clean(self):
+        super().clean()
+
+        if not self.production_stages:
+            return
+
+        stages = [s.strip() for s in self.production_stages]
+
+        if any(not s for s in stages):
+            raise ValidationError(
+                {"production_stages": _("Stage keys cannot be empty.")}
+            )
+
+        if len(stages) != len(set(stages)):
+            raise ValidationError(
+                {"production_stages": _("Stage keys must be unique.")}
+            )
+
+        self.production_stages = stages
 
 class ParameterType(models.TextChoices):
     NUMBER = "number", _("Number")
@@ -169,6 +199,14 @@ class BOMRule(models.Model):
         verbose_name=_("Description")
     )
 
+    production_stages = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text=_("Production stages this component participates in"),
+        verbose_name=_("Production Stages"),
+    )
+
     class Meta:
         verbose_name = _("BOM rule")
         verbose_name_plural = _("BOM rules")
@@ -197,6 +235,14 @@ class BOMRule(models.Model):
                     validate_expression_for_safe_eval(expr)
                 except ValueError as e:
                     errors[field_name] = f"Invalid expression: {e}"
+        if self.production_stages:
+            product_stages = set(self.product.production_stages or [])
+            rule_stages = set(self.production_stages)
+
+            if not rule_stages.issubset(product_stages):
+                errors["production_stages"] = _(
+                    "BOM rule stages must be a subset of the product production stages."
+                )
 
         if errors:
             raise ValidationError(errors)

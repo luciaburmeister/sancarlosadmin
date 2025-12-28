@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-12-20 12:00+0100\n"
+"POT-Creation-Date: 2025-12-28 21:57+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -42,6 +42,16 @@ msgstr "Material"
 
 msgid "Components"
 msgstr "Componentes"
+
+#, fuzzy
+#| msgid "Product"
+msgid "Production"
+msgstr "Producto"
+
+#, fuzzy
+#| msgid "Product Templates"
+msgid "Production Tickets"
+msgstr "Plantillas de Producto"
 
 msgid "Parameter value"
 msgstr "Valor del parámetro"
@@ -103,6 +113,14 @@ msgstr "Nombre"
 msgid "Description"
 msgstr "Descripción"
 
+msgid "Ordered list of possible production stages for this product"
+msgstr "Lista ordenada de posibles etapas de producción para este producto"
+
+#, fuzzy
+#| msgid "Product templates"
+msgid "Production Stages"
+msgstr "Plantillas de productos"
+
 msgid "Image"
 msgstr "Imagen"
 
@@ -111,6 +129,12 @@ msgstr "Plantilla de producto"
 
 msgid "Product templates"
 msgstr "Plantillas de productos"
+
+msgid "Stage keys cannot be empty."
+msgstr "Las claves de etapa no pueden estar vacías."
+
+msgid "Stage keys must be unique."
+msgstr "Las claves de etapa deben ser únicas."
 
 msgid "Number"
 msgstr "Número"
@@ -139,6 +163,12 @@ msgstr "Opciones"
 msgid "Required"
 msgstr "Requerido"
 
+msgid "Sorting Order"
+msgstr "Orden de Clasificación"
+
+msgid "Order of the parameter within the product"
+msgstr "Orden del parámetro dentro del producto"
+
 msgid "Product parameter"
 msgstr "Parámetro del producto"
 
@@ -157,11 +187,19 @@ msgstr "Expresión de cantidad"
 msgid "Length expression"
 msgstr "Expresión de longitud"
 
+msgid "Production stages this component participates in"
+msgstr "Etapas de producción en las que participa este componente"
+
 msgid "BOM rule"
 msgstr "Regla BOM"
 
 msgid "BOM rules"
 msgstr "Reglas de BOM"
+
+msgid "BOM rule stages must be a subset of the product production stages."
+msgstr ""
+"Las etapas de la regla BOM deben ser un subconjunto de las etapas de "
+"producción del producto."
 
 msgid ""
 "Reusable expression.\n"
@@ -247,6 +285,37 @@ msgstr "Seleccionar Producto para Configurar"
 
 msgid "Configure your product"
 msgstr "Configura tu producto"
+
+msgid "Pending"
+msgstr "Pendiente"
+
+msgid "In Progress"
+msgstr "En Progreso"
+
+msgid "Done"
+msgstr "Hecho"
+
+#, fuzzy
+#| msgid "Cancel"
+msgid "Cancelled"
+msgstr "Cancelar"
+
+msgid "Company-specific context"
+msgstr "Contexto específico de la empresa"
+
+msgid "Contexto"
+msgstr ""
+"Claro, por favor proporciona el texto que necesitas traducir al español "
+"latinoamericano."
+
+msgid "Snapshot data (component, dimensions, notes)"
+msgstr "Datos de la instantánea (componente, dimensiones, notas)"
+
+msgid "Per-item production stages and progress"
+msgstr "Etapas de producción y progreso por artículo"
+
+msgid "Process Planning"
+msgstr "Planificación del Proceso"
 
 msgid "e.g., SEBASTIAN HERRERO"
 msgstr "e.j., SEBASTIAN HERRERO"

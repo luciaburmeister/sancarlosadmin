@@ -391,3 +391,6 @@ msgstr "artículo de Presupuesto"
 
 msgid "Quote items"
 msgstr "articulos de Presupuesto"
+
+msgid "Add new item"
+msgstr "Agregar item"

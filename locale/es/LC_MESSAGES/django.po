@@ -394,3 +394,9 @@ msgstr "articulos de Presupuesto"
 
 msgid "Add new item"
 msgstr "Agregar item"
+
+msgid "Computed Variable"
+msgstr "Variable Computada"
+
+msgid "Computed Variables"
+msgstr "Variables Computadas"

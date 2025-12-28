@@ -6,14 +6,15 @@ from django.db import models
 from unfold.widgets import UnfoldAdminTextareaWidget
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
+from django.utils.translation import gettext_lazy as _
 
 
 class ProductComputedVariableInline(TabularInline):
     model = ProductComputedVariable
     extra = 0
     fields = ("name", "expression")
-    verbose_name = "Computed Variable"
-    verbose_name_plural = "Computed Variables"
+    verbose_name = _("Computed Variable")
+    verbose_name_plural = _("Computed Variables")
     tab = True
 
 

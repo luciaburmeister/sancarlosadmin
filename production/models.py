@@ -38,12 +38,17 @@ class ProductionTicket(Timestampable):
 
 
     def __str__(self):
-        return self.reference
+        return str(self.pk)
     
     class Meta:
         indexes = [
             models.Index(fields=["content_type", "object_id"]),
-            
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["content_type", "object_id"],
+                name="unique_production_ticket_per_source"
+            )
         ]
 
 class ProductionItemStatus(models.TextChoices):

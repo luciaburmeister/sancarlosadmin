@@ -10,6 +10,7 @@ from configurator.services import ConfigurationExportService
 from decimal import Decimal
 from django.utils.translation import gettext_lazy as _
 from django.contrib.postgres.fields import ArrayField
+from viewflow.fsm import State
 
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")
@@ -312,12 +313,7 @@ class Configuration(Timestampable):
         verbose_name=_("Product"),
     )
 
-    status = models.CharField(
-        max_length=20,
-        choices=ConfigurationStatus.choices,
-        default=ConfigurationStatus.DRAFT,
-        verbose_name=_("Status"),
-    )
+    status = models.CharField( max_length=20, choices=ConfigurationStatus.choices, default=ConfigurationStatus.DRAFT, verbose_name=_("Status"), )
 
     total_price = MoneyField(
         max_digits=12,
@@ -409,6 +405,7 @@ class Configuration(Timestampable):
                 length=length,
                 unit_price=rule.component.cost_per_unit,
                 is_template_item=True,
+                production_stages=rule.production_stages or [],
             )
             processed.add(item.id)
 
@@ -475,6 +472,47 @@ class Configuration(Timestampable):
 
     def render_export(self, template):
         return ConfigurationExportService.render_html(self, template)
+    
+
+class ConfigurationFlow:
+    state = State(ConfigurationStatus, default=ConfigurationStatus.DRAFT)
+
+    def __init__(self, configuration: Configuration):
+        self.configuration = configuration
+
+    @state.setter()
+    def _set_status(self, value):
+        self.configuration.status = value
+
+    @state.getter()
+    def _get_status(self):
+        return self.configuration.status
+    
+    @state.transition(
+        source=ConfigurationStatus.DRAFT,
+        target=ConfigurationStatus.COMPLETED,
+    )
+    def complete(self):
+        if not self.configuration.items.exists():
+            raise ValidationError(
+                "Cannot complete an empty configuration."
+            )
+    @state.transition(
+        source=ConfigurationStatus.DRAFT,
+        target=ConfigurationStatus.CONVERTED,
+    )
+    def convert(self):
+        from production.services.configuration_to_production import (
+            ConfigurationToProductionService
+        )
+
+        ConfigurationToProductionService.create_ticket(
+            self.configuration
+        )
+
+    @state.on_success()
+    def _persist(self, descriptor, source, target):
+        self.configuration.save(update_fields=["status"])
 
 
 
@@ -533,6 +571,14 @@ class ConfigurationItem(Timestampable):
         decimal_places=5,
         default_currency="EUR",
         verbose_name=_("Unit price")
+    )
+
+    production_stages = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text=_("Production stages inherited from BOM rule"),
+        verbose_name=_("Production stages"),
     )
 
 

@@ -78,6 +78,7 @@ INSTALLED_APPS = [
     'django_extensions',
     'formtools',
     'crispy_forms',
+    'viewflow'
 ]
 
 MIDDLEWARE = [

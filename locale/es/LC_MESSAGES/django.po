@@ -334,3 +334,15 @@ msgstr "artículo de Presupuesto"
 
 msgid "Quote items"
 msgstr "articulos de Presupuesto"
+
+msgid "First"
+msgstr "Primera"
+
+msgid "Next"
+msgstr "Siguiente"
+
+msgid "Last"
+msgstr "Última"
+
+msgid "Page %(number)s of %(total)s."
+msgstr "Página %(number)s de %(total)s."

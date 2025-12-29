@@ -58,24 +58,34 @@
     </div>
     
     <!-- Pagination -->
-    <div class="mt-6 flex items-center justify-center gap-4 text-sm">
+    <div class="pagination mt-6 flex justify-center">
+        <span class="step-links inline-flex items-center gap-3 text-sm">
         {% if page_obj.has_previous %}
+<a href="?page=1"
+                class="px-3 py-1 rounded border hover:bg-gray-100 dark:hover:bg-gray-700">
+                    &laquo; {% trans "First" %}
+                </a>
             <a href="?page={{ page_obj.previous_page_number }}"
-            class="px-3 py-1 rounded border hover:bg-gray-100">
-                Previous
+            class="px-3 py-1 rounded border hover:bg-gray-100 dark:hover:bg-gray-700">
+{% trans "                Previous" %}
             </a>
         {% endif %}
 
-        <span class="text-gray-500">
-            Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
+        <span class="current text-gray-500 dark:text-gray-400 px-2">
+            {% blocktrans with number=page_obj.number total=page_obj.paginator.num_pages %}Page {{ number }} of {{ total }}.{% endblocktrans %}
         </span>
 
         {% if page_obj.has_next %}
             <a href="?page={{ page_obj.next_page_number }}"
-            class="px-3 py-1 rounded border hover:bg-gray-100">
-                Next
+            class="px-3 py-1 rounded border hover:bg-gray-100 dark:hover:bg-gray-700">
+{% trans "                Next" %}
+                </a>
+                <a href="?page={{ page_obj.paginator.num_pages }}"
+                class="px-3 py-1 rounded border hover:bg-gray-100 dark:hover:bg-gray-700">
+                    {% trans "Last" %} &raquo;
             </a>
         {% endif %}
+</span>
     </div>
 
 </div>

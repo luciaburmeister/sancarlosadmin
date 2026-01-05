@@ -1,84 +1,135 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
-from .models import ProductModel, ManufacturingItem, CutListEntry, LaborEntry
-from unfold.widgets import UnfoldAdminColorInputWidget
+from django.utils.translation import gettext_lazy as _
+from production.models import (
+    ProductionTicket,
+    ProductionItem,
+)
+from django.utils.html import format_html
 
-@admin.register(ProductModel)
-class ProductModelAdmin(ModelAdmin):
-    list_display = ["name", "slug", "logic_handler_path"]
-    search_fields = ["name", "description"]
-    prepopulated_fields = {"slug": ("name",)}
-    fieldsets = (
-        (None, {
-            "fields": ("name", "slug", "description")
-        }),
-        ("Logic Configuration", {
-            "classes": ("collapse",),
-            "fields": ("logic_handler_path",),
-            "description": "Path to the Python class that handles the calculation formulas."
-        }),
+
+
+class ProductionItemInline(TabularInline):
+    model = ProductionItem
+    extra = 0
+    show_change_link = True
+    tab=True
+
+    fields = (
+        "status",
+        "planning_display",
+        "data",
+    )
+    readonly_fields = ("planning_display",)
+
+    @admin.display(description=_("Production planning"))
+    def planning_display(self, obj):
+        if not obj.planning:
+            return "-"
+
+        STATUS_COLORS = {
+            "pending": "#9ca3af",       # gray
+            "in_progress": "#f59e0b",   # amber
+            "done": "#10b981",          # green
+            "cancelled": "#ef4444",     # red
+        }
+
+        rows = []
+        for stage, info in obj.planning.items():
+            status = info.get("status", "-")
+            color = STATUS_COLORS.get(status, "#6b7280")
+
+            rows.append(
+                f"""
+                <tr>
+                    <td style="padding:6px 8px; font-weight:600;">
+                        {stage}
+                    </td>
+                    <td style="padding:6px 8px;">
+                        <span style="
+                            display:inline-block;
+                            padding:2px 8px;
+                            border-radius:12px;
+                            font-size:12px;
+                            background-color: {color} !important;
+                            color:white;
+                            text-transform:capitalize;
+                        ">
+                            {_(status.replace("_", " "))}
+                        </span>
+                    </td>
+                </tr>
+                """
+            )
+
+        return format_html(
+            """
+            <div style="
+                border:1px solid #e5e7eb;
+                border-radius:6px;
+                overflow:hidden;
+                background:#fff;
+            ">
+                <table style="
+                    width:100%;
+                    border-collapse:collapse;
+                    font-size:13px;
+                ">
+                    <thead style="background:#f9fafb;">
+                        <tr>
+                            <th style="padding:6px 8px; text-align:left;">Stage</th>
+                            <th style="padding:6px 8px; text-align:left;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {}
+                    </tbody>
+                </table>
+            </div>
+            """,
+            format_html("".join(rows)),
+        )
+
+@admin.register(ProductionTicket)
+class ProductionTicketAdmin(ModelAdmin):
+    list_display = (
+        "id",
+        "status",
+        "created_at",
     )
 
-class CutListEntryInline(TabularInline):
-    model = CutListEntry
-    extra = 0
-    tab = True 
-    fields = [
-        "material", 
-        "description", 
-        "units_needed", 
-        "measure_mm", 
-        "cut_type", 
-        "cost_snapshot"
-    ]
-    autocomplete_fields = ["material"] 
+    list_filter = (
+        "status",
+        "content_type",
+    )
 
-class LaborEntryInline(TabularInline):
-    model = LaborEntry
-    extra = 0
-    tab = True
-    fields = ["task_name", "hours", "hourly_rate"]
-    
+    search_fields = (
+        "object_id",
+    )
 
+    inlines = [ProductionItemInline]
 
-@admin.register(ManufacturingItem)
-class ManufacturingItemAdmin(ModelAdmin):
-    list_display = [
-        "product_model", 
-        "order", 
-        "width", 
-        "height", 
-        "quantity", 
-        "finish_ral"
-    ]
-    list_filter = ["product_model", "finish_ral"]
-    search_fields = ["order__project_name", "observations"]
-    
-    inlines = [CutListEntryInline, LaborEntryInline]
+    readonly_fields = (
+        "content_type",
+        "object_id",
+        "source_object",
+        "created_at",
+        "updated_at",
+    )
 
     fieldsets = (
-        ("Order Context", {
-            "fields": ("order", "product_model")
-        }),
-        ("Dimensions & Specs", {
-            "fields": (("width", "height"), ("quantity", "finish_ral"))
-        }),
-        ("Notes", {
-            "fields": ("observations",)
-        }),
+        (
+            None,
+            {
+                "fields": (
+                    "status",
+                    ("content_type", "object_id"),
+                    "source_object",
+                    "context"
+                )
+            },
+        ),
+
     )
+
     
-    actions = ["calculate_cuts_action"]
-
-    def get_form(self, request, obj=None, **kwargs):
-        form = super().get_form(request, obj, **kwargs)
-        form.base_fields["finish_ral"].widget = UnfoldAdminColorInputWidget()
-        return form
-
-    @admin.action(description="Recalculate Cut Lists for selected items")
-    def calculate_cuts_action(self, request, queryset):
-        count = 0
-        for item in queryset:
-            item.calculate_cut_list()
-            count += 1
-        self.message_user(request, f"Recalculated cuts for {count} items.")

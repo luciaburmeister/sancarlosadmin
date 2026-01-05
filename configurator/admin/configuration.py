@@ -1,6 +1,6 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from configurator.models import Configuration, ConfigurationParameterValue, ConfigurationItem, PricingRuleAssignment
+from configurator.models import Configuration, ConfigurationParameterValue, ConfigurationItem, PricingRuleAssignment, ConfigurationFlow
 from unfold.admin import TabularInline
 from django.urls import path
 from configurator.views import ProductSelectionView, ConfigurationWizardView, ConfigurationExportView
@@ -15,7 +15,7 @@ class ParameterValueInline(TabularInline):
     extra = 0
     fields = ("parameter", "value")
     tab = True
-    autocomplete_fields = ["parameter"]
+    readonly_fields = ["parameter"]
     verbose_name = _("Parameter value")
     verbose_name_plural = _("Parameter values")
 class ConfigurationItemInline(TabularInline):
@@ -60,7 +60,8 @@ class ConfigurationAdmin(ModelAdmin):
     search_fields = ("name", "client__name")
 
     readonly_fields = ("total_price",)
-    actions_row = ["export_configuration_to_template"]
+    actions_row = ["export_configuration_to_template", 
+                   "convert_to_production"]
     autocomplete_fields = ["client","product"]
 
     inlines = [
@@ -131,3 +132,19 @@ class ConfigurationAdmin(ModelAdmin):
     @admin.display(description=_("Total price"))
     def total_price_display(self, obj):
         return obj.total_price
+    
+    @action(
+    description=_("Convert to production"))
+    def convert_to_production(self, request: HttpRequest, object_id: int):
+        config = Configuration.objects.get(pk=object_id)
+        flow = ConfigurationFlow(config)
+
+        flow.convert()
+        self.message_user(
+                request,
+                _("Configuration successfully converted to production."),
+                "success")
+
+        return redirect(
+            reverse("admin:configurator_configuration_change", args=[object_id])
+        )

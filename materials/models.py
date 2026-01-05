@@ -48,7 +48,7 @@ class Material(Timestampable):
 
 
     reference_code = models.CharField(max_length=50, unique=True, help_text="e.g., 4058, 4269")
-    name = models.CharField(max_length=200, help_text="e.g., CERCO 50 mm, LAMA 200")
+    name = models.CharField(max_length=200, help_text="e.g., CERCO 50 mm, LAMA 200",db_index=True)
     category = models.ForeignKey(Category, on_delete=models.PROTECT)
     unit_type = models.CharField(max_length=2, choices=UnitChoices.choices, default='m')
     cost_per_unit = MoneyField(max_digits=10, decimal_places=4, help_text="Base cost from supplier", default_currency="EUR")
@@ -79,7 +79,8 @@ class Component(Timestampable):
 
     name = models.CharField(
         max_length=200,
-        help_text="Human-friendly name, e.g., 'Left Rail', 'Right Rail'"
+        help_text="Human-friendly name, e.g., 'Left Rail', 'Right Rail'",
+        db_index=True
     )
 
     code = models.CharField(

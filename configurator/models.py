@@ -9,6 +9,8 @@ from .validators import pricing_expression_validator
 from configurator.services import ConfigurationExportService
 from decimal import Decimal
 from django.utils.translation import gettext_lazy as _
+from django.contrib.postgres.fields import ArrayField
+from viewflow.fsm import State
 
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")
@@ -54,6 +56,15 @@ class IncompatibilityRule(models.Model):
 class ProductTemplate(models.Model):
     name = models.CharField(max_length=200, verbose_name=_("Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
+    production_stages = ArrayField(
+        base_field=models.CharField(
+            max_length=50
+        ),
+        default=list,
+        blank=True,
+        help_text=_("Ordered list of possible production stages for this product"),
+        verbose_name=_("Production Stages"),
+    )
     image = models.ImageField(
         upload_to="products/",
         blank=True,
@@ -67,6 +78,26 @@ class ProductTemplate(models.Model):
 
     def __str__(self):
         return self.name
+    
+    def clean(self):
+        super().clean()
+
+        if not self.production_stages:
+            return
+
+        stages = [s.strip() for s in self.production_stages]
+
+        if any(not s for s in stages):
+            raise ValidationError(
+                {"production_stages": _("Stage keys cannot be empty.")}
+            )
+
+        if len(stages) != len(set(stages)):
+            raise ValidationError(
+                {"production_stages": _("Stage keys must be unique.")}
+            )
+
+        self.production_stages = stages
 
 class ParameterType(models.TextChoices):
     NUMBER = "number", _("Number")
@@ -169,6 +200,14 @@ class BOMRule(models.Model):
         verbose_name=_("Description")
     )
 
+    production_stages = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text=_("Production stages this component participates in"),
+        verbose_name=_("Production Stages"),
+    )
+
     class Meta:
         verbose_name = _("BOM rule")
         verbose_name_plural = _("BOM rules")
@@ -197,6 +236,14 @@ class BOMRule(models.Model):
                     validate_expression_for_safe_eval(expr)
                 except ValueError as e:
                     errors[field_name] = f"Invalid expression: {e}"
+        if self.production_stages:
+            product_stages = set(self.product.production_stages or [])
+            rule_stages = set(self.production_stages)
+
+            if not rule_stages.issubset(product_stages):
+                errors["production_stages"] = _(
+                    "BOM rule stages must be a subset of the product production stages."
+                )
 
         if errors:
             raise ValidationError(errors)
@@ -266,12 +313,7 @@ class Configuration(Timestampable):
         verbose_name=_("Product"),
     )
 
-    status = models.CharField(
-        max_length=20,
-        choices=ConfigurationStatus.choices,
-        default=ConfigurationStatus.DRAFT,
-        verbose_name=_("Status"),
-    )
+    status = models.CharField( max_length=20, choices=ConfigurationStatus.choices, default=ConfigurationStatus.DRAFT, verbose_name=_("Status"), )
 
     total_price = MoneyField(
         max_digits=12,
@@ -363,6 +405,7 @@ class Configuration(Timestampable):
                 length=length,
                 unit_price=rule.component.cost_per_unit,
                 is_template_item=True,
+                production_stages=rule.production_stages or [],
             )
             processed.add(item.id)
 
@@ -429,6 +472,47 @@ class Configuration(Timestampable):
 
     def render_export(self, template):
         return ConfigurationExportService.render_html(self, template)
+    
+
+class ConfigurationFlow:
+    state = State(ConfigurationStatus, default=ConfigurationStatus.DRAFT)
+
+    def __init__(self, configuration: Configuration):
+        self.configuration = configuration
+
+    @state.setter()
+    def _set_status(self, value):
+        self.configuration.status = value
+
+    @state.getter()
+    def _get_status(self):
+        return self.configuration.status
+    
+    @state.transition(
+        source=ConfigurationStatus.DRAFT,
+        target=ConfigurationStatus.COMPLETED,
+    )
+    def complete(self):
+        if not self.configuration.items.exists():
+            raise ValidationError(
+                "Cannot complete an empty configuration."
+            )
+    @state.transition(
+        source=ConfigurationStatus.DRAFT,
+        target=ConfigurationStatus.CONVERTED,
+    )
+    def convert(self):
+        from production.services.configuration_to_production import (
+            ConfigurationToProductionService
+        )
+
+        ConfigurationToProductionService.create_ticket(
+            self.configuration
+        )
+
+    @state.on_success()
+    def _persist(self, descriptor, source, target):
+        self.configuration.save(update_fields=["status"])
 
 
 
@@ -487,6 +571,14 @@ class ConfigurationItem(Timestampable):
         decimal_places=5,
         default_currency="EUR",
         verbose_name=_("Unit price")
+    )
+
+    production_stages = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text=_("Production stages inherited from BOM rule"),
+        verbose_name=_("Production stages"),
     )
 
 

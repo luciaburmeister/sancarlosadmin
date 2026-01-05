@@ -1,18 +1,9 @@
 from django.contrib import admin
-from unfold.admin import ModelAdmin,TabularInline
+from unfold.admin import ModelAdmin
 from .models import Client, Order
-from production.models import ManufacturingItem
-from unfold.widgets import UnfoldAdminColorInputWidget
-from django.db import models
 
-class ManufacturingItemInline(TabularInline):
-    model = ManufacturingItem
-    extra = 0
-    tab = True
-    fields = ["product_model", "width", "height", "quantity", "finish_ral", "observations"]
-    formfield_overrides = {
-        models.CharField: {"widget": UnfoldAdminColorInputWidget},
-    }
+
+
 @admin.register(Client)
 class ClientAdmin(ModelAdmin):
     list_display = ["name", "phone", "email"]
@@ -42,7 +33,6 @@ class OrderAdmin(ModelAdmin):
     search_fields = ["project_name", "client__name"]
     autocomplete_fields = ["client"]
     readonly_fields = ["date_created", "final_price_display","total_cost_material","total_cost_labor"]
-    inlines = [ManufacturingItemInline]
     fieldsets = (
         ("Project Details", {
             "fields": (

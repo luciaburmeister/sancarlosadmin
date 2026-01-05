@@ -78,6 +78,7 @@ INSTALLED_APPS = [
     'django_extensions',
     'formtools',
     'crispy_forms',
+    'viewflow'
 ]
 
 MIDDLEWARE = [
@@ -211,6 +212,7 @@ USE_I18N = True
 
 USE_TZ = True
 
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 20000
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
@@ -305,6 +307,24 @@ UNFOLD = {
                         "permission": lambda request: request.user.has_perm(
                             "materials.view_component"
                         )
+                    },
+                ],
+            },
+
+            {
+                "title": _("Production"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Production Tickets"),
+                        "icon": "brick",
+                        "link": reverse_lazy(
+                            "admin:production_productionticket_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "production.view_productionticket"
+                        ),
                     },
                 ],
             },

@@ -1,15 +1,15 @@
-from django.views.generic import TemplateView
 from configurator.models import ProductTemplate
 from unfold.views import UnfoldModelAdminViewMixin
 from django.utils.translation import gettext_lazy as _
+from django.views.generic import ListView
+ 
 
-
-class ProductSelectionView(UnfoldModelAdminViewMixin, TemplateView):
+class ProductSelectionView(UnfoldModelAdminViewMixin, ListView):
     title = _("Select Product to Configure")
     permission_required = ('configurator.view_producttemplate') 
     template_name = "configurator/product_selection.html"
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["products"] = ProductTemplate.objects.all()
-        return context
+    model = ProductTemplate
+    paginate_by = 3
+    context_object_name = "products"
+

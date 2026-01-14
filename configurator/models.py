@@ -315,6 +315,14 @@ class Configuration(Timestampable):
 
     status = models.CharField( max_length=20, choices=ConfigurationStatus.choices, default=ConfigurationStatus.DRAFT, verbose_name=_("Status"), )
 
+    total_cost = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Total cost"),
+    )
+
     total_price = MoneyField(
         max_digits=12,
         decimal_places=2,
@@ -368,6 +376,7 @@ class Configuration(Timestampable):
         context = self.get_pricing_context()
 
         total = context["base_total"]
+        
 
         for rule_assignmanet in self.pricing_rules.select_related('rule').filter(enabled=True):
             try:
@@ -377,9 +386,9 @@ class Configuration(Timestampable):
                 raise ValueError(
                     f"Error evaluating rule '{rule_assignmanet}': {exc}"
                 )
-
+        self.total_cost = context["base_total"]
         self.total_price = total
-        self.save(update_fields=["total_price"])
+        self.save(update_fields=["total_price","total_cost"])
 
     def generate_bom(self):
         processed = set()

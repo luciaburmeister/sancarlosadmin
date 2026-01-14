@@ -59,7 +59,7 @@ class ConfigurationAdmin(ModelAdmin):
     list_filter = ("status", "client", "created_at")
     search_fields = ("name", "client__name")
 
-    readonly_fields = ("total_price",)
+    readonly_fields = ("total_price","total_cost")
     actions_row = ["export_configuration_to_template", 
                    "convert_to_production"]
     autocomplete_fields = ["client","product"]
@@ -78,7 +78,9 @@ class ConfigurationAdmin(ModelAdmin):
             ),
         }),
         (_("Pricing"), {
-            "fields": ("total_price",),
+            "fields": (
+                ("total_price","total_cost")
+                ),
         }),
     )
 

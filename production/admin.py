@@ -6,6 +6,12 @@ from production.models import (
     ProductionItem,
 )
 from django.utils.html import format_html
+from django.core.cache import cache
+
+
+TICKET_STAGE_LOOKUPS_KEY = "production:ticket_filters:stages"
+TICKET_STAGE_STATUS_LOOKUPS_KEY = "production:ticket_filters:stage_statuses"
+LOOKUPS_CACHE_TIMEOUT = 60
 
 
 
@@ -90,6 +96,15 @@ class ProductionItemInline(TabularInline):
             format_html("".join(rows)),
         )
 
+        cached = cache.get(TICKET_STAGE_LOOKUPS_KEY)
+        if cached is not None:
+            return cached
+        cache.set(TICKET_STAGE_LOOKUPS_KEY, result, LOOKUPS_CACHE_TIMEOUT)
+        cached = cache.get(TICKET_STAGE_STATUS_LOOKUPS_KEY)
+        if cached is not None:
+            return cached
+        cache.set(TICKET_STAGE_STATUS_LOOKUPS_KEY, result, LOOKUPS_CACHE_TIMEOUT)
+        return result
 @admin.register(ProductionTicket)
 class ProductionTicketAdmin(ModelAdmin):
     list_display = (

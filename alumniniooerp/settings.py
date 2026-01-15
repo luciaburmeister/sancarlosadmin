@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     'django_json_widget',
     "storages",
     'inventory',
+    'invoices',
     'production',
     'sales',
     'materials',

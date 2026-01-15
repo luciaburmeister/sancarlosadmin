@@ -2,7 +2,8 @@ from django.db import models
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 from materials.models import Provider
-from django_countries.fields import CountryField 
+from django_countries.fields import CountryField
+from django.utils.translation import gettext_lazy as _ #for translations 
 
 
 class InvoiceGroup(models.Model):
@@ -19,6 +20,12 @@ class InvoiceGroup(models.Model):
 
 
 
+class PaymentMethod(models.TextChoices):
+    TRANSFER = 'transfer', _('Bank Transfer')  
+    CASH = 'cash', _('Cash')
+    CARD = 'card', _('Credit/Debit Card')
+
+
 class Invoice(models.Model):
     invoice_number = models.CharField(max_length=30) #numero de factura
     date_issued = models.DateField(db_index=True) 
@@ -32,18 +39,13 @@ class Invoice(models.Model):
         null=True, #makes having a group optional
         blank=True
     )
-    # Payment details
-    class PaymentMethod(models.TextChoices):
-        TRANSFER = 'transfer', 'Bank Transfer'
-        CASH = 'cash', 'Cash'
-        CARD = 'card', 'Credit/Debit Card'
     
     payment_method = models.CharField(
         max_length=20,
         choices=PaymentMethod.choices,
         default=PaymentMethod.TRANSFER
     )
-    
+
     observations = models.TextField(blank=True, null=True)
 
     class Meta: #"rulebook", how we store the data

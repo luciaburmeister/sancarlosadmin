@@ -2,7 +2,7 @@ from django.db import models
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 from materials.models import Provider
-
+from django_countries.fields import CountryField 
 
 
 class InvoiceGroup(models.Model):
@@ -33,12 +33,17 @@ class Invoice(models.Model):
         blank=True
     )
     # Payment details
-    PAYMENT_METHOD_CHOICES = [
-        ('transfer', 'Bank Transfer'),
-        ('cash', 'Cash'),
-        ('card', 'Credit/Debit Card'),
-    ]
-    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, default='transfer')
+    class PaymentMethod(models.TextChoices):
+        TRANSFER = 'transfer', 'Bank Transfer'
+        CASH = 'cash', 'Cash'
+        CARD = 'card', 'Credit/Debit Card'
+    
+    payment_method = models.CharField(
+        max_length=20,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.TRANSFER
+    )
+    
     observations = models.TextField(blank=True, null=True)
 
     class Meta: #"rulebook", how we store the data
@@ -60,6 +65,11 @@ class TaxType(models.Model):
         help_text="e.g., VAT, IRPF"
     )
 
+    country = CountryField(
+        default='ES',  # Spain
+        help_text="Country where this tax applies"
+    )
+
     behavior = models.CharField(
         max_length=10,
         default='add',
@@ -78,13 +88,15 @@ class TaxType(models.Model):
 
     is_active = models.BooleanField(default=True)
 
+
+
     class Meta:
         ordering = ['tax_name']
         verbose_name = "Tax Type"
         verbose_name_plural = "Tax Types"
     
     def __str__(self):
-        return self.tax_name
+        return f"{self.tax_name} ({self.country.name})"
     
     def get_percentage_choices(self):
         """

@@ -6,7 +6,7 @@ from production.models import (
     ProductionItem,
 )
 from django.utils.html import format_html
-
+from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
 
 
 class ProductionItemInline(TabularInline):
@@ -90,6 +90,7 @@ class ProductionItemInline(TabularInline):
             format_html("".join(rows)),
         )
 
+
 @admin.register(ProductionTicket)
 class ProductionTicketAdmin(ModelAdmin):
     list_display = (
@@ -99,6 +100,8 @@ class ProductionTicketAdmin(ModelAdmin):
     )
 
     list_filter = (
+        TicketStageFilter,
+        TicketStageStatusFilter,
         "status",
         "content_type",
     )
@@ -130,6 +133,4 @@ class ProductionTicketAdmin(ModelAdmin):
             },
         ),
 
-    )
-
-    
+    )   

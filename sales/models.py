@@ -23,6 +23,11 @@ class Client(Timestampable):
         blank=True,
         verbose_name=_("Address"),
     )
+    tax_id = models.CharField(
+        max_length=25,
+        blank=True,
+        verbose_name=_("Tax ID"),
+    )
 
     class Meta:
         verbose_name = _("Client")

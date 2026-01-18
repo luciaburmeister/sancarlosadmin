@@ -3,8 +3,10 @@ from django.core.validators import MinValueValidator
 from decimal import Decimal
 from materials.models import Provider
 from django_countries.fields import CountryField
-from django.utils.translation import gettext_lazy as _ #for translations 
-
+from django.utils.translation import gettext_lazy as _ 
+from django.core.exceptions import ValidationError
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 
 class InvoiceGroup(models.Model):
     """Categories to classify invoices"""
@@ -31,7 +33,7 @@ class Invoice(models.Model):
     date_issued = models.DateField(db_index=True) 
     due_date = models.DateField() #fecha de vencimiento
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT) 
-    # Classification
+    
     group = models.ForeignKey(
         InvoiceGroup, 
         on_delete=models.PROTECT, 
@@ -57,124 +59,132 @@ class Invoice(models.Model):
     def __str__(self):
         return f"{self.invoice_number} - {self.provider}"
     
+    def get_taxes(self):
+        ct = ContentType.objects.get_for_model(self)
+        return AppliedTax.objects.filter(
+            content_type=ct,
+            object_id=self.pk
+        ).select_related("tax_type").order_by("order")
+
+    def apply_taxes(self, base_amount: Decimal) -> Decimal:
+        total = base_amount
+
+        for tax in self.get_taxes():
+            result = tax.calculate(total)
+            total = result["total_amount"]
+
+        return total
+    
 
  
 class TaxType(models.Model):
-    """Stores different tax types (VAT, IRPF, etc.) with their rate options"""
+    """
+    Stores different tax types (VAT, IRPF, etc.) with their rate options.
+    This is a tax definition (rules + allowed rates).
+    """
     tax_name = models.CharField(
-        max_length=50, 
-        unique=True, 
+        max_length=50,
         help_text="e.g., VAT, IRPF"
     )
 
     country = CountryField(
-        default='ES',  # Spain
+        default="ES",
         help_text="Country where this tax applies"
     )
 
     behavior = models.CharField(
         max_length=10,
-        default='add',
-        help_text="Whether this tax adds or subtracts from the base (backend only)"
+        choices=[("add", _("Add")), ("subtract", _("Subtract"))],
+        default="add",
+        help_text="Whether this tax adds or subtracts from the base"
     )
 
     percentage_options = models.JSONField(
+        default=list,
         help_text="Available percentage rates as a list, e.g., [0, 4, 10, 21]"
     )
 
     default_percentage = models.DecimalField(
-        max_digits=5, 
+        max_digits=5,
         decimal_places=2,
-        help_text="Default percentage when creating new invoice tax"
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="Default percentage when applying this tax"
     )
 
     is_active = models.BooleanField(default=True)
 
-
-
     class Meta:
-        ordering = ['tax_name']
+        ordering = ["tax_name"]
         verbose_name = "Tax Type"
         verbose_name_plural = "Tax Types"
-    
+        unique_together = ("tax_name", "country")  # ✅ important for multi-country
+
     def __str__(self):
-        return f"{self.tax_name} ({self.country.name})"
-    
+        return f"{self.tax_name} ({self.country.code})"
+
     def get_percentage_choices(self):
-        """
-        Returns Django-compatible choices for the percentage dropdown
-        Format: [(0, '0%'), (4, '4%'), (10, '10%'), (21, '21%')]
-        """
-        return [(Decimal(str(rate)), f"{rate}%") for rate in self.percentage_options]
+        return [(Decimal(str(rate)), f"{rate}%") for rate in (self.percentage_options or [])]
 
 
+class AppliedTax(models.Model):
+    """
+    A tax applied to ANY entity (Invoice, Provider, ProductTemplate, Configuration, etc.)
+    via a GenericForeignKey.
+    """
 
-class InvoiceTax(models.Model):
-    """Tax calculations for each invoice"""
-    #if the invoice is deleted, delete the tax records too
-    invoice = models.ForeignKey( Invoice, on_delete=models.CASCADE, related_name='taxes')
-
-    # Base amount for this tax calculation
-    tax_base = models.DecimalField(
-        max_digits=12, 
-        decimal_places=2, 
-        validators=[MinValueValidator(Decimal('0.00'))],
-        help_text="Base amount to calculate tax on"
-    )
-
-    # Step 1: User selects tax type (VAT, IRPF, etc.)
     tax_type = models.ForeignKey(
-        TaxType, 
-        on_delete=models.PROTECT, 
-        related_name='invoice_taxes',
-        help_text="Select the tax type"
+        TaxType,
+        on_delete=models.PROTECT,
+        related_name="applied_taxes",
     )
 
-    # Step 2: User selects percentage from available options
     selected_percentage = models.DecimalField(
-        max_digits=5, 
+        max_digits=5,
         decimal_places=2,
-        validators=[MinValueValidator(Decimal('0.00'))],
-        help_text="Selected tax rate percentage"
+        validators=[MinValueValidator(Decimal("0.00"))],
     )
 
-    # Auto-calculated fields
-    tax_amount = models.DecimalField(
-        max_digits=12, 
-        decimal_places=2, 
-        editable=False,
-        help_text="Calculated: tax_base * (selected_percentage/100)"
-    )
-
-    total_amount = models.DecimalField(
-        max_digits=12, 
-        decimal_places=2, 
-        editable=False,
-        help_text="Calculated: tax_base ± tax_amount (based on behavior)"
-    )
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.PositiveIntegerField()
+    content_object = GenericForeignKey("content_type", "object_id")
+    order = models.PositiveIntegerField(default=0,db_index=True)
 
     class Meta:
-        ordering = ['invoice', 'tax_type']
-        verbose_name = "Invoice Tax"
-        verbose_name_plural = "Invoice Taxes"
-        unique_together = ['invoice', 'tax_type']
+        verbose_name = "Applied Tax"
+        verbose_name_plural = "Applied Taxes"
+        ordering = ["content_type", "object_id", "order", "tax_type"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["content_type", "object_id", "tax_type"],
+                name="uniq_tax_per_object",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["content_type", "object_id"]),
+            models.Index(fields=["content_type", "object_id","order"]),
+        ]
 
     def __str__(self):
-        return f"{self.invoice.invoice_number} - {self.tax_type.tax_name} ({self.selected_percentage}%)"
+        return f"{self.content_object} – {self.tax_type} ({self.selected_percentage}%)"
 
-    def save(self, *args, **kwargs):
-        """Auto-calculate tax_amount and total_amount"""
-        # Calculate tax amount
-        rate_decimal = self.selected_percentage / Decimal('100')
-        self.tax_amount = (self.tax_base * rate_decimal).quantize(Decimal('0.01'))
-        
-        # Apply based on behavior (add or subtract)
-        if self.tax_type.behavior == 'add':
-            self.total_amount = (self.tax_base + self.tax_amount).quantize(Decimal('0.01'))
-        else:  # subtract
-            self.total_amount = (self.tax_base - self.tax_amount).quantize(Decimal('0.01'))
-        
-        super().save(*args, **kwargs)
+    def calculate(self, base_amount: Decimal) -> dict:
+        """
+        Returns:
+        {
+            tax_amount: Decimal,
+            total_amount: Decimal
+        }
+        """
+        base_amount = Decimal(base_amount)
+        rate = self.selected_percentage / Decimal("100")
+        tax_amount = (base_amount * rate).quantize(Decimal("0.01"))
 
+        if self.tax_type.behavior == "add":
+            total = base_amount + tax_amount
+        else:
+            total = base_amount - tax_amount
 
-
+        return {
+            "tax_amount": tax_amount,
+            "total_amount": total.quantize(Decimal("0.01")),
+        }

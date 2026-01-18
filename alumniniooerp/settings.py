@@ -81,6 +81,7 @@ INSTALLED_APPS = [
     'crispy_forms',
     'viewflow',
     'django_countries',
+    'company'
 ]
 
 MIDDLEWARE = [

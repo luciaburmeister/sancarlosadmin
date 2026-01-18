@@ -4,8 +4,9 @@ from djmoney.models.fields import MoneyField
 from django.db.models.functions import Lower
 from django.db.models import Index
 from configurator.utils import validate_expression_for_safe_eval,safe_eval
+from company.models import CompanyOwnedModel
 
-class Provider(Timestampable):
+class Provider(Timestampable,CompanyOwnedModel):
     name = models.CharField(max_length=200, db_index=True)
     contact = models.CharField(max_length=200, blank=True)
     phone = models.CharField(max_length=50, blank=True)
@@ -21,7 +22,7 @@ class Provider(Timestampable):
             Index(Lower("name"), name="provider_name_ci_idx")
         ]
 
-class Category(Timestampable):
+class Category(Timestampable,CompanyOwnedModel):
     """
     E.g., 'Aluminum Profiles', 'Hardware', 'Paint', 'Labor'
     """
@@ -40,7 +41,7 @@ class UnitChoices(models.TextChoices):
     HOURS = "h"
     M2 = "m2"
 
-class Material(Timestampable):
+class Material(Timestampable,CompanyOwnedModel):
     """
     Represents the database of items found in your 'MATERIALES' section.
     Matches Excel columns: REFERENCIA, PRECIO.
@@ -64,7 +65,7 @@ class ComponentType(models.TextChoices):
     ADD_ON = "ADD_ON", "Add On"
     
 
-class Component(Timestampable):
+class Component(Timestampable,CompanyOwnedModel):
     """
     A re-usable building block derived from a Material.
     Allows multiple components per material with custom logic,

@@ -11,13 +11,16 @@ from decimal import Decimal
 from django.utils.translation import gettext_lazy as _
 from django.contrib.postgres.fields import ArrayField
 from viewflow.fsm import State
+from company.models import CompanyOwnedModel
+from invoices.models import AppliedTax
+from django.contrib.contenttypes.models import ContentType
 
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")
     COMPLETED = "completed", _("Completed")
     CONVERTED = "converted", _("Converted to Quote")
 
-class IncompatibilityRule(models.Model):
+class IncompatibilityRule(CompanyOwnedModel):
     """
     Material A is incompatible with Material B.
     """
@@ -53,7 +56,7 @@ class IncompatibilityRule(models.Model):
 
 
     
-class ProductTemplate(models.Model):
+class ProductTemplate( CompanyOwnedModel):
     name = models.CharField(max_length=200, verbose_name=_("Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
     production_stages = ArrayField(
@@ -167,7 +170,7 @@ class ProductParameter(models.Model):
         # TEXT or SELECT
         return raw_value
 
-class BOMRule(models.Model):
+class BOMRule(CompanyOwnedModel):
     product = models.ForeignKey(
         ProductTemplate,
         on_delete=models.CASCADE,
@@ -249,7 +252,7 @@ class BOMRule(models.Model):
             raise ValidationError(errors)
 
 
-class PricingRuleTemplate(models.Model):
+class PricingRuleTemplate(CompanyOwnedModel):
     """
     A reusable pricing rule template that can be applied
     to many configurations.
@@ -323,12 +326,30 @@ class Configuration(Timestampable):
         verbose_name=_("Total cost"),
     )
 
+    subtotal_price = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Subtotal (before tax)"),
+    )
+
     total_price = MoneyField(
         max_digits=12,
         decimal_places=2,
         default=0,
         default_currency="EUR",
-        verbose_name=_("Total price"),
+        verbose_name=_("Total price (after tax)"),
+    )
+
+    tax_breakdown = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name=_("Tax breakdown"),
+        help_text=_(
+            "Snapshot of tax calculations at pricing time. "
+            "Used for exports and auditing."
+        ),
     )
 
     class Meta:
@@ -367,28 +388,58 @@ class Configuration(Timestampable):
         context = self.evaluate_computed_variables(context)
 
         return context
+    
+    def calculate_taxes_and_snapshot(self, base_amount: Decimal):
+        """
+        Applies taxes sequentially and returns:
+        - final total
+        - tax breakdown snapshot (JSON-serializable)
+        """
+        breakdown = []
+        total = Decimal(base_amount)
 
+        for tax in self.get_taxes():
+            result = tax.calculate(total)
+
+            breakdown.append({
+                "tax_name": tax.tax_type.tax_name,
+                "percentage": str(tax.selected_percentage),
+                "base": str(total.quantize(Decimal("0.01"))),
+                "tax_amount": str(result["tax_amount"]),
+                "total_after_tax": str(result["total_amount"]),
+            })
+
+            total = result["total_amount"]
+
+        return total, breakdown
 
     def recalculate_price(self):
-        """
-        Evaluates all PricingRules and updates the total price.
-        """
         context = self.get_pricing_context()
-
-        total = context["base_total"]
-        
-
-        for rule_assignmanet in self.pricing_rules.select_related('rule').filter(enabled=True):
-            try:
-                adjustment = safe_eval(rule_assignmanet.rule.expression, context)
-                total += adjustment
-            except Exception as exc:
-                raise ValueError(
-                    f"Error evaluating rule '{rule_assignmanet}': {exc}"
-                )
         self.total_cost = context["base_total"]
+        subtotal = context["base_total"]
+
+        for rule_assignment in self.pricing_rules.select_related("rule").filter(enabled=True):
+            adjustment = safe_eval(rule_assignment.rule.expression, context)
+            subtotal += adjustment
+
+        self.subtotal_price = subtotal
+
+        total = subtotal
+
+        total, breakdown = self.calculate_taxes_and_snapshot(subtotal)
+
         self.total_price = total
-        self.save(update_fields=["total_price","total_cost"])
+        self.tax_breakdown = breakdown
+
+        self.save(
+            update_fields=[
+                "total_cost",
+                "subtotal_price",
+                "total_price",
+                "tax_breakdown",
+            ]
+        )
+
 
     def generate_bom(self):
         processed = set()
@@ -474,6 +525,36 @@ class Configuration(Timestampable):
             )
 
         return context
+    
+    def copy_default_taxes_from_product(self):
+        if not self.product_id:
+            return
+
+        product_ct = ContentType.objects.get_for_model(self.product)
+        config_ct = ContentType.objects.get_for_model(self)
+
+        defaults = AppliedTax.objects.filter(
+            content_type=product_ct,
+            object_id=self.product_id,
+        )
+
+        for tax in defaults:
+            AppliedTax.objects.get_or_create(
+                content_type=config_ct,
+                object_id=self.pk,
+                tax_type=tax.tax_type,
+                defaults={
+                    "selected_percentage": tax.selected_percentage,
+                    "order": tax.order,
+                },
+            )
+
+    def get_taxes(self):
+        ct = ContentType.objects.get_for_model(self)
+        return AppliedTax.objects.filter(
+            content_type=ct,
+            object_id=self.pk,
+        ).select_related("tax_type").order_by("order")
 
     
     def available_export_templates(self):
@@ -646,7 +727,7 @@ class ConfigurationParameterValue(models.Model):
     def __str__(self):
         return f"{self.parameter.name} = {self.value}"
     
-class ProductComputedVariable(models.Model):
+class ProductComputedVariable(CompanyOwnedModel):
     product = models.ForeignKey(
         ProductTemplate,
         on_delete=models.CASCADE,
@@ -676,7 +757,7 @@ class ProductComputedVariable(models.Model):
                 {"expression": f"Invalid expression: {e}"}
             )
 
-class ConfigurationExportTemplate(models.Model):
+class ConfigurationExportTemplate(CompanyOwnedModel):
     product = models.ForeignKey(
         ProductTemplate,
         on_delete=models.CASCADE,

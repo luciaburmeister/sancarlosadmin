@@ -1,12 +1,27 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 from configurator.models import ProductTemplate, ProductParameter, BOMRule, PricingRuleTemplate, ProductComputedVariable
-from unfold.admin import TabularInline,StackedInline
+from unfold.admin import TabularInline,StackedInline,GenericTabularInline
 from django.db import models
 from unfold.widgets import UnfoldAdminTextareaWidget
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
 from django.utils.translation import gettext_lazy as _
+
+from invoices.models import AppliedTax
+
+class AppliedTaxInline(GenericTabularInline):
+    ordering_field = "order"
+    hide_ordering_field=True
+    model = AppliedTax
+    extra = 0
+    autocomplete_fields = ("tax_type",)
+    ordering = ("order",)
+    fields = ("tax_type", "selected_percentage", "order")
+    verbose_name = _("Applied tax")
+    verbose_name_plural = _("Applied taxes")
+    tab = True
+
 
 
 class ProductComputedVariableInline(TabularInline):
@@ -81,6 +96,7 @@ class ProductTemplateAdmin(ModelAdmin):
         ProductComputedVariableInline,
         BOMRuleInline,
         PricingRuleTemplateInline,
+        AppliedTaxInline, 
     ]
 
     fieldsets = (

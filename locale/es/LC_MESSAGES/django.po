@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2025-12-28 21:57+0100\n"
+"POT-Creation-Date: 2026-01-18 17:30+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -49,6 +49,24 @@ msgstr "Producción"
 msgid "Production Tickets"
 msgstr "Tickets de Producción"
 
+msgid "Commercial Name"
+msgstr "Nombre Comercial"
+
+msgid "Legal Name"
+msgstr "Nombre legal"
+
+msgid "Activo"
+msgstr "Activo"
+
+msgid "Logo"
+msgstr "Logotipo"
+
+msgid "Applied tax"
+msgstr "Impuesto aplicado"
+
+msgid "Applied taxes"
+msgstr "Impuestos aplicados"
+
 msgid "Parameter value"
 msgstr "Valor del parámetro"
 
@@ -67,6 +85,9 @@ msgstr "Asignación de reglas de precios"
 msgid "Pricing rule assignments"
 msgstr "Asignaciones de reglas de precios"
 
+msgid "Status"
+msgstr "Estado"
+
 msgid "Configuration"
 msgstr "Configuración"
 
@@ -78,6 +99,20 @@ msgstr "Exportar HTML"
 
 msgid "Total price"
 msgstr "Precio total"
+
+#, fuzzy
+#| msgid "In production"
+msgid "Convert to production"
+msgstr "En producción"
+
+msgid "Configuration successfully converted to production."
+msgstr "La configuración se ha convertido con éxito a producción."
+
+msgid "Computed Variable"
+msgstr "Variable Computada"
+
+msgid "Computed Variables"
+msgstr "Variables Computadas"
 
 msgid "Draft"
 msgstr "Borrador"
@@ -230,8 +265,27 @@ msgstr "Cliente"
 msgid "Internal label for this configuration"
 msgstr "Etiqueta interna para esta configuración"
 
-msgid "Status"
-msgstr "Estado"
+#, fuzzy
+#| msgid "Material cost"
+msgid "Total cost"
+msgstr "Costo de material"
+
+msgid "Subtotal (before tax)"
+msgstr "Subtotal (antes de impuestos)"
+
+#, fuzzy
+#| msgid "Total price"
+msgid "Total price (after tax)"
+msgstr "Precio total"
+
+msgid "Tax breakdown"
+msgstr "Desglose de impuestos"
+
+msgid ""
+"Snapshot of tax calculations at pricing time. Used for exports and auditing."
+msgstr ""
+"Instantánea de cálculos fiscales en el momento de la fijación de precios. "
+"Usado para exportaciones y auditorías."
 
 msgid "Configurations"
 msgstr "Configuraciones"
@@ -259,11 +313,34 @@ msgstr "Total de la línea"
 msgid "Unit price"
 msgstr "Precio unitario"
 
+#, fuzzy
+#| msgid "Per-item production stages and progress"
+msgid "Production stages inherited from BOM rule"
+msgstr "Etapas de producción y progreso por artículo"
+
+#, fuzzy
+#| msgid "Production Stages"
+msgid "Production stages"
+msgstr "Etapas de Producción"
+
 msgid "Submit form"
 msgstr "Enviar formulario"
 
+msgid "First"
+msgstr "Primera"
+
 msgid "Previous"
 msgstr "Anterior"
+
+#, python-format
+msgid "Page %(number)s of %(total)s."
+msgstr "Página %(number)s de %(total)s."
+
+msgid "Next"
+msgstr "Siguiente"
+
+msgid "Last"
+msgstr "Última"
 
 msgid "Cancel"
 msgstr "Cancelar"
@@ -274,11 +351,47 @@ msgstr "Siguiente paso"
 msgid "Finish"
 msgstr "Terminar"
 
+msgid "Yes"
+msgstr "Sí"
+
+msgid "No"
+msgstr "No"
+
 msgid "Select Product to Configure"
 msgstr "Seleccionar Producto para Configurar"
 
 msgid "Configure your product"
 msgstr "Configura tu producto"
+
+msgid "Bank Transfer"
+msgstr "Transferencia Bancaria"
+
+msgid "Cash"
+msgstr "Efectivo"
+
+msgid "Credit/Debit Card"
+msgstr "Tarjeta de crédito/débito"
+
+#, fuzzy
+#| msgid "Address"
+msgid "Add"
+msgstr "Dirección"
+
+msgid "Subtract"
+msgstr "Restar"
+
+#, fuzzy
+#| msgid "Production Stages"
+msgid "Production planning"
+msgstr "Etapas de Producción"
+
+msgid "Stage"
+msgstr "Etapa"
+
+#, fuzzy
+#| msgid "Status"
+msgid "Stage status"
+msgstr "Estado"
 
 msgid "Pending"
 msgstr "Pendiente"
@@ -296,8 +409,7 @@ msgid "Company-specific context"
 msgstr "Contexto específico de la empresa"
 
 msgid "Contexto"
-msgstr ""
-"Contexto"
+msgstr "Contexto"
 
 msgid "Snapshot data (component, dimensions, notes)"
 msgstr "Datos de la instantánea (componente, dimensiones, notas)"
@@ -308,6 +420,9 @@ msgstr "Etapas de producción y progreso por artículo"
 msgid "Process Planning"
 msgstr "Planificación del Proceso"
 
+msgid "e.g., SEBASTIAN HERRERO"
+msgstr "e.j., SEBASTIÁN HERRERO"
+
 msgid "Phone"
 msgstr "Teléfono"
 
@@ -316,6 +431,9 @@ msgstr "Correo electrónico"
 
 msgid "Address"
 msgstr "Dirección"
+
+msgid "Tax ID"
+msgstr "ID de impuesto"
 
 msgid "Clients"
 msgstr "Clientes"
@@ -392,22 +510,5 @@ msgstr "artículo de Presupuesto"
 msgid "Quote items"
 msgstr "articulos de Presupuesto"
 
-msgid "First"
-msgstr "Primera"
-
-msgid "Next"
-msgstr "Siguiente"
-
-msgid "Last"
-msgstr "Última"
-
-msgid "Page %(number)s of %(total)s."
-msgstr "Página %(number)s de %(total)s."
-msgid "Add new item"
-msgstr "Agregar item"
-
-msgid "Computed Variable"
-msgstr "Variable Computada"
-
-msgid "Computed Variables"
-msgstr "Variables Computadas"
+#~ msgid "Add new item"
+#~ msgstr "Agregar item"

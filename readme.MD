@@ -1,6 +1,6 @@
 For more translations
 django-admin makemessages -l es --no-location --no-wrap
-
+django-admin.py compilemessages
 
 ⚙️ How it all works together
 Step 1

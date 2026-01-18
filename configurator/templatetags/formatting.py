@@ -11,8 +11,8 @@ def yesno_i18n(value):
     True  -> Yes / Sí
     False -> No
     """
-    if value is "True":
+    if value == "True":
         return _("Yes")
-    if value is "False":
+    if value == "False":
         return _("No")
     return value

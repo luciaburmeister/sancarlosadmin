@@ -1,0 +1,17 @@
+{% load static %}
+{% load formatting %} 
+
+<!DOCTYPE html>
+<html lang="{{ LANGUAGE_CODE }}">
+<head>
+  <meta charset="utf-8">
+
+  <style>
+    {{ css|safe }}
+  </style>
+</head>
+
+<body>
+  {{ body|safe }}
+</body>
+</html>

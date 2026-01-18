@@ -94,7 +94,7 @@ class ConfigurationAdmin(ModelAdmin):
         },
     )
     def show_status_customized_color(self, obj):
-        return obj.get_status_display()
+        return _(obj.get_status_display())
 
     fieldsets = (
         (_("Configuration"), {

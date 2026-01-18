@@ -6,10 +6,14 @@ User = get_user_model()
 
 
 class Company(models.Model):
-    name = models.CharField(max_length=200,verbose_name=_("Commercial Name"))
-    legal_name = models.CharField(max_length=200, blank=True,verbose_name=_("Legal Name"))
+    name = models.CharField(max_length=100,verbose_name=_("Commercial Name"))
+    legal_name = models.CharField(max_length=100, blank=True,verbose_name=_("Legal Name"))
     is_active = models.BooleanField(default=True,verbose_name=_("Activo"))
     logo = models.ImageField(verbose_name=_("Logo"),upload_to="logos")
+    address = models.CharField(max_length=200,blank=True,null=True,verbose_name=_("Address"))
+    email = models.CharField(max_length=80,blank=True,null=True,verbose_name=_("Email"))
+    phone = models.CharField(max_length=18,blank=True,null=True,verbose_name=_("Phone"))
+
 
     def __str__(self):
         return self.name

@@ -24,6 +24,8 @@ class ComponentAdmin(ModelAdmin):
 
     list_filter = ("material", "component_type",)
 
+    list_select_related = ["material"]
+
     search_fields = (
         "name",
         "code",

@@ -106,7 +106,7 @@ class Component(Timestampable,CompanyOwnedModel):
         ordering = ["material__name", "name"]
 
     def __str__(self):
-        return f"{self.material.reference_code} – {self.name}"
+        return f"{self.name}"
     
     def compute_unit_price(self, context: dict | None = None):
         """

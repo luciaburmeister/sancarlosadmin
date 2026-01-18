@@ -706,7 +706,7 @@ class PricingRuleAssignment(models.Model):
         unique_together = ("configuration", "rule")
 
     def __str__(self):
-        return f"{self.configuration} → {self.rule}"
+        return f"{self.configuration_id} → {self.rule}"
     
 
 class ConfigurationParameterValue(models.Model):

@@ -22,6 +22,8 @@ class AppliedTaxInline(GenericTabularInline):
     verbose_name = _("Applied tax")
     verbose_name_plural = _("Applied taxes")
     tab = True
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("tax_type")
 
 class ParameterValueInline(TabularInline):
     model = ConfigurationParameterValue
@@ -31,6 +33,9 @@ class ParameterValueInline(TabularInline):
     readonly_fields = ["parameter"]
     verbose_name = _("Parameter value")
     verbose_name_plural = _("Parameter values")
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("parameter")
 class ConfigurationItemInline(TabularInline):
     model = ConfigurationItem
     extra = 0
@@ -48,6 +53,9 @@ class ConfigurationItemInline(TabularInline):
     verbose_name = _("Configuration item")
     verbose_name_plural = _("Configuration items")
 
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("component__material")
+
 class PricingRuleAssignmentInline(TabularInline):
     model = PricingRuleAssignment
     extra = 0
@@ -55,6 +63,7 @@ class PricingRuleAssignmentInline(TabularInline):
     tab = True
     verbose_name = _("Pricing rule assignment")
     verbose_name_plural = _("Pricing rule assignments")
+
 
 
 
@@ -71,6 +80,8 @@ class ConfigurationAdmin(ModelAdmin):
 
     list_filter = ("status", "client", "created_at")
     search_fields = ("name", "client__name")
+
+    list_select_related = ["client"]
 
     readonly_fields = ("total_price","total_cost","subtotal_price")
     actions_row = ["export_configuration_to_template", 

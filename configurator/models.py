@@ -386,6 +386,16 @@ class PricingRuleTemplate(CompanyOwnedModel):
 
     is_active = models.BooleanField(default=True, verbose_name=_("Is active"))
 
+    label = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text=_("Human-readable label for exports (e.g. Margin, Discount)"),
+        verbose_name=_("Label"),
+        null=True
+    )
+
+    show_in_export = models.BooleanField(default=False, verbose_name=_("Show in export"))
+
     class Meta:
         verbose_name = _("Pricing rule template")
         verbose_name_plural = _("Pricing rule templates")
@@ -455,6 +465,16 @@ class Configuration(Timestampable):
         ),
     )
 
+    pricing_breakdown = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name=_("Pricing breakdown"),
+        help_text=_(
+            "Snapshot of pricing rule calculations at pricing time. "
+            "Used for exports and auditing."
+        ),
+    )
+
     class Meta:
         verbose_name = _("Configuration")
         verbose_name_plural = _("Configurations")
@@ -519,11 +539,28 @@ class Configuration(Timestampable):
     def recalculate_price(self):
         context = self.get_pricing_context()
         self.total_cost = context["base_total"]
-        subtotal = context["base_total"]
+        subtotal = Decimal(str(context["base_total"]))
+        pricing_breakdown = []
 
-        for rule_assignment in self.pricing_rules.select_related("rule").filter(enabled=True):
-            adjustment = safe_eval(rule_assignment.rule.expression, context)
-            subtotal += adjustment
+        for assignment in (
+            self.pricing_rules
+            .select_related("rule")
+            .filter(enabled=True)
+        ):
+            rule = assignment.rule
+
+            amount = safe_eval(rule.expression, context)
+            amount = Decimal(str(amount))
+
+            if rule.show_in_export:
+                pricing_breakdown.append({
+                "label": rule.label or rule.name,
+                "expression": rule.expression,
+                "base": str(subtotal.quantize(Decimal("0.01"))),
+                "amount": str(amount.quantize(Decimal("0.01"))),
+            })
+            subtotal += amount
+            context["base_total"] = float(subtotal)
 
         self.subtotal_price = subtotal
 
@@ -533,12 +570,14 @@ class Configuration(Timestampable):
 
         self.total_price = total
         self.tax_breakdown = breakdown
+        self.pricing_breakdown = pricing_breakdown
 
         self.save(
             update_fields=[
                 "total_cost",
                 "subtotal_price",
                 "total_price",
+                "pricing_breakdown",
                 "tax_breakdown",
             ]
         )

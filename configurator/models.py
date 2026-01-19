@@ -582,9 +582,8 @@ class Configuration(Timestampable):
 
         self.total_price = total
         self.tax_breakdown = tax_breakdown
-
         self.pricing_breakdown = {
-            "pre_discount_subtotal": str(pre_discount_subtotal.quantize(Decimal("0.01"))),
+            "pre_discount_subtotal": str((self.total_cost.amount + pre_discount_subtotal).quantize(Decimal("0.01"))),
             "discount_total": str(discount_total.quantize(Decimal("0.01"))),
             "post_discount_subtotal": str(subtotal.quantize(Decimal("0.01"))),
             "lines": pricing_breakdown,

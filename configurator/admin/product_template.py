@@ -7,8 +7,10 @@ from unfold.widgets import UnfoldAdminTextareaWidget
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
 from django.utils.translation import gettext_lazy as _
-
+from django.shortcuts import redirect
+from django.urls import reverse
 from invoices.models import AppliedTax
+from unfold.decorators import action
 
 class AppliedTaxInline(GenericTabularInline):
     ordering_field = "order"
@@ -89,7 +91,7 @@ class PricingRuleTemplateInline(TabularInline):
 class ProductTemplateAdmin(ModelAdmin):
     list_display = ("id", "name")
     search_fields = ("name",)
-
+    actions_row = ["duplicate_product"]
 
     inlines = [
         ProductParameterInline,
@@ -112,4 +114,26 @@ class ProductTemplateAdmin(ModelAdmin):
         }
     }
 
-    
+    @action(
+        description=_("Clone"),
+        url_path="producttemplate-admin-clone",
+    )
+    def duplicate_product(self, request, object_id: int):
+        """
+        Clone this product template and redirect to the new copy.
+        """
+        obj = ProductTemplate.objects.get(pk=object_id)
+        new_product = obj.clone()
+
+        self.message_user(
+            request,
+            _("Product template '%(name)s' was successfully duplicated.")
+            % {"name": obj.name},
+        )
+
+        return redirect(
+            reverse(
+                "admin:configurator_producttemplate_change",
+                args=[new_product.pk],
+            )
+        )

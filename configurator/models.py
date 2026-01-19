@@ -14,6 +14,7 @@ from viewflow.fsm import State
 from company.models import CompanyOwnedModel
 from invoices.models import AppliedTax
 from django.contrib.contenttypes.models import ContentType
+from django.db import transaction
 
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")
@@ -101,6 +102,108 @@ class ProductTemplate( CompanyOwnedModel):
             )
 
         self.production_stages = stages
+
+    def clone(self, *, name_suffix=" (copy)", owner=None):
+        """
+        Deep copy this ProductTemplate and all related template data.
+        Returns the newly created ProductTemplate.
+        """
+        with transaction.atomic():
+            product_copy = ProductTemplate.objects.create(
+                company=owner or self.company,
+                name=f"{self.name}{name_suffix}",
+                description=self.description,
+                production_stages=list(self.production_stages or []),
+                image=self.image,
+            )
+
+            self._clone_parameters(product_copy)
+
+            self._clone_bom_rules(product_copy)
+
+            self._clone_pricing_rules(product_copy)
+
+            self._clone_computed_variables(product_copy)
+
+            self._clone_export_templates(product_copy)
+
+            return product_copy
+        
+    def _clone_parameters(self, product_copy):
+        params = []
+        for p in self.parameters.all():
+            params.append(
+                ProductParameter(
+                    product=product_copy,
+                    name=p.name,
+                    label=p.label,
+                    type=p.type,
+                    options=p.options,
+                    required=p.required,
+                    order=p.order,
+                )
+            )
+        ProductParameter.objects.bulk_create(params)
+
+    def _clone_bom_rules(self, product_copy):
+        rules = []
+        for r in self.bom_rules.all():
+            rules.append(
+                BOMRule(
+                    company=product_copy.company,
+                    product=product_copy,
+                    component=r.component,
+                    quantity_expression=r.quantity_expression,
+                    length_expression=r.length_expression,
+                    description=r.description,
+                    production_stages=list(r.production_stages or []),
+                )
+            )
+        BOMRule.objects.bulk_create(rules)
+    def _clone_pricing_rules(self, product_copy):
+        rules = []
+        for r in self.pricing_rules.all():
+            rules.append(
+                PricingRuleTemplate(
+                    company=product_copy.company,
+                    product=product_copy,
+                    name=r.name,
+                    expression=r.expression,
+                    is_active=r.is_active,
+                )
+            )
+        PricingRuleTemplate.objects.bulk_create(rules)
+    def _clone_computed_variables(self, product_copy):
+        vars = []
+        for v in self.computed_vars.all():
+            vars.append(
+                ProductComputedVariable(
+                    company=product_copy.company,
+                    product=product_copy,
+                    name=v.name,
+                    expression=v.expression,
+                )
+            )
+        ProductComputedVariable.objects.bulk_create(vars)
+    def _clone_export_templates(self, product_copy):
+        templates = []
+        for t in self.export_templates.all():
+            templates.append(
+                ConfigurationExportTemplate(
+                    company=product_copy.company,
+                    product=product_copy,
+                    name=t.name,
+                    html=t.html,
+                    css=t.css,
+                    is_active=t.is_active,
+                )
+            )
+        ConfigurationExportTemplate.objects.bulk_create(templates)
+
+
+
+
+
 
 class ParameterType(models.TextChoices):
     NUMBER = "number", _("Number")

@@ -7,6 +7,8 @@ from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.core.validators import FileExtensionValidator
+
 
 class InvoiceGroup(models.Model):
     """Categories to classify invoices"""
@@ -26,6 +28,16 @@ class PaymentMethod(models.TextChoices):
     TRANSFER = 'transfer', _('Bank Transfer')  
     CASH = 'cash', _('Cash')
     CARD = 'card', _('Credit/Debit Card')
+
+
+
+def invoice_file_path(instance, filename):
+    """
+    Generates organized upload path: invoices/YYYY/MM/filename
+    Example: invoices/2024/01/invoice_123.pdf
+    """
+    return f"invoices/{instance.date_issued.year}/{instance.date_issued.month:02d}/{filename}"
+
 
 
 class Invoice(models.Model):
@@ -49,6 +61,19 @@ class Invoice(models.Model):
     )
 
     observations = models.TextField(blank=True, null=True)
+
+    # Stores the path to the file, actual file saved locally
+    file = models.FileField(
+        upload_to=invoice_file_path,  
+        validators=[
+            FileExtensionValidator(
+                allowed_extensions=['pdf', 'png', 'jpg', 'jpeg']
+            )
+        ],
+        help_text="Upload invoice file (PDF, PNG, or JPG)",
+        null=True,  # Temporarily allow null for existing invoices
+        blank=True  # Temporarily allow blank in forms
+    )
 
     class Meta: #"rulebook", how we store the data
         unique_together = ['provider','invoice_number'] # Ensures that a specific provider cannot have two invoices with the same number

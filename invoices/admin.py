@@ -77,6 +77,7 @@ class InvoiceAdmin(ModelAdmin):
         "due_date",
         "payment_method",
         "group",
+        "has_file",
     )
 
     list_filter = (
@@ -130,6 +131,14 @@ class InvoiceAdmin(ModelAdmin):
             },
         ),
         (
+            "File",  
+            {
+                "fields": (
+                    "file",
+                )
+            },
+        ),
+        (
             "Notes",
             {
                 "fields": (
@@ -138,3 +147,8 @@ class InvoiceAdmin(ModelAdmin):
             },
         ),
     )
+
+    # shows check or X depending on whether file is present
+    @admin.display(boolean=True, description="Has File")
+    def has_file(self, obj):
+        return bool(obj.file)

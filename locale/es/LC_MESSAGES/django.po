@@ -411,3 +411,21 @@ msgstr "Variable Computada"
 
 msgid "Computed Variables"
 msgstr "Variables Computadas"
+
+msgid "Planning"
+msgstr "Planificación"
+
+msgid "START"
+msgstr "EMPEZAR"
+
+msgid "FINISH"
+msgstr "FINALIZAR"
+
+msgid "Started"
+msgstr "Empezado"
+
+msgid "Finished"
+msgstr "Finalizado"
+
+msgid "DONE"
+msgstr "HECHO"

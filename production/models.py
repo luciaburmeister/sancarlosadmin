@@ -88,3 +88,10 @@ class ProductionItem(Timestampable):
             GinIndex(fields=["planning"]),
         ]
 
+class ProductionStageItem(ProductionItem):
+
+    class Meta:
+        proxy = True
+        verbose_name = _("Production stage")
+        verbose_name_plural = _("Production stages")
+

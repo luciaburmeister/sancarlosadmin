@@ -144,7 +144,6 @@ class ConfigurationForm(forms.Form):
             field_name = f"param_{param.id}"
             value = self.cleaned_data.get(field_name)
 
-            # Boolean handling
             if param.type == ParameterType.BOOLEAN and value is None:
                 value = False
 
@@ -152,6 +151,7 @@ class ConfigurationForm(forms.Form):
                 configuration=config,
                 parameter=param,
                 value=str(value),
+                order = param.order
             )
 
         config.generate_bom()

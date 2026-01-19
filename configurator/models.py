@@ -670,6 +670,7 @@ class ConfigurationItem(Timestampable):
         help_text=_("Production stages inherited from BOM rule"),
         verbose_name=_("Production stages"),
     )
+    
 
 
     def save(self, *args, **kwargs):
@@ -723,6 +724,19 @@ class ConfigurationParameterValue(models.Model):
     )
 
     value = models.CharField(max_length=200)
+
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Sorting Order"),
+        help_text=_("Order of the parameter within the product"),
+        db_index=True
+    )
+    class Meta:
+        ordering = ["order","configuration"]
+        indexes = [
+        models.Index(
+            fields=["configuration", "order"],
+        )]
 
     def __str__(self):
         return f"{self.parameter.name} = {self.value}"

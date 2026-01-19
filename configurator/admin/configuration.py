@@ -26,9 +26,11 @@ class AppliedTaxInline(GenericTabularInline):
         return super().get_queryset(request).select_related("tax_type")
 
 class ParameterValueInline(TabularInline):
+    hide_ordering_field = True
+    ordering_field = "order"
     model = ConfigurationParameterValue
     extra = 0
-    fields = ("parameter", "value")
+    fields = ("parameter", "value","order")
     tab = True
     readonly_fields = ["parameter"]
     verbose_name = _("Parameter value")
@@ -63,9 +65,6 @@ class PricingRuleAssignmentInline(TabularInline):
     tab = True
     verbose_name = _("Pricing rule assignment")
     verbose_name_plural = _("Pricing rule assignments")
-
-
-
 
 @admin.register(Configuration)
 class ConfigurationAdmin(ModelAdmin):

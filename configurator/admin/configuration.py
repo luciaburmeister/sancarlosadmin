@@ -75,14 +75,14 @@ class ConfigurationAdmin(ModelAdmin):
         "subtotal_price",
         "total_price_display",
         "show_status_customized_color",
+        "company"
     )
 
     list_filter = ("status", "client", "created_at")
     search_fields = ("name", "client__name")
+    list_select_related = ["client","company"]
 
-    list_select_related = ["client"]
-
-    readonly_fields = ("total_price","total_cost","subtotal_price")
+    readonly_fields = ("total_price","total_cost","subtotal_price","company")
     actions_row = ["export_configuration_to_template", 
                    "convert_to_production"]
     autocomplete_fields = ["client","product"]
@@ -111,6 +111,7 @@ class ConfigurationAdmin(ModelAdmin):
             "fields": (
                 ("name", "client"),
                 ("product", "status"),
+                ("company")
             ),
         }),
         (_("Pricing"), {

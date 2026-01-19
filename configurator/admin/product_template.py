@@ -89,9 +89,11 @@ class PricingRuleTemplateInline(TabularInline):
 
 @admin.register(ProductTemplate)
 class ProductTemplateAdmin(ModelAdmin):
-    list_display = ("id", "name")
+    list_display = ("id", "name","company")
     search_fields = ("name",)
     actions_row = ["duplicate_product"]
+    list_select_related = ["company"]
+    autocomplete_fields = ["company"]
 
     inlines = [
         ProductParameterInline,
@@ -102,9 +104,12 @@ class ProductTemplateAdmin(ModelAdmin):
     ]
 
     fieldsets = (
-        ("Product Template", {
+        (_("Product Template"), {
             "fields": (("name", "image"),"description","production_stages"),
-        }),
+        })
+        ,(_("Ownership"), {
+            "fields": ("company",),
+        })
     )
 
     formfield_overrides = {

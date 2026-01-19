@@ -138,6 +138,7 @@ class ConfigurationForm(forms.Form):
             product=product,
             status=ConfigurationStatus.DRAFT,
             client=None,
+            company=product.company
         )
 
         for param in product.parameters.all():

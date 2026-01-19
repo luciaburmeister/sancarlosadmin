@@ -200,11 +200,6 @@ class ProductTemplate( CompanyOwnedModel):
             )
         ConfigurationExportTemplate.objects.bulk_create(templates)
 
-
-
-
-
-
 class ParameterType(models.TextChoices):
     NUMBER = "number", _("Number")
     TEXT = "text", _("Text")
@@ -406,7 +401,7 @@ class PricingRuleTemplate(CompanyOwnedModel):
     
 
 
-class Configuration(Timestampable):
+class Configuration(Timestampable,CompanyOwnedModel):
     client = models.ForeignKey(
         Client,
         on_delete=models.SET_NULL,

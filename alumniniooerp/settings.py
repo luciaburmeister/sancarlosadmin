@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from django.urls import reverse_lazy
 import os
 from django.utils.translation import gettext_lazy as _
+from django.templatetags.static import static
 
 load_dotenv()
 
@@ -255,8 +256,11 @@ LOCALE_PATHS = [
 UNFOLD = {
     "SITE_TITLE": "ERP - Polipus",
     "SITE_HEADER": "Polipus",
-    "SITE_SYMBOL": "speed",
     "SHOW_LANGUAGES": True,
+    "SITE_LOGO": {
+        "light": lambda request: static("site-logos/polipus_negro.png"),  # light mode
+        "dark": lambda request: static("site-logos/polipus_blanco.png"),  # dark mode
+    },
     "SIDEBAR": {
         "show_search": True,  
         "show_all_applications": True,  

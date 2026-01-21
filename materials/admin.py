@@ -4,6 +4,8 @@ from materials.models import Category, Material, Provider,Component
 from unfold.admin import TabularInline
 from django_json_widget.widgets import JSONEditorWidget
 from django.db import models
+from django.utils.translation import gettext_lazy as _
+
 class ComponentInline(TabularInline):
     model = Component
     extra = 1
@@ -99,13 +101,13 @@ class ProviderAdmin(ModelAdmin):
     list_display = ("name", "contact", "phone", "email", "tax_identifier")
     search_fields = ("name", "contact", "phone", "email", "tax_identifier")
     fieldsets = (
-        ("General Information", {
+        (_("General Information"), {
             "fields": ("name",)
         }),
-        ("Contact Details", {
+        (_("Contact Details"), {
             "fields": ("contact", ("phone", "email"))
         }),
-        ("Finance", {
+        (_("Finance"), {
             "fields": ("tax_identifier",)
         }),
     )

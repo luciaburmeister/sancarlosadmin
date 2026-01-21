@@ -5,13 +5,14 @@ from django.db.models.functions import Lower
 from django.db.models import Index
 from configurator.utils import validate_expression_for_safe_eval,safe_eval
 from company.models import CompanyOwnedModel
+from django.utils.translation import gettext_lazy as _
 
 class Provider(Timestampable,CompanyOwnedModel):
-    name = models.CharField(max_length=200, db_index=True)
-    contact = models.CharField(max_length=200, blank=True)
-    phone = models.CharField(max_length=50, blank=True)
-    email = models.EmailField(blank=True)
-    tax_identifier = models.CharField(max_length=100,blank=True)
+    name = models.CharField(max_length=200, db_index=True, verbose_name=_("Name"))
+    contact = models.CharField(max_length=200, blank=True,verbose_name=_("Contact"))
+    phone = models.CharField(max_length=50, blank=True, verbose_name=_("Phone"))
+    email = models.EmailField(blank=True,verbose_name=_("Email"))
+    tax_identifier = models.CharField(max_length=100,blank=True,verbose_name=("Tax identifier"))
 
     def __str__(self):
         return self.name
@@ -26,7 +27,7 @@ class Category(Timestampable,CompanyOwnedModel):
     """
     E.g., 'Aluminum Profiles', 'Hardware', 'Paint', 'Labor'
     """
-    name = models.CharField(max_length=100)
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
     
     class Meta:
         verbose_name_plural = "Categories"
@@ -48,12 +49,12 @@ class Material(Timestampable,CompanyOwnedModel):
     """
 
 
-    reference_code = models.CharField(max_length=50, unique=True, help_text="e.g., 4058, 4269")
-    name = models.CharField(max_length=200, help_text="e.g., CERCO 50 mm, LAMA 200",db_index=True)
-    category = models.ForeignKey(Category, on_delete=models.PROTECT)
-    unit_type = models.CharField(max_length=2, choices=UnitChoices.choices, default='m')
-    cost_per_unit = MoneyField(max_digits=10, decimal_places=4, help_text="Base cost from supplier", default_currency="EUR")
-    provider = models.ForeignKey(Provider, on_delete=models.PROTECT, null=True, blank=False)
+    reference_code = models.CharField(max_length=50, unique=True, help_text="e.g., 4058, 4269", verbose_name=_("Reference code"))
+    name = models.CharField(max_length=200, help_text="e.g., CERCO 50 mm, LAMA 200",db_index=True, verbose_name=_("Name"))
+    category = models.ForeignKey(Category, on_delete=models.PROTECT, verbose_name=_("Category"))
+    unit_type = models.CharField(max_length=2, choices=UnitChoices.choices, default='m', verbose_name=_("Unit type"))
+    cost_per_unit = MoneyField(max_digits=10, decimal_places=4, help_text="Base cost from supplier", default_currency="EUR", verbose_name=_("Cost per unit"))
+    provider = models.ForeignKey(Provider, on_delete=models.PROTECT, null=True, blank=False,verbose_name=_("Provider"))
     metadata = models.JSONField(default=dict)
 
     def __str__(self):
@@ -75,19 +76,22 @@ class Component(Timestampable,CompanyOwnedModel):
     material = models.ForeignKey(
         Material,
         on_delete=models.PROTECT,
-        related_name="components"
+        related_name="components",
+        verbose_name=_("Material")
     )
 
     name = models.CharField(
         max_length=200,
         help_text="Human-friendly name, e.g., 'Left Rail', 'Right Rail'",
-        db_index=True
+        db_index=True,
+        verbose_name=_("Name")
     )
 
     code = models.CharField(
         max_length=50,
         blank=True,
-        help_text="Optional component reference"
+        help_text="Optional component reference",
+        verbose_name=_("Code")
     )
 
     unit_price_expression = models.TextField(
@@ -95,9 +99,11 @@ class Component(Timestampable,CompanyOwnedModel):
         validators=[validate_expression_for_safe_eval]
     )
 
-    cost_per_unit = MoneyField(max_digits=10, decimal_places=4, help_text="Base cost from supplier", default_currency="EUR",default=0)
+    cost_per_unit = MoneyField(max_digits=10, decimal_places=4, help_text="Base cost from supplier", default_currency="EUR",default=0,
+                               verbose_name=_("Cost per unit"))
 
-    component_type = models.CharField(max_length=20, choices=ComponentType.choices, default=ComponentType.STANDARD, db_index=True,)
+    component_type = models.CharField(max_length=20, choices=ComponentType.choices, default=ComponentType.STANDARD, db_index=True,
+                                      verbose_name=_("Component Type"))
 
     metadata = models.JSONField(default=dict, blank=True)
 

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-18 17:30+0100\n"
+"POT-Creation-Date: 2026-01-21 14:58+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -61,6 +61,15 @@ msgstr "Activo"
 msgid "Logo"
 msgstr "Logotipo"
 
+msgid "Address"
+msgstr "Dirección"
+
+msgid "Email"
+msgstr "Correo electrónico"
+
+msgid "Phone"
+msgstr "Teléfono"
+
 msgid "Applied tax"
 msgstr "Impuesto aplicado"
 
@@ -113,6 +122,21 @@ msgstr "Variable Computada"
 
 msgid "Computed Variables"
 msgstr "Variables Computadas"
+
+#, fuzzy
+#| msgid "Product Templates"
+msgid "Product Template"
+msgstr "Plantillas de Producto"
+
+msgid "Ownership"
+msgstr "Propiedad"
+
+msgid "Clone"
+msgstr "Clonar"
+
+#, python-format
+msgid "Product template '%(name)s' was successfully duplicated."
+msgstr "La plantilla del producto '%(name)s' fue duplicada exitosamente."
 
 msgid "Draft"
 msgstr "Borrador"
@@ -253,6 +277,14 @@ msgstr "Expresión"
 msgid "Is active"
 msgstr "Está activo"
 
+msgid "Human-readable label for exports (e.g. Margin, Discount)"
+msgstr ""
+"Etiqueta legible para humanos para exportaciones (por ejemplo, Margen, "
+"Descuento)"
+
+msgid "Show in export"
+msgstr "Mostrar en exportar"
+
 msgid "Pricing rule template"
 msgstr "Plantilla de regla de precios"
 
@@ -283,6 +315,21 @@ msgstr "Desglose de impuestos"
 
 msgid ""
 "Snapshot of tax calculations at pricing time. Used for exports and auditing."
+msgstr ""
+"Instantánea de cálculos fiscales en el momento de la fijación de precios. "
+"Usado para exportaciones y auditorías."
+
+#, fuzzy
+#| msgid "Tax breakdown"
+msgid "Pricing breakdown"
+msgstr "Desglose de impuestos"
+
+#, fuzzy
+#| msgid ""
+#| "Snapshot of tax calculations at pricing time. Used for exports and auditing."
+msgid ""
+"Snapshot of pricing rule calculations at pricing time. Used for exports and "
+"auditing."
 msgstr ""
 "Instantánea de cálculos fiscales en el momento de la fijación de precios. "
 "Usado para exportaciones y auditorías."
@@ -380,6 +427,52 @@ msgstr "Dirección"
 msgid "Subtract"
 msgstr "Restar"
 
+msgid "General Information"
+msgstr "Información General"
+
+msgid "Contact Details"
+msgstr "Detalles de contacto"
+
+#, fuzzy
+#| msgid "Final price"
+msgid "Finance"
+msgstr "Precio final"
+
+#, fuzzy
+#| msgid "Contexto"
+msgid "Contact"
+msgstr "Contexto"
+
+msgid "Reference code"
+msgstr "Código de referencia"
+
+msgid "Category"
+msgstr "Categoría"
+
+#, fuzzy
+#| msgid "Unit price"
+msgid "Unit type"
+msgstr "Precio unitario"
+
+#, fuzzy
+#| msgid "Price per unit"
+msgid "Cost per unit"
+msgstr "Precio por unidad"
+
+msgid "Provider"
+msgstr "Proveedor"
+
+msgid "Code"
+msgstr ""
+"Parece que has mencionado \"Code\". Si necesitas ayuda con algún aspecto "
+"específico del código o una pregunta relacionada, házmelo saber. Estoy aquí "
+"para ayudar."
+
+#, fuzzy
+#| msgid "Component A"
+msgid "Component Type"
+msgstr "Componente A"
+
 #, fuzzy
 #| msgid "Production Stages"
 msgid "Production planning"
@@ -422,15 +515,6 @@ msgstr "Planificación del Proceso"
 
 msgid "e.g., SEBASTIAN HERRERO"
 msgstr "e.j., SEBASTIÁN HERRERO"
-
-msgid "Phone"
-msgstr "Teléfono"
-
-msgid "Email"
-msgstr "Correo electrónico"
-
-msgid "Address"
-msgstr "Dirección"
 
 msgid "Tax ID"
 msgstr "ID de impuesto"

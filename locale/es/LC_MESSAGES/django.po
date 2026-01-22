@@ -463,10 +463,7 @@ msgid "Provider"
 msgstr "Proveedor"
 
 msgid "Code"
-msgstr ""
-"Parece que has mencionado \"Code\". Si necesitas ayuda con algún aspecto "
-"específico del código o una pregunta relacionada, házmelo saber. Estoy aquí "
-"para ayudar."
+msgstr "Codigo"
 
 #, fuzzy
 #| msgid "Component A"

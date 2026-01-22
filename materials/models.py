@@ -6,6 +6,7 @@ from django.db.models import Index
 from configurator.utils import validate_expression_for_safe_eval,safe_eval
 from company.models import CompanyOwnedModel
 from django.utils.translation import gettext_lazy as _
+from django.db import transaction
 
 class Provider(Timestampable,CompanyOwnedModel):
     name = models.CharField(max_length=200, db_index=True, verbose_name=_("Name"))
@@ -59,6 +60,20 @@ class Material(Timestampable,CompanyOwnedModel):
 
     def __str__(self):
         return f"[{self.reference_code}] {self.name}"
+    
+    def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        recompute = (
+            update_fields is None or "cost_per_unit" in update_fields
+        )
+
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+
+            if recompute:
+                for component in self.components.all():
+                    component.save(update_fields=["cost_per_unit", "updated_at"])
+
 
 
 class ComponentType(models.TextChoices):

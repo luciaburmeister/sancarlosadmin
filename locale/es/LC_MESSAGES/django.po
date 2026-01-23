@@ -415,11 +415,8 @@ msgstr "Variables Computadas"
 msgid "Planning"
 msgstr "Planificación"
 
-msgid "START"
-msgstr "EMPEZAR"
-
-msgid "FINISH"
-msgstr "FINALIZAR"
+msgid "Start"
+msgstr "Empezar"
 
 msgid "Started"
 msgstr "Empezado"
@@ -427,5 +424,11 @@ msgstr "Empezado"
 msgid "Finished"
 msgstr "Finalizado"
 
-msgid "DONE"
-msgstr "HECHO"
+msgid "Back to ticket"
+msgstr "Volver al ticket"
+
+msgid "No stages defined for this item"
+msgstr "No hay etapas definidas para este elemento"
+
+msgid "No production items found for this ticket"
+msgstr "No se han encontrado elementos de producción para este ticket"

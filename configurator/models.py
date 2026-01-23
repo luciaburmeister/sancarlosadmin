@@ -534,12 +534,37 @@ class Configuration(Timestampable,CompanyOwnedModel):
     def recalculate_price(self):
         context = self.get_pricing_context()
 
-        self.total_cost = context["base_total"]
-        subtotal = Decimal(str(context["base_total"]))
+        base_subtotal = Decimal(str(context["base_total"]))
+        subtotal = base_subtotal
 
-        pricing_breakdown = []
+        pricing_lines = []
+
+        for assignment in (
+            self.pricing_rules
+            .select_related("rule")
+            .filter(enabled=True)
+        ):
+            rule = assignment.rule
+            amount = Decimal(str(safe_eval(rule.expression, context)))
+
+            if amount <= 0:
+                continue  
+
+            subtotal_before = subtotal
+            subtotal += amount
+            pricing_lines.append({
+                    "label": rule.label or rule.name,
+                    "type": "charge",
+                    "expression": rule.expression,
+                    "subtotal_before": str(subtotal_before.quantize(Decimal("0.01"))),
+                    "amount": str(amount.quantize(Decimal("0.01"))),
+                    "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
+                })
+
+            context["base_total"] = float(subtotal)
 
         pre_discount_subtotal = subtotal
+
         discount_total = Decimal("0.00")
 
         for assignment in (
@@ -548,40 +573,41 @@ class Configuration(Timestampable,CompanyOwnedModel):
             .filter(enabled=True)
         ):
             rule = assignment.rule
-
             amount = Decimal(str(safe_eval(rule.expression, context)))
 
-            is_discount = amount < 0
-            subtotal_before = subtotal
-            subtotal_after = subtotal + amount
+            if amount >= 0:
+                continue
 
-            if is_discount:
-                discount_total += amount
+            subtotal_before = subtotal
+            subtotal += amount
+            discount_total += amount
 
             if rule.show_in_export:
-                pricing_breakdown.append({
+                pricing_lines.append({
                     "label": rule.label or rule.name,
+                    "type": "discount",
                     "expression": rule.expression,
-                    "type": "discount" if is_discount else "charge",
                     "subtotal_before": str(subtotal_before.quantize(Decimal("0.01"))),
                     "amount": str(amount.quantize(Decimal("0.01"))),
-                    "subtotal_after": str(subtotal_after.quantize(Decimal("0.01"))),
+                    "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
                 })
 
-            subtotal = subtotal_after
             context["base_total"] = float(subtotal)
 
+        self.total_cost = base_subtotal
         self.subtotal_price = subtotal
 
         total, tax_breakdown = self.calculate_taxes_and_snapshot(subtotal)
 
         self.total_price = total
         self.tax_breakdown = tax_breakdown
+
         self.pricing_breakdown = {
-            "pre_discount_subtotal": str((self.total_cost.amount + pre_discount_subtotal).quantize(Decimal("0.01"))),
+            "base_subtotal": str(base_subtotal.quantize(Decimal("0.01"))),
+            "pre_discount_subtotal": str(pre_discount_subtotal.quantize(Decimal("0.01"))),
             "discount_total": str(discount_total.quantize(Decimal("0.01"))),
             "post_discount_subtotal": str(subtotal.quantize(Decimal("0.01"))),
-            "lines": pricing_breakdown,
+            "lines": pricing_lines,
         }
 
         self.save(

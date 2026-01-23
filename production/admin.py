@@ -1,10 +1,9 @@
 from django.contrib import admin
-from unfold.admin import ModelAdmin, TabularInline
+from unfold.admin import ModelAdmin, TabularInline, display
 from django.utils.translation import gettext_lazy as _
 from production.models import (
     ProductionTicket,
     ProductionItem,
-    ProductionStageItem
 )
 from django.utils.html import format_html
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
@@ -12,6 +11,10 @@ from production.filters.ticket_filters import TicketStageFilter, TicketStageStat
 from django.urls import path, reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
+from django.shortcuts import redirect, get_object_or_404
+
+from unfold.views import UnfoldModelAdminViewMixin
+from django.views.generic import TemplateView
 
 
 class ProductionItemInline(TabularInline):
@@ -96,8 +99,65 @@ class ProductionItemInline(TabularInline):
         )
 
 
+class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
+    title = _("Production stages")
+    permission_required = ("production.view_productionticket",)
+    template_name = "admin/production/productionticket/planning.html"
+
+    def get_context_data(self, **kwargs):
+        ctx = super().get_context_data(**kwargs)
+
+        ticket = get_object_or_404(ProductionTicket, pk=self.kwargs["object_id"])
+        ctx["ticket"] = ticket
+
+        items_ui = []
+        for item in ticket.items.order_by("id"):
+            planning = item.planning or {}
+
+            stage_names = list(planning.keys())
+
+            stages = []
+            for stage_name in stage_names:
+                stage_info = planning.get(stage_name) or {}
+                stages.append({
+                    "name": stage_name,
+                    "status": stage_info.get("status") or "pending",
+                    "started_at": stage_info.get("started_at"),
+                    "completed_at": stage_info.get("completed_at"),
+                })
+
+            # ✅ important: avoid UnboundLocalError
+            current_index = None
+
+            for index, stage in enumerate(stages):
+                if stage["status"] == "in_progress":
+                    current_index = index
+                    break
+
+            if current_index is None:
+                for index, stage in enumerate(stages):
+                    if stage["status"] != "done":
+                        current_index = index
+                        break
+
+            items_ui.append({
+                "item": item,
+                "stages": stages,
+                "current_index": current_index,
+                "advance_url": reverse(
+                    "admin:production_productionticket_item_advance",
+                    args=[ticket.pk, item.pk],
+                ),
+            })
+
+        ctx["items_ui"] = items_ui
+        return ctx
+        
+
 @admin.register(ProductionTicket)
 class ProductionTicketAdmin(ModelAdmin):
+    change_form_template = "admin/production/productionticket/change_form.html"
+
     list_display = (
         "id",
         "status",
@@ -133,106 +193,73 @@ class ProductionTicketAdmin(ModelAdmin):
                     "status",
                     ("content_type", "object_id"),
                     "source_object",
-                    "context"
+                    "context",
                 )
             },
         ),
-
-    )   
-
-from django.contrib import admin, messages
-from django.urls import path, reverse
-from django.shortcuts import get_object_or_404, redirect
-
-
-@admin.register(ProductionStageItem)
-class ProductionStageItemAdmin(ModelAdmin):
-    change_form_template = "admin/production/productionstageitem/change_form.html"
-
-    list_display = ("id", "ticket_id", "component_display", "status")
-
-    readonly_fields = ("ticket", "component_display", "status")
-    fieldsets = ((None, {"fields": (("ticket", "status"), "component_display")}),)
-
-    def component_display(self, obj):
-        data = obj.data or {}
-        return data.get("component") or data.get("component_id") or "-"
-    component_display.short_description = _("Component")
-
+    )
 
     def get_urls(self):
         urls = super().get_urls()
 
+        stages_view = self.admin_site.admin_view(
+            ProductionTicketStagesView.as_view(model_admin=self)
+        )
+
         custom = [
-            path(
-                "<int:object_id>/stages/<str:stage>/start/",
-                self.admin_site.admin_view(self.stage_start),
-                name="production_productionstageitem_stage_start",
-            ),
-            path(
-                "<int:object_id>/stages/<str:stage>/finish/",
-                self.admin_site.admin_view(self.stage_finish),
-                name="production_productionstageitem_stage_finish",
+            path("<int:object_id>/stages/", stages_view, name="production_productionticket_stages",),
+            path("<int:ticket_id>/stages/item/<int:item_id>/advance/",
+                self.admin_site.admin_view(self.item_advance), name="production_productionticket_item_advance",
             ),
         ]
         return custom + urls
 
-    def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
-        extra_context = extra_context or {}
-
-        obj = None
-        if object_id:
-            obj = self.get_object(request, object_id)
-
-        planning = (obj.planning or {}) if obj else {}
-
-        stages = []
-        for name, info in planning.items():
-            info = info or {}
-            stages.append(
-                {
-                    "name": name,
-                    "status": info.get("status") or "pending",
-                    "started_at": info.get("started_at"),
-                    "completed_at": info.get("completed_at"),
-                }
-            )
-
-        extra_context["planning_stages"] = stages
-        return super().changeform_view(request, object_id, form_url, extra_context)
-
-    def stage_start(self, request, object_id, stage):
+    def item_advance(self, request, ticket_id, item_id):
         if request.method != "POST":
-            return redirect(reverse("admin:production_productionstageitem_change", args=[object_id]))
+            return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
-        obj = self.get_object(request, object_id)
-        planning = obj.planning or {}
-        info = planning.get(stage, {}) or {}
+        item = get_object_or_404(ProductionItem, pk=item_id, ticket_id=ticket_id)
+        planning = item.planning or {}
 
-        info["status"] = "in_progress"
-        info["started_at"] = info.get("started_at") or timezone.now().isoformat()
-        info["completed_at"] = None
+        stage_names = list(planning.keys())
+        if not stage_names:
+            return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
-        planning[stage] = info
-        obj.planning = planning
-        obj.save(update_fields=["planning", "updated_at"])
+        current_stage_name = None
 
-        return redirect(reverse("admin:production_productionstageitem_change", args=[object_id]))
+        for stage_name in stage_names:
+            stage_info = planning.get(stage_name) or {}
+            stage_status = stage_info.get("status") or "pending"
+            if stage_status == "in_progress":
+                current_stage_name = stage_name
+                break
 
-    def stage_finish(self, request, object_id, stage):
-        if request.method != "POST":
-            return redirect(reverse("admin:production_productionstageitem_change", args=[object_id]))
+        if current_stage_name is None:
+            for stage_name in stage_names:
+                stage_info = planning.get(stage_name) or {}
+                stage_status = stage_info.get("status") or "pending"
+                if stage_status != "done":
+                    current_stage_name = stage_name
+                    break
 
-        obj = self.get_object(request, object_id)
-        planning = obj.planning or {}
-        info = planning.get(stage, {}) or {}
+        if current_stage_name is None:
+            return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
-        info["status"] = "done"
-        info["started_at"] = info.get("started_at") or timezone.now().isoformat()
-        info["completed_at"] = timezone.now().isoformat()
+        current_stage_info = planning.get(current_stage_name) or {}
+        status = current_stage_info.get("status") or "pending"
+        now = timezone.now().isoformat()
 
-        planning[stage] = info
-        obj.planning = planning
-        obj.save(update_fields=["planning"])
+        if status == "pending":
+            current_stage_info["status"] = "in_progress"
+            current_stage_info["started_at"] = current_stage_info.get("started_at") or now
+            current_stage_info["completed_at"] = None
+        elif status == "in_progress":
+            current_stage_info["status"] = "done"
+            current_stage_info["started_at"] = current_stage_info.get("started_at") or now
+            current_stage_info["completed_at"] = now
 
-        return redirect(reverse("admin:production_productionstageitem_change", args=[object_id]))
+        planning[current_stage_name] = current_stage_info
+        item.planning = planning
+        item.save(update_fields=["planning", "updated_at"])
+
+        return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))

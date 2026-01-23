@@ -12,7 +12,6 @@ class ProductionTicketStatus(models.TextChoices):
     CANCELLED = "cancelled", _("Cancelled")
 
 class ProductionTicket(Timestampable):
-
     content_type = models.ForeignKey(
         ContentType,
         on_delete=models.PROTECT,
@@ -87,11 +86,3 @@ class ProductionItem(Timestampable):
         indexes = [
             GinIndex(fields=["planning"]),
         ]
-
-class ProductionStageItem(ProductionItem):
-
-    class Meta:
-        proxy = True
-        verbose_name = _("Production stage")
-        verbose_name_plural = _("Production stages")
-

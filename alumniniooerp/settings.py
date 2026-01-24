@@ -322,6 +322,34 @@ UNFOLD = {
             },
 
             {
+                "title": _("Company"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Company"),
+                        "icon": "brick",
+                        "link": reverse_lazy(
+                            "admin:company_company_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "company.view_company"
+                        ),
+                    },
+                    {
+                        "title": _("Employees"),
+                        "icon": "brick",
+                        "link": reverse_lazy(
+                            "admin:company_employee_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "company.view_employee"
+                        )
+                    },
+                ],
+            },
+
+            {
                 "title": _("Production"),
                 "separator": True,
                 "collapsible": False,

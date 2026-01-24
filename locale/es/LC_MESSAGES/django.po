@@ -84,18 +84,12 @@ msgstr "Teléfono"
 msgid "User Account"
 msgstr "Cuenta de Usuario"
 
-#, fuzzy
-#| msgid "First"
 msgid "First Name"
 msgstr "Primera"
 
-#, fuzzy
-#| msgid "Legal Name"
 msgid "Last Name"
-msgstr "Nombre legal"
+msgstr "Apellido"
 
-#, fuzzy
-#| msgid "Email"
 msgid "Work Email"
 msgstr "Correo electrónico"
 
@@ -720,6 +714,9 @@ msgstr "artículo de Presupuesto"
 
 msgid "Quote items"
 msgstr "articulos de Presupuesto"
+
+msgid "Company"
+msgstr "Compañia"
 
 #~ msgid "Planning"
 #~ msgstr "Planificación"

@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from django.urls import reverse_lazy
 import os
 from django.utils.translation import gettext_lazy as _
+from django.templatetags.static import static
 
 load_dotenv()
 
@@ -70,6 +71,7 @@ INSTALLED_APPS = [
     'django_json_widget',
     "storages",
     'inventory',
+    'invoices',
     'production',
     'sales',
     'materials',
@@ -78,7 +80,9 @@ INSTALLED_APPS = [
     'django_extensions',
     'formtools',
     'crispy_forms',
-    'viewflow'
+    'viewflow',
+    'django_countries',
+    'company'
 ]
 
 MIDDLEWARE = [
@@ -109,6 +113,9 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+            ],
+            "builtins": [
+                "configurator.templatetags.formatting",
             ],
         },
     },
@@ -249,8 +256,11 @@ LOCALE_PATHS = [
 UNFOLD = {
     "SITE_TITLE": "ERP - Polipus",
     "SITE_HEADER": "Polipus",
-    "SITE_SYMBOL": "speed",
     "SHOW_LANGUAGES": True,
+    "SITE_LOGO": {
+        "light": lambda request: static("site-logos/polipus_negro.png"),  # light mode
+        "dark": lambda request: static("site-logos/polipus_blanco.png"),  # dark mode
+    },
     "SIDEBAR": {
         "show_search": True,  
         "show_all_applications": True,  
@@ -324,6 +334,16 @@ UNFOLD = {
                         ),
                         "permission": lambda request: request.user.has_perm(
                             "production.view_productionticket"
+                        ),
+                    },
+                    {
+                        "title": _("Production Items"),
+                        "icon": "brick",
+                        "link": reverse_lazy(
+                            "admin:production_productionitem_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "production.view_productionitem"
                         ),
                     },
                 ],

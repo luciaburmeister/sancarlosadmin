@@ -60,10 +60,12 @@
     
     <!-- Pagination -->
     <div class="pagination mt-6 flex justify-center">
-        <span class="step-links inline-flex items-center gap-3 text-sm">
+        <span class="step-links
+             flex flex-wrap items-center justify-center
+             gap-2 text-sm max-w-full">
             {% if page_obj.has_previous %}
                 <a href="?page=1"
-                class="px-3 py-1 rounded border hover:bg-gray-100 dark:hover:bg-gray-700">
+   class="hidden sm:inline-block px-3 py-1 rounded border hover:bg-gray-100 dark:hover:bg-gray-700">
                     &laquo; {% trans "First" %}
                 </a>
                 <a href="?page={{ page_obj.previous_page_number }}"
@@ -81,8 +83,8 @@
                 class="px-3 py-1 rounded border hover:bg-gray-100 dark:hover:bg-gray-700">
                     {% trans "Next" %}
                 </a>
-                <a href="?page={{ page_obj.paginator.num_pages }}"
-                class="px-3 py-1 rounded border hover:bg-gray-100 dark:hover:bg-gray-700">
+            <a href="?page={{ page_obj.paginator.num_pages }}"
+   class="hidden sm:inline-block px-3 py-1 rounded border hover:bg-gray-100 dark:hover:bg-gray-700">
                     {% trans "Last" %} &raquo;
                 </a>
             {% endif %}

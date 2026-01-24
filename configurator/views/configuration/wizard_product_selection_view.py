@@ -10,6 +10,6 @@ class ProductSelectionView(UnfoldModelAdminViewMixin, ListView):
     template_name = "configurator/product_selection.html"
 
     model = ProductTemplate
-    paginate_by = 3
+    paginate_by = 12
     context_object_name = "products"
 

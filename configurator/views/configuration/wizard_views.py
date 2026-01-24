@@ -66,6 +66,7 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
                     is_template_item=False,
                 )
         config.recalculate_price()
+        config.copy_default_taxes_from_product()
         
         url = reverse(
             "admin:configurator_configuration_change",

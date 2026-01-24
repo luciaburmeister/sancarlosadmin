@@ -1,0 +1,108 @@
+from django.db import models
+from django.utils.translation import gettext_lazy as _  
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+
+class Company(models.Model):
+    name = models.CharField(max_length=100,verbose_name=_("Commercial Name"))
+    legal_name = models.CharField(max_length=100, blank=True,verbose_name=_("Legal Name"))
+    is_active = models.BooleanField(default=True,verbose_name=_("Activo"))
+    logo = models.ImageField(verbose_name=_("Logo"),upload_to="logos")
+    address = models.CharField(max_length=200,blank=True,null=True,verbose_name=_("Address"))
+    email = models.CharField(max_length=80,blank=True,null=True,verbose_name=_("Email"))
+    phone = models.CharField(max_length=18,blank=True,null=True,verbose_name=_("Phone"))
+
+
+    def __str__(self):
+        return self.name
+
+class CompanyOwnedModel(models.Model):
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        related_name="%(class)ss",
+        null=True,
+        blank=False
+    )
+
+    class Meta:
+        abstract = True
+
+class CompanyUser(models.Model):
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="company_links"
+    )
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        related_name="user_links"
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = ("user", "company")
+
+    def __str__(self):
+        return f"{self.user} → {self.company}"
+    
+class Employee(CompanyOwnedModel):
+    
+    user = models.OneToOneField(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="employee_profile",
+        verbose_name=_("User Account")
+    )
+
+    first_name = models.CharField(
+        max_length=50,
+        verbose_name=_("First Name")
+    )
+    last_name = models.CharField(
+        max_length=50,
+        verbose_name=_("Last Name")
+    )
+
+    email = models.EmailField(
+        blank=True,
+        null=True,
+        verbose_name=_("Work Email")
+    )
+    phone = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        verbose_name=_("Phone")
+    )
+
+    hired_at = models.DateField(
+        verbose_name=_("Hire Date")
+    )
+    terminated_at = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Termination Date")
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name=_("Active Employee")
+    )
+
+    class Meta:
+        verbose_name = _("Employee")
+        verbose_name_plural = _("Employees")
+        ordering = ["last_name", "first_name"]
+
+    def __str__(self):
+        return f"{self.first_name} {self.last_name} ({self.company})"
+
+    @property
+    def full_name(self):
+        return f"{self.first_name} {self.last_name}"

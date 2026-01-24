@@ -1,7 +1,7 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from configurator.models import Configuration, ConfigurationParameterValue, ConfigurationItem, PricingRuleAssignment, ConfigurationFlow
-from unfold.admin import TabularInline
+from configurator.models import Configuration, ConfigurationParameterValue, ConfigurationItem, PricingRuleAssignment, ConfigurationFlow,ConfigurationStatus
+from unfold.admin import TabularInline,GenericTabularInline
 from django.urls import path
 from configurator.views import ProductSelectionView, ConfigurationWizardView, ConfigurationExportView
 from django.urls import reverse
@@ -9,15 +9,35 @@ from django.shortcuts import redirect
 from unfold.decorators import action
 from django.utils.translation import gettext_lazy as _
 from django.http import HttpRequest
+from invoices.models import AppliedTax
+from unfold.decorators import display
+class AppliedTaxInline(GenericTabularInline):
+    hide_ordering_field = True
+    ordering_field = "order"
+    model = AppliedTax
+    extra = 0
+    autocomplete_fields = ("tax_type",)
+    ordering = ("order",)
+    fields = ("tax_type", "selected_percentage", "order")
+    verbose_name = _("Applied tax")
+    verbose_name_plural = _("Applied taxes")
+    tab = True
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("tax_type")
 
 class ParameterValueInline(TabularInline):
+    hide_ordering_field = True
+    ordering_field = "order"
     model = ConfigurationParameterValue
     extra = 0
-    fields = ("parameter", "value")
+    fields = ("parameter", "value","order")
     tab = True
     readonly_fields = ["parameter"]
     verbose_name = _("Parameter value")
     verbose_name_plural = _("Parameter values")
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("parameter")
 class ConfigurationItemInline(TabularInline):
     model = ConfigurationItem
     extra = 0
@@ -35,6 +55,9 @@ class ConfigurationItemInline(TabularInline):
     verbose_name = _("Configuration item")
     verbose_name_plural = _("Configuration items")
 
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("component__material")
+
 class PricingRuleAssignmentInline(TabularInline):
     model = PricingRuleAssignment
     extra = 0
@@ -43,23 +66,23 @@ class PricingRuleAssignmentInline(TabularInline):
     verbose_name = _("Pricing rule assignment")
     verbose_name_plural = _("Pricing rule assignments")
 
-
-
 @admin.register(Configuration)
 class ConfigurationAdmin(ModelAdmin):
     list_display = (
         "id",
         "name",
         "client",
-        "status",
+        "subtotal_price",
         "total_price_display",
-        "created_at",
+        "show_status_customized_color",
+        "company"
     )
 
     list_filter = ("status", "client", "created_at")
     search_fields = ("name", "client__name")
+    list_select_related = ["client","company"]
 
-    readonly_fields = ("total_price",)
+    readonly_fields = ("total_price","total_cost","subtotal_price","company")
     actions_row = ["export_configuration_to_template", 
                    "convert_to_production"]
     autocomplete_fields = ["client","product"]
@@ -68,17 +91,34 @@ class ConfigurationAdmin(ModelAdmin):
         ParameterValueInline,
         ConfigurationItemInline,
         PricingRuleAssignmentInline,
+        AppliedTaxInline
     ]
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            _(ConfigurationStatus.COMPLETED.label): "success",  # green
+            _(ConfigurationStatus.DRAFT.label): "info",  # blue
+            _(ConfigurationStatus.CONVERTED.label): "warning",  # orange
+        },
+    )
+    def show_status_customized_color(self, obj):
+        return _(obj.get_status_display())
 
     fieldsets = (
         (_("Configuration"), {
             "fields": (
                 ("name", "client"),
                 ("product", "status"),
+                ("company")
             ),
         }),
         (_("Pricing"), {
-            "fields": ("total_price",),
+            "fields": (
+                ("total_cost","subtotal_price",),
+                "total_price"
+                ),
         }),
     )
 

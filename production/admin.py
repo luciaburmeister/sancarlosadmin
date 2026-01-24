@@ -1,20 +1,22 @@
 from django.contrib import admin
-from unfold.admin import ModelAdmin, TabularInline, display
+from unfold.admin import ModelAdmin, TabularInline,StackedInline
 from django.utils.translation import gettext_lazy as _
 from production.models import (
     ProductionTicket,
     ProductionItem,
+    ProductionItemSession,
+    ProductionItemSessionStatus
 )
 from django.utils.html import format_html
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
 
 from django.urls import path, reverse
 from django.utils import timezone
-from django.views.decorators.http import require_POST
 from django.shortcuts import redirect, get_object_or_404
 
 from unfold.views import UnfoldModelAdminViewMixin
 from django.views.generic import TemplateView
+from unfold.decorators import display
 
 
 class ProductionItemInline(TabularInline):
@@ -263,3 +265,115 @@ class ProductionTicketAdmin(ModelAdmin):
         item.save(update_fields=["planning", "updated_at"])
 
         return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
+    
+class ProductionItemSessionInline(StackedInline):
+    model = ProductionItemSession
+    extra = 0
+    show_change_link = True
+    tab=True
+
+    fields = (
+        "employee",
+        "production_stage",
+        "status",
+        "start_time",
+        "end_time",
+        "duration_display",
+        "comments",
+    )
+
+    readonly_fields = (
+        "duration_display",
+    )
+
+    autocomplete_fields = ("employee",)
+
+    ordering = ("-start_time",)
+
+    def duration_display(self, obj):
+        if not obj.duration:
+            return "—"
+        total_seconds = int(obj.duration.total_seconds())
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes = remainder // 60
+        return f"{hours}h {minutes}m"
+
+    duration_display.short_description = _("Duration")
+
+@admin.register(ProductionItem)
+class ProductionItemAdmin(ModelAdmin):
+    list_display = (
+        "id",
+        "ticket",
+        "status",
+        "sessions_count",
+        "created_at",
+    )
+
+    list_filter = ("status",)
+    search_fields = ("id", "ticket__id")
+    
+    readonly_fields = (
+        "data",
+        "planning",
+    )
+
+    inlines = [ProductionItemSessionInline]
+
+    def sessions_count(self, obj):
+        return obj.sessions.count()
+
+    sessions_count.short_description = _("Sessions")
+
+@admin.register(ProductionItemSession)
+class ProductionItemSessionAdmin(ModelAdmin):
+    list_display = (
+        "id",
+        "employee",
+        "production_item",
+        "production_stage",
+        "show_status_colored",
+        "start_time",
+        "end_time",
+    )
+
+    list_filter = (
+        "status",
+        "production_stage",
+        "employee",
+    )
+
+    search_fields = (
+        "production_stage",
+        "employee__name",
+        "production_item__id",
+    )
+
+    autocomplete_fields = (
+        "employee",
+        "production_item",
+        "created_by",
+        "completed_by",
+    )
+
+    actions = (
+        "start_sessions",
+        "finish_sessions",
+    )
+
+    ordering = ("-created_at",)
+
+    
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            ProductionItemSessionStatus.DONE: "success",  # green
+            ProductionItemSessionStatus.PENDING: "info",  # blue
+            ProductionItemSessionStatus.IN_PROGRESS: "warning",  # orange
+            ProductionItemSessionStatus.CANCELLED: "danger",  # red
+        },
+    )
+    def show_status_colored(self, obj):
+        return obj.status

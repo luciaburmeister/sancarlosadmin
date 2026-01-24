@@ -1,12 +1,29 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 from configurator.models import ProductTemplate, ProductParameter, BOMRule, PricingRuleTemplate, ProductComputedVariable
-from unfold.admin import TabularInline,StackedInline
+from unfold.admin import TabularInline,StackedInline,GenericTabularInline
 from django.db import models
 from unfold.widgets import UnfoldAdminTextareaWidget
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
 from django.utils.translation import gettext_lazy as _
+from django.shortcuts import redirect
+from django.urls import reverse
+from invoices.models import AppliedTax
+from unfold.decorators import action
+
+class AppliedTaxInline(GenericTabularInline):
+    ordering_field = "order"
+    hide_ordering_field=True
+    model = AppliedTax
+    extra = 0
+    autocomplete_fields = ("tax_type",)
+    ordering = ("order",)
+    fields = ("tax_type", "selected_percentage", "order")
+    verbose_name = _("Applied tax")
+    verbose_name_plural = _("Applied taxes")
+    tab = True
+
 
 
 class ProductComputedVariableInline(TabularInline):
@@ -72,21 +89,27 @@ class PricingRuleTemplateInline(TabularInline):
 
 @admin.register(ProductTemplate)
 class ProductTemplateAdmin(ModelAdmin):
-    list_display = ("id", "name")
+    list_display = ("id", "name","company")
     search_fields = ("name",)
-
+    actions_row = ["duplicate_product"]
+    list_select_related = ["company"]
+    autocomplete_fields = ["company"]
 
     inlines = [
         ProductParameterInline,
         ProductComputedVariableInline,
         BOMRuleInline,
         PricingRuleTemplateInline,
+        AppliedTaxInline, 
     ]
 
     fieldsets = (
-        ("Product Template", {
+        (_("Product Template"), {
             "fields": (("name", "image"),"description","production_stages"),
-        }),
+        })
+        ,(_("Ownership"), {
+            "fields": ("company",),
+        })
     )
 
     formfield_overrides = {
@@ -96,4 +119,26 @@ class ProductTemplateAdmin(ModelAdmin):
         }
     }
 
-    
+    @action(
+        description=_("Clone"),
+        url_path="producttemplate-admin-clone",
+    )
+    def duplicate_product(self, request, object_id: int):
+        """
+        Clone this product template and redirect to the new copy.
+        """
+        obj = ProductTemplate.objects.get(pk=object_id)
+        new_product = obj.clone()
+
+        self.message_user(
+            request,
+            _("Product template '%(name)s' was successfully duplicated.")
+            % {"name": obj.name},
+        )
+
+        return redirect(
+            reverse(
+                "admin:configurator_producttemplate_change",
+                args=[new_product.pk],
+            )
+        )

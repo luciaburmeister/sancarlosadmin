@@ -3,6 +3,7 @@ from django.template import engines
 from django.db.models import Q
 import html
 import re
+from django.template.loader import get_template
 
 
 if TYPE_CHECKING:
@@ -182,22 +183,9 @@ class ConfigurationExportService:
         rendered_body = user_tpl.render(context)
         rendered_body = clean_final_html(rendered_body)
 
-        wrapper = django_engine.from_string("""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <meta charset="utf-8">
-    <style>
-    {{ css|safe }}
-    </style>
-    </head>
-    <body>
-    {{ body|safe }}
-    </body>
-    </html>
-    """)
+        wrapper_tpl = get_template("exports/base_export.html")
 
-        return wrapper.render({
+        return wrapper_tpl.render({
             "body": rendered_body,
             "css": clean_css,
         })

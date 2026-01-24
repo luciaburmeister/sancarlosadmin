@@ -336,6 +336,16 @@ UNFOLD = {
                             "production.view_productionticket"
                         ),
                     },
+                    {
+                        "title": _("Production Items"),
+                        "icon": "brick",
+                        "link": reverse_lazy(
+                            "admin:production_productionitem_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "production.view_productionitem"
+                        ),
+                    },
                 ],
             },
         

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-21 14:58+0100\n"
+"POT-Creation-Date: 2026-01-25 00:10+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -49,6 +49,17 @@ msgstr "Producción"
 msgid "Production Tickets"
 msgstr "Tickets de Producción"
 
+#, fuzzy
+#| msgid "Production Stages"
+msgid "Production Items"
+msgstr "Etapas de Producción"
+
+msgid "Employee"
+msgstr "Empleado"
+
+msgid "Employment"
+msgstr "Empleo"
+
 msgid "Commercial Name"
 msgstr "Nombre Comercial"
 
@@ -69,6 +80,36 @@ msgstr "Correo electrónico"
 
 msgid "Phone"
 msgstr "Teléfono"
+
+msgid "User Account"
+msgstr "Cuenta de Usuario"
+
+#, fuzzy
+#| msgid "First"
+msgid "First Name"
+msgstr "Primera"
+
+#, fuzzy
+#| msgid "Legal Name"
+msgid "Last Name"
+msgstr "Nombre legal"
+
+#, fuzzy
+#| msgid "Email"
+msgid "Work Email"
+msgstr "Correo electrónico"
+
+msgid "Hire Date"
+msgstr "Fecha de contratación"
+
+msgid "Termination Date"
+msgstr "Fecha de Terminación"
+
+msgid "Active Employee"
+msgstr "Empleado Activo"
+
+msgid "Employees"
+msgstr "Empleados"
 
 msgid "Applied tax"
 msgstr "Impuesto aplicado"
@@ -475,6 +516,16 @@ msgstr "Componente A"
 msgid "Production planning"
 msgstr "Etapas de Producción"
 
+#, fuzzy
+#| msgid "Configuration"
+msgid "Duration"
+msgstr "Configuración"
+
+#, fuzzy
+#| msgid "Expression"
+msgid "Sessions"
+msgstr "Expresión"
+
 msgid "Stage"
 msgstr "Etapa"
 
@@ -509,6 +560,85 @@ msgstr "Etapas de producción y progreso por artículo"
 
 msgid "Process Planning"
 msgstr "Planificación del Proceso"
+
+#, fuzzy
+#| msgid "In Progress"
+msgid "In progress"
+msgstr "En Progreso"
+
+#, fuzzy
+#| msgid "Production Stages"
+msgid "Production Item"
+msgstr "Etapas de Producción"
+
+msgid "End Time"
+msgstr "Hora de finalización"
+
+#, fuzzy
+#| msgid "Components"
+msgid "Comments"
+msgstr "Componentes"
+
+#, fuzzy
+#| msgid "Production Stages"
+msgid "Production Stage"
+msgstr "Etapas de Producción"
+
+#, fuzzy
+#| msgid "Created at"
+msgid "Created by"
+msgstr "Creado en"
+
+#, fuzzy
+#| msgid "Completed"
+msgid "Completed by"
+msgstr "Completado"
+
+msgid "End time cannot be before start time"
+msgstr "La hora de finalización no puede ser anterior a la hora de inicio."
+
+msgid "In-progress sessions must have a start time"
+msgstr "Las sesiones en progreso deben tener una hora de inicio."
+
+msgid "Finished sessions must have start and end times"
+msgstr "Las sesiones finalizadas deben tener horas de inicio y fin."
+
+msgid "Only pending sessions can be started"
+msgstr "Solo se pueden iniciar sesiones pendientes."
+
+msgid "Session already started"
+msgstr "La sesión ya ha comenzado"
+
+msgid "Only active sessions can be finished"
+msgstr "Solo se pueden finalizar las sesiones activas."
+
+#, fuzzy
+#| msgid "Production Tickets"
+msgid "Production tickets"
+msgstr "Tickets de Producción"
+
+msgid "Back to ticket"
+msgstr "Volver al ticket"
+
+msgid "Item"
+msgstr "Elemento"
+
+msgid "Started"
+msgstr "Empezado"
+
+#, fuzzy
+#| msgid "Activo"
+msgid "Action"
+msgstr "Activo"
+
+msgid "Start"
+msgstr "Empezar"
+
+msgid "No stages defined for this item"
+msgstr "No hay etapas definidas para este elemento"
+
+msgid "No production items found for this ticket"
+msgstr "No se han encontrado elementos de producción para este ticket"
 
 msgid "e.g., SEBASTIAN HERRERO"
 msgstr "e.j., SEBASTIÁN HERRERO"
@@ -591,5 +721,8 @@ msgstr "artículo de Presupuesto"
 msgid "Quote items"
 msgstr "articulos de Presupuesto"
 
-#~ msgid "Add new item"
-#~ msgstr "Agregar item"
+#~ msgid "Planning"
+#~ msgstr "Planificación"
+
+#~ msgid "Finished"
+#~ msgstr "Finalizado"

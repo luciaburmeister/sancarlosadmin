@@ -2,6 +2,7 @@ from django.contrib import admin
 from unfold.admin import ModelAdmin
 from configurator.models import Configuration, ConfigurationParameterValue, ConfigurationItem, PricingRuleAssignment, ConfigurationFlow,ConfigurationStatus
 from unfold.admin import TabularInline,GenericTabularInline
+from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter,RangeDateTimeFilter,MultipleChoicesDropdownFilter
 from django.urls import path
 from configurator.views import ProductSelectionView, ConfigurationWizardView, ConfigurationExportView
 from django.urls import reverse
@@ -78,7 +79,9 @@ class ConfigurationAdmin(ModelAdmin):
         "company"
     )
 
-    list_filter = ("status", "client", "created_at")
+    list_filter = (("status",MultipleChoicesDropdownFilter), 
+                   ("client",AutocompleteSelectMultipleFilter), 
+                   ("created_at",RangeDateTimeFilter))
     search_fields = ("name", "client__name")
     list_select_related = ["client","company"]
 

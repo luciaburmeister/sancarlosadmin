@@ -391,13 +391,14 @@ class ProductionResourceAdmin(ModelAdmin):
     list_filter = ("is_active",)
     search_fields = ("object_id",)
     readonly_fields = ("target",)
+    autocomplete_fields = ("company",)
 
     fieldsets = (
         (None, {
             "fields": (
                 ("content_type", "object_id"),
                 "daily_capacity_minutes",
-                "is_active",
+                ("company","is_active"),
             )
         }),
     )

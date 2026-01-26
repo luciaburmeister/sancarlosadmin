@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _  
 from django.contrib.auth import get_user_model
+from django_countries.fields import CountryField
 
 User = get_user_model()
 
@@ -13,6 +14,8 @@ class Company(models.Model):
     address = models.CharField(max_length=200,blank=True,null=True,verbose_name=_("Address"))
     email = models.CharField(max_length=80,blank=True,null=True,verbose_name=_("Email"))
     phone = models.CharField(max_length=18,blank=True,null=True,verbose_name=_("Phone"))
+    tax_identifier = models.CharField(max_length=20,blank=True,verbose_name=_("Tax Identifier"),null=True)
+    constituted_country = CountryField(null=True,verbose_name=_("Constitude Country"))
 
 
     def __str__(self):

@@ -106,3 +106,30 @@ class Employee(CompanyOwnedModel):
     @property
     def full_name(self):
         return f"{self.first_name} {self.last_name}"
+    
+class Machine(CompanyOwnedModel):
+    name = models.CharField(max_length=100, unique=True,verbose_name=_("Name"))
+
+    code = models.CharField(
+        max_length=50,
+        unique=True,
+        help_text=_("Internal or shop-floor identifier"),
+    )
+
+    is_active = models.BooleanField(default=True, verbose_name=_("Is active"))
+    
+    daily_capacity_minutes = models.PositiveIntegerField(
+        help_text=_("Total usable minutes per day"),
+        verbose_name=_("Daily capacity in minutes")
+    )
+
+    parallel_capacity = models.PositiveSmallIntegerField(
+        default=1,
+        help_text=_("How many items can be processed in parallel"),
+        verbose_name=_("Parallel capacity in minutes")
+    )
+
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+
+    def __str__(self):
+        return self.name

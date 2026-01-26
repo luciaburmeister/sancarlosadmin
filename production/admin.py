@@ -1,11 +1,15 @@
 from django.contrib import admin
-from unfold.admin import ModelAdmin, TabularInline,StackedInline
+from unfold.admin import ModelAdmin, TabularInline,StackedInline,GenericTabularInline
 from django.utils.translation import gettext_lazy as _
 from production.models import (
     ProductionTicket,
     ProductionItem,
     ProductionItemSession,
-    ProductionItemSessionStatus
+    ProductionItemSessionStatus,
+    PlannedProductionSession,
+    PlannedSessionResource,
+    ProductionResource,
+    OperationRequirement,
 )
 from django.utils.html import format_html
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
@@ -273,7 +277,6 @@ class ProductionItemSessionInline(StackedInline):
     tab=True
 
     fields = (
-        "employee",
         "production_stage",
         "status",
         "start_time",
@@ -286,7 +289,6 @@ class ProductionItemSessionInline(StackedInline):
         "duration_display",
     )
 
-    autocomplete_fields = ("employee",)
 
     ordering = ("-start_time",)
 
@@ -300,6 +302,9 @@ class ProductionItemSessionInline(StackedInline):
 
     duration_display.short_description = _("Duration")
 
+class OperationRequirementInline(TabularInline):
+    model = OperationRequirement
+    extra = 0
 @admin.register(ProductionItem)
 class ProductionItemAdmin(ModelAdmin):
     list_display = (
@@ -318,7 +323,7 @@ class ProductionItemAdmin(ModelAdmin):
         "planning",
     )
 
-    inlines = [ProductionItemSessionInline]
+    inlines = [ProductionItemSessionInline,OperationRequirementInline]
 
     def sessions_count(self, obj):
         return obj.sessions.count()
@@ -329,7 +334,6 @@ class ProductionItemAdmin(ModelAdmin):
 class ProductionItemSessionAdmin(ModelAdmin):
     list_display = (
         "id",
-        "employee",
         "production_item",
         "production_stage",
         "show_status_colored",
@@ -340,7 +344,6 @@ class ProductionItemSessionAdmin(ModelAdmin):
     list_filter = (
         "status",
         "production_stage",
-        "employee",
     )
 
     search_fields = (
@@ -350,7 +353,6 @@ class ProductionItemSessionAdmin(ModelAdmin):
     )
 
     autocomplete_fields = (
-        "employee",
         "production_item",
         "created_by",
         "completed_by",
@@ -377,3 +379,73 @@ class ProductionItemSessionAdmin(ModelAdmin):
     )
     def show_status_colored(self, obj):
         return obj.status
+    
+@admin.register(ProductionResource)
+class ProductionResourceAdmin(ModelAdmin):
+    list_display = (
+        "id",
+        "target",
+        "daily_capacity_minutes",
+        "is_active",
+    )
+    list_filter = ("is_active",)
+    search_fields = ("object_id",)
+    readonly_fields = ("target",)
+
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("content_type", "object_id"),
+                "daily_capacity_minutes",
+                "is_active",
+            )
+        }),
+    )
+
+    def target(self, obj):
+        return obj.target
+
+class PlannedSessionResourceInline(TabularInline):
+    model = PlannedSessionResource
+    extra = 0
+    autocomplete_fields = ("resource",)
+
+
+@admin.register(PlannedProductionSession)
+class PlannedProductionSessionAdmin(ModelAdmin):
+    list_display = (
+        "id",
+        "production_item",
+        "production_stage",
+        "planned_start",
+        "planned_end",
+        "primary_resource",
+        "locked",
+        "source",
+    )
+    list_filter = ("locked", "source")
+    search_fields = ("production_stage",)
+    autocomplete_fields = ("production_item", "primary_resource")
+    inlines = (PlannedSessionResourceInline,)
+
+    fieldsets = (
+        (None, {
+            "fields": (
+                "production_item",
+                "production_stage",
+            )
+        }),
+        ("Schedule", {
+            "fields": (
+                ("planned_start", "planned_end"),
+                "primary_resource",
+            )
+        }),
+        ("Controls", {
+            "fields": (
+                "locked",
+                "source",
+                "notes",
+            )
+        }),
+    )

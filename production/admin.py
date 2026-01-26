@@ -18,6 +18,15 @@ from unfold.views import UnfoldModelAdminViewMixin
 from django.views.generic import TemplateView
 from unfold.decorators import display
 
+from django.views import View
+from django.http import HttpRequest, HttpResponse
+
+from production.constants import(
+    STATUS_PENDING, 
+    STATUS_IN_PROGRESS, 
+    STATUS_DONE
+)
+
 
 class ProductionItemInline(TabularInline):
     model = ProductionItem
@@ -128,7 +137,6 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
                     "completed_at": stage_info.get("completed_at"),
                 })
 
-            # ✅ important: avoid UnboundLocalError
             current_index = None
 
             for index, stage in enumerate(stages):
@@ -208,22 +216,33 @@ class ProductionTicketAdmin(ModelAdmin):
             ProductionTicketStagesView.as_view(model_admin=self)
         )
 
+        advance_view = self.admin_site.admin_view(
+            ProductionItemAdvanceStageView.as_view(model_admin=self)
+        )
+
         custom = [
-            path("<int:object_id>/stages/", stages_view, name="production_productionticket_stages",),
+            path("<int:object_id>/stages/", stages_view, name="production_productionticket_stages",
+            ),
             path("<int:ticket_id>/stages/item/<int:item_id>/advance/",
-                self.admin_site.admin_view(self.item_advance), name="production_productionticket_item_advance",
+                advance_view, name="production_productionticket_item_advance",
             ),
         ]
         return custom + urls
 
-    def item_advance(self, request, ticket_id, item_id):
-        if request.method != "POST":
-            return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
-        item = get_object_or_404(ProductionItem, pk=item_id, ticket_id=ticket_id)
-        planning = item.planning or {}
+class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
+    permission_required = ("production.change_productionitem",)
 
+    def post(self, request: HttpRequest, ticket_id: int, item_id: int) -> HttpResponse:
+        production_item = get_object_or_404(
+            ProductionItem,
+            pk=item_id,
+            ticket_id=ticket_id,
+        )
+
+        planning = production_item.planning or {}
         stage_names = list(planning.keys())
+
         if not stage_names:
             return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
@@ -231,16 +250,16 @@ class ProductionTicketAdmin(ModelAdmin):
 
         for stage_name in stage_names:
             stage_info = planning.get(stage_name) or {}
-            stage_status = stage_info.get("status") or "pending"
-            if stage_status == "in_progress":
+            stage_status = stage_info.get("status") or STATUS_PENDING
+            if stage_status == STATUS_IN_PROGRESS:
                 current_stage_name = stage_name
                 break
 
         if current_stage_name is None:
             for stage_name in stage_names:
                 stage_info = planning.get(stage_name) or {}
-                stage_status = stage_info.get("status") or "pending"
-                if stage_status != "done":
+                stage_status = stage_info.get("status") or STATUS_PENDING
+                if stage_status != STATUS_DONE:
                     current_stage_name = stage_name
                     break
 
@@ -248,23 +267,25 @@ class ProductionTicketAdmin(ModelAdmin):
             return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
         current_stage_info = planning.get(current_stage_name) or {}
-        status = current_stage_info.get("status") or "pending"
+        current_status = current_stage_info.get("status") or STATUS_PENDING
         now = timezone.now().isoformat()
 
-        if status == "pending":
-            current_stage_info["status"] = "in_progress"
+        if current_status == STATUS_PENDING:
+            current_stage_info["status"] = STATUS_IN_PROGRESS
             current_stage_info["started_at"] = current_stage_info.get("started_at") or now
             current_stage_info["completed_at"] = None
-        elif status == "in_progress":
-            current_stage_info["status"] = "done"
+
+        elif current_status == STATUS_IN_PROGRESS:
+            current_stage_info["status"] = STATUS_DONE
             current_stage_info["started_at"] = current_stage_info.get("started_at") or now
             current_stage_info["completed_at"] = now
 
         planning[current_stage_name] = current_stage_info
-        item.planning = planning
-        item.save(update_fields=["planning", "updated_at"])
+        production_item.planning = planning
+        production_item.save(update_fields=["planning", "updated_at"])
 
         return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
+
     
 class ProductionItemSessionInline(StackedInline):
     model = ProductionItemSession

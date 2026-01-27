@@ -69,6 +69,13 @@ class ProductTemplate( CompanyOwnedModel):
         help_text=_("Ordered list of possible production stages for this product"),
         verbose_name=_("Production Stages"),
     )
+    parameter_group_options = ArrayField(
+        base_field=models.CharField(max_length=30),
+        default=list,
+        blank=True,
+        help_text=_("Parameter Group Options to group in forms"),
+        verbose_name=_("Parameter Group Options"),
+    )
     image = models.ImageField(
         upload_to="products/",
         blank=True,
@@ -228,6 +235,7 @@ class ProductParameter(models.Model):
         default=list,
         verbose_name=_("Options"),
     )
+
     required = models.BooleanField(default=True, verbose_name=_("Required"))
     order = models.PositiveIntegerField(
         default=0,
@@ -235,6 +243,7 @@ class ProductParameter(models.Model):
         help_text=_("Order of the parameter within the product"),
         db_index=True
     )
+    parameter_group = models.CharField(null=True, verbose_name=_("Parameter Group"),blank=True)
 
     class Meta:
         verbose_name = _("Product parameter")

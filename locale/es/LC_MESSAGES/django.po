@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-25 00:10+0100\n"
+"POT-Creation-Date: 2026-01-27 10:54+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -42,6 +42,12 @@ msgstr "Material"
 
 msgid "Components"
 msgstr "Componentes"
+
+msgid "Company"
+msgstr "Compañia"
+
+msgid "Employees"
+msgstr "Empleados"
 
 msgid "Production"
 msgstr "Producción"
@@ -81,6 +87,12 @@ msgstr "Correo electrónico"
 msgid "Phone"
 msgstr "Teléfono"
 
+msgid "Tax Identifier"
+msgstr "Identificador Fiscal"
+
+msgid "Constitude Country"
+msgstr "País Constituyente"
+
 msgid "User Account"
 msgstr "Cuenta de Usuario"
 
@@ -102,8 +114,31 @@ msgstr "Fecha de Terminación"
 msgid "Active Employee"
 msgstr "Empleado Activo"
 
-msgid "Employees"
-msgstr "Empleados"
+msgid "Name"
+msgstr "Nombre"
+
+msgid "Internal or shop-floor identifier"
+msgstr "Identificador interno o de planta"
+
+msgid "Is active"
+msgstr "Está activo"
+
+msgid "Total usable minutes per day"
+msgstr "Total de minutos utilizables por día"
+
+msgid "Daily capacity in minutes"
+msgstr "Capacidad diaria en minutos"
+
+msgid "How many items can be processed in parallel"
+msgstr "¿Cuántos elementos se pueden procesar en paralelo?"
+
+msgid "Parallel capacity in minutes"
+msgstr "Capacidad paralela en minutos"
+
+#, fuzzy
+#| msgid "Quotes"
+msgid "Notes"
+msgstr "Presupuestos"
 
 msgid "Applied tax"
 msgstr "Impuesto aplicado"
@@ -196,9 +231,6 @@ msgstr "Regla de incompatibilidad"
 
 msgid "Incompatibility rules"
 msgstr "Reglas de incompatibilidad"
-
-msgid "Name"
-msgstr "Nombre"
 
 msgid "Description"
 msgstr "Descripción"
@@ -308,9 +340,6 @@ msgstr ""
 
 msgid "Expression"
 msgstr "Expresión"
-
-msgid "Is active"
-msgstr "Está activo"
 
 msgid "Human-readable label for exports (e.g. Margin, Discount)"
 msgstr ""
@@ -606,6 +635,24 @@ msgstr "La sesión ya ha comenzado"
 msgid "Only active sessions can be finished"
 msgstr "Solo se pueden finalizar las sesiones activas."
 
+msgid "Unsupported resource type"
+msgstr "Tipo de recurso no soportado"
+
+msgid "Type of resource required (Employee, Machine, etc.)"
+msgstr "Tipo de recurso requerido (Empleado, Máquina, etc.)"
+
+msgid "Automatic"
+msgstr "Automático"
+
+msgid "Manual"
+msgstr "Manual"
+
+msgid "Locked"
+msgstr "Bloqueado"
+
+msgid "Source"
+msgstr "¿Podrías proporcionar el texto que deseas traducir?"
+
 #, fuzzy
 #| msgid "Production Tickets"
 msgid "Production tickets"
@@ -714,9 +761,6 @@ msgstr "artículo de Presupuesto"
 
 msgid "Quote items"
 msgstr "articulos de Presupuesto"
-
-msgid "Company"
-msgstr "Compañia"
 
 #~ msgid "Planning"
 #~ msgstr "Planificación"

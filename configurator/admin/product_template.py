@@ -12,6 +12,7 @@ from django.urls import reverse
 from invoices.models import AppliedTax
 from unfold.decorators import action
 from django import forms
+from core.admin.company_admin import CompanyRestrictedAdmin
 
 class AppliedTaxInline(GenericTabularInline):
     ordering_field = "order"
@@ -108,7 +109,7 @@ class PricingRuleTemplateInline(TabularInline):
 
 
 @admin.register(ProductTemplate)
-class ProductTemplateAdmin(ModelAdmin):
+class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = ("id", "name","company")
     search_fields = ("name",)
     actions_row = ["duplicate_product"]

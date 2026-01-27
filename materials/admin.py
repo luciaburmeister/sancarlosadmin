@@ -5,6 +5,7 @@ from unfold.admin import TabularInline
 from django_json_widget.widgets import JSONEditorWidget
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from core.admin.company_admin import CompanyRestrictedAdmin
 
 class ComponentInline(TabularInline):
     model = Component
@@ -16,7 +17,7 @@ class ComponentInline(TabularInline):
     show_change_link = True
 
 @admin.register(Component)
-class ComponentAdmin(ModelAdmin):
+class ComponentAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = (
         "name",
         "material",
@@ -73,7 +74,7 @@ class CategoryAdmin(ModelAdmin):
     search_fields = ["name"]
 
 @admin.register(Material)
-class MaterialAdmin(ModelAdmin):
+class MaterialAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = [
         "reference_code", 
         "name", 
@@ -102,7 +103,7 @@ class MaterialAdmin(ModelAdmin):
     )
 
 @admin.register(Provider)
-class ProviderAdmin(ModelAdmin):
+class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ("name", "contact", "phone", "email", "tax_identifier","company")
     search_fields = ("name", "contact", "phone", "email", "tax_identifier",)
     list_select_related = ["company"]

@@ -12,6 +12,8 @@ from django.utils.translation import gettext_lazy as _
 from django.http import HttpRequest
 from invoices.models import AppliedTax
 from unfold.decorators import display
+from core.admin.company_admin import CompanyRestrictedAdmin
+
 class AppliedTaxInline(GenericTabularInline):
     hide_ordering_field = True
     ordering_field = "order"
@@ -68,7 +70,7 @@ class PricingRuleAssignmentInline(TabularInline):
     verbose_name_plural = _("Pricing rule assignments")
 
 @admin.register(Configuration)
-class ConfigurationAdmin(ModelAdmin):
+class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = (
         "id",
         "name",

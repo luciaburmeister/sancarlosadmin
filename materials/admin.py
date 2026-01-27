@@ -22,11 +22,12 @@ class ComponentAdmin(ModelAdmin):
         "material",
         "code",
         "component_type",
+        "company"
     )
 
     list_filter = ("material", "component_type",)
 
-    list_select_related = ["material"]
+    list_select_related = ["material","company"]
 
     search_fields = (
         "name",
@@ -35,7 +36,7 @@ class ComponentAdmin(ModelAdmin):
         "material__reference_code",
     )
 
-    autocomplete_fields = ("material",)
+    autocomplete_fields = ("material","company")
 
     formfield_overrides = {
         models.JSONField:{
@@ -79,13 +80,15 @@ class MaterialAdmin(ModelAdmin):
         "category", 
         "cost_per_unit", 
         "unit_type",
+        "company"
     ]
     inlines = [ComponentInline]
     list_filter = ["category",  "unit_type"]
     search_fields = ["reference_code", "name"]
     ordering = ["reference_code"]
     list_filter = ["provider"]
-    autocomplete_fields = ["provider"]
+    autocomplete_fields = ["provider","company"]
+    list_select_related = ["company"]
 
     fieldsets = (
         ("Product Details", {
@@ -100,8 +103,10 @@ class MaterialAdmin(ModelAdmin):
 
 @admin.register(Provider)
 class ProviderAdmin(ModelAdmin):
-    list_display = ("name", "contact", "phone", "email", "tax_identifier")
-    search_fields = ("name", "contact", "phone", "email", "tax_identifier")
+    list_display = ("name", "contact", "phone", "email", "tax_identifier","company")
+    search_fields = ("name", "contact", "phone", "email", "tax_identifier",)
+    list_select_related = ["company"]
+    autocomplete_fields = ["company"]
     fieldsets = (
         (_("General Information"), {
             "fields": ("name","company")

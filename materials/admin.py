@@ -52,7 +52,8 @@ class ComponentAdmin(ModelAdmin):
                     ("name",
                     "code"),
                     "component_type", 
-                    ("unit_price_expression","cost_per_unit")
+                    ("unit_price_expression","cost_per_unit"),
+                    "company"
                 )
             },
         ),
@@ -91,7 +92,8 @@ class MaterialAdmin(ModelAdmin):
             "fields": (
                 ("reference_code", "name"),
                 ("category", "cost_per_unit"),
-                ("unit_type","provider")
+                ("unit_type","provider"),
+                "company"
             )
         }),
     )
@@ -102,7 +104,7 @@ class ProviderAdmin(ModelAdmin):
     search_fields = ("name", "contact", "phone", "email", "tax_identifier")
     fieldsets = (
         (_("General Information"), {
-            "fields": ("name",)
+            "fields": ("name","company")
         }),
         (_("Contact Details"), {
             "fields": ("contact", ("phone", "email"))

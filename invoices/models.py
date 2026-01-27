@@ -169,6 +169,23 @@ class AppliedTax(models.Model):
         validators=[MinValueValidator(Decimal("0.00"))],
     )
 
+    #Base amount each tax is calculated on
+    base_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,  # Allow null for existing records
+        blank=True,  # Allow blank in forms
+        help_text="The base amount this tax was calculated on"
+    )
+
+    calculated_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,  # Allow null for existing records
+        blank=True,  # Allow blank in forms
+        help_text="The calculated tax amount"
+    )
+
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
     object_id = models.PositiveIntegerField()
     content_object = GenericForeignKey("content_type", "object_id")
@@ -213,3 +230,26 @@ class AppliedTax(models.Model):
             "tax_amount": tax_amount,
             "total_amount": total.quantize(Decimal("0.01")),
         }
+
+    def calculate_and_store(self):
+        """
+        Calculate tax using the stored base_amount and save the result to calculated_amount.
+        Raises ValueError if base_amount is not set.
+        """
+        # Check if base_amount exists
+        if self.base_amount is None:
+            raise ValueError(
+                f"Cannot calculate tax for {self}: base_amount is not set. "
+                "Set base_amount before calling calculate_and_store()."
+            )
+        
+        # Use the existing calculate method
+        result = self.calculate(self.base_amount)
+        
+        # Store the calculated tax amount
+        self.calculated_amount = result['tax_amount']
+        
+        # Save to database
+        self.save(update_fields=['calculated_amount'])
+        
+        return result

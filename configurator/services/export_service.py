@@ -4,6 +4,7 @@ from django.db.models import Q
 import html
 import re
 from django.template.loader import get_template
+from core.admin.company_access import get_user_companies
 
 
 if TYPE_CHECKING:
@@ -148,15 +149,19 @@ class ConfigurationExportService:
     """
 
     @staticmethod
-    def get_available_templates(configuration: "Configuration"):
+    def get_available_templates(configuration: "Configuration",user):
         """
         Returns all active export templates that apply to this configuration.
         """
         from configurator.models import ConfigurationExportTemplate
 
+        user_companies = get_user_companies(user)
+
+
         return (
             ConfigurationExportTemplate.objects.filter(
                 Q(product=configuration.product) | Q(product__isnull=True),
+                Q(company__in=user_companies) | Q(company__isnull=True),
                 is_active=True,
             )
             .select_related("product")

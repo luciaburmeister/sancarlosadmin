@@ -1,7 +1,7 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
-from company.models import Company, CompanyUser, Employee
+from company.models import Company, CompanyUser, Employee, EmployeeType, MachineType
 from django.utils.translation import gettext_lazy as _
 
 
@@ -88,3 +88,13 @@ class EmployeeAdmin(ModelAdmin):
         return obj.full_name
 
     full_name.short_description = "Name"
+
+@admin.register(EmployeeType)
+class EmployeeTypeAdmin(ModelAdmin):
+    list_display = ("type", "company")
+    search_fields = ("type",)
+
+@admin.register(MachineType)
+class MachineTypeAdmin(ModelAdmin):
+    list_display = ("type", "company")
+    search_fields = ("type",)

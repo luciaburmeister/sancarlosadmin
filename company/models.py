@@ -51,7 +51,13 @@ class CompanyUser(models.Model):
 
     def __str__(self):
         return f"{self.user} → {self.company}"
-    
+
+class EmployeeType(CompanyOwnedModel):
+    type = models.CharField(max_length=50, verbose_name="Employee Type")
+
+    def __str__(self):
+        return self.type
+
 class Employee(CompanyOwnedModel):
     
     user = models.OneToOneField(
@@ -98,6 +104,8 @@ class Employee(CompanyOwnedModel):
         verbose_name=_("Active Employee")
     )
 
+    type = models.ForeignKey(EmployeeType, on_delete=models.SET_NULL, null=True, blank=True)
+
     class Meta:
         verbose_name = _("Employee")
         verbose_name_plural = _("Employees")
@@ -110,6 +118,12 @@ class Employee(CompanyOwnedModel):
     def full_name(self):
         return f"{self.first_name} {self.last_name}"
     
+class MachineType(CompanyOwnedModel):
+    type = models.CharField(max_length=50, verbose_name="Machine Type")
+
+    def __str__(self):
+        return self.type
+
 class Machine(CompanyOwnedModel):
     name = models.CharField(max_length=100, unique=True,verbose_name=_("Name"))
 
@@ -131,6 +145,8 @@ class Machine(CompanyOwnedModel):
         help_text=_("How many items can be processed in parallel"),
         verbose_name=_("Parallel capacity in minutes")
     )
+
+    type = models.ForeignKey(MachineType, on_delete=models.SET_NULL, null=True, blank=True)
 
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
 

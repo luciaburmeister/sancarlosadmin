@@ -4,11 +4,12 @@ from django.db import models
 from configurator.models import ConfigurationExportTemplate
 from unfold.contrib.forms.widgets import WysiwygWidget
 from core.admin.company_admin import CompanyRestrictedAdmin
+from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 
 @admin.register(ConfigurationExportTemplate)
-class ConfigurationExportTemplateAdmin(CompanyRestrictedAdmin):
+class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
     list_display = ("name", "product", "is_active","company")
-    list_filter = ("is_active", "product")
+    list_filter = ("is_active", ("product",AutocompleteSelectMultipleFilter))
     search_fields = ("name", "html")
     readonly_fields = ()
     autocomplete_fields = ["product","company"]

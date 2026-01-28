@@ -75,6 +75,16 @@ class ProductTemplate( CompanyOwnedModel):
         null=True,
         verbose_name=_("Image"),
     )
+    production_planning_resources = models.JSONField(
+        default=dict(), 
+        blank=True,
+        verbose_name=_("Production planning resources"),
+    )
+    production_planning_configured = models.BooleanField(
+        default=False,
+        editable=False,
+        verbose_name=_("Planning configured"),
+    )
 
     class Meta:
         verbose_name = _("Product template")
@@ -102,6 +112,16 @@ class ProductTemplate( CompanyOwnedModel):
             )
 
         self.production_stages = stages
+
+        if not self.production_planning_resources:
+            return
+        
+        stage_resources_keys =set(self.production_planning_resources)
+
+        if stage_resources_keys - set(stages):
+            raise ValidationError(
+                {"production_planning_resources": _("Stage resources keys must be the same as stage keys")}
+            )
 
     def clone(self, *, name_suffix=" (copy)", owner=None):
         """

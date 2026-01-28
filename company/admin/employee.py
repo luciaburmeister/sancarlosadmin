@@ -3,9 +3,15 @@ from unfold.admin import ModelAdmin
 
 from company.models import Employee
 from django.utils.translation import gettext_lazy as _
+from core.admin.company_admin import CompanyRestrictedAdmin
+from import_export.admin import ImportExportModelAdmin
+from unfold.contrib.import_export.forms import ExportForm, ImportForm, SelectableFieldsExportForm
 
 @admin.register(Employee)
-class EmployeeAdmin(ModelAdmin):
+class EmployeeAdmin(ModelAdmin,CompanyRestrictedAdmin,ImportExportModelAdmin):
+    import_form_class = ImportForm
+    export_form_class = ExportForm
+    export_form_class = SelectableFieldsExportForm
     list_display = (
         "full_name",
         "company",
@@ -39,27 +45,38 @@ class EmployeeAdmin(ModelAdmin):
     )
 
     fieldsets = (
-        (
-            _("Employee"),
-            {
-                "fields": (
-                    ("first_name", "last_name"),
-                    ("email", "phone"),
-                    ("user")
-                )
-            },
-        ),
-        (
-            _("Employment"),
-            {
-                "fields": (
-                    "company",
-                    ("hired_at", "terminated_at"),
-                    "is_active",
-                )
-            },
-        )
-    )
+    (
+        _("Employee"),
+        {
+            "fields": (
+                ("first_name", "last_name"),
+                ("email", "phone"),
+                "user",
+            )
+        },
+    ),
+    (
+        _("Personal Information"),
+        {
+            "fields": (
+                "identification_number",
+                "birth_date",
+                ("sex", "civil_status"),
+                "birth_country",
+            )
+        },
+    ),
+    (
+        _("Employment"),
+        {
+            "fields": (
+                "company",
+                ("hired_at", "terminated_at"),
+                "is_active",
+            )
+        },
+    ),
+)
 
     readonly_fields = ()
 

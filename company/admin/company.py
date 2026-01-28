@@ -1,7 +1,7 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
-from company.models import Company, CompanyUser, Employee
+from company.models import Company, CompanyUser
 from django.utils.translation import gettext_lazy as _
 
 

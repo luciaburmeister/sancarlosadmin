@@ -52,6 +52,15 @@ class CompanyUser(models.Model):
     def __str__(self):
         return f"{self.user} → {self.company}"
     
+class SexChoices(models.TextChoices):
+    MALE = "m", _("Male")
+    FEMALE = "f", _("Female")
+
+class CivilStatusChoices(models.TextChoices):
+    SINGLE = "single", _("Single")
+    MARRIED = "married", _("Married")
+    DIVORCED = "divorces", _("Divorced")
+
 class Employee(CompanyOwnedModel):
     
     user = models.OneToOneField(
@@ -98,10 +107,22 @@ class Employee(CompanyOwnedModel):
         verbose_name=_("Active Employee")
     )
 
+    identification_number = models.CharField(max_length=20,verbose_name=_("Identification Number"),null=True)
+
+    birth_date = models.DateField(verbose_name=_("Birth Date"), null=True)
+
+    sex = models.CharField(choices=SexChoices.choices,max_length=1,null=True, verbose_name=_("Sex"))
+
+    civil_status = models.CharField(choices=CivilStatusChoices.choices,max_length=8,null=True,verbose_name=_("Civil Status"))
+
+    birth_country = CountryField(null=True, default="ES",verbose_name=_("Birth Country"))
+
     class Meta:
         verbose_name = _("Employee")
         verbose_name_plural = _("Employees")
         ordering = ["last_name", "first_name"]
+        unique_together = ("company", "identification_number")
+        
 
     def __str__(self):
         return f"{self.first_name} {self.last_name} ({self.company})"

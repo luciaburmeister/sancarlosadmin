@@ -168,18 +168,16 @@ class ProductTemplate( CompanyOwnedModel):
             )
         BOMRule.objects.bulk_create(rules)
     def _clone_pricing_rules(self, product_copy):
-        rules = []
-        for r in self.pricing_rules.all():
-            rules.append(
-                PricingRuleTemplate(
-                    company=product_copy.company,
-                    product=product_copy,
-                    name=r.name,
-                    expression=r.expression,
-                    is_active=r.is_active,
-                )
-            )
-        PricingRuleTemplate.objects.bulk_create(rules)
+        defaults = []
+        for a in self.pricing_rule_defaults.select_related("rule").all():
+            defaults.append(ProductPricingRuleAssignment(
+                product=product_copy,
+                rule=a.rule,
+                enabled=a.enabled,
+                order=a.order,
+            ))
+        ProductPricingRuleAssignment.objects.bulk_create(defaults)
+
     def _clone_computed_variables(self, product_copy):
         vars = []
         for v in self.computed_vars.all():
@@ -359,19 +357,11 @@ class BOMRule(CompanyOwnedModel):
             raise ValidationError(errors)
 
 
-class PricingRuleTemplate(CompanyOwnedModel):
+class PricingRule(CompanyOwnedModel):
     """
     A reusable pricing rule template that can be applied
     to many configurations.
     """
-    product = models.ForeignKey(
-        ProductTemplate,
-        on_delete=models.CASCADE,
-        related_name="pricing_rules",
-        null=True,
-        verbose_name=_("Product"),
-    )
-
     name = models.CharField(max_length=100, verbose_name=_("Name"))
 
     expression = models.TextField(
@@ -745,7 +735,18 @@ class Configuration(Timestampable,CompanyOwnedModel):
             object_id=self.pk,
         ).select_related("tax_type").order_by("order")
 
-    
+    def copy_default_pricing_rules_from_product(self):
+        if not self.product_id:
+            return
+
+        defaults = self.product.pricing_rule_defaults.select_related("rule").all()
+        for d in defaults:
+            PricingRuleAssignment.objects.get_or_create(
+                configuration=self,
+                rule=d.rule,
+                defaults={"enabled": d.enabled},
+            )
+
     def available_export_templates(self):
         return ConfigurationExportService.get_available_templates(self)
 
@@ -885,7 +886,7 @@ class PricingRuleAssignment(models.Model):
     )
 
     rule = models.ForeignKey(
-        PricingRuleTemplate,
+        PricingRule,
         on_delete=models.CASCADE,
         related_name="assignments"
     )
@@ -898,6 +899,16 @@ class PricingRuleAssignment(models.Model):
     def __str__(self):
         return f"{self.configuration_id} → {self.rule}"
     
+class ProductPricingRuleAssignment(models.Model):
+    product = models.ForeignKey(ProductTemplate, on_delete=models.CASCADE, related_name="pricing_rule_defaults")
+    rule = models.ForeignKey(PricingRule, on_delete=models.CASCADE, related_name="product_defaults")
+    enabled = models.BooleanField(default=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ("product", "rule")
+        ordering = ["order"]
+
 
 class ConfigurationParameterValue(models.Model):
     configuration = models.ForeignKey(

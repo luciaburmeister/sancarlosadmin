@@ -21,7 +21,7 @@ class ConfigurationExportTemplateAdmin(CompanyRestrictedAdmin):
 
     fieldsets = (
         ("Template Info", {
-            "fields": ("name", ("product", "is_active"))
+            "fields": ("name", ("product", "is_active"),"company")
         }),
         ("Template Content", {
             "fields": ("html","css"),

@@ -6,7 +6,7 @@ from company.models import CompanyOwnedModel
 
 @admin.register(PricingRuleTemplate)
 class PricingRuleTemplateAdmin(ModelAdmin,CompanyOwnedModel):
-    list_display = ("id", "product", "name", "expression", "is_active",)
+    list_display = ("id", "product", "name", "expression", "is_active","company")
     list_filter = ("product", "is_active")
     search_fields = ("name", "expression")
     autocomplete_fields = ["product","company"]

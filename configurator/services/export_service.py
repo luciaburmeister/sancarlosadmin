@@ -179,6 +179,7 @@ class ConfigurationExportService:
             "client": configuration.client,
             "items": configuration.items.all(),
             "parameters": configuration.param_values.select_related("parameter"),
+            "component_groups": configuration.component_groups.order_by("order"),
             "computed": configuration.get_pricing_context(),
         }
 

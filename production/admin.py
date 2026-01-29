@@ -246,43 +246,23 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
         if not stage_names:
             return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
-        current_stage_name = None
+        action = request.POST.get("action")
 
-        for stage_name in stage_names:
-            stage_info = planning.get(stage_name) or {}
-            stage_status = stage_info.get("status") or STATUS_PENDING
-            if stage_status == STATUS_IN_PROGRESS:
-                current_stage_name = stage_name
-                break
+        if action == "start_activity":
+            StagesToSessionsService.start_activity(production_item=production_item, employee=employee)
 
-        if current_stage_name is None:
-            for stage_name in stage_names:
-                stage_info = planning.get(stage_name) or {}
-                stage_status = stage_info.get("status") or STATUS_PENDING
-                if stage_status != STATUS_DONE:
-                    current_stage_name = stage_name
-                    break
+        elif action == "finish_activity":
+            StagesToSessionsService.finish_activity(production_item=production_item, employee=employee)
 
-        if current_stage_name is None:
-            return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
+        elif action == "start_session":
+            StagesToSessionsService.start_session(production_item=production_item, employee=employee)
 
-        current_stage_info = planning.get(current_stage_name) or {}
-        current_status = current_stage_info.get("status") or STATUS_PENDING
-        now = timezone.now().isoformat()
+        elif action == "end_session":
+            StagesToSessionsService.end_session(production_item=production_item, employee=employee)
 
-        if current_status == STATUS_PENDING:
-            current_stage_info["status"] = STATUS_IN_PROGRESS
-            current_stage_info["started_at"] = current_stage_info.get("started_at") or now
-            current_stage_info["completed_at"] = None
+        else:
 
-        elif current_status == STATUS_IN_PROGRESS:
-            current_stage_info["status"] = STATUS_DONE
-            current_stage_info["started_at"] = current_stage_info.get("started_at") or now
-            current_stage_info["completed_at"] = now
-
-        planning[current_stage_name] = current_stage_info
-        production_item.planning = planning
-        production_item.save(update_fields=["planning", "updated_at"])
+            StagesToSessionsService.advance_current_stage(production_item=production_item, employee=employee)
 
         return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
@@ -294,6 +274,7 @@ class ProductionItemSessionInline(StackedInline):
     tab=True
 
     fields = (
+        "session_type_display",
         "employee",
         "production_stage",
         "status",
@@ -304,6 +285,7 @@ class ProductionItemSessionInline(StackedInline):
     )
 
     readonly_fields = (
+        "session_type_display",
         "duration_display",
     )
 
@@ -320,6 +302,22 @@ class ProductionItemSessionInline(StackedInline):
         return f"{hours}h {minutes}m"
 
     duration_display.short_description = _("Duration")
+
+    def session_type_display(self, obj):
+        c = (obj.comments or "").upper()
+
+        if "Activity finished" in c:
+            return format_html('Activity finished</span>')
+        if "Session finished" in c:
+            return format_html('Session finished</span>')
+
+        if obj.status == ProductionItemSessionStatus.IN_PROGRESS:
+            return format_html('Working</span>')
+
+        return "—"
+
+    session_type_display.short_description = _("Type")
+
 
 @admin.register(ProductionItem)
 class ProductionItemAdmin(ModelAdmin):

@@ -28,7 +28,6 @@
           <div class="text-2xl font-semibold leading-tight">
             {% trans "Production Stages" %} — #{{ ticket.pk }} {{ ticket.context.product }}
           </div>
-
         </div>
 
         <a class="button text-base px-5 py-3 -mt-2" href="{% url 'admin:production_productionticket_change' ticket.pk %}">
@@ -94,7 +93,6 @@
                             bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200
                           {% endif %}
                         ">
-
                           {{ stage.status }}
                         </span>
                       </td>
@@ -109,25 +107,62 @@
 
                       <td class="py-4">
                         {% if forloop.counter0 == row.current_index %}
-                          <form method="post" action="{{ row.advance_url }}" class="inline">
-                            {% csrf_token %}
-                            <button class="px-5 py-2.5 rounded-lg bg-primary-600 text-white text-base font-semibold">
-                              {% if stage.status == "pending" %}
-                                {% trans "Start" %}
+
+                          {% if stage.status == "pending" %}
+                            <form method="post" action="{{ row.advance_url }}" class="inline">
+                              {% csrf_token %}
+                              <input type="hidden" name="action" value="start_activity">
+                              <button class="px-5 py-2.5 rounded-lg bg-primary-600 text-white text-base font-semibold">
+                                {% trans "Start activity" %}
+                              </button>
+                            </form>
+
+                          {% elif stage.status == "in_progress" %}
+                            <div class="flex flex-wrap items-center gap-2">
+
+                              {% if stage.has_active_session %}
+                                <form method="post" action="{{ row.advance_url }}" class="inline">
+                                  {% csrf_token %}
+                                  <input type="hidden" name="action" value="end_session">
+                                  <button class="px-5 py-2.5 rounded-lg bg-primary-600 text-white text-base font-semibold">
+                                    {% trans "End session" %}
+                                  </button>
+                                </form>
                               {% else %}
-                                {% trans "Finish" %}
+                                <form method="post" action="{{ row.advance_url }}" class="inline">
+                                  {% csrf_token %}
+                                  <input type="hidden" name="action" value="start_session">
+                                  <button class="px-5 py-2.5 rounded-lg bg-primary-600 text-white text-base font-semibold">
+                                    {% trans "Start session" %}
+                                  </button>
+                                </form>
                               {% endif %}
-                            </button>
-                          </form>
+
+                              <form method="post" action="{{ row.advance_url }}" class="inline">
+                                {% csrf_token %}
+                                <input type="hidden" name="action" value="finish_activity">
+                                <button class="px-5 py-2.5 rounded-lg bg-primary-600 text-white text-base font-semibold">
+                                  {% trans "Finish activity" %}
+                                </button>
+                              </form>
+
+                            </div>
+
+                          {% else %}
+                            <span class="text-gray-400 text-base">—</span>
+                          {% endif %}
+
                         {% else %}
                           <span class="text-gray-400 text-base">—</span>
                         {% endif %}
                       </td>
+
                     </tr>
                   {% endfor %}
                 </tbody>
               </table>
             </div>
+
           {% else %}
             <div class="p-4 rounded-xl bg-gray-50 dark:bg-gray-800 text-base text-gray-600 dark:text-gray-300">
               {% trans "No stages defined for this item" %}

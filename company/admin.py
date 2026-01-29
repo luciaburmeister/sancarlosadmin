@@ -65,6 +65,7 @@ class EmployeeAdmin(ModelAdmin):
             _("Employee"),
             {
                 "fields": (
+                    "user",
                     ("first_name", "last_name"),
                     ("email", "phone"),
                 )

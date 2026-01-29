@@ -59,6 +59,11 @@ class Employee(CompanyOwnedModel):
         related_name="employee_profile",
         verbose_name=_("User Account")
     )
+    
+    can_work_on_production = models.BooleanField(
+    default=False,
+    verbose_name=_("Can work on production stages"),
+    )
 
     first_name = models.CharField(
         max_length=50,

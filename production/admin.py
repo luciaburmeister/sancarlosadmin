@@ -26,6 +26,10 @@ from production.constants import(
     STATUS_IN_PROGRESS, 
     STATUS_DONE
 )
+from production.services.stages_to_sessions import StagesToSessionsService
+from django.contrib import messages
+from django.core.exceptions import ValidationError
+
 
 
 class ProductionItemInline(TabularInline):
@@ -130,11 +134,19 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             stages = []
             for stage_name in stage_names:
                 stage_info = planning.get(stage_name) or {}
+
+                has_active_session = ProductionItemSession.objects.filter(
+                    production_item=item,
+                    production_stage=stage_name,
+                    status=ProductionItemSessionStatus.IN_PROGRESS,
+                ).exists()
+
                 stages.append({
                     "name": stage_name,
                     "status": stage_info.get("status") or "pending",
                     "started_at": stage_info.get("started_at"),
                     "completed_at": stage_info.get("completed_at"),
+                    "has_active_session": has_active_session,
                 })
 
             current_index = None
@@ -149,6 +161,20 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
                     if stage["status"] != "done":
                         current_index = index
                         break
+
+            for s in stages:
+                s.setdefault("has_active_session", False)
+
+            employee = getattr(self.request.user, "employee_profile", None)
+            if current_index is not None and employee is not None:
+                current_stage_name = stages[current_index]["name"]
+                stages[current_index]["has_active_session"] = ProductionItemSession.objects.filter(
+                    production_item=item,
+                    production_stage=current_stage_name,
+                    employee=employee,
+                    status=ProductionItemSessionStatus.IN_PROGRESS,
+                ).exists()
+
 
             items_ui.append({
                 "item": item,
@@ -233,17 +259,12 @@ class ProductionTicketAdmin(ModelAdmin):
 class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
     permission_required = ("production.change_productionitem",)
 
-    def post(self, request: HttpRequest, ticket_id: int, item_id: int) -> HttpResponse:
-        production_item = get_object_or_404(
-            ProductionItem,
-            pk=item_id,
-            ticket_id=ticket_id,
-        )
+    def post(self, request: HttpRequest, ticket_id: int, item_id: int):
+        production_item = get_object_or_404(ProductionItem, pk=item_id, ticket_id=ticket_id)
 
-        planning = production_item.planning or {}
-        stage_names = list(planning.keys())
-
-        if not stage_names:
+        employee = getattr(request.user, "employee_profile", None)
+        if employee is None:
+            messages.error(request, "Your user is not linked to an Employee.")
             return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
         action = request.POST.get("action")
@@ -265,6 +286,7 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
             StagesToSessionsService.advance_current_stage(production_item=production_item, employee=employee)
 
         return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
+    
 
     
 class ProductionItemSessionInline(StackedInline):
@@ -401,9 +423,7 @@ class ProductionItemSessionAdmin(ModelAdmin):
     )
 
     ordering = ("-created_at",)
-
     
-
     @display(
         description=_("Status"),
         ordering="status",

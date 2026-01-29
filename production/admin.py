@@ -333,8 +333,28 @@ class ProductionItemAdmin(ModelAdmin):
     search_fields = ("id", "ticket__id")
     
     readonly_fields = (
+        "component",
+        "component_id",
+        "quantity",
+        "length",
         "data",
         "planning",
+    )
+
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "ticket",
+                    "status",
+                    ("component", "component_id"),
+                    ("quantity", "length"),
+                    "data",
+                    "planning",
+                )
+            },
+        ),
     )
 
     inlines = [ProductionItemSessionInline]

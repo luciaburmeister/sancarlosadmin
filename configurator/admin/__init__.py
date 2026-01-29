@@ -7,3 +7,4 @@ from .pricing_rule_template import PricingRuleAdmin
 from .pricing_rule_assignment import PricingRuleAssignmentAdmin
 from .user_admin import UserAdmin
 from .configuration_export import ConfigurationExportTemplateAdmin
+from .configuration_item import ConfigurationItem

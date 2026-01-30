@@ -70,7 +70,7 @@ class ProductTemplate( CompanyOwnedModel):
         verbose_name=_("Production Stages"),
     )
     parameter_group_options = ArrayField(
-        base_field=models.CharField(max_length=30),
+        base_field=models.CharField(max_length=150),
         default=list,
         blank=True,
         help_text=_("Parameter Group Options to group in forms"),

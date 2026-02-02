@@ -262,6 +262,7 @@ UNFOLD = {
         "light": lambda request: static("site-logos/polipus_negro.png"),  # light mode
         "dark": lambda request: static("site-logos/polipus_blanco.png"),  # dark mode
     },
+    "BORDER_RADIUS": "12px",
     "SIDEBAR": {
         "show_search": True,  
         "show_all_applications": True,  

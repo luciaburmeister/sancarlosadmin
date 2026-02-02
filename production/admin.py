@@ -7,29 +7,21 @@ from production.models import (
     ProductionItemSession,
     ProductionItemSessionStatus
 )
+from production.views.production_stages_view import (
+    ProductionItemAdvanceStageView,
+)
+
 from django.utils.html import format_html
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
 
 from django.urls import path, reverse
-from django.utils import timezone
-from django.shortcuts import redirect, get_object_or_404
+from django.shortcuts import get_object_or_404
 
 from unfold.views import UnfoldModelAdminViewMixin
-from django.views.generic import TemplateView
 from unfold.decorators import display
 
+from django.views.generic import TemplateView
 from django.views import View
-from django.http import HttpRequest, HttpResponse
-
-from production.constants import(
-    STATUS_PENDING, 
-    STATUS_IN_PROGRESS, 
-    STATUS_DONE
-)
-from production.services.stages_to_sessions import StagesToSessionsService
-from django.contrib import messages
-from django.core.exceptions import ValidationError
-
 
 
 class ProductionItemInline(TabularInline):
@@ -143,7 +135,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
                 stages.append({
                     "name": stage_name,
-                    "status": stage_info.get("status") or "pending",
+                    "status": stage_info.get("status") or ProductionItemSessionStatus.PENDING,
                     "started_at": stage_info.get("started_at"),
                     "completed_at": stage_info.get("completed_at"),
                     "has_active_session": has_active_session,
@@ -152,13 +144,13 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             current_index = None
 
             for index, stage in enumerate(stages):
-                if stage["status"] == "in_progress":
+                if stage["status"] == ProductionItemSessionStatus.IN_PROGRESS:
                     current_index = index
                     break
 
             if current_index is None:
                 for index, stage in enumerate(stages):
-                    if stage["status"] != "done":
+                    if stage["status"] != ProductionItemSessionStatus.DONE:
                         current_index = index
                         break
 
@@ -238,54 +230,19 @@ class ProductionTicketAdmin(ModelAdmin):
     def get_urls(self):
         urls = super().get_urls()
 
-        stages_view = self.admin_site.admin_view(
-            ProductionTicketStagesView.as_view(model_admin=self)
-        )
+        stages_view = self.admin_site.admin_view(ProductionTicketStagesView.as_view(model_admin=self))
 
-        advance_view = self.admin_site.admin_view(
-            ProductionItemAdvanceStageView.as_view(model_admin=self)
-        )
+        advance_view = self.admin_site.admin_view(ProductionItemAdvanceStageView.as_view(model_admin=self))
 
         custom = [
             path("<int:object_id>/stages/", stages_view, name="production_productionticket_stages",
             ),
-            path("<int:ticket_id>/stages/item/<int:item_id>/advance/",
+            path(
+                "<int:ticket_id>/stages/item/<int:item_id>/advance/",
                 advance_view, name="production_productionticket_item_advance",
             ),
         ]
         return custom + urls
-
-
-class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
-    permission_required = ("production.change_productionitem",)
-
-    def post(self, request: HttpRequest, ticket_id: int, item_id: int):
-        production_item = get_object_or_404(ProductionItem, pk=item_id, ticket_id=ticket_id)
-
-        employee = getattr(request.user, "employee_profile", None)
-        if employee is None:
-            messages.error(request, "Your user is not linked to an Employee.")
-            return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
-
-        action = request.POST.get("action")
-
-        if action == "start_activity":
-            StagesToSessionsService.start_activity(production_item=production_item, employee=employee)
-
-        elif action == "finish_activity":
-            StagesToSessionsService.finish_activity(production_item=production_item, employee=employee)
-
-        elif action == "start_session":
-            StagesToSessionsService.start_session(production_item=production_item, employee=employee)
-
-        elif action == "end_session":
-            StagesToSessionsService.end_session(production_item=production_item, employee=employee)
-
-        else:
-
-            StagesToSessionsService.advance_current_stage(production_item=production_item, employee=employee)
-
-        return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
     
 
     
@@ -325,18 +282,29 @@ class ProductionItemSessionInline(StackedInline):
 
     duration_display.short_description = _("Duration")
 
-    def session_type_display(self, obj):
-        c = (obj.comments or "").upper()
+    from django.utils.translation import gettext_lazy as _
 
-        if "Activity finished" in c:
-            return format_html('Activity finished</span>')
-        if "Session finished" in c:
-            return format_html('Session finished</span>')
+    @display(
+        description=_("Type"),
+        label={
+            "activity finished": "success",
+            "session finished": "info",
+            "working": "warning",
+        },
+)
+    def session_type_display(self, obj):
+        comments = (obj.comments or "").lower()
+
+        if "activity finished" in comments:
+            return "Activity finished"
+
+        if "session finished" in comments:
+            return "Session finished"
 
         if obj.status == ProductionItemSessionStatus.IN_PROGRESS:
-            return format_html('Working</span>')
+            return "Working"
 
-        return "—"
+        return None
 
     session_type_display.short_description = _("Type")
 

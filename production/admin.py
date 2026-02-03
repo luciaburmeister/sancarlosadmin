@@ -11,16 +11,21 @@ from production.models import (
     ProductionResource,
     OperationRequirement,
 )
+from production.views.production_stages_view import (
+    ProductionItemAdvanceStageView,
+)
+
 from django.utils.html import format_html
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
 
 from django.urls import path, reverse
-from django.utils import timezone
-from django.shortcuts import redirect, get_object_or_404
+from django.shortcuts import get_object_or_404
 
 from unfold.views import UnfoldModelAdminViewMixin
-from django.views.generic import TemplateView
 from unfold.decorators import display
+
+from django.views.generic import TemplateView
+from django.views import View
 
 
 class ProductionItemInline(TabularInline):
@@ -125,26 +130,47 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             stages = []
             for stage_name in stage_names:
                 stage_info = planning.get(stage_name) or {}
+
+                has_active_session = ProductionItemSession.objects.filter(
+                    production_item=item,
+                    production_stage=stage_name,
+                    status=ProductionItemSessionStatus.IN_PROGRESS,
+                ).exists()
+
                 stages.append({
                     "name": stage_name,
-                    "status": stage_info.get("status") or "pending",
+                    "status": stage_info.get("status") or ProductionItemSessionStatus.PENDING,
                     "started_at": stage_info.get("started_at"),
                     "completed_at": stage_info.get("completed_at"),
+                    "has_active_session": has_active_session,
                 })
 
-            # ✅ important: avoid UnboundLocalError
             current_index = None
 
             for index, stage in enumerate(stages):
-                if stage["status"] == "in_progress":
+                if stage["status"] == ProductionItemSessionStatus.IN_PROGRESS:
                     current_index = index
                     break
 
             if current_index is None:
                 for index, stage in enumerate(stages):
-                    if stage["status"] != "done":
+                    if stage["status"] != ProductionItemSessionStatus.DONE:
                         current_index = index
                         break
+
+            for s in stages:
+                s.setdefault("has_active_session", False)
+
+            employee = getattr(self.request.user, "employee_profile", None)
+            if current_index is not None and employee is not None:
+                current_stage_name = stages[current_index]["name"]
+                stages[current_index]["has_active_session"] = ProductionItemSession.objects.filter(
+                    production_item=item,
+                    production_stage=current_stage_name,
+                    employee=employee,
+                    status=ProductionItemSessionStatus.IN_PROGRESS,
+                ).exists()
+
 
             items_ui.append({
                 "item": item,
@@ -208,67 +234,21 @@ class ProductionTicketAdmin(ModelAdmin):
     def get_urls(self):
         urls = super().get_urls()
 
-        stages_view = self.admin_site.admin_view(
-            ProductionTicketStagesView.as_view(model_admin=self)
-        )
+        stages_view = self.admin_site.admin_view(ProductionTicketStagesView.as_view(model_admin=self))
+
+        advance_view = self.admin_site.admin_view(ProductionItemAdvanceStageView.as_view(model_admin=self))
 
         custom = [
-            path("<int:object_id>/stages/", stages_view, name="production_productionticket_stages",),
-            path("<int:ticket_id>/stages/item/<int:item_id>/advance/",
-                self.admin_site.admin_view(self.item_advance), name="production_productionticket_item_advance",
+            path("<int:object_id>/stages/", stages_view, name="production_productionticket_stages",
+            ),
+            path(
+                "<int:ticket_id>/stages/item/<int:item_id>/advance/",
+                advance_view, name="production_productionticket_item_advance",
             ),
         ]
         return custom + urls
+    
 
-    def item_advance(self, request, ticket_id, item_id):
-        if request.method != "POST":
-            return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
-
-        item = get_object_or_404(ProductionItem, pk=item_id, ticket_id=ticket_id)
-        planning = item.planning or {}
-
-        stage_names = list(planning.keys())
-        if not stage_names:
-            return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
-
-        current_stage_name = None
-
-        for stage_name in stage_names:
-            stage_info = planning.get(stage_name) or {}
-            stage_status = stage_info.get("status") or "pending"
-            if stage_status == "in_progress":
-                current_stage_name = stage_name
-                break
-
-        if current_stage_name is None:
-            for stage_name in stage_names:
-                stage_info = planning.get(stage_name) or {}
-                stage_status = stage_info.get("status") or "pending"
-                if stage_status != "done":
-                    current_stage_name = stage_name
-                    break
-
-        if current_stage_name is None:
-            return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
-
-        current_stage_info = planning.get(current_stage_name) or {}
-        status = current_stage_info.get("status") or "pending"
-        now = timezone.now().isoformat()
-
-        if status == "pending":
-            current_stage_info["status"] = "in_progress"
-            current_stage_info["started_at"] = current_stage_info.get("started_at") or now
-            current_stage_info["completed_at"] = None
-        elif status == "in_progress":
-            current_stage_info["status"] = "done"
-            current_stage_info["started_at"] = current_stage_info.get("started_at") or now
-            current_stage_info["completed_at"] = now
-
-        planning[current_stage_name] = current_stage_info
-        item.planning = planning
-        item.save(update_fields=["planning", "updated_at"])
-
-        return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
     
 class ProductionItemSessionInline(StackedInline):
     model = ProductionItemSession
@@ -277,6 +257,8 @@ class ProductionItemSessionInline(StackedInline):
     tab=True
 
     fields = (
+        "session_type_display",
+        "employee",
         "production_stage",
         "status",
         "start_time",
@@ -286,6 +268,7 @@ class ProductionItemSessionInline(StackedInline):
     )
 
     readonly_fields = (
+        "session_type_display",
         "duration_display",
     )
 
@@ -301,6 +284,32 @@ class ProductionItemSessionInline(StackedInline):
         return f"{hours}h {minutes}m"
 
     duration_display.short_description = _("Duration")
+
+
+    @display(
+        description=_("Type"),
+        label={
+            "activity finished": "success",
+            "session finished": "info",
+            "working": "warning",
+        },
+)
+    def session_type_display(self, obj):
+        comments = (obj.comments or "").lower()
+
+        if "activity finished" in comments:
+            return "Activity finished"
+
+        if "session finished" in comments:
+            return "Session finished"
+
+        if obj.status == ProductionItemSessionStatus.IN_PROGRESS:
+            return "Working"
+
+        return None
+
+    session_type_display.short_description = _("Type")
+
 
 class OperationRequirementInline(TabularInline):
     model = OperationRequirement
@@ -319,8 +328,28 @@ class ProductionItemAdmin(ModelAdmin):
     search_fields = ("id", "ticket__id")
     
     readonly_fields = (
+        "component",
+        "component_id",
+        "quantity",
+        "length",
         "data",
         "planning",
+    )
+
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "ticket",
+                    "status",
+                    ("component", "component_id"),
+                    ("quantity", "length"),
+                    "data",
+                    "planning",
+                )
+            },
+        ),
     )
 
     inlines = [ProductionItemSessionInline,OperationRequirementInline]
@@ -364,9 +393,7 @@ class ProductionItemSessionAdmin(ModelAdmin):
     )
 
     ordering = ("-created_at",)
-
     
-
     @display(
         description=_("Status"),
         ordering="status",

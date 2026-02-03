@@ -69,6 +69,13 @@ class ProductTemplate( CompanyOwnedModel):
         help_text=_("Ordered list of possible production stages for this product"),
         verbose_name=_("Production Stages"),
     )
+    parameter_group_options = ArrayField(
+        base_field=models.CharField(max_length=150),
+        default=list,
+        blank=True,
+        help_text=_("Parameter Group Options to group in forms"),
+        verbose_name=_("Parameter Group Options"),
+    )
     image = models.ImageField(
         upload_to="products/",
         blank=True,
@@ -181,18 +188,16 @@ class ProductTemplate( CompanyOwnedModel):
             )
         BOMRule.objects.bulk_create(rules)
     def _clone_pricing_rules(self, product_copy):
-        rules = []
-        for r in self.pricing_rules.all():
-            rules.append(
-                PricingRuleTemplate(
-                    company=product_copy.company,
-                    product=product_copy,
-                    name=r.name,
-                    expression=r.expression,
-                    is_active=r.is_active,
-                )
-            )
-        PricingRuleTemplate.objects.bulk_create(rules)
+        defaults = []
+        for a in self.pricing_rule_defaults.select_related("rule").all():
+            defaults.append(ProductPricingRuleAssignment(
+                product=product_copy,
+                rule=a.rule,
+                enabled=a.enabled,
+                order=a.order,
+            ))
+        ProductPricingRuleAssignment.objects.bulk_create(defaults)
+
     def _clone_computed_variables(self, product_copy):
         vars = []
         for v in self.computed_vars.all():
@@ -248,6 +253,7 @@ class ProductParameter(models.Model):
         default=list,
         verbose_name=_("Options"),
     )
+
     required = models.BooleanField(default=True, verbose_name=_("Required"))
     order = models.PositiveIntegerField(
         default=0,
@@ -255,6 +261,7 @@ class ProductParameter(models.Model):
         help_text=_("Order of the parameter within the product"),
         db_index=True
     )
+    parameter_group = models.CharField(null=True, verbose_name=_("Parameter Group"),blank=True)
 
     class Meta:
         verbose_name = _("Product parameter")
@@ -370,19 +377,11 @@ class BOMRule(CompanyOwnedModel):
             raise ValidationError(errors)
 
 
-class PricingRuleTemplate(CompanyOwnedModel):
+class PricingRule(CompanyOwnedModel):
     """
     A reusable pricing rule template that can be applied
     to many configurations.
     """
-    product = models.ForeignKey(
-        ProductTemplate,
-        on_delete=models.CASCADE,
-        related_name="pricing_rules",
-        null=True,
-        verbose_name=_("Product"),
-    )
-
     name = models.CharField(max_length=100, verbose_name=_("Name"))
 
     expression = models.TextField(
@@ -489,6 +488,7 @@ class Configuration(Timestampable,CompanyOwnedModel):
             "Used for exports and auditing."
         ),
     )
+    
 
     class Meta:
         verbose_name = _("Configuration")
@@ -640,36 +640,83 @@ class Configuration(Timestampable,CompanyOwnedModel):
             ]
         )
 
+    def _evaluate_bom_rule(self, rule, context):
+        """
+        Evaluate a BOMRule into concrete quantity and length.
+        Returns (quantity, length) or (None, None) if rule is inactive.
+        """
+        qty = safe_eval(rule.quantity_expression, context)
+        if not qty or qty <= 0:
+            return None, None
 
+        length = Decimal("1")
+        if rule.length_expression:
+            evaluated_length = safe_eval(rule.length_expression, context)
+            if evaluated_length:
+                length = Decimal(str(evaluated_length))
+
+        return Decimal(str(qty)), length
+
+    def _bom_item_key(self, component_id):
+        """
+        Defines identity of a BOM-derived ConfigurationItem.
+        Adjust here if you later support multiple BOM items per component.
+        """
+        return (component_id,)
+    
+    def _get_existing_bom_items(self):
+        """
+        Returns a dict mapping BOM identity → ConfigurationItem
+        """
+        items = self.items.filter(is_template_item=True)
+        return {
+            self._bom_item_key(item.component_id): item
+            for item in items
+        }
+    
     def generate_bom(self):
-        processed = set()
+        """
+        Incrementally reconciles BOM rules with existing ConfigurationItems.
 
+        - Updates existing items
+        - Creates missing items
+        - Deletes obsolete items
+        - Preserves primary keys whenever possible
+        """
         context = self.get_pricing_context()
 
-        for rule in self.product.bom_rules.all():
-            qty = safe_eval(rule.quantity_expression, context)
+        existing_items = self._get_existing_bom_items()
+        seen_keys = set()
 
-            if not qty or qty <= 0:
+        for rule in self.product.bom_rules.select_related("component"):
+            qty, length = self._evaluate_bom_rule(rule, context)
+            if qty is None:
                 continue
 
-            length = Decimal("1")
-            if rule.length_expression:
-                evaluated_length = safe_eval(rule.length_expression, context)
-                if evaluated_length:
-                    length = Decimal(str(evaluated_length))
+            key = self._bom_item_key(rule.component_id)
+            seen_keys.add(key)
 
-            item = ConfigurationItem.objects.create(
-                configuration=self,
-                component=rule.component,
-                quantity=qty,
-                length=length,
-                unit_price=rule.component.cost_per_unit,
-                is_template_item=True,
-                production_stages=rule.production_stages or [],
-            )
-            processed.add(item.id)
+            if key in existing_items:
+                item = existing_items[key]
+                item.quantity = qty
+                item.length = length
+                item.unit_price = rule.component.cost_per_unit
+                item.production_stages = rule.production_stages or []
+                item.save()
+            else:
+                ConfigurationItem.objects.create(
+                    configuration=self,
+                    component=rule.component,
+                    quantity=qty,
+                    length=length,
+                    unit_price=rule.component.cost_per_unit,
+                    is_template_item=True,
+                    production_stages=rule.production_stages or [],
+                )
 
-        self.items.filter(is_template_item=True).exclude(id__in=processed).delete()
+        for key, item in existing_items.items():
+            if key not in seen_keys:
+                item.delete()
 
     def evaluate_computed_variables(self, context):
         """
@@ -756,12 +803,74 @@ class Configuration(Timestampable,CompanyOwnedModel):
             object_id=self.pk,
         ).select_related("tax_type").order_by("order")
 
-    
+    def copy_default_pricing_rules_from_product(self):
+        if not self.product_id:
+            return
+
+        defaults = self.product.pricing_rule_defaults.select_related("rule").all()
+        for d in defaults:
+            PricingRuleAssignment.objects.get_or_create(
+                configuration=self,
+                rule=d.rule,
+                defaults={"enabled": d.enabled},
+            )
+
     def available_export_templates(self):
         return ConfigurationExportService.get_available_templates(self)
 
     def render_export(self, template):
         return ConfigurationExportService.render_html(self, template)
+    
+    def recompute_component_groups(self):
+        for group in self.component_groups.prefetch_related("items"):
+            material_total = sum(
+                item.line_total.amount for item in group.items.all()
+            )
+
+            pricing_adjustment = self.evaluate_pricing_delta(material_total)
+
+            group.material_total = material_total
+            group.pricing_adjustment = pricing_adjustment
+            group.total = material_total + pricing_adjustment
+
+            group.save(
+                update_fields=[
+                    "material_total",
+                    "pricing_adjustment",
+                    "total",
+                ]
+            )
+
+
+    def evaluate_pricing_delta(self, base_total: Decimal) -> Decimal:
+        """
+        Evaluates pricing rules using the given base_total
+        and returns ONLY the pricing delta (margin / surcharge).
+        """
+        context = self.get_pricing_context()
+        context["base_total"] = float(base_total)
+
+        pricing_delta = Decimal("0.00")
+        subtotal = Decimal(base_total)
+
+        for assignment in (
+            self.pricing_rules
+            .select_related("rule")
+            .filter(enabled=True)
+        ):
+            rule = assignment.rule
+            amount = Decimal(str(safe_eval(rule.expression, context)))
+
+            if amount == 0:
+                continue
+
+            subtotal += amount
+            pricing_delta += amount
+            context["base_total"] = float(subtotal)
+
+        return pricing_delta
+
+
     
 
 class ConfigurationFlow:
@@ -871,6 +980,14 @@ class ConfigurationItem(Timestampable):
         verbose_name=_("Production stages"),
     )
     
+    label = models.CharField(
+    max_length=255,
+    editable=False,
+    db_index=True,
+    verbose_name=_("Label"),
+    help_text=_("Snapshot label for this configuration item"),
+)
+    
 
 
     def save(self, *args, **kwargs):
@@ -878,10 +995,17 @@ class ConfigurationItem(Timestampable):
         length = self.length or Decimal("1")
 
         self.line_total = self.unit_price * quantity * length
+
+        if self.component:
+            self.label = f"{self.component.name} × {quantity}"
+        else:
+            self.label = _("Unknown component")
+
         super().save(*args, **kwargs)
 
+
     def __str__(self):
-        return f"{self.component_id} x {self.quantity}"
+        return self.label
 
 class PricingRuleAssignment(models.Model):
     """
@@ -896,7 +1020,7 @@ class PricingRuleAssignment(models.Model):
     )
 
     rule = models.ForeignKey(
-        PricingRuleTemplate,
+        PricingRule,
         on_delete=models.CASCADE,
         related_name="assignments"
     )
@@ -909,6 +1033,16 @@ class PricingRuleAssignment(models.Model):
     def __str__(self):
         return f"{self.configuration_id} → {self.rule}"
     
+class ProductPricingRuleAssignment(models.Model):
+    product = models.ForeignKey(ProductTemplate, on_delete=models.CASCADE, related_name="pricing_rule_defaults")
+    rule = models.ForeignKey(PricingRule, on_delete=models.CASCADE, related_name="product_defaults")
+    enabled = models.BooleanField(default=True)
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ("product", "rule")
+        ordering = ["order"]
+
 
 class ConfigurationParameterValue(models.Model):
     configuration = models.ForeignKey(
@@ -994,3 +1128,56 @@ class ConfigurationExportTemplate(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.name} (Product {self.product_id or 'Any'})"
+
+class ConfigurationComponentGroup(models.Model):
+    configuration = models.ForeignKey(
+        Configuration,
+        on_delete=models.CASCADE,
+        related_name="component_groups",
+    )
+
+    key = models.SlugField(max_length=50)
+    label = models.CharField(max_length=100)
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Sorting Order"),
+        help_text=_("Order of the parameter within the product"),
+        db_index=True
+    )
+    
+
+    items = models.ManyToManyField(
+        ConfigurationItem,
+        related_name="groups",
+    )
+
+    material_total = MoneyField(
+        max_digits=14,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        editable=False,
+    )
+
+    pricing_adjustment = MoneyField(
+        max_digits=14,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        editable=False,
+    )
+
+    total = MoneyField(
+        max_digits=14,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        editable=False,
+    )
+
+    class Meta:
+        unique_together = ("configuration", "key")
+
+    def __str__(self):
+        return self.label
+

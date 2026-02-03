@@ -1,6 +1,6 @@
 from django.contrib import admin, messages
 from unfold.admin import ModelAdmin
-from configurator.forms.stage_resources_form import StagePlanningFormSet
+from configurator.forms.stage_resources_form import EmployeeFormSet, MachineFormSet, ResourcesFormsetHelper, StagePlanningFormSet
 from configurator.models import ProductTemplate, ProductParameter, BOMRule, PricingRuleTemplate, ProductComputedVariable
 from unfold.admin import TabularInline,StackedInline,GenericTabularInline
 from django.db import models
@@ -173,63 +173,120 @@ class ProductTemplateAdmin(ModelAdmin):
         stage_keys = list(obj.production_stages or [])
         existing = obj.production_planning_resources or {}
 
-        initial = []
-        for key in stage_keys:
+        def build_outer_initial():
+            initial = []
+            for key in stage_keys:
+                stage = existing.get(key, {})
+                initial.append({
+                    "stage_key": key,
+                    "prep_time_min": stage.get("prep_time_min", 0),
+                    "work_time_min": stage.get("work_time_min", 0),
+                    "post_time_min": stage.get("post_time_min", 0),
+                })
+            return initial
+
+        def build_inner_initial_for_stage(key: str):
             stage = existing.get(key, {})
+            emp_rows = stage.get("employee_types", []) or []
+            mac_rows = stage.get("machine_types", []) or []
 
-            employee_types = stage.get("employee_types", [])
-            emp_row = employee_types[0] if employee_types else {}
-            
-            machine_types = stage.get("machine_types", [])
-            mac_row = machine_types[0] if machine_types else {}
+            emp_initial = [
+                {"employee_type": r.get("employee_type_id"), "employee_qty": r.get("quantity", 0)}
+                for r in emp_rows
+            ]
+            mac_initial = [
+                {"machine_type": r.get("machine_type_id"), "machine_qty": r.get("quantity", 0)}
+                for r in mac_rows
+            ]
+            return emp_initial, mac_initial
 
-            initial.append({
-                "stage_key": key,
-                "employee_type": emp_row.get("employee_type_id", None),
-                "employee_qty": emp_row.get("quantity", 0),
-                "machine_type": mac_row.get("machine_type_id", None),
-                "machine_qty": mac_row.get("quantity", 0),
-                "prep_time_min": stage.get("prep_time_min", 0),
-                "work_time_min": stage.get("work_time_min", 0),
-                "post_time_min": stage.get("post_time_min", 0),
-            })
+        def build_inner_formsets(stage_forms, data=None):
+            """
+            Returns a list aligned with stage_forms:
+            inner[i] = {"employees": (emp_fs, emp_helper), "machines": (mac_fs, mac_helper)}
+            """
+            inner = []
+            for i, stage_form in enumerate(stage_forms):
+                key = stage_form.initial.get("stage_key") or stage_form.data.get(f"{stage_form.prefix}-stage_key")
+
+                emp_prefix = f"stages-{i}-employees"
+                mac_prefix = f"stages-{i}-machines"
+
+                if data is None:
+                    emp_initial, mac_initial = build_inner_initial_for_stage(key)
+                    emp_fs = EmployeeFormSet(prefix=emp_prefix, company=obj.company, initial=emp_initial)
+                    mac_fs = MachineFormSet(prefix=mac_prefix, company=obj.company, initial=mac_initial)
+                else:
+                    emp_fs = EmployeeFormSet(data=data, prefix=emp_prefix, company=obj.company)
+                    mac_fs = MachineFormSet(data=data, prefix=mac_prefix, company=obj.company)
+
+                emp_helper = ResourcesFormsetHelper(form_id=f"{emp_prefix}-table")
+                mac_helper = ResourcesFormsetHelper(form_id=f"{mac_prefix}-table")
+
+                inner.append({
+                    "employees": (emp_fs, emp_helper),
+                    "machines": (mac_fs, mac_helper),
+                })
+            return inner
 
         if request.method == "POST":
-            formset = StagePlanningFormSet(
+            stage_formset = StagePlanningFormSet(
                 request.POST,
+                prefix="stages",
                 company=obj.company,
                 request=request,
                 admin_site=self.admin_site,
             )
 
-            if formset.is_valid():
+            inner = build_inner_formsets(stage_formset.forms, data=request.POST)
+
+            all_valid = stage_formset.is_valid()
+            for block in inner:
+                emp_fs, __ = block["employees"]
+                mac_fs, __ = block["machines"]
+                all_valid = emp_fs.is_valid() and all_valid
+                all_valid = mac_fs.is_valid() and all_valid
+
+            if all_valid:
                 new_data = {}
 
                 try:
-                    for form in formset:
-                        key = form.cleaned_data["stage_key"]
+                    for i, stage_form in enumerate(stage_formset.forms):
+                        key = stage_form.cleaned_data["stage_key"]
 
-                        et = form.cleaned_data.get("employee_type")
-                        eq = form.cleaned_data.get("employee_qty", 0)
-                        mt = form.cleaned_data.get("machine_type")
-                        mq = form.cleaned_data.get("machine_qty", 0)
-
-                        prep = form.cleaned_data["prep_time_min"]
-                        work = form.cleaned_data["work_time_min"]
-                        post = form.cleaned_data["post_time_min"]
+                        prep = stage_form.cleaned_data["prep_time_min"]
+                        work = stage_form.cleaned_data["work_time_min"]
+                        post = stage_form.cleaned_data["post_time_min"]
                         total = prep + work + post
 
+                        emp_fs, __ = inner[i]["employees"]
+                        mac_fs, __ = inner[i]["machines"]
+
+                        employees = []
+                        for row in emp_fs.cleaned_data:
+                            if not row:
+                                continue
+                            if row.get("DELETE"):
+                                continue
+                            et = row.get("employee_type")
+                            eq = row.get("employee_qty") or 0
+                            if et and eq > 0:
+                                employees.append({"employee_type_id": et.id, "quantity": eq})
+
+                        machines = []
+                        for row in mac_fs.cleaned_data:
+                            if not row:
+                                continue
+                            if row.get("DELETE"):
+                                continue
+                            mt = row.get("machine_type")
+                            mq = row.get("machine_qty") or 0
+                            if mt and mq > 0:
+                                machines.append({"machine_type_id": mt.id, "quantity": mq})
+
                         new_data[key] = {
-                            "employee_types": (
-                                [{"employee_type_id": et.id, "quantity": eq}]
-                                if et and eq > 0
-                                else []
-                            ),
-                            "machine_types": (
-                                [{"machine_type_id": mt.id, "quantity": mq}]
-                                if mt and mq > 0
-                                else []
-                            ),
+                            "employee_types": employees,
+                            "machine_types": machines,
                             "prep_time_min": prep,
                             "work_time_min": work,
                             "post_time_min": post,
@@ -248,19 +305,25 @@ class ProductTemplateAdmin(ModelAdmin):
                     return redirect("admin:configurator_producttemplate_changelist")
             else:
                 messages.error(request, _("Please correct the errors below."))
+
         else:
-            formset = StagePlanningFormSet(
-                initial=initial,
+            stage_formset = StagePlanningFormSet(
+                initial=build_outer_initial(),
+                prefix="stages",
                 company=obj.company,
                 request=request,
                 admin_site=self.admin_site,
             )
+            inner = build_inner_formsets(stage_formset.forms, data=None)
+
+        stage_blocks = list(zip(stage_formset.forms, inner))
 
         context = {
             **self.admin_site.each_context(request),
             "title": _("Configure planning resources: %(name)s") % {"name": obj.name},
             "obj": obj,
-            "formset": formset,
+            "stage_formset": stage_formset,
+            "stage_blocks": stage_blocks,
         }
         return TemplateResponse(
             request,

@@ -8,21 +8,21 @@ class ConfigurationItemAdmin(ModelAdmin):
     list_display = (
         "id",
         "configuration",
-        "material",
         "quantity",
         "unit_price",
         "line_total",
         "created_at",
     )
 
-    list_filter = ("created_at", "material")
-    search_fields = ("material__name", "configuration__name")
+    list_filter = ("created_at", "component")
+
+    search_fields = ("component__name","configuration__name")
 
     readonly_fields = ("line_total", "created_at")
 
     fieldsets = (
         ("Item", {
-            "fields": ("configuration", "material", "quantity", "unit_price", "line_total"),
+            "fields": ("configuration", "quantity", "unit_price", "line_total"),
         }),
         ("Timestamps", {
             "fields": ("created_at",),

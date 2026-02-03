@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django_json_widget',
+    'import_export',
     "storages",
     'inventory',
     'invoices',
@@ -261,6 +262,7 @@ UNFOLD = {
         "light": lambda request: static("site-logos/polipus_negro.png"),  # light mode
         "dark": lambda request: static("site-logos/polipus_blanco.png"),  # dark mode
     },
+    "BORDER_RADIUS": "12px",
     "SIDEBAR": {
         "show_search": True,  
         "show_all_applications": True,  
@@ -316,6 +318,34 @@ UNFOLD = {
                         ),
                         "permission": lambda request: request.user.has_perm(
                             "materials.view_component"
+                        )
+                    },
+                ],
+            },
+
+            {
+                "title": _("Company"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Company"),
+                        "icon": "brick",
+                        "link": reverse_lazy(
+                            "admin:company_company_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "company.view_company"
+                        ),
+                    },
+                    {
+                        "title": _("Employees"),
+                        "icon": "brick",
+                        "link": reverse_lazy(
+                            "admin:company_employee_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "company.view_employee"
                         )
                     },
                 ],

@@ -4,11 +4,12 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from timestamps.models import Timestampable
 from django.contrib.postgres.indexes import GinIndex
-from company.models import Employee
+from company.models import Employee,Machine,CompanyOwnedModel
 from django.utils import timezone
 from django.db.models import Q
 from django.core.exceptions import ValidationError
 from materials.models import Component
+
 
 class ProductionTicketStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
@@ -124,8 +125,6 @@ class ProductionItemSessionStatus(models.TextChoices):
     CANCELLED = "cancelled", _("Cancelled")
 
 class ProductionItemSession(Timestampable):
-    employee = models.ForeignKey(Employee,on_delete=models.CASCADE,related_name="production_sessions",
-                                 verbose_name=_("Employee"))
     production_item = models.ForeignKey(
         ProductionItem,
         on_delete=models.CASCADE,
@@ -162,10 +161,9 @@ class ProductionItemSession(Timestampable):
     class Meta:
         indexes = [
             models.Index(fields=["production_item", "production_stage"]),
-            models.Index(fields=["employee", "status"]),
         ]
         constraints = [models.UniqueConstraint(
-                fields=["production_item", "production_stage", "employee"],
+                fields=["production_item", "production_stage"],
                 condition=Q(end_time__isnull=True),
                 name="unique_open_session_per_employee_item_stage",
             )]
@@ -218,3 +216,126 @@ class ProductionItemSession(Timestampable):
         if comments:
             self.comments = comments
         self.save()
+
+class ProductionResource(Timestampable,CompanyOwnedModel):
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.PROTECT,
+        related_name="production_resources",
+    )
+    object_id = models.PositiveBigIntegerField()
+    target = GenericForeignKey("content_type", "object_id")
+
+    daily_capacity_minutes = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["content_type", "object_id"],
+                name="unique_production_resource_per_target",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["content_type", "object_id"]),
+        ]
+
+    def clean(self):
+        # Optional: whitelist allowed models
+        if not isinstance(self.target, (Employee, Machine)):
+            raise ValidationError(_("Unsupported resource type"))
+
+    def __str__(self):
+        return str(self.target)
+    
+class OperationRequirement(models.Model):
+    production_item = models.ForeignKey(
+        ProductionItem,
+        on_delete=models.CASCADE,
+        related_name="operation_requirements",
+    )
+
+    production_stage = models.CharField(max_length=25, db_index=True)
+
+    required_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.PROTECT,
+        help_text=_("Type of resource required (Employee, Machine, etc.)"),
+    )
+
+    quantity = models.PositiveSmallIntegerField(default=1)
+    mandatory = models.BooleanField(default=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["production_item", "production_stage"]),
+            models.Index(fields=["required_content_type"]),
+        ]
+
+
+class PlannedProductionSessionSource(models.TextChoices):
+    AUTOMATIVC= "auto",_("Automatic")
+    MANUAL = "manual", _("Manual")
+
+class PlannedProductionSession(Timestampable):
+    production_item = models.ForeignKey(
+        ProductionItem,
+        on_delete=models.CASCADE,
+        related_name="planned_sessions",
+    )
+
+    production_stage = models.CharField(
+        max_length=25,
+        db_index=True,
+        verbose_name=_("Production Stage"),
+    )
+
+    planned_start = models.DateTimeField(db_index=True)
+    planned_end = models.DateTimeField(db_index=True)
+
+    primary_resource = models.ForeignKey(
+        "ProductionResource",
+        on_delete=models.PROTECT,
+        related_name="planned_primary_sessions",
+        null=True,
+        blank=True,
+    )
+
+    locked = models.BooleanField(default=False,verbose_name=_("Locked"))
+    source = models.CharField(
+        max_length=20,
+        choices=PlannedProductionSessionSource.choices,
+        default="auto",
+        verbose_name=_("Source")
+    )
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["planned_start", "planned_end"]),
+            models.Index(fields=["primary_resource"]),
+        ]
+
+class PlannedSessionResource(models.Model):
+    planned_session = models.ForeignKey(
+        PlannedProductionSession,
+        on_delete=models.CASCADE,
+        related_name="resources",
+    )
+
+    resource = models.ForeignKey(
+        ProductionResource,
+        on_delete=models.PROTECT,
+        related_name="planned_assignments",
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["planned_session", "resource"],
+                name="unique_resource_per_planned_session",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["resource"]),
+        ]

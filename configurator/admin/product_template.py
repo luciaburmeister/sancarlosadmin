@@ -1,9 +1,9 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from configurator.models import ProductTemplate, ProductParameter, BOMRule, PricingRuleTemplate, ProductComputedVariable
+from configurator.models import ProductTemplate, ProductParameter, BOMRule, PricingRule, ProductComputedVariable,ProductPricingRuleAssignment
 from unfold.admin import TabularInline,StackedInline,GenericTabularInline
 from django.db import models
-from unfold.widgets import UnfoldAdminTextareaWidget
+from unfold.widgets import UnfoldAdminTextareaWidget, UnfoldAdminSelect2Widget
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
 from django.utils.translation import gettext_lazy as _
@@ -11,6 +11,8 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from invoices.models import AppliedTax
 from unfold.decorators import action
+from django import forms
+from core.admin.company_admin import CompanyRestrictedAdmin
 
 class AppliedTaxInline(GenericTabularInline):
     ordering_field = "order"
@@ -46,6 +48,25 @@ class ProductParameterInline(TabularInline):
         models.JSONField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 2})},
     }
 
+    def get_formset(self, request, obj=None, **kwargs):
+        """
+        obj is the parent ProductTemplate instance
+        """
+        formset = super().get_formset(request, obj, **kwargs)
+
+        if obj and obj.parameter_group_options:
+            choices = [("", "---------")] + [
+            (opt, opt) for opt in obj.parameter_group_options
+        ]
+
+            formset.form.base_fields["parameter_group"] = forms.ChoiceField(
+                choices=choices,
+                required=False,
+                widget=UnfoldAdminSelect2Widget
+            )
+
+        return formset
+
 class BOMRuleInline(StackedInline):
     model = BOMRule
     extra = 0
@@ -76,11 +97,14 @@ class BOMRuleInline(StackedInline):
         return qs.select_related("component","product")
 
 
-class PricingRuleTemplateInline(TabularInline):
-    model = PricingRuleTemplate
+class ProductPricingRuleAssignmentInline(TabularInline):
+    model = ProductPricingRuleAssignment
     extra = 0
-    fields = ("name", "expression", "is_active")
+    fields = ("rule",)
     tab=True
+    ordering_field = "order"
+    hide_ordering_field=True
+    autocomplete_fields = ["rule"]
 
     formfield_overrides = {
         models.TextField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 2})},
@@ -88,7 +112,7 @@ class PricingRuleTemplateInline(TabularInline):
 
 
 @admin.register(ProductTemplate)
-class ProductTemplateAdmin(ModelAdmin):
+class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = ("id", "name","company")
     search_fields = ("name",)
     actions_row = ["duplicate_product"]
@@ -99,13 +123,13 @@ class ProductTemplateAdmin(ModelAdmin):
         ProductParameterInline,
         ProductComputedVariableInline,
         BOMRuleInline,
-        PricingRuleTemplateInline,
+        ProductPricingRuleAssignmentInline,
         AppliedTaxInline, 
     ]
 
     fieldsets = (
         (_("Product Template"), {
-            "fields": (("name", "image"),"description","production_stages"),
+            "fields": (("name", "image"),"description",("production_stages","parameter_group_options")),
         })
         ,(_("Ownership"), {
             "fields": ("company",),

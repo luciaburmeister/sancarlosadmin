@@ -8,6 +8,7 @@ from company.models import Employee,Machine,CompanyOwnedModel
 from django.utils import timezone
 from django.db.models import Q
 from django.core.exceptions import ValidationError
+from materials.models import Component
 
 
 class ProductionTicketStatus(models.TextChoices):
@@ -85,6 +86,31 @@ class ProductionItem(Timestampable):
         default=ProductionItemStatus.PENDING,
         choices=ProductionItemStatus.choices,
         verbose_name=_("Status")
+    )
+
+    component = models.ForeignKey(
+        Component,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="production_items",
+        verbose_name=_("Component"),
+    )
+
+    quantity = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("Quantity"),
+    )
+
+    length = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("Length"),
     )
 
     class Meta:

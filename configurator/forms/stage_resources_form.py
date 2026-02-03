@@ -4,6 +4,7 @@ from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Field, Row, Column, Div
 from django.utils.translation import gettext_lazy as _
 from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminIntegerFieldWidget
+from django.core.exceptions import ValidationError
 
 from company.models import EmployeeType, MachineType
 
@@ -88,6 +89,38 @@ class BaseEmployeeFormSet(BaseFormSet):
         kwargs["company"] = self.company
         return kwargs
     
+    def clean(self):
+        super().clean()
+
+        if any(self.errors):
+               return
+        
+        seen = set()
+        duplicates = set()
+
+        for form in self.forms:
+            if self.can_delete and self._should_delete_form(form):
+                continue
+            
+            et = form.cleaned_data.get("employee_type")
+            qty = form.cleaned_data.get("employee_qty") or 0
+
+            if not et and qty == 0:
+                continue
+
+            if et in seen:
+                duplicates.add(et)
+            else:
+                seen.add(et)
+        
+        if duplicates:
+            names = ", ".join(str(x) for x in duplicates)
+            raise ValidationError(
+                _("Duplicate employee types are not allowed: %(names)s"),
+                params={"names": names},
+            )
+
+    
 EmployeeFormSet = forms.formset_factory(
     EmployeeForm,
     formset=BaseEmployeeFormSet,
@@ -161,6 +194,37 @@ class BaseMachineFormSet(BaseFormSet):
         kwargs = super().get_form_kwargs(index)
         kwargs["company"] = self.company
         return kwargs
+    
+    def clean(self):
+        super().clean()
+
+        if any(self.errors):
+               return
+        
+        seen = set()
+        duplicates = set()
+
+        for form in self.forms:
+            if self.can_delete and self._should_delete_form(form):
+                continue
+            
+            mt = form.cleaned_data.get("machine_type")
+            qty = form.cleaned_data.get("machine_qty") or 0
+
+            if not mt and qty == 0:
+                continue
+
+            if mt in seen:
+                duplicates.add(mt)
+            else:
+                seen.add(mt)
+        
+        if duplicates:
+            names = ", ".join(str(x) for x in duplicates)
+            raise ValidationError(
+                _("Duplicate machine types are not allowed: %(names)s"),
+                params={"names": names},
+            )
 
 MachineFormSet = forms.formset_factory(
     MachineForm,

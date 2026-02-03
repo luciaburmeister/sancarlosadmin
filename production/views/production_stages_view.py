@@ -9,6 +9,7 @@ from unfold.views import UnfoldModelAdminViewMixin
 
 from production.models import ProductionItem, ProductionTicket
 from production.services.stages_to_sessions import StagesToSessionsService
+from production.constants import ProductionActions
 
 class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
     permission_required = ("production.change_productionitem",)
@@ -18,25 +19,24 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
 
         employee = getattr(request.user, "employee_profile", None)
         if employee is None:
-            messages.error(request, "Your user is not linked to an Employee.")
+            messages.error(request, _("Your user is not linked to an Employee."))
             return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
         action = request.POST.get("action")
 
-        if action == "start_activity":
+        if action == ProductionAction.START_ACTIVITY:
             StagesToSessionsService.start_activity(production_item=production_item, employee=employee)
 
-        elif action == "finish_activity":
+        elif action == ProductionAction.FINISH_ACTIVITY:
             StagesToSessionsService.finish_activity(production_item=production_item, employee=employee)
 
-        elif action == "start_session":
+        elif action == ProductionAction.START_SESSION:
             StagesToSessionsService.start_session(production_item=production_item, employee=employee)
 
-        elif action == "end_session":
+        elif action == ProductionAction.END_SESSION:
             StagesToSessionsService.end_session(production_item=production_item, employee=employee)
 
         else:
-
             StagesToSessionsService.advance_current_stage(production_item=production_item, employee=employee)
 
         return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))

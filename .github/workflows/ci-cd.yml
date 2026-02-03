@@ -129,7 +129,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: eu-north-1
           APPLICATION_NAME: aluminio_erp
-          ENVIRONMENT_NAME: Aluminioerp-prod-2
+          ENVIRONMENT_NAME: Aluminioerp-prod2
         run: |
           eb init -p python-3.14 $APPLICATION_NAME --region $AWS_REGION
           eb use $ENVIRONMENT_NAME

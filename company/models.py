@@ -62,7 +62,7 @@ class CivilStatusChoices(models.TextChoices):
     DIVORCED = "divorces", _("Divorced")
 
 class EmployeeType(CompanyOwnedModel):
-    type = models.CharField(max_length=50, verbose_name="Employee Type")
+    type = models.CharField(max_length=50, verbose_name=_("Employee Type"))
 
     def __str__(self):
         return self.type
@@ -128,7 +128,7 @@ class Employee(CompanyOwnedModel):
 
     birth_country = CountryField(null=True, default="ES",verbose_name=_("Birth Country"))
 
-    type = models.ForeignKey(EmployeeType, on_delete=models.SET_NULL, null=True, blank=True)
+    type = models.ForeignKey(EmployeeType, on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_("Type"))
 
     class Meta:
         verbose_name = _("Employee")
@@ -145,7 +145,7 @@ class Employee(CompanyOwnedModel):
         return f"{self.first_name} {self.last_name}"
     
 class MachineType(CompanyOwnedModel):
-    type = models.CharField(max_length=50, verbose_name="Machine Type")
+    type = models.CharField(max_length=50, verbose_name=_("Machine Type"))
 
     def __str__(self):
         return self.type
@@ -159,7 +159,7 @@ class Machine(CompanyOwnedModel):
         help_text=_("Internal or shop-floor identifier"),
     )
     
-    type = models.ForeignKey(MachineType, on_delete=models.SET_NULL, null=True, blank=True)
+    type = models.ForeignKey(MachineType, on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_("Type"))
 
     is_active = models.BooleanField(default=True, verbose_name=_("Is active"))
 

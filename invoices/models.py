@@ -75,6 +75,37 @@ class Invoice(models.Model):
         blank=True  # Temporarily allow blank in forms
     )
 
+    total_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Total invoice amount"
+    )
+    
+    currency = models.CharField(
+        max_length=3,
+        default='EUR',
+        help_text="Currency code (EUR, USD, etc.)"
+    )
+    
+    # OCR STATUS FIELDS
+    ocr_processed = models.BooleanField(
+        default=False,
+        help_text="Has OCR been attempted?"
+    )
+    
+    ocr_processing = models.BooleanField(
+        default=False,
+        help_text="Is OCR running right now?"
+    )
+    
+    ocr_error = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Error if OCR failed"
+    )
+
     class Meta: #"rulebook", how we store the data
         unique_together = ['provider','invoice_number'] # Ensures that a specific provider cannot have two invoices with the same number
         ordering = ['-date_issued'] #newest first
@@ -99,7 +130,23 @@ class Invoice(models.Model):
             total = result["total_amount"]
 
         return total
+
+
+class InvoiceItems(models.Model):
+    invoice = models.OneToOneField(  
+        Invoice,
+        on_delete=models.CASCADE,
+        related_name="items",
+        primary_key=True,
+        help_text="Invoice to which these items belong"
+    )
     
+    line_items = models.JSONField(
+        default=list,
+        blank=True,
+        help_text= "Line items with descriptions, quantities, prices, and tax rates"
+    )
+
 
  
 class TaxType(models.Model):

@@ -38,6 +38,9 @@ class ConfigurationToProductionService:
 
             ProductionItem.objects.create(
                 ticket=ticket,
+                component=item.component,
+                quantity=item.quantity,
+                length=item.length,
                 data={
                     "component_id": item.component_id,
                     "component": str(item.component),

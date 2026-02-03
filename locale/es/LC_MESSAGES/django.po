@@ -767,3 +767,6 @@ msgstr "articulos de Presupuesto"
 
 #~ msgid "Finished"
 #~ msgstr "Finalizado"
+
+msgid "Your user is not linked to an Employee"
+msgstr "Tu usuario no está vinculado a un Empleado"

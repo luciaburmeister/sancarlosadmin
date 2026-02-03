@@ -132,8 +132,12 @@ class Machine(CompanyOwnedModel):
         unique=True,
         help_text=_("Internal or shop-floor identifier"),
     )
+    
+    type = models.ForeignKey(MachineType, on_delete=models.SET_NULL, null=True, blank=True)
 
     is_active = models.BooleanField(default=True, verbose_name=_("Is active"))
+
+    needs_human = models.BooleanField(default=True, verbose_name=_("Needs human"))
     
     daily_capacity_minutes = models.PositiveIntegerField(
         help_text=_("Total usable minutes per day"),
@@ -145,8 +149,6 @@ class Machine(CompanyOwnedModel):
         help_text=_("How many items can be processed in parallel"),
         verbose_name=_("Parallel capacity in minutes")
     )
-
-    type = models.ForeignKey(MachineType, on_delete=models.SET_NULL, null=True, blank=True)
 
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
 

@@ -34,7 +34,6 @@ class StagesToSessionsService:
         cls._save_planning(production_item, stage_name, stage_info)
 
         ProductionItemSession.objects.create(
-            employee=employee,
             production_item=production_item,
             production_stage=stage_name,
             status=ProductionItemSessionStatus.IN_PROGRESS,
@@ -57,7 +56,7 @@ class StagesToSessionsService:
             .filter(
                 production_item=production_item,
                 production_stage=stage_name,
-                employee=employee,
+                created_by=employee,
                 status=ProductionItemSessionStatus.IN_PROGRESS,
             )
             .order_by("-start_time")
@@ -91,7 +90,7 @@ class StagesToSessionsService:
         already_active = ProductionItemSession.objects.filter(
             production_item=production_item,
             production_stage=stage_name,
-            employee=employee,
+            created_by=employee,
             status=ProductionItemSessionStatus.IN_PROGRESS,
         ).exists()
         if already_active:
@@ -99,7 +98,6 @@ class StagesToSessionsService:
 
         now = timezone.now()
         ProductionItemSession.objects.create(
-            employee=employee,
             production_item=production_item,
             production_stage=stage_name,
             status=ProductionItemSessionStatus.IN_PROGRESS,
@@ -117,7 +115,7 @@ class StagesToSessionsService:
             ProductionItemSession.objects.filter(
                 production_item=production_item,
                 production_stage=stage_name,
-                employee=employee,
+                created_by=employee,
                 status=ProductionItemSessionStatus.IN_PROGRESS,
             )
             .order_by("-start_time")

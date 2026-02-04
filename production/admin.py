@@ -167,7 +167,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
                 stages[current_index]["has_active_session"] = ProductionItemSession.objects.filter(
                     production_item=item,
                     production_stage=current_stage_name,
-                    employee=employee,
+                    created_by=employee,
                     status=ProductionItemSessionStatus.IN_PROGRESS,
                 ).exists()
 
@@ -258,7 +258,8 @@ class ProductionItemSessionInline(StackedInline):
 
     fields = (
         "session_type_display",
-        "employee",
+        "created_by",
+        "completed_by",
         "production_stage",
         "status",
         "start_time",
@@ -377,7 +378,8 @@ class ProductionItemSessionAdmin(ModelAdmin):
 
     search_fields = (
         "production_stage",
-        "employee__name",
+        "created_by__name",
+        "completed_by__name",
         "production_item__id",
     )
 

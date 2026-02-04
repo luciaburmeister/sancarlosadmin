@@ -680,7 +680,7 @@ class Configuration(Timestampable,CompanyOwnedModel):
                 item = existing_items[key]
                 item.quantity = qty
                 item.length = length
-                item.unit_price = rule.component.cost_per_unit
+                item.unit_price = rule.component.compute_unit_price(context)
                 item.production_stages = rule.production_stages or []
                 item.save()
             else:
@@ -689,7 +689,7 @@ class Configuration(Timestampable,CompanyOwnedModel):
                     component=rule.component,
                     quantity=qty,
                     length=length,
-                    unit_price=rule.component.cost_per_unit,
+                    unit_price= rule.component.compute_unit_price(context),
                     is_template_item=True,
                     production_stages=rule.production_stages or [],
                 )

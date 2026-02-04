@@ -1,11 +1,27 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from materials.models import Category, Material, Provider,Component
+from materials.models import Category, Material, Provider,Component,ComponentPriceRule
 from unfold.admin import TabularInline
 from django_json_widget.widgets import JSONEditorWidget
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from core.admin.company_admin import CompanyRestrictedAdmin
+
+class ComponentPriceRuleInline(TabularInline):
+    model = ComponentPriceRule
+    extra = 0
+    hide_ordering_field = True
+    ordering_field = "priority"
+    tab=True
+
+    fields = (
+        "condition",
+        "unit_price",
+        "is_fallback",
+    )
+
+    verbose_name = _("Component price rule")
+    verbose_name_plural = _("Component price rules")
 
 class ComponentInline(TabularInline):
     model = Component
@@ -38,6 +54,8 @@ class ComponentAdmin(CompanyRestrictedAdmin,ModelAdmin):
     )
 
     autocomplete_fields = ("material","company")
+
+    inlines = [ComponentPriceRuleInline]  # 👈 HERE
 
     formfield_overrides = {
         models.JSONField:{
@@ -101,6 +119,7 @@ class MaterialAdmin(CompanyRestrictedAdmin,ModelAdmin):
             )
         }),
     )
+
 
 @admin.register(Provider)
 class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):

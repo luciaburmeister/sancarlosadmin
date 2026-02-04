@@ -7,6 +7,7 @@ from configurator.utils import validate_expression_for_safe_eval,safe_eval
 from company.models import CompanyOwnedModel
 from django.utils.translation import gettext_lazy as _
 from django.db import transaction
+from django.core.exceptions import ValidationError
 
 class Provider(Timestampable,CompanyOwnedModel):
     name = models.CharField(max_length=200, db_index=True, verbose_name=_("Name"))
@@ -131,18 +132,43 @@ class Component(Timestampable,CompanyOwnedModel):
     
     def compute_unit_price(self, context: dict | None = None):
         """
-        Compute component-specific per-unit cost.
-        Only base_cost + component metadata are allowed.
-        """
-        base = float(self.material.cost_per_unit.amount)
+        Compute component per-unit price.
 
+        - If context is provided → try ComponentPriceRule
+        - Otherwise → fallback to static expression (material-based)
+        """
+
+        if context is not None:
+            rules = self.price_rules.all()
+
+            fallback = None
+
+            for rule in rules:
+                try:
+                    if rule.is_fallback:
+                        fallback = rule
+                        continue
+
+                    if safe_eval(rule.condition, context):
+                        return rule.unit_price
+                except Exception as e:
+                    raise ValueError(
+                        f"Pricing rule error on component '{self.name}': {e}"
+                    )
+
+            if fallback:
+                return fallback.unit_price
+
+        base = float(self.material.cost_per_unit.amount)
         component_context = {"base_cost": base, **self.metadata}
 
         value = safe_eval(self.unit_price_expression, component_context)
 
         return self.cost_per_unit.__class__(
-            value, currency=self.cost_per_unit.currency
+            value,
+            currency=self.cost_per_unit.currency,
         )
+
     
     def save(self, *args, **kwargs):
         """
@@ -153,3 +179,56 @@ class Component(Timestampable,CompanyOwnedModel):
         computed_price = self.compute_unit_price(context=None)
         self.cost_per_unit = computed_price
         super().save(*args, **kwargs)
+
+
+class ComponentPriceRule(models.Model):
+    component = models.ForeignKey(
+        Component,
+        on_delete=models.CASCADE,
+        related_name="price_rules",
+        verbose_name=_("Component"),
+    )
+
+    condition = models.TextField(
+        help_text=_(
+            "Boolean expression evaluated with safe_eval.\n"
+            "Must return True or False.\n"
+            "Example: width <= 1000 and quantity >= 10"
+        )
+    )
+
+    unit_price = MoneyField(
+        max_digits=10,
+        decimal_places=4,
+        default_currency="EUR",
+        verbose_name=_("Unit price"),
+    )
+
+    priority = models.PositiveIntegerField(
+        default=0,
+        help_text=_("Lower values are evaluated first"),
+        db_index=True
+    )
+
+    is_fallback = models.BooleanField(
+        default=False,
+        help_text=_("Used if no other rule matches"),
+    )
+
+    class Meta:
+        ordering = ["priority"]
+
+    def __str__(self):
+        return f"{self.component.name} → {self.unit_price}"
+
+    def clean(self):
+
+        if self.is_fallback and self.condition.strip() != "True":
+            raise ValidationError(
+                {"condition": "Fallback rule condition must be exactly 'True'."}
+            )
+
+        try:
+            validate_expression_for_safe_eval(self.condition)
+        except ValueError as e:
+            raise ValidationError({"condition": str(e)})

@@ -23,20 +23,16 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
             return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
         action = request.POST.get("action")
-
-        if action == ProductionAction.START_ACTIVITY:
+        if action == ProductionActions.START_ACTIVITY:
             StagesToSessionsService.start_activity(production_item=production_item, employee=employee)
 
-        elif action == ProductionAction.FINISH_ACTIVITY:
+        elif action == ProductionActions.FINISH_ACTIVITY:
             StagesToSessionsService.finish_activity(production_item=production_item, employee=employee)
 
-        elif action == ProductionAction.START_SESSION:
+        elif action == ProductionActions.START_SESSION:
             StagesToSessionsService.start_session(production_item=production_item, employee=employee)
-
-        elif action == ProductionAction.END_SESSION:
+        
+        elif action == ProductionActions.END_SESSION:
             StagesToSessionsService.end_session(production_item=production_item, employee=employee)
-
-        else:
-            StagesToSessionsService.advance_current_stage(production_item=production_item, employee=employee)
 
         return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))

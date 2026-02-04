@@ -51,7 +51,7 @@ class CompanyUser(models.Model):
 
     def __str__(self):
         return f"{self.user} → {self.company}"
-    
+
 class SexChoices(models.TextChoices):
     MALE = "m", _("Male")
     FEMALE = "f", _("Female")
@@ -60,6 +60,12 @@ class CivilStatusChoices(models.TextChoices):
     SINGLE = "single", _("Single")
     MARRIED = "married", _("Married")
     DIVORCED = "divorces", _("Divorced")
+
+class EmployeeType(CompanyOwnedModel):
+    type = models.CharField(max_length=50, verbose_name=_("Employee Type"))
+
+    def __str__(self):
+        return self.type
 
 class Employee(CompanyOwnedModel):
     
@@ -122,6 +128,8 @@ class Employee(CompanyOwnedModel):
 
     birth_country = CountryField(null=True, default="ES",verbose_name=_("Birth Country"))
 
+    type = models.ForeignKey(EmployeeType, on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_("Type"))
+
     class Meta:
         verbose_name = _("Employee")
         verbose_name_plural = _("Employees")
@@ -136,6 +144,12 @@ class Employee(CompanyOwnedModel):
     def full_name(self):
         return f"{self.first_name} {self.last_name}"
     
+class MachineType(CompanyOwnedModel):
+    type = models.CharField(max_length=50, verbose_name=_("Machine Type"))
+
+    def __str__(self):
+        return self.type
+
 class Machine(CompanyOwnedModel):
     name = models.CharField(max_length=100, unique=True,verbose_name=_("Name"))
 
@@ -144,8 +158,12 @@ class Machine(CompanyOwnedModel):
         unique=True,
         help_text=_("Internal or shop-floor identifier"),
     )
+    
+    type = models.ForeignKey(MachineType, on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_("Type"))
 
     is_active = models.BooleanField(default=True, verbose_name=_("Is active"))
+
+    needs_human = models.BooleanField(default=True, verbose_name=_("Needs human"))
     
     daily_capacity_minutes = models.PositiveIntegerField(
         help_text=_("Total usable minutes per day"),

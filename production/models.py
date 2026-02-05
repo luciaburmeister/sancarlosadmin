@@ -120,7 +120,7 @@ class ProductionItem(Timestampable):
 
 class ProductionItemSessionStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
-    IN_PROGRESS = "in_progress", _("In progress")
+    IN_PROGRESS = "in_progress", _("In Progress")
     DONE = "done", _("Done")
     CANCELLED = "cancelled", _("Cancelled")
 

@@ -62,7 +62,7 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
                     configuration=config,
                     component=component,
                     quantity=quantity,
-                    unit_price=component.material.cost_per_unit,
+                    unit_price=component.cost_per_unit,
                     is_template_item=False,
                 )
         config.copy_default_pricing_rules_from_product()

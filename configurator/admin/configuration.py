@@ -13,6 +13,9 @@ from django.http import HttpRequest
 from invoices.models import AppliedTax
 from unfold.decorators import display
 from core.admin.company_admin import CompanyRestrictedAdmin
+from unfold.contrib.forms.widgets import ArrayWidget
+from django.contrib.postgres.fields import ArrayField
+from django import forms
 
 
 

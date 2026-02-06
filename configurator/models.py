@@ -86,7 +86,7 @@ class ProductTemplate(CompanyOwnedModel):
         verbose_name=_("Image"),
     )
     production_planning_resources = models.JSONField(
-        default=dict(),
+        default=dict,
         blank=True,
         verbose_name=_("Production planning resources"),
     )
@@ -123,6 +123,13 @@ class ProductTemplate(CompanyOwnedModel):
             )
 
         self.production_stages = stages
+
+        if self.company:
+            company_stages = set(self.company.production_stages or [])
+            if not set(stages).issubset(company_stages):
+                raise ValidationError(
+                    {"production_stages": _("Product stages must be a subset of the company production stages.")}
+                )
 
         if not self.production_planning_resources:
             return
@@ -1015,6 +1022,22 @@ class ConfigurationItem(Timestampable):
             self.label = _("Unknown component")
 
         super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        if not self.is_template_item and self.production_stages:
+            company = self.configuration.company
+            if company:
+                company_stages = set(company.production_stages or [])
+                item_stages = set(self.production_stages)
+                if not item_stages.issubset(company_stages):
+                    raise ValidationError(
+                        {
+                            "production_stages": _(
+                                "Configuration item stages must be a subset of the company production stages."
+                            )
+                        }
+                    )
 
     def __str__(self):
         return self.label

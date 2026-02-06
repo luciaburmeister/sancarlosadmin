@@ -6,6 +6,9 @@ from django_json_widget.widgets import JSONEditorWidget
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from core.admin.company_admin import CompanyRestrictedAdmin
+from unfold.contrib.forms.widgets import ArrayWidget
+from django.contrib.postgres.fields import ArrayField
+from django import forms
 
 class ComponentPriceRuleInline(TabularInline):
     model = ComponentPriceRule
@@ -60,6 +63,9 @@ class ComponentAdmin(CompanyRestrictedAdmin,ModelAdmin):
     formfield_overrides = {
         models.JSONField:{
             'widget': JSONEditorWidget,
+        },
+         ArrayField: {
+            "widget": ArrayWidget,
         }
         }
 
@@ -73,7 +79,7 @@ class ComponentAdmin(CompanyRestrictedAdmin,ModelAdmin):
                     "code"),
                     "component_type", 
                     ("unit_price_expression","cost_per_unit"),
-                    "company"
+                    ("company","production_stages")
                 )
             },
         ),
@@ -84,6 +90,14 @@ class ComponentAdmin(CompanyRestrictedAdmin,ModelAdmin):
             },
         ),
     ]
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if obj and obj.company and obj.company.production_stages:
+            form.base_fields["production_stages"].widget = ArrayWidget(
+                choices=[("", "---------")] + [(s, s) for s in obj.company.production_stages]
+            )
+        return form
 
 
 @admin.register(Category)

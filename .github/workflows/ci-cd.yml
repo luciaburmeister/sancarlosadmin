@@ -47,6 +47,7 @@ jobs:
       GOOGLE_CREDENTIALS_FILE: ${{ secrets.GOOGLE_CREDENTIALS_FILE }}
 
       DEBUG: False
+      DB_SSLMODE: disable
 
     steps:
       - name: Checkout code

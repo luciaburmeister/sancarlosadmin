@@ -184,10 +184,13 @@ DATABASES = {
         
     }
 }
-if not DEBUG:
+# Database SSL mode
+DB_SSLMODE = os.getenv("DB_SSLMODE", "require" if not DEBUG else None)
+
+if DB_SSLMODE:
     DATABASES["default"]["OPTIONS"] = {
-            "sslmode": "require",
-        }
+        "sslmode": DB_SSLMODE,
+    }
 
 
 

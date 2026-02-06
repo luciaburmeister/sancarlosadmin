@@ -8,6 +8,7 @@ from company.models import CompanyOwnedModel
 from django.utils.translation import gettext_lazy as _
 from django.db import transaction
 from django.core.exceptions import ValidationError
+from django.contrib.postgres.fields import ArrayField
 
 class Provider(Timestampable,CompanyOwnedModel):
     name = models.CharField(max_length=200, db_index=True, verbose_name=_("Name"))
@@ -121,6 +122,14 @@ class Component(Timestampable,CompanyOwnedModel):
     component_type = models.CharField(max_length=20, choices=ComponentType.choices, default=ComponentType.STANDARD, db_index=True,
                                       verbose_name=_("Component Type"))
 
+    production_stages = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text=_("Production stages this component participates in"),
+        verbose_name=_("Production Stages"),
+    )
+
     metadata = models.JSONField(default=dict, blank=True)
 
     class Meta:
@@ -129,6 +138,21 @@ class Component(Timestampable,CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.name}"
+
+    def clean(self):
+        super().clean()
+        if self.production_stages and self.company:
+            company_stages = set(self.company.production_stages or [])
+            component_stages = set(self.production_stages)
+
+            if not component_stages.issubset(company_stages):
+                raise ValidationError(
+                    {
+                        "production_stages": _(
+                            "Component stages must be a subset of the company production stages."
+                        )
+                    }
+                )
     
     def compute_unit_price(self, context: dict | None = None):
         """

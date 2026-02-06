@@ -2,6 +2,7 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _  
 from django.contrib.auth import get_user_model
 from django_countries.fields import CountryField
+from django.contrib.postgres.fields import ArrayField
 
 User = get_user_model()
 
@@ -16,6 +17,13 @@ class Company(models.Model):
     phone = models.CharField(max_length=18,blank=True,null=True,verbose_name=_("Phone"))
     tax_identifier = models.CharField(max_length=20,blank=True,verbose_name=_("Tax Identifier"),null=True)
     constituted_country = CountryField(null=True,verbose_name=_("Constitude Country"))
+    production_stages = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text=_("Ordered list of possible production stages for this company"),
+        verbose_name=_("Production Stages"),
+    )
 
 
     def __str__(self):

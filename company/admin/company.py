@@ -1,7 +1,7 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
-from company.models import Company, CompanyUser
+from company.models import Company, CompanyUser, CompanyEmailConfig
 from django.utils.translation import gettext_lazy as _
 
 
@@ -52,3 +52,10 @@ class CompanyUserAdmin(ModelAdmin):
     autocomplete_fields = ("user", "company")
 
     ordering = ("company", "user")
+
+@admin.register(CompanyEmailConfig)
+class CompanyEmailConfigAdmin(ModelAdmin):
+    list_display = ("email_address", "company", "imap_server", "last_checked")
+    list_filter = ("company", "use_ssl")
+    search_fields = ("email_address", "imap_server", "imap_user")
+    autocomplete_fields = ("company",)

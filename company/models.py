@@ -188,3 +188,19 @@ class Machine(CompanyOwnedModel):
 
     def __str__(self):
         return self.name
+
+class CompanyEmailConfig(CompanyOwnedModel):
+    email_address = models.EmailField(verbose_name=_("Email Address"))
+    imap_server = models.CharField(max_length=255, verbose_name=_("IMAP Server"))
+    imap_port = models.PositiveIntegerField(default=993, verbose_name=_("IMAP Port"))
+    imap_user = models.CharField(max_length=255, verbose_name=_("IMAP User"))
+    imap_password = models.CharField(max_length=255, verbose_name=_("IMAP Password"))  # TODO: Encrypt this
+    use_ssl = models.BooleanField(default=True, verbose_name=_("Use SSL"))
+    last_checked = models.DateTimeField(null=True, blank=True, verbose_name=_("Last Checked"))
+
+    class Meta:
+        verbose_name = _("Company Email Configuration")
+        verbose_name_plural = _("Company Email Configurations")
+
+    def __str__(self):
+        return f"{self.email_address} ({self.company})"

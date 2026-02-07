@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-01-27 10:54+0100\n"
+"POT-Creation-Date: 2026-02-07 12:21+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -55,16 +55,22 @@ msgstr "Producción"
 msgid "Production Tickets"
 msgstr "Tickets de Producción"
 
-#, fuzzy
-#| msgid "Production Stages"
 msgid "Production Items"
-msgstr "Etapas de Producción"
+msgstr "Items de Producción"
 
 msgid "Employee"
 msgstr "Empleado"
 
+#, fuzzy
+#| msgid "General Information"
+msgid "Personal Information"
+msgstr "Información General"
+
 msgid "Employment"
 msgstr "Empleo"
+
+msgid "Name"
+msgstr "Nombre"
 
 msgid "Commercial Name"
 msgstr "Nombre Comercial"
@@ -93,8 +99,41 @@ msgstr "Identificador Fiscal"
 msgid "Constitude Country"
 msgstr "País Constituyente"
 
+#, fuzzy
+#| msgid "Ordered list of possible production stages for this product"
+msgid "Ordered list of possible production stages for this company"
+msgstr "Lista ordenada de posibles etapas de producción para este producto"
+
+msgid "Production Stages"
+msgstr "Etapas de Producción"
+
+msgid "Male"
+msgstr "Masculino"
+
+msgid "Female"
+msgstr "Femenino"
+
+msgid "Single"
+msgstr "Solo"
+
+msgid "Married"
+msgstr "Casado"
+
+msgid "Divorced"
+msgstr "Divorciado"
+
+#, fuzzy
+#| msgid "Employee"
+msgid "Employee Type"
+msgstr "Empleado"
+
 msgid "User Account"
 msgstr "Cuenta de Usuario"
+
+#, fuzzy
+#| msgid "Production Stages"
+msgid "Can work on production stages"
+msgstr "Etapas de Producción"
 
 msgid "First Name"
 msgstr "Primera"
@@ -114,14 +153,43 @@ msgstr "Fecha de Terminación"
 msgid "Active Employee"
 msgstr "Empleado Activo"
 
-msgid "Name"
-msgstr "Nombre"
+msgid "Identification Number"
+msgstr "Número de identificación"
+
+#, fuzzy
+#| msgid "Hire Date"
+msgid "Birth Date"
+msgstr "Fecha de contratación"
+
+msgid "Sex"
+msgstr "Sexo"
+
+#, fuzzy
+#| msgid "Status"
+msgid "Civil Status"
+msgstr "Estado"
+
+#, fuzzy
+#| msgid "Constitude Country"
+msgid "Birth Country"
+msgstr "País Constituyente"
+
+msgid "Type"
+msgstr "Tipo"
+
+#, fuzzy
+#| msgid "Machine cost"
+msgid "Machine Type"
+msgstr "Costo de la máquina"
 
 msgid "Internal or shop-floor identifier"
 msgstr "Identificador interno o de planta"
 
 msgid "Is active"
 msgstr "Está activo"
+
+msgid "Needs human"
+msgstr "Necesita humano"
 
 msgid "Total usable minutes per day"
 msgstr "Total de minutos utilizables por día"
@@ -139,6 +207,49 @@ msgstr "Capacidad paralela en minutos"
 #| msgid "Quotes"
 msgid "Notes"
 msgstr "Presupuestos"
+
+#, fuzzy
+#| msgid "Address"
+msgid "Email Address"
+msgstr "Dirección"
+
+msgid "IMAP Server"
+msgstr "Servidor IMAP"
+
+msgid "IMAP Port"
+msgstr "Puerto IMAP"
+
+msgid "IMAP User"
+msgstr "Usuario IMAP"
+
+msgid "IMAP Password"
+msgstr "Contraseña de IMAP"
+
+msgid "Use SSL"
+msgstr "Usar SSL"
+
+msgid "Last Checked"
+msgstr "Última verificación"
+
+#, fuzzy
+#| msgid "Configuration"
+msgid "Company Email Configuration"
+msgstr "Configuración"
+
+#, fuzzy
+#| msgid "Configurations"
+msgid "Company Email Configurations"
+msgstr "Configuraciones"
+
+#, fuzzy
+#| msgid "Component A"
+msgid "Component group"
+msgstr "Componente A"
+
+#, fuzzy
+#| msgid "Components"
+msgid "Component groups"
+msgstr "Componentes"
 
 msgid "Applied tax"
 msgstr "Impuesto aplicado"
@@ -201,12 +312,70 @@ msgstr "Plantillas de Producto"
 msgid "Ownership"
 msgstr "Propiedad"
 
+msgid "Planning configured"
+msgstr "Planificación configurada"
+
+msgid "Planning"
+msgstr "Planificación"
+
+#, fuzzy
+#| msgid "Confirmed"
+msgid "Configure"
+msgstr "Confirmado"
+
 msgid "Clone"
 msgstr "Clonar"
 
 #, python-format
 msgid "Product template '%(name)s' was successfully duplicated."
 msgstr "La plantilla del producto '%(name)s' fue duplicada exitosamente."
+
+msgid "General"
+msgstr "General"
+
+#, fuzzy
+#| msgid "Employee"
+msgid "Employee type"
+msgstr "Empleado"
+
+msgid "Quantity"
+msgstr "Cantidad"
+
+msgid "Quantity must be > 0 when an employee type is selected."
+msgstr "La cantidad debe ser > 0 cuando se selecciona un tipo de empleado."
+
+msgid "Select an employee type when quantity is > 0."
+msgstr "Seleccione un tipo de empleado cuando la cantidad sea > 0."
+
+#, python-format
+msgid "Duplicate employee types are not allowed: %(names)s"
+msgstr "No se permiten tipos de empleados duplicados: %(names)s"
+
+#, fuzzy
+#| msgid "Machine cost"
+msgid "Machine type"
+msgstr "Costo de la máquina"
+
+msgid "Quantity must be > 0 when a machine type is selected."
+msgstr "La cantidad debe ser > 0 cuando se selecciona un tipo de máquina."
+
+msgid "Select a machine type when quantity is > 0."
+msgstr "Selecciona un tipo de máquina cuando la cantidad sea > 0."
+
+#, python-format
+msgid "Duplicate machine types are not allowed: %(names)s"
+msgstr "No se permiten tipos de máquina duplicados: %(names)s"
+
+msgid "Prep time"
+msgstr "Tiempo de preparación"
+
+#, fuzzy
+#| msgid "Work / site name"
+msgid "Work time"
+msgstr "Nombre del trabajo / sitio"
+
+msgid "Post time"
+msgstr "Hora de publicación"
 
 msgid "Draft"
 msgstr "Borrador"
@@ -238,11 +407,21 @@ msgstr "Descripción"
 msgid "Ordered list of possible production stages for this product"
 msgstr "Lista ordenada de posibles etapas de producción para este producto"
 
-msgid "Production Stages"
-msgstr "Etapas de Producción"
+msgid "Parameter Group Options to group in forms"
+msgstr "Opciones de grupo de parámetros para agrupar en formularios"
+
+#, fuzzy
+#| msgid "Parameter values"
+msgid "Parameter Group Options"
+msgstr "Valores de parámetro"
 
 msgid "Image"
 msgstr "Imagen"
+
+#, fuzzy
+#| msgid "Production Stages"
+msgid "Production planning resources"
+msgstr "Etapas de Producción"
 
 msgid "Product template"
 msgstr "Plantilla de producto"
@@ -250,11 +429,29 @@ msgstr "Plantilla de producto"
 msgid "Product templates"
 msgstr "Plantillas de productos"
 
+#, fuzzy
+#| msgid "Configure your product"
+msgid "Configure stage resources"
+msgstr "Configura tu producto"
+
 msgid "Stage keys cannot be empty."
 msgstr "Las claves de etapa no pueden estar vacías."
 
 msgid "Stage keys must be unique."
 msgstr "Las claves de etapa deben ser únicas."
+
+#, fuzzy
+#| msgid ""
+#| "BOM rule stages must be a subset of the product production stages."
+msgid "Product stages must be a subset of the company production stages."
+msgstr ""
+"Las etapas de la regla BOM deben ser un subconjunto de las etapas de "
+"producción del producto."
+
+msgid "Stage resources keys must be the same as stage keys"
+msgstr ""
+"Las claves de los recursos de la etapa deben ser las mismas que las claves "
+"de la etapa."
 
 msgid "Number"
 msgstr "Número"
@@ -274,9 +471,6 @@ msgstr "Producto"
 msgid "Label"
 msgstr "Etiqueta"
 
-msgid "Type"
-msgstr "Tipo"
-
 msgid "Options"
 msgstr "Opciones"
 
@@ -288,6 +482,11 @@ msgstr "Orden de Clasificación"
 
 msgid "Order of the parameter within the product"
 msgstr "Orden del parámetro dentro del producto"
+
+#, fuzzy
+#| msgid "Parameter value"
+msgid "Parameter Group"
+msgstr "Valor del parámetro"
 
 msgid "Product parameter"
 msgstr "Parámetro del producto"
@@ -401,9 +600,6 @@ msgstr ""
 msgid "Configurations"
 msgstr "Configuraciones"
 
-msgid "Quantity"
-msgstr "Cantidad"
-
 msgid "Length factor used for pricing (e.g. meters)."
 msgstr "Factor de longitud utilizado para precios (por ejemplo, metros)."
 
@@ -433,6 +629,44 @@ msgstr "Etapas de producción y progreso por artículo"
 #| msgid "Production Stages"
 msgid "Production stages"
 msgstr "Etapas de Producción"
+
+#, fuzzy
+#| msgid "Internal label for this configuration"
+msgid "Snapshot label for this configuration item"
+msgstr "Etiqueta interna para esta configuración"
+
+#, fuzzy
+#| msgid "Component"
+msgid "Unknown component"
+msgstr "Componente"
+
+#, fuzzy
+#| msgid ""
+#| "BOM rule stages must be a subset of the product production stages."
+msgid ""
+"Configuration item stages must be a subset of the company production stages."
+msgstr ""
+"Las etapas de la regla BOM deben ser un subconjunto de las etapas de "
+"producción del producto."
+
+msgid "Stage"
+msgstr "Etapa"
+
+#, fuzzy
+#| msgid "Machine cost"
+msgid "Machines"
+msgstr "Costo de la máquina"
+
+#, fuzzy
+#| msgid "End Time"
+msgid "Time"
+msgstr "Hora de finalización"
+
+msgid "Save"
+msgstr "Guardar"
+
+msgid "Back"
+msgstr "Atrás"
 
 msgid "Submit form"
 msgstr "Enviar formulario"
@@ -474,6 +708,27 @@ msgstr "Seleccionar Producto para Configurar"
 msgid "Configure your product"
 msgstr "Configura tu producto"
 
+#, fuzzy
+#| msgid "Configure your product"
+msgid "Configure planning resources"
+msgstr "Configura tu producto"
+
+#, python-format
+msgid "Configure planning resources: %(name)s"
+msgstr "Configurar recursos de planificación: %(name)s"
+
+msgid "Please correct the errors below."
+msgstr ""
+"Sure! Please provide the text or errors you'd like me to correct, and I'll "
+"be happy to help."
+
+#, python-format
+msgid "Could not save: %(msg)s"
+msgstr "No se pudo guardar: %(msg)s"
+
+msgid "Planning resources saved."
+msgstr "Recursos de planificación guardados."
+
 msgid "Bank Transfer"
 msgstr "Transferencia Bancaria"
 
@@ -490,6 +745,51 @@ msgstr "Dirección"
 
 msgid "Subtract"
 msgstr "Restar"
+
+msgid "Invoice File"
+msgstr "Archivo de factura"
+
+#, fuzzy
+#| msgid "Email"
+msgid "Email Date"
+msgstr "Correo electrónico"
+
+msgid "File Hash (SHA-256)"
+msgstr "Hash del archivo (SHA-256)"
+
+#, fuzzy
+#| msgid "Work Email"
+msgid "Source Email ID"
+msgstr "Correo electrónico"
+
+#, fuzzy
+#| msgid "Work Email"
+msgid "Sender Email"
+msgstr "Correo electrónico"
+
+msgid "Processed by AI"
+msgstr "Procesado por IA"
+
+#, fuzzy
+#| msgid "Created at"
+msgid "Created At"
+msgstr "Creado en"
+
+msgid "Incoming Invoice"
+msgstr "Factura Entrante"
+
+msgid "Incoming Invoices"
+msgstr "Facturas recibidas"
+
+#, fuzzy
+#| msgid "Component A"
+msgid "Component price rule"
+msgstr "Componente A"
+
+#, fuzzy
+#| msgid "Component A"
+msgid "Component price rules"
+msgstr "Componente A"
 
 msgid "General Information"
 msgstr "Información General"
@@ -535,6 +835,29 @@ msgid "Component Type"
 msgstr "Componente A"
 
 #, fuzzy
+#| msgid ""
+#| "BOM rule stages must be a subset of the product production stages."
+msgid "Component stages must be a subset of the company production stages."
+msgstr ""
+"Las etapas de la regla BOM deben ser un subconjunto de las etapas de "
+"producción del producto."
+
+msgid ""
+"Boolean expression evaluated with safe_eval.\n"
+"Must return True or False.\n"
+"Example: width <= 1000 and quantity >= 10"
+msgstr ""
+"Expresión booleana evaluada con safe_eval.\n"
+"Debe devolver True o False.\n"
+"Ejemplo: width <= 1000 y quantity >= 10"
+
+msgid "Lower values are evaluated first"
+msgstr "Los valores más bajos se evalúan primero."
+
+msgid "Used if no other rule matches"
+msgstr "Usado si ninguna otra regla coincide"
+
+#, fuzzy
 #| msgid "Production Stages"
 msgid "Production planning"
 msgstr "Etapas de Producción"
@@ -544,18 +867,17 @@ msgstr "Etapas de Producción"
 msgid "Duration"
 msgstr "Configuración"
 
-#, fuzzy
-#| msgid "Expression"
+msgid "Kanban View"
+msgstr "Vista Kanban"
+
+msgid "Assigned Employees"
+msgstr "Empleados Asignados"
+
 msgid "Sessions"
-msgstr "Expresión"
+msgstr "Sesiones"
 
-msgid "Stage"
-msgstr "Etapa"
-
-#, fuzzy
-#| msgid "Status"
 msgid "Stage status"
-msgstr "Estado"
+msgstr "Estado de la etapa"
 
 msgid "Pending"
 msgstr "Pendiente"
@@ -654,7 +976,30 @@ msgid "Source"
 msgstr "¿Podrías proporcionar el texto que deseas traducir?"
 
 #, fuzzy
-#| msgid "Production Tickets"
+#| msgid "Production Stages"
+msgid "Production Kanban"
+msgstr "Etapas de Producción"
+
+#, fuzzy
+#| msgid "Back to ticket"
+msgid "Back to list"
+msgstr "Volver al ticket"
+
+msgid "Assigned"
+msgstr "Asignado"
+
+msgid "Assign Employee"
+msgstr "Asignar Empleado"
+
+msgid "No employees available"
+msgstr "No hay empleados disponibles"
+
+msgid "Create Employee"
+msgstr "Empleado Activo"
+
+msgid "Remove assignment?"
+msgstr "¿Eliminar la asignación?"
+
 msgid "Production tickets"
 msgstr "Tickets de Producción"
 
@@ -667,19 +1012,42 @@ msgstr "Elemento"
 msgid "Started"
 msgstr "Empezado"
 
-#, fuzzy
-#| msgid "Activo"
 msgid "Action"
-msgstr "Activo"
+msgstr "Acción"
 
-msgid "Start"
-msgstr "Empezar"
+msgid "Start activity"
+msgstr "Iniciar actividad"
+
+msgid "End session"
+msgstr "Finalizar Sesión"
+
+msgid "Start session"
+msgstr "Iniciar sesión"
+
+msgid "Finish activity"
+msgstr "Finalizar actividad"
 
 msgid "No stages defined for this item"
 msgstr "No hay etapas definidas para este elemento"
 
 msgid "No production items found for this ticket"
 msgstr "No se han encontrado elementos de producción para este ticket"
+
+msgid "Permission denied"
+msgstr "Permiso denegado"
+
+#, fuzzy
+#| msgid "Status"
+msgid "Invalid status"
+msgstr "Estado"
+
+msgid "Invalid action"
+msgstr "Acción inválida"
+
+#, fuzzy
+#| msgid "Your user is not linked to an Employee"
+msgid "Your user is not linked to an Employee."
+msgstr "Tu usuario no está vinculado a un Empleado"
 
 msgid "e.g., SEBASTIAN HERRERO"
 msgstr "e.j., SEBASTIÁN HERRERO"
@@ -762,11 +1130,8 @@ msgstr "artículo de Presupuesto"
 msgid "Quote items"
 msgstr "articulos de Presupuesto"
 
-#~ msgid "Planning"
-#~ msgstr "Planificación"
+#~ msgid "Start"
+#~ msgstr "Empezar"
 
 #~ msgid "Finished"
 #~ msgstr "Finalizado"
-
-msgid "Your user is not linked to an Employee"
-msgstr "Tu usuario no está vinculado a un Empleado"

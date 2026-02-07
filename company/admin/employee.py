@@ -78,7 +78,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
                 "fields": (
                     "company",
                     ("hired_at", "terminated_at"),
-                    "is_active",
+                    ("is_active","can_work_on_production"),
                 )
             },
         ),

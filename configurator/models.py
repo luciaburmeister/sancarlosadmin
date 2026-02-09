@@ -932,6 +932,17 @@ class ConfigurationFlow:
 
         ConfigurationToProductionService.create_ticket(self.configuration)
 
+    @state.transition(
+        source=ConfigurationStatus.COMPLETED,
+        target=ConfigurationStatus.CONVERTED,
+    )
+    def convert(self):
+        from production.services.configuration_to_production import (
+            ConfigurationToProductionService,
+        )
+
+        ConfigurationToProductionService.create_ticket(self.configuration)
+
     @state.on_success()
     def _persist(self, descriptor, source, target):
         self.configuration.save(update_fields=["status"])

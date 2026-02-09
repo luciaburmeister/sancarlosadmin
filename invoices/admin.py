@@ -9,6 +9,7 @@ from invoices.models import (
 )
 from unfold.admin import GenericTabularInline
 from company.models import CompanyEmailConfig
+from invoices.tasks import process_incoming_invoices
 
 @admin.register(InvoiceGroup)
 class InvoiceGroupAdmin(ModelAdmin):
@@ -61,6 +62,14 @@ class IncomingInvoiceAdmin(ModelAdmin):
     search_fields = ("file_hash", "source_email_id", "sender_email")
     readonly_fields = ("file_hash", "source_email_id", "created_at", "sender_email")
     autocomplete_fields = ("company", "email_config")
+    actions = ["process_selected_invoices"]
+
+    @admin.action(description="Process selected invoices with AI")
+    def process_selected_invoices(self, request, queryset):
+        
+        selected_ids = list(queryset.values_list('id', flat=True))
+        process_incoming_invoices.delay(invoice_ids=selected_ids)
+        self.message_user(request, f"Started processing {len(selected_ids)} invoices in background.")
 
 class AppliedTaxInline(GenericTabularInline):
     model = AppliedTax

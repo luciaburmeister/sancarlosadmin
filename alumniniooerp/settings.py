@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from decouple import config
 from dotenv import load_dotenv
 from django.urls import reverse_lazy
 import os
@@ -83,7 +84,8 @@ INSTALLED_APPS = [
     'crispy_forms',
     'viewflow',
     'django_countries',
-    'company'
+    'company',
+    'django_celery_results'
 ]
 
 MIDDLEWARE = [
@@ -230,6 +232,21 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = 20000
 
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, "static")
+
+
+# CELERY CONFIGURATION
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'django-db'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Europe/Madrid'  
+
+
+# GEMINI API CONFIGURATION
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

@@ -1,6 +1,5 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from django.contrib.contenttypes.admin import GenericTabularInline
 from invoices.models import (
     InvoiceGroup,
     Invoice,
@@ -8,6 +7,7 @@ from invoices.models import (
     AppliedTax,
     IncomingInvoice,
 )
+from unfold.admin import GenericTabularInline
 from company.models import CompanyEmailConfig
 
 @admin.register(InvoiceGroup)
@@ -65,18 +65,23 @@ class IncomingInvoiceAdmin(ModelAdmin):
 class AppliedTaxInline(GenericTabularInline):
     model = AppliedTax
     extra = 0
-
+    hide_ordering_field = True
+    ordering_field = "order" 
     autocomplete_fields = ("tax_type",)
     ordering = ("order",)
 
     fields = (
         "tax_type",
         "selected_percentage",
+        "base_amount",
+        "calculated_amount",
         "order",
     )
 
     verbose_name = "Applied tax"
     verbose_name_plural = "Applied taxes"
+
+
 
 @admin.register(Invoice)
 class InvoiceAdmin(ModelAdmin):
@@ -87,6 +92,7 @@ class InvoiceAdmin(ModelAdmin):
         "due_date",
         "payment_method",
         "group",
+        "has_file",
     )
 
     list_filter = (
@@ -113,7 +119,15 @@ class InvoiceAdmin(ModelAdmin):
 
     fieldsets = (
         (
-            None,
+            "File",  
+            {
+                "fields": (
+                    "file",
+                )
+            },
+        ),
+        (
+            "Invoice Info",
             {
                 "fields": (
                     "invoice_number",
@@ -148,3 +162,7 @@ class InvoiceAdmin(ModelAdmin):
             },
         ),
     )
+    # shows check or X depending on whether file is present
+    @admin.display(boolean=True, description="Has File")
+    def has_file(self, obj):
+        return bool(obj.file)

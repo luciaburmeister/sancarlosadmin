@@ -78,6 +78,7 @@ class AppliedTaxInline(GenericTabularInline):
     ordering_field = "order" 
     autocomplete_fields = ("tax_type",)
     ordering = ("order",)
+    tab=True
 
     fields = (
         "tax_type",
@@ -128,20 +129,12 @@ class InvoiceAdmin(ModelAdmin):
 
     fieldsets = (
         (
-            "File",  
-            {
-                "fields": (
-                    "file",
-                )
-            },
-        ),
-        (
             "Invoice Info",
             {
                 "fields": (
-                    "invoice_number",
-                    "provider",
-                    "group",
+                   ( "invoice_number",
+                    "provider"),
+                    "file",
                 )
             },
         ),
@@ -149,8 +142,8 @@ class InvoiceAdmin(ModelAdmin):
             "Dates",
             {
                 "fields": (
-                    "date_issued",
-                    "due_date",
+                    ("date_issued",
+                    "due_date"),
                 )
             },
         ),
@@ -166,6 +159,7 @@ class InvoiceAdmin(ModelAdmin):
             "Notes",
             {
                 "fields": (
+                    "group",
                     "observations",
                 )
             },

@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from decouple import config
 from dotenv import load_dotenv
 from django.urls import reverse_lazy
 import os
@@ -235,6 +236,12 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Europe/Madrid'  
+
+
+# GEMINI API CONFIGURATION
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

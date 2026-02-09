@@ -88,6 +88,11 @@ class Invoice(models.Model):
         default='EUR',
         help_text="Currency code (EUR, USD, etc.)"
     )
+
+    needs_manual_review = models.BooleanField(
+        default=True,  # Always starts as True
+        help_text="Invoice requires manual review by user (always True initially, set to False after user review)"
+    )
     
     # OCR STATUS FIELDS
     ocr_processed = models.BooleanField(

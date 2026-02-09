@@ -107,7 +107,7 @@ class ConfigurationItemInline(TabularInline):
     verbose_name_plural = _("Configuration items")
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related("component__material")
+        return super().get_queryset(request).select_related("component")
 
 class PricingRuleAssignmentInline(TabularInline):
     model = PricingRuleAssignment

@@ -19,6 +19,7 @@ class ComponentPriceRuleInline(TabularInline):
 
     fields = (
         "condition",
+        "unit_price_expression",
         "unit_price",
         "is_fallback",
     )
@@ -26,37 +27,28 @@ class ComponentPriceRuleInline(TabularInline):
     verbose_name = _("Component price rule")
     verbose_name_plural = _("Component price rules")
 
-class ComponentInline(TabularInline):
-    model = Component
-    extra = 1
-    fields = (
-        "name",
-        "code",
-    )
-    show_change_link = True
 
 @admin.register(Component)
 class ComponentAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = (
         "name",
-        "material",
         "code",
         "component_type",
         "company"
     )
 
-    list_filter = ("material", "component_type",)
+    list_filter = ("materials", "component_type",)
 
-    list_select_related = ["material","company"]
+    list_select_related = ["company"]
 
     search_fields = (
         "name",
         "code",
-        "material__name",
-        "material__reference_code",
+        "materials__name",
+        "materials__reference_code",
     )
 
-    autocomplete_fields = ("material","company")
+    autocomplete_fields = ("materials","company")
 
     inlines = [ComponentPriceRuleInline]  # 👈 HERE
 
@@ -74,7 +66,7 @@ class ComponentAdmin(CompanyRestrictedAdmin,ModelAdmin):
             None,
             {
                 "fields": (
-                    "material",
+                    "materials",
                     ("name",
                     "code"),
                     "component_type", 
@@ -115,7 +107,6 @@ class MaterialAdmin(CompanyRestrictedAdmin,ModelAdmin):
         "unit_type",
         "company"
     ]
-    inlines = [ComponentInline]
     list_filter = ["category",  "unit_type"]
     search_fields = ["reference_code", "name"]
     ordering = ["reference_code"]
@@ -126,7 +117,8 @@ class MaterialAdmin(CompanyRestrictedAdmin,ModelAdmin):
     fieldsets = (
         ("Product Details", {
             "fields": (
-                ("reference_code", "name"),
+                ("name"),
+                ("reference_code", "rule_key"),
                 ("category", "cost_per_unit"),
                 ("unit_type","provider"),
                 "company"

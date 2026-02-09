@@ -25,7 +25,7 @@ class StagesValidationTestCase(TestCase):
     def test_component_stages_validation(self):
         # Valid stages (subset)
         component = Component(
-            material=self.material,
+            # material=self.material, # Removed
             name="Valid Component",
             company=self.company,
             production_stages=["Cutting"],
@@ -36,7 +36,7 @@ class StagesValidationTestCase(TestCase):
 
         # Invalid stages (not a subset)
         invalid_component = Component(
-            material=self.material,
+            # material=self.material, # Removed
             name="Invalid Component",
             company=self.company,
             production_stages=["Cutting", "Painting"],

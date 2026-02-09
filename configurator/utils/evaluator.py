@@ -197,6 +197,41 @@ def _walk_ast(node: ast.AST, context: dict, *, mode: str):
         else:
             return _walk_ast(node.orelse, context, mode=mode)
 
+    # Subscript: a[b]
+    if isinstance(node, ast.Subscript):
+        if mode == "validate":
+            _walk_ast(node.value, context, mode=mode)
+            _walk_ast(node.slice, context, mode=mode)
+            return None
+
+        # eval mode
+        target = _walk_ast(node.value, context, mode=mode)
+        index = _walk_ast(node.slice, context, mode=mode)
+        try:
+            return target[index]
+        except Exception as e:
+            raise ValueError(f"Subscription error: {e}")
+
+    if isinstance(node, ast.Attribute):
+        attr_name = node.attr
+
+        # Block all dunder access
+        if attr_name.startswith("__"):
+            raise ValueError("Access to dunder attributes is not allowed.")
+
+        if mode == "validate":
+            _walk_ast(node.value, context, mode=mode)
+            return None
+
+        target = _walk_ast(node.value, context, mode=mode)
+
+        if isinstance(target, dict):
+            if attr_name in target:
+                return target[attr_name]
+            raise ValueError(f"Key not found in dict: {attr_name}")
+
+        raise ValueError("Attribute access is only allowed on dictionaries.")
+
     # Anything else is forbidden
     raise ValueError(f"Unsupported expression element: {type(node).__name__}")
 

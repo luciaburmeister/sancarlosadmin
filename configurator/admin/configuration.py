@@ -1,7 +1,8 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from configurator.models import Configuration, ConfigurationParameterValue, ConfigurationItem, PricingRuleAssignment, ConfigurationFlow,ConfigurationStatus
-from unfold.admin import TabularInline,GenericTabularInline
+from configurator.models import Configuration, ConfigurationParameterValue, ConfigurationItem, PricingRuleAssignment, ConfigurationFlow,ConfigurationStatus,ConfigurationComponentGroup
+from unfold.admin import TabularInline,GenericTabularInline,StackedInline
+from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter,RangeDateTimeFilter,MultipleChoicesDropdownFilter
 from django.urls import path
 from configurator.views import ProductSelectionView, ConfigurationWizardView, ConfigurationExportView
 from django.urls import reverse
@@ -11,6 +12,56 @@ from django.utils.translation import gettext_lazy as _
 from django.http import HttpRequest
 from invoices.models import AppliedTax
 from unfold.decorators import display
+from core.admin.company_admin import CompanyRestrictedAdmin
+from unfold.contrib.forms.widgets import ArrayWidget
+from django.contrib.postgres.fields import ArrayField
+from django import forms
+
+
+
+class ConfigurationComponentGroupInline(StackedInline):
+    verbose_name = _("Component group")
+    verbose_name_plural = _("Component groups")
+    hide_ordering_field = True
+    ordering_field = "order"
+    model = ConfigurationComponentGroup
+    extra = 0
+    tab=True
+
+    readonly_fields = (
+        "material_total",
+        "total",
+    )
+
+    fields = (
+        "order",
+        "key",
+        "label",
+        "items",
+        "material_total",
+        "total",
+    )
+
+    filter_horizontal = ("items",)
+
+    def formfield_for_manytomany(self, db_field, request, **kwargs):
+        """
+        Limit selectable ConfigurationItems to those
+        belonging to the current Configuration.
+        """
+        if db_field.name == "items":
+            object_id = request.resolver_match.kwargs.get("object_id")
+            if object_id:
+                kwargs["queryset"] = ConfigurationItem.objects.filter(
+                    configuration_id=object_id
+                )
+            else:
+                kwargs["queryset"] = ConfigurationItem.objects.none()
+
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
+
+
+
 class AppliedTaxInline(GenericTabularInline):
     hide_ordering_field = True
     ordering_field = "order"
@@ -26,9 +77,11 @@ class AppliedTaxInline(GenericTabularInline):
         return super().get_queryset(request).select_related("tax_type")
 
 class ParameterValueInline(TabularInline):
+    hide_ordering_field = True
+    ordering_field = "order"
     model = ConfigurationParameterValue
     extra = 0
-    fields = ("parameter", "value")
+    fields = ("parameter", "value","order")
     tab = True
     readonly_fields = ["parameter"]
     verbose_name = _("Parameter value")
@@ -54,7 +107,7 @@ class ConfigurationItemInline(TabularInline):
     verbose_name_plural = _("Configuration items")
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related("component__material")
+        return super().get_queryset(request).select_related("component")
 
 class PricingRuleAssignmentInline(TabularInline):
     model = PricingRuleAssignment
@@ -64,11 +117,8 @@ class PricingRuleAssignmentInline(TabularInline):
     verbose_name = _("Pricing rule assignment")
     verbose_name_plural = _("Pricing rule assignments")
 
-
-
-
 @admin.register(Configuration)
-class ConfigurationAdmin(ModelAdmin):
+class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = (
         "id",
         "name",
@@ -76,14 +126,16 @@ class ConfigurationAdmin(ModelAdmin):
         "subtotal_price",
         "total_price_display",
         "show_status_customized_color",
+        "company"
     )
 
-    list_filter = ("status", "client", "created_at")
+    list_filter = (("status",MultipleChoicesDropdownFilter), 
+                   ("client",AutocompleteSelectMultipleFilter), 
+                   ("created_at",RangeDateTimeFilter))
     search_fields = ("name", "client__name")
+    list_select_related = ["client","company"]
 
-    list_select_related = ["client"]
-
-    readonly_fields = ("total_price","total_cost","subtotal_price")
+    readonly_fields = ("total_price","total_cost","subtotal_price","company")
     actions_row = ["export_configuration_to_template", 
                    "convert_to_production"]
     autocomplete_fields = ["client","product"]
@@ -92,7 +144,8 @@ class ConfigurationAdmin(ModelAdmin):
         ParameterValueInline,
         ConfigurationItemInline,
         PricingRuleAssignmentInline,
-        AppliedTaxInline
+        AppliedTaxInline,
+        ConfigurationComponentGroupInline,
     ]
 
     @display(
@@ -112,6 +165,7 @@ class ConfigurationAdmin(ModelAdmin):
             "fields": (
                 ("name", "client"),
                 ("product", "status"),
+                ("company")
             ),
         }),
         (_("Pricing"), {
@@ -151,6 +205,12 @@ class ConfigurationAdmin(ModelAdmin):
         super().save_related(request, form, formsets, change)
         form.instance.generate_bom()
         form.instance.recalculate_price()
+
+    def save_formset(self, request, form, formset, change):
+        super().save_formset(request, form, formset, change)
+        if formset.model is ConfigurationComponentGroup:
+            form.instance.recompute_component_groups()
+
 
     def add_view(self, request, form_url="", extra_context=None):
         """

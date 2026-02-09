@@ -5,8 +5,10 @@ from invoices.models import (
     Invoice,
     TaxType,
     AppliedTax,
+    IncomingInvoice,
 )
 from unfold.admin import GenericTabularInline
+from company.models import CompanyEmailConfig
 
 @admin.register(InvoiceGroup)
 class InvoiceGroupAdmin(ModelAdmin):
@@ -51,6 +53,14 @@ class TaxTypeAdmin(ModelAdmin):
             },
         ),
     )
+
+@admin.register(IncomingInvoice)
+class IncomingInvoiceAdmin(ModelAdmin):
+    list_display = ("file_hash", "company", "sender_email", "created_at", "processed")
+    list_filter = ("company", "processed", "created_at")
+    search_fields = ("file_hash", "source_email_id", "sender_email")
+    readonly_fields = ("file_hash", "source_email_id", "created_at", "sender_email")
+    autocomplete_fields = ("company", "email_config")
 
 class AppliedTaxInline(GenericTabularInline):
     model = AppliedTax

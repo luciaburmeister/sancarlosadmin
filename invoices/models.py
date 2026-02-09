@@ -1,4 +1,5 @@
 from django.db import models
+from company.models import Company, CompanyEmailConfig, CompanyOwnedModel
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 from materials.models import Provider
@@ -305,3 +306,24 @@ class AppliedTax(models.Model):
         self.save(update_fields=['calculated_amount'])
         
         return result
+def incoming_invoice_upload_path(instance, filename):
+    """Path: incoming_invoices/year/month/day/filename"""
+    date = instance.email_date or instance.created_at or timezone.now()
+    return f"incoming_invoices/{date.strftime('%Y/%m/%d')}/{filename}"
+
+class IncomingInvoice(CompanyOwnedModel):
+    email_config = models.ForeignKey(CompanyEmailConfig, on_delete=models.SET_NULL, null=True, related_name="downloaded_invoices")
+    file = models.FileField(upload_to=incoming_invoice_upload_path, verbose_name=_("Invoice File"))
+    email_date = models.DateTimeField(null=True, blank=True, verbose_name=_("Email Date"))
+    file_hash = models.CharField(max_length=64, unique=True, verbose_name=_("File Hash (SHA-256)"))
+    source_email_id = models.CharField(max_length=255, verbose_name=_("Source Email ID"))
+    sender_email = models.EmailField(null=True, blank=True, verbose_name=_("Sender Email"))
+    processed = models.BooleanField(default=False, verbose_name=_("Processed by AI"))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
+
+    class Meta:
+        verbose_name = _("Incoming Invoice")
+        verbose_name_plural = _("Incoming Invoices")
+
+    def __str__(self):
+        return f"Incoming Invoice {self.file_hash[:8]} ({self.company})"

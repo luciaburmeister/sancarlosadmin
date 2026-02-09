@@ -62,11 +62,12 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
                     configuration=config,
                     component=component,
                     quantity=quantity,
-                    unit_price=component.material.cost_per_unit,
+                    unit_price=component.cost_per_unit,
                     is_template_item=False,
                 )
-        config.recalculate_price()
+        config.copy_default_pricing_rules_from_product()
         config.copy_default_taxes_from_product()
+        config.recalculate_price()
         
         url = reverse(
             "admin:configurator_configuration_change",

@@ -1,0 +1,15 @@
+{% extends "admin/change_form.html" %}
+{% load i18n unfold admin_urls %}
+
+{% block object-tools-items %}
+  {{ block.super }}
+
+  {% if original and original.pk %}
+    {% url 'admin:production_productionticket_stages' original.pk as stages_url %}
+    <li>
+      {% component "unfold/components/button.html" with href=stages_url variant="primary" %}
+        {% trans "Production stages" %}
+      {% endcomponent %}
+    </li>
+  {% endif %}
+{% endblock %}

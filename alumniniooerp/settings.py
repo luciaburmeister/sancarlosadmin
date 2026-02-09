@@ -16,6 +16,7 @@ from dotenv import load_dotenv
 from django.urls import reverse_lazy
 import os
 from django.utils.translation import gettext_lazy as _
+from django.templatetags.static import static
 
 load_dotenv()
 
@@ -69,6 +70,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django_json_widget',
+    'import_export',
     "storages",
     'inventory',
     'invoices',
@@ -184,10 +186,13 @@ DATABASES = {
         
     }
 }
-if not DEBUG:
+# Database SSL mode
+DB_SSLMODE = os.getenv("DB_SSLMODE", "require" if not DEBUG else None)
+
+if DB_SSLMODE:
     DATABASES["default"]["OPTIONS"] = {
-            "sslmode": "require",
-        }
+        "sslmode": DB_SSLMODE,
+    }
 
 
 
@@ -272,8 +277,12 @@ LOCALE_PATHS = [
 UNFOLD = {
     "SITE_TITLE": "ERP - Polipus",
     "SITE_HEADER": "Polipus",
-    "SITE_SYMBOL": "speed",
     "SHOW_LANGUAGES": True,
+    "SITE_LOGO": {
+        "light": lambda request: static("site-logos/polipus_negro.png"),  # light mode
+        "dark": lambda request: static("site-logos/polipus_blanco.png"),  # dark mode
+    },
+    "BORDER_RADIUS": "12px",
     "SIDEBAR": {
         "show_search": True,  
         "show_all_applications": True,  
@@ -335,6 +344,34 @@ UNFOLD = {
             },
 
             {
+                "title": _("Company"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Company"),
+                        "icon": "brick",
+                        "link": reverse_lazy(
+                            "admin:company_company_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "company.view_company"
+                        ),
+                    },
+                    {
+                        "title": _("Employees"),
+                        "icon": "brick",
+                        "link": reverse_lazy(
+                            "admin:company_employee_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "company.view_employee"
+                        )
+                    },
+                ],
+            },
+
+            {
                 "title": _("Production"),
                 "separator": True,
                 "collapsible": False,
@@ -347,6 +384,16 @@ UNFOLD = {
                         ),
                         "permission": lambda request: request.user.has_perm(
                             "production.view_productionticket"
+                        ),
+                    },
+                    {
+                        "title": _("Production Items"),
+                        "icon": "brick",
+                        "link": reverse_lazy(
+                            "admin:production_productionitem_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "production.view_productionitem"
                         ),
                     },
                 ],

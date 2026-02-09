@@ -20,7 +20,8 @@ class ConfigurationExportView(UnfoldModelAdminViewMixin,FormView):
             raise Http404("Configuration not found")
 
         self.available_templates = ConfigurationExportService.get_available_templates(
-            self.configuration
+            self.configuration,
+            request.user
         )
 
         return super().dispatch(request, *args, **kwargs)

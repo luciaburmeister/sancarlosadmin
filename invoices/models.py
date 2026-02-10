@@ -90,6 +90,12 @@ class Invoice(models.Model):
         help_text="Currency code (EUR, USD, etc.)"
     )
 
+    line_items = models.JSONField(
+        default=list,
+        blank=True,
+        help_text= "Line items with descriptions, quantities, prices, and tax rates"
+    )
+
     needs_manual_review = models.BooleanField(
         default=True,  # Always starts as True
         help_text="Invoice requires manual review by user (always True initially, set to False after user review)"
@@ -136,23 +142,6 @@ class Invoice(models.Model):
             total = result["total_amount"]
 
         return total
-
-
-class InvoiceItems(models.Model):
-    invoice = models.OneToOneField(  
-        Invoice,
-        on_delete=models.CASCADE,
-        related_name="items",
-        primary_key=True,
-        help_text="Invoice to which these items belong"
-    )
-    
-    line_items = models.JSONField(
-        default=list,
-        blank=True,
-        help_text= "Line items with descriptions, quantities, prices, and tax rates"
-    )
-
 
  
 class TaxType(models.Model):

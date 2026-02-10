@@ -94,11 +94,9 @@ class ComponentPricingTestCase(TestCase):
         )
         
         component.save()
-        # Logic Change: Component price is NOT affected by rules directly anymore.
-        # Component.compute_unit_price updates the RULE'S unit_price.
         
-        # 1. Verify Component Price is Base Cost (10.0)
-        self.assertEqual(component.cost_per_unit.amount, 10.0)
+        # 1. Verify Component Price is now affected by the Rule (10 * 0.5 = 5.0)
+        self.assertEqual(component.cost_per_unit.amount, 5.0)
         
         # 2. Verify Rule Price was updated (10 * 0.5 = 5.0)
         rule.refresh_from_db()

@@ -194,13 +194,39 @@ class Component(Timestampable,CompanyOwnedModel):
             **self.metadata
         }
 
+    def to_money(self, val):
+        return self.cost_per_unit.__class__(
+            val,
+            currency=self.cost_per_unit.currency
+        )
+
+    def update_price_rules(self):
+        """
+        Calculates and updates the unit_price for all ComponentPriceRule objects
+        associated with this component based on the current material costs.
+        This ignores configuration-specific context.
+        """
+        if not self.pk:
+            return
+
+        eval_context = self.get_pricing_context()
+        rules = self.price_rules.all()
+
+        for rule in rules:
+            try:
+                rule.unit_price = self.to_money(rule.calculate_price(eval_context))
+            except Exception:
+                pass
+        
+        ComponentPriceRule.objects.bulk_update(rules, ["unit_price"])
+
     def compute_unit_price(self, context: dict | None = None):
         """
-        Compute component per-unit price.
+        Compute component per-unit price using cached rule prices.
         
         1. Get base component context.
         2. Merge with provided external context.
-        3. Check Rules.
+        3. Check Rules (using cached unit_price).
         4. Fallback to Expression or Base Cost.
         """
         
@@ -210,12 +236,6 @@ class Component(Timestampable,CompanyOwnedModel):
         # 2. Merge with external context
         if context:
             eval_context.update(context)
-            
-        def to_money(val):
-            return self.cost_per_unit.__class__(
-                val,
-                currency=self.cost_per_unit.currency
-            )
 
         # 3. Check Price Rules
         if self.pk:
@@ -223,30 +243,27 @@ class Component(Timestampable,CompanyOwnedModel):
         else:
             rules = []
 
-        fallback_rule = None
-
         for rule in rules:
-            rule.unit_price = to_money(rule.calculate_price(eval_context))
-        ComponentPriceRule.objects.bulk_update(rules, ["unit_price"])
+            if rule.applies_to(eval_context):
+                return rule.unit_price
 
-
-        # 4. Component-level Expression or Base Cost
         if self.unit_price_expression:
             try:
                 value = safe_eval(self.unit_price_expression, eval_context)
-                return to_money(value)
+                return self.to_money(value)
             except Exception:
                  pass
 
-        return to_money(eval_context.get("base_cost", 0))
+        return self.to_money(eval_context.get("base_cost", 0))
 
     
     def save(self, *args, **kwargs):
         """
         Automatically compute and store cost_per_unit whenever the component is saved.
-        Uses a minimal context (only base_cost) because component-level prices usually
-        do not depend on configuration-level parameters.
+        - First updates all rule prices based on current material costs.
+        - Then computes the cost_per_unit (base/default price).
         """
+        self.update_price_rules()
         computed_price = self.compute_unit_price(context=None)
         self.cost_per_unit = computed_price
         super().save(*args, **kwargs)

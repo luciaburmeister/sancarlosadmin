@@ -85,7 +85,8 @@ INSTALLED_APPS = [
     'viewflow',
     'django_countries',
     'company',
-    'django_celery_results'
+    'django_celery_results',
+    'djmoney',
 ]
 
 MIDDLEWARE = [

@@ -19,7 +19,7 @@ from django.core.files import File
 
 from invoices.services.ocr_services import OcrInterface, InvoiceData
 from invoices.services.invoice.invoice_service_helpers import match_provider
-from invoices.models import Invoice, InvoiceItems, AppliedTax, TaxType
+from invoices.models import Invoice, AppliedTax, TaxType
 from materials.models import Provider
 
 

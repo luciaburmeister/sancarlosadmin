@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.validators import FileExtensionValidator
+from djmoney.models.fields import MoneyField
 
 
 class InvoiceGroup(models.Model):
@@ -76,14 +77,16 @@ class Invoice(models.Model):
         blank=True  # Temporarily allow blank in forms
     )
 
-    total_amount = models.DecimalField(
+    total_amount = MoneyField(
         max_digits=10,
         decimal_places=2,
         null=True,
         blank=True,
-        help_text="Total invoice amount"
+        help_text="Total invoice amount",
+        default_currency='EUR',
+        default=0
     )
-    
+
     currency = models.CharField(
         max_length=3,
         default='EUR',
@@ -171,11 +174,13 @@ class TaxType(models.Model):
         help_text="Available percentage rates as a list, e.g., [0, 4, 10, 21]"
     )
 
-    default_percentage = models.DecimalField(
+    default_percentage = MoneyField(
         max_digits=5,
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0.00"))],
-        help_text="Default percentage when applying this tax"
+        help_text="Default percentage when applying this tax",
+        default_currency='EUR',
+        default=0
     )
 
     is_active = models.BooleanField(default=True)
@@ -205,27 +210,33 @@ class AppliedTax(models.Model):
         related_name="applied_taxes",
     )
 
-    selected_percentage = models.DecimalField(
+    selected_percentage = MoneyField(
         max_digits=5,
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0.00"))],
+        default_currency='EUR',
+        default=0
     )
 
     #Base amount each tax is calculated on
-    base_amount = models.DecimalField(
+    base_amount = MoneyField(
         max_digits=10,
         decimal_places=2,
         null=True,  # Allow null for existing records
         blank=True,  # Allow blank in forms
-        help_text="The base amount this tax was calculated on"
+        help_text="The base amount this tax was calculated on",
+        default_currency='EUR',
+        default=0
     )
 
-    calculated_amount = models.DecimalField(
+    calculated_amount = MoneyField(
         max_digits=10,
         decimal_places=2,
         null=True,  # Allow null for existing records
         blank=True,  # Allow blank in forms
-        help_text="The calculated tax amount"
+        help_text="The calculated tax amount",
+        default_currency='EUR',
+        default=0
     )
 
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)

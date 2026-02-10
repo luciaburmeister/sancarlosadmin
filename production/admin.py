@@ -14,18 +14,17 @@ from production.models import (
 from production.views.production_stages_view import (
     ProductionItemAdvanceStageView,
 )
-
+from django.http import HttpRequest
 from django.utils.html import format_html
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
 
-from django.urls import path, reverse, reverse_lazy
+from django.urls import path, reverse
 from django.shortcuts import get_object_or_404, redirect
 
 from unfold.views import UnfoldModelAdminViewMixin
 from unfold.decorators import display, action
 
 from django.views.generic import TemplateView
-from django.views import View
 
 
 class ProductionItemInline(TabularInline):

@@ -74,6 +74,7 @@ def process_incoming_invoices(invoice_ids=None):
         except Exception as e:
             errors_count += 1
             logger.error(f"Exception processing invoice {incoming.id}: {str(e)}")
+            raise
         finally:
             if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)

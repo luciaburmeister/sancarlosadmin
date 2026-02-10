@@ -83,7 +83,6 @@ class InvoiceService:
             extracted_data = self.ocr_processor.extract_data(file_path)
             messages.append(f"✅ OCR completed - found invoice {extracted_data.invoice_number or 'N/A'}")
             
-            # Step 2: Match provider (informational only)
             provider, confidence, match_message = self._match_provider(extracted_data)
             messages.append(f"Provider matching: {match_message}")
             

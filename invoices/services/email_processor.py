@@ -39,7 +39,7 @@ class EmailInvoiceProcessor:
         processed_count = 0
 
         for e_id in email_ids:
-            status, msg_data = self.mail.fetch(e_id, '(RFC822)')
+            status, msg_data = self.mail.fetch(e_id, '(BODY.PEEK[])')
             if status != 'OK':
                 continue
 
@@ -71,7 +71,7 @@ class EmailInvoiceProcessor:
                             try:
                                 email_date = parsedate_to_datetime(date_header)
                             except Exception:
-                                pass
+                                passI
                         
                         invoice = IncomingInvoice(
                             company=self.config.company,

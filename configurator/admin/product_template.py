@@ -120,8 +120,18 @@ class ProductTemplateComponentGroupInline(StackedInline):
     extra = 0
     tab = True
 
-    fields = ("stage","components",)
+    fields = ("stage", "components",)
     filter_horizontal = ("components",)
+
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+
+        if obj and obj.production_stages:
+            formset.form.base_fields["stage"].widget = ArrayWidget(
+                choices=[("", "---------")] + [(s, s) for s in obj.production_stages]
+            )
+
+        return formset
 
     def formfield_for_manytomany(self, db_field, request, **kwargs):
         if db_field.name == "components":

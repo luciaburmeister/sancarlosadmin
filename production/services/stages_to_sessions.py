@@ -13,126 +13,129 @@ from company.models import Employee
 class StagesToSessionsService:
 
     @classmethod
-    def start_activity(cls, *, production_item: ProductionItem, employee: Employee) -> None:
+    def start_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
         if employee is None:
             raise ValidationError("No employee provided to start activity.")
 
-        stage_name, stage_info = cls._get_current_stage(production_item)
-        if stage_name is None:
-            return
-
-        status = stage_info.get("status") or ProductionItemStatus.PENDING
-        if status != ProductionItemStatus.PENDING:
-            return
-
         now = timezone.now()
 
-        stage_info["status"] = ProductionItemStatus.IN_PROGRESS
-        stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
-        stage_info["completed_at"] = None
+        for item in items:
+            current_stage, stage_info = cls._get_current_stage(item)
+            if current_stage != stage_name:
+                continue 
 
-        cls._save_planning(production_item, stage_name, stage_info)
+            status = (stage_info.get("status") or ProductionItemStatus.PENDING)
+            if status != ProductionItemStatus.PENDING:
+                continue
 
-        ProductionItemSession.objects.create(
-            production_item=production_item,
-            production_stage=stage_name,
-            status=ProductionItemSessionStatus.IN_PROGRESS,
-            start_time=now,
-            created_by=employee,
-        )
+            stage_info["status"] = ProductionItemStatus.IN_PROGRESS
+            stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
+            stage_info["completed_at"] = None
+            cls._save_planning(item, stage_name, stage_info)
+
+            ProductionItemSession.objects.create(
+                production_item=item,
+                production_stage=stage_name,
+                status=ProductionItemSessionStatus.IN_PROGRESS,
+                start_time=now,
+                created_by=employee,
+            )
 
     @classmethod
-    def finish_activity(cls, *, production_item: ProductionItem, employee: Employee) -> None:
-        stage_name, stage_info = cls._get_current_stage(production_item)
-        if stage_name is None:
-            return
+    def finish_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+        now = timezone.now()
 
-        status = stage_info.get("status") or ProductionItemStatus.PENDING
-        if status != ProductionItemStatus.IN_PROGRESS:
-            return
+        for item in items:
+            current_stage, stage_info = cls._get_current_stage(item)
+            if current_stage != stage_name:
+                continue
 
-        session = (
-            ProductionItemSession.objects
-            .filter(
-                production_item=production_item,
+            status = (stage_info.get("status") or ProductionItemStatus.PENDING)
+            if status != ProductionItemStatus.IN_PROGRESS:
+                continue
+
+            session = (
+                ProductionItemSession.objects.filter(
+                    production_item=item,
+                    production_stage=stage_name,
+                    status=ProductionItemSessionStatus.IN_PROGRESS,
+                    end_time__isnull=True,
+                )
+                .order_by("-start_time")
+                .first()
+            )
+            if session:
+                session.comments = "Activity Finished"
+                session.finish(completed_by=employee)
+                session.save(update_fields=["comments", "end_time", "status", "updated_at"])
+
+            stage_info["status"] = ProductionItemStatus.DONE
+            stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
+            stage_info["completed_at"] = now.isoformat()
+            cls._save_planning(item, stage_name, stage_info)
+
+    @classmethod
+    def start_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+        now = timezone.now()
+
+        for item in items:
+            current_stage, stage_info = cls._get_current_stage(item)
+            if current_stage != stage_name:
+                continue
+
+            status = (stage_info.get("status") or ProductionItemStatus.PENDING)
+            if status != ProductionItemStatus.IN_PROGRESS:
+                raise ValidationError("Start the activity before starting a session.")
+
+            already_active = ProductionItemSession.objects.filter(
+                production_item=item,
                 production_stage=stage_name,
                 created_by=employee,
                 status=ProductionItemSessionStatus.IN_PROGRESS,
-            )
-            .order_by("-start_time")
-            .first()
-        )
+                end_time__isnull=True,
+            ).exists()
+            if already_active:
+                continue
 
-        if session:
-            session.comments = "Activity Finished"
+            ProductionItemSession.objects.create(
+                production_item=item,
+                production_stage=stage_name,
+                status=ProductionItemSessionStatus.IN_PROGRESS,
+                start_time=now,
+                created_by=employee,
+            )
+
+    @classmethod
+    def end_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+        for item in items:
+            session = (
+                ProductionItemSession.objects.filter(
+                    production_item=item,
+                    production_stage=stage_name,
+                    created_by=employee,
+                    status=ProductionItemSessionStatus.IN_PROGRESS,
+                    end_time__isnull=True,
+                )
+                .order_by("-start_time")
+                .first()
+            )
+            if not session:
+                continue
+
+            session.comments = "Session Finished"
             session.finish(completed_by=employee)
             session.save(update_fields=["comments", "end_time", "status", "updated_at"])
 
 
-        now = timezone.now()
-        stage_info["status"] = ProductionItemStatus.DONE
-        stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
-        stage_info["completed_at"] = now.isoformat()
-
-        cls._save_planning(production_item, stage_name, stage_info)
-
     @classmethod
-    def start_session(cls, *, production_item: ProductionItem, employee: Employee) -> None:
-        stage_name, stage_info = cls._get_current_stage(production_item)
-        if stage_name is None:
-            return
-
-        status = stage_info.get("status") or ProductionItemStatus.PENDING
-
-        if status != ProductionItemStatus.IN_PROGRESS:
-            raise ValidationError("Start the activity before starting a session.")
-
-        already_active = ProductionItemSession.objects.filter(
-            production_item=production_item,
-            production_stage=stage_name,
-            created_by=employee,
-            status=ProductionItemSessionStatus.IN_PROGRESS,
-        ).exists()
-        if already_active:
-            return
-
-        now = timezone.now()
-        ProductionItemSession.objects.create(
-            production_item=production_item,
-            production_stage=stage_name,
-            status=ProductionItemSessionStatus.IN_PROGRESS,
-            start_time=now,
-            created_by=employee,
-        )
-
-    @classmethod
-    def end_session(cls, *, production_item: ProductionItem, employee: Employee) -> None:
-        stage_name, stage_info = cls._get_current_stage(production_item)
-        if stage_name is None:
-            return
-
-        session = (
-            ProductionItemSession.objects.filter(
-                production_item=production_item,
-                production_stage=stage_name,
-                created_by=employee,
-                status=ProductionItemSessionStatus.IN_PROGRESS,
-            )
-            .order_by("-start_time")
-            .first()
-        )
-        if not session:
-            return
-
-        session.comments = "Session Finished"
-        session.finish(completed_by=employee)
-        session.save(update_fields=["comments", "end_time", "status", "updated_at"])
-
-
-    @staticmethod
-    def _get_current_stage(production_item: ProductionItem):
+    def _get_current_stage(cls, production_item: ProductionItem):
         planning = production_item.planning or {}
-        stage_names = list(planning.keys())
+
+        ticket = production_item.ticket
+        config = ticket.source_object
+        product = getattr(config, "product", None)
+        stage_names = list(getattr(product, "production_stages", []) or [])
+
         if not stage_names:
             return None, None
 
@@ -165,7 +168,7 @@ class StagesToSessionsService:
         return ProductionItemStatus.PENDING
 
     @classmethod
-    def _save_planning(cls, production_item: ProductionItem, stage_name: str, stage_info: dict) -> None:
+    def _save_planning(cls, production_item: ProductionItem, stage_name: str, stage_info: dict):
         planning = production_item.planning or {}
         planning[stage_name] = stage_info
 

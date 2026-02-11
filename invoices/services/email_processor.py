@@ -93,7 +93,7 @@ class EmailInvoiceProcessor:
     def is_invoice(self, filename, subject=""):
         """Check if a file is an invoice based on filename, extension, and email subject."""
         name_lower = filename.lower()
-        subject_lower = subject.lower()
+        subject_lower = str(subject).lower()
         
         # Common invoice keywords
         invoice_keywords = ['invoice', 'factura', 'bill', 'receipt']

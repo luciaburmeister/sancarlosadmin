@@ -70,7 +70,9 @@ def match_provider(vendor_name: str, vendor_tax_id: str) -> Tuple[Optional[objec
     # Step 1: Try exact tax_id match
     if vendor_tax_id and vendor_tax_id.strip(): #if not empty
         try: # find provider with exact matching tax ID
-            provider = Provider.objects.get(tax_identifier__iexact=vendor_tax_id.strip()) #__iexact is case-insensitive 
+            provider = Provider.objects.filter(tax_identifier__iexact=vendor_tax_id.strip()) 
+            if provider:
+                return (provider.first(),100,"Matched by tax ID")
             
             # Verify name similarity
             name_similarity = calculate_name_similarity(vendor_name, provider.name)

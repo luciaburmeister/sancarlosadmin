@@ -128,6 +128,7 @@ class GeminiInvoiceProcessor(OcrInterface):
         - payment_method must be: transfer, cash, or card
         - line_items MUST include tax_rate
         - taxes MUST include base_amount and tax_amount
+        - The vendor_tax_id has to be the provider of who is issuing the invoice not the client's one.
         """
 
         response = self.client.models.generate_content(
@@ -184,7 +185,6 @@ class GeminiInvoiceProcessor(OcrInterface):
             )
             for tax in data.get("taxes", [])
         ]
-
         return InvoiceData(
             vendor_name=data.get("vendor_name"),
             vendor_tax_id=data.get("vendor_tax_id"),

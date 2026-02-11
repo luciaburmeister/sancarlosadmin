@@ -770,3 +770,15 @@ msgstr "articulos de Presupuesto"
 
 msgid "Your user is not linked to an Employee"
 msgstr "Tu usuario no está vinculado a un Empleado"
+
+msgid "Start session"
+msgstr "Iniciar sesión"
+
+msgid "Start activity"
+msgstr "Iniciar actividad"
+
+msgid "End session"
+msgstr "Terminar sesión"
+
+msgid "Finish activity"
+msgstr "Finalizar actividad"

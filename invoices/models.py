@@ -32,21 +32,16 @@ class PaymentMethod(models.TextChoices):
     CARD = 'card', _('Credit/Debit Card')
 
 
-
 def invoice_file_path(instance, filename):
-    """
-    Generates organized upload path: invoices/YYYY/MM/filename
-    Example: invoices/2024/01/invoice_123.pdf
-    """
-    return f"invoices/{instance.date_issued.year}/{instance.date_issued.month:02d}/{filename}"
+    return f"invoices/uploads/{filename}"
 
 
 
 class Invoice(models.Model):
-    invoice_number = models.CharField(max_length=30) #numero de factura
-    date_issued = models.DateField(db_index=True) 
-    due_date = models.DateField() #fecha de vencimiento
-    provider = models.ForeignKey(Provider, on_delete=models.PROTECT) 
+    invoice_number = models.CharField(max_length=30,blank=True, null=True) #numero de factura
+    date_issued = models.DateField(db_index=True,blank=True, null=True) 
+    due_date = models.DateField(blank=True, null=True) #fecha de vencimiento
+    provider = models.ForeignKey(Provider, on_delete=models.PROTECT,blank=True, null=True) 
     
     group = models.ForeignKey(
         InvoiceGroup, 

@@ -1,5 +1,9 @@
 from django.contrib import admin
+from django.shortcuts import redirect
+from django.urls import path
+from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from unfold.admin import ModelAdmin
+from unfold.admin import GenericTabularInline
 from invoices.models import (
     InvoiceGroup,
     Invoice,
@@ -7,9 +11,9 @@ from invoices.models import (
     AppliedTax,
     IncomingInvoice,
 )
-from unfold.admin import GenericTabularInline
-from company.models import CompanyEmailConfig
+
 from invoices.tasks import process_incoming_invoices
+
 
 @admin.register(InvoiceGroup)
 class InvoiceGroupAdmin(ModelAdmin):
@@ -91,8 +95,6 @@ class AppliedTaxInline(GenericTabularInline):
     verbose_name = "Applied tax"
     verbose_name_plural = "Applied taxes"
 
-
-
 @admin.register(Invoice)
 class InvoiceAdmin(ModelAdmin):
     list_display = (
@@ -165,7 +167,24 @@ class InvoiceAdmin(ModelAdmin):
             },
         ),
     )
-    # shows check or X depending on whether file is present
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "upload/",
+                self.admin_site.admin_view(
+                    InvoiceUploadAdminView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_upload",
+            ),           
+        ]
+        return custom + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        return redirect("admin:invoices_invoice_upload")
+
     @admin.display(boolean=True, description="Has File")
     def has_file(self, obj):
         return bool(obj.file)
+    

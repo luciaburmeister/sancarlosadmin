@@ -46,16 +46,11 @@ class ProductionItemInline(TabularInline):
         if not obj.planning:
             return "-"
 
-        STATUS_COLORS = {
-            "pending": "#9ca3af",       # gray
-            "in_progress": "#f59e0b",   # amber
-            "done": "#10b981",          # green
-            "cancelled": "#ef4444",     # red
-        }
+        STATUS_COLORS = StatusBadge.STATUS_COLORS
 
         rows = []
-        for stage, info in obj.planning.items():
-            status = info.get("status", "-")
+        for stage, info in (obj.planning or {}).items():
+            status = (info or {}).get("status", "-")
             color = STATUS_COLORS.get(status, "#6b7280")
 
             rows.append(
@@ -114,6 +109,13 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
     title = _("Production stages")
     permission_required = ("production.view_productionticket",)
     template_name = "admin/production/productionticket/planning.html"
+
+    def _status_display(self, status_val: str):
+        status_val = (status_val or "").strip()
+        color = StatusBadge.STATUS_COLORS.get(status_val, "#6b7280")
+        label = _(status_val.replace("_", " ")) if status_val else "—"
+        return color, label
+
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -184,7 +186,10 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
         ctx["items_ui"] = items_ui
         return ctx
-        
+        status_color, status_label = self._status_display(agg_status)
+
+            "status_color": status_color,
+            "status_label": status_label,
 
 @admin.register(ProductionTicket)
 class ProductionTicketAdmin(ModelAdmin):

@@ -21,6 +21,9 @@ from invoices.services.ocr_services import OcrInterface, InvoiceData
 from invoices.services.invoice.invoice_service_helpers import match_provider
 from invoices.models import Invoice, AppliedTax, TaxType
 from materials.models import Provider
+from django.utils import timezone
+from django.contrib.contenttypes.models import ContentType
+
 
 
 class InvoiceProcessingResult:
@@ -51,7 +54,7 @@ class InvoiceService:
         if result.success:
             print(f"Created invoice: {result.invoice}")
             # result.needs_review is always True
-            print("✅ Ready for manual review")
+            print("Ready for manual review")
     """
     
     def __init__(self, ocr_processor: OcrInterface):
@@ -81,7 +84,7 @@ class InvoiceService:
             # Step 1: Extract data using OCR
             messages.append("Starting OCR processing...")
             extracted_data = self.ocr_processor.extract_data(file_path)
-            messages.append(f"✅ OCR completed - found invoice {extracted_data.invoice_number or 'N/A'}")
+            messages.append(f"OCR completed - found invoice {extracted_data.invoice_number or 'N/A'}")
             
             provider, confidence, match_message = self._match_provider(extracted_data)
             messages.append(f"Provider matching: {match_message}")
@@ -89,23 +92,23 @@ class InvoiceService:
             # All invoices need manual review - confidence is just informational
             needs_review = True
             if confidence >= 80:
-                messages.append(f"✅ High confidence match ({confidence}%) - but still requires review")
+                messages.append(f"High confidence match ({confidence}%) - but still requires review")
             else:
-                messages.append(f"⚠️  Low confidence match ({confidence}%) - requires review")
+                messages.append(f"Low confidence match ({confidence}%) - requires review")
             
             # Step 3: Create invoice
             invoice = self._create_invoice(extracted_data, provider, file_path)
-            messages.append(f"✅ Created invoice: {invoice}")
+            messages.append(f"Created invoice: {invoice}")
             
             # Step 4: Create line items
             if extracted_data.line_items:
                 self._create_line_items(invoice, extracted_data.line_items)
-                messages.append(f"✅ Added {len(extracted_data.line_items)} line items")
+                messages.append(f"Added {len(extracted_data.line_items)} line items")
             
             # Step 5: Create tax records
             if extracted_data.taxes:
                 self._create_applied_taxes(invoice, extracted_data.taxes)
-                messages.append(f"✅ Applied {len(extracted_data.taxes)} tax records")
+                messages.append(f"Applied {len(extracted_data.taxes)} tax records")
             
             # Step 6: Update OCR status and set manual review flag
             invoice.ocr_processed = True
@@ -122,7 +125,7 @@ class InvoiceService:
             )
             
         except Exception as e:
-            messages.append(f"❌ Processing failed: {str(e)}")
+            messages.append(f"Processing failed: {str(e)}")
             
             # Try to create a partial invoice for debugging
             try:
@@ -136,6 +139,92 @@ class InvoiceService:
             except:
                 # If we can't even create a partial invoice, re-raise the original error
                 raise e
+    
+    @transaction.atomic
+    def process_existing_invoice(self, invoice: Invoice, file_path: Optional[str] = None) -> InvoiceProcessingResult:
+        """
+        Pipeline B: OCR + UPDATE the existing invoice.
+        IMPORTANT: Do NOT create a new invoice. Do NOT re-save the file.
+        """
+        messages = []
+        try:
+            # mark processing
+            invoice.ocr_processing = True
+            invoice.ocr_processed = False
+            invoice.ocr_error = ""
+            invoice.save(update_fields=["ocr_processing", "ocr_processed", "ocr_error"])
+
+            if not invoice.file:
+                raise ValueError("No file attached to invoice.")
+
+            if file_path is None:
+                try:
+                    file_path = invoice.file.path
+                except Exception:
+                    raise ValueError("Invoice file has no local path. Provide file_path from the task.")
+
+            messages.append("Starting OCR processing...")
+            extracted_data = self.ocr_processor.extract_data(file_path)
+            messages.append(f"OCR completed - found invoice {extracted_data.invoice_number or 'N/A'}")
+
+            provider, confidence, match_message = self._match_provider(extracted_data)
+            messages.append(f"Provider matching: {match_message}")
+            messages.append(f"Confidence: {confidence}% (still requires review)")
+
+            # UPDATE fields on the SAME invoice (no new row)
+            invoice.invoice_number = extracted_data.invoice_number or invoice.invoice_number or "UNKNOWN"
+            invoice.date_issued = self._parse_date(extracted_data.date_issued) or invoice.date_issued or timezone.now().date()
+            invoice.due_date = self._parse_date(extracted_data.due_date) or invoice.due_date or timezone.now().date()
+            invoice.provider = provider
+            invoice.total_amount = extracted_data.total_amount or invoice.total_amount
+            invoice.currency = extracted_data.currency or invoice.currency or "EUR"
+            invoice.payment_method = extracted_data.payment_method or invoice.payment_method or "transfer"
+            invoice.needs_manual_review = True  # always True initially
+
+            # line items (and persist them)
+            if extracted_data.line_items:
+                cleaned_items = []
+                for item in extracted_data.line_items:
+                    cleaned_items.append({
+                        "description": item.description or "",
+                        "quantity": float(item.quantity or 0),
+                        "unit_price": float(item.unit_price or 0),
+                        "total": float(item.total or 0),
+                        "tax_rate": float(item.tax_rate or 0),
+                    })
+                invoice.line_items = cleaned_items
+
+            invoice.save()  # one save for all updated fields
+
+            # taxes: (optional minimal) clear & recreate so repeated runs don't duplicate
+            if extracted_data.taxes:
+                # remove existing taxes for this invoice (otherwise each run stacks them)
+                AppliedTax.objects.filter(
+                    content_type=ContentType.objects.get_for_model(invoice),
+                    object_id=invoice.pk,
+                ).delete()
+
+                self._create_applied_taxes(invoice, extracted_data.taxes)
+                messages.append(f"Applied {len(extracted_data.taxes)} tax records")
+
+            # done flags
+            invoice.ocr_processing = False
+            invoice.ocr_processed = True
+            invoice.ocr_error = None
+            invoice.needs_manual_review = True
+            invoice.save(update_fields=["ocr_processing", "ocr_processed", "ocr_error", "needs_manual_review"])
+
+            return InvoiceProcessingResult(invoice=invoice, success=True, messages=messages, needs_review=True)
+
+        except Exception as e:
+            messages.append(f"Processing failed: {str(e)}")
+            invoice.ocr_processing = False
+            invoice.ocr_processed = False
+            invoice.ocr_error = str(e)
+            invoice.needs_manual_review = True
+            invoice.save(update_fields=["ocr_processing", "ocr_processed", "ocr_error", "needs_manual_review"])
+            return InvoiceProcessingResult(invoice=invoice, success=False, messages=messages, needs_review=True)
+    
     
     def _match_provider(self, extracted_data: InvoiceData) -> Tuple[Optional[Provider], int, str]:
         """
@@ -194,11 +283,9 @@ class InvoiceService:
                 'total': float(item.total or 0),
                 'tax_rate': float(item.tax_rate or 0),
             })
-        
-        InvoiceItems.objects.create(
-            invoice=invoice,
-            line_items=cleaned_items
-        )
+
+        invoice.line_items = cleaned_items
+        invoice.save(update_fields=["line_items"])
     
     def _create_applied_taxes(self, invoice: Invoice, taxes_data: list):
         """

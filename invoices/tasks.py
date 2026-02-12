@@ -143,7 +143,7 @@ def process_manual_invoice(invoice_id: int):
                 temp_file_path = tmp.name
                 file_path = temp_file_path
 
-        result = service.process_invoice(file_path)
+        result = service.process_existing_invoice(invoice, file_path=file_path)
 
         if result.success:
             logger.info(f"Successfully processed MANUAL invoice {invoice.id}")

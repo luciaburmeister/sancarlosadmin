@@ -1,11 +1,10 @@
 from django.db import models
-from company.models import Company, CompanyEmailConfig, CompanyOwnedModel
+from company.models import  CompanyEmailConfig, CompanyOwnedModel
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 from materials.models import Provider
 from django_countries.fields import CountryField
 from django.utils.translation import gettext_lazy as _ 
-from django.core.exceptions import ValidationError
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.validators import FileExtensionValidator
@@ -68,8 +67,8 @@ class Invoice(models.Model):
             )
         ],
         help_text="Upload invoice file (PDF, PNG, or JPG)",
-        null=True,  # Temporarily allow null for existing invoices
-        blank=True  # Temporarily allow blank in forms
+        null=False,  
+        blank=False  
     )
 
     total_amount = MoneyField(

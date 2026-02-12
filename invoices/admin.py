@@ -1,9 +1,11 @@
 from django.contrib import admin
+from unfold.decorators import action
 from django.shortcuts import redirect
 from django.urls import path
 from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from unfold.admin import ModelAdmin
 from unfold.admin import GenericTabularInline
+from django.utils.html import format_html
 from invoices.models import (
     InvoiceGroup,
     Invoice,
@@ -12,8 +14,7 @@ from invoices.models import (
     IncomingInvoice,
 )
 
-from invoices.tasks import process_incoming_invoices
-
+from invoices.tasks import process_incoming_invoices, process_manual_invoice
 
 @admin.register(InvoiceGroup)
 class InvoiceGroupAdmin(ModelAdmin):
@@ -105,6 +106,7 @@ class InvoiceAdmin(ModelAdmin):
         "payment_method",
         "group",
         "has_file",
+        "ocr_status"
     )
 
     list_filter = (
@@ -128,6 +130,7 @@ class InvoiceAdmin(ModelAdmin):
     inlines = [
         AppliedTaxInline,
     ]
+    actions = ["send_to_process"]
 
     fieldsets = (
         (
@@ -188,3 +191,33 @@ class InvoiceAdmin(ModelAdmin):
     def has_file(self, obj):
         return bool(obj.file)
     
+
+    @admin.display(description="OCR Status")
+    def ocr_status(self, obj):
+        # Determine label + color
+        if getattr(obj, "ocr_processing", False):
+            label = "Processing"
+            color = "#facc15" 
+        elif getattr(obj, "ocr_processed", False) and not getattr(obj, "ocr_error", ""):
+            label = "OK"
+            color = "#22c55e"  
+        elif getattr(obj, "ocr_error", ""):
+            label = "Error"
+            color = "#ef4444"  
+        else:
+            label = "Not started"
+            color = "#9ca3af"  
+
+        return format_html(
+            '<span style="display:inline-block; padding:2px 8px; border-radius:999px; '
+            'font-size:11px; font-weight:600; color:white; background:{};">{}</span>',
+            color,
+            label,
+        )
+    
+    @action(description="Send selected invoices to AI processing")
+    def send_to_process(self, request, queryset):
+        selected_ids = list(queryset.values_list('id', flat=True))
+        for id in selected_ids:
+            process_manual_invoice.delay(invoice_id=id)
+        self.message_user(request, f"Started processing {len(selected_ids)} invoices in background.")

@@ -6,6 +6,7 @@ from production.models import (
     ProductionItemStatus,
     ProductionItemSession,
     ProductionItemSessionStatus,
+    ProductionItemSessionKind, 
 )
 from company.models import Employee
 
@@ -39,6 +40,7 @@ class StagesToSessionsService:
                 status=ProductionItemSessionStatus.IN_PROGRESS,
                 start_time=now,
                 created_by=employee,
+                kind=ProductionItemSessionKind.ACTIVITY_STARTED,
             )
 
     @classmethod
@@ -65,9 +67,8 @@ class StagesToSessionsService:
                 .first()
             )
             if session:
-                session.comments = "Activity Finished"
+                session.kind = ProductionItemSessionKind.ACTIVITY_FINISHED
                 session.finish(completed_by=employee)
-                session.save(update_fields=["comments", "end_time", "status", "updated_at"])
 
             stage_info["status"] = ProductionItemStatus.DONE
             stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
@@ -103,6 +104,7 @@ class StagesToSessionsService:
                 status=ProductionItemSessionStatus.IN_PROGRESS,
                 start_time=now,
                 created_by=employee,
+                kind=ProductionItemSessionKind.SESSION_STARTED,
             )
 
     @classmethod
@@ -122,9 +124,8 @@ class StagesToSessionsService:
             if not session:
                 continue
 
-            session.comments = "Session Finished"
+            session.kind = ProductionItemSessionKind.SESSION_FINISHED
             session.finish(completed_by=employee)
-            session.save(update_fields=["comments", "end_time", "status", "updated_at"])
 
 
     @classmethod

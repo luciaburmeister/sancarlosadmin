@@ -124,12 +124,28 @@ class ProductionItemSessionStatus(models.TextChoices):
     DONE = "done", _("Done")
     CANCELLED = "cancelled", _("Cancelled")
 
+
+class ProductionItemSessionKind(models.TextChoices):
+    ACTIVITY_STARTED = "activity_started", _("Activity started")
+    ACTIVITY_FINISHED = "activity_finished", _("Activity finished")
+    SESSION_STARTED = "session_started", _("Session started")
+    SESSION_FINISHED = "session_finished", _("Session finished")
+
+
 class ProductionItemSession(Timestampable):
     production_item = models.ForeignKey(
         ProductionItem,
         on_delete=models.CASCADE,
         related_name="sessions",
         verbose_name=_("Production Item"),
+    )
+    kind = models.CharField(
+        max_length=32,
+        choices=ProductionItemSessionKind.choices,
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name=_("Type"),
     )
     start_time = models.DateTimeField(verbose_name=("Start Time"),null=True,blank=True)
     end_time = models.DateTimeField(verbose_name=_("End Time"),null=True,blank=True)

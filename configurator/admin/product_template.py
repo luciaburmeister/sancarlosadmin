@@ -127,8 +127,14 @@ class ProductTemplateComponentGroupInline(StackedInline):
         formset = super().get_formset(request, obj, **kwargs)
 
         if obj and obj.production_stages:
-            formset.form.base_fields["stage"].widget = ArrayWidget(
-                choices=[("", "---------")] + [(s, s) for s in obj.production_stages]
+            choices = [("", "---------")] + [
+            (s, s) for s in obj.production_stages
+        ]
+
+            formset.form.base_fields["stage"] = forms.ChoiceField(
+                choices=choices,
+                required=False,
+                widget=UnfoldAdminSelect2Widget
             )
 
         return formset

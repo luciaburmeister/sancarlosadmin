@@ -56,6 +56,38 @@ class ProductionTicket(Timestampable):
             )
         ]
 
+    def compute_status_from_items(self):
+        items = list(self.items.all())
+        if not items:
+            return ProductionTicketStatus.PENDING
+
+        stage_statuses = [
+            ((info or {}).get("status") or ProductionItemStatus.PENDING)
+            for item in items
+            for info in (item.planning or {}).values()
+        ]
+
+        if not stage_statuses:
+            return ProductionTicketStatus.PENDING
+
+        if all(s == ProductionItemStatus.DONE for s in stage_statuses):
+            return ProductionTicketStatus.DONE
+        if any(s == ProductionItemStatus.IN_PROGRESS for s in stage_statuses):
+            return ProductionTicketStatus.IN_PROGRESS
+        if any(s == ProductionItemStatus.DONE for s in stage_statuses):
+            return ProductionTicketStatus.IN_PROGRESS
+
+        return ProductionTicketStatus.PENDING
+
+
+    def recompute_status(self):
+        new_status = self.compute_status_from_items()
+
+        if new_status != self.status:
+            ProductionTicket.objects.filter(pk=self.pk).update(status=new_status)
+            self.status = new_status
+
+
 class ProductionItemStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
     IN_PROGRESS = "in_progress", _("In Progress")
@@ -117,6 +149,11 @@ class ProductionItem(Timestampable):
         indexes = [
             GinIndex(fields=["planning"]),
         ]
+    
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        self.ticket.recompute_status()
+
 
 class ProductionItemSessionStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
@@ -174,6 +211,7 @@ class ProductionItemSession(Timestampable):
         blank=True,
         verbose_name=_("Completed by")
     )
+
     class Meta:
         indexes = [
             models.Index(fields=["production_item", "production_stage"]),
@@ -199,6 +237,8 @@ class ProductionItemSession(Timestampable):
         self.full_clean()
         super().save(*args, **kwargs)
 
+        ticket = self.production_item.ticket
+        ticket.recompute_status()
 
         
     @property
@@ -290,7 +330,7 @@ class OperationRequirement(models.Model):
 
 
 class PlannedProductionSessionSource(models.TextChoices):
-    AUTOMATIVC= "auto",_("Automatic")
+    AUTOMATIC= "auto",_("Automatic")
     MANUAL = "manual", _("Manual")
 
 class PlannedProductionSession(Timestampable):

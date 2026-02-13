@@ -22,7 +22,7 @@ class AccountReportingMapInlineUnfold(TabularInline):
 
 @admin.register(CompanyAccount)
 class CompanyAccountAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["code", "name", "company", "account_type", "parent", "is_active", "is_postable"]
+    list_display = ["code", "name", "company", "account_type", "parent", "is_active", "is_postable","company"]
     list_filter = ["company", "account_type", "is_active", "is_postable", "is_reconcilable", "is_tax_account"]
     search_fields = ["code", "name"]
     ordering = ["company", "code"]

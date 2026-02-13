@@ -1,5 +1,5 @@
 from django.test import TestCase, TransactionTestCase
-from accounting.models import Journal, JournalEntry, EntryStatus, CompanyAccount, JournalType, FiscalYear, CompanyChartOfAccounts, ChartOfAccountsTemplate, JournalEntryLine
+from accounting.models import Journal, JournalEntry, EntryStatus, CompanyAccount, JournalType, FiscalYear, CompanyChartOfAccounts, ChartOfAccountsTemplate, JournalEntryLine, AccountType, BalanceSide, TemplateAccount
 from company.models import Company
 from datetime import date
 from django.db.utils import IntegrityError
@@ -232,5 +232,78 @@ class JournalEntryNumberingTest(TransactionTestCase):
         line.debit = Money(100, 'USD')
         line.credit = Money(0, 'USD') # Ensure credit matches too
         line.clean() # Should pass currency check
+
+
+class ChartInstallerTest(TestCase):
+    def setUp(self):
+        self.company = Company.objects.create(name="Test Company", tax_identifier="B12345678")
+        self.template = ChartOfAccountsTemplate.objects.create(name="Test Template", country="ES")
+        
+    def test_infer_attributes(self):
+        from accounting.services.chart_installer import PGCInferenceStrategy
+        
+        strategy = PGCInferenceStrategy()
+        
+        # Test Group 1
+        ensure_type = lambda c, t, s: self.assertEqual(strategy.infer(c), (t, s))
+        
+        ensure_type("100", AccountType.EQUITY, BalanceSide.CREDIT)
+        ensure_type("170", AccountType.LIABILITY, BalanceSide.CREDIT)
+        
+        # Test Group 2
+        ensure_type("210", AccountType.ASSET, BalanceSide.DEBIT)
+        
+        # Test Group 3
+        ensure_type("300", AccountType.ASSET, BalanceSide.DEBIT)
+        
+        # Test Group 4
+        ensure_type("400", AccountType.LIABILITY, BalanceSide.CREDIT)
+        ensure_type("430", AccountType.ASSET, BalanceSide.DEBIT)
+        ensure_type("470", AccountType.ASSET, BalanceSide.DEBIT)
+        ensure_type("475", AccountType.LIABILITY, BalanceSide.CREDIT)
+        
+        # Test Group 5
+        ensure_type("570", AccountType.ASSET, BalanceSide.DEBIT)
+        ensure_type("520", AccountType.LIABILITY, BalanceSide.CREDIT)
+        
+        # Test Group 6
+        ensure_type("600", AccountType.EXPENSE, BalanceSide.DEBIT)
+        
+        # Test Group 7
+        ensure_type("700", AccountType.INCOME, BalanceSide.CREDIT)
+
+    def test_install_chart(self):
+        from accounting.services.chart_installer import install_chart_standard
+        
+        # Create Template Structure
+        # 1 -> 10 -> 100
+        g1 = TemplateAccount.objects.create(template=self.template, code="1", name="Basic Financing")
+        g10 = TemplateAccount.objects.create(template=self.template, code="10", name="Capital", parent=g1)
+        a100 = TemplateAccount.objects.create(template=self.template, code="100", name="Social Capital", parent=g10)
+        
+        # 4 -> 43 -> 430
+        g4 = TemplateAccount.objects.create(template=self.template, code="4", name="Creditors/Debtors")
+        g43 = TemplateAccount.objects.create(template=self.template, code="43", name="Clients", parent=g4)
+        a430 = TemplateAccount.objects.create(template=self.template, code="430", name="Clients", parent=g43)
+
+        # Run Install
+        count = install_chart_standard(self.company, self.template)
+        
+        # Verify
+        self.assertEqual(count, 6)
+        
+        # Check Hierarchy
+        c_100 = CompanyAccount.objects.get(company=self.company, code="100")
+        self.assertEqual(c_100.parent.code, "10")
+        self.assertEqual(c_100.parent.parent.code, "1")
+        self.assertIsNone(c_100.parent.parent.parent)
+        
+        # Check Attributes
+        self.assertEqual(c_100.account_type, AccountType.EQUITY)
+        self.assertEqual(c_100.normal_balance, BalanceSide.CREDIT)
+        
+        c_430 = CompanyAccount.objects.get(company=self.company, code="430")
+        self.assertEqual(c_430.account_type, AccountType.ASSET)
+        self.assertEqual(c_430.normal_balance, BalanceSide.DEBIT)
 
 

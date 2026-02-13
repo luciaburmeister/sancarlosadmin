@@ -18,6 +18,7 @@ class CompanyChartOfAccountsAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_filter = ["company", "template"]
     search_fields = ["company__name", "template__name"]
     list_select_related = ["company", "template"]
+    autocomplete_fields = ["company","template"]
 
 
 @admin.register(Journal)

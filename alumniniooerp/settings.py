@@ -354,7 +354,7 @@ UNFOLD = {
                 "items": [
                     {
                         "title": _("Company"),
-                        "icon": "brick",
+                        "icon": "domain",
                         "link": reverse_lazy(
                             "admin:company_company_changelist"
                         ),
@@ -364,13 +364,40 @@ UNFOLD = {
                     },
                     {
                         "title": _("Employees"),
-                        "icon": "brick",
+                        "icon": "people",
                         "link": reverse_lazy(
                             "admin:company_employee_changelist"
                         ),
                         "permission": lambda request: request.user.has_perm(
                             "company.view_employee"
                         )
+                    },
+                ],
+            },
+            {
+                "title": _("Assets"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Assets"),
+                        "icon": "web_asset",
+                        "link": reverse_lazy(
+                            "admin:assets_asset_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_asset"
+                        ),
+                    },
+                    {
+                        "title": _("Asset Types"),
+                        "icon": "category",
+                        "link": reverse_lazy(
+                            "admin:assets_assettype_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_assettype"
+                        ),
                     },
                 ],
             },

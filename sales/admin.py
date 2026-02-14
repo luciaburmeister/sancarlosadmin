@@ -15,7 +15,7 @@ class ClientAdmin(CompanyRestrictedAdmin, ModelAdmin):
     fieldsets = (
         ("Contact Information", {
             "fields": (
-                "name",
+                ("name","company"),
                 ("phone", "email"),
                 "address"
             )

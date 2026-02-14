@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-02-07 12:21+0100\n"
+"POT-Creation-Date: 2026-02-15 00:53+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,6 +16,124 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Start date must be before end date."
+msgstr "La fecha de inicio debe ser antes de la fecha de fin."
+
+msgid "Fiscal year overlaps with an existing year."
+msgstr "El año fiscal se superpone con un año existente."
+
+#, fuzzy
+#| msgid "Pricing rule template"
+msgid "Parent account in the template."
+msgstr "Plantilla de regla de precios"
+
+msgid "If this account is postable."
+msgstr "Si esta cuenta se puede publicar."
+
+msgid "Entries prior to this date cannot be modified/posted."
+msgstr ""
+"Las entradas anteriores a esta fecha no pueden ser modificadas/publicadas."
+
+msgid "Asset"
+msgstr "Activo"
+
+msgid "Liability"
+msgstr "Responsabilidad"
+
+msgid "Equity"
+msgstr "Equidad"
+
+msgid "Income"
+msgstr "Ingresos"
+
+msgid "Expense"
+msgstr "Gasto"
+
+msgid "Off Balance"
+msgstr "Fuera de balance"
+
+msgid "Debit"
+msgstr "Débito"
+
+msgid "Credit"
+msgstr "Crédito"
+
+msgid "Account Currency Override"
+msgstr "Anular Moneda de Cuenta"
+
+msgid "Force this account to use a specific currency."
+msgstr "Forzar esta cuenta a utilizar una moneda específica."
+
+msgid "General"
+msgstr "General"
+
+msgid "Sales"
+msgstr "Ventas"
+
+msgid "Purchase"
+msgstr "Compra"
+
+msgid "Bank"
+msgstr "Banco"
+
+msgid "Cash"
+msgstr "Efectivo"
+
+msgid "Payroll"
+msgstr "Nómina"
+
+msgid "Draft"
+msgstr "Borrador"
+
+#, fuzzy
+#| msgid "Post time"
+msgid "Posted"
+msgstr "Hora de publicación"
+
+msgid "Cancelled"
+msgstr "Cancelado"
+
+msgid "Journal must belong to the same company."
+msgstr "El diario debe pertenecer a la misma empresa."
+
+msgid "Cannot modify a posted entry."
+msgstr "No se puede modificar una entrada publicada."
+
+msgid "Cannot post unbalanced entry."
+msgstr "No se puede publicar una entrada no equilibrada."
+
+msgid "Cannot delete a posted entry."
+msgstr "No se puede eliminar una entrada publicada."
+
+msgid "Entry is not balanced."
+msgstr "La entrada no está equilibrada."
+
+#, fuzzy
+#| msgid "Only pending sessions can be started"
+msgid "Only draft entries can be posted."
+msgstr "Solo se pueden iniciar sesiones pendientes."
+
+msgid "Cannot post empty entry."
+msgstr "No se puede publicar una entrada vacía."
+
+msgid "Cannot add or modify lines of a posted entry."
+msgstr "No se pueden agregar o modificar líneas de una entrada publicada."
+
+msgid "Line cannot have both debit and credit amounts."
+msgstr "La línea no puede tener tanto montos de débito como de crédito."
+
+msgid "Line must have either debit or credit."
+msgstr "La línea debe tener ya sea débito o crédito."
+
+msgid "Debit and Credit amounts must be non-negative."
+msgstr "Los montos de débito y crédito deben ser no negativos."
+
+msgid "Line company must match entry company."
+msgstr "La empresa de la línea debe coincidir con la empresa de entrada."
+
+msgid "Account must belong to same company."
+msgstr "La cuenta debe pertenecer a la misma empresa."
 
 msgid "Español"
 msgstr "Español"
@@ -49,6 +167,12 @@ msgstr "Compañia"
 msgid "Employees"
 msgstr "Empleados"
 
+msgid "Assets"
+msgstr "Activos"
+
+msgid "Asset Types"
+msgstr "Tipos de Activos"
+
 msgid "Production"
 msgstr "Producción"
 
@@ -57,6 +181,79 @@ msgstr "Tickets de Producción"
 
 msgid "Production Items"
 msgstr "Items de Producción"
+
+#, fuzzy
+#| msgid "Tax Identifier"
+msgid "Identifiers"
+msgstr "Identificador Fiscal"
+
+msgid "Name"
+msgstr "Nombre"
+
+msgid "Description"
+msgstr "Descripción"
+
+msgid "JSON Schema to validate asset data (optional)"
+msgstr "JSON Schema para validar datos de activos (opcional)"
+
+#, fuzzy
+#| msgid "Unit price"
+msgid "Asset type"
+msgstr "Precio unitario"
+
+#, fuzzy
+#| msgid "Unit price"
+msgid "Asset types"
+msgstr "Precio unitario"
+
+msgid "Asset Type"
+msgstr "Tipo de activo"
+
+#, fuzzy
+#| msgid "Client"
+msgid "Owner/Client"
+msgstr "Cliente"
+
+#, fuzzy
+#| msgid "Label"
+msgid "Name/Label"
+msgstr "Etiqueta"
+
+msgid "Flexible Data"
+msgstr "Datos Flexibles"
+
+msgid "Schema-less data for this specific asset type."
+msgstr "Datos sin esquema para este tipo específico de activo."
+
+msgid "Label"
+msgstr "Etiqueta"
+
+msgid "e.g., VIN, Plate Number, SN"
+msgstr "e.j., VIN, Número de placa, SN"
+
+msgid "Value"
+msgstr "Valor"
+
+#, fuzzy
+#| msgid "Tax Identifier"
+msgid "Asset identifier"
+msgstr "Identificador Fiscal"
+
+#, fuzzy
+#| msgid "Tax Identifier"
+msgid "Asset identifiers"
+msgstr "Identificador Fiscal"
+
+#, python-format
+msgid "This label is not allowed for this company. Allowed: %(labels)s"
+msgstr ""
+"Esta etiqueta no está permitida para esta empresa. Permitido: %(labels)s"
+
+msgid "Install Chart"
+msgstr "Instalar gráfico"
+
+msgid "Company has no Chart of Accounts template assigned."
+msgstr "La empresa no tiene una plantilla de Plan de Cuentas asignada."
 
 msgid "Employee"
 msgstr "Empleado"
@@ -68,9 +265,6 @@ msgstr "Información General"
 
 msgid "Employment"
 msgstr "Empleo"
-
-msgid "Name"
-msgstr "Nombre"
 
 msgid "Commercial Name"
 msgstr "Nombre Comercial"
@@ -106,6 +300,14 @@ msgstr "Lista ordenada de posibles etapas de producción para este producto"
 
 msgid "Production Stages"
 msgstr "Etapas de Producción"
+
+msgid "Possible labels for asset identifiers (e.g., VIN, Plate Number)"
+msgstr ""
+"Posibles etiquetas para identificadores de activos (por ejemplo, VIN, Número"
+" de Placa)"
+
+msgid "Asset Identifier Labels"
+msgstr "Etiquetas de Identificador de Activo"
 
 msgid "Male"
 msgstr "Masculino"
@@ -330,8 +532,18 @@ msgstr "Clonar"
 msgid "Product template '%(name)s' was successfully duplicated."
 msgstr "La plantilla del producto '%(name)s' fue duplicada exitosamente."
 
-msgid "General"
-msgstr "General"
+#, fuzzy
+#| msgid "General Information"
+msgid "Client and Asset Information"
+msgstr "Información General"
+
+#, fuzzy
+#| msgid "Select"
+msgid "Select Client"
+msgstr "Seleccionar"
+
+msgid "Select Asset (Optional)"
+msgstr "Seleccionar activo (opcional)"
 
 #, fuzzy
 #| msgid "Employee"
@@ -377,9 +589,6 @@ msgstr "Nombre del trabajo / sitio"
 msgid "Post time"
 msgstr "Hora de publicación"
 
-msgid "Draft"
-msgstr "Borrador"
-
 msgid "Completed"
 msgstr "Completado"
 
@@ -400,9 +609,6 @@ msgstr "Regla de incompatibilidad"
 
 msgid "Incompatibility rules"
 msgstr "Reglas de incompatibilidad"
-
-msgid "Description"
-msgstr "Descripción"
 
 msgid "Ordered list of possible production stages for this product"
 msgstr "Lista ordenada de posibles etapas de producción para este producto"
@@ -468,9 +674,6 @@ msgstr "Seleccionar"
 msgid "Product"
 msgstr "Producto"
 
-msgid "Label"
-msgstr "Etiqueta"
-
 msgid "Options"
 msgstr "Opciones"
 
@@ -487,6 +690,12 @@ msgstr "Orden del parámetro dentro del producto"
 #| msgid "Parameter value"
 msgid "Parameter Group"
 msgstr "Valor del parámetro"
+
+msgid "Default Value"
+msgstr "Valor predeterminado"
+
+msgid "Default value for this parameter"
+msgstr "Valor predeterminado para este parámetro"
 
 msgid "Product parameter"
 msgstr "Parámetro del producto"
@@ -687,6 +896,13 @@ msgstr "Siguiente"
 msgid "Last"
 msgstr "Última"
 
+#, python-format
+msgid ""
+"\n"
+"                Step %(current)s of %(total)s\n"
+"                "
+msgstr "Paso %(current)s de %(total)s"
+
 msgid "Cancel"
 msgstr "Cancelar"
 
@@ -731,9 +947,6 @@ msgstr "Recursos de planificación guardados."
 
 msgid "Bank Transfer"
 msgstr "Transferencia Bancaria"
-
-msgid "Cash"
-msgstr "Efectivo"
 
 msgid "Credit/Debit Card"
 msgstr "Tarjeta de crédito/débito"
@@ -810,6 +1023,17 @@ msgstr "Contexto"
 msgid "Reference code"
 msgstr "Código de referencia"
 
+msgid ""
+"Internal identifier used in price rules. Must start with a letter and "
+"contain only letters, numbers, or underscores. Example: steel_4058"
+msgstr ""
+"Identificador interno utilizado en las reglas de precios. Debe comenzar con "
+"una letra y contener solo letras, números o guiones bajos. Ejemplo: "
+"steel_4058"
+
+msgid "Rule key"
+msgstr "Clave de regla"
+
 msgid "Category"
 msgstr "Categoría"
 
@@ -851,11 +1075,25 @@ msgstr ""
 "Debe devolver True o False.\n"
 "Ejemplo: width <= 1000 y quantity >= 10"
 
+msgid ""
+"Enter an expression to calculate cost. Context: base_cost (if fallback) or "
+"material prices."
+msgstr ""
+"Ingrese una expresión para calcular el costo. Contexto: base_cost (si se "
+"necesita un valor de respaldo) o precios de materiales."
+
 msgid "Lower values are evaluated first"
 msgstr "Los valores más bajos se evalúan primero."
 
 msgid "Used if no other rule matches"
 msgstr "Usado si ninguna otra regla coincide"
+
+msgid ""
+"Rule key must start with a letter and contain only letters, numbers, or "
+"underscores."
+msgstr ""
+"La clave de la regla debe comenzar con una letra y contener solo letras, "
+"números o guiones bajos."
 
 #, fuzzy
 #| msgid "Production Stages"
@@ -888,9 +1126,6 @@ msgstr "En Progreso"
 msgid "Done"
 msgstr "Hecho"
 
-msgid "Cancelled"
-msgstr "Cancelado"
-
 msgid "Company-specific context"
 msgstr "Contexto específico de la empresa"
 
@@ -906,15 +1141,12 @@ msgstr "Etapas de producción y progreso por artículo"
 msgid "Process Planning"
 msgstr "Planificación del Proceso"
 
-#, fuzzy
-#| msgid "In Progress"
+
 msgid "In progress"
 msgstr "En Progreso"
 
-#, fuzzy
-#| msgid "Production Stages"
 msgid "Production Item"
-msgstr "Etapas de Producción"
+msgstr "Item de Producción"
 
 msgid "End Time"
 msgstr "Hora de finalización"
@@ -924,20 +1156,16 @@ msgstr "Hora de finalización"
 msgid "Comments"
 msgstr "Componentes"
 
-#, fuzzy
-#| msgid "Production Stages"
+
 msgid "Production Stage"
 msgstr "Etapas de Producción"
 
-#, fuzzy
-#| msgid "Created at"
+
 msgid "Created by"
 msgstr "Creado en"
 
-#, fuzzy
-#| msgid "Completed"
 msgid "Completed by"
-msgstr "Completado"
+msgstr "Completado por"
 
 msgid "End time cannot be before start time"
 msgstr "La hora de finalización no puede ser anterior a la hora de inicio."
@@ -978,12 +1206,11 @@ msgstr "¿Podrías proporcionar el texto que deseas traducir?"
 #, fuzzy
 #| msgid "Production Stages"
 msgid "Production Kanban"
-msgstr "Etapas de Producción"
+msgstr "Kaban de Producción"
 
-#, fuzzy
-#| msgid "Back to ticket"
+
 msgid "Back to list"
-msgstr "Volver al ticket"
+msgstr "Volver a la lista"
 
 msgid "Assigned"
 msgstr "Asignado"
@@ -1044,8 +1271,7 @@ msgstr "Estado"
 msgid "Invalid action"
 msgstr "Acción inválida"
 
-#, fuzzy
-#| msgid "Your user is not linked to an Employee"
+
 msgid "Your user is not linked to an Employee."
 msgstr "Tu usuario no está vinculado a un Empleado"
 

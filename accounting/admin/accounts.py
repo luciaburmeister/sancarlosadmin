@@ -2,18 +2,8 @@ from django.contrib import admin
 from unfold.admin import ModelAdmin
 from core.admin.company_admin import CompanyRestrictedAdmin
 from accounting.models import CompanyAccount, ReportingLine, AccountReportingMap
-
-class AccountReportingMapInline(admin.TabularInline):
-    model = AccountReportingMap
-    extra = 0
-    autocomplete_fields = ["line"]
-    verbose_name = "Reporting Mapping"
-    verbose_name_plural = "Reporting Mappings"
-    # Unfold TabularInline?
-    # I should check if Unfold has TabularInline. Yes it does.
-    # from unfold.admin import TabularInline
-
 from unfold.admin import TabularInline
+
 
 class AccountReportingMapInlineUnfold(TabularInline):
     model = AccountReportingMap
@@ -27,7 +17,7 @@ class CompanyAccountAdmin(CompanyRestrictedAdmin, ModelAdmin):
     search_fields = ["code", "name"]
     ordering = ["company", "code"]
     list_select_related = ["company", "parent"]
-    autocomplete_fields = ["parent", "template_account"]
+    autocomplete_fields = ["parent", "template_account","company"]
     
     inlines = [AccountReportingMapInlineUnfold]
 
@@ -39,6 +29,7 @@ class ReportingLineAdmin(CompanyRestrictedAdmin, ModelAdmin):
     search_fields = ["code", "name"]
     ordering = ["company", "statement", "code"]
     list_select_related = ["company", "parent"]
+    autocomplete_fields = ["parent","company"]
 
 
 @admin.register(AccountReportingMap)
@@ -47,4 +38,4 @@ class AccountReportingMapAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_filter = ["company", "line__statement"]
     search_fields = ["account__code", "line__code"]
     list_select_related = ["company", "account", "line"]
-    autocomplete_fields = ["account", "line"]
+    autocomplete_fields = ["account", "line","company"]

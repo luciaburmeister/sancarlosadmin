@@ -11,6 +11,7 @@ class ClientAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ["name", "phone", "email"]
     search_fields = ["name", "email", "phone", "address"]
     list_filter = []
+    autocomplete_fields = ["company"]
     
     fieldsets = (
         ("Contact Information", {

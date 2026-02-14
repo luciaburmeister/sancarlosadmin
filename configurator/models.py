@@ -514,6 +514,15 @@ class Configuration(Timestampable, CompanyOwnedModel):
         ),
     )
 
+    asset = models.ForeignKey(
+        "assets.Asset",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="configurations",
+        verbose_name=_("Asset"),
+    )
+
     class Meta:
         verbose_name = _("Configuration")
         verbose_name_plural = _("Configurations")

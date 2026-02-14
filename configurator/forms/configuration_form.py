@@ -95,6 +95,8 @@ class ConfigurationForm(forms.Form):
 
     def __init__(self, *args, product=None, **kwargs):
         self.product = product
+        self.request = kwargs.pop("request", None)
+    
         super().__init__(*args, **kwargs)
 
         if not product:
@@ -144,7 +146,7 @@ class ConfigurationForm(forms.Form):
             
 
 
-    def save(self):
+    def save(self, client=None, asset=None):
         """Create the Configuration + Parameter values."""
         product = self.product
 
@@ -152,7 +154,8 @@ class ConfigurationForm(forms.Form):
             name=f"{product.name} Configuration",
             product=product,
             status=ConfigurationStatus.DRAFT,
-            client=None,
+            client=client,
+            asset=asset,
             company=product.company
         )
 

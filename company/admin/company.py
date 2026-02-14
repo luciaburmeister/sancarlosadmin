@@ -32,6 +32,7 @@ class CompanyAdmin(ModelAdmin):
                 "tax_identifier",
                 "constituted_country",
                 "production_stages",
+                "asset_identifier_labels",
             )
         }),
     )

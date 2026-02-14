@@ -4,8 +4,10 @@ from .models import Client, Order
 
 
 
+from core.admin.company_admin import CompanyRestrictedAdmin
+
 @admin.register(Client)
-class ClientAdmin(ModelAdmin):
+class ClientAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ["name", "phone", "email"]
     search_fields = ["name", "email", "phone", "address"]
     list_filter = []

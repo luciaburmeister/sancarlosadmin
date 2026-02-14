@@ -1,16 +1,15 @@
 from django.shortcuts import redirect, get_object_or_404
 from configurator.models import ProductTemplate,ConfigurationItem
 from unfold.views import UnfoldModelAdminViewMixin
-from configurator.forms import ConfigurationForm,AddonForm,BaseAddonFormSet,ConfigurationFormHelper,AddonFormsetHelper
+from configurator.forms import ConfigurationForm,AddonForm,BaseAddonFormSet,ConfigurationFormHelper,AddonFormsetHelper,ClientSelectionForm,ClientSelectionFormHelper
 from django.urls import reverse
-from django.shortcuts import get_object_or_404
 from formtools.wizard.views import SessionWizardView
 from django.forms import formset_factory
 from django.utils.translation import gettext_lazy as _
 
-
 class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
     form_list = [
+        ("client_selection", ClientSelectionForm),
         ("measures", ConfigurationForm),
         ("addons", formset_factory(AddonForm, extra=1, can_delete=True,formset=BaseAddonFormSet))
     ]
@@ -26,6 +25,7 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
     def get_form_kwargs(self, step):
         kwargs = super().get_form_kwargs(step)
         kwargs["product"] = self.product
+        kwargs["request"] = self.request
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -34,37 +34,50 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
         kwargs['prefix'] = self.steps.current
 
 
-        if self.steps.current == "measures":
+        if self.steps.current == "client_selection":
+            helper = ClientSelectionFormHelper()
+            context["helper"] = helper
+        elif self.steps.current == "measures":
             helper = ConfigurationFormHelper(self.get_form(step=self.steps.current))
             context["helper"] = helper
         elif self.steps.current == "addons":
             helper = AddonFormsetHelper()
             context["helper"] = helper
+            # Explicitly pass these to ensure unfold_crispy/layout/table_inline_formset.html sees them
+            context["formset_id"] = helper.formset_id
+            context["form_id"] = helper.form_id
+            context["form_add"] = helper.form_add
 
         return context
 
 
     def done(self, form_list, **kwargs):
-        config_form = form_list[0]
-        addon_formset = form_list[1] if len(form_list) > 1 else None
-        config = config_form.save()
+        client_selection_form = form_list[0]
+        config_form = form_list[1]
+        addon_formset = form_list[2] if len(form_list) > 2 else None
         
-        for form in addon_formset:
-            if not form.cleaned_data:
-                continue
-            if form.cleaned_data.get("DELETE"):
-                continue
-            component = form.cleaned_data.get("addons")
-            quantity = form.cleaned_data.get("quantity", 1)
+        client = client_selection_form.cleaned_data.get("client")
+        asset = client_selection_form.cleaned_data.get("asset")
+        
+        config = config_form.save(client=client, asset=asset)
+        
+        if addon_formset:
+            for form in addon_formset:
+                if not form.cleaned_data:
+                    continue
+                if form.cleaned_data.get("DELETE"):
+                    continue
+                component = form.cleaned_data.get("addons")
+                quantity = form.cleaned_data.get("quantity", 1)
 
-            if component:
-                ConfigurationItem.objects.create(
-                    configuration=config,
-                    component=component,
-                    quantity=quantity,
-                    unit_price=component.cost_per_unit,
-                    is_template_item=False,
-                )
+                if component:
+                    ConfigurationItem.objects.create(
+                        configuration=config,
+                        component=component,
+                        quantity=quantity,
+                        unit_price=component.cost_per_unit,
+                        is_template_item=False,
+                    )
         config.copy_default_pricing_rules_from_product()
         config.copy_default_taxes_from_product()
         config.recalculate_price()

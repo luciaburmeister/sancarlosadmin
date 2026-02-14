@@ -823,6 +823,21 @@ exchange = ["certifi"]
 test = ["django-stubs", "mixer", "mypy", "pytest (>=8.2,<8.3)", "pytest-cov", "pytest-django"]
 
 [[package]]
+name = "django-simple-history"
+version = "3.11.0"
+description = "Store model history and view/revert changes from admin site."
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "django_simple_history-3.11.0-py3-none-any.whl", hash = "sha256:f3c298db49e418ffce7fb709a5e83108452ea2179ec5c4b9232484c25427192a"},
+    {file = "django_simple_history-3.11.0.tar.gz", hash = "sha256:2c587479cf2c3071e9aa555d0d11b73676994db4910770958f57659ade2deffe"},
+]
+
+[package.dependencies]
+django = ">=4.2"
+
+[[package]]
 name = "django-storages"
 version = "1.14.6"
 description = "Support for many storage backends in Django"
@@ -2089,4 +2104,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0"
-content-hash = "8ea6525c378c720042614efb2d5f5838d24867e2b19cc4b07628fe3e0adb1c7b"
+content-hash = "7985e3f39a4ef1312c93765210ad088a45ee8884db14eb6677e42ce52488a22d"

@@ -183,6 +183,7 @@ class ProductTemplate(CompanyOwnedModel):
                     options=p.options,
                     required=p.required,
                     order=p.order,
+                    default_value=p.default_value,
                 )
             )
         ProductParameter.objects.bulk_create(params)
@@ -284,6 +285,13 @@ class ProductParameter(models.Model):
     )
     parameter_group = models.CharField(
         null=True, verbose_name=_("Parameter Group"), blank=True
+    )
+    default_value = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        verbose_name=_("Default Value"),
+        help_text=_("Default value for this parameter"),
     )
 
     class Meta:

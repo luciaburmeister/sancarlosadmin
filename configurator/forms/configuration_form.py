@@ -110,6 +110,7 @@ class ConfigurationForm(forms.Form):
                 field = forms.FloatField(
                     label=param.label,
                     required=param.required,
+                    initial=param.default_value,
                     widget=UnfoldAdminDecimalFieldWidget(),
                 )
 
@@ -117,6 +118,7 @@ class ConfigurationForm(forms.Form):
                 field = forms.CharField(
                     label=param.label,
                     required=param.required,
+                    initial=param.default_value,
                     max_length=200,
                     widget=UnfoldAdminTextInputWidget(),
                 )
@@ -125,6 +127,7 @@ class ConfigurationForm(forms.Form):
                 field = forms.BooleanField(
                     label=param.label,
                     required=False,
+                    initial=param.default_value == 'true' if isinstance(param.default_value, str) else bool(param.default_value),
                 )
 
             elif param.type == ParameterType.SELECT:
@@ -136,6 +139,7 @@ class ConfigurationForm(forms.Form):
                 field = forms.ChoiceField(
                     label=param.label,
                     required=param.required,
+                    initial=param.default_value,
                     choices=choices,
                     widget=UnfoldAdminSelectWidget(),
                 )

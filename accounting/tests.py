@@ -178,7 +178,7 @@ class JournalEntryNumberingTest(TransactionTestCase):
             start_date=date(2026, 6, 1),
             end_date=date(2027, 6, 1)
         )
-        with self.assertRaisesMessage(ValidationError, _("Fiscal year overlaps"):
+        with self.assertRaisesMessage(ValidationError, _("Fiscal year overlaps")):
             fy_overlap_2.clean()
             
         # Contained
@@ -188,7 +188,7 @@ class JournalEntryNumberingTest(TransactionTestCase):
             start_date=date(2026, 2, 1),
             end_date=date(2026, 3, 1)
         )
-        with self.assertRaisesMessage(ValidationError, _("Fiscal year overlaps"):
+        with self.assertRaisesMessage(ValidationError, _("Fiscal year overlaps")):
             fy_contained.clean()
 
     def test_posted_entry_immutability(self):
@@ -199,13 +199,13 @@ class JournalEntryNumberingTest(TransactionTestCase):
         
         # Try to add a line
         line = JournalEntryLine(company=self.company, entry=entry, account=self.account, debit=100, credit=0)
-        with self.assertRaisesMessage(ValidationError, _("Cannot add or modify lines of a posted entry"):
+        with self.assertRaisesMessage(ValidationError, _("Cannot add or modify lines of a posted entry")):
             line.clean()
             
         # Try to modify existing line
         existing_line = entry.lines.first()
         existing_line.debit = 200
-        with self.assertRaisesMessage(ValidationError, _("Cannot add or modify lines of a posted entry"):
+        with self.assertRaisesMessage(ValidationError, _("Cannot add or modify lines of a posted entry")):
             existing_line.clean()
             
     def test_currency_consistency(self):
@@ -222,7 +222,7 @@ class JournalEntryNumberingTest(TransactionTestCase):
         # Line with EUR (default) -> Fail
         line = JournalEntryLine(company=self.company, entry=entry, account=usd_account, debit=100, credit=0)
         # debit defaults to EUR. 
-        with self.assertRaisesMessage(ValidationError, _("Debit currency (EUR) must match account currency (USD)"):
+        with self.assertRaisesMessage(ValidationError, _("Debit currency (EUR) must match account currency (USD)")):
             line.clean()
             
         # Line with USD -> Pass

@@ -5,11 +5,13 @@ from datetime import date
 from django.db.utils import IntegrityError
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_lazy as _, activate
+
 
 class JournalEntryNumberingTest(TransactionTestCase):
     def setUp(self):
         self.company = Company.objects.create(name='Test Company', tax_identifier='B12345678', logo="logos/test.png")
+        activate("es")
         self.chart_template = ChartOfAccountsTemplate.objects.create(name="PGCE 2008", country="ES")
         self.company_chart = CompanyChartOfAccounts.objects.create(company=self.company, template=self.chart_template)
         
@@ -77,7 +79,7 @@ class JournalEntryNumberingTest(TransactionTestCase):
             is_closed=True
         )
         entry = self.create_balanced_entry(self.journal_gen, date(2025, 6, 1))
-        with self.assertRaisesMessage(ValidationError, _("Fiscal year FY 2025 is closed")):
+        with self.assertRaisesMessage(ValidationError, str(_("Fiscal year FY 2025 is closed"))):
             entry.post()
 
     def test_lock_date(self):
@@ -86,7 +88,7 @@ class JournalEntryNumberingTest(TransactionTestCase):
         
         # Entry before lock date
         entry = self.create_balanced_entry(self.journal_gen, date(2026, 1, 15))
-        with self.assertRaisesMessage(ValidationError, _("Cannot post entry before lock date")):
+        with self.assertRaisesMessage(ValidationError, str(_("Cannot post entry before lock date"))):
             entry.post()
         
         # Entry after lock date should be fine
@@ -100,19 +102,19 @@ class JournalEntryNumberingTest(TransactionTestCase):
         
         # Try to modify date
         entry.date = date(2026, 1, 2)
-        with self.assertRaisesMessage(ValidationError, _("Cannot modify a posted entry")):
+        with self.assertRaisesMessage(ValidationError, str(_("Cannot modify a posted entry."))):
             entry.save() 
             
         # Try to modify status
         entry.refresh_from_db()
         entry.status = EntryStatus.DRAFT
-        with self.assertRaisesMessage(ValidationError, _("Cannot modify a posted entry")):
+        with self.assertRaisesMessage(ValidationError, str(_("Cannot modify a posted entry."))):
             entry.save() 
             
         # Try to modify journal
         entry.refresh_from_db()
         entry.journal = self.journal_bank
-        with self.assertRaisesMessage(ValidationError, _("Cannot modify a posted entry")):
+        with self.assertRaisesMessage(ValidationError, str(_("Cannot modify a posted entry."))):
             entry.save() 
 
         # Try to modify company
@@ -125,14 +127,14 @@ class JournalEntryNumberingTest(TransactionTestCase):
         try:
             entry.clean()
         except ValidationError as e:
-            self.assertIn(_("Cannot modify a posted entry"), str(e))
+            self.assertIn(str(_("Cannot modify a posted entry.")), str(e))
              
 
         
     def test_delete_protection(self):
         entry = self.create_balanced_entry(self.journal_gen, date(2026, 1, 1))
         entry.post()
-        with self.assertRaisesMessage(ValidationError, _("Cannot delete a posted entry")):
+        with self.assertRaisesMessage(ValidationError, str(_("Cannot delete a posted entry."))):
             entry.delete()
 
     def test_debit_xor_credit_constraint(self):
@@ -168,7 +170,7 @@ class JournalEntryNumberingTest(TransactionTestCase):
             start_date=date(2025, 6, 1),
             end_date=date(2026, 6, 1)
         )
-        with self.assertRaisesMessage(ValidationError, _("Fiscal year overlaps")):
+        with self.assertRaisesMessage(ValidationError, str(_("Fiscal year overlaps with an existing year."))):
             fy_overlap.clean()
             
         # Overlapping end
@@ -178,7 +180,7 @@ class JournalEntryNumberingTest(TransactionTestCase):
             start_date=date(2026, 6, 1),
             end_date=date(2027, 6, 1)
         )
-        with self.assertRaisesMessage(ValidationError, _("Fiscal year overlaps")):
+        with self.assertRaisesMessage(ValidationError, str(_("Fiscal year overlaps with an existing year."))):
             fy_overlap_2.clean()
             
         # Contained
@@ -188,7 +190,7 @@ class JournalEntryNumberingTest(TransactionTestCase):
             start_date=date(2026, 2, 1),
             end_date=date(2026, 3, 1)
         )
-        with self.assertRaisesMessage(ValidationError, _("Fiscal year overlaps")):
+        with self.assertRaisesMessage(ValidationError, str(_("Fiscal year overlaps with an existing year."))):
             fy_contained.clean()
 
     def test_posted_entry_immutability(self):
@@ -199,13 +201,13 @@ class JournalEntryNumberingTest(TransactionTestCase):
         
         # Try to add a line
         line = JournalEntryLine(company=self.company, entry=entry, account=self.account, debit=100, credit=0)
-        with self.assertRaisesMessage(ValidationError, _("Cannot add or modify lines of a posted entry")):
+        with self.assertRaisesMessage(ValidationError, str(_("Cannot add or modify lines of a posted entry."))):
             line.clean()
             
         # Try to modify existing line
         existing_line = entry.lines.first()
         existing_line.debit = 200
-        with self.assertRaisesMessage(ValidationError, _("Cannot add or modify lines of a posted entry")):
+        with self.assertRaisesMessage(ValidationError, str(_("Cannot add or modify lines of a posted entry."))):
             existing_line.clean()
             
     def test_currency_consistency(self):
@@ -222,7 +224,7 @@ class JournalEntryNumberingTest(TransactionTestCase):
         # Line with EUR (default) -> Fail
         line = JournalEntryLine(company=self.company, entry=entry, account=usd_account, debit=100, credit=0)
         # debit defaults to EUR. 
-        with self.assertRaisesMessage(ValidationError, _("Debit currency (EUR) must match account currency (USD)")):
+        with self.assertRaisesMessage(ValidationError, str(_("Debit currency (EUR) must match account currency (USD)"))):
             line.clean()
             
         # Line with USD -> Pass

@@ -6,6 +6,7 @@ from company.models import Company, CompanyUser, CompanyEmailConfig
 from django.utils.translation import gettext_lazy as _
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
+from core.admin.company_access import get_user_companies
 
 
 from unfold.contrib.forms.widgets import ArrayWidget
@@ -44,6 +45,12 @@ class CompanyAdmin(ModelAdmin):
     }
     
     actions_row = ["install_chart_action"]
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(id__in=get_user_companies(request.user))
 
     @action(
         description=_("Install Chart"),

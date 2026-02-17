@@ -23,9 +23,9 @@
                 {% if form.errors %}
                     <div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
                         <div class="text-sm text-red-600">
-                            {% for field, errors in form.errors.items %}
-                                {% for error in errors %}
-                                    <p>{{ error }}</p>
+                            {% for error in form.errors.values %}
+                                {% for e in error %}
+                                    <p>{{ e|safe }}</p>
                                 {% endfor %}
                             {% endfor %}
                         </div>

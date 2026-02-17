@@ -23,6 +23,8 @@ from invoices.models import Invoice, AppliedTax, TaxType
 from materials.models import Provider
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
+from invoices.services.invoice.invoice_duplicate_service import InvoiceDuplicateService, DuplicateInvoiceError
+
 
 
 
@@ -59,12 +61,10 @@ class InvoiceService:
     
     def __init__(self, ocr_processor: OcrInterface):
         """
-        Initialize the service with an OCR processor.
-        
-        Args:
-            ocr_processor: Any class implementing OcrInterface (e.g., GeminiInvoiceProcessor)
+        Initialize the service with an OCR processor + duplicate detection service.
         """
         self.ocr_processor = ocr_processor
+        self.duplicate_service = InvoiceDuplicateService() 
     
     @transaction.atomic  # Ensures all-or-nothing database operations
     def process_invoice(self, file_path: str) -> InvoiceProcessingResult:
@@ -81,6 +81,17 @@ class InvoiceService:
         needs_review = False
         
         try:
+            # Step 0: Check for duplicates FIRST
+            messages.append("Checking for duplicate invoices...")
+            duplicate_result = self.duplicate_service.check_for_duplicate(file_path)
+            
+            if duplicate_result.is_duplicate:
+                raise DuplicateInvoiceError(
+                    duplicate_result.similar_invoice, 
+                    duplicate_result.similarity_distance
+                )
+            messages.append("No duplicates found - proceeding with processing")
+
             # Step 1: Extract data using OCR
             messages.append("Starting OCR processing...")
             extracted_data = self.ocr_processor.extract_data(file_path)
@@ -96,8 +107,8 @@ class InvoiceService:
             else:
                 messages.append(f"Low confidence match ({confidence}%) - requires review")
             
-            # Step 3: Create invoice
-            invoice = self._create_invoice(extracted_data, provider, file_path)
+            # Step 3: Create invoice with hash
+            invoice = self._create_invoice(extracted_data, provider, file_path, duplicate_result.hash_value)
             messages.append(f"Created invoice: {invoice}")
             
             # Step 4: Create line items
@@ -123,7 +134,16 @@ class InvoiceService:
                 messages=messages,
                 needs_review=True  # Always needs review
             )
-            
+        
+        except DuplicateInvoiceError as e: 
+            messages.append(f"Duplicate detected: {str(e)}")
+            return InvoiceProcessingResult(
+                invoice=e.similar_invoice,  # Return the existing invoice
+                success=False,
+                messages=messages,
+                needs_review=True
+            )
+        
         except Exception as e:
             messages.append(f"Processing failed: {str(e)}")
             
@@ -238,9 +258,9 @@ class InvoiceService:
         
         return match_provider(vendor_name, vendor_tax_id)
     
-    def _create_invoice(self, extracted_data: InvoiceData, provider: Optional[Provider], file_path: str) -> Invoice:
+    def _create_invoice(self, extracted_data: InvoiceData, provider: Optional[Provider], file_path: str,image_hash: str) -> Invoice:
         """
-        Create the main Invoice record.
+        Create the main Invoice record with image hash
         """
         # Parse dates
         date_issued = self._parse_date(extracted_data.date_issued)
@@ -255,6 +275,7 @@ class InvoiceService:
             total_amount=extracted_data.total_amount,
             currency=extracted_data.currency or 'EUR',
             payment_method=extracted_data.payment_method or 'transfer',
+            image_hash=image_hash,
             ocr_processing=True  # Mark as currently processing
         )
         

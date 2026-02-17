@@ -26,3 +26,4 @@ class InvoiceUploadAdminView(UnfoldModelAdminViewMixin,FormView):
         self.request, "Invoice uploaded. We're processing it with AI in the background.",
         )
         return redirect(reverse("admin:invoices_invoice_changelist"))
+    

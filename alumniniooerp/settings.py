@@ -78,6 +78,7 @@ INSTALLED_APPS = [
     'sales',
     'materials',
     "configurator",
+    'accounting',
     'timestamps',
     'django_extensions',
     'formtools',

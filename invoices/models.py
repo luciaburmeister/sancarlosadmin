@@ -97,6 +97,14 @@ class Invoice(models.Model):
         default=True,  # Always starts as True
         help_text="Invoice requires manual review by user (always True initially, set to False after user review)"
     )
+
+    image_hash = models.CharField(
+        max_length=64, 
+        db_index=True, 
+        null=False, #DB level
+        blank=True, #Form level
+        help_text="Perceptual hash for duplicate detection"
+    )
     
     # OCR STATUS FIELDS
     ocr_processed = models.BooleanField(

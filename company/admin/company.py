@@ -1,8 +1,11 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
+from unfold.decorators import action # Added import
 
 from company.models import Company, CompanyUser, CompanyEmailConfig
 from django.utils.translation import gettext_lazy as _
+from django.shortcuts import get_object_or_404, redirect
+from django.contrib import messages
 
 
 from unfold.contrib.forms.widgets import ArrayWidget
@@ -38,6 +41,32 @@ class CompanyAdmin(ModelAdmin):
             "widget": ArrayWidget,
         }
     }
+    
+    actions_row = ["install_chart_action"]
+
+    @action(
+        description=_("Install Chart"),
+        url_path="install-chart",
+        icon="playlist_add"
+    )
+    def install_chart_action(self, request, object_id: int):
+        from accounting.services.chart_installer import install_chart_standard
+        
+        company = get_object_or_404(Company, pk=object_id)
+        
+        if not hasattr(company, 'chart'):
+            messages.error(request, _("Company has no Chart of Accounts template assigned."))
+            return redirect(request.META.get("HTTP_REFERER"))
+            
+        try:
+            # We assume company.chart.template exists if company.chart exists
+            count = install_chart_standard(company, company.chart.template)
+            messages.success(request, _(f"Successfully installed {count} accounts from template."))
+        except Exception as e:
+            messages.error(request, _(f"Error installing chart: {str(e)}"))
+            
+        return redirect(request.META.get("HTTP_REFERER"))
+
 
 @admin.register(CompanyUser)
 class CompanyUserAdmin(ModelAdmin):

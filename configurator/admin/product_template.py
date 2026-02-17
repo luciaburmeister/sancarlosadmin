@@ -1,9 +1,9 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from configurator.models import ProductTemplate, ProductParameter, BOMRule, PricingRule, ProductComputedVariable,ProductPricingRuleAssignment, ProductTemplateComponentGroup
+from configurator.models import ProductTemplate, ProductParameter, BOMRule, ProductComputedVariable,ProductPricingRuleAssignment, ProductTemplateComponentGroup
 from unfold.admin import TabularInline,StackedInline,GenericTabularInline
 from django.db import models
-from unfold.widgets import UnfoldAdminTextareaWidget, UnfoldAdminSelect2Widget
+from unfold.widgets import UnfoldAdminTextareaWidget, UnfoldAdminSelectWidget
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
 from django.utils.translation import gettext_lazy as _
@@ -15,7 +15,6 @@ from unfold.decorators import action
 from django.utils.html import format_html
 from django import forms
 from core.admin.company_admin import CompanyRestrictedAdmin
-from django.contrib.admin.widgets import FilteredSelectMultiple
 from materials.models import Component
 
 class AppliedTaxInline(GenericTabularInline):
@@ -66,7 +65,7 @@ class ProductParameterInline(TabularInline):
             formset.form.base_fields["parameter_group"] = forms.ChoiceField(
                 choices=choices,
                 required=False,
-                widget=UnfoldAdminSelect2Widget
+                widget=UnfoldAdminSelectWidget
             )
 
         return formset
@@ -136,7 +135,7 @@ class ProductTemplateComponentGroupInline(StackedInline):
             formset.form.base_fields["stage"] = forms.ChoiceField(
                 choices=choices,
                 required=False,
-                widget=UnfoldAdminSelect2Widget
+                widget=UnfoldAdminSelectWidget
             )
 
         return formset

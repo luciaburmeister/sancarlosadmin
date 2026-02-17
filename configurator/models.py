@@ -246,7 +246,6 @@ class ProductTemplate(CompanyOwnedModel):
         ConfigurationExportTemplate.objects.bulk_create(templates)
 
 
-<<<<<<< HEAD
 class ProductTemplateComponentGroup(models.Model):
     product_template = models.ForeignKey(
         "configurator.ProductTemplate",
@@ -282,8 +281,6 @@ class ProductTemplateComponentGroup(models.Model):
         return f"{self.product_template} — {self.stage}"
 
 
-=======
->>>>>>> main
 class ParameterType(models.TextChoices):
     NUMBER = "number", _("Number")
     TEXT = "text", _("Text")

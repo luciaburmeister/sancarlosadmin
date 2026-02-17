@@ -1,5 +1,7 @@
 from django import forms
 from django.conf import settings
+from django.contrib import admin
+from unfold.widgets import UnfoldRelatedFieldWidgetWrapper
 from configurator.models import Configuration
 from sales.models import Client
 from assets.models import Asset
@@ -59,6 +61,7 @@ class ClientSelectionForm(forms.ModelForm):
             "admin/js/vendor/select2/select2.full.js",
             "admin/js/jquery.init.js",
             "unfold/js/select2.init.js",
+            "admin/js/admin/RelatedObjectLookups.js",
         )
         css = {
             "screen": (
@@ -91,3 +94,13 @@ class ClientSelectionForm(forms.ModelForm):
         # Further filter assets if a product is provided
         if self.product and self.product.company:
             self.fields["asset"].queryset = self.fields["asset"].queryset.filter(company=self.product.company)
+            
+        # Add "Add Client" button using RelatedFieldWidgetWrapper
+        if self.request and self.fields.get('client'):
+             # We need an admin site instance. Using standard admin.site is usually fine.
+            self.fields['client'].widget = UnfoldRelatedFieldWidgetWrapper(
+                self.fields['client'].widget,
+                self.instance._meta.get_field('client').remote_field,
+                admin.site,
+                can_add_related=True
+            )

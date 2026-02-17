@@ -3,7 +3,11 @@ from djmoney.models.fields import MoneyField
 from sales.models import Client
 from timestamps.models import Timestampable
 from materials.models import Component
-from configurator.utils import safe_eval,_coerce_numeric,validate_expression_for_safe_eval
+from configurator.utils import (
+    safe_eval,
+    _coerce_numeric,
+    validate_expression_for_safe_eval,
+)
 from django.core.exceptions import ValidationError
 from .validators import pricing_expression_validator
 from configurator.services import ConfigurationExportService
@@ -16,10 +20,12 @@ from invoices.models import AppliedTax
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 
+
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")
     COMPLETED = "completed", _("Completed")
     CONVERTED = "converted", _("Converted to Quote")
+
 
 class IncompatibilityRule(CompanyOwnedModel):
     """
@@ -56,14 +62,11 @@ class IncompatibilityRule(CompanyOwnedModel):
         return f"{self.component_a} ❌ {self.component_b}"
 
 
-    
-class ProductTemplate( CompanyOwnedModel):
+class ProductTemplate(CompanyOwnedModel):
     name = models.CharField(max_length=200, verbose_name=_("Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
     production_stages = ArrayField(
-        base_field=models.CharField(
-            max_length=50
-        ),
+        base_field=models.CharField(max_length=50),
         default=list,
         blank=True,
         help_text=_("Ordered list of possible production stages for this product"),
@@ -82,14 +85,25 @@ class ProductTemplate( CompanyOwnedModel):
         null=True,
         verbose_name=_("Image"),
     )
+    production_planning_resources = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Production planning resources"),
+    )
+    production_planning_configured = models.BooleanField(
+        default=False,
+        editable=False,
+        verbose_name=_("Planning configured"),
+    )
 
     class Meta:
         verbose_name = _("Product template")
         verbose_name_plural = _("Product templates")
+        permissions = [("configure_stage_resources", _("Configure stage resources"))]
 
     def __str__(self):
         return self.name
-    
+
     def clean(self):
         super().clean()
 
@@ -109,6 +123,27 @@ class ProductTemplate( CompanyOwnedModel):
             )
 
         self.production_stages = stages
+
+        if self.company:
+            company_stages = set(self.company.production_stages or [])
+            if not set(stages).issubset(company_stages):
+                raise ValidationError(
+                    {"production_stages": _("Product stages must be a subset of the company production stages.")}
+                )
+
+        if not self.production_planning_resources:
+            return
+
+        stage_resources_keys = set(self.production_planning_resources)
+
+        if stage_resources_keys - set(stages):
+            raise ValidationError(
+                {
+                    "production_planning_resources": _(
+                        "Stage resources keys must be the same as stage keys"
+                    )
+                }
+            )
 
     def clone(self, *, name_suffix=" (copy)", owner=None):
         """
@@ -135,7 +170,7 @@ class ProductTemplate( CompanyOwnedModel):
             self._clone_export_templates(product_copy)
 
             return product_copy
-        
+
     def _clone_parameters(self, product_copy):
         params = []
         for p in self.parameters.all():
@@ -148,6 +183,7 @@ class ProductTemplate( CompanyOwnedModel):
                     options=p.options,
                     required=p.required,
                     order=p.order,
+                    default_value=p.default_value,
                 )
             )
         ProductParameter.objects.bulk_create(params)
@@ -167,15 +203,18 @@ class ProductTemplate( CompanyOwnedModel):
                 )
             )
         BOMRule.objects.bulk_create(rules)
+
     def _clone_pricing_rules(self, product_copy):
         defaults = []
         for a in self.pricing_rule_defaults.select_related("rule").all():
-            defaults.append(ProductPricingRuleAssignment(
-                product=product_copy,
-                rule=a.rule,
-                enabled=a.enabled,
-                order=a.order,
-            ))
+            defaults.append(
+                ProductPricingRuleAssignment(
+                    product=product_copy,
+                    rule=a.rule,
+                    enabled=a.enabled,
+                    order=a.order,
+                )
+            )
         ProductPricingRuleAssignment.objects.bulk_create(defaults)
 
     def _clone_computed_variables(self, product_copy):
@@ -190,6 +229,7 @@ class ProductTemplate( CompanyOwnedModel):
                 )
             )
         ProductComputedVariable.objects.bulk_create(vars)
+
     def _clone_export_templates(self, product_copy):
         templates = []
         for t in self.export_templates.all():
@@ -206,6 +246,7 @@ class ProductTemplate( CompanyOwnedModel):
         ConfigurationExportTemplate.objects.bulk_create(templates)
 
 
+<<<<<<< HEAD
 class ProductTemplateComponentGroup(models.Model):
     product_template = models.ForeignKey(
         "configurator.ProductTemplate",
@@ -241,11 +282,14 @@ class ProductTemplateComponentGroup(models.Model):
         return f"{self.product_template} — {self.stage}"
 
 
+=======
+>>>>>>> main
 class ParameterType(models.TextChoices):
     NUMBER = "number", _("Number")
     TEXT = "text", _("Text")
     BOOLEAN = "boolean", _("Boolean")
     SELECT = "select", _("Select")
+
 
 class ProductParameter(models.Model):
     product = models.ForeignKey(
@@ -275,19 +319,28 @@ class ProductParameter(models.Model):
         default=0,
         verbose_name=_("Sorting Order"),
         help_text=_("Order of the parameter within the product"),
-        db_index=True
+        db_index=True,
     )
-    parameter_group = models.CharField(null=True, verbose_name=_("Parameter Group"),blank=True)
+    parameter_group = models.CharField(
+        null=True, verbose_name=_("Parameter Group"), blank=True
+    )
+    default_value = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        verbose_name=_("Default Value"),
+        help_text=_("Default value for this parameter"),
+    )
 
     class Meta:
         verbose_name = _("Product parameter")
         verbose_name_plural = _("Product parameters")
-        ordering = ["order","product"]
+        ordering = ["order", "product"]
         indexes = [
-        models.Index(
-            fields=["product", "order"],
-        )
-    ]
+            models.Index(
+                fields=["product", "order"],
+            )
+        ]
 
     def __str__(self):
         return f"{self.product_id} – {self.label}"
@@ -310,6 +363,7 @@ class ProductParameter(models.Model):
 
         # TEXT or SELECT
         return raw_value
+
 
 class BOMRule(CompanyOwnedModel):
     product = models.ForeignKey(
@@ -338,10 +392,7 @@ class BOMRule(CompanyOwnedModel):
     )
 
     description = models.CharField(
-        max_length=40,
-        null=True,
-        blank=True,
-        verbose_name=_("Description")
+        max_length=40, null=True, blank=True, verbose_name=_("Description")
     )
 
     production_stages = ArrayField(
@@ -356,16 +407,14 @@ class BOMRule(CompanyOwnedModel):
         verbose_name = _("BOM rule")
         verbose_name_plural = _("BOM rules")
 
-
     EXPRESSION_FIELDS = {
-        "quantity_expression": True,   # required
-        "length_expression": True,    # optional
+        "quantity_expression": True,  # required
+        "length_expression": True,  # optional
     }
-
 
     def __str__(self):
         return f"{self.product_id} → {self.component_id}"
-    
+
     def clean(self):
         super().clean()
 
@@ -398,6 +447,7 @@ class PricingRule(CompanyOwnedModel):
     A reusable pricing rule template that can be applied
     to many configurations.
     """
+
     name = models.CharField(max_length=100, verbose_name=_("Name"))
 
     expression = models.TextField(
@@ -421,22 +471,22 @@ class PricingRule(CompanyOwnedModel):
         blank=True,
         help_text=_("Human-readable label for exports (e.g. Margin, Discount)"),
         verbose_name=_("Label"),
-        null=True
+        null=True,
     )
 
-    show_in_export = models.BooleanField(default=False, verbose_name=_("Show in export"))
+    show_in_export = models.BooleanField(
+        default=False, verbose_name=_("Show in export")
+    )
 
     class Meta:
         verbose_name = _("Pricing rule template")
         verbose_name_plural = _("Pricing rule templates")
 
-
     def __str__(self):
         return f"{self.name} ({self.expression})"
-    
 
 
-class Configuration(Timestampable,CompanyOwnedModel):
+class Configuration(Timestampable, CompanyOwnedModel):
     client = models.ForeignKey(
         Client,
         on_delete=models.SET_NULL,
@@ -459,7 +509,12 @@ class Configuration(Timestampable,CompanyOwnedModel):
         verbose_name=_("Product"),
     )
 
-    status = models.CharField( max_length=20, choices=ConfigurationStatus.choices, default=ConfigurationStatus.DRAFT, verbose_name=_("Status"), )
+    status = models.CharField(
+        max_length=20,
+        choices=ConfigurationStatus.choices,
+        default=ConfigurationStatus.DRAFT,
+        verbose_name=_("Status"),
+    )
 
     total_cost = MoneyField(
         max_digits=12,
@@ -504,16 +559,23 @@ class Configuration(Timestampable,CompanyOwnedModel):
             "Used for exports and auditing."
         ),
     )
-    
+
+    asset = models.ForeignKey(
+        "assets.Asset",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="configurations",
+        verbose_name=_("Asset"),
+    )
 
     class Meta:
         verbose_name = _("Configuration")
         verbose_name_plural = _("Configurations")
 
-
     def __str__(self):
         return f"Config #{self.id} — {self.name or 'Unnamed'}"
-    
+
     def get_pricing_context(self):
         """
         Builds the full evaluation context used for:
@@ -531,18 +593,23 @@ class Configuration(Timestampable,CompanyOwnedModel):
         # 2️⃣ Basic aggregates (always needed)
         items = self.items.all()
 
-        context.update({
-            "material_cost": sum(float(i.component.cost_per_unit.amount) * float(i.quantity) for i in items),
-            "quantity": sum(float(i.quantity) for i in items),
-            "item_count": items.count(),
-            "base_total": sum(float(i.line_total.amount) for i in items),
-        })
+        context.update(
+            {
+                "material_cost": sum(
+                    float(i.component.cost_per_unit.amount) * float(i.quantity)
+                    for i in items
+                ),
+                "quantity": sum(float(i.quantity) for i in items),
+                "item_count": items.count(),
+                "base_total": sum(float(i.line_total.amount) for i in items),
+            }
+        )
 
         # 3️⃣ 🔥 Evaluate product's computed variables (constants + expressions)
         context = self.evaluate_computed_variables(context)
 
         return context
-    
+
     def calculate_taxes_and_snapshot(self, base_amount: Decimal):
         """
         Applies taxes sequentially and returns:
@@ -555,13 +622,15 @@ class Configuration(Timestampable,CompanyOwnedModel):
         for tax in self.get_taxes():
             result = tax.calculate(total)
 
-            breakdown.append({
-                "tax_name": tax.tax_type.tax_name,
-                "percentage": str(tax.selected_percentage),
-                "base": str(total.quantize(Decimal("0.01"))),
-                "tax_amount": str(result["tax_amount"]),
-                "total_after_tax": str(result["total_amount"]),
-            })
+            breakdown.append(
+                {
+                    "tax_name": tax.tax_type.tax_name,
+                    "percentage": str(tax.selected_percentage),
+                    "base": str(total.quantize(Decimal("0.01"))),
+                    "tax_amount": str(result["tax_amount"]),
+                    "total_after_tax": str(result["total_amount"]),
+                }
+            )
 
             total = result["total_amount"]
 
@@ -575,27 +644,27 @@ class Configuration(Timestampable,CompanyOwnedModel):
 
         pricing_lines = []
 
-        for assignment in (
-            self.pricing_rules
-            .select_related("rule")
-            .filter(enabled=True)
+        for assignment in self.pricing_rules.select_related("rule").filter(
+            enabled=True
         ):
             rule = assignment.rule
             amount = Decimal(str(safe_eval(rule.expression, context)))
 
             if amount <= 0:
-                continue  
+                continue
 
             subtotal_before = subtotal
             subtotal += amount
-            pricing_lines.append({
+            pricing_lines.append(
+                {
                     "label": rule.label or rule.name,
                     "type": "charge",
                     "expression": rule.expression,
                     "subtotal_before": str(subtotal_before.quantize(Decimal("0.01"))),
                     "amount": str(amount.quantize(Decimal("0.01"))),
                     "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
-                })
+                }
+            )
 
             context["base_total"] = float(subtotal)
 
@@ -603,10 +672,8 @@ class Configuration(Timestampable,CompanyOwnedModel):
 
         discount_total = Decimal("0.00")
 
-        for assignment in (
-            self.pricing_rules
-            .select_related("rule")
-            .filter(enabled=True)
+        for assignment in self.pricing_rules.select_related("rule").filter(
+            enabled=True
         ):
             rule = assignment.rule
             amount = Decimal(str(safe_eval(rule.expression, context)))
@@ -619,14 +686,18 @@ class Configuration(Timestampable,CompanyOwnedModel):
             discount_total += amount
 
             if rule.show_in_export:
-                pricing_lines.append({
-                    "label": rule.label or rule.name,
-                    "type": "discount",
-                    "expression": rule.expression,
-                    "subtotal_before": str(subtotal_before.quantize(Decimal("0.01"))),
-                    "amount": str(amount.quantize(Decimal("0.01"))),
-                    "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
-                })
+                pricing_lines.append(
+                    {
+                        "label": rule.label or rule.name,
+                        "type": "discount",
+                        "expression": rule.expression,
+                        "subtotal_before": str(
+                            subtotal_before.quantize(Decimal("0.01"))
+                        ),
+                        "amount": str(amount.quantize(Decimal("0.01"))),
+                        "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
+                    }
+                )
 
             context["base_total"] = float(subtotal)
 
@@ -640,7 +711,9 @@ class Configuration(Timestampable,CompanyOwnedModel):
 
         self.pricing_breakdown = {
             "base_subtotal": str(base_subtotal.quantize(Decimal("0.01"))),
-            "pre_discount_subtotal": str(pre_discount_subtotal.quantize(Decimal("0.01"))),
+            "pre_discount_subtotal": str(
+                pre_discount_subtotal.quantize(Decimal("0.01"))
+            ),
             "discount_total": str(discount_total.quantize(Decimal("0.01"))),
             "post_discount_subtotal": str(subtotal.quantize(Decimal("0.01"))),
             "lines": pricing_lines,
@@ -679,17 +752,14 @@ class Configuration(Timestampable,CompanyOwnedModel):
         Adjust here if you later support multiple BOM items per component.
         """
         return (component_id,)
-    
+
     def _get_existing_bom_items(self):
         """
         Returns a dict mapping BOM identity → ConfigurationItem
         """
         items = self.items.filter(is_template_item=True)
-        return {
-            self._bom_item_key(item.component_id): item
-            for item in items
-        }
-    
+        return {self._bom_item_key(item.component_id): item for item in items}
+
     def generate_bom(self):
         """
         Incrementally reconciles BOM rules with existing ConfigurationItems.
@@ -716,7 +786,7 @@ class Configuration(Timestampable,CompanyOwnedModel):
                 item = existing_items[key]
                 item.quantity = qty
                 item.length = length
-                item.unit_price = rule.component.cost_per_unit
+                item.unit_price = rule.component.compute_unit_price(context)
                 item.production_stages = rule.production_stages or []
                 item.save()
             else:
@@ -725,7 +795,7 @@ class Configuration(Timestampable,CompanyOwnedModel):
                     component=rule.component,
                     quantity=qty,
                     length=length,
-                    unit_price=rule.component.cost_per_unit,
+                    unit_price= rule.component.compute_unit_price(context),
                     is_template_item=True,
                     production_stages=rule.production_stages or [],
                 )
@@ -776,9 +846,7 @@ class Configuration(Timestampable,CompanyOwnedModel):
             lines = []
             for v in unresolved:
                 err = errors.get(v.name, "Unknown reason")
-                lines.append(
-                    f"- {v.name}: {v.expression!r} -> {err}"
-                )
+                lines.append(f"- {v.name}: {v.expression!r} -> {err}")
 
             details = "\n".join(lines)
             raise ValueError(
@@ -788,7 +856,7 @@ class Configuration(Timestampable,CompanyOwnedModel):
             )
 
         return context
-    
+
     def copy_default_taxes_from_product(self):
         if not self.product_id:
             return
@@ -814,10 +882,14 @@ class Configuration(Timestampable,CompanyOwnedModel):
 
     def get_taxes(self):
         ct = ContentType.objects.get_for_model(self)
-        return AppliedTax.objects.filter(
-            content_type=ct,
-            object_id=self.pk,
-        ).select_related("tax_type").order_by("order")
+        return (
+            AppliedTax.objects.filter(
+                content_type=ct,
+                object_id=self.pk,
+            )
+            .select_related("tax_type")
+            .order_by("order")
+        )
 
     def copy_default_pricing_rules_from_product(self):
         if not self.product_id:
@@ -836,12 +908,10 @@ class Configuration(Timestampable,CompanyOwnedModel):
 
     def render_export(self, template):
         return ConfigurationExportService.render_html(self, template)
-    
+
     def recompute_component_groups(self):
         for group in self.component_groups.prefetch_related("items"):
-            material_total = sum(
-                item.line_total.amount for item in group.items.all()
-            )
+            material_total = sum(item.line_total.amount for item in group.items.all())
 
             pricing_adjustment = self.evaluate_pricing_delta(material_total)
 
@@ -857,7 +927,6 @@ class Configuration(Timestampable,CompanyOwnedModel):
                 ]
             )
 
-
     def evaluate_pricing_delta(self, base_total: Decimal) -> Decimal:
         """
         Evaluates pricing rules using the given base_total
@@ -869,10 +938,8 @@ class Configuration(Timestampable,CompanyOwnedModel):
         pricing_delta = Decimal("0.00")
         subtotal = Decimal(base_total)
 
-        for assignment in (
-            self.pricing_rules
-            .select_related("rule")
-            .filter(enabled=True)
+        for assignment in self.pricing_rules.select_related("rule").filter(
+            enabled=True
         ):
             rule = assignment.rule
             amount = Decimal(str(safe_eval(rule.expression, context)))
@@ -887,8 +954,6 @@ class Configuration(Timestampable,CompanyOwnedModel):
         return pricing_delta
 
 
-    
-
 class ConfigurationFlow:
     state = State(ConfigurationStatus, default=ConfigurationStatus.DRAFT)
 
@@ -902,33 +967,40 @@ class ConfigurationFlow:
     @state.getter()
     def _get_status(self):
         return self.configuration.status
-    
+
     @state.transition(
         source=ConfigurationStatus.DRAFT,
         target=ConfigurationStatus.COMPLETED,
     )
     def complete(self):
         if not self.configuration.items.exists():
-            raise ValidationError(
-                "Cannot complete an empty configuration."
-            )
+            raise ValidationError("Cannot complete an empty configuration.")
+
     @state.transition(
         source=ConfigurationStatus.DRAFT,
         target=ConfigurationStatus.CONVERTED,
     )
     def convert(self):
         from production.services.configuration_to_production import (
-            ConfigurationToProductionService
+            ConfigurationToProductionService,
         )
 
-        ConfigurationToProductionService.create_ticket(
-            self.configuration
+        ConfigurationToProductionService.create_ticket(self.configuration)
+
+    @state.transition(
+        source=ConfigurationStatus.COMPLETED,
+        target=ConfigurationStatus.CONVERTED,
+    )
+    def convert(self):
+        from production.services.configuration_to_production import (
+            ConfigurationToProductionService,
         )
+
+        ConfigurationToProductionService.create_ticket(self.configuration)
 
     @state.on_success()
     def _persist(self, descriptor, source, target):
         self.configuration.save(update_fields=["status"])
-
 
 
 class ConfigurationItem(Timestampable):
@@ -978,14 +1050,14 @@ class ConfigurationItem(Timestampable):
         decimal_places=3,
         default_currency="EUR",
         editable=False,
-        verbose_name=_("Line total")
+        verbose_name=_("Line total"),
     )
 
     unit_price = MoneyField(
         max_digits=12,
         decimal_places=5,
         default_currency="EUR",
-        verbose_name=_("Unit price")
+        verbose_name=_("Unit price"),
     )
 
     production_stages = ArrayField(
@@ -995,16 +1067,14 @@ class ConfigurationItem(Timestampable):
         help_text=_("Production stages inherited from BOM rule"),
         verbose_name=_("Production stages"),
     )
-    
-    label = models.CharField(
-    max_length=255,
-    editable=False,
-    db_index=True,
-    verbose_name=_("Label"),
-    help_text=_("Snapshot label for this configuration item"),
-)
-    
 
+    label = models.CharField(
+        max_length=255,
+        editable=False,
+        db_index=True,
+        verbose_name=_("Label"),
+        help_text=_("Snapshot label for this configuration item"),
+    )
 
     def save(self, *args, **kwargs):
         quantity = self.quantity or Decimal("0")
@@ -1019,9 +1089,25 @@ class ConfigurationItem(Timestampable):
 
         super().save(*args, **kwargs)
 
+    def clean(self):
+        super().clean()
+        if not self.is_template_item and self.production_stages:
+            company = self.configuration.company
+            if company:
+                company_stages = set(company.production_stages or [])
+                item_stages = set(self.production_stages)
+                if not item_stages.issubset(company_stages):
+                    raise ValidationError(
+                        {
+                            "production_stages": _(
+                                "Configuration item stages must be a subset of the company production stages."
+                            )
+                        }
+                    )
 
     def __str__(self):
         return self.label
+
 
 class PricingRuleAssignment(models.Model):
     """
@@ -1030,15 +1116,11 @@ class PricingRuleAssignment(models.Model):
     """
 
     configuration = models.ForeignKey(
-        Configuration,
-        on_delete=models.CASCADE,
-        related_name="pricing_rules"
+        Configuration, on_delete=models.CASCADE, related_name="pricing_rules"
     )
 
     rule = models.ForeignKey(
-        PricingRule,
-        on_delete=models.CASCADE,
-        related_name="assignments"
+        PricingRule, on_delete=models.CASCADE, related_name="assignments"
     )
 
     enabled = models.BooleanField(default=True)
@@ -1048,10 +1130,15 @@ class PricingRuleAssignment(models.Model):
 
     def __str__(self):
         return f"{self.configuration_id} → {self.rule}"
-    
+
+
 class ProductPricingRuleAssignment(models.Model):
-    product = models.ForeignKey(ProductTemplate, on_delete=models.CASCADE, related_name="pricing_rule_defaults")
-    rule = models.ForeignKey(PricingRule, on_delete=models.CASCADE, related_name="product_defaults")
+    product = models.ForeignKey(
+        ProductTemplate, on_delete=models.CASCADE, related_name="pricing_rule_defaults"
+    )
+    rule = models.ForeignKey(
+        PricingRule, on_delete=models.CASCADE, related_name="product_defaults"
+    )
     enabled = models.BooleanField(default=True)
     order = models.PositiveIntegerField(default=0)
 
@@ -1062,15 +1149,11 @@ class ProductPricingRuleAssignment(models.Model):
 
 class ConfigurationParameterValue(models.Model):
     configuration = models.ForeignKey(
-        Configuration,
-        on_delete=models.CASCADE,
-        related_name="param_values"
+        Configuration, on_delete=models.CASCADE, related_name="param_values"
     )
 
     parameter = models.ForeignKey(
-        ProductParameter,
-        on_delete=models.CASCADE,
-        related_name="values"
+        ProductParameter, on_delete=models.CASCADE, related_name="values"
     )
 
     value = models.CharField(max_length=200)
@@ -1079,23 +1162,24 @@ class ConfigurationParameterValue(models.Model):
         default=0,
         verbose_name=_("Sorting Order"),
         help_text=_("Order of the parameter within the product"),
-        db_index=True
+        db_index=True,
     )
+
     class Meta:
-        ordering = ["order","configuration"]
+        ordering = ["order", "configuration"]
         indexes = [
-        models.Index(
-            fields=["configuration", "order"],
-        )]
+            models.Index(
+                fields=["configuration", "order"],
+            )
+        ]
 
     def __str__(self):
         return f"{self.parameter.name} = {self.value}"
-    
+
+
 class ProductComputedVariable(CompanyOwnedModel):
     product = models.ForeignKey(
-        ProductTemplate,
-        on_delete=models.CASCADE,
-        related_name="computed_vars"
+        ProductTemplate, on_delete=models.CASCADE, related_name="computed_vars"
     )
     name = models.CharField(max_length=100)
     expression = models.TextField(
@@ -1104,22 +1188,19 @@ class ProductComputedVariable(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.product_id}.{self.name}"
-    
+
     def clean(self):
         super().clean()
 
         expr = (self.expression or "").strip()
         if not expr:
-            raise ValidationError(
-                {"expression": "Expression cannot be empty."}
-            )
+            raise ValidationError({"expression": "Expression cannot be empty."})
 
         try:
             validate_expression_for_safe_eval(expr)
         except ValueError as e:
-            raise ValidationError(
-                {"expression": f"Invalid expression: {e}"}
-            )
+            raise ValidationError({"expression": f"Invalid expression: {e}"})
+
 
 class ConfigurationExportTemplate(CompanyOwnedModel):
     product = models.ForeignKey(
@@ -1127,7 +1208,7 @@ class ConfigurationExportTemplate(CompanyOwnedModel):
         on_delete=models.CASCADE,
         related_name="export_templates",
         null=True,  # If null → can be used by any product
-        blank=True
+        blank=True,
     )
 
     name = models.CharField(max_length=200)
@@ -1136,14 +1217,14 @@ class ConfigurationExportTemplate(CompanyOwnedModel):
     )
 
     css = models.TextField(
-        blank=True,
-        help_text="CSS styling. Will be injected inside <style>...</style>"
+        blank=True, help_text="CSS styling. Will be injected inside <style>...</style>"
     )
 
     is_active = models.BooleanField(default=True)
 
     def __str__(self):
         return f"{self.name} (Product {self.product_id or 'Any'})"
+
 
 class ConfigurationComponentGroup(models.Model):
     configuration = models.ForeignKey(
@@ -1158,9 +1239,8 @@ class ConfigurationComponentGroup(models.Model):
         default=0,
         verbose_name=_("Sorting Order"),
         help_text=_("Order of the parameter within the product"),
-        db_index=True
+        db_index=True,
     )
-    
 
     items = models.ManyToManyField(
         ConfigurationItem,
@@ -1196,4 +1276,3 @@ class ConfigurationComponentGroup(models.Model):
 
     def __str__(self):
         return self.label
-

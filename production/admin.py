@@ -1,8 +1,9 @@
 from django.contrib import admin
+from django.http import HttpRequest
+from unfold.admin import ModelAdmin, TabularInline,StackedInline
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 from django.urls import path, reverse
-from django.shortcuts import get_object_or_404
 
 from unfold.admin import ModelAdmin, TabularInline, StackedInline
 from unfold.decorators import display
@@ -20,9 +21,12 @@ from production.models import (
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
 from production.views.production_item_stages_view import ProductionItemAdvanceStageView
 from production.views.production_ticket_stages_view import ProductionTicketStagesView
-from configurator.models import ProductTemplateComponentGroup
 
 from production.components.status_badge import StatusBadge
+from django.urls import path, reverse
+from django.shortcuts import  redirect
+from unfold.decorators import display, action
+
 
 
 class ProductionItemInline(TabularInline):
@@ -226,10 +230,12 @@ class OperationRequirementInline(TabularInline):
 
 @admin.register(ProductionItem)
 class ProductionItemAdmin(ModelAdmin):
+    actions_list = ["kanban_view_action"]
     list_display = (
         "id",
         "ticket",
         "status",
+        "assigned_employees_display",
         "sessions_count",
         "created_at",
     )
@@ -255,6 +261,7 @@ class ProductionItemAdmin(ModelAdmin):
                     "status",
                     ("component", "component_id"),
                     ("quantity", "length"),
+                    "assigned_employees",
                     "data",
                     "planning",
                 )
@@ -262,7 +269,29 @@ class ProductionItemAdmin(ModelAdmin):
         ),
     )
 
-    inlines = [ProductionItemSessionInline, OperationRequirementInline]
+    inlines = [ProductionItemSessionInline,OperationRequirementInline]
+    filter_horizontal = ("assigned_employees",)
+
+    def get_urls(self):
+        from production.views.kanban_view import ProductionItemKanbanView
+        urls = super().get_urls()
+        custom_urls = [
+            path("kanban/", self.admin_site.admin_view(ProductionItemKanbanView.as_view(model_admin=self)), name="production_productionitem_kanban"),
+        ]
+        return custom_urls + urls
+
+    @action(description=_("Kanban View"), url_path="kanban-view", icon="view_kanban")
+    def kanban_view_action(self, request: HttpRequest):
+        return redirect(
+            reverse("admin:production_productionitem_kanban")
+        )
+
+    def has_kanban_view_action_permission(self, request: HttpRequest):
+        return True
+
+    def assigned_employees_display(self, obj):
+        return ", ".join([str(e) for e in obj.assigned_employees.all()])
+    assigned_employees_display.short_description = _("Assigned Employees")
 
     def sessions_count(self, obj):
         return obj.sessions.count()

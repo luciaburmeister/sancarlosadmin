@@ -8,9 +8,11 @@ from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
 from django.utils.translation import gettext_lazy as _
 from django.shortcuts import redirect
-from django.urls import reverse
+from django.urls import path, reverse
+from configurator.views.product_template.product_template_resources_view import ProductTemplateResourcesView
 from invoices.models import AppliedTax
 from unfold.decorators import action
+from django.utils.html import format_html
 from django import forms
 from core.admin.company_admin import CompanyRestrictedAdmin
 from django.contrib.admin.widgets import FilteredSelectMultiple
@@ -158,7 +160,7 @@ class ProductTemplateComponentGroupInline(StackedInline):
 
 @admin.register(ProductTemplate)
 class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
-    list_display = ("id", "name","company")
+    list_display = ("id", "name","company", "planning_configured_badge", "planning_configure_link")
     search_fields = ("name",)
     actions_row = ["duplicate_product"]
     list_select_related = ["company"]
@@ -181,6 +183,15 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
             "fields": ("company",),
         })
     )
+
+    @admin.display(description=_("Planning configured"), boolean=True)
+    def planning_configured_badge(self, obj: ProductTemplate):
+        return bool(obj.production_planning_configured)
+
+    @admin.display(description=_("Planning"))
+    def planning_configure_link(self, obj: ProductTemplate):
+        url = reverse("admin:configurator_producttemplate_planning", args=[obj.pk])
+        return format_html('<a class="button" href="{}">{}</a>', url, _("Configure"))
 
     formfield_overrides = {
         models.TextField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 2})},
@@ -212,3 +223,13 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
                 args=[new_product.pk],
             )
         )
+    
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_view = self.admin_site.admin_view(
+            ProductTemplateResourcesView.as_view(model_admin=self)
+        )
+
+        return [
+            path("<int:pk>/planning/", custom_view, name="configurator_producttemplate_planning"),
+        ] + urls

@@ -1,12 +1,21 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
+<<<<<<< HEAD
 from django.urls import path, reverse
 from company.models import Employee
+=======
+from company.models import Employee, EmployeeType
+>>>>>>> main
 from django.utils.translation import gettext_lazy as _
 from core.admin.company_admin import CompanyRestrictedAdmin
 from import_export.admin import ImportExportModelAdmin
-from unfold.contrib.import_export.forms import ExportForm, ImportForm, SelectableFieldsExportForm
+from unfold.contrib.import_export.forms import (
+    ExportForm,
+    ImportForm,
+    SelectableFieldsExportForm,
+)
+
 
 from django.db.models import F, Sum, Count, ExpressionWrapper, DurationField
 from unfold.decorators import display
@@ -60,6 +69,10 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
                 "fields": (
                     ("first_name", "last_name"),
                     ("email", "phone"),
+<<<<<<< HEAD
+=======
+                    ("type"),
+>>>>>>> main
                     "user",
                 )
             },
@@ -81,7 +94,11 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
                 "fields": (
                     "company",
                     ("hired_at", "terminated_at"),
+<<<<<<< HEAD
                     "is_active",
+=======
+                    ("is_active","can_work_on_production"),
+>>>>>>> main
                 )
             },
         ),
@@ -92,6 +109,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
     def full_name(self, obj):
         return obj.full_name
 
+<<<<<<< HEAD
     full_name.short_description = "Name"
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
@@ -110,3 +128,12 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
                 name="company_employee_sessions",
             ),
         ] + super().get_urls()
+=======
+    full_name.short_description = _("Name")
+
+
+@admin.register(EmployeeType)
+class EmployeeTypeAdmin(ModelAdmin):
+    list_display = ("type", "company")
+    search_fields = ("type",)
+>>>>>>> main

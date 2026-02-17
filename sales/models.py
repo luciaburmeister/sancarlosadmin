@@ -3,8 +3,9 @@ from djmoney.models.fields import MoneyField
 from materials.models import Material
 from timestamps.models import Timestampable
 from django.utils.translation import gettext_lazy as _
+from company.models import CompanyOwnedModel
 
-class Client(Timestampable):
+class Client(Timestampable, CompanyOwnedModel):
     name = models.CharField(
         max_length=200,
         help_text=_("e.g., SEBASTIAN HERRERO"),

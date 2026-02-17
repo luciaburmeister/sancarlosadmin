@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from decouple import config
 from dotenv import load_dotenv
 from django.urls import reverse_lazy
 import os
@@ -77,13 +78,17 @@ INSTALLED_APPS = [
     'sales',
     'materials',
     "configurator",
+    'accounting',
     'timestamps',
     'django_extensions',
     'formtools',
     'crispy_forms',
     'viewflow',
     'django_countries',
-    'company'
+    'company',
+    'django_celery_results',
+    'assets',
+    'simple_history',
 ]
 
 MIDDLEWARE = [
@@ -95,6 +100,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'simple_history.middleware.HistoryRequestMiddleware',
 ]
 
 
@@ -184,10 +190,13 @@ DATABASES = {
         
     }
 }
-if not DEBUG:
+# Database SSL mode
+DB_SSLMODE = os.getenv("DB_SSLMODE", "require" if not DEBUG else None)
+
+if DB_SSLMODE:
     DATABASES["default"]["OPTIONS"] = {
-            "sslmode": "require",
-        }
+        "sslmode": DB_SSLMODE,
+    }
 
 
 
@@ -227,6 +236,21 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = 20000
 
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, "static")
+
+
+# CELERY CONFIGURATION
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'django-db'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Europe/Madrid'  
+
+
+# GEMINI API CONFIGURATION
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+
+
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -330,7 +354,7 @@ UNFOLD = {
                 "items": [
                     {
                         "title": _("Company"),
-                        "icon": "brick",
+                        "icon": "domain",
                         "link": reverse_lazy(
                             "admin:company_company_changelist"
                         ),
@@ -340,13 +364,40 @@ UNFOLD = {
                     },
                     {
                         "title": _("Employees"),
-                        "icon": "brick",
+                        "icon": "people",
                         "link": reverse_lazy(
                             "admin:company_employee_changelist"
                         ),
                         "permission": lambda request: request.user.has_perm(
                             "company.view_employee"
                         )
+                    },
+                ],
+            },
+            {
+                "title": _("Assets"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Assets"),
+                        "icon": "web_asset",
+                        "link": reverse_lazy(
+                            "admin:assets_asset_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_asset"
+                        ),
+                    },
+                    {
+                        "title": _("Asset Types"),
+                        "icon": "category",
+                        "link": reverse_lazy(
+                            "admin:assets_assettype_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_assettype"
+                        ),
                     },
                 ],
             },

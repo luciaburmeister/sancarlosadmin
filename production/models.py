@@ -144,6 +144,13 @@ class ProductionItem(Timestampable):
         blank=True,
         verbose_name=_("Length"),
     )
+    
+    assigned_employees = models.ManyToManyField(
+        Employee,
+        blank=True,
+        related_name="assigned_production_items",
+        verbose_name=_("Assigned Employees")
+    )
 
     class Meta:
         indexes = [

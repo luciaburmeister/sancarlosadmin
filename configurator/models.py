@@ -246,6 +246,41 @@ class ProductTemplate(CompanyOwnedModel):
         ConfigurationExportTemplate.objects.bulk_create(templates)
 
 
+class ProductTemplateComponentGroup(models.Model):
+    product_template = models.ForeignKey(
+        "configurator.ProductTemplate",
+        on_delete=models.CASCADE,
+        related_name="component_groups",
+        verbose_name=_("Product template"),
+    )
+
+    stage = models.CharField(
+        max_length=50,
+        verbose_name=_("Stage"),
+        help_text=_("Stage where these components move together"),
+    )
+
+    components = models.ManyToManyField(
+        Component,
+        blank=True,
+        related_name="component_groups",
+        verbose_name=_("Components"),
+    )
+
+    class Meta:
+        verbose_name = _("Stage component group")
+        verbose_name_plural = _("Stage component groups")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product_template", "stage"],
+                name="uniq_producttemplate_stage_group",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.product_template} — {self.stage}"
+
+
 class ParameterType(models.TextChoices):
     NUMBER = "number", _("Number")
     TEXT = "text", _("Text")

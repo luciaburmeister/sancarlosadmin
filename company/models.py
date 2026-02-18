@@ -43,7 +43,8 @@ class CompanyOwnedModel(models.Model):
         on_delete=models.CASCADE,
         related_name="%(class)ss",
         null=True,
-        blank=False
+        blank=False,
+        verbose_name=_("Company")
     )
 
     class Meta:

@@ -270,12 +270,6 @@ class ProductTemplateComponentGroup(models.Model):
     class Meta:
         verbose_name = _("Stage component group")
         verbose_name_plural = _("Stage component groups")
-        constraints = [
-            models.UniqueConstraint(
-                fields=["product_template", "stage"],
-                name="uniq_producttemplate_stage_group",
-            )
-        ]
 
     def __str__(self) -> str:
         return f"{self.product_template} — {self.stage}"

@@ -88,6 +88,7 @@ INSTALLED_APPS = [
     'company',
     'django_celery_results',
     'assets',
+    'location_field',
     'simple_history',
 ]
 
@@ -181,7 +182,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "django.contrib.gis.db.backends.postgis",
         "NAME": os.getenv("DB_NAME"),  # your DB name
         "USER": os.getenv("DB_USER"),  # your DB user
         "PASSWORD": os.getenv("DB_PASSWORD"),  # your DB password

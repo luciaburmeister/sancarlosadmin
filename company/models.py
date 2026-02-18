@@ -3,6 +3,7 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from django_countries.fields import CountryField
 from django.contrib.postgres.fields import ArrayField
+from location_field.models.spatial import LocationField
 
 User = get_user_model()
 
@@ -211,3 +212,20 @@ class CompanyEmailConfig(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.email_address} ({self.company})"
+
+class WorkingZone(CompanyOwnedModel):
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+    street_address = models.CharField(max_length=255, verbose_name=_("Address"), default="")
+    city = models.CharField(max_length=100, verbose_name=_("City"), default="")
+    postal_code = models.CharField(max_length=20, verbose_name=_("Postal Code"), default="")
+    province = models.CharField(max_length=100, verbose_name=_("Province"), default="")
+    country = CountryField(verbose_name=_("Country"), default="ES")
+    location = LocationField(based_fields=['street_address', 'city', 'postal_code', 'province', 'country'], zoom=18, default='POINT(36.7178 4.4256)')
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Working Zone")
+        verbose_name_plural = _("Working Zones")
+
+    def __str__(self):
+        return f"{self.name} ({self.company})"

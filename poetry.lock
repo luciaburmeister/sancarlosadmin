@@ -802,6 +802,17 @@ files = [
 ]
 
 [[package]]
+name = "django-location-field"
+version = "2.7.3"
+description = "Location field for Django"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "django_location_field-2.7.3-py2.py3-none-any.whl", hash = "sha256:b0660d3fd024541fbe53ef723e3b02ec4014fbc886ee3d8342e031f1ab28d11d"},
+]
+
+[[package]]
 name = "django-money"
 version = "3.5.4"
 description = "Adds support for using money and currency fields in django models and forms. Uses py-moneyed as the money implementation."
@@ -1388,6 +1399,30 @@ files = [
 
 [package.dependencies]
 wcwidth = "*"
+
+[[package]]
+name = "psycopg"
+version = "3.3.2"
+description = "PostgreSQL database adapter for Python"
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "psycopg-3.3.2-py3-none-any.whl", hash = "sha256:3e94bc5f4690247d734599af56e51bae8e0db8e4311ea413f801fef82b14a99b"},
+    {file = "psycopg-3.3.2.tar.gz", hash = "sha256:707a67975ee214d200511177a6a80e56e654754c9afca06a7194ea6bbfde9ca7"},
+]
+
+[package.dependencies]
+typing-extensions = {version = ">=4.6", markers = "python_version < \"3.13\""}
+tzdata = {version = "*", markers = "sys_platform == \"win32\""}
+
+[package.extras]
+binary = ["psycopg-binary (==3.3.2) ; implementation_name != \"pypy\""]
+c = ["psycopg-c (==3.3.2) ; implementation_name != \"pypy\""]
+dev = ["ast-comments (>=1.1.2)", "black (>=24.1.0)", "codespell (>=2.2)", "cython-lint (>=0.16)", "dnspython (>=2.1)", "flake8 (>=4.0)", "isort-psycopg", "isort[colors] (>=6.0)", "mypy (>=1.19.0)", "pre-commit (>=4.0.1)", "types-setuptools (>=57.4)", "types-shapely (>=2.0)", "wheel (>=0.37)"]
+docs = ["Sphinx (>=5.0)", "furo (==2022.6.21)", "sphinx-autobuild (>=2021.3.14)", "sphinx-autodoc-typehints (>=1.12)"]
+pool = ["psycopg-pool"]
+test = ["anyio (>=4.0)", "mypy (>=1.19.0) ; implementation_name != \"pypy\"", "pproxy (>=2.7)", "pytest (>=6.2.5)", "pytest-cov (>=3.0)", "pytest-randomly (>=3.5)"]
 
 [[package]]
 name = "psycopg2"
@@ -2104,4 +2139,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0"
-content-hash = "7985e3f39a4ef1312c93765210ad088a45ee8884db14eb6677e42ce52488a22d"
+content-hash = "ad6ae9effc811c17a2d95be0617ba2297da8449db5b821ca4b169d00a4c8d225"

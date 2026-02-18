@@ -286,6 +286,46 @@ UNFOLD = {
         "light": lambda request: static("site-logos/polipus_negro.png"),  # light mode
         "dark": lambda request: static("site-logos/polipus_blanco.png"),  # dark mode
     },
+    "LOGIN": {
+        "image": lambda request: static("site-login/login-bg.png"),
+    },
+    "COLORS": {
+    "base": {
+        "50":  "oklch(98% .002 200)",
+        "100": "oklch(95% .004 200)",
+        "200": "oklch(90% .006 200)",
+        "300": "oklch(82% .010 200)",
+        "400": "oklch(70% .015 200)",
+        "500": "oklch(60% .020 200)",
+        "600": "oklch(50% .022 200)",
+        "700": "oklch(40% .020 200)",
+        "800": "oklch(30% .018 200)",
+        "900": "oklch(22% .015 200)",
+        "950": "oklch(15% .012 200)",
+    },
+    "primary": {
+        "50":  "oklch(97% .030 190)",
+        "100": "oklch(93% .050 190)",
+        "200": "oklch(87% .080 190)",
+        "300": "oklch(78% .120 190)",
+        "400": "oklch(70% .150 190)",
+        "500": "oklch(64% .140 190)",  # #68A7A5
+        "600": "oklch(57% .125 190)",
+        "700": "oklch(49% .105 190)",
+        "800": "oklch(41% .085 190)",
+        "900": "oklch(34% .070 190)",
+        "950": "oklch(26% .055 190)",
+    },
+    "font": {
+        "subtle-light": "var(--color-base-500)",
+        "subtle-dark": "var(--color-base-400)",
+        "default-light": "var(--color-base-700)",
+        "default-dark": "var(--color-base-200)",
+        "important-light": "var(--color-base-900)",
+        "important-dark": "var(--color-base-50)",
+    },
+},
+
     "BORDER_RADIUS": "12px",
     "SIDEBAR": {
         "show_search": True,  

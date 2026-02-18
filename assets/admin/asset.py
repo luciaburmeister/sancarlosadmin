@@ -61,7 +61,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
     }
-    autocomplete_fields = ["asset_type", "client","company"]
+    autocomplete_fields = ["asset_type", "client","company","current_working_zone"]
     fieldsets = (
         (
             _("Asset"),

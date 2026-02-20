@@ -14,31 +14,37 @@ if TYPE_CHECKING:
 
 def strip_wrappers(raw_html: str) -> str:
     """
-    Removes unwanted WYSIWYG wrappers such as:
-    - <div> ... </div>
-    - <p> ... </p>
-    - <body> ... </body>
-    - <html> ... </html>
-    Returns only the internal useful markup.
+    Removes unwanted WYSIWYG wrappers and heals fragmented blocks.
+    - Removes <div> ... </div> (without attributes)
+    - Removes <p> ... </p> (without attributes)
+    - Heals fragmented lines (</p><p> -> ' ')
+    - Removes <body> and <html> wrappers
     """
 
     if not raw_html:
         return ""
 
-    # First unescape (&lt;div&gt; → <div>)
+    # 1. First unescape (&lt;div&gt; → <div>)
     cleaned = html.unescape(raw_html).strip()
 
-    # Remove outer <div>...</div> if it wraps the whole content
-    cleaned = re.sub(r'^<div[^>]*>(.*)</div>$', r'\1', cleaned, flags=re.DOTALL | re.IGNORECASE)
+    # 2. Heal fragmentation: the editor often splits things like <svg ... > into multiple <p>
+    # We join consecutive "naked" tags to restore the original flow.
+    cleaned = re.sub(r'</p>\s*<p>', ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'</div>\s*<div>', ' ', cleaned, flags=re.IGNORECASE)
 
-    # Remove <body> wrappers
+    # 3. Remove empty/spacer tags
+    cleaned = re.sub(r'<(p|div|span)[^>]*>\s*(&nbsp;)?\s*</\1>', ' ', cleaned, flags=re.IGNORECASE)
+
+    # 4. Remove outer-most "naked" wrappers (repetitive to handle nested ones)
+    for _ in range(3):
+        cleaned = re.sub(r'^<div>(.*)</div>$', r'\1', cleaned, flags=re.DOTALL | re.IGNORECASE)
+        cleaned = re.sub(r'^<p>(.*)</p>$', r'\1', cleaned, flags=re.DOTALL | re.IGNORECASE)
+
+    # 5. Remove <body> wrappers
     cleaned = re.sub(r'^<body[^>]*>(.*)</body>$', r'\1', cleaned, flags=re.DOTALL | re.IGNORECASE)
 
-    # Remove <html> wrappers
+    # 6. Remove <html> wrappers
     cleaned = re.sub(r'^<html[^>]*>(.*)</html>$', r'\1', cleaned, flags=re.DOTALL | re.IGNORECASE)
-
-    # Remove <p> wrappers often added by WYSIWYG around whole content
-    cleaned = re.sub(r'^<p[^>]*>(.*)</p>$', r'\1', cleaned, flags=re.DOTALL | re.IGNORECASE)
 
     return cleaned.strip()
 
@@ -136,10 +142,24 @@ def clean_final_html(rendered: str) -> str:
     flags=re.DOTALL | re.IGNORECASE
 )
 
+    # 7️⃣ HEAL Fragmentation: Remove ALL block wrappers and breaks inside <svg> tags
+    # These are introduced by WYSIWYG and break the SVG structure completely.
+    def heal_svg_block(match):
+        svg_content = match.group(0)
+        # Remove all p, div, br tags from inside the SVG
+        # SVG doesn't use these for structure (usually), so they are editor noise.
+        # We replace them with spaces to avoid joining words.
+        healed = re.sub(r'</?(p|div|br)[^>]*>', ' ', svg_content, flags=re.IGNORECASE)
+        # Clean up double spaces
+        return re.sub(r'\s+', ' ', healed)
+
+    cleaned = re.sub(r'<svg.*?>.*?</svg>', heal_svg_block, cleaned, flags=re.DOTALL | re.IGNORECASE)
+
+    # 8️⃣ Final clean for consecutive naked paragraphs
+    cleaned = re.sub(r'</p>\s*<p>', ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'</div>\s*<div>', ' ', cleaned, flags=re.IGNORECASE)
 
     return cleaned.strip()
-
-
 
 
 
@@ -149,7 +169,7 @@ class ConfigurationExportService:
     """
 
     @staticmethod
-    def get_available_templates(configuration: "Configuration",user):
+    def get_available_templates(configuration: "Configuration", user, kind: str | None = None):
         """
         Returns all active export templates that apply to this configuration.
         """
@@ -157,30 +177,38 @@ class ConfigurationExportService:
 
         user_companies = get_user_companies(user)
 
+        filters = (Q(product=configuration.product) | Q(product__isnull=True)) \
+                  & (Q(company__in=user_companies) | Q(company__isnull=True)) \
+                  & Q(is_active=True)
+
+        if kind:
+            filters &= Q(kind=kind)
 
         return (
-            ConfigurationExportTemplate.objects.filter(
-                Q(product=configuration.product) | Q(product__isnull=True),
-                Q(company__in=user_companies) | Q(company__isnull=True),
-                is_active=True,
-            )
+            ConfigurationExportTemplate.objects.filter(filters)
             .select_related("product")
         )
 
     @staticmethod
-    def render_html(configuration: "Configuration", template: "ConfigurationExportTemplate"):
-
+    def render_parts(configuration: "Configuration", template: "ConfigurationExportTemplate"):
+        """
+        Renders the template and returns the rendered body and clean CSS as a tuple.
+        """
         # Clean HTML & CSS first
         clean_html = strip_wrappers(template.html or "")
         clean_css = strip_css_wrappers(template.css or "")
 
+        pricing_context = configuration.get_pricing_context()
+
         context = {
+            **pricing_context,
             "config": configuration,
             "client": configuration.client,
             "items": configuration.items.all(),
             "parameters": configuration.param_values.select_related("parameter"),
             "component_groups": configuration.component_groups.order_by("order"),
-            "computed": configuration.get_pricing_context(),
+            "computed": pricing_context,
+            "parameter_pricing_dictionary": pricing_context,
         }
 
         django_engine = engines["django"]
@@ -188,6 +216,12 @@ class ConfigurationExportService:
         user_tpl = django_engine.from_string(clean_html)
         rendered_body = user_tpl.render(context)
         rendered_body = clean_final_html(rendered_body)
+
+        return rendered_body, clean_css
+
+    @staticmethod
+    def render_html(configuration: "Configuration", template: "ConfigurationExportTemplate"):
+        rendered_body, clean_css = ConfigurationExportService.render_parts(configuration, template)
 
         wrapper_tpl = get_template("exports/base_export.html")
 

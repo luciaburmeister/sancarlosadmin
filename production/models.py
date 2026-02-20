@@ -41,6 +41,9 @@ class ProductionTicket(Timestampable):
         verbose_name=_("Contexto")
     )
 
+    order_html = models.TextField(blank=True, null=True, verbose_name=_("Order HTML"))
+    ticket_html = models.TextField(blank=True, null=True, verbose_name=_("Ticket HTML"))
+
 
     def __str__(self):
         return str(self.pk)
@@ -151,6 +154,8 @@ class ProductionItem(Timestampable):
         related_name="assigned_production_items",
         verbose_name=_("Assigned Employees")
     )
+
+    ticket_html = models.TextField(blank=True, null=True, verbose_name=_("Ticket HTML"))
 
     class Meta:
         indexes = [

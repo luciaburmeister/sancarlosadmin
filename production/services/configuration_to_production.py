@@ -11,6 +11,7 @@ class ConfigurationToProductionService:
             content_type=ct,
             object_id=configuration.id,
             defaults={
+                "company": configuration.company,
                 "context": {
                     "configuration_id": configuration.id,
                     "product": configuration.product.name,
@@ -33,20 +34,20 @@ class ConfigurationToProductionService:
         product = configuration.product
         
         # 1. Production Order
-        order_tpl = ConfigurationExportTemplate.get_default_for_product(
+        order_template = ConfigurationExportTemplate.get_default_for_product(
             product=product, 
             kind=ExportTemplateKind.PRODUCTION_ORDER
         )
-        if order_tpl:
-            ticket.order_html = ConfigurationExportService.render_html(configuration, order_tpl)
+        if order_template:
+            ticket.order_html = ConfigurationExportService.render_html(configuration, order_template)
         
         # 2. Production Ticket (Default)
-        ticket_tpl = ConfigurationExportTemplate.get_default_for_product(
+        ticket_template = ConfigurationExportTemplate.get_default_for_product(
             product=product, 
             kind=ExportTemplateKind.PRODUCTION_TICKET
         )
-        if ticket_tpl:
-            ticket.ticket_html = ConfigurationExportService.render_html(configuration, ticket_tpl)
+        if ticket_template:
+            ticket.ticket_html = ConfigurationExportService.render_html(configuration, ticket_template)
         
         ticket.save(update_fields=["order_html", "ticket_html"])
 
@@ -66,6 +67,7 @@ class ConfigurationToProductionService:
 
             prod_item = ProductionItem.objects.create(
                 ticket=ticket,
+                company=ticket.company,
                 component=item.component,
                 quantity=item.quantity,
                 length=item.length,

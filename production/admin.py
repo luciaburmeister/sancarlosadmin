@@ -4,7 +4,10 @@ from unfold.admin import ModelAdmin, TabularInline,StackedInline
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 from django.urls import path, reverse
-
+from core.admin.company_admin import CompanyRestrictedAdmin
+from unfold.contrib.filters.admin import (
+    AutocompleteSelectMultipleFilter
+)
 from unfold.admin import ModelAdmin, TabularInline, StackedInline
 from unfold.decorators import display
 
@@ -107,12 +110,13 @@ class ProductionItemInline(TabularInline):
 
 
 @admin.register(ProductionTicket)
-class ProductionTicketAdmin(ModelAdmin):
+class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     change_form_template = "admin/production/productionticket/change_form.html"
 
-    list_display = ("id", "status", "created_at")
+    list_display = ("id", "company", "status", "created_at")
 
     list_filter = (
+        ("company",AutocompleteSelectMultipleFilter),
         TicketStageFilter,
         TicketStageStatusFilter,
         "status",
@@ -122,6 +126,7 @@ class ProductionTicketAdmin(ModelAdmin):
     search_fields = ("object_id",)
 
     inlines = [ProductionItemInline]
+    autocomplete_fields = ("company",)
 
     readonly_fields = (
         "content_type",
@@ -136,6 +141,7 @@ class ProductionTicketAdmin(ModelAdmin):
             None,
             {
                 "fields": (
+                    "company",
                     "status",
                     ("content_type", "object_id"),
                     "source_object",
@@ -229,10 +235,11 @@ class OperationRequirementInline(TabularInline):
 
 
 @admin.register(ProductionItem)
-class ProductionItemAdmin(ModelAdmin):
+class ProductionItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
     actions_list = ["kanban_view_action"]
     list_display = (
         "id",
+        "company",
         "ticket",
         "status",
         "assigned_employees_display",
@@ -240,7 +247,7 @@ class ProductionItemAdmin(ModelAdmin):
         "created_at",
     )
 
-    list_filter = ("status",)
+    list_filter = (("company",AutocompleteSelectMultipleFilter), "status")
     search_fields = ("id", "ticket__id")
 
     readonly_fields = (
@@ -257,6 +264,7 @@ class ProductionItemAdmin(ModelAdmin):
             None,
             {
                 "fields": (
+                    "company",
                     "ticket",
                     "status",
                     ("component", "component_id"),
@@ -300,9 +308,10 @@ class ProductionItemAdmin(ModelAdmin):
 
 
 @admin.register(ProductionItemSession)
-class ProductionItemSessionAdmin(ModelAdmin):
+class ProductionItemSessionAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = (
         "id",
+        "company",
         "production_item",
         "production_stage",
         "show_status_colored",
@@ -311,6 +320,7 @@ class ProductionItemSessionAdmin(ModelAdmin):
     )
 
     list_filter = (
+        "company",
         "status",
         "production_stage",
     )

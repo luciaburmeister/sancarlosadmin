@@ -17,7 +17,7 @@ class ProductionTicketStatus(models.TextChoices):
     DONE = "done", _("Done")
     CANCELLED = "cancelled", _("Cancelled")
 
-class ProductionTicket(Timestampable):
+class ProductionTicket(Timestampable, CompanyOwnedModel):
     content_type = models.ForeignKey(
         ContentType,
         on_delete=models.PROTECT,
@@ -97,7 +97,7 @@ class ProductionItemStatus(models.TextChoices):
     DONE = "done", _("Done")
     CANCELLED = "cancelled", _("Cancelled")
 
-class ProductionItem(Timestampable):
+class ProductionItem(Timestampable, CompanyOwnedModel):
     ticket = models.ForeignKey(
         ProductionTicket,
         on_delete=models.CASCADE,
@@ -181,7 +181,7 @@ class ProductionItemSessionKind(models.TextChoices):
     SESSION_FINISHED = "session_finished", _("Session finished")
 
 
-class ProductionItemSession(Timestampable):
+class ProductionItemSession(Timestampable, CompanyOwnedModel):
     production_item = models.ForeignKey(
         ProductionItem,
         on_delete=models.CASCADE,

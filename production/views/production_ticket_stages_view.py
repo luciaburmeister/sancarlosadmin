@@ -70,9 +70,14 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
         if ticket_current_stage is None and stage_order:
             ticket_current_stage = stage_order[0]
 
+        authorized_stages = stage_order
+        if employee:
+            if employee.production_stages:
+                authorized_stages = [s for s in stage_order if s in employee.production_stages]
+
         stages_ui = []
 
-        for stage_name in stage_order:
+        for stage_name in authorized_stages:
             grouped_item_ids = set()
 
             if product:

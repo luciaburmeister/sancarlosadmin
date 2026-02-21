@@ -90,6 +90,8 @@ INSTALLED_APPS = [
     'assets',
     'location_field',
     'simple_history',
+    'hijack',
+    'hijack.contrib.admin'
 ]
 
 MIDDLEWARE = [
@@ -102,6 +104,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'simple_history.middleware.HistoryRequestMiddleware',
+    'hijack.middleware.HijackUserMiddleware',
 ]
 
 
@@ -278,6 +281,9 @@ LANGUAGES = (
 LOCALE_PATHS = [
     BASE_DIR / "locale",
 ]
+
+IMPERSONATE_REQUIRE_SUPERUSER = True
+
 
 UNFOLD = {
     "SITE_TITLE": "ERP - Polipus",

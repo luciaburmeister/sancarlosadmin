@@ -762,6 +762,26 @@ files = [
 Django = ">=3.2"
 
 [[package]]
+name = "django-hijack"
+version = "3.7.6"
+description = "Enable users to hijack (=login as) and work on behalf of another user."
+optional = false
+python-versions = ">=3.10"
+groups = ["main"]
+files = [
+    {file = "django_hijack-3.7.6-py3-none-any.whl", hash = "sha256:b43703b57b77b17a2f754dced65356899178d8d3664b36e7e26a7d414fd61e7f"},
+    {file = "django_hijack-3.7.6.tar.gz", hash = "sha256:a1f3b16d0eae3d72c27988692453f0a923c665d96783325034798a8020f0ceb4"},
+]
+
+[package.dependencies]
+django = ">=4.2"
+
+[package.extras]
+docs = ["mkdocs (==1.6.1)"]
+lint = ["msgcheck (==4.1.0)", "ruff (==0.14.10)"]
+test = ["pytest", "pytest-cov", "pytest-django"]
+
+[[package]]
 name = "django-import-export"
 version = "4.4.0"
 description = "Django application and library for importing and exporting data with included admin integration."
@@ -2139,4 +2159,4 @@ files = [
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0"
-content-hash = "ad6ae9effc811c17a2d95be0617ba2297da8449db5b821ca4b169d00a4c8d225"
+content-hash = "c9f8d340897242f957c6e4d0f68c6b1e9bd47240204f59a454bdf8c858918972"

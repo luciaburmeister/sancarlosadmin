@@ -5,7 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from configurator.models import Configuration, ConfigurationExportTemplate
-from configurator.services.export_service import ConfigurationExportService
+from configurator.services.export import ConfigurationExportService
 import json
 from unfold.views import UnfoldModelAdminViewMixin
 
@@ -23,25 +23,16 @@ class ExportTemplatePreviewView(UnfoldModelAdminViewMixin, View):
         html_content = request.POST.get("html", "")
         css_content = request.POST.get("css", "")
         
-        # Use a sample configuration for preview
-        # In a real scenario, we might want to pick a representative one
-        # For now, we'll try to get the first one or a specific one if provided
         config_id = request.POST.get("config_id")
         
-        try:
-            if config_id:
-                configuration = Configuration.objects.get(id=config_id)
-            else:
-                # Use ID 137 which we found to exist
-                configuration = Configuration.objects.get(id=137)
-        except Configuration.DoesNotExist:
-            # Fallback to any configuration if 137 doesn't exist anymore
+        if config_id:
+            configuration = Configuration.objects.get(id=config_id)
+        else:
             configuration = Configuration.objects.first()
             
         if not configuration:
             return HttpResponse("No configuration available for preview.", status=400)
 
-        # Create a mock template object if we are previewing changes
         template = ConfigurationExportTemplate(
             html=html_content,
             css=css_content
@@ -60,11 +51,7 @@ class ExportTemplatePreviewView(UnfoldModelAdminViewMixin, View):
         except ConfigurationExportTemplate.DoesNotExist:
             raise Http404("Template not found")
 
-        # Use ID 137 as sample
-        try:
-            configuration = Configuration.objects.get(id=137)
-        except Configuration.DoesNotExist:
-            configuration = Configuration.objects.first()
+        configuration = Configuration.objects.first()
 
         if not configuration:
             return HttpResponse("No configuration available for preview.", status=400)

@@ -1,16 +1,5 @@
-from typing import TYPE_CHECKING
-from django.template import engines
-from django.db.models import Q
 import html
 import re
-from django.template.loader import get_template
-from core.admin.company_access import get_user_companies
-
-
-if TYPE_CHECKING:
-    from configurator.models import Configuration, ConfigurationExportTemplate
-
-
 
 def strip_wrappers(raw_html: str) -> str:
     """
@@ -47,7 +36,6 @@ def strip_wrappers(raw_html: str) -> str:
     cleaned = re.sub(r'^<html[^>]*>(.*)</html>$', r'\1', cleaned, flags=re.DOTALL | re.IGNORECASE)
 
     return cleaned.strip()
-
 
 
 def strip_css_wrappers(raw_css: str) -> str:
@@ -124,33 +112,28 @@ def clean_final_html(rendered: str) -> str:
     )
 
     cleaned = re.sub(
-    r'(</[^>]+>)\s*<br\s*/?>\s*(<!--.*?-->\s*)?(<[^/][^>]*>)',
-    r'\1\3',
-    cleaned,
-    flags=re.DOTALL | re.IGNORECASE
-)
+        r'(</[^>]+>)\s*<br\s*/?>\s*(<!--.*?-->\s*)?(<[^/][^>]*>)',
+        r'\1\3',
+        cleaned,
+        flags=re.DOTALL | re.IGNORECASE
+    )
     cleaned = re.sub(
-    r'(</span>|</strong>|</b>|</i>)\s*<br\s*/?>\s*(<strong|<span|<b|<i)',
-    r'\1 \2',
-    cleaned,
-    flags=re.IGNORECASE
-)
+        r'(</span>|</strong>|</b>|</i>)\s*<br\s*/?>\s*(<strong|<span|<b|<i)',
+        r'\1 \2',
+        cleaned,
+        flags=re.IGNORECASE
+    )
     cleaned = re.sub(
-    r'(</div>)\s*<br\s*/?>\s*(<!--.*?-->\s*)?(<div class="section"[^>]*>)',
-    r'\1 \3',
-    cleaned,
-    flags=re.DOTALL | re.IGNORECASE
-)
+        r'(</div>)\s*<br\s*/?>\s*(<!--.*?-->\s*)?(<div class="section"[^>]*>)',
+        r'\1 \3',
+        cleaned,
+        flags=re.DOTALL | re.IGNORECASE
+    )
 
     # 7️⃣ HEAL Fragmentation: Remove ALL block wrappers and breaks inside <svg> tags
-    # These are introduced by WYSIWYG and break the SVG structure completely.
     def heal_svg_block(match):
         svg_content = match.group(0)
-        # Remove all p, div, br tags from inside the SVG
-        # SVG doesn't use these for structure (usually), so they are editor noise.
-        # We replace them with spaces to avoid joining words.
         healed = re.sub(r'</?(p|div|br)[^>]*>', ' ', svg_content, flags=re.IGNORECASE)
-        # Clean up double spaces
         return re.sub(r'\s+', ' ', healed)
 
     cleaned = re.sub(r'<svg.*?>.*?</svg>', heal_svg_block, cleaned, flags=re.DOTALL | re.IGNORECASE)
@@ -160,73 +143,3 @@ def clean_final_html(rendered: str) -> str:
     cleaned = re.sub(r'</div>\s*<div>', ' ', cleaned, flags=re.IGNORECASE)
 
     return cleaned.strip()
-
-
-
-class ConfigurationExportService:
-    """
-    Service for resolving and rendering export templates for configurations.
-    """
-
-    @staticmethod
-    def get_available_templates(configuration: "Configuration", user, kind: str | None = None):
-        """
-        Returns all active export templates that apply to this configuration.
-        """
-        from configurator.models import ConfigurationExportTemplate
-
-        user_companies = get_user_companies(user)
-
-        filters = (Q(product=configuration.product) | Q(product__isnull=True)) \
-                  & (Q(company__in=user_companies) | Q(company__isnull=True)) \
-                  & Q(is_active=True)
-
-        if kind:
-            filters &= Q(kind=kind)
-
-        return (
-            ConfigurationExportTemplate.objects.filter(filters)
-            .select_related("product")
-        )
-
-    @staticmethod
-    def render_parts(configuration: "Configuration", template: "ConfigurationExportTemplate"):
-        """
-        Renders the template and returns the rendered body and clean CSS as a tuple.
-        """
-        # Clean HTML & CSS first
-        clean_html = strip_wrappers(template.html or "")
-        clean_css = strip_css_wrappers(template.css or "")
-
-        pricing_context = configuration.get_pricing_context()
-
-        context = {
-            **pricing_context,
-            "config": configuration,
-            "client": configuration.client,
-            "items": configuration.items.all(),
-            "parameters": configuration.param_values.select_related("parameter"),
-            "component_groups": configuration.component_groups.order_by("order"),
-            "computed": pricing_context,
-            "parameter_pricing_dictionary": pricing_context,
-        }
-
-        django_engine = engines["django"]
-
-        user_tpl = django_engine.from_string(clean_html)
-        rendered_body = user_tpl.render(context)
-        rendered_body = clean_final_html(rendered_body)
-
-        return rendered_body, clean_css
-
-    @staticmethod
-    def render_html(configuration: "Configuration", template: "ConfigurationExportTemplate"):
-        rendered_body, clean_css = ConfigurationExportService.render_parts(configuration, template)
-
-        wrapper_tpl = get_template("exports/base_export.html")
-
-        return wrapper_tpl.render({
-            "body": rendered_body,
-            "css": clean_css,
-        })
-

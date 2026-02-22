@@ -29,7 +29,7 @@ class ConfigurationToProductionService:
     @classmethod
     def _assign_default_templates(cls, ticket, configuration):
         from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
-        from configurator.services.export_service import ConfigurationExportService
+        from configurator.services.export import ConfigurationExportService
         
         product = configuration.product
         
@@ -53,7 +53,10 @@ class ConfigurationToProductionService:
 
     @staticmethod
     def _create_items(ticket, configuration):
-        from configurator.services.export_service import ConfigurationExportService
+        from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
+        from configurator.services.export import ConfigurationExportService
+
+        product = configuration.product
 
         for item in configuration.items.select_related("component"):
             planning = {
@@ -80,6 +83,15 @@ class ConfigurationToProductionService:
                 planning=planning,
             )
 
-            # Assign ticket_html from ticket default
-            prod_item.ticket_html = ticket.ticket_html
+            # 2. Production Ticket (Individual)
+            ticket_template = ConfigurationExportTemplate.get_default_for_product(
+                product=product,
+                kind=ExportTemplateKind.PRODUCTION_TICKET
+            )
+            if ticket_template:
+                prod_item.ticket_html = ConfigurationExportService.render_html(prod_item, ticket_template)
+            else:
+                # Fallback to ticket default if no specific template logic is applied to individual items
+                prod_item.ticket_html = ticket.ticket_html
+            
             prod_item.save(update_fields=["ticket_html"])

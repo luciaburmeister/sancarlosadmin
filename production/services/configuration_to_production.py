@@ -82,16 +82,11 @@ class ConfigurationToProductionService:
                 },
                 planning=planning,
             )
-
-            # 2. Production Ticket (Individual)
             ticket_template = ConfigurationExportTemplate.get_default_for_product(
                 product=product,
                 kind=ExportTemplateKind.PRODUCTION_TICKET
             )
             if ticket_template:
                 prod_item.ticket_html = ConfigurationExportService.render_html(prod_item, ticket_template)
-            else:
-                # Fallback to ticket default if no specific template logic is applied to individual items
-                prod_item.ticket_html = ticket.ticket_html
             
             prod_item.save(update_fields=["ticket_html"])

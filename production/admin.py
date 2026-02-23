@@ -24,7 +24,7 @@ from production.models import (
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
 from production.views.production_item_stages_view import ProductionItemAdvanceStageView
 from production.views.production_ticket_stages_view import ProductionTicketStagesView
-
+from production.views import ProductionTicketHtmlRender
 from production.components.status_badge import StatusBadge
 from django.urls import path, reverse
 from django.shortcuts import  redirect
@@ -113,7 +113,7 @@ class ProductionItemInline(TabularInline):
 class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     change_form_template = "admin/production/productionticket/change_form.html"
 
-    list_display = ("id", "company", "status", "created_at")
+    list_display = ("id", "company","source_object","status", "created_at")
 
     list_filter = (
         ("company",AutocompleteSelectMultipleFilter),
@@ -124,6 +124,8 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
 
     search_fields = ("object_id",)
+    list_select_related = ["company"]
+    actions_row = ["view_work_order"]
 
     inlines = [ProductionItemInline]
     autocomplete_fields = ("company",)
@@ -151,26 +153,44 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         ),
     )
 
+    @action(
+        description=_("See Work Order"),
+        url_path="production-productionticketadmin-view-order",
+        attrs={"target": "_blank"}
+    )
+    def view_work_order(self,request: HttpRequest, object_id: int):
+        return redirect(
+            reverse("admin:production_productionticket_order_html", args=[object_id])
+        )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("source_object")
+
     def get_urls(self):
         urls = super().get_urls()
 
-        stages_view = self.admin_site.admin_view(
-            ProductionTicketStagesView.as_view(model_admin=self)
-        )
-        advance_view = self.admin_site.admin_view(
-            ProductionItemAdvanceStageView.as_view(model_admin=self)
-        )
-
+    
         custom = [
             path(
                 "<int:object_id>/stages/",
-                stages_view,
+                self.admin_site.admin_view(
+            ProductionTicketStagesView.as_view(model_admin=self)
+        ),
                 name="production_productionticket_stages",
             ),
             path(
                 "<int:ticket_id>/stages/<str:stage_name>/action/",
-                advance_view,
+                self.admin_site.admin_view(
+            ProductionItemAdvanceStageView.as_view(model_admin=self)
+        ),
                 name="production_productionticket_stage_action",
+            ),
+            path(
+                "<int:ticket_id>/order_html/",
+                self.admin_site.admin_view(
+            ProductionTicketHtmlRender.as_view(model_admin=self)
+        ),
+                name="production_productionticket_order_html",
             ),
         ]
         return custom + urls

@@ -163,6 +163,8 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
         ]
     
     def save(self, *args, **kwargs):
+        if not self.company_id and self.ticket_id:
+            self.company = self.ticket.company
         super().save(*args, **kwargs)
         self.ticket.recompute_status()
 
@@ -246,6 +248,8 @@ class ProductionItemSession(Timestampable, CompanyOwnedModel):
                 raise ValidationError(_("Finished sessions must have start and end times"))
             
     def save(self, *args, **kwargs):
+        if not self.company_id and self.production_item_id:
+            self.company = self.production_item.company
         self.full_clean()
         super().save(*args, **kwargs)
 

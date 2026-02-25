@@ -133,9 +133,15 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
         for item in items:
             planning = item.planning or {}
+            if stage_name not in planning:
+                continue
+
             info = planning.get(stage_name) or {}
             status = info.get("status") or ProductionItemStatus.PENDING
             infos.append((item, info, status))
+
+        if not infos:
+            return {"relevant": False}
 
         statuses = [status for _, _, status in infos]
 

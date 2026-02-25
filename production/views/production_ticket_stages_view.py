@@ -47,28 +47,22 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
         items = list(ticket.items.select_related("component").order_by("id"))
         employee = getattr(self.request.user, "employee_profile", None)
 
-        ticket_current_stage = None
-
-        for sname in stage_order:
-            if any(
-                (it.planning or {}).get(sname, {}).get("status") == ProductionItemStatus.IN_PROGRESS
-                for it in items
-            ):
-                ticket_current_stage = sname
-                break
-
-        if ticket_current_stage is None:
+        item_current_stages = {}
+        for it in items:
+            planning = it.planning or {}
+            current_s = None
             for sname in stage_order:
-                if any(
-                    ((it.planning or {}).get(sname, {}).get("status") or ProductionItemStatus.PENDING)
-                    != ProductionItemStatus.DONE
-                    for it in items
-                ):
-                    ticket_current_stage = sname
+                if planning.get(sname, {}).get("status") == ProductionItemStatus.IN_PROGRESS:
+                    current_s = sname
                     break
-
-        if ticket_current_stage is None and stage_order:
-            ticket_current_stage = stage_order[0]
+            if not current_s:
+                for sname in stage_order:
+                    if (planning.get(sname, {}).get("status") or ProductionItemStatus.PENDING) != ProductionItemStatus.DONE:
+                        current_s = sname
+                        break
+            if not current_s and stage_order:
+                current_s = stage_order[0]
+            item_current_stages[it.id] = current_s
 
         authorized_stages = stage_order
         if employee:
@@ -98,23 +92,19 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
             if grouped_item_ids:
                 unit_items = [item for item in items if item.id in grouped_item_ids]
-                unit = self._build_unit(stage_name, unit_items, employee)
+                unit = self._build_unit(stage_name, unit_items, employee, item_current_stages)
                 if unit["relevant"]:
                     units.append(unit)
 
             for item in items:
                 if item.id in grouped_item_ids:
                     continue
-                unit = self._build_unit(stage_name, [item], employee)
+                unit = self._build_unit(stage_name, [item], employee, item_current_stages)
                 if unit["relevant"]:
                     units.append(unit)
 
             if not units:
                 continue
-
-            is_current_stage = (stage_name == ticket_current_stage)
-            for u in units:
-                u["is_current"] = is_current_stage
 
             stages_ui.append({
                 "stage_name": stage_name,
@@ -128,7 +118,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
         ctx["stages_ui"] = stages_ui
         return ctx
 
-    def _build_unit(self, stage_name, items, employee):
+    def _build_unit(self, stage_name, items, employee, item_current_stages):
         infos = []
 
         for item in items:
@@ -190,6 +180,6 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             "started_at": started_at,
             "completed_at": completed_at,
             "has_active_session": has_active_session,
-            "is_current": False,
+            "is_current": any(item_current_stages.get(item.id) == stage_name for item in items),
             "relevant": relevant,
         }

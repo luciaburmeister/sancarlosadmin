@@ -1,0 +1,15 @@
+{% extends "admin/change_form.html" %}
+{% load i18n unfold %}
+
+{# This block is where the top-right “object tools” buttons live #}
+{% block object-tools-items %}
+  {{ block.super }}
+
+  {% if employee_sessions_url %}
+    <li>
+      {% component "unfold/components/button.html" with href=employee_sessions_url variant="default" %}
+        {% trans "Employee sessions" %}
+      {% endcomponent %}
+    </li>
+  {% endif %}
+{% endblock %}

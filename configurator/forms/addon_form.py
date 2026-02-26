@@ -19,8 +19,9 @@ class AddonFormsetHelper(FormHelper):
 
         self.template = "unfold_crispy/layout/table_inline_formset.html"
         self.form_id = "addon-formset"      
+        self.formset_id = "addon-formset"
         self.form_add = True                
-        self.form_tag = False           # Wizard handles <form>
+        self.form_tag = False        
         self.template_pack = "unfold_crispy"
 
 class AddonForm(forms.Form):
@@ -40,6 +41,7 @@ class AddonForm(forms.Form):
     )
 
     def __init__(self, *args, product=None, **kwargs):
+        
         super().__init__(*args, **kwargs)
         self.product = product
 
@@ -55,6 +57,7 @@ class AddonForm(forms.Form):
 
 class BaseAddonFormSet(BaseFormSet):
     def __init__(self, *args, product=None, **kwargs):
+        self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
         self.product = product
 

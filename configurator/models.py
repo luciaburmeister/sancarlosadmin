@@ -19,6 +19,7 @@ from company.models import CompanyOwnedModel
 from invoices.models import AppliedTax
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
+from django.db.models import Q
 
 
 class ConfigurationStatus(models.TextChoices):
@@ -183,6 +184,7 @@ class ProductTemplate(CompanyOwnedModel):
                     options=p.options,
                     required=p.required,
                     order=p.order,
+                    default_value=p.default_value,
                 )
             )
         ProductParameter.objects.bulk_create(params)
@@ -245,6 +247,35 @@ class ProductTemplate(CompanyOwnedModel):
         ConfigurationExportTemplate.objects.bulk_create(templates)
 
 
+class ProductTemplateComponentGroup(models.Model):
+    product_template = models.ForeignKey(
+        "configurator.ProductTemplate",
+        on_delete=models.CASCADE,
+        related_name="component_groups",
+        verbose_name=_("Product template"),
+    )
+
+    stage = models.CharField(
+        max_length=50,
+        verbose_name=_("Stage"),
+        help_text=_("Stage where these components move together"),
+    )
+
+    components = models.ManyToManyField(
+        Component,
+        blank=True,
+        related_name="component_groups",
+        verbose_name=_("Components"),
+    )
+
+    class Meta:
+        verbose_name = _("Stage component group")
+        verbose_name_plural = _("Stage component groups")
+
+    def __str__(self) -> str:
+        return f"{self.product_template} — {self.stage}"
+
+
 class ParameterType(models.TextChoices):
     NUMBER = "number", _("Number")
     TEXT = "text", _("Text")
@@ -284,6 +315,13 @@ class ProductParameter(models.Model):
     )
     parameter_group = models.CharField(
         null=True, verbose_name=_("Parameter Group"), blank=True
+    )
+    default_value = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        verbose_name=_("Default Value"),
+        help_text=_("Default value for this parameter"),
     )
 
     class Meta:
@@ -357,13 +395,21 @@ class BOMRule(CompanyOwnedModel):
         verbose_name=_("Production Stages"),
     )
 
+    note_expression = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name=_("Note expression"),
+        help_text=_("Expression to calculate a note stored in the configuration item."),
+    )
+
     class Meta:
         verbose_name = _("BOM rule")
         verbose_name_plural = _("BOM rules")
 
     EXPRESSION_FIELDS = {
         "quantity_expression": True,  # required
-        "length_expression": True,  # optional
+        "length_expression": False,   # optional
+        "note_expression": False,     # optional
     }
 
     def __str__(self):
@@ -512,6 +558,15 @@ class Configuration(Timestampable, CompanyOwnedModel):
             "Snapshot of pricing rule calculations at pricing time. "
             "Used for exports and auditing."
         ),
+    )
+
+    asset = models.ForeignKey(
+        "assets.Asset",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="configurations",
+        verbose_name=_("Asset"),
     )
 
     class Meta:
@@ -733,6 +788,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
                 item.length = length
                 item.unit_price = rule.component.compute_unit_price(context)
                 item.production_stages = rule.production_stages or []
+                item.note = safe_eval(rule.note_expression, context) if rule.note_expression else ""
                 item.save()
             else:
                 ConfigurationItem.objects.create(
@@ -743,6 +799,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
                     unit_price= rule.component.compute_unit_price(context),
                     is_template_item=True,
                     production_stages=rule.production_stages or [],
+                    note=safe_eval(rule.note_expression, context) if rule.note_expression else "",
                 )
 
         for key, item in existing_items.items():
@@ -1021,6 +1078,12 @@ class ConfigurationItem(Timestampable):
         help_text=_("Snapshot label for this configuration item"),
     )
 
+    note = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name=_("Note"),
+    )
+
     def save(self, *args, **kwargs):
         quantity = self.quantity or Decimal("0")
         length = self.length or Decimal("1")
@@ -1147,7 +1210,19 @@ class ProductComputedVariable(CompanyOwnedModel):
             raise ValidationError({"expression": f"Invalid expression: {e}"})
 
 
+class ExportTemplateKind(models.TextChoices):
+    QUOTATION = "quotation", _("Quotation")
+    PRODUCTION_ORDER = "production_order", _("Production Order")
+    PRODUCTION_TICKET = "production_ticket", _("Production Ticket")
+
+
 class ConfigurationExportTemplate(CompanyOwnedModel):
+    kind = models.CharField(
+        max_length=20,
+        choices=ExportTemplateKind.choices,
+        default=ExportTemplateKind.QUOTATION,
+        verbose_name=_("Kind"),
+    )
     product = models.ForeignKey(
         ProductTemplate,
         on_delete=models.CASCADE,
@@ -1166,6 +1241,25 @@ class ConfigurationExportTemplate(CompanyOwnedModel):
     )
 
     is_active = models.BooleanField(default=True)
+
+    @classmethod
+    def get_default_for_product(cls, product, kind):
+        """
+        Look up the most specific default template for a given product and kind.
+        Prioritizes templates explicitly linked to the product.
+        """
+        
+        templates = cls.objects.filter(
+            Q(product=product) | Q(product__isnull=True),
+            kind=kind,
+            is_active=True
+        )
+        
+        product_template = templates.filter(product=product).first()
+        if product_template:
+            return product_template
+            
+        return templates.filter(product__isnull=True).first()
 
     def __str__(self):
         return f"{self.name} (Product {self.product_id or 'Any'})"

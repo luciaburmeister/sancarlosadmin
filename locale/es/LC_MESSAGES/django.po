@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-02-07 12:21+0100\n"
+"POT-Creation-Date: 2026-02-18 15:31+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -16,6 +16,136 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Start date must be before end date."
+msgstr "La fecha de inicio debe ser antes de la fecha de fin."
+
+msgid "Fiscal year overlaps with an existing year."
+msgstr "El año fiscal se superpone con un año existente."
+
+#, fuzzy
+#| msgid "Pricing rule template"
+msgid "Parent account in the template."
+msgstr "Plantilla de regla de precios"
+
+msgid "If this account is postable."
+msgstr "Si esta cuenta se puede publicar."
+
+msgid "Entries prior to this date cannot be modified/posted."
+msgstr ""
+"Las entradas anteriores a esta fecha no pueden ser modificadas/publicadas."
+
+msgid "Asset"
+msgstr "Activo"
+
+msgid "Liability"
+msgstr "Responsabilidad"
+
+msgid "Equity"
+msgstr "Equidad"
+
+msgid "Income"
+msgstr "Ingresos"
+
+msgid "Expense"
+msgstr "Gasto"
+
+msgid "Off Balance"
+msgstr "Fuera de balance"
+
+msgid "Debit"
+msgstr "Débito"
+
+msgid "Credit"
+msgstr "Crédito"
+
+msgid "Account Currency Override"
+msgstr "Anular Moneda de Cuenta"
+
+msgid "Force this account to use a specific currency."
+msgstr "Forzar esta cuenta a utilizar una moneda específica."
+
+msgid "General"
+msgstr "General"
+
+msgid "Sales"
+msgstr "Ventas"
+
+msgid "Purchase"
+msgstr "Compra"
+
+msgid "Bank"
+msgstr "Banco"
+
+msgid "Cash"
+msgstr "Efectivo"
+
+msgid "Payroll"
+msgstr "Nómina"
+
+msgid "Draft"
+msgstr "Borrador"
+
+#, fuzzy
+#| msgid "Post time"
+msgid "Posted"
+msgstr "Hora de publicación"
+
+msgid "Cancelled"
+msgstr "Cancelado"
+
+msgid "Journal must belong to the same company."
+msgstr "El diario debe pertenecer a la misma empresa."
+
+msgid "Cannot modify a posted entry."
+msgstr "No se puede modificar una entrada publicada."
+
+msgid "Cannot post unbalanced entry."
+msgstr "No se puede publicar una entrada no equilibrada."
+
+msgid "Cannot delete a posted entry."
+msgstr "No se puede eliminar una entrada publicada."
+
+msgid "Entry is not balanced."
+msgstr "La entrada no está equilibrada."
+
+#, fuzzy
+#| msgid "Only pending sessions can be started"
+msgid "Only draft entries can be posted."
+msgstr "Solo se pueden iniciar sesiones pendientes."
+
+msgid "Cannot post empty entry."
+msgstr "No se puede publicar una entrada vacía."
+
+msgid "Cannot add or modify lines of a posted entry."
+msgstr "No se pueden agregar o modificar líneas de una entrada publicada."
+
+msgid "Line cannot have both debit and credit amounts."
+msgstr "La línea no puede tener tanto montos de débito como de crédito."
+
+msgid "Line must have either debit or credit."
+msgstr "La línea debe tener ya sea débito o crédito."
+
+msgid "Debit and Credit amounts must be non-negative."
+msgstr "Los montos de débito y crédito deben ser no negativos."
+
+msgid "Line company must match entry company."
+msgstr "La empresa de la línea debe coincidir con la empresa de entrada."
+
+msgid "Account must belong to same company."
+msgstr "La cuenta debe pertenecer a la misma empresa."
+
+msgid "Fiscal year FY 2025 is closed"
+msgstr "El año fiscal FY 2025 está cerrado."
+
+#, fuzzy
+#| msgid "Cannot post empty entry."
+msgid "Cannot post entry before lock date"
+msgstr "No se puede publicar una entrada vacía."
+
+msgid "Debit currency (EUR) must match account currency (USD)"
+msgstr ""
+"La moneda de débito (EUR) debe coincidir con la moneda de la cuenta (USD)"
 
 msgid "Español"
 msgstr "Español"
@@ -49,6 +179,12 @@ msgstr "Compañia"
 msgid "Employees"
 msgstr "Empleados"
 
+msgid "Assets"
+msgstr "Activos"
+
+msgid "Asset Types"
+msgstr "Tipos de Activos"
+
 msgid "Production"
 msgstr "Producción"
 
@@ -57,6 +193,129 @@ msgstr "Tickets de Producción"
 
 msgid "Production Items"
 msgstr "Items de Producción"
+
+#, fuzzy
+#| msgid "Configuration"
+msgid "Transaction"
+msgstr "Configuración"
+
+#, fuzzy
+#| msgid "Tax Identifier"
+msgid "Identifiers"
+msgstr "Identificador Fiscal"
+
+msgid "Name"
+msgstr "Nombre"
+
+msgid "Description"
+msgstr "Descripción"
+
+msgid "JSON Schema to validate asset data (optional)"
+msgstr "JSON Schema para validar datos de activos (opcional)"
+
+#, fuzzy
+#| msgid "Unit price"
+msgid "Asset type"
+msgstr "Precio unitario"
+
+#, fuzzy
+#| msgid "Unit price"
+msgid "Asset types"
+msgstr "Precio unitario"
+
+msgid "Asset Type"
+msgstr "Tipo de activo"
+
+#, fuzzy
+#| msgid "Client"
+msgid "Owner/Client"
+msgstr "Cliente"
+
+#, fuzzy
+#| msgid "Label"
+msgid "Name/Label"
+msgstr "Etiqueta"
+
+msgid "Flexible Data"
+msgstr "Datos Flexibles"
+
+msgid "Schema-less data for this specific asset type."
+msgstr "Datos sin esquema para este tipo específico de activo."
+
+msgid "Current Working Zone"
+msgstr "Zona de trabajo actual"
+
+#, python-brace-format
+msgid "Auto-generated movement from {from_z} to {to_z}"
+msgstr "Movimiento autogenerado de {from_z} a {to_z}"
+
+msgid "Label"
+msgstr "Etiqueta"
+
+msgid "e.g., VIN, Plate Number, SN"
+msgstr "e.j., VIN, Número de placa, SN"
+
+msgid "Value"
+msgstr "Valor"
+
+#, fuzzy
+#| msgid "Tax Identifier"
+msgid "Asset identifier"
+msgstr "Identificador Fiscal"
+
+#, fuzzy
+#| msgid "Tax Identifier"
+msgid "Asset identifiers"
+msgstr "Identificador Fiscal"
+
+#, python-format
+msgid "This label is not allowed for this company. Allowed: %(labels)s"
+msgstr ""
+"Esta etiqueta no está permitida para esta empresa. Permitido: %(labels)s"
+
+msgid "Delivery"
+msgstr "Entrega"
+
+msgid "Return"
+msgstr "Regresar"
+
+#, fuzzy
+#| msgid "Components"
+msgid "Movement"
+msgstr "Componentes"
+
+msgid "From Zone"
+msgstr "Desde la zona"
+
+msgid "To Zone"
+msgstr "A Zona"
+
+#, fuzzy
+#| msgid "Machine cost"
+msgid "Transaction Type"
+msgstr "Costo de la máquina"
+
+#, fuzzy
+#| msgid "Hire Date"
+msgid "Date"
+msgstr "Fecha de contratación"
+
+#, fuzzy
+#| msgid "Quotes"
+msgid "Notes"
+msgstr "Presupuestos"
+
+msgid "Asset transaction"
+msgstr "Transacción de activos"
+
+msgid "Asset transactions"
+msgstr "Transacciones de activos"
+
+msgid "Install Chart"
+msgstr "Instalar gráfico"
+
+msgid "Company has no Chart of Accounts template assigned."
+msgstr "La empresa no tiene una plantilla de Plan de Cuentas asignada."
 
 msgid "Employee"
 msgstr "Empleado"
@@ -68,9 +327,6 @@ msgstr "Información General"
 
 msgid "Employment"
 msgstr "Empleo"
-
-msgid "Name"
-msgstr "Nombre"
 
 msgid "Commercial Name"
 msgstr "Nombre Comercial"
@@ -106,6 +362,14 @@ msgstr "Lista ordenada de posibles etapas de producción para este producto"
 
 msgid "Production Stages"
 msgstr "Etapas de Producción"
+
+msgid "Possible labels for asset identifiers (e.g., VIN, Plate Number)"
+msgstr ""
+"Posibles etiquetas para identificadores de activos (por ejemplo, VIN, Número"
+" de Placa)"
+
+msgid "Asset Identifier Labels"
+msgstr "Etiquetas de Identificador de Activo"
 
 msgid "Male"
 msgstr "Masculino"
@@ -204,11 +468,6 @@ msgid "Parallel capacity in minutes"
 msgstr "Capacidad paralela en minutos"
 
 #, fuzzy
-#| msgid "Quotes"
-msgid "Notes"
-msgstr "Presupuestos"
-
-#, fuzzy
 #| msgid "Address"
 msgid "Email Address"
 msgstr "Dirección"
@@ -240,6 +499,77 @@ msgstr "Configuración"
 #| msgid "Configurations"
 msgid "Company Email Configurations"
 msgstr "Configuraciones"
+
+msgid "City"
+msgstr "Ciudad"
+
+#, fuzzy
+#| msgid "Post time"
+msgid "Postal Code"
+msgstr "Hora de publicación"
+
+#, fuzzy
+#| msgid "Provider"
+msgid "Province"
+msgstr "Proveedor"
+
+#, fuzzy
+#| msgid "Constitude Country"
+msgid "Country"
+msgstr "País Constituyente"
+
+#, fuzzy
+#| msgid "Activo"
+msgid "Active"
+msgstr "Activo"
+
+msgid "Working Zone"
+msgstr "Zona de Trabajo"
+
+msgid "Working Zones"
+msgstr "Zonas de Trabajo"
+
+#, fuzzy
+#| msgid "Employees"
+msgid "Employee sessions"
+msgstr "Empleados"
+
+msgid "Apply"
+msgstr "Aplicar"
+
+msgid "Reset"
+msgstr "Restablecer"
+
+#, fuzzy
+#| msgid "Active Employee"
+msgid "Back to employee"
+msgstr "Empleado Activo"
+
+msgid "Sessions"
+msgstr "Sesiones"
+
+msgid "First"
+msgstr "Primera"
+
+msgid "Previous"
+msgstr "Anterior"
+
+#, fuzzy, python-format
+#| msgid ""
+#| "\n"
+#| "                Step %(current)s of %(total)s\n"
+#| "                "
+msgid ""
+"\n"
+"              Page %(number)s of %(total)s.\n"
+"            "
+msgstr "Paso %(current)s de %(total)s"
+
+msgid "Next"
+msgstr "Siguiente"
+
+msgid "Last"
+msgstr "Última"
 
 #, fuzzy
 #| msgid "Component A"
@@ -305,6 +635,16 @@ msgid "Computed Variables"
 msgstr "Variables Computadas"
 
 #, fuzzy
+#| msgid "Component A"
+msgid "Stage component group"
+msgstr "Componente A"
+
+#, fuzzy
+#| msgid "Components"
+msgid "Stage component groups"
+msgstr "Componentes"
+
+#, fuzzy
 #| msgid "Product Templates"
 msgid "Product Template"
 msgstr "Plantillas de Producto"
@@ -330,8 +670,18 @@ msgstr "Clonar"
 msgid "Product template '%(name)s' was successfully duplicated."
 msgstr "La plantilla del producto '%(name)s' fue duplicada exitosamente."
 
-msgid "General"
-msgstr "General"
+#, fuzzy
+#| msgid "General Information"
+msgid "Client and Asset Information"
+msgstr "Información General"
+
+#, fuzzy
+#| msgid "Select"
+msgid "Select Client"
+msgstr "Seleccionar"
+
+msgid "Select Asset (Optional)"
+msgstr "Seleccionar activo (opcional)"
 
 #, fuzzy
 #| msgid "Employee"
@@ -377,9 +727,6 @@ msgstr "Nombre del trabajo / sitio"
 msgid "Post time"
 msgstr "Hora de publicación"
 
-msgid "Draft"
-msgstr "Borrador"
-
 msgid "Completed"
 msgstr "Completado"
 
@@ -400,9 +747,6 @@ msgstr "Regla de incompatibilidad"
 
 msgid "Incompatibility rules"
 msgstr "Reglas de incompatibilidad"
-
-msgid "Description"
-msgstr "Descripción"
 
 msgid "Ordered list of possible production stages for this product"
 msgstr "Lista ordenada de posibles etapas de producción para este producto"
@@ -453,6 +797,12 @@ msgstr ""
 "Las claves de los recursos de la etapa deben ser las mismas que las claves "
 "de la etapa."
 
+msgid "Stage"
+msgstr "Etapa"
+
+msgid "Stage where these components move together"
+msgstr "Etapa donde estos componentes se mueven juntos"
+
 msgid "Number"
 msgstr "Número"
 
@@ -467,9 +817,6 @@ msgstr "Seleccionar"
 
 msgid "Product"
 msgstr "Producto"
-
-msgid "Label"
-msgstr "Etiqueta"
 
 msgid "Options"
 msgstr "Opciones"
@@ -487,6 +834,12 @@ msgstr "Orden del parámetro dentro del producto"
 #| msgid "Parameter value"
 msgid "Parameter Group"
 msgstr "Valor del parámetro"
+
+msgid "Default Value"
+msgstr "Valor predeterminado"
+
+msgid "Default value for this parameter"
+msgstr "Valor predeterminado para este parámetro"
 
 msgid "Product parameter"
 msgstr "Parámetro del producto"
@@ -649,9 +1002,6 @@ msgstr ""
 "Las etapas de la regla BOM deben ser un subconjunto de las etapas de "
 "producción del producto."
 
-msgid "Stage"
-msgstr "Etapa"
-
 #, fuzzy
 #| msgid "Machine cost"
 msgid "Machines"
@@ -671,21 +1021,16 @@ msgstr "Atrás"
 msgid "Submit form"
 msgstr "Enviar formulario"
 
-msgid "First"
-msgstr "Primera"
-
-msgid "Previous"
-msgstr "Anterior"
-
 #, python-format
 msgid "Page %(number)s of %(total)s."
 msgstr "Página %(number)s de %(total)s."
 
-msgid "Next"
-msgstr "Siguiente"
-
-msgid "Last"
-msgstr "Última"
+#, python-format
+msgid ""
+"\n"
+"                Step %(current)s of %(total)s\n"
+"                "
+msgstr "Paso %(current)s de %(total)s"
 
 msgid "Cancel"
 msgstr "Cancelar"
@@ -729,11 +1074,64 @@ msgstr "No se pudo guardar: %(msg)s"
 msgid "Planning resources saved."
 msgstr "Recursos de planificación guardados."
 
-msgid "Bank Transfer"
+msgid "Warehouse"
+msgstr "Almacén"
+
+msgid "Bin/Slot"
+msgstr "Bin/Slot"
+
+msgid "Other"
+msgstr "Otro"
+
+msgid "Stockable Item"
+msgstr "Artículo Almacenable"
+
+msgid "Service"
+msgstr "Servicio"
+
+#, fuzzy
+#| msgid "Finished"
+msgid "Finished Product"
+msgstr "Finalizado"
+
+msgid "Stock In"
+msgstr "Stock Entrante"
+
+msgid "Stock Out"
+msgstr "Sin Stock"
+
+msgid "Adjustment"
+msgstr "Ajuste"
+
+#, fuzzy
+#| msgid "Bank Transfer"
+msgid "Transfer"
 msgstr "Transferencia Bancaria"
 
-msgid "Cash"
-msgstr "Efectivo"
+#, fuzzy
+#| msgid "Required"
+msgid "Requested"
+msgstr "Requerido"
+
+msgid "Reserved"
+msgstr "Reservado"
+
+msgid "Services cannot have a warehouse."
+msgstr "Los servicios no pueden tener un almacén."
+
+msgid "This item type requires a warehouse."
+msgstr "Este tipo de artículo requiere un almacén."
+
+msgid "You cannot create stock movements for services."
+msgstr "No puedes crear movimientos de stock para servicios."
+
+#, fuzzy
+#| msgid "Journal must belong to the same company."
+msgid "Warehouse must belong to the same company as the item."
+msgstr "El diario debe pertenecer a la misma empresa."
+
+msgid "Bank Transfer"
+msgstr "Transferencia Bancaria"
 
 msgid "Credit/Debit Card"
 msgstr "Tarjeta de crédito/débito"
@@ -810,6 +1208,17 @@ msgstr "Contexto"
 msgid "Reference code"
 msgstr "Código de referencia"
 
+msgid ""
+"Internal identifier used in price rules. Must start with a letter and "
+"contain only letters, numbers, or underscores. Example: steel_4058"
+msgstr ""
+"Identificador interno utilizado en las reglas de precios. Debe comenzar con "
+"una letra y contener solo letras, números o guiones bajos. Ejemplo: "
+"steel_4058"
+
+msgid "Rule key"
+msgstr "Clave de regla"
+
 msgid "Category"
 msgstr "Categoría"
 
@@ -851,11 +1260,25 @@ msgstr ""
 "Debe devolver True o False.\n"
 "Ejemplo: width <= 1000 y quantity >= 10"
 
+msgid ""
+"Enter an expression to calculate cost. Context: base_cost (if fallback) or "
+"material prices."
+msgstr ""
+"Ingrese una expresión para calcular el costo. Contexto: base_cost (si se "
+"necesita un valor de respaldo) o precios de materiales."
+
 msgid "Lower values are evaluated first"
 msgstr "Los valores más bajos se evalúan primero."
 
 msgid "Used if no other rule matches"
 msgstr "Usado si ninguna otra regla coincide"
+
+msgid ""
+"Rule key must start with a letter and contain only letters, numbers, or "
+"underscores."
+msgstr ""
+"La clave de la regla debe comenzar con una letra y contener solo letras, "
+"números o guiones bajos."
 
 #, fuzzy
 #| msgid "Production Stages"
@@ -873,9 +1296,6 @@ msgstr "Vista Kanban"
 msgid "Assigned Employees"
 msgstr "Empleados Asignados"
 
-msgid "Sessions"
-msgstr "Sesiones"
-
 msgid "Stage status"
 msgstr "Estado de la etapa"
 
@@ -887,9 +1307,6 @@ msgstr "En Progreso"
 
 msgid "Done"
 msgstr "Hecho"
-
-msgid "Cancelled"
-msgstr "Cancelado"
 
 msgid "Company-specific context"
 msgstr "Contexto específico de la empresa"
@@ -906,15 +1323,24 @@ msgstr "Etapas de producción y progreso por artículo"
 msgid "Process Planning"
 msgstr "Planificación del Proceso"
 
-#, fuzzy
-#| msgid "In Progress"
-msgid "In progress"
-msgstr "En Progreso"
+msgid "Activity started"
+msgstr "Actividad iniciada"
+
+msgid "Activity finished"
+msgstr "Actividad finalizada"
 
 #, fuzzy
-#| msgid "Production Stages"
+#| msgid "Session already started"
+msgid "Session started"
+msgstr "La sesión ya ha comenzado"
+
+#, fuzzy
+#| msgid "Sessions"
+msgid "Session finished"
+msgstr "Sesiones"
+
 msgid "Production Item"
-msgstr "Etapas de Producción"
+msgstr "Item de Producción"
 
 msgid "End Time"
 msgstr "Hora de finalización"
@@ -924,20 +1350,14 @@ msgstr "Hora de finalización"
 msgid "Comments"
 msgstr "Componentes"
 
-#, fuzzy
-#| msgid "Production Stages"
 msgid "Production Stage"
 msgstr "Etapas de Producción"
 
-#, fuzzy
-#| msgid "Created at"
 msgid "Created by"
 msgstr "Creado en"
 
-#, fuzzy
-#| msgid "Completed"
 msgid "Completed by"
-msgstr "Completado"
+msgstr "Completado por"
 
 msgid "End time cannot be before start time"
 msgstr "La hora de finalización no puede ser anterior a la hora de inicio."
@@ -978,12 +1398,10 @@ msgstr "¿Podrías proporcionar el texto que deseas traducir?"
 #, fuzzy
 #| msgid "Production Stages"
 msgid "Production Kanban"
-msgstr "Etapas de Producción"
+msgstr "Kaban de Producción"
 
-#, fuzzy
-#| msgid "Back to ticket"
 msgid "Back to list"
-msgstr "Volver al ticket"
+msgstr "Volver a la lista"
 
 msgid "Assigned"
 msgstr "Asignado"
@@ -1006,14 +1424,13 @@ msgstr "Tickets de Producción"
 msgid "Back to ticket"
 msgstr "Volver al ticket"
 
-msgid "Item"
+#, fuzzy
+#| msgid "Item"
+msgid "Items"
 msgstr "Elemento"
 
 msgid "Started"
 msgstr "Empezado"
-
-msgid "Action"
-msgstr "Acción"
 
 msgid "Start activity"
 msgstr "Iniciar actividad"
@@ -1027,10 +1444,9 @@ msgstr "Iniciar sesión"
 msgid "Finish activity"
 msgstr "Finalizar actividad"
 
-msgid "No stages defined for this item"
-msgstr "No hay etapas definidas para este elemento"
-
-msgid "No production items found for this ticket"
+#, fuzzy
+#| msgid "No production items found for this ticket"
+msgid "No production stages found for this ticket"
 msgstr "No se han encontrado elementos de producción para este ticket"
 
 msgid "Permission denied"
@@ -1044,10 +1460,13 @@ msgstr "Estado"
 msgid "Invalid action"
 msgstr "Acción inválida"
 
-#, fuzzy
-#| msgid "Your user is not linked to an Employee"
 msgid "Your user is not linked to an Employee."
 msgstr "Tu usuario no está vinculado a un Empleado"
+
+#, fuzzy
+#| msgid "No stages defined for this item"
+msgid "No items selected for this stage action."
+msgstr "No hay etapas definidas para este elemento"
 
 msgid "e.g., SEBASTIAN HERRERO"
 msgstr "e.j., SEBASTIÁN HERRERO"
@@ -1130,8 +1549,14 @@ msgstr "artículo de Presupuesto"
 msgid "Quote items"
 msgstr "articulos de Presupuesto"
 
+#~ msgid "In progress"
+#~ msgstr "En Progreso"
+
+#~ msgid "Action"
+#~ msgstr "Acción"
+
 #~ msgid "Start"
 #~ msgstr "Empezar"
 
-#~ msgid "Finished"
-#~ msgstr "Finalizado"
+#~ msgid "Your user is not linked to an Employee"
+#~ msgstr "Tu usuario no está vinculado a un Empleado"

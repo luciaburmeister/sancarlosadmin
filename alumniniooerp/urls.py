@@ -28,6 +28,7 @@ def health(request):
 urlpatterns = [
     path("health/", health, name="health"),
     path("i18n/", include("django.conf.urls.i18n")),
+    path('hijack/', include('hijack.urls')),
 ] 
 
 

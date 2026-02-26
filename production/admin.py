@@ -1,6 +1,16 @@
 from django.contrib import admin
-from unfold.admin import ModelAdmin, TabularInline,StackedInline,GenericTabularInline
+from django.http import HttpRequest
+from unfold.admin import ModelAdmin, TabularInline,StackedInline
 from django.utils.translation import gettext_lazy as _
+from django.utils.html import format_html
+from django.urls import path, reverse
+from core.admin.company_admin import CompanyRestrictedAdmin
+from unfold.contrib.filters.admin import (
+    AutocompleteSelectMultipleFilter
+)
+from unfold.admin import ModelAdmin, TabularInline, StackedInline
+from unfold.decorators import display
+
 from production.models import (
     ProductionTicket,
     ProductionItem,
@@ -11,27 +21,22 @@ from production.models import (
     ProductionResource,
     OperationRequirement,
 )
-from production.views.production_stages_view import (
-    ProductionItemAdvanceStageView,
-)
-from django.http import HttpRequest
-from django.utils.html import format_html
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
-
+from production.views.production_item_stages_view import ProductionItemAdvanceStageView
+from production.views.production_ticket_stages_view import ProductionTicketStagesView
+from production.views import ProductionTicketHtmlRender
+from production.components.status_badge import StatusBadge
 from django.urls import path, reverse
-from django.shortcuts import get_object_or_404, redirect
-
-from unfold.views import UnfoldModelAdminViewMixin
+from django.shortcuts import  redirect
 from unfold.decorators import display, action
 
-from django.views.generic import TemplateView
 
 
 class ProductionItemInline(TabularInline):
     model = ProductionItem
     extra = 0
     show_change_link = True
-    tab=True
+    tab = True
 
     fields = (
         "status",
@@ -45,16 +50,11 @@ class ProductionItemInline(TabularInline):
         if not obj.planning:
             return "-"
 
-        STATUS_COLORS = {
-            "pending": "#9ca3af",       # gray
-            "in_progress": "#f59e0b",   # amber
-            "done": "#10b981",          # green
-            "cancelled": "#ef4444",     # red
-        }
+        STATUS_COLORS = StatusBadge.STATUS_COLORS
 
         rows = []
-        for stage, info in obj.planning.items():
-            status = info.get("status", "-")
+        for stage, info in (obj.planning or {}).items():
+            status = (info or {}).get("status", "-")
             color = STATUS_COLORS.get(status, "#6b7280")
 
             rows.append(
@@ -109,104 +109,26 @@ class ProductionItemInline(TabularInline):
         )
 
 
-class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
-    title = _("Production stages")
-    permission_required = ("production.view_productionticket",)
-    template_name = "admin/production/productionticket/planning.html"
-
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-
-        ticket = get_object_or_404(ProductionTicket, pk=self.kwargs["object_id"])
-        ctx["ticket"] = ticket
-
-        items_ui = []
-        for item in ticket.items.order_by("id"):
-            planning = item.planning or {}
-
-            stage_names = list(planning.keys())
-
-            stages = []
-            for stage_name in stage_names:
-                stage_info = planning.get(stage_name) or {}
-
-                has_active_session = ProductionItemSession.objects.filter(
-                    production_item=item,
-                    production_stage=stage_name,
-                    status=ProductionItemSessionStatus.IN_PROGRESS,
-                ).exists()
-
-                stages.append({
-                    "name": stage_name,
-                    "status": stage_info.get("status") or ProductionItemSessionStatus.PENDING,
-                    "started_at": stage_info.get("started_at"),
-                    "completed_at": stage_info.get("completed_at"),
-                    "has_active_session": has_active_session,
-                })
-
-            current_index = None
-
-            for index, stage in enumerate(stages):
-                if stage["status"] == ProductionItemSessionStatus.IN_PROGRESS:
-                    current_index = index
-                    break
-
-            if current_index is None:
-                for index, stage in enumerate(stages):
-                    if stage["status"] != ProductionItemSessionStatus.DONE:
-                        current_index = index
-                        break
-
-            for s in stages:
-                s.setdefault("has_active_session", False)
-
-            employee = getattr(self.request.user, "employee_profile", None)
-            if current_index is not None and employee is not None:
-                current_stage_name = stages[current_index]["name"]
-                stages[current_index]["has_active_session"] = ProductionItemSession.objects.filter(
-                    production_item=item,
-                    production_stage=current_stage_name,
-                    created_by=employee,
-                    status=ProductionItemSessionStatus.IN_PROGRESS,
-                ).exists()
-
-
-            items_ui.append({
-                "item": item,
-                "stages": stages,
-                "current_index": current_index,
-                "advance_url": reverse(
-                    "admin:production_productionticket_item_advance",
-                    args=[ticket.pk, item.pk],
-                ),
-            })
-
-        ctx["items_ui"] = items_ui
-        return ctx
-        
-
 @admin.register(ProductionTicket)
-class ProductionTicketAdmin(ModelAdmin):
+class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     change_form_template = "admin/production/productionticket/change_form.html"
 
-    list_display = (
-        "id",
-        "status",
-        "created_at",
-    )
+    list_display = ("id", "company","source_object","status", "created_at")
 
     list_filter = (
+        ("company",AutocompleteSelectMultipleFilter),
         TicketStageFilter,
         TicketStageStatusFilter,
         "status",
         "content_type",
     )
 
-    search_fields = (
-        "object_id",
-    )
+    search_fields = ("object_id",)
+    list_select_related = ["company"]
+    actions_row = ["view_work_order"]
 
     inlines = [ProductionItemInline]
+    autocomplete_fields = ("company",)
 
     readonly_fields = (
         "content_type",
@@ -221,6 +143,7 @@ class ProductionTicketAdmin(ModelAdmin):
             None,
             {
                 "fields": (
+                    "company",
                     "status",
                     ("content_type", "object_id"),
                     "source_object",
@@ -230,30 +153,54 @@ class ProductionTicketAdmin(ModelAdmin):
         ),
     )
 
+    @action(
+        description=_("See Work Order"),
+        url_path="production-productionticketadmin-view-order",
+        attrs={"target": "_blank"}
+    )
+    def view_work_order(self,request: HttpRequest, object_id: int):
+        return redirect(
+            reverse("admin:production_productionticket_order_html", args=[object_id])
+        )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("source_object")
+
     def get_urls(self):
         urls = super().get_urls()
 
-        stages_view = self.admin_site.admin_view(ProductionTicketStagesView.as_view(model_admin=self))
-
-        advance_view = self.admin_site.admin_view(ProductionItemAdvanceStageView.as_view(model_admin=self))
-
+    
         custom = [
-            path("<int:object_id>/stages/", stages_view, name="production_productionticket_stages",
+            path(
+                "<int:object_id>/stages/",
+                self.admin_site.admin_view(
+            ProductionTicketStagesView.as_view(model_admin=self)
+        ),
+                name="production_productionticket_stages",
             ),
             path(
-                "<int:ticket_id>/stages/item/<int:item_id>/advance/",
-                advance_view, name="production_productionticket_item_advance",
+                "<int:ticket_id>/stages/<str:stage_name>/action/",
+                self.admin_site.admin_view(
+            ProductionItemAdvanceStageView.as_view(model_admin=self)
+        ),
+                name="production_productionticket_stage_action",
+            ),
+            path(
+                "<int:ticket_id>/order_html/",
+                self.admin_site.admin_view(
+            ProductionTicketHtmlRender.as_view(model_admin=self)
+        ),
+                name="production_productionticket_order_html",
             ),
         ]
         return custom + urls
-    
 
-    
+
 class ProductionItemSessionInline(StackedInline):
     model = ProductionItemSession
     extra = 0
     show_change_link = True
-    tab=True
+    tab = True
 
     fields = (
         "session_type_display",
@@ -272,7 +219,6 @@ class ProductionItemSessionInline(StackedInline):
         "duration_display",
     )
 
-
     ordering = ("-start_time",)
 
     def duration_display(self, obj):
@@ -285,40 +231,35 @@ class ProductionItemSessionInline(StackedInline):
 
     duration_display.short_description = _("Duration")
 
-
     @display(
         description=_("Type"),
         label={
-            "activity finished": "success",
-            "session finished": "info",
+            "activityfinished": "success",
+            "session_finished": "info",
             "working": "warning",
         },
-)
+    )
     def session_type_display(self, obj):
-        comments = (obj.comments or "").lower()
-
-        if "activity finished" in comments:
-            return "Activity finished"
-
-        if "session finished" in comments:
-            return "Session finished"
+        if obj.kind:
+            return obj.get_kind_display()
 
         if obj.status == ProductionItemSessionStatus.IN_PROGRESS:
-            return "Working"
+            return "working"
 
         return None
-
-    session_type_display.short_description = _("Type")
 
 
 class OperationRequirementInline(TabularInline):
     model = OperationRequirement
     extra = 0
+
+
 @admin.register(ProductionItem)
-class ProductionItemAdmin(ModelAdmin):
+class ProductionItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
     actions_list = ["kanban_view_action"]
     list_display = (
         "id",
+        "company",
         "ticket",
         "status",
         "assigned_employees_display",
@@ -326,9 +267,9 @@ class ProductionItemAdmin(ModelAdmin):
         "created_at",
     )
 
-    list_filter = ("status",)
+    list_filter = (("company",AutocompleteSelectMultipleFilter), "status")
     search_fields = ("id", "ticket__id")
-    
+
     readonly_fields = (
         "component",
         "component_id",
@@ -343,6 +284,7 @@ class ProductionItemAdmin(ModelAdmin):
             None,
             {
                 "fields": (
+                    "company",
                     "ticket",
                     "status",
                     ("component", "component_id"),
@@ -384,10 +326,12 @@ class ProductionItemAdmin(ModelAdmin):
 
     sessions_count.short_description = _("Sessions")
 
+
 @admin.register(ProductionItemSession)
-class ProductionItemSessionAdmin(ModelAdmin):
+class ProductionItemSessionAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = (
         "id",
+        "company",
         "production_item",
         "production_stage",
         "show_status_colored",
@@ -396,6 +340,7 @@ class ProductionItemSessionAdmin(ModelAdmin):
     )
 
     list_filter = (
+        "company",
         "status",
         "production_stage",
     )
@@ -419,28 +364,24 @@ class ProductionItemSessionAdmin(ModelAdmin):
     )
 
     ordering = ("-created_at",)
-    
+
     @display(
         description=_("Status"),
         ordering="status",
         label={
-            ProductionItemSessionStatus.DONE: "success",  # green
-            ProductionItemSessionStatus.PENDING: "info",  # blue
-            ProductionItemSessionStatus.IN_PROGRESS: "warning",  # orange
-            ProductionItemSessionStatus.CANCELLED: "danger",  # red
+            ProductionItemSessionStatus.DONE: "success",
+            ProductionItemSessionStatus.PENDING: "info",
+            ProductionItemSessionStatus.IN_PROGRESS: "warning",
+            ProductionItemSessionStatus.CANCELLED: "danger",
         },
     )
     def show_status_colored(self, obj):
         return obj.status
-    
+
+
 @admin.register(ProductionResource)
 class ProductionResourceAdmin(ModelAdmin):
-    list_display = (
-        "id",
-        "target",
-        "daily_capacity_minutes",
-        "is_active",
-    )
+    list_display = ("id", "target", "daily_capacity_minutes", "is_active")
     list_filter = ("is_active",)
     search_fields = ("object_id",)
     readonly_fields = ("target",)
@@ -451,13 +392,14 @@ class ProductionResourceAdmin(ModelAdmin):
             "fields": (
                 ("content_type", "object_id"),
                 "daily_capacity_minutes",
-                ("company","is_active"),
+                ("company", "is_active"),
             )
         }),
     )
 
     def target(self, obj):
         return obj.target
+
 
 class PlannedSessionResourceInline(TabularInline):
     model = PlannedSessionResource

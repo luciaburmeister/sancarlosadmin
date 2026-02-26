@@ -3,6 +3,7 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from django_countries.fields import CountryField
 from django.contrib.postgres.fields import ArrayField
+from location_field.models.spatial import LocationField
 
 User = get_user_model()
 
@@ -24,6 +25,13 @@ class Company(models.Model):
         help_text=_("Ordered list of possible production stages for this company"),
         verbose_name=_("Production Stages"),
     )
+    asset_identifier_labels = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text=_("Possible labels for asset identifiers (e.g., VIN, Plate Number)"),
+        verbose_name=_("Asset Identifier Labels"),
+    )
 
 
     def __str__(self):
@@ -35,7 +43,8 @@ class CompanyOwnedModel(models.Model):
         on_delete=models.CASCADE,
         related_name="%(class)ss",
         null=True,
-        blank=False
+        blank=False,
+        verbose_name=_("Company")
     )
 
     class Meta:
@@ -138,6 +147,14 @@ class Employee(CompanyOwnedModel):
 
     type = models.ForeignKey(EmployeeType, on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_("Type"))
 
+    production_stages = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        verbose_name=_("Assigned Production Stages"),
+        help_text=_("Stages this employee is authorized to work on"),
+    )
+
     class Meta:
         verbose_name = _("Employee")
         verbose_name_plural = _("Employees")
@@ -204,3 +221,20 @@ class CompanyEmailConfig(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.email_address} ({self.company})"
+
+class WorkingZone(CompanyOwnedModel):
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+    street_address = models.CharField(max_length=255, verbose_name=_("Address"), default="")
+    city = models.CharField(max_length=100, verbose_name=_("City"), default="")
+    postal_code = models.CharField(max_length=20, verbose_name=_("Postal Code"), default="")
+    province = models.CharField(max_length=100, verbose_name=_("Province"), default="")
+    country = CountryField(verbose_name=_("Country"), default="ES")
+    location = LocationField(based_fields=['street_address', 'city', 'postal_code', 'province', 'country'], zoom=18, default='POINT(36.7178 4.4256)')
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Working Zone")
+        verbose_name_plural = _("Working Zones")
+
+    def __str__(self):
+        return f"{self.name} ({self.company})"

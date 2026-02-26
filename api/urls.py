@@ -6,4 +6,6 @@ urlpatterns = [
     path("assets/", views.assets_view, name="api_assets"), #Use Django rest framework and viewsets for better API design and functionality
     path("assets/<int:asset_id>/pickup/", views.pickup_view, name="api_pickup"),
     path("assets/<int:asset_id>/deliver/", views.deliver_view, name="api_deliver"),
+    path("assets/<int:asset_id>/qr/", views.asset_qr_view),
+    path("assets/<int:asset_id>/", views.asset_by_id_view)
 ]

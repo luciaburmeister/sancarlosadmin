@@ -8,12 +8,14 @@ from django_json_widget.widgets import JSONEditorWidget
 from assets.models import Asset, AssetIdentifier, AssetTransaction
 from unfold.widgets import UnfoldAdminSelectWidget
 from django import forms
-from django.urls import resolve
+from django.urls import resolve, reverse
+from django.utils.html import format_html
+
 
 class AssetIdentifierInline(TabularInline):
     model = AssetIdentifier
     extra = 1
-    tab=True
+    tab = True
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         if db_field.name == "label":
@@ -31,7 +33,6 @@ class AssetIdentifierInline(TabularInline):
                 pass
         return super().formfield_for_dbfield(db_field, request, **kwargs)
 
-        return super().formfield_for_dbfield(db_field, request, **kwargs)
 
 class AssetTransactionInline(StackedInline):
     model = AssetTransaction
@@ -52,9 +53,10 @@ class AssetTransactionInline(StackedInline):
         ),
     )
 
+
 @admin.register(Asset)
 class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
-    list_display = ("name", "asset_type", "client", "assigned_to", "get_identifiers")
+    list_display = ("name", "asset_type", "client", "assigned_to", "qr_link", "get_identifiers")
     list_filter = ("asset_type", "client", "assigned_to")
     search_fields = ("name", "identifiers__value")
     inlines = [AssetIdentifierInline, AssetTransactionInline]
@@ -62,6 +64,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
         models.JSONField: {"widget": JSONEditorWidget},
     }
     autocomplete_fields = ["asset_type", "client", "company", "current_working_zone"]
+    readonly_fields = ("qr_code_preview",)
     fieldsets = (
         (
             _("Asset"),
@@ -70,12 +73,40 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
                     ("name", "asset_type"),
                     ("client", "company"),
                     ("current_working_zone"),
-                    ("assigned_to"),      # ← added here
+                    ("assigned_to"),
                     "data",
                 )
             },
         ),
+        (
+            _("QR Code"),
+            {
+                "fields": ("qr_code_preview",),
+            },
+        ),
     )
+
+    def qr_code_preview(self, obj):
+        """Shows the QR code image directly in the asset detail page."""
+        if obj.pk:
+            url = f"/en/api/assets/{obj.pk}/qr/"
+            return format_html(
+                '<a href="{}" target="_blank">'
+                '<img src="{}" style="width:200px; height:200px;" />'
+                '<br><small>Haz clic para abrir en pantalla completa e imprimir</small>'
+                '</a>',
+                url, url
+            )
+        return _("Guarda el asset primero para ver el QR.")
+    qr_code_preview.short_description = _("QR Code")
+
+    def qr_link(self, obj):
+        """Shows a small QR link in the asset list."""
+        if obj.pk:
+            url = f"/en/api/assets/{obj.pk}/qr/"
+            return format_html('<a href="{}" target="_blank"> QR</a>', url)
+        return "-"
+    qr_link.short_description = _("QR")
 
     def get_identifiers(self, obj):
         return ", ".join([f"{i.label}: {i.value}" for i in obj.identifiers.all()])

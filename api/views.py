@@ -1,5 +1,5 @@
 from django.contrib.auth import authenticate
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.contrib.auth.models import User
@@ -9,6 +9,8 @@ from django.utils import timezone
 import json
 import secrets
 import math
+import qrcode
+import io
 
 
 # Simple in-memory token store (replace with database tokens in production)
@@ -30,8 +32,7 @@ def get_user_from_token(request):
 
 
 def haversine_distance(lat1, lon1, lat2, lon2):
-    """Calculate distance in metres between two GPS coordinates."""
-    R = 6371000  # Earth radius in metres
+    R = 6371000
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
@@ -41,8 +42,6 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 
 
 def get_zone_coordinates(zone):
-    """Extract latitude and longitude from a WorkingZone location field.
-    The location field stores as 'SRID=4326;POINT (-3.674 40.432)' string."""
     try:
         point_str = str(zone.location)
         if ";" in point_str:
@@ -56,7 +55,6 @@ def get_zone_coordinates(zone):
 
 
 def find_zone_within_radius(latitude, longitude, company, radius_metres=10000):
-    """Find a WorkingZone within radius_metres of the given coordinates."""
     zones = WorkingZone.objects.filter(company=company, is_active=True)
     for zone in zones:
         zone_lat, zone_lon = get_zone_coordinates(zone)
@@ -80,7 +78,7 @@ def login_view(request):
 
     user = authenticate(username=username, password=password)
     if user is None:
-        return JsonResponse({"error": "Usuario o contraseña incorrectos"}, status=401)
+        return JsonResponse({"error": "Usuario o contraseña incorrectos. Por favor inténtalo de nuevo."}, status=401)
 
     token = secrets.token_hex(32)
     active_tokens[token] = user.id
@@ -119,8 +117,58 @@ def assets_view(request):
             "zone_lon": zone_coords[1],
         })
 
-
     return JsonResponse({"assets": data})
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def asset_by_id_view(request, asset_id):
+    """Returns a single asset by ID — used after QR scan."""
+    user = get_user_from_token(request)
+    if user is None:
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
+    try:
+        asset = Asset.objects.select_related("asset_type", "current_working_zone").get(id=asset_id)
+    except Asset.DoesNotExist:
+        return JsonResponse({"error": "Asset not found"}, status=404)
+
+    last_tx = asset.transactions.order_by("-date").first()
+    zone = asset.current_working_zone
+    zone_coords = get_zone_coordinates(zone) if zone else (None, None)
+
+    return JsonResponse({
+        "id": asset.id,
+        "code": asset.name,
+        "description": asset.asset_type.name if asset.asset_type else "",
+        "status": get_asset_status(last_tx),
+        "last_location": str(zone) if zone else None,
+        "last_updated": last_tx.date.strftime("%d/%m/%Y %H:%M") if last_tx else None,
+        "zone_address": f"{zone.street_address}, {zone.city}, {zone.postal_code}" if zone else None,
+        "zone_lat": zone_coords[0],
+        "zone_lon": zone_coords[1],
+        "assigned_to": asset.assigned_to.username if asset.assigned_to else None,
+    })
+
+
+@require_http_methods(["GET"])
+def asset_qr_view(request, asset_id):
+    """Returns a QR code image for an asset. Open in browser to print."""
+    try:
+        asset = Asset.objects.get(id=asset_id)
+    except Asset.DoesNotExist:
+        return HttpResponse("Asset not found", status=404)
+
+    qr = qrcode.QRCode(version=1, box_size=10, border=4)
+    qr.add_data(str(asset_id))
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+
+    return HttpResponse(buffer, content_type="image/png")
 
 
 @csrf_exempt
@@ -142,27 +190,19 @@ def pickup_view(request, asset_id):
     except Asset.DoesNotExist:
         return JsonResponse({"error": "Asset not found"}, status=404)
 
-    # DEBUG
-    print(f"Asset: {asset.name}")
-    print(f"Current working zone: {asset.current_working_zone}")
-    print(f"Zone location: {asset.current_working_zone.location if asset.current_working_zone else 'None'}")
-    print(f"Worker location: lat={latitude}, lon={longitude}")
-
     if asset.current_working_zone is None:
-        return JsonResponse({"error": "This asset has no assigned pickup location."}, status=400)
+        return JsonResponse({"error": "Este cubo no tiene ubicación de recogida asignada."}, status=400)
 
     zone_lat, zone_lon = get_zone_coordinates(asset.current_working_zone)
     if zone_lat is None:
-        return JsonResponse({"error": "Pickup zone has no coordinates configured."}, status=400)
+        return JsonResponse({"error": "La zona de recogida no tiene coordenadas configuradas."}, status=400)
 
     distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
-    print(f"Zone coords: lat={zone_lat}, lon={zone_lon}")
-    print(f"Distance: {distance}m")
 
     if distance > 10000:
         return JsonResponse({
-            "error": f"Estas muy lejos de la ubicación ({asset.current_working_zone}). "
-                     f"Estas a {int(distance)}m. Tienes que estar dentro de 50m de la ubicación."
+            "error": f"Estás demasiado lejos de {asset.current_working_zone}. "
+                     f"Estás a {int(distance)}m. Debes estar a menos de 50m."
         }, status=400)
 
     AssetTransaction.objects.create(
@@ -172,10 +212,10 @@ def pickup_view(request, asset_id):
         to_zone=None,
         transaction_type=TransactionTypeChoices.MOVEMENT,
         date=timezone.now(),
-        notes=f"Picked up by {user.username}. GPS: {latitude}, {longitude}. Distance from zone: {int(distance)}m",
+        notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
     )
 
-    return JsonResponse({"success": True, "message": "Pickup recorded"})
+    return JsonResponse({"success": True, "message": "Recogida registrada"})
 
 
 @csrf_exempt
@@ -197,11 +237,10 @@ def deliver_view(request, asset_id):
     except Asset.DoesNotExist:
         return JsonResponse({"error": "Asset not found"}, status=404)
 
-    # Find which zone the worker is currently at
     destination_zone, distance = find_zone_within_radius(latitude, longitude, asset.company)
     if destination_zone is None:
         return JsonResponse({
-            "error": "No esta lo suficientemente cerca de ninguna ubicación conocida. Debes estar a menos de 50m de una ubicación para entregar."
+            "error": "No estás cerca de ninguna zona de entrega conocida. Debes estar a menos de 50m."
         }, status=400)
 
     AssetTransaction.objects.create(
@@ -211,16 +250,15 @@ def deliver_view(request, asset_id):
         to_zone=destination_zone,
         transaction_type=TransactionTypeChoices.DELIVERY,
         date=timezone.now(),
-        notes=f"Delivered by {user.username} to {destination_zone}. GPS: {latitude}, {longitude}. Distance from zone: {int(distance)}m",
+        notes=f"Entregado por {user.username} en {destination_zone}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
     )
 
-    # Update the asset's current working zone to where it was delivered
     asset.current_working_zone = destination_zone
     asset.save()
 
     return JsonResponse({
         "success": True,
-        "message": f"Delivery recorded to {destination_zone}"
+        "message": f"Entrega registrada en {destination_zone}"
     })
 
 

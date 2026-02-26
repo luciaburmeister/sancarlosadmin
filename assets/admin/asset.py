@@ -54,14 +54,14 @@ class AssetTransactionInline(StackedInline):
 
 @admin.register(Asset)
 class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
-    list_display = ("name", "asset_type", "client", "get_identifiers")
-    list_filter = ("asset_type", "client")
+    list_display = ("name", "asset_type", "client", "assigned_to", "get_identifiers")
+    list_filter = ("asset_type", "client", "assigned_to")
     search_fields = ("name", "identifiers__value")
     inlines = [AssetIdentifierInline, AssetTransactionInline]
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
     }
-    autocomplete_fields = ["asset_type", "client","company","current_working_zone"]
+    autocomplete_fields = ["asset_type", "client", "company", "current_working_zone"]
     fieldsets = (
         (
             _("Asset"),
@@ -70,6 +70,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
                     ("name", "asset_type"),
                     ("client", "company"),
                     ("current_working_zone"),
+                    ("assigned_to"),      # ← added here
                     "data",
                 )
             },

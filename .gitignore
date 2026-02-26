@@ -16,6 +16,7 @@ __pycache__/
 .env
 .env_prod
 .venv
+venv/
 box_config.json
 __pycache__
 **/__pycache__/**

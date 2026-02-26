@@ -6,6 +6,9 @@ from company.models import CompanyOwnedModel, WorkingZone
 from django.core.exceptions import ValidationError
 from timestamps.models import Timestampable
 from django.utils import timezone
+from django.contrib.auth import get_user_model
+User = get_user_model()
+
 
 class AssetType(CompanyOwnedModel):
     """
@@ -19,6 +22,8 @@ class AssetType(CompanyOwnedModel):
         blank=True, 
         help_text=_("JSON Schema to validate asset data (optional)")
     )
+
+    
 
     class Meta:
         verbose_name = _("Asset type")
@@ -58,8 +63,16 @@ class Asset(CompanyOwnedModel):
         null=True,
         blank=True,
         related_name="current_assets",
-        verbose_name=_("Current Working Zone")
-    )
+        verbose_name=_("Current Working Zone"))
+
+    assigned_to = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_assets",
+        verbose_name=_("Assigned To")
+        )
     
     history = HistoricalRecords()
 

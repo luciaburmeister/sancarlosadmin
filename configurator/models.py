@@ -697,6 +697,15 @@ class Configuration(Timestampable, CompanyOwnedModel):
         """
         items = self.items.filter(is_template_item=True)
         return {self._bom_item_key(item.component_id): item for item in items}
+    
+    def _get_item_stage_resources_snapshot(self, *, stages: list[str]) -> dict:
+        """
+        Returns the subset of product.production_planning_resources
+        relevant to the given stages.
+        """
+        product_resources = self.product.production_planning_resources or {}
+
+        return {stage: product_resources.get(stage, {}) for stage in (stages or [])}
 
     def generate_bom(self):
         """
@@ -726,8 +735,11 @@ class Configuration(Timestampable, CompanyOwnedModel):
                 item.length = length
                 item.unit_price = rule.component.compute_unit_price(context)
                 item.production_stages = rule.production_stages or []
+                item.stage_resources = self._get_item_stage_resources_snapshot(stages=item.production_stages)
                 item.save()
             else:
+                stages = rule.production_stages or []
+
                 ConfigurationItem.objects.create(
                     configuration=self,
                     component=rule.component,
@@ -735,7 +747,8 @@ class Configuration(Timestampable, CompanyOwnedModel):
                     length=length,
                     unit_price= rule.component.compute_unit_price(context),
                     is_template_item=True,
-                    production_stages=rule.production_stages or [],
+                    production_stages=stages,
+                    stage_resources=self._get_item_stage_resources_snapshot(stages=stages),
                 )
 
         for key, item in existing_items.items():
@@ -993,6 +1006,13 @@ class ConfigurationItem(Timestampable):
         blank=True,
         help_text=_("Production stages inherited from BOM rule"),
         verbose_name=_("Production stages"),
+    )
+
+    stage_resources = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Stage resources"),
+        help_text=_("Snapshot of resources needed per stage for this item."),
     )
 
     label = models.CharField(

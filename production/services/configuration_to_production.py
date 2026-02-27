@@ -1,5 +1,6 @@
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
+from django.db.models import F, Sum, ExpressionWrapper, DurationField
 from company.models import Machine, MachineType
 from production.models import ProductionResource, ProductionTicket, ProductionItem, PlannedProductionSession, PlannedProductionSessionSource
 from datetime import datetime, time, timedelta
@@ -76,12 +77,36 @@ class ConfigurationToProductionService:
 
                 num_machines = len(Machine.objects.filter(type=machine_type))
 
+                total_possible_time = Machine.objects.filter(type=machine_type).aggregate(total=Sum("daily_capacity_minutes"))["total"] or 0
+
                 while True:
+                    start_of_day = timezone.make_aware(
+                        timezone.datetime.combine(search_start_time.date(), time(hour=SCHEDULE["start"]))
+                    )
                     end_of_day = timezone.make_aware(
                         timezone.datetime.combine(search_start_time.date(), time(hour=SCHEDULE["end"]))
                     )
 
-                    if search_start_time + duration > end_of_day:
+                    used_duration = (
+                        PlannedProductionSession.objects
+                        .filter(
+                            planned_start__gte=start_of_day,
+                            planned_end__lte=end_of_day,
+                            primary_resource=primary,
+                        )
+                        .annotate(
+                            duration=ExpressionWrapper(
+                                F("planned_end") - F("planned_start"),
+                                output_field=DurationField(),
+                            )
+                        )
+                        .aggregate(total=Sum("duration"))
+                    )["total"] or timedelta(0)
+
+                    used_minutes = used_duration.total_seconds() / 60
+                    duration_minutes = duration.total_seconds() / 60
+
+                    if search_start_time + duration > end_of_day or used_minutes + duration_minutes > total_possible_time:
                         search_start_time = timezone.make_aware(
                             timezone.datetime.combine(
                                 search_start_time.date() + timedelta(days=1),

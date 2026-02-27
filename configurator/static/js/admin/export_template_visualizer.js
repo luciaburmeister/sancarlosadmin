@@ -18,10 +18,25 @@
         const htmlInput = document.getElementById("id_html");
         const cssInput = document.getElementById("id_css");
         const previewIframe = document.getElementById("export-template-preview");
+        const contextContent = document.getElementById("context-json-content");
 
         if (!previewIframe) return;
 
         const livePreviewUrl = previewIframe.dataset.livePreviewUrl;
+
+        function updateContextJson(iframeDoc) {
+            if (!contextContent) return;
+            const contextScript = iframeDoc.getElementById("context-json");
+            if (contextScript) {
+                try {
+                    const jsonData = JSON.parse(contextScript.textContent);
+                    contextContent.textContent = JSON.stringify(jsonData, null, 4);
+                } catch (e) {
+                    console.error("Error parsing context JSON:", e);
+                    contextContent.textContent = "Error parsing context JSON";
+                }
+            }
+        }
 
         function updatePreview() {
             const formData = new FormData();
@@ -41,6 +56,9 @@
                     doc.open();
                     doc.write(html);
                     doc.close();
+
+                    // Update the context JSON display
+                    updateContextJson(doc);
                 })
                 .catch(error => console.error("Error updating preview:", error));
         }
@@ -66,8 +84,11 @@
             cssInput.addEventListener("input", debouncedUpdate);
         }
 
-        // Initial preview
-        // updatePreview();
+        // Initial preview and context load
+        previewIframe.addEventListener("load", () => {
+            const doc = previewIframe.contentDocument || previewIframe.contentWindow.document;
+            updateContextJson(doc);
+        });
     }
 
     if (document.readyState === "loading") {

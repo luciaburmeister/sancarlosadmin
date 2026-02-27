@@ -1,8 +1,12 @@
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Dict
 from django.template import engines
 from django.template.loader import get_template
-from django.db.models import Q
+from django.db.models import Q, QuerySet, Model
+from django.core.serializers.json import DjangoJSONEncoder
+from decimal import Decimal
 from core.admin.company_access import get_user_companies
+import json
+import base64
 
 from .helpers import strip_wrappers, strip_css_wrappers, clean_final_html
 from .base import BaseExportStrategy
@@ -11,6 +15,43 @@ from .production_item import ProductionItemExportStrategy
 
 if TYPE_CHECKING:
     from configurator.models import ConfigurationExportTemplate
+
+class CustomJSONEncoder(DjangoJSONEncoder):
+    """
+    Custom JSON encoder that handles Django models and QuerySets.
+    """
+    def default(self, obj):
+        if isinstance(obj, Model):
+            from django.forms.models import model_to_dict
+            try:
+                # Get basic dict
+                data = model_to_dict(obj)
+                
+                # Model to dict doesn't always handle everything (like properties or MoneyFields)
+                # Let's add the __str__ as a 'label' for convenience
+                data['__str__'] = str(obj)
+                
+                # Cleanup data for JSON
+                for key, value in list(data.items()):
+                    if isinstance(value, Decimal):
+                        data[key] = float(value)
+                    elif hasattr(value, 'amount'): # djmoney Money object
+                        data[key] = float(value.amount)
+                
+                return data
+            except Exception:
+                return str(obj)
+        
+        if isinstance(obj, QuerySet):
+            return list(obj)
+        
+        if isinstance(obj, Decimal):
+            return float(obj)
+            
+        if hasattr(obj, 'amount') and hasattr(obj, 'currency'):
+            return float(obj.amount)
+
+        return super().default(obj)
 
 class ConfigurationExportService:
     """
@@ -53,9 +94,18 @@ class ConfigurationExportService:
         )
 
     @staticmethod
+    def get_serialized_context(obj: Any) -> str:
+        """
+        Returns the context for the object as a JSON string.
+        """
+        strategy = ConfigurationExportService.get_strategy(obj)
+        context = strategy.get_context()
+        return json.dumps(context, cls=CustomJSONEncoder)
+
+    @staticmethod
     def render_parts(obj: Any, template: "ConfigurationExportTemplate"):
         """
-        Renders the template and returns the rendered body and clean CSS as a tuple.
+        Renders the template and returns the rendered body, clean CSS, and serialized context.
         """
         # Clean HTML & CSS first
         clean_html = strip_wrappers(template.html or "")
@@ -70,15 +120,18 @@ class ConfigurationExportService:
         rendered_body = user_tpl.render(context)
         rendered_body = clean_final_html(rendered_body)
 
-        return rendered_body, clean_css
+        serialized_context = json.dumps(context, cls=CustomJSONEncoder)
+
+        return rendered_body, clean_css, serialized_context
 
     @staticmethod
     def render_html(obj: Any, template: "ConfigurationExportTemplate"):
-        rendered_body, clean_css = ConfigurationExportService.render_parts(obj, template)
+        rendered_body, clean_css, serialized_context = ConfigurationExportService.render_parts(obj, template)
 
         wrapper_tpl = get_template("exports/base_export.html")
 
         return wrapper_tpl.render({
             "body": rendered_body,
             "css": clean_css,
+            "context_json": serialized_context,
         })

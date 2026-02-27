@@ -16,7 +16,7 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
     list_display = ("name", "kind", "product", "is_active","company")
     list_filter = (("kind"), "is_active", ("product",AutocompleteSelectMultipleFilter))
     search_fields = ("name", "html")
-    readonly_fields = ("visualizar",)
+    readonly_fields = ("visualizar", "contexto_json")
     autocomplete_fields = ["product","company"]
     formfield_overrides = {
         models.TextField: {
@@ -33,7 +33,7 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
             "fields": ("html","css"),
         }),
         (_("Visualizar"), {
-            "fields": ("visualizar",),
+            "fields": (("visualizar", "contexto_json"),),
         }),
     )
 
@@ -46,6 +46,17 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
         return mark_safe(f'<iframe id="export-template-preview" src="{preview_url}" data-live-preview-url="{live_preview_url}" style="width: 100%; height: 600px; border: 1px solid #ccc; border-radius: 8px; background: white;"></iframe>')
     
     visualizar.short_description = _("Visualizar")
+
+    def contexto_json(self, obj):
+        return mark_safe(f'''
+            <div id="context-viewer-container" class="p-4 bg-gray-50 border border-gray-200 rounded-lg dark:bg-gray-800 dark:border-gray-700 h-[600px] overflow-auto">
+                <div id="context-json-display" class="text-xs font-mono">
+                    <pre id="context-json-content"></pre>
+                </div>
+            </div>
+        ''')
+    
+    contexto_json.short_description = _("Contexto JSON")
 
     def get_urls(self):
         urls = super().get_urls()

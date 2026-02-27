@@ -176,12 +176,11 @@ class TaxType(models.Model):
         help_text="Available percentage rates as a list, e.g., [0, 4, 10, 21]"
     )
 
-    default_percentage = MoneyField(
+    default_percentage = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0.00"))],
         help_text="Default percentage when applying this tax",
-        default_currency='EUR',
         default=0
     )
 
@@ -212,11 +211,10 @@ class AppliedTax(models.Model):
         related_name="applied_taxes",
     )
 
-    selected_percentage = MoneyField(
+    selected_percentage = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0.00"))],
-        default_currency='EUR',
         default=0
     )
 
@@ -228,7 +226,7 @@ class AppliedTax(models.Model):
         blank=True,  # Allow blank in forms
         help_text="The base amount this tax was calculated on",
         default_currency='EUR',
-        default=0
+        default=None
     )
 
     calculated_amount = MoneyField(
@@ -238,7 +236,7 @@ class AppliedTax(models.Model):
         blank=True,  # Allow blank in forms
         help_text="The calculated tax amount",
         default_currency='EUR',
-        default=0
+        default=None
     )
 
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)

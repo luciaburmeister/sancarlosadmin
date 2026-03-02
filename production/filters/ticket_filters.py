@@ -29,10 +29,6 @@ class TicketStageFilter(admin.SimpleListFilter):
         if not company and hasattr(model_admin, "get_queryset"):
             # Try to get company from first object if possible, or just use request if it was set by middleware
             pass
-        
-        # In this project, CompanyOwnedModel usually means we can find a company
-        # But for a general filter, we might just want to sort alphabetically or use a known global list
-        # Let's see if we can get the company from the request (hijack middleware might be present)
         company_stages = []
         if hasattr(request, "company") and request.company:
             company_stages = list(request.company.production_stages or [])

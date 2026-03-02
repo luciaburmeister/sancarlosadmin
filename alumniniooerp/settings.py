@@ -87,6 +87,7 @@ INSTALLED_APPS = [
     'django_countries',
     'company',
     'django_celery_results',
+    'djmoney',
     'assets',
     'location_field',
     'simple_history',

@@ -161,6 +161,31 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
         indexes = [
             GinIndex(fields=["planning"]),
         ]
+
+    def get_ordered_planning(self):
+        """
+        Returns the planning dictionary items (stage_name, info) sorted by 
+        the product template's production stages order.
+        """
+        planning = self.planning or {}
+        
+        # Get stage order from product template
+        stage_order = []
+        if self.ticket and self.ticket.source_object:
+            product = getattr(self.ticket.source_object, "product", None)
+            if product:
+                stage_order = list(product.production_stages or [])
+
+        def sort_key(item):
+            stage_name = item[0]
+            try:
+                # Priority 0: Stages in the product template's defined order
+                return (0, stage_order.index(stage_name))
+            except ValueError:
+                # Priority 1: Other stages sorted alphabetically
+                return (1, stage_name)
+
+        return sorted(planning.items(), key=sort_key)
     
     def save(self, *args, **kwargs):
         if not self.company_id and self.ticket_id:

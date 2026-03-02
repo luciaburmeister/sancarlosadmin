@@ -53,7 +53,7 @@ class ProductionItemInline(TabularInline):
         STATUS_COLORS = StatusBadge.STATUS_COLORS
 
         rows = []
-        for stage, info in (obj.planning or {}).items():
+        for stage, info in obj.get_ordered_planning():
             status = (info or {}).get("status", "-")
             color = STATUS_COLORS.get(status, "#6b7280")
 

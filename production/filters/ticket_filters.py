@@ -24,7 +24,26 @@ class TicketStageFilter(admin.SimpleListFilter):
             planning = planning or {}
             stages.update(planning.keys())
 
-        result = [(s, s) for s in sorted(stages)]
+        # Attempt to sort using company stages if available
+        company = getattr(request.user, "company", None)
+        if not company and hasattr(model_admin, "get_queryset"):
+            # Try to get company from first object if possible, or just use request if it was set by middleware
+            pass
+        
+        # In this project, CompanyOwnedModel usually means we can find a company
+        # But for a general filter, we might just want to sort alphabetically or use a known global list
+        # Let's see if we can get the company from the request (hijack middleware might be present)
+        company_stages = []
+        if hasattr(request, "company") and request.company:
+            company_stages = list(request.company.production_stages or [])
+        
+        def sort_key(s):
+            try:
+                return (0, company_stages.index(s))
+            except ValueError:
+                return (1, s)
+
+        result = [(s, s) for s in sorted(stages, key=sort_key)]
         cache.set(TICKET_STAGE_LOOKUPS_KEY, result, LOOKUPS_CACHE_TIMEOUT)
         return result
 

@@ -73,8 +73,7 @@
 
           <div class="flex items-center justify-end gap-3 self-center">
             <div class="self-center">
-              {% include "admin/production/components/status_badge.html" with color=unit.status_color
-              label=unit.status_label %}
+              {% include "admin/production/components/status_badge.html" with color=unit.status_color label=unit.status_label %}
             </div>
 
             {% if unit.is_current %}

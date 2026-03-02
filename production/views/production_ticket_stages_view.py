@@ -51,17 +51,19 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
         for it in items:
             planning = it.planning or {}
             current_s = None
+            
             for sname in stage_order:
-                if planning.get(sname, {}).get("status") == ProductionItemStatus.IN_PROGRESS:
+                if sname not in planning:
+                    continue
+                info = planning.get(sname) or {}
+                status = info.get("status") or ProductionItemStatus.PENDING
+                if status != ProductionItemStatus.DONE:
                     current_s = sname
                     break
-            if not current_s:
-                for sname in stage_order:
-                    if (planning.get(sname, {}).get("status") or ProductionItemStatus.PENDING) != ProductionItemStatus.DONE:
-                        current_s = sname
-                        break
+            
             if not current_s and stage_order:
-                current_s = stage_order[0]
+                current_s = stage_order[-1]
+                
             item_current_stages[it.id] = current_s
 
         authorized_stages = stage_order
@@ -92,9 +94,19 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
             if grouped_item_ids:
                 unit_items = [item for item in items if item.id in grouped_item_ids]
-                unit = self._build_unit(stage_name, unit_items, employee, item_current_stages)
-                if unit["relevant"]:
-                    units.append(unit)
+                
+                # Split grouped items by their status in this stage
+                status_groups = {}
+                for item in unit_items:
+                    planning = item.planning or {}
+                    info = planning.get(stage_name) or {}
+                    status = info.get("status") or ProductionItemStatus.PENDING
+                    status_groups.setdefault(status, []).append(item)
+                
+                for status, sub_items in status_groups.items():
+                    unit = self._build_unit(stage_name, sub_items, employee, item_current_stages)
+                    if unit["relevant"]:
+                        units.append(unit)
 
             for item in items:
                 if item.id in grouped_item_ids:
@@ -180,6 +192,6 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             "started_at": started_at,
             "completed_at": completed_at,
             "has_active_session": has_active_session,
-            "is_current": any(item_current_stages.get(item.id) == stage_name for item in items),
+            "is_current": any(item_current_stages.get(item.id) == stage_name for item, _, _ in infos),
             "relevant": relevant,
         }

@@ -21,7 +21,7 @@ class StagesToSessionsService:
         now = timezone.now()
 
         for item in items:
-            current_stage, stage_info = cls._get_current_stage(item)
+            current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
             if current_stage != stage_name:
                 continue 
 
@@ -48,7 +48,7 @@ class StagesToSessionsService:
         now = timezone.now()
 
         for item in items:
-            current_stage, stage_info = cls._get_current_stage(item)
+            current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
             if current_stage != stage_name:
                 continue
 
@@ -80,7 +80,7 @@ class StagesToSessionsService:
         now = timezone.now()
 
         for item in items:
-            current_stage, stage_info = cls._get_current_stage(item)
+            current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
             if current_stage != stage_name:
                 continue
 
@@ -129,7 +129,7 @@ class StagesToSessionsService:
 
 
     @classmethod
-    def _get_current_stage(cls, production_item: ProductionItem):
+    def _get_current_stage(cls, production_item: ProductionItem, requested_stage: str | None = None):
         planning = production_item.planning or {}
 
         ticket = production_item.ticket
@@ -140,12 +140,23 @@ class StagesToSessionsService:
         if not stage_names:
             return None, None
 
+        if requested_stage in stage_names and requested_stage in planning:
+            info = planning.get(requested_stage) or {}
+            # Allow the requested stage if it's not DONE
+            if (info.get("status") or ProductionItemStatus.PENDING) != ProductionItemStatus.DONE:
+                return requested_stage, info
+
+        # Fallback to existing logic if no requested stage or requested stage is DONE
         for name in stage_names:
+            if name not in planning:
+                continue
             info = planning.get(name) or {}
             if (info.get("status") or ProductionItemStatus.PENDING) == ProductionItemStatus.IN_PROGRESS:
                 return name, info
 
         for name in stage_names:
+            if name not in planning:
+                continue
             info = planning.get(name) or {}
             if (info.get("status") or ProductionItemStatus.PENDING) != ProductionItemStatus.DONE:
                 return name, info

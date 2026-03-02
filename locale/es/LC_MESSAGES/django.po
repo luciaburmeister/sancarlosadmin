@@ -1549,14 +1549,17 @@ msgstr "artículo de Presupuesto"
 msgid "Quote items"
 msgstr "articulos de Presupuesto"
 
-#~ msgid "In progress"
-#~ msgstr "En Progreso"
+msgid "Pause"
+msgstr "Pausa"
 
-#~ msgid "Action"
-#~ msgstr "Acción"
+msgid "In progress"
+msgstr "En Progreso"
 
-#~ msgid "Start"
-#~ msgstr "Empezar"
+msgid "Action"
+msgstr "Acción"
 
-#~ msgid "Your user is not linked to an Employee"
-#~ msgstr "Tu usuario no está vinculado a un Empleado"
+msgid "Start"
+msgstr "Empezar"
+
+msgid "Your user is not linked to an Employee"
+msgstr "Tu usuario no está vinculado a un Empleado"

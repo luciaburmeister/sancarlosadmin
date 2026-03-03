@@ -2,6 +2,8 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _  
 from django.contrib.auth import get_user_model
 from django_countries.fields import CountryField
+from django.core.exceptions import ValidationError
+from datetime import time
 
 User = get_user_model()
 
@@ -16,10 +18,17 @@ class Company(models.Model):
     phone = models.CharField(max_length=18,blank=True,null=True,verbose_name=_("Phone"))
     tax_identifier = models.CharField(max_length=20,blank=True,verbose_name=_("Tax Identifier"),null=True)
     constituted_country = CountryField(null=True,verbose_name=_("Constitude Country"))
+    start_time = models.TimeField(default=time(0,0), verbose_name=_("Schedule Start Time"))
+    end_time = models.TimeField(default=time(23,59), verbose_name=_("Schedule End Time"))
 
 
     def __str__(self):
         return self.name
+    
+    def clean(self):
+        super().clean()
+        if self.start_time and self.end_time and self.end_time <= self.start_time:
+            raise ValidationError({"end_time": "End time must be after start time."})
 
 class CompanyOwnedModel(models.Model):
     company = models.ForeignKey(

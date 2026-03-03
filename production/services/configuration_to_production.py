@@ -90,7 +90,7 @@ class ConfigurationToProductionService:
 
     @staticmethod
     def _create_items(ticket, configuration):
-        SCHEDULE = {"start": 9, "end": 17}
+        SCHEDULE = {"start": configuration.company.start_time, "end": configuration.company.end_time}
 
         for item in configuration.items.select_related("component"):
             planning = {
@@ -118,7 +118,7 @@ class ConfigurationToProductionService:
 
             for stage, stage_info in (item.stage_resources or {}).items():
                 tomorrow = timezone.localdate() + timedelta(days=1)
-                search_start_time = timezone.make_aware(datetime.combine(tomorrow, time(hour=SCHEDULE["start"])))
+                search_start_time = timezone.make_aware(datetime.combine(tomorrow, SCHEDULE["start"]))
                 duration = timedelta(minutes=int(stage_info["total_time_min"]))
 
                 machines = stage_info.get("machine_types", [])
@@ -130,7 +130,7 @@ class ConfigurationToProductionService:
 
                 while True:
                     end_of_day = timezone.make_aware(
-                        timezone.datetime.combine(search_start_time.date(), time(hour=SCHEDULE["end"]))
+                        timezone.datetime.combine(search_start_time.date(), SCHEDULE["end"])
                     )
                     
                     if machine_type:
@@ -143,7 +143,7 @@ class ConfigurationToProductionService:
                             search_start_time = timezone.make_aware(
                                 timezone.datetime.combine(
                                     search_start_time.date() + timedelta(days=1),
-                                    time(hour=SCHEDULE["start"])
+                                    SCHEDULE["start"]
                                 )
                             )
                             continue

@@ -1,7 +1,7 @@
 from django import forms
 from django.conf import settings
 from django.contrib import admin
-from unfold.widgets import UnfoldRelatedFieldWidgetWrapper
+from unfold.widgets import UnfoldAdminRelatedFieldWrapperWidget
 from configurator.models import Configuration
 from sales.models import Client
 from assets.models import Asset
@@ -98,7 +98,7 @@ class ClientSelectionForm(forms.ModelForm):
         # Add "Add Client" button using RelatedFieldWidgetWrapper
         if self.request and self.fields.get('client'):
              # We need an admin site instance. Using standard admin.site is usually fine.
-            self.fields['client'].widget = UnfoldRelatedFieldWidgetWrapper(
+            self.fields['client'].widget = UnfoldAdminRelatedFieldWrapperWidget(
                 self.fields['client'].widget,
                 self.instance._meta.get_field('client').remote_field,
                 admin.site,

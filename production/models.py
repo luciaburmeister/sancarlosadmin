@@ -4,7 +4,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from timestamps.models import Timestampable
 from django.contrib.postgres.indexes import GinIndex
-from company.models import Employee,Machine,CompanyOwnedModel, MachineType
+from company.models import Employee,Machine,CompanyOwnedModel
 from django.utils import timezone
 from django.db.models import Q
 from django.core.exceptions import ValidationError
@@ -242,7 +242,7 @@ class ProductionResource(Timestampable,CompanyOwnedModel):
 
     def clean(self):
         # Optional: whitelist allowed models
-        if not isinstance(self.target, (Employee, Machine, MachineType)):
+        if not isinstance(self.target, (Employee, Machine)):
             raise ValidationError(_("Unsupported resource type"))
 
     def __str__(self):

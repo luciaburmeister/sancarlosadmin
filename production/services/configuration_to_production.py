@@ -5,7 +5,7 @@ from company.models import Machine, MachineType
 from production.models import ProductionResource, ProductionTicket, ProductionItem, PlannedProductionSession, PlannedProductionSessionSource
 from datetime import datetime, time, timedelta
 
-def get_or_create_resource_for_target(target):
+def get_or_create_resource_for_target(target) -> ProductionResource|None:
     if not target:
         return None
     
@@ -16,6 +16,56 @@ def get_or_create_resource_for_target(target):
         defaults={"is_active": True},
     )
     return resource
+
+def get_resources(machine_type:MachineType|None) -> list[ProductionResource]:
+    if machine_type:
+        machines = list(
+            Machine.objects
+            .filter(type=machine_type)
+        ) 
+
+        resources = []
+
+        for mach in machines:
+            resource = get_or_create_resource_for_target(mach)
+            resources.append(resource)
+
+        return resources
+    else:
+        return []
+
+def possible_resources_for_stage(resources:list[ProductionResource], day, duration: timedelta) -> set:
+    start_of_day = timezone.make_aware(datetime.combine(day, time.min))
+    end_of_day = timezone.make_aware(datetime.combine(day, time.max))
+
+    time_used_by_resource = dict(
+        PlannedProductionSession.objects
+        .filter(
+            primary_resource__in=resources,
+            planned_start__lt=end_of_day,
+            planned_end__gt=start_of_day,
+        )
+        .annotate(
+            duration=ExpressionWrapper(
+                F("planned_end") - F("planned_start"),
+                output_field=DurationField(),
+            )
+        )
+        .values("primary_resource")
+        .annotate(total=Sum("duration"))
+        .values_list("primary_resource", "total")
+    )
+
+    possible_resources = set()
+    for res in resources:
+        used_time = time_used_by_resource.get(res.pk) or timedelta(0)
+        machine = Machine.objects.filter(pk=res.object_id).first()
+        capacity = timedelta(minutes=getattr(machine, "daily_capacity_minutes", 0) or 0)
+        if used_time + duration <= capacity:
+            possible_resources.add(res.pk)
+    
+    return possible_resources
+
 class ConfigurationToProductionService:
     @classmethod
     def create_ticket(cls, configuration):
@@ -73,60 +123,49 @@ class ConfigurationToProductionService:
 
                 machines = stage_info.get("machine_types", [])
                 machine_type = MachineType.objects.filter(pk=machines[0]["machine_type_id"]).first() if machines else None
-                primary = get_or_create_resource_for_target(machine_type)
+                resources = get_resources(machine_type)
 
-                num_machines = len(Machine.objects.filter(type=machine_type))
-
-                total_possible_time = Machine.objects.filter(type=machine_type).aggregate(total=Sum("daily_capacity_minutes"))["total"] or 0
+                max_days_ahead = 30
+                days_ahead = 0
 
                 while True:
-                    start_of_day = timezone.make_aware(
-                        timezone.datetime.combine(search_start_time.date(), time(hour=SCHEDULE["start"]))
-                    )
                     end_of_day = timezone.make_aware(
                         timezone.datetime.combine(search_start_time.date(), time(hour=SCHEDULE["end"]))
                     )
+                    
+                    if machine_type:
+                        possible_resources = possible_resources_for_stage(resources, search_start_time.date(), duration)
 
-                    used_duration = (
-                        PlannedProductionSession.objects
-                        .filter(
-                            planned_start__gte=start_of_day,
-                            planned_end__lte=end_of_day,
-                            primary_resource=primary,
-                        )
-                        .annotate(
-                            duration=ExpressionWrapper(
-                                F("planned_end") - F("planned_start"),
-                                output_field=DurationField(),
+                        if search_start_time + duration > end_of_day or not possible_resources:
+                            days_ahead += 1
+                            if days_ahead > max_days_ahead:
+                                break
+                            search_start_time = timezone.make_aware(
+                                timezone.datetime.combine(
+                                    search_start_time.date() + timedelta(days=1),
+                                    time(hour=SCHEDULE["start"])
+                                )
                             )
-                        )
-                        .aggregate(total=Sum("duration"))
-                    )["total"] or timedelta(0)
+                            continue
 
-                    used_minutes = used_duration.total_seconds() / 60
-                    duration_minutes = duration.total_seconds() / 60
+                        conflict_slots = PlannedProductionSession.objects.filter(planned_start__lt=search_start_time + duration, planned_end__gt=search_start_time, primary_resource__in=resources).order_by("-planned_end")
+                        used_resources = set(conflict_slots.values_list("primary_resource_id", flat=True).distinct())
 
-                    if search_start_time + duration > end_of_day or used_minutes + duration_minutes > total_possible_time:
-                        search_start_time = timezone.make_aware(
-                            timezone.datetime.combine(
-                                search_start_time.date() + timedelta(days=1),
-                                time(hour=SCHEDULE["start"])
+                        available_resources = possible_resources - used_resources
+
+                        if available_resources:
+                            PlannedProductionSession.objects.create(
+                                production_item = production_item,
+                                production_stage = stage,
+                                planned_start = search_start_time,
+                                planned_end = search_start_time + duration,
+                                locked = False,
+                                source = PlannedProductionSessionSource.AUTOMATIC,
+                                primary_resource_id =  next(iter(available_resources)),
                             )
-                        )
-                        continue
-
-                    next_busy_slots = PlannedProductionSession.objects.filter(planned_start__gte=search_start_time, planned_start__lt=search_start_time + duration, primary_resource=primary).order_by("-planned_end")
-
-                    if len(next_busy_slots) >= num_machines:
-                        search_start_time = next_busy_slots.first().planned_end
+                            break
+                        else:
+                            search_start_time = conflict_slots.first().planned_end
+                            continue
                     else:
-                        PlannedProductionSession.objects.create(
-                            production_item = production_item,
-                            production_stage = stage,
-                            planned_start = search_start_time,
-                            planned_end = search_start_time + timedelta(minutes=stage_info["total_time_min"]),
-                            locked = False,
-                            source = PlannedProductionSessionSource.AUTOMATIC,
-                            primary_resource = primary,
-                        )
                         break

@@ -1,34 +1,31 @@
-from django.contrib.auth import authenticate
 from django.http import JsonResponse, HttpResponse
-from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
-from django.contrib.auth.models import User
 from assets.models import Asset, AssetTransaction, TransactionTypeChoices
 from company.models import WorkingZone
 from django.utils import timezone
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework.response import Response
 import json
-import secrets
 import math
 import qrcode
 import io
 
 
-# Simple in-memory token store (replace with database tokens in production)
-active_tokens = {}
+# ✅ Custom login view that returns access + refresh + user info
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        user = self.user
+        data["user_id"] = user.id
+        data["username"] = user.username
+        data["full_name"] = f"{user.first_name} {user.last_name}".strip() or user.username
+        return data
 
-
-def get_user_from_token(request):
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Token "):
-        return None
-    token = auth_header.split(" ")[1]
-    user_id = active_tokens.get(token)
-    if not user_id:
-        return None
-    try:
-        return User.objects.get(id=user_id)
-    except User.DoesNotExist:
-        return None
+class login_view(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
 
 
 def haversine_distance(lat1, lon1, lat2, lon2):
@@ -54,7 +51,7 @@ def get_zone_coordinates(zone):
         return None, None
 
 
-def find_zone_within_radius(latitude, longitude, company, radius_metres=10000):
+def find_zone_within_radius(latitude, longitude, company, radius_metres=100):
     zones = WorkingZone.objects.filter(company=company, is_active=True)
     for zone in zones:
         zone_lat, zone_lon = get_zone_coordinates(zone)
@@ -66,38 +63,20 @@ def find_zone_within_radius(latitude, longitude, company, radius_metres=10000):
     return None, None
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
-def login_view(request):
-    try:
-        data = json.loads(request.body)
-        username = data.get("username", "")
-        password = data.get("password", "")
-    except json.JSONDecodeError:
-        return JsonResponse({"error": "Invalid JSON"}, status=400)
-
-    user = authenticate(username=username, password=password)
-    if user is None:
-        return JsonResponse({"error": "Usuario o contraseña incorrectos. Por favor inténtalo de nuevo."}, status=401)
-
-    token = secrets.token_hex(32)
-    active_tokens[token] = user.id
-
-    return JsonResponse({
-        "token": token,
-        "user_id": user.id,
-        "username": user.username,
-        "full_name": f"{user.first_name} {user.last_name}".strip() or user.username,
-    })
+def get_asset_status(last_transaction):
+    if last_transaction is None:
+        return "AVAILABLE"
+    if last_transaction.transaction_type == TransactionTypeChoices.MOVEMENT:
+        return "PICKED_UP"
+    if last_transaction.transaction_type == TransactionTypeChoices.DELIVERY:
+        return "DELIVERED"
+    return "AVAILABLE"
 
 
-@csrf_exempt
-@require_http_methods(["GET"])
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def assets_view(request):
-    user = get_user_from_token(request)
-    if user is None:
-        return JsonResponse({"error": "Unauthorized"}, status=401)
-
+    user = request.user
     assets = Asset.objects.select_related("asset_type", "current_working_zone").filter(assigned_to=user)
 
     data = []
@@ -120,17 +99,17 @@ def assets_view(request):
     return JsonResponse({"assets": data})
 
 
-@csrf_exempt
-@require_http_methods(["GET"])
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
 def asset_by_id_view(request, asset_id):
-    """Returns a single asset by ID — used after QR scan."""
-    user = get_user_from_token(request)
-    if user is None:
-        return JsonResponse({"error": "Unauthorized"}, status=401)
+    user = request.user
 
     try:
         asset = Asset.objects.select_related("asset_type", "current_working_zone").get(id=asset_id)
     except Asset.DoesNotExist:
+        return JsonResponse({"error": "Asset not found"}, status=404)
+
+    if asset.company != user.employee_profile.company:
         return JsonResponse({"error": "Asset not found"}, status=404)
 
     last_tx = asset.transactions.order_by("-date").first()
@@ -148,19 +127,38 @@ def asset_by_id_view(request, asset_id):
         "zone_lat": zone_coords[0],
         "zone_lon": zone_coords[1],
         "assigned_to": asset.assigned_to.username if asset.assigned_to else None,
+        "assigned_to_me": asset.assigned_to == user,
     })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def assign_view(request, asset_id):
+    user = request.user
+
+    try:
+        asset = Asset.objects.get(id=asset_id)
+    except Asset.DoesNotExist:
+        return JsonResponse({"error": "Asset not found"}, status=404)
+
+    if asset.company != user.employee_profile.company:
+        return JsonResponse({"error": "Este cubo no pertenece a tu empresa"}, status=403)
+
+    asset.assigned_to = user
+    asset.save()
+
+    return JsonResponse({"success": True, "message": f"Cubo {asset.name} asignado a {user.username}"})
 
 
 @require_http_methods(["GET"])
 def asset_qr_view(request, asset_id):
-    """Returns a QR code image for an asset. Open in browser to print."""
     try:
         asset = Asset.objects.get(id=asset_id)
     except Asset.DoesNotExist:
         return HttpResponse("Asset not found", status=404)
 
     qr = qrcode.QRCode(version=1, box_size=10, border=4)
-    qr.add_data(str(asset_id))
+    qr.add_data(f"cubosapp://container/{asset_id}")
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
 
@@ -171,12 +169,10 @@ def asset_qr_view(request, asset_id):
     return HttpResponse(buffer, content_type="image/png")
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def pickup_view(request, asset_id):
-    user = get_user_from_token(request)
-    if user is None:
-        return JsonResponse({"error": "Unauthorized"}, status=401)
+    user = request.user
 
     try:
         data = json.loads(request.body)
@@ -199,10 +195,10 @@ def pickup_view(request, asset_id):
 
     distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
 
-    if distance > 10000:
+    if distance > 100:
         return JsonResponse({
             "error": f"Estás demasiado lejos de {asset.current_working_zone}. "
-                     f"Estás a {int(distance)}m. Debes estar a menos de 50m."
+                     f"Estás a {int(distance)}m. Debes estar a menos de 100m."
         }, status=400)
 
     AssetTransaction.objects.create(
@@ -218,12 +214,10 @@ def pickup_view(request, asset_id):
     return JsonResponse({"success": True, "message": "Recogida registrada"})
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def deliver_view(request, asset_id):
-    user = get_user_from_token(request)
-    if user is None:
-        return JsonResponse({"error": "Unauthorized"}, status=401)
+    user = request.user
 
     try:
         data = json.loads(request.body)
@@ -240,7 +234,7 @@ def deliver_view(request, asset_id):
     destination_zone, distance = find_zone_within_radius(latitude, longitude, asset.company)
     if destination_zone is None:
         return JsonResponse({
-            "error": "No estás cerca de ninguna zona de entrega conocida. Debes estar a menos de 50m."
+            "error": "No estás cerca de ninguna zona de entrega conocida. Debes estar a menos de 10m."
         }, status=400)
 
     AssetTransaction.objects.create(
@@ -260,13 +254,3 @@ def deliver_view(request, asset_id):
         "success": True,
         "message": f"Entrega registrada en {destination_zone}"
     })
-
-
-def get_asset_status(last_transaction):
-    if last_transaction is None:
-        return "AVAILABLE"
-    if last_transaction.transaction_type == TransactionTypeChoices.MOVEMENT:
-        return "PICKED_UP"
-    if last_transaction.transaction_type == TransactionTypeChoices.DELIVERY:
-        return "DELIVERED"
-    return "AVAILABLE"

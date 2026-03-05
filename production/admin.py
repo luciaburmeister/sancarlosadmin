@@ -125,7 +125,7 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     search_fields = ("object_id",)
     list_select_related = ["company"]
-    actions_row = ["view_work_order"]
+    actions_row = ["view_work_order", "generate_invoice_action"]
 
     inlines = [ProductionItemInline]
     autocomplete_fields = ("company",)
@@ -158,10 +158,36 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         url_path="production-productionticketadmin-view-order",
         attrs={"target": "_blank"}
     )
-    def view_work_order(self,request: HttpRequest, object_id: int):
+    def view_work_order(self, request: HttpRequest, object_id: int):
         return redirect(
             reverse("admin:production_productionticket_order_html", args=[object_id])
         )
+
+    @action(
+        description=_("Generate Invoice"),
+        url_path="generate-invoice",
+    )
+    def generate_invoice_action(self, request, object_id):
+        from invoices.services.sales_invoice_service import SalesInvoiceService
+        from invoices.models import SalesInvoice
+        from production.models import ProductionTicket
+        
+        ticket = ProductionTicket.objects.get(pk=object_id)
+        if ticket.content_type.model == 'configuration':
+            from configurator.models import Configuration
+            config = Configuration.objects.get(pk=ticket.object_id)
+            
+            existing = SalesInvoice.objects.filter(configuration=config).first()
+            if existing:
+                self.message_user(request, _("An invoice already exists for this configuration."), level="warning")
+                return redirect(reverse("admin:invoices_salesinvoice_change", args=[existing.id]))
+
+            invoice = SalesInvoiceService.create_from_configuration(config)
+            self.message_user(request, _("Invoice {} generated successfully.").format(invoice.invoice_number))
+            return redirect(reverse("admin:invoices_salesinvoice_change", args=[invoice.id]))
+        else:
+            self.message_user(request, _("This ticket is not linked to a configuration."), level="error")
+            return redirect(request.META.get('HTTP_REFERER'))
 
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related("source_object")

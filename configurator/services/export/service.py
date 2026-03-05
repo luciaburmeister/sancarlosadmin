@@ -12,6 +12,7 @@ from .helpers import strip_wrappers, strip_css_wrappers, clean_final_html
 from .base import BaseExportStrategy
 from .configuration import ConfigurationExportStrategy
 from .production_item import ProductionItemExportStrategy
+from .sales_invoice import SalesInvoiceExportStrategy
 
 if TYPE_CHECKING:
     from configurator.models import ConfigurationExportTemplate
@@ -62,11 +63,15 @@ class ConfigurationExportService:
     def get_strategy(obj: Any) -> BaseExportStrategy:
         from configurator.models import Configuration
         from production.models import ProductionItem
+        from invoices.models import SalesInvoice
 
         if isinstance(obj, Configuration):
             return ConfigurationExportStrategy(obj)
         elif isinstance(obj, ProductionItem):
             return ProductionItemExportStrategy(obj)
+        
+        if isinstance(obj, SalesInvoice):
+            return SalesInvoiceExportStrategy(obj)
         
         raise ValueError(f"No export strategy found for object type: {type(obj)}")
 

@@ -477,6 +477,33 @@ UNFOLD = {
                     },
                 ],
             },
+            {
+                "title": _("Invoices"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Sales Invoices"),
+                        "icon": "receipt",
+                        "link": reverse_lazy(
+                            "admin:invoices_salesinvoice_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "invoices.view_salesinvoice"
+                        ),
+                    },
+                    {
+                        "title": _("Received Invoices"),
+                        "icon": "receipt_long",
+                        "link": reverse_lazy(
+                            "admin:invoices_invoice_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "invoices.view_invoice"
+                        ),
+                    },
+                ],
+            },
         
         ],
     },

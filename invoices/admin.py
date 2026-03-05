@@ -1,10 +1,10 @@
 from django.contrib import admin
 from unfold.decorators import action
 from django.shortcuts import redirect
-from django.urls import path
+from django.urls import path, reverse
+from django.utils.translation import gettext_lazy as _
 from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
-from unfold.admin import ModelAdmin
-from unfold.admin import GenericTabularInline
+from unfold.admin import ModelAdmin, TabularInline, GenericTabularInline
 from django.utils.html import format_html
 from invoices.models import (
     InvoiceGroup,
@@ -12,7 +12,10 @@ from invoices.models import (
     TaxType,
     AppliedTax,
     IncomingInvoice,
+    SalesInvoice,
+    SalesInvoiceItem,
 )
+from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
 
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 
@@ -221,3 +224,50 @@ class InvoiceAdmin(ModelAdmin):
         for id in selected_ids:
             process_manual_invoice.delay(invoice_id=id)
         self.message_user(request, f"Started processing {len(selected_ids)} invoices in background.")
+
+        
+class SalesInvoiceItemInline(TabularInline):
+    model = SalesInvoiceItem
+    extra = 0
+    tab = True
+
+@admin.register(SalesInvoice)
+class SalesInvoiceAdmin(ModelAdmin):
+    list_display = ("invoice_number", "company", "client", "date_issued", "total_amount")
+    list_filter = ("company", "date_issued")
+    search_fields = ("invoice_number", "client__name")
+    autocomplete_fields = ("company", "client", "configuration")
+    inlines = [SalesInvoiceItemInline, AppliedTaxInline]
+    
+    actions = ["download_pdf"]
+    actions_row = ["view_pdf_row_action"]
+    actions_detail = ["view_pdf_detail_action"]
+
+    @action(description=_("View PDF"), icon="visibility")
+    def view_pdf_row_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_salesinvoice_pdf", args=[object_id]))
+
+    @action(description=_("View PDF"), icon="visibility")
+    def view_pdf_detail_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_salesinvoice_pdf", args=[object_id]))
+
+    def download_pdf(self, request, queryset):
+        if queryset.count() != 1:
+            self.message_user(request, _("Please select only one invoice to download."), level="error")
+            return
+        
+        invoice = queryset.first()
+        return redirect(reverse("admin:invoices_salesinvoice_pdf", args=[invoice.id]))
+
+    download_pdf.short_description = _("Download PDF")
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "<int:object_id>/pdf/",
+                self.admin_site.admin_view(SalesInvoicePdfView.as_view(model_admin=self)),
+                name="invoices_salesinvoice_pdf",
+            ),
+        ]
+        return custom + urls

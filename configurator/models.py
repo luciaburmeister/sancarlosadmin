@@ -1214,6 +1214,7 @@ class ExportTemplateKind(models.TextChoices):
     QUOTATION = "quotation", _("Quotation")
     PRODUCTION_ORDER = "production_order", _("Production Order")
     PRODUCTION_TICKET = "production_ticket", _("Production Ticket")
+    SALES_INVOICE = "sales_invoice", _("Sales Invoice")
 
 
 class ConfigurationExportTemplate(CompanyOwnedModel):

@@ -54,7 +54,6 @@ class ClientSelectionForm(forms.ModelForm):
         fields = ["client", "asset"]
 
     class Media:
-        # Manually include Select2 and Unfold init media
         extra = "" if settings.DEBUG else ".min"
         js = (
             f"admin/js/vendor/jquery/jquery{extra}.js",
@@ -85,19 +84,15 @@ class ClientSelectionForm(forms.ModelForm):
         # Ensure we have the right helper attached for Crispy rendering
         self.helper = ClientSelectionFormHelper()
         
-        # Restrict by user company if applicable.
         if self.request and self.request.user and not self.request.user.is_superuser:
             user_companies = get_user_companies(self.request.user)
             self.fields["client"].queryset = self.fields["client"].queryset.filter(company__in=user_companies)
             self.fields["asset"].queryset = self.fields["asset"].queryset.filter(company__in=user_companies)
             
-        # Further filter assets if a product is provided
         if self.product and self.product.company:
             self.fields["asset"].queryset = self.fields["asset"].queryset.filter(company=self.product.company)
             
-        # Add "Add Client" button using RelatedFieldWidgetWrapper
         if self.request and self.fields.get('client'):
-             # We need an admin site instance. Using standard admin.site is usually fine.
             self.fields['client'].widget = UnfoldAdminRelatedFieldWrapperWidget(
                 self.fields['client'].widget,
                 self.instance._meta.get_field('client').remote_field,

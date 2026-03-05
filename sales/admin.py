@@ -1,8 +1,9 @@
 from django.contrib import admin
+from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
-from .models import Client, Order
-
-
+from unfold.decorators import display
+from .models import Client, Order, DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus
+from unfold.admin import TabularInline
 
 from core.admin.company_admin import CompanyRestrictedAdmin
 
@@ -58,3 +59,31 @@ class OrderAdmin(ModelAdmin):
         return f"{instance.final_price:.2f} €"
     final_price_display.short_description = "Total Price"
     final_price_display.admin_order_field = "final_price"
+
+
+class DeliveryOrderItemInline(TabularInline):
+    model = DeliveryOrderItem
+    extra = 0
+    tab = True
+
+@admin.register(DeliveryOrder)
+class DeliveryOrderAdmin(ModelAdmin):
+    list_display = ["number", "incremental_id", "get_status_label", "company", "client", "date", "sales_invoice"]
+    list_filter = ["company", "status", "date"]
+    search_fields = ["number", "client__name"]
+    autocomplete_fields = ["company", "client", "sales_invoice", "configuration"]
+    inlines = [DeliveryOrderItemInline]
+    readonly_fields = ["number", "date"]
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            _(DeliveryOrderStatus.DRAFT): "warning",  # green
+            _(DeliveryOrderStatus.DELIVERED): "success",  # green
+            _(DeliveryOrderStatus.SENT): "info",  # blue
+            _(DeliveryOrderStatus.CANCELLED): "danger",  # orange
+        },
+    )
+    def get_status_label(self, obj):
+        return obj.status

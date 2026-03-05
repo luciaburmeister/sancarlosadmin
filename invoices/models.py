@@ -329,8 +329,18 @@ class IncomingInvoice(CompanyOwnedModel):
     def __str__(self):
         return f"Incoming Invoice {self.file_hash[:8]} ({self.company})"
 
+class SalesInvoiceStatus(models.TextChoices):
+    PROFORMA = "proforma", _("Pro Forma")
+    FINAL = "final", _("Final")
+
 class SalesInvoice(CompanyOwnedModel):
-    invoice_number = models.CharField(max_length=50, blank=True, verbose_name=_("Invoice Number"))
+    status = models.CharField(
+        max_length=20, 
+        choices=SalesInvoiceStatus.choices, 
+        default=SalesInvoiceStatus.PROFORMA,
+        verbose_name=_("Status")
+    )
+    invoice_number = models.CharField(max_length=50, blank=True, null=True, verbose_name=_("Invoice Number"))
     date_issued = models.DateField(default=timezone.now, verbose_name=_("Date Issued"))
     due_date = models.DateField(null=True, blank=True, verbose_name=_("Due Date"))
     client = models.ForeignKey(
@@ -339,6 +349,7 @@ class SalesInvoice(CompanyOwnedModel):
         related_name='sales_invoices',
         verbose_name=_("Client")
     )
+    incremental_id = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("Incremental ID"))
     configuration = models.ForeignKey(
         'configurator.Configuration', 
         on_delete=models.SET_NULL, 
@@ -379,7 +390,9 @@ class SalesInvoice(CompanyOwnedModel):
         unique_together = ['company', 'invoice_number']
 
     def __str__(self):
-        return f"{self.invoice_number or 'Draft'} - {self.client}"
+        if self.status == SalesInvoiceStatus.PROFORMA:
+            return f"Pro Forma #{self.id} - {self.client}"
+        return f"{self.invoice_number} - {self.client}"
 
     def recalculate_totals(self, save=True):
         """

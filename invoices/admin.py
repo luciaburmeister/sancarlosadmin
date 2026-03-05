@@ -1,5 +1,5 @@
 from django.contrib import admin
-from unfold.decorators import action
+from unfold.decorators import action, display
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
@@ -14,9 +14,10 @@ from invoices.models import (
     IncomingInvoice,
     SalesInvoice,
     SalesInvoiceItem,
+    SalesInvoiceStatus
 )
 from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
-
+from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 
 @admin.register(InvoiceGroup)
@@ -233,15 +234,15 @@ class SalesInvoiceItemInline(TabularInline):
 
 @admin.register(SalesInvoice)
 class SalesInvoiceAdmin(ModelAdmin):
-    list_display = ("invoice_number", "company", "client", "date_issued", "total_amount")
-    list_filter = ("company", "date_issued")
+    list_display = ("invoice_number", "incremental_id", "get_status_label", "company", "client", "date_issued", "total_amount")
+    list_filter = ("company", "status", "date_issued")
     search_fields = ("invoice_number", "client__name")
     autocomplete_fields = ("company", "client", "configuration")
     inlines = [SalesInvoiceItemInline, AppliedTaxInline]
     
-    actions = ["download_pdf"]
-    actions_row = ["view_pdf_row_action"]
-    actions_detail = ["view_pdf_detail_action"]
+    actions = ["download_pdf", "finalize_invoice_action"]
+    actions_row = ["view_pdf_row_action", "finalize_invoice_row_action"]
+    actions_detail = ["view_pdf_detail_action", "finalize_invoice_detail_action"]
 
     @action(description=_("View PDF"), icon="visibility")
     def view_pdf_row_action(self, request, object_id):
@@ -250,6 +251,45 @@ class SalesInvoiceAdmin(ModelAdmin):
     @action(description=_("View PDF"), icon="visibility")
     def view_pdf_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_salesinvoice_pdf", args=[object_id]))
+
+    @action(description=_("Finalize"), icon="gavel")
+    def finalize_invoice_row_action(self, request, object_id):
+        invoice = SalesInvoice.objects.get(pk=object_id)
+        if invoice.status == SalesInvoiceStatus.FINAL:
+            self.message_user(request, _("Invoice is already final."), level="warning")
+        else:
+            SalesInvoiceService.finalize_invoice(invoice)
+            self.message_user(request, _("Invoice finalized and Delivery Order generated."))
+        return redirect(reverse("admin:invoices_salesinvoice_changelist"))
+
+    @action(description=_("Finalize"), icon="gavel")
+    def finalize_invoice_detail_action(self, request, object_id):
+        invoice = SalesInvoice.objects.get(pk=object_id)
+        if invoice.status == SalesInvoiceStatus.FINAL:
+            self.message_user(request, _("Invoice is already final."), level="warning")
+        else:
+            SalesInvoiceService.finalize_invoice(invoice)
+            self.message_user(request, _("Invoice finalized and Delivery Order generated."))
+        return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            _(SalesInvoiceStatus.FINAL): "success",  # green
+            _(SalesInvoiceStatus.PROFORMA): "warning",  # blue
+        },
+    )
+    def get_status_label(self, obj):
+        return obj.status
+
+    @admin.action(description=_("Finalize selected pro forma invoices"))
+    def finalize_invoice_action(self, request, queryset):
+        count = 0
+        for invoice in queryset.filter(status=SalesInvoiceStatus.PROFORMA):
+            SalesInvoiceService.finalize_invoice(invoice)
+            count += 1
+        self.message_user(request, _("Finalized %d invoices and generated Delivery Orders.") % count)
 
     def download_pdf(self, request, queryset):
         if queryset.count() != 1:

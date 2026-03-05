@@ -5,7 +5,7 @@ from company.models import Company
 from sales.models import Client
 from configurator.models import Configuration, ProductTemplate, ConfigurationStatus, ConfigurationItem
 from materials.models import Component, ComponentType
-from invoices.models import SalesInvoice, SalesInvoiceItem, AppliedTax, TaxType
+from invoices.models import SalesInvoice, SalesInvoiceItem, AppliedTax, TaxType, SalesInvoiceStatus
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from decimal import Decimal
 
@@ -47,26 +47,42 @@ class SalesInvoiceTest(TestCase):
             calculated_amount=21
         )
 
-    def test_invoice_generation(self):
+    def test_invoice_generation_proforma(self):
         invoice = SalesInvoiceService.create_from_configuration(self.configuration)
         
-        self.assertEqual(invoice.invoice_number, f"INV-{timezone.now().year}-00001")
+        self.assertEqual(invoice.status, SalesInvoiceStatus.PROFORMA)
+        self.assertIsNone(invoice.invoice_number)
         self.assertEqual(invoice.total_amount.amount, Decimal('121.00'))
         self.assertEqual(invoice.items.count(), 1)
-        self.assertEqual(invoice.items.first().description, str(self.component))
         
-        # Check taxes copied
-        from django.contrib.contenttypes.models import ContentType
-        invoice_ct = ContentType.objects.get_for_model(invoice)
-        taxes = AppliedTax.objects.filter(content_type=invoice_ct, object_id=invoice.id)
-        self.assertEqual(taxes.count(), 1)
-        self.assertEqual(taxes.first().selected_percentage, 21)
+    def test_finalize_invoice(self):
+        from sales.models import DeliveryOrder
+        invoice = SalesInvoiceService.create_from_configuration(self.configuration)
+        
+        # Finalize
+        SalesInvoiceService.finalize_invoice(invoice)
+        
+        self.assertEqual(invoice.status, SalesInvoiceStatus.FINAL)
+        self.assertEqual(invoice.invoice_number, f"INV-{timezone.now().year}-00001")
+        self.assertEqual(invoice.incremental_id, 1)
+        
+        # Check Delivery Order
+        do = DeliveryOrder.objects.get(sales_invoice=invoice)
+        self.assertEqual(do.number, f"DO-{timezone.now().year}-00001")
+        self.assertEqual(do.incremental_id, 1)
+        self.assertEqual(do.items.count(), 1)
 
-    def test_sequential_numbering(self):
-        SalesInvoiceService.create_from_configuration(self.configuration)
-        # Create another one for same company
-        invoice2 = SalesInvoiceService.create_from_configuration(self.configuration)
-        self.assertEqual(invoice2.invoice_number, f"INV-{timezone.now().year}-00002")
+    def test_sequential_numbering_finalized(self):
+        inv1 = SalesInvoiceService.create_from_configuration(self.configuration)
+        SalesInvoiceService.finalize_invoice(inv1)
+        
+        inv2 = SalesInvoiceService.create_from_configuration(self.configuration)
+        SalesInvoiceService.finalize_invoice(inv2)
+        
+        self.assertEqual(inv1.invoice_number, f"INV-{timezone.now().year}-00001")
+        self.assertEqual(inv2.invoice_number, f"INV-{timezone.now().year}-00002")
+        self.assertEqual(inv1.incremental_id, 1)
+        self.assertEqual(inv2.incremental_id, 2)
 
     def test_sequential_tax_calculation(self):
         # Create a new config with a specific subtotal

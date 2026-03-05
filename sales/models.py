@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 from djmoney.models.fields import MoneyField
 from materials.models import Material
 from timestamps.models import Timestampable
@@ -283,3 +284,68 @@ class OrderManager(Timestampable):
             )
         order.recalc_totals()
         return order
+
+class DeliveryOrderStatus(models.TextChoices):
+    DRAFT = "draft", _("Draft")
+    SENT = "sent", _("Sent")
+    DELIVERED = "delivered", _("Delivered")
+    CANCELLED = "cancelled", _("Cancelled")
+
+class DeliveryOrder(Timestampable, CompanyOwnedModel):
+    number = models.CharField(max_length=50, blank=True, verbose_name=_("Number"))
+    date = models.DateField(default=timezone.now, verbose_name=_("Date"))
+    client = models.ForeignKey(
+        Client, 
+        on_delete=models.CASCADE, 
+        related_name="delivery_orders",
+        verbose_name=_("Client")
+    )
+    incremental_id = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("Incremental ID"))
+    sales_invoice = models.ForeignKey(
+        "invoices.SalesInvoice",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delivery_orders",
+        verbose_name=_("Sales Invoice")
+    )
+    configuration = models.ForeignKey(
+        "configurator.Configuration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delivery_orders",
+        verbose_name=_("Configuration")
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=DeliveryOrderStatus.choices,
+        default=DeliveryOrderStatus.DRAFT,
+        verbose_name=_("Status")
+    )
+
+    class Meta:
+        verbose_name = _("Delivery Order")
+        verbose_name_plural = _("Delivery Orders")
+        ordering = ["-date", "-number"]
+        unique_together = ["company", "number"]
+
+    def __str__(self):
+        return f"{self.number or 'Draft'} - {self.client}"
+
+class DeliveryOrderItem(Timestampable):
+    delivery_order = models.ForeignKey(
+        DeliveryOrder,
+        on_delete=models.CASCADE,
+        related_name="items",
+        verbose_name=_("Delivery Order")
+    )
+    description = models.CharField(max_length=255, verbose_name=_("Description"))
+    quantity = models.DecimalField(max_digits=10, decimal_places=3, verbose_name=_("Quantity"))
+
+    class Meta:
+        verbose_name = _("Delivery Order Item")
+        verbose_name_plural = _("Delivery Order Items")
+
+    def __str__(self):
+        return f"{self.description} ({self.quantity})"

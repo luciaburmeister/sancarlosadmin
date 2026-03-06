@@ -399,18 +399,14 @@ class SalesInvoice(CompanyOwnedModel):
         Recalculates the total and tax amounts by applying taxes sequentially
         on top of the subtotal.
         """
-        from django.contrib.contenttypes.models import ContentType
         ct = ContentType.objects.get_for_model(self)
         
-        # 1. Use existing subtotal_amount (honoring pricing rules from configuration)
         current_total = Decimal(self.subtotal_amount.amount)
         
-        # 2. Apply taxes sequentially
         taxes = AppliedTax.objects.filter(content_type=ct, object_id=self.pk).order_by('order', 'tax_type')
         
         total_tax = Decimal("0.00")
         for tax in taxes:
-            # We use the cumulative total as the base for the next tax (matching Configuration behavior)
             result = tax.calculate(current_total)
             tax.base_amount = current_total
             tax.calculated_amount = result['tax_amount']

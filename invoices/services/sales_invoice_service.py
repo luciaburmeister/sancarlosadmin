@@ -33,22 +33,19 @@ class SalesInvoiceService:
             total_amount=configuration.total_price,
             tax_amount=configuration.total_price - configuration.subtotal_price
         )
-        
-        for item in configuration.items.filter(is_template_item=True):
-             SalesInvoiceItem.objects.create(
-                 invoice=sales_invoice,
-                 description=str(item.component),
-                 quantity=item.quantity,
-                 unit_price=item.unit_price,
-                 line_total=item.line_total
-             )
+
+        SalesInvoiceItem.objects.create(
+            invoice=sales_invoice,
+            description=str(configuration.product.description),
+            quantity=Decimal("1.000"),
+            unit_price=configuration.subtotal_price,
+            line_total=configuration.subtotal_price
+        )
 
         cls._copy_taxes(configuration, sales_invoice)
         
-        # 4. Recalculate totals to ensure accurate tax amounts and totals
         sales_invoice.recalculate_totals()
 
-        # [NEW] Generate Delivery Order immediately
         cls._create_delivery_order(sales_invoice)
         
         return sales_invoice
@@ -94,11 +91,10 @@ class SalesInvoiceService:
             configuration=configuration
         )
 
-        # Delivery Order items reflect the finished product, not BOM items
         DeliveryOrderItem.objects.create(
             delivery_order=delivery_order,
             description=str(configuration.product),
-            quantity=Decimal("1.000") # Assuming 1 product per configuration for now
+            quantity=Decimal("1.000")
         )
         
         return delivery_order

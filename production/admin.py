@@ -11,6 +11,7 @@ from production.models import (
     ProductionResource,
     OperationRequirement,
 )
+from production.views.planned_sessions_schedule_view import PlannedSessionsScheduleDayView
 from production.views.production_stages_view import (
     ProductionItemAdvanceStageView,
 )
@@ -479,3 +480,18 @@ class PlannedProductionSessionAdmin(ModelAdmin):
             )
         }),
     )
+    def get_urls(self):
+        urls = super().get_urls()
+
+        schedule_view = self.admin_site.admin_view(
+            PlannedSessionsScheduleDayView.as_view(model_admin=self)
+        )
+
+        custom = [
+            path(
+                "schedule/",
+                schedule_view,
+                name="production_plannedproductionsession_schedule",
+            ),
+        ]
+        return custom + urls

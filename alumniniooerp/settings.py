@@ -376,6 +376,16 @@ UNFOLD = {
                             "production.view_productionitem"
                         ),
                     },
+                    {
+                        "title": _("Schedule"),
+                        "icon": "calendar_month",
+                        "link": reverse_lazy(
+                            "admin:production_plannedproductionsession_schedule"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "production.view_plannedproductionsession"
+                        ),
+                    },
                 ],
             },
         

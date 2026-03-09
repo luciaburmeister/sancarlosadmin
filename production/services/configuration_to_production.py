@@ -14,6 +14,7 @@ def get_or_create_resource_for_target(target) -> ProductionResource|None:
         content_type=ct,
         object_id=target.pk,
         defaults={"is_active": True},
+        company=target.company,
     )
     return resource
 
@@ -115,9 +116,15 @@ class ConfigurationToProductionService:
                 planning=planning,
             )
 
+            last_stage_session = None
+
             for stage, stage_info in (item.stage_resources or {}).items():
-                tomorrow = timezone.localdate() + timedelta(days=1)
-                search_start_time = timezone.make_aware(datetime.combine(tomorrow, SCHEDULE["start"]))
+                if not last_stage_session:
+                    tomorrow = timezone.localdate() + timedelta(days=1)
+                    search_start_time = timezone.make_aware(datetime.combine(tomorrow, SCHEDULE["start"]))
+                else:
+                    search_start_time = last_stage_session.planned_end
+
                 duration = timedelta(minutes=int(stage_info["total_time_min"]))
 
                 machines = stage_info.get("machine_types", [])
@@ -162,7 +169,7 @@ class ConfigurationToProductionService:
                         search_start_time = conflict_slots.first().planned_end
                         continue
                         
-                    PlannedProductionSession.objects.create(
+                    last_stage_session = PlannedProductionSession.objects.create(
                         production_item = production_item,
                         production_stage = stage,
                         planned_start = search_start_time,

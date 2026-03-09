@@ -12,7 +12,7 @@ class ScheduleFilterForm(forms.Form):
         label=_("Day"),
         required=True,
         initial=timezone.localdate,
-        widget=UnfoldAdminDateWidget(),
+        widget=UnfoldAdminDateWidget,
     )
 
     resource_id = forms.ModelChoiceField(
@@ -20,7 +20,7 @@ class ScheduleFilterForm(forms.Form):
         required=False,
         queryset=ProductionResource.objects.none(),
         empty_label=_("All resources"),
-        widget=UnfoldAdminSelectWidget(),
+        widget=UnfoldAdminSelectWidget,
     )
 
     def __init__(self, *args, company=None, **kwargs):

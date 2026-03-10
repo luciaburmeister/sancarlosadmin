@@ -25,10 +25,10 @@ class Client(Timestampable, CompanyOwnedModel):
         blank=True,
         verbose_name=_("Address"),
     )
-    tax_id = models.CharField(
+    tax_identifier = models.CharField(
         max_length=25,
         blank=True,
-        verbose_name=_("Tax ID"),
+        verbose_name=_("Fiscal Identifier"),
     )
 
     class Meta:

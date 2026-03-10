@@ -9,16 +9,16 @@ from core.admin.company_admin import CompanyRestrictedAdmin
 
 @admin.register(Client)
 class ClientAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["name", "phone", "email"]
-    search_fields = ["name", "email", "phone", "address"]
+    list_display = ["name", "tax_identifier", "phone", "email"]
+    search_fields = ["name", "tax_identifier", "email", "phone", "address"]
     list_filter = []
     autocomplete_fields = ["company"]
     
     fieldsets = (
         ("Contact Information", {
             "fields": (
-                ("name","company"),
-                ("phone", "email"),
+                ("name", "company"),
+                ("tax_identifier", "phone", "email"),
                 "address"
             )
         }),

@@ -419,7 +419,7 @@ class SalesInvoice(CompanyOwnedModel):
         self.total_amount = current_total
         
         if save:
-            self.save(update_fields=['tax_amount', 'total_amount'])
+            self.save(update_fields=['subtotal_amount', 'tax_amount', 'total_amount'])
         
         return {
             'subtotal': self.subtotal_amount,
@@ -442,6 +442,13 @@ class SalesInvoiceItem(models.Model):
         default_currency='EUR',
         verbose_name=_("Unit Price")
     )
+    discount_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency='EUR',
+        verbose_name=_("Discount")
+    )
     line_total = MoneyField(
         max_digits=12, 
         decimal_places=2, 
@@ -450,7 +457,7 @@ class SalesInvoiceItem(models.Model):
     )
 
     def save(self, *args, **kwargs):
-        self.line_total = self.unit_price * self.quantity
+        self.line_total = (self.unit_price * self.quantity) - self.discount_amount
         super().save(*args, **kwargs)
 
     def __str__(self):

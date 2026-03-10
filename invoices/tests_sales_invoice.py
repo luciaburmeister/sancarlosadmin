@@ -154,7 +154,7 @@ class SalesInvoiceTest(TestCase):
 
     def test_subtotal_preservation(self):
         # Create a config where subtotal_price (120) != sum of line items (100)
-        # This simulates a surcharge rule of 20
+        # This simulates a surcharge/markup rule of 20
         config = Configuration.objects.create(
             name="Surcharge Config",
             company=self.company,
@@ -164,6 +164,7 @@ class SalesInvoiceTest(TestCase):
             subtotal_price=120,
             total_price=120 # No taxes for simplicity
         )
+        # The configuration has items that only sum to 100 (e.g. material cost)
         ConfigurationItem.objects.create(
             configuration=config,
             component=self.component,
@@ -174,10 +175,68 @@ class SalesInvoiceTest(TestCase):
         
         invoice = SalesInvoiceService.create_from_configuration(config)
         
-        # Subtotal should be 120 (from config), NOT 100 (from line item)
+        # Subtotal should be 120 (from config), NOT 100 (from line item summation)
         self.assertEqual(invoice.subtotal_amount.amount, Decimal('120.00'))
         self.assertEqual(invoice.total_amount.amount, Decimal('120.00'))
         
-        # Verify it stays 120 after explicit recalculation
+        # Verify it stays 120 after explicit recalculation (it should NOT sum the items)
         invoice.recalculate_totals()
         self.assertEqual(invoice.subtotal_amount.amount, Decimal('120.00'))
+
+    def test_line_item_discount(self):
+        # Create a config with a discount in breakdown
+        config = Configuration.objects.create(
+            name="Discount Config",
+            company=self.company,
+            product=self.product,
+            client=self.client,
+            status=ConfigurationStatus.COMPLETED,
+            subtotal_price=80,
+            total_price=80,
+            pricing_breakdown={
+                "pre_discount_subtotal": "100.00",
+                "discount_total": "-20.00",
+                "post_discount_subtotal": "80.00"
+            }
+        )
+        
+        invoice = SalesInvoiceService.create_from_configuration(config)
+        
+        self.assertEqual(invoice.items.count(), 1)
+        item = invoice.items.first()
+        
+        self.assertEqual(item.unit_price.amount, Decimal('100.00'))
+        self.assertEqual(item.discount_amount.amount, Decimal('20.00'))
+        self.assertEqual(item.line_total.amount, Decimal('80.00'))
+        self.assertEqual(invoice.subtotal_amount.amount, Decimal('80.00'))
+
+    def test_duplicate_invoice(self):
+        # Create an invoice with an item having a discount
+        invoice = SalesInvoice.objects.create(
+            company=self.company,
+            client=self.client,
+            subtotal_amount=80,
+            total_amount=80
+        )
+        SalesInvoiceItem.objects.create(
+            invoice=invoice,
+            description="Test Item",
+            quantity=1,
+            unit_price=100,
+            discount_amount=20,
+            line_total=80
+        )
+        
+        # Duplicate
+        new_invoice = SalesInvoiceService.duplicate_invoice(invoice)
+        
+        self.assertEqual(new_invoice.status, SalesInvoiceStatus.PROFORMA)
+        self.assertIsNone(new_invoice.invoice_number)
+        self.assertEqual(new_invoice.subtotal_amount.amount, Decimal('80.00'))
+        self.assertEqual(new_invoice.items.count(), 1)
+        
+        new_item = new_invoice.items.first()
+        self.assertEqual(new_item.description, "Test Item")
+        self.assertEqual(new_item.unit_price.amount, Decimal('100.00'))
+        self.assertEqual(new_item.discount_amount.amount, Decimal('20.00'))
+        self.assertEqual(new_item.line_total.amount, Decimal('80.00'))

@@ -21,6 +21,11 @@ class SalesInvoiceService:
         company = configuration.company
         client_id = getattr(configuration, 'client_id', None)
         
+        # Extract pricing information from the configuration's breakdown
+        pricing_breakdown = configuration.pricing_breakdown or {}
+        pre_discount_subtotal = Decimal(pricing_breakdown.get('pre_discount_subtotal', str(configuration.subtotal_price.amount)))
+        discount_total = Decimal(pricing_breakdown.get('discount_total', '0.00'))
+        
         sales_invoice = SalesInvoice.objects.create(
             company=company,
             status=SalesInvoiceStatus.PROFORMA,
@@ -36,9 +41,10 @@ class SalesInvoiceService:
 
         SalesInvoiceItem.objects.create(
             invoice=sales_invoice,
-            description=str(configuration.product.description),
+            description=str(configuration.product.description or configuration.product.name),
             quantity=Decimal("1.000"),
-            unit_price=configuration.subtotal_price,
+            unit_price=pre_discount_subtotal,
+            discount_amount=abs(discount_total),
             line_total=configuration.subtotal_price
         )
 
@@ -69,6 +75,50 @@ class SalesInvoiceService:
         sales_invoice.save(update_fields=['status', 'invoice_number', 'incremental_id'])
 
         return sales_invoice
+
+    @classmethod
+    @transaction.atomic
+    def duplicate_invoice(cls, sales_invoice):
+        """
+        Creates a copy of an existing SalesInvoice and its line items.
+        The new invoice will be in PROFORMA status without an invoice number.
+        """
+        original_items = list(sales_invoice.items.all())
+        
+        # Create the new invoice (Pro Forma)
+        new_invoice = SalesInvoice.objects.create(
+            company=sales_invoice.company,
+            status=SalesInvoiceStatus.PROFORMA,
+            invoice_number=None,
+            incremental_id=None,
+            date_issued=timezone.now().date(),
+            due_date=None,
+            client=sales_invoice.client,
+            configuration=sales_invoice.configuration,
+            subtotal_amount=sales_invoice.subtotal_amount,
+            tax_amount=sales_invoice.tax_amount,
+            total_amount=sales_invoice.total_amount,
+            notes=f"Copy of {sales_invoice.invoice_number or f'Pro Forma #{sales_invoice.id}'}"
+        )
+        
+        # Copy items
+        for item in original_items:
+            SalesInvoiceItem.objects.create(
+                invoice=new_invoice,
+                description=item.description,
+                quantity=item.quantity,
+                unit_price=item.unit_price,
+                discount_amount=item.discount_amount,
+                line_total=item.line_total
+            )
+            
+        # Copy taxes
+        cls._copy_taxes(sales_invoice, new_invoice)
+        
+        # Ensure totals are correct (should be same as source initially)
+        new_invoice.recalculate_totals()
+        
+        return new_invoice
 
     @classmethod
     def _create_delivery_order(cls, sales_invoice):

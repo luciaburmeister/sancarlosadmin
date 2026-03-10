@@ -231,6 +231,8 @@ class SalesInvoiceItemInline(TabularInline):
     model = SalesInvoiceItem
     extra = 0
     tab = True
+    fields = ("description", "quantity", "unit_price", "discount_amount", "line_total")
+    readonly_fields = ("line_total",)
 
 @admin.register(SalesInvoice)
 class SalesInvoiceAdmin(ModelAdmin):
@@ -240,9 +242,9 @@ class SalesInvoiceAdmin(ModelAdmin):
     autocomplete_fields = ("company", "client", "configuration")
     inlines = [SalesInvoiceItemInline, AppliedTaxInline]
     
-    actions = ["download_pdf", "finalize_invoice_action"]
-    actions_row = ["view_pdf_row_action", "finalize_invoice_row_action"]
-    actions_detail = ["view_pdf_detail_action", "finalize_invoice_detail_action"]
+    actions = ["download_pdf", "finalize_invoice_action", "duplicate_invoice_action"]
+    actions_row = ["view_pdf_row_action", "finalize_invoice_row_action", "duplicate_invoice_row_action"]
+    actions_detail = ["view_pdf_detail_action", "finalize_invoice_detail_action", "duplicate_invoice_detail_action"]
 
     @action(description=_("View PDF"), icon="visibility")
     def view_pdf_row_action(self, request, object_id):
@@ -272,6 +274,20 @@ class SalesInvoiceAdmin(ModelAdmin):
             self.message_user(request, _("Invoice finalized and Delivery Order generated."))
         return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
 
+    @action(description=_("Clone"), icon="content_copy")
+    def duplicate_invoice_row_action(self, request, object_id):
+        invoice = SalesInvoice.objects.get(pk=object_id)
+        new_invoice = SalesInvoiceService.duplicate_invoice(invoice)
+        self.message_user(request, _("Invoice duplicated successfully."))
+        return redirect(reverse("admin:invoices_salesinvoice_change", args=[new_invoice.pk]))
+
+    @action(description=_("Clone"), icon="content_copy")
+    def duplicate_invoice_detail_action(self, request, object_id):
+        invoice = SalesInvoice.objects.get(pk=object_id)
+        new_invoice = SalesInvoiceService.duplicate_invoice(invoice)
+        self.message_user(request, _("Invoice duplicated successfully."))
+        return redirect(reverse("admin:invoices_salesinvoice_change", args=[new_invoice.pk]))
+
     @display(
         description=_("Status"),
         ordering="status",
@@ -290,6 +306,14 @@ class SalesInvoiceAdmin(ModelAdmin):
             SalesInvoiceService.finalize_invoice(invoice)
             count += 1
         self.message_user(request, _("Finalized %d invoices and generated Delivery Orders.") % count)
+
+    @admin.action(description=_("Duplicate selected invoices"))
+    def duplicate_invoice_action(self, request, queryset):
+        count = 0
+        for invoice in queryset:
+            SalesInvoiceService.duplicate_invoice(invoice)
+            count += 1
+        self.message_user(request, _("Duplicated %d invoices.") % count)
 
     def download_pdf(self, request, queryset):
         if queryset.count() != 1:

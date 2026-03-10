@@ -31,13 +31,11 @@ class ScheduleFilterForm(forms.Form):
             qs = qs.filter(company=company)
         self.fields["resource_id"].queryset = qs
 
-        self.helper = FormHelper()
-        self.helper.form_tag = False 
-        self.helper.disable_csrf = True
-        self.helper.layout = Layout(
-            Div(
-                Div(Field("day"), css_class="min-w-[200px]"),
-                Div(Field("resource_id"), css_class="min-w-[320px] max-w-[560px] flex-1"),
-                css_class="flex flex-wrap items-end gap-4",
-            )
-        )
+    class Media:
+        js = [
+            "admin/js/vendor/jquery/jquery.js",
+            "admin/js/jquery.init.js",
+            "admin/js/calendar.js",
+            "admin/js/admin/DateTimeShortcuts.js",
+            "admin/js/core.js",
+        ]

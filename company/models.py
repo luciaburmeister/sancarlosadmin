@@ -2,6 +2,8 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _  
 from django.contrib.auth import get_user_model
 from django_countries.fields import CountryField
+from django.contrib.postgres.fields import ArrayField
+from location_field.models.spatial import LocationField
 from django.core.exceptions import ValidationError
 from datetime import time
 
@@ -20,6 +22,20 @@ class Company(models.Model):
     constituted_country = CountryField(null=True,verbose_name=_("Constitude Country"))
     start_time = models.TimeField(default=time(0,0), verbose_name=_("Schedule Start Time"))
     end_time = models.TimeField(default=time(23,59), verbose_name=_("Schedule End Time"))
+    production_stages = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text=_("Ordered list of possible production stages for this company"),
+        verbose_name=_("Production Stages"),
+    )
+    asset_identifier_labels = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text=_("Possible labels for asset identifiers (e.g., VIN, Plate Number)"),
+        verbose_name=_("Asset Identifier Labels"),
+    )
 
 
     def __str__(self):
@@ -36,7 +52,8 @@ class CompanyOwnedModel(models.Model):
         on_delete=models.CASCADE,
         related_name="%(class)ss",
         null=True,
-        blank=False
+        blank=False,
+        verbose_name=_("Company")
     )
 
     class Meta:
@@ -139,6 +156,14 @@ class Employee(CompanyOwnedModel):
 
     type = models.ForeignKey(EmployeeType, on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_("Type"))
 
+    production_stages = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        verbose_name=_("Assigned Production Stages"),
+        help_text=_("Stages this employee is authorized to work on"),
+    )
+
     class Meta:
         verbose_name = _("Employee")
         verbose_name_plural = _("Employees")
@@ -189,3 +214,36 @@ class Machine(CompanyOwnedModel):
 
     def __str__(self):
         return self.name
+
+class CompanyEmailConfig(CompanyOwnedModel):
+    email_address = models.EmailField(verbose_name=_("Email Address"))
+    imap_server = models.CharField(max_length=255, verbose_name=_("IMAP Server"))
+    imap_port = models.PositiveIntegerField(default=993, verbose_name=_("IMAP Port"))
+    imap_user = models.CharField(max_length=255, verbose_name=_("IMAP User"))
+    imap_password = models.CharField(max_length=255, verbose_name=_("IMAP Password"))  # TODO: Encrypt this
+    use_ssl = models.BooleanField(default=True, verbose_name=_("Use SSL"))
+    last_checked = models.DateTimeField(null=True, blank=True, verbose_name=_("Last Checked"))
+
+    class Meta:
+        verbose_name = _("Company Email Configuration")
+        verbose_name_plural = _("Company Email Configurations")
+
+    def __str__(self):
+        return f"{self.email_address} ({self.company})"
+
+class WorkingZone(CompanyOwnedModel):
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+    street_address = models.CharField(max_length=255, verbose_name=_("Address"), default="")
+    city = models.CharField(max_length=100, verbose_name=_("City"), default="")
+    postal_code = models.CharField(max_length=20, verbose_name=_("Postal Code"), default="")
+    province = models.CharField(max_length=100, verbose_name=_("Province"), default="")
+    country = CountryField(verbose_name=_("Country"), default="ES")
+    location = LocationField(based_fields=['street_address', 'city', 'postal_code', 'province', 'country'], zoom=18, default='POINT(36.7178 4.4256)')
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Working Zone")
+        verbose_name_plural = _("Working Zones")
+
+    def __str__(self):
+        return f"{self.name} ({self.company})"

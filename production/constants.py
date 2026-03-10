@@ -8,3 +8,8 @@ class ProductionActions:
     START_SESSION = "start_session"
     END_SESSION = "end_session"
     ADVANCE_STAGE = "advance_stage"
+    
+    # Kanban Actions
+    UPDATE_STATUS = "update_status"
+    ASSIGN_EMPLOYEE = "assign_employee"
+    UNASSIGN_EMPLOYEE = "unassign_employee"

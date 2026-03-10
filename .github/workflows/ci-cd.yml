@@ -11,7 +11,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:15
+        image: postgis/postgis:15-3.4
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -47,6 +47,7 @@ jobs:
       GOOGLE_CREDENTIALS_FILE: ${{ secrets.GOOGLE_CREDENTIALS_FILE }}
 
       DEBUG: False
+      DB_SSLMODE: disable
 
     steps:
       - name: Checkout code
@@ -56,6 +57,11 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.14'
+
+      - name: Install GDAL
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin libgdal-dev python3-gdal binutils libproj-dev
 
       - name: Install pipx
         run: python3 -m pip install --user pipx

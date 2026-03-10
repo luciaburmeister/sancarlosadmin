@@ -13,6 +13,10 @@ from django.http import HttpRequest
 from invoices.models import AppliedTax
 from unfold.decorators import display
 from core.admin.company_admin import CompanyRestrictedAdmin
+from unfold.contrib.forms.widgets import ArrayWidget
+from django.contrib.postgres.fields import ArrayField
+from django import forms
+from configurator.views.configuration.autocomplete_views import ClientAutocompleteView, AssetAutocompleteView
 
 
 
@@ -96,6 +100,7 @@ class ConfigurationItemInline(TabularInline):
         "length",
         "unit_price",
         "line_total",
+        "note",
     )
     readonly_fields = ("line_total", "is_template_item")
     tab = True
@@ -104,7 +109,7 @@ class ConfigurationItemInline(TabularInline):
     verbose_name_plural = _("Configuration items")
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related("component__material")
+        return super().get_queryset(request).select_related("component")
 
 class PricingRuleAssignmentInline(TabularInline):
     model = PricingRuleAssignment
@@ -116,6 +121,18 @@ class PricingRuleAssignmentInline(TabularInline):
 
 @admin.register(Configuration)
 class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
+    custom_urls = (
+        (
+            "autocomplete/client/",
+            "client_autocomplete",
+            ClientAutocompleteView.as_view(),
+        ),
+        (
+            "autocomplete/asset/",
+            "asset_autocomplete",
+            AssetAutocompleteView.as_view(),
+        ),
+    )
     list_display = (
         "id",
         "name",
@@ -135,7 +152,7 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
     readonly_fields = ("total_price","total_cost","subtotal_price","company")
     actions_row = ["export_configuration_to_template", 
                    "convert_to_production"]
-    autocomplete_fields = ["client","product"]
+    autocomplete_fields = ["client","product","asset"]
 
     inlines = [
         ParameterValueInline,
@@ -162,7 +179,7 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
             "fields": (
                 ("name", "client"),
                 ("product", "status"),
-                ("company")
+                ("company","asset")
             ),
         }),
         (_("Pricing"), {

@@ -1,0 +1,212 @@
+{% extends "admin/base.html" %}
+{% load i18n unfold %}
+
+{% block content %}
+<div class="px-6 py-8">
+    <div class="flex justify-between items-center mb-8">
+        <h1 class="text-2xl font-bold">{% trans "Production Kanban" %}</h1>
+        <a href="{% url 'admin:production_productionitem_changelist' %}"
+            class="bg-gray-100 dark:bg-gray-800 px-4 py-2 rounded-lg text-sm font-medium">{% trans "Back to list" %}</a>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 items-start">
+        {% for col in kanban_columns %}
+        <div
+            class="bg-gray-50 dark:bg-gray-800/10 rounded-2xl p-4 min-h-[70vh] flex flex-col border border-gray-200 dark:border-gray-800">
+            <div class="flex items-center justify-between mb-4 px-2">
+                <h2 class="text-xs font-bold uppercase tracking-wider text-gray-500">{{ col.label }}</h2>
+                <div
+                    class="bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                    {{ col.count }}
+                </div>
+            </div>
+
+            <div id="column-{{ col.status }}" data-status="{{ col.status }}" class="kanban-column flex-grow space-y-4">
+                {% for item in col.items %}
+                <div draggable="true" data-id="{{ item.pk }}"
+                    class="kanban-card bg-white dark:bg-gray-900 p-4 rounded-xl shadow-sm border border-gray-200 dark:border-gray-800 cursor-move hover:border-primary-500 transition-colors">
+                    <div class="flex justify-between items-start mb-2">
+                        <span class="text-[10px] font-mono text-gray-400">#{{ item.pk }}</span>
+                        {% if item.status_color == 'green' %}
+                        <span
+                            class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-green-100 text-green-700">{{item.status_display}}</span>
+                        {% elif item.status_color == 'amber' %}
+                        <span
+                            class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">{{item.status_display}}</span>
+                        {% else %}
+                        <span
+                            class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">{{item.status_display}}</span>
+                        {% endif %}
+                    </div>
+
+                    <div class="text-sm font-semibold mb-3">{{ item.component_display }}</div>
+
+                    <div class="space-y-2">
+                        <div class="text-[9px] uppercase font-bold text-gray-400">{% trans "Assigned" %}</div>
+                        <div class="flex flex-wrap gap-1">
+                            {% for emp in item.assigned_employees %}
+                            <div class="group relative">
+                                <span
+                                    class="inline-flex items-center justify-center w-7 h-7 rounded-full bg-primary-100 text-primary-700 text-[9px] font-bold border-2 border-white dark:border-gray-900"
+                                    title="{{ emp.full_name }}">
+                                    {{ emp.initials }}
+                                </span>
+                                <button onclick="unassignEmployee({{ item.pk }}, {{ emp.pk }})"
+                                    class="absolute -top-1 -right-1 hidden group-hover:flex bg-red-500 text-white rounded-full w-4 h-4 items-center justify-center text-[8px]">×</button>
+                            </div>
+                            {% endfor %}
+                            <button onclick="showAssignModal({{ item.pk }})"
+                                class="w-7 h-7 rounded-full border-2 border-dashed border-gray-300 dark:border-gray-700 flex items-center justify-center text-gray-400 hover:text-primary-500 hover:border-primary-500 shadow-none">+</button>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div id="assignModal"
+    class="hidden fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm">
+    <div
+        class="bg-white dark:bg-gray-900 rounded-2xl w-full max-w-sm p-6 shadow-2xl border border-gray-200 dark:border-gray-800 relative z-[101]">
+        <div class="flex justify-between items-center mb-6">
+            <h3 class="text-lg font-bold">{% trans "Assign Employee" %}</h3>
+            <button onclick="hideAssignModal()"
+                class="text-gray-400 hover:text-gray-600 font-bold p-2 text-xl leading-none">&times;</button>
+        </div>
+
+        <div class="space-y-2 max-h-72 overflow-y-auto mb-6 pr-2 custom-scrollbar">
+            {% for emp in employees %}
+            <button type="button" onclick="assignEmployee(currentItemsId, {{ emp.pk }})"
+                class="w-full p-2 text-left hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg flex items-center gap-3 transition-colors group">
+                <span
+                    class="flex-shrink-0 w-8 h-8 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center font-bold text-xs uppercase">
+                    {{ emp.initials }}
+                </span>
+                <span
+                    class="text-sm font-medium text-gray-700 dark:text-gray-200 group-hover:text-primary-600">{{emp.full_name}}</span>
+            </button>
+            {% empty %}
+            <div class="py-8 text-center">
+                <div class="text-gray-400 mb-2 text-sm">{% trans "No employees available" %}</div>
+                <a href="{% url 'admin:company_employee_add' %}"
+                    class="text-primary-600 text-sm font-bold hover:underline">{% trans "Create Employee" %}</a>
+            </div>
+            {% endfor %}
+        </div>
+
+        <button onclick="hideAssignModal()"
+            class="w-full py-2.5 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-lg font-bold text-sm text-gray-600 dark:text-gray-300 transition-colors">
+            {% trans "Cancel" %}
+        </button>
+    </div>
+</div>
+
+<script>
+    let currentItemsId = null;
+    const ACTIONS = {
+        UPDATE_STATUS: '{{ ProductionActions.UPDATE_STATUS }}',
+        ASSIGN_EMPLOYEE: '{{ ProductionActions.ASSIGN_EMPLOYEE }}',
+        UNASSIGN_EMPLOYEE: '{{ ProductionActions.UNASSIGN_EMPLOYEE }}'
+    };
+
+    function showAssignModal(itemId) {
+        currentItemsId = itemId;
+        const modal = document.getElementById('assignModal');
+        modal.classList.remove('hidden');
+        document.body.classList.add('overflow-hidden');
+    }
+
+    function hideAssignModal() {
+        const modal = document.getElementById('assignModal');
+        modal.classList.add('hidden');
+        document.body.classList.remove('overflow-hidden');
+    }
+
+    async function apiCall(data) {
+        try {
+            const response = await fetch('', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': '{{ csrf_token }}'
+                },
+                body: JSON.stringify(data)
+            });
+            if (response.ok) {
+                window.location.reload();
+            } else {
+                const result = await response.json();
+                alert(result.error || 'Request failed');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Network error');
+        }
+    }
+
+    async function assignEmployee(itemId, employeeId) {
+        await apiCall({ action: ACTIONS.ASSIGN_EMPLOYEE, item_id: itemId, employee_id: employeeId });
+    }
+
+    async function unassignEmployee(itemId, employeeId) {
+        if (confirm('{% trans "Remove assignment?" %}')) {
+            await apiCall({ action: ACTIONS.UNASSIGN_EMPLOYEE, item_id: itemId, employee_id: employeeId });
+        }
+    }
+
+    let draggedItem = null;
+    document.querySelectorAll('.kanban-card').forEach(card => {
+        card.addEventListener('dragstart', (e) => {
+            draggedItem = card;
+            e.dataTransfer.setData('text/plain', card.dataset.id);
+            requestAnimationFrame(() => card.classList.add('opacity-50'));
+        });
+        card.addEventListener('dragend', () => {
+            card.classList.remove('opacity-50');
+            draggedItem = null;
+        });
+    });
+
+    document.querySelectorAll('.kanban-column').forEach(column => {
+        column.addEventListener('dragover', (e) => { e.preventDefault(); });
+        column.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            if (draggedItem) {
+                const itemId = draggedItem.dataset.id;
+                const newStatus = column.dataset.status;
+                const oldStatusColumn = draggedItem.closest('.kanban-column');
+
+                if (column !== oldStatusColumn) {
+                    await apiCall({
+                        action: ACTIONS.UPDATE_STATUS,
+                        item_id: itemId,
+                        status: newStatus
+                    });
+                }
+            }
+        });
+    });
+</script>
+
+<style>
+    .kanban-column {
+        min-height: 200px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar {
+        width: 4px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #E5E7EB;
+        border-radius: 10px;
+    }
+</style>
+{% endblock %}

@@ -17,7 +17,7 @@ class ProductionTicketStatus(models.TextChoices):
     DONE = "done", _("Done")
     CANCELLED = "cancelled", _("Cancelled")
 
-class ProductionTicket(Timestampable):
+class ProductionTicket(Timestampable, CompanyOwnedModel):
     content_type = models.ForeignKey(
         ContentType,
         on_delete=models.PROTECT,
@@ -41,6 +41,9 @@ class ProductionTicket(Timestampable):
         verbose_name=_("Contexto")
     )
 
+    order_html = models.TextField(blank=True, null=True, verbose_name=_("Order HTML"))
+    ticket_html = models.TextField(blank=True, null=True, verbose_name=_("Ticket HTML"))
+
 
     def __str__(self):
         return str(self.pk)
@@ -56,13 +59,45 @@ class ProductionTicket(Timestampable):
             )
         ]
 
+    def compute_status_from_items(self):
+        items = list(self.items.all())
+        if not items:
+            return ProductionTicketStatus.PENDING
+
+        stage_statuses = [
+            ((info or {}).get("status") or ProductionItemStatus.PENDING)
+            for item in items
+            for info in (item.planning or {}).values()
+        ]
+
+        if not stage_statuses:
+            return ProductionTicketStatus.PENDING
+
+        if all(s == ProductionItemStatus.DONE for s in stage_statuses):
+            return ProductionTicketStatus.DONE
+        if any(s == ProductionItemStatus.IN_PROGRESS for s in stage_statuses):
+            return ProductionTicketStatus.IN_PROGRESS
+        if any(s == ProductionItemStatus.DONE for s in stage_statuses):
+            return ProductionTicketStatus.IN_PROGRESS
+
+        return ProductionTicketStatus.PENDING
+
+
+    def recompute_status(self):
+        new_status = self.compute_status_from_items()
+
+        if new_status != self.status:
+            ProductionTicket.objects.filter(pk=self.pk).update(status=new_status)
+            self.status = new_status
+
+
 class ProductionItemStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
     IN_PROGRESS = "in_progress", _("In Progress")
     DONE = "done", _("Done")
     CANCELLED = "cancelled", _("Cancelled")
 
-class ProductionItem(Timestampable):
+class ProductionItem(Timestampable, CompanyOwnedModel):
     ticket = models.ForeignKey(
         ProductionTicket,
         on_delete=models.CASCADE,
@@ -112,24 +147,81 @@ class ProductionItem(Timestampable):
         blank=True,
         verbose_name=_("Length"),
     )
+    
+    assigned_employees = models.ManyToManyField(
+        Employee,
+        blank=True,
+        related_name="assigned_production_items",
+        verbose_name=_("Assigned Employees")
+    )
+
+    ticket_html = models.TextField(blank=True, null=True, verbose_name=_("Ticket HTML"))
 
     class Meta:
         indexes = [
             GinIndex(fields=["planning"]),
         ]
 
+    def get_ordered_planning(self):
+        """
+        Returns the planning dictionary items (stage_name, info) sorted by 
+        the product template's production stages order.
+        """
+        planning = self.planning or {}
+        
+        # Get stage order from product template
+        stage_order = []
+        if self.ticket and self.ticket.source_object:
+            product = getattr(self.ticket.source_object, "product", None)
+            if product:
+                stage_order = list(product.production_stages or [])
+
+        def sort_key(item):
+            stage_name = item[0]
+            try:
+                # Priority 0: Stages in the product template's defined order
+                return (0, stage_order.index(stage_name))
+            except ValueError:
+                # Priority 1: Other stages sorted alphabetically
+                return (1, stage_name)
+
+        return sorted(planning.items(), key=sort_key)
+    
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.ticket_id:
+            self.company = self.ticket.company
+        super().save(*args, **kwargs)
+        self.ticket.recompute_status()
+
+
 class ProductionItemSessionStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
-    IN_PROGRESS = "in_progress", _("In progress")
+    IN_PROGRESS = "in_progress", _("In Progress")
     DONE = "done", _("Done")
     CANCELLED = "cancelled", _("Cancelled")
 
-class ProductionItemSession(Timestampable):
+
+class ProductionItemSessionKind(models.TextChoices):
+    ACTIVITY_STARTED = "activity_started", _("Activity started")
+    ACTIVITY_FINISHED = "activity_finished", _("Activity finished")
+    SESSION_STARTED = "session_started", _("Session started")
+    SESSION_FINISHED = "session_finished", _("Session finished")
+
+
+class ProductionItemSession(Timestampable, CompanyOwnedModel):
     production_item = models.ForeignKey(
         ProductionItem,
         on_delete=models.CASCADE,
         related_name="sessions",
         verbose_name=_("Production Item"),
+    )
+    kind = models.CharField(
+        max_length=32,
+        choices=ProductionItemSessionKind.choices,
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name=_("Type"),
     )
     start_time = models.DateTimeField(verbose_name=("Start Time"),null=True,blank=True)
     end_time = models.DateTimeField(verbose_name=_("End Time"),null=True,blank=True)
@@ -158,6 +250,7 @@ class ProductionItemSession(Timestampable):
         blank=True,
         verbose_name=_("Completed by")
     )
+
     class Meta:
         indexes = [
             models.Index(fields=["production_item", "production_stage"]),
@@ -180,9 +273,13 @@ class ProductionItemSession(Timestampable):
                 raise ValidationError(_("Finished sessions must have start and end times"))
             
     def save(self, *args, **kwargs):
+        if not self.company_id and self.production_item_id:
+            self.company = self.production_item.company
         self.full_clean()
         super().save(*args, **kwargs)
 
+        ticket = self.production_item.ticket
+        ticket.recompute_status()
 
         
     @property

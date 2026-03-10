@@ -1,10 +1,13 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
+from django.urls import path, reverse
 from company.models import Employee, EmployeeType
 from django.utils.translation import gettext_lazy as _
 from core.admin.company_admin import CompanyRestrictedAdmin
 from import_export.admin import ImportExportModelAdmin
+from unfold.contrib.forms.widgets import ArrayWidget
+from django.contrib.postgres.fields import ArrayField
 from unfold.contrib.import_export.forms import (
     ExportForm,
     ImportForm,
@@ -12,11 +15,25 @@ from unfold.contrib.import_export.forms import (
 )
 
 
+from django.db.models import F, Sum, Count, ExpressionWrapper, DurationField
+from unfold.decorators import display
+from company.views.employeesessions import EmployeeSessionsView
+
+
 @admin.register(Employee)
 class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
     import_form_class = ImportForm
     export_form_class = ExportForm
     export_form_class = SelectableFieldsExportForm
+
+    formfield_overrides = {
+        ArrayField: {
+            "widget": ArrayWidget,
+        }
+    }
+
+    change_form_template = "admin/company/employee/change_form.html"
+
     list_display = (
         "full_name",
         "company",
@@ -53,6 +70,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         (
             _("Employee"),
             {
+                "classes": ["tab"],
                 "fields": (
                     ("first_name", "last_name"),
                     ("email", "phone"),
@@ -64,6 +82,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         (
             _("Personal Information"),
             {
+                "classes": ["tab"],
                 "fields": (
                     "identification_number",
                     "birth_date",
@@ -75,6 +94,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         (
             _("Employment"),
             {
+                "classes": ["tab"],
                 "fields": (
                     "company",
                     ("hired_at", "terminated_at"),
@@ -82,14 +102,49 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
                 )
             },
         ),
+        (
+            _("Production"),
+            {
+                "classes": ["tab"],
+                "fields": (
+                    ("can_work_on_production", "production_stages"),
+                )
+            },
+        ),
     )
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form = super().get_form(request, obj, change, **kwargs)
+        if obj and obj.company:
+            stages = obj.company.production_stages
+            if stages:
+                form.base_fields["production_stages"].widget = ArrayWidget(
+                    choices=[(s, s) for s in stages]
+                )
+        return form
 
     readonly_fields = ()
 
     def full_name(self, obj):
         return obj.full_name
-
     full_name.short_description = _("Name")
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["employee_sessions_url"] = reverse(
+            "admin:company_employee_sessions",
+            args=[object_id],
+        )
+        return super().change_view(request, object_id, form_url, extra_context=extra_context)
+
+    def get_urls(self):
+        return [
+            path(
+                "<int:employee_id>/sessions/",
+                self.admin_site.admin_view(EmployeeSessionsView.as_view(model_admin=self)),
+                name="company_employee_sessions",
+            ),
+        ] + super().get_urls()
 
 
 @admin.register(EmployeeType)

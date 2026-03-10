@@ -6,6 +6,9 @@ from django_json_widget.widgets import JSONEditorWidget
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from core.admin.company_admin import CompanyRestrictedAdmin
+from unfold.contrib.forms.widgets import ArrayWidget
+from django.contrib.postgres.fields import ArrayField
+from django import forms
 
 class ComponentPriceRuleInline(TabularInline):
     model = ComponentPriceRule
@@ -16,6 +19,7 @@ class ComponentPriceRuleInline(TabularInline):
 
     fields = (
         "condition",
+        "unit_price_expression",
         "unit_price",
         "is_fallback",
     )
@@ -23,43 +27,37 @@ class ComponentPriceRuleInline(TabularInline):
     verbose_name = _("Component price rule")
     verbose_name_plural = _("Component price rules")
 
-class ComponentInline(TabularInline):
-    model = Component
-    extra = 1
-    fields = (
-        "name",
-        "code",
-    )
-    show_change_link = True
 
 @admin.register(Component)
 class ComponentAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = (
         "name",
-        "material",
         "code",
         "component_type",
         "company"
     )
 
-    list_filter = ("material", "component_type",)
+    list_filter = ("materials", "component_type",)
 
-    list_select_related = ["material","company"]
+    list_select_related = ["company"]
 
     search_fields = (
         "name",
         "code",
-        "material__name",
-        "material__reference_code",
+        "materials__name",
+        "materials__reference_code",
     )
 
-    autocomplete_fields = ("material","company")
+    autocomplete_fields = ("materials","company")
 
     inlines = [ComponentPriceRuleInline]  # 👈 HERE
 
     formfield_overrides = {
         models.JSONField:{
             'widget': JSONEditorWidget,
+        },
+         ArrayField: {
+            "widget": ArrayWidget,
         }
         }
 
@@ -68,12 +66,12 @@ class ComponentAdmin(CompanyRestrictedAdmin,ModelAdmin):
             None,
             {
                 "fields": (
-                    "material",
+                    "materials",
                     ("name",
                     "code"),
                     "component_type", 
                     ("unit_price_expression","cost_per_unit"),
-                    "company"
+                    ("company","production_stages")
                 )
             },
         ),
@@ -84,6 +82,14 @@ class ComponentAdmin(CompanyRestrictedAdmin,ModelAdmin):
             },
         ),
     ]
+
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if obj and obj.company and obj.company.production_stages:
+            form.base_fields["production_stages"].widget = ArrayWidget(
+                choices=[("", "---------")] + [(s, s) for s in obj.company.production_stages]
+            )
+        return form
 
 
 @admin.register(Category)
@@ -101,7 +107,6 @@ class MaterialAdmin(CompanyRestrictedAdmin,ModelAdmin):
         "unit_type",
         "company"
     ]
-    inlines = [ComponentInline]
     list_filter = ["category",  "unit_type"]
     search_fields = ["reference_code", "name"]
     ordering = ["reference_code"]
@@ -112,7 +117,8 @@ class MaterialAdmin(CompanyRestrictedAdmin,ModelAdmin):
     fieldsets = (
         ("Product Details", {
             "fields": (
-                ("reference_code", "name"),
+                ("name"),
+                ("reference_code", "rule_key"),
                 ("category", "cost_per_unit"),
                 ("unit_type","provider"),
                 "company"

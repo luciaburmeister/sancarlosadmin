@@ -1,9 +1,16 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
+from unfold.decorators import action # Added import
 
-from company.models import Company, CompanyUser
+from company.models import Company, CompanyUser, CompanyEmailConfig
 from django.utils.translation import gettext_lazy as _
+from django.shortcuts import get_object_or_404, redirect
+from django.contrib import messages
+from core.admin.company_access import get_user_companies
 
+
+from unfold.contrib.forms.widgets import ArrayWidget
+from django.contrib.postgres.fields import ArrayField
 
 @admin.register(Company)
 class CompanyAdmin(ModelAdmin):
@@ -12,6 +19,62 @@ class CompanyAdmin(ModelAdmin):
     search_fields = ("name",)
 
     ordering = ("name",)
+
+    fieldsets = (
+        (None, {
+            "fields": (
+                "name",
+                "legal_name",
+                "is_active",
+                "logo",
+                "address",
+                "email",
+                "phone",
+                "tax_identifier",
+                "constituted_country",
+                "production_stages",
+                "asset_identifier_labels",
+            )
+        }),
+    )
+
+    formfield_overrides = {
+        ArrayField: {
+            "widget": ArrayWidget,
+        }
+    }
+    
+    actions_row = ["install_chart_action"]
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(id__in=get_user_companies(request.user))
+
+    @action(
+        description=_("Install Chart"),
+        url_path="install-chart",
+        icon="playlist_add"
+    )
+    def install_chart_action(self, request, object_id: int):
+        from accounting.services.chart_installer import install_chart_standard
+        
+        company = get_object_or_404(Company, pk=object_id)
+        
+        if not hasattr(company, 'chart'):
+            messages.error(request, _("Company has no Chart of Accounts template assigned."))
+            return redirect(request.META.get("HTTP_REFERER"))
+            
+        try:
+            # We assume company.chart.template exists if company.chart exists
+            count = install_chart_standard(company, company.chart.template)
+            messages.success(request, _(f"Successfully installed {count} accounts from template."))
+        except Exception as e:
+            messages.error(request, _(f"Error installing chart: {str(e)}"))
+            
+        return redirect(request.META.get("HTTP_REFERER"))
+
 
 @admin.register(CompanyUser)
 class CompanyUserAdmin(ModelAdmin):
@@ -26,3 +89,10 @@ class CompanyUserAdmin(ModelAdmin):
     autocomplete_fields = ("user", "company")
 
     ordering = ("company", "user")
+
+@admin.register(CompanyEmailConfig)
+class CompanyEmailConfigAdmin(ModelAdmin):
+    list_display = ("email_address", "company", "imap_server", "last_checked")
+    list_filter = ("company", "use_ssl")
+    search_fields = ("email_address", "imap_server", "imap_user")
+    autocomplete_fields = ("company",)

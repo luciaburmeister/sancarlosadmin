@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+from decouple import config
 from dotenv import load_dotenv
 from django.urls import reverse_lazy
 import os
@@ -77,13 +78,21 @@ INSTALLED_APPS = [
     'sales',
     'materials',
     "configurator",
+    'accounting',
     'timestamps',
     'django_extensions',
     'formtools',
     'crispy_forms',
     'viewflow',
     'django_countries',
-    'company'
+    'company',
+    'django_celery_results',
+    'djmoney',
+    'assets',
+    'location_field',
+    'simple_history',
+    'hijack',
+    'hijack.contrib.admin'
 ]
 
 MIDDLEWARE = [
@@ -95,6 +104,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'simple_history.middleware.HistoryRequestMiddleware',
+    'hijack.middleware.HijackUserMiddleware',
 ]
 
 
@@ -175,7 +186,7 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.postgresql",
+        "ENGINE": "django.contrib.gis.db.backends.postgis",
         "NAME": os.getenv("DB_NAME"),  # your DB name
         "USER": os.getenv("DB_USER"),  # your DB user
         "PASSWORD": os.getenv("DB_PASSWORD"),  # your DB password
@@ -184,10 +195,13 @@ DATABASES = {
         
     }
 }
-if not DEBUG:
+# Database SSL mode
+DB_SSLMODE = os.getenv("DB_SSLMODE", "require" if not DEBUG else None)
+
+if DB_SSLMODE:
     DATABASES["default"]["OPTIONS"] = {
-            "sslmode": "require",
-        }
+        "sslmode": DB_SSLMODE,
+    }
 
 
 
@@ -228,6 +242,21 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = 20000
 STATIC_URL = 'static/'
 STATIC_ROOT = os.path.join(BASE_DIR, "static")
 
+
+# CELERY CONFIGURATION
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'django-db'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Europe/Madrid'  
+
+
+# GEMINI API CONFIGURATION
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+
+
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
@@ -254,6 +283,9 @@ LOCALE_PATHS = [
     BASE_DIR / "locale",
 ]
 
+IMPERSONATE_REQUIRE_SUPERUSER = True
+
+
 UNFOLD = {
     "SITE_TITLE": "ERP - Polipus",
     "SITE_HEADER": "Polipus",
@@ -262,6 +294,46 @@ UNFOLD = {
         "light": lambda request: static("site-logos/polipus_negro.png"),  # light mode
         "dark": lambda request: static("site-logos/polipus_blanco.png"),  # dark mode
     },
+    "LOGIN": {
+        "image": lambda request: static("site-login/login-bg.png"),
+    },
+    "COLORS": {
+    "base": {
+        "50":  "oklch(98% .002 200)",
+        "100": "oklch(95% .004 200)",
+        "200": "oklch(90% .006 200)",
+        "300": "oklch(82% .010 200)",
+        "400": "oklch(70% .015 200)",
+        "500": "oklch(60% .020 200)",
+        "600": "oklch(50% .022 200)",
+        "700": "oklch(40% .020 200)",
+        "800": "oklch(30% .018 200)",
+        "900": "oklch(22% .015 200)",
+        "950": "oklch(15% .012 200)",
+    },
+    "primary": {
+        "50":  "oklch(97% .030 190)",
+        "100": "oklch(93% .050 190)",
+        "200": "oklch(87% .080 190)",
+        "300": "oklch(78% .120 190)",
+        "400": "oklch(70% .150 190)",
+        "500": "oklch(64% .140 190)",  # #68A7A5
+        "600": "oklch(57% .125 190)",
+        "700": "oklch(49% .105 190)",
+        "800": "oklch(41% .085 190)",
+        "900": "oklch(34% .070 190)",
+        "950": "oklch(26% .055 190)",
+    },
+    "font": {
+        "subtle-light": "var(--color-base-500)",
+        "subtle-dark": "var(--color-base-400)",
+        "default-light": "var(--color-base-700)",
+        "default-dark": "var(--color-base-200)",
+        "important-light": "var(--color-base-900)",
+        "important-dark": "var(--color-base-50)",
+    },
+},
+
     "BORDER_RADIUS": "12px",
     "SIDEBAR": {
         "show_search": True,  
@@ -330,7 +402,7 @@ UNFOLD = {
                 "items": [
                     {
                         "title": _("Company"),
-                        "icon": "brick",
+                        "icon": "domain",
                         "link": reverse_lazy(
                             "admin:company_company_changelist"
                         ),
@@ -340,13 +412,40 @@ UNFOLD = {
                     },
                     {
                         "title": _("Employees"),
-                        "icon": "brick",
+                        "icon": "people",
                         "link": reverse_lazy(
                             "admin:company_employee_changelist"
                         ),
                         "permission": lambda request: request.user.has_perm(
                             "company.view_employee"
                         )
+                    },
+                ],
+            },
+            {
+                "title": _("Assets"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Assets"),
+                        "icon": "web_asset",
+                        "link": reverse_lazy(
+                            "admin:assets_asset_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_asset"
+                        ),
+                    },
+                    {
+                        "title": _("Asset Types"),
+                        "icon": "category",
+                        "link": reverse_lazy(
+                            "admin:assets_assettype_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_assettype"
+                        ),
                     },
                 ],
             },
@@ -384,6 +483,33 @@ UNFOLD = {
                         ),
                         "permission": lambda request: request.user.has_perm(
                             "production.view_plannedproductionsession"
+                        ),
+                    },
+                ],
+            },
+            {
+                "title": _("Invoices"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Sales Invoices"),
+                        "icon": "receipt",
+                        "link": reverse_lazy(
+                            "admin:invoices_salesinvoice_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "invoices.view_salesinvoice"
+                        ),
+                    },
+                    {
+                        "title": _("Received Invoices"),
+                        "icon": "receipt_long",
+                        "link": reverse_lazy(
+                            "admin:invoices_invoice_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "invoices.view_invoice"
                         ),
                     },
                 ],

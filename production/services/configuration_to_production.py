@@ -4,7 +4,9 @@ from django.db.models import F, Sum, ExpressionWrapper, DurationField
 from company.models import Employee, EmployeeType, Machine, MachineType
 from production.models import ProductionResource, ProductionTicket, ProductionItem, PlannedProductionSession, PlannedProductionSessionSource
 from datetime import datetime, time, timedelta
-
+from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
+from configurator.services.export import ConfigurationExportService
+        
 def get_or_create_resource_for_target(target) -> ProductionResource|None:
     if not target:
         return None
@@ -75,6 +77,7 @@ class ConfigurationToProductionService:
             content_type=ct,
             object_id=configuration.id,
             defaults={
+                "company": configuration.company,
                 "context": {
                     "configuration_id": configuration.id,
                     "product": configuration.product.name,
@@ -84,13 +87,40 @@ class ConfigurationToProductionService:
         )
 
         if created:
+            cls._assign_default_templates(ticket, configuration)
             cls._create_items(ticket, configuration)
 
         return ticket
 
+    @classmethod
+    def _assign_default_templates(cls, ticket, configuration):
+        from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
+        from configurator.services.export import ConfigurationExportService
+        
+        product = configuration.product
+        
+        # 1. Production Order
+        order_template = ConfigurationExportTemplate.get_default_for_product(
+            product=product, 
+            kind=ExportTemplateKind.PRODUCTION_ORDER
+        )
+        if order_template:
+            ticket.order_html = ConfigurationExportService.render_html(configuration, order_template)
+        
+        # 2. Production Ticket (Default)
+        ticket_template = ConfigurationExportTemplate.get_default_for_product(
+            product=product, 
+            kind=ExportTemplateKind.PRODUCTION_TICKET
+        )
+        if ticket_template:
+            ticket.ticket_html = ConfigurationExportService.render_html(configuration, ticket_template)
+        
+        ticket.save(update_fields=["order_html", "ticket_html"])
+
     @staticmethod
     def _create_items(ticket, configuration):
         SCHEDULE = {"start": configuration.company.start_time, "end": configuration.company.end_time}
+        product = configuration.product
 
         for item in configuration.items.select_related("component"):
             planning = {
@@ -104,6 +134,7 @@ class ConfigurationToProductionService:
 
             production_item = ProductionItem.objects.create(
                 ticket=ticket,
+                company=ticket.company,
                 component=item.component,
                 quantity=item.quantity,
                 length=item.length,
@@ -115,6 +146,14 @@ class ConfigurationToProductionService:
                 },
                 planning=planning,
             )
+            ticket_template = ConfigurationExportTemplate.get_default_for_product(
+                product=product,
+                kind=ExportTemplateKind.PRODUCTION_TICKET
+            )
+            if ticket_template:
+                production_item.ticket_html = ConfigurationExportService.render_html(production_item, ticket_template)
+            
+            production_item.save(update_fields=["ticket_html"])
 
             last_stage_session = None
 

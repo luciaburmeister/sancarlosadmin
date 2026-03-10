@@ -27,9 +27,19 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             items_data.append(item_dict)
 
 
+        client = self.sales_invoice.client
+        client_data = {
+            "name": client.name,
+            "tax_identifier": client.tax_identifier,
+            "phone": client.phone,
+            "email": client.email,
+            "address": client.address,
+        }
+
         context = {
             "invoice": self.sales_invoice,
-            "client": self.sales_invoice.client,
+            "client": client,
+            "client_data": client_data,
             "items": items_data,
             "invoice_number": self.sales_invoice.invoice_number,
             "date_issued": self.sales_invoice.date_issued,

@@ -22,6 +22,7 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
                 "quantity": float(item.quantity) if item.quantity else 0,
                 "unit_price": float(item.unit_price.amount) if item.unit_price else 0,
                 "line_total": float(item.line_total.amount) if item.line_total else 0,
+                "discount_amount": float(item.discount_amount.amount) if item.discount_amount else 0,
             }
             items_data.append(item_dict)
 

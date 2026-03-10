@@ -238,3 +238,26 @@ class WorkingZone(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.name} ({self.company})"
+
+class BankAccount(CompanyOwnedModel):
+    bank_name = models.CharField(max_length=100, verbose_name=_("Bank Name"))
+    holder_name = models.CharField(max_length=100, blank=True, verbose_name=_("Holder Name"))
+    iban = models.CharField(max_length=34, blank=True, verbose_name=_("IBAN"), help_text=_("For SEPA/Europe"))
+    swift_bic = models.CharField(max_length=11, blank=True, verbose_name=_("SWIFT/BIC code"))
+    account_number = models.CharField(max_length=50, blank=True, verbose_name=_("Account Number"), help_text=_("Local account number"))
+    routing_number = models.CharField(max_length=50, blank=True, verbose_name=_("Routing Number"), help_text=_("Routing number, Sort code, ABA, etc."))
+    bank_address = models.TextField(blank=True, verbose_name=_("Bank Address"))
+    country = CountryField(blank=True, null=True, verbose_name=_("Country"))
+    is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
+
+    class Meta:
+        verbose_name = _("Bank Account")
+        verbose_name_plural = _("Bank Accounts")
+
+    def __str__(self):
+        return f"{self.bank_name} - {self.account_number or self.iban} ({self.company})"
+
+    def save(self, *args, **kwargs):
+        if self.is_default:
+            BankAccount.objects.filter(company=self.company, is_default=True).exclude(pk=self.pk).update(is_default=False)
+        super().save(*args, **kwargs)

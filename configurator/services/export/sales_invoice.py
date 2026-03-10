@@ -26,6 +26,7 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             }
             items_data.append(item_dict)
 
+
         context = {
             "invoice": self.sales_invoice,
             "client": self.sales_invoice.client,
@@ -37,13 +38,25 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "tax_amount": float(self.sales_invoice.tax_amount.amount),
             "total_amount": float(self.sales_invoice.total_amount.amount),
         }
+
+        default_bank = self.sales_invoice.company.bankaccounts.filter(is_default=True).first()
+        if default_bank:
+            context["bank_account"] = {
+                "bank_name": default_bank.bank_name,
+                "holder_name": default_bank.holder_name,
+                "iban": default_bank.iban,
+                "swift_bic": default_bank.swift_bic,
+                "account_number": default_bank.account_number,
+                "routing_number": default_bank.routing_number,
+                "bank_address": default_bank.bank_address,
+                "country": str(default_bank.country) if default_bank.country else None,
+            }
         
-        # If there's a configuration, include its context too
+        
         if self.sales_invoice.configuration:
             from .configuration import ConfigurationExportStrategy
             config_strategy = ConfigurationExportStrategy(self.sales_invoice.configuration)
             config_context = config_strategy.get_context()
-            # Merge context, but keep invoice specific fields
             config_context.update(context)
             return config_context
 

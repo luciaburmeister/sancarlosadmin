@@ -17,6 +17,7 @@ __pycache__/
 .env_prod
 .venv
 venv/
+.vscode/*
 box_config.json
 __pycache__
 **/__pycache__/**
@@ -28,3 +29,4 @@ docs/*
 docs/
 
 media/*
+

@@ -2,18 +2,28 @@ from django.contrib import admin
 from unfold.admin import ModelAdmin
 from unfold.decorators import action # Added import
 
-from company.models import Company, CompanyUser, CompanyEmailConfig
+
+from company.models import Company, CompanyUser, CompanyEmailConfig, BankAccount
 from django.utils.translation import gettext_lazy as _
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
 from core.admin.company_access import get_user_companies
+from unfold.admin import ModelAdmin, StackedInline
 
 
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
 
+class BankAccountInline(StackedInline):
+    model = BankAccount
+    extra = 1
+    fields = ("bank_name", "holder_name", "account_number", "iban", "swift_bic", "routing_number", "is_default")
+    tab = True
+    tab_title = _("Bank Accounts")
+
 @admin.register(Company)
 class CompanyAdmin(ModelAdmin):
+    inlines = [BankAccountInline]
     list_display = ("name", "is_active")
     list_filter = ("is_active",)
     search_fields = ("name",)

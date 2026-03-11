@@ -71,7 +71,7 @@ class EmailInvoiceProcessor:
                             try:
                                 email_date = parsedate_to_datetime(date_header)
                             except Exception:
-                                passI
+                                pass
                         
                         invoice = IncomingInvoice(
                             company=self.config.company,

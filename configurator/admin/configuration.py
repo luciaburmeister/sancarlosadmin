@@ -100,6 +100,7 @@ class ConfigurationItemInline(TabularInline):
         "length",
         "unit_price",
         "line_total",
+        "note",
     )
     readonly_fields = ("line_total", "is_template_item")
     tab = True

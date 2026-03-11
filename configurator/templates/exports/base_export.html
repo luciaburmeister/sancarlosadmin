@@ -13,5 +13,11 @@
 
 <body>
   {{ body|safe }}
+
+  {% if context_json %}
+    <script id="context-json" type="application/json">
+      {{ context_json|safe }}
+    </script>
+  {% endif %}
 </body>
 </html>

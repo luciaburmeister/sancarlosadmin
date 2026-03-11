@@ -40,6 +40,7 @@ class AssetTransactionInline(StackedInline):
     tab = True
     readonly_fields = ("created_at",)
     ordering = ("-date",)
+    autocomplete_fields = ["from_zone", "to_zone"]
     fieldsets = (
         (
             _("Transaction"),
@@ -63,7 +64,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
     }
-    autocomplete_fields = ["asset_type", "client", "company", "current_working_zone"]
+    autocomplete_fields = ["asset_type", "client", "company", "current_working_zone","assigned_to"]
     readonly_fields = ("qr_code_preview",)
     fieldsets = (
         (

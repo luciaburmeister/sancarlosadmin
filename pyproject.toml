@@ -8,7 +8,7 @@ authors = [
 requires-python = ">=3.11,<4.0"
 dependencies = [
     "django (>=5.2.9,<6.0.0)",
-    "django-unfold (>=0.72.0)",
+    "django-unfold (>=0.82.0)",
     "django-money (>=3.5.4,<4.0.0)",
     "django-timestampable (>=1.1.5,<2.0.0)",
     "pillow (>=12.0.0,<13.0.0)",
@@ -32,11 +32,15 @@ dependencies = [
     "django-celery-results (>=2.6.0,<3.0.0)",
     "redis (>=7.1.1,<8.0.0)",
     "google-genai (>=1.62.0,<2.0.0)",
+    "imagehash (>=4.3.2,<5.0.0)",
+    "pdf2image (>=1.17.0,<2.0.0)",
     "django-simple-history (>=3.11.0,<4.0.0)",
     "django-location-field (>=2.7.3,<3.0.0)",
     "psycopg (>=3.3.2,<4.0.0)",
     "djangorestframework (>=3.16.1,<4.0.0)",
     "djangorestframework-simplejwt (>=5.5.1,<6.0.0)",
+    "django-hijack (>=3.7.6,<4.0.0)",
+    "qrcode (>=8.2,<9.0)",
 ]
 
 

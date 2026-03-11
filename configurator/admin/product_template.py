@@ -73,7 +73,7 @@ class ProductParameterInline(TabularInline):
 class BOMRuleInline(StackedInline):
     model = BOMRule
     extra = 0
-    fields = ("component", ("quantity_expression", "length_expression"),("production_stages","description"))
+    fields = ("component", ("quantity_expression", "length_expression", "note_expression"), ("production_stages", "description"))
     tab=True
     autocomplete_fields = ["component"]
 

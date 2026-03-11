@@ -6,6 +6,8 @@ from company.models import Employee, EmployeeType
 from django.utils.translation import gettext_lazy as _
 from core.admin.company_admin import CompanyRestrictedAdmin
 from import_export.admin import ImportExportModelAdmin
+from unfold.contrib.forms.widgets import ArrayWidget
+from django.contrib.postgres.fields import ArrayField
 from unfold.contrib.import_export.forms import (
     ExportForm,
     ImportForm,
@@ -23,6 +25,12 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
     import_form_class = ImportForm
     export_form_class = ExportForm
     export_form_class = SelectableFieldsExportForm
+
+    formfield_overrides = {
+        ArrayField: {
+            "widget": ArrayWidget,
+        }
+    }
 
     change_form_template = "admin/company/employee/change_form.html"
 
@@ -62,6 +70,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         (
             _("Employee"),
             {
+                "classes": ["tab"],
                 "fields": (
                     ("first_name", "last_name"),
                     ("email", "phone"),
@@ -73,6 +82,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         (
             _("Personal Information"),
             {
+                "classes": ["tab"],
                 "fields": (
                     "identification_number",
                     "birth_date",
@@ -84,14 +94,34 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         (
             _("Employment"),
             {
+                "classes": ["tab"],
                 "fields": (
                     "company",
                     ("hired_at", "terminated_at"),
-                    ("is_active","can_work_on_production"),
+                    "is_active",
+                )
+            },
+        ),
+        (
+            _("Production"),
+            {
+                "classes": ["tab"],
+                "fields": (
+                    ("can_work_on_production", "production_stages"),
                 )
             },
         ),
     )
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form = super().get_form(request, obj, change, **kwargs)
+        if obj and obj.company:
+            stages = obj.company.production_stages
+            if stages:
+                form.base_fields["production_stages"].widget = ArrayWidget(
+                    choices=[(s, s) for s in stages]
+                )
+        return form
 
     readonly_fields = ()
 

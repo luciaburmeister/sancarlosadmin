@@ -17,7 +17,7 @@ class ProductionTicketStatus(models.TextChoices):
     DONE = "done", _("Done")
     CANCELLED = "cancelled", _("Cancelled")
 
-class ProductionTicket(Timestampable):
+class ProductionTicket(Timestampable, CompanyOwnedModel):
     content_type = models.ForeignKey(
         ContentType,
         on_delete=models.PROTECT,
@@ -40,6 +40,9 @@ class ProductionTicket(Timestampable):
         help_text=_("Company-specific context"),
         verbose_name=_("Contexto")
     )
+
+    order_html = models.TextField(blank=True, null=True, verbose_name=_("Order HTML"))
+    ticket_html = models.TextField(blank=True, null=True, verbose_name=_("Ticket HTML"))
 
 
     def __str__(self):
@@ -94,7 +97,7 @@ class ProductionItemStatus(models.TextChoices):
     DONE = "done", _("Done")
     CANCELLED = "cancelled", _("Cancelled")
 
-class ProductionItem(Timestampable):
+class ProductionItem(Timestampable, CompanyOwnedModel):
     ticket = models.ForeignKey(
         ProductionTicket,
         on_delete=models.CASCADE,
@@ -152,12 +155,41 @@ class ProductionItem(Timestampable):
         verbose_name=_("Assigned Employees")
     )
 
+    ticket_html = models.TextField(blank=True, null=True, verbose_name=_("Ticket HTML"))
+
     class Meta:
         indexes = [
             GinIndex(fields=["planning"]),
         ]
+
+    def get_ordered_planning(self):
+        """
+        Returns the planning dictionary items (stage_name, info) sorted by 
+        the product template's production stages order.
+        """
+        planning = self.planning or {}
+        
+        # Get stage order from product template
+        stage_order = []
+        if self.ticket and self.ticket.source_object:
+            product = getattr(self.ticket.source_object, "product", None)
+            if product:
+                stage_order = list(product.production_stages or [])
+
+        def sort_key(item):
+            stage_name = item[0]
+            try:
+                # Priority 0: Stages in the product template's defined order
+                return (0, stage_order.index(stage_name))
+            except ValueError:
+                # Priority 1: Other stages sorted alphabetically
+                return (1, stage_name)
+
+        return sorted(planning.items(), key=sort_key)
     
     def save(self, *args, **kwargs):
+        if not self.company_id and self.ticket_id:
+            self.company = self.ticket.company
         super().save(*args, **kwargs)
         self.ticket.recompute_status()
 
@@ -176,7 +208,7 @@ class ProductionItemSessionKind(models.TextChoices):
     SESSION_FINISHED = "session_finished", _("Session finished")
 
 
-class ProductionItemSession(Timestampable):
+class ProductionItemSession(Timestampable, CompanyOwnedModel):
     production_item = models.ForeignKey(
         ProductionItem,
         on_delete=models.CASCADE,
@@ -241,6 +273,8 @@ class ProductionItemSession(Timestampable):
                 raise ValidationError(_("Finished sessions must have start and end times"))
             
     def save(self, *args, **kwargs):
+        if not self.company_id and self.production_item_id:
+            self.company = self.production_item.company
         self.full_clean()
         super().save(*args, **kwargs)
 

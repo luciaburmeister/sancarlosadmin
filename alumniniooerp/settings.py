@@ -89,11 +89,14 @@ INSTALLED_APPS = [
     'django_countries',
     'company',
     'django_celery_results',
+    'djmoney',
     'assets',
     'location_field',
     'simple_history',
     'rest_framework',
     'rest_framework_simplejwt',
+    'hijack',
+    'hijack.contrib.admin'
 ]
 
 MIDDLEWARE = [
@@ -106,6 +109,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'simple_history.middleware.HistoryRequestMiddleware',
+    'hijack.middleware.HijackUserMiddleware',
 ]
 
 
@@ -282,6 +286,9 @@ LANGUAGES = (
 LOCALE_PATHS = [
     BASE_DIR / "locale",
 ]
+
+IMPERSONATE_REQUIRE_SUPERUSER = True
+
 
 UNFOLD = {
     "SITE_TITLE": "ERP - Polipus",
@@ -470,6 +477,33 @@ UNFOLD = {
                         ),
                         "permission": lambda request: request.user.has_perm(
                             "production.view_productionitem"
+                        ),
+                    },
+                ],
+            },
+            {
+                "title": _("Invoices"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Sales Invoices"),
+                        "icon": "receipt",
+                        "link": reverse_lazy(
+                            "admin:invoices_salesinvoice_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "invoices.view_salesinvoice"
+                        ),
+                    },
+                    {
+                        "title": _("Received Invoices"),
+                        "icon": "receipt_long",
+                        "link": reverse_lazy(
+                            "admin:invoices_invoice_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "invoices.view_invoice"
                         ),
                     },
                 ],

@@ -11,17 +11,19 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
-from decouple import config
 from dotenv import load_dotenv
 from django.urls import reverse_lazy
 import os
 from django.utils.translation import gettext_lazy as _
 from django.templatetags.static import static
+from datetime import timedelta
 
 load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+GDAL_LIBRARY_PATH = '/opt/homebrew/lib/libgdal.dylib'
+GEOS_LIBRARY_PATH = '/opt/homebrew/lib/libgeos_c.dylib'
 
 
 # Quick-start development settings - unsuitable for production
@@ -91,6 +93,8 @@ INSTALLED_APPS = [
     'assets',
     'location_field',
     'simple_history',
+    'rest_framework',
+    'rest_framework_simplejwt',
     'hijack',
     'hijack.contrib.admin'
 ]
@@ -507,4 +511,19 @@ UNFOLD = {
         
         ],
     },
+}
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',  
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=12),   
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),     
+    'ROTATE_REFRESH_TOKENS': False,
 }

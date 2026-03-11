@@ -17,7 +17,7 @@ class ConfigurationExportStrategy(BaseExportStrategy):
         
         # Simplify items for JSON context
         items_data = []
-        for item in self.configuration.items.select_related("component").all():
+        for item in self.configuration.items.select_related("component").order_by("label").all():
             item_dict = {
                 "id": item.id,
                 "label": item.label,

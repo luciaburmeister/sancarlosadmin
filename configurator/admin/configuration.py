@@ -153,6 +153,7 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
     actions_row = ["export_configuration_to_template", 
                    "convert_to_production"]
     autocomplete_fields = ["client","product","asset"]
+    list_filter_submit = False
 
     inlines = [
         ParameterValueInline,

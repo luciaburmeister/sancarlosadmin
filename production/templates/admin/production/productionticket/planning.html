@@ -80,7 +80,8 @@
             {% if unit.status == "pending" %}
             <form method="post" action="{{ stage.action_url }}">
               {% csrf_token %}
-              <input type="hidden" name="anchor" value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
+              <input type="hidden" name="anchor"
+                value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
               <input type="hidden" name="item_ids" value="{{ unit.item_ids }}">
               <input type="hidden" name="action" value="start_activity">
               <button class="px-5 py-2.5 rounded-lg bg-primary-600 text-white text-base font-semibold">
@@ -93,7 +94,8 @@
               {% if unit.has_active_session %}
               <form method="post" action="{{ stage.action_url }}" class="inline">
                 {% csrf_token %}
-                <input type="hidden" name="anchor" value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
+                <input type="hidden" name="anchor"
+                  value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
                 <input type="hidden" name="item_ids" value="{{ unit.item_ids }}">
                 <input type="hidden" name="action" value="end_session">
                 <button class="px-5 py-2.5 rounded-lg bg-primary-600 text-white text-base font-semibold">
@@ -103,7 +105,8 @@
               {% else %}
               <form method="post" action="{{ stage.action_url }}" class="inline">
                 {% csrf_token %}
-                <input type="hidden" name="anchor" value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
+                <input type="hidden" name="anchor"
+                  value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
                 <input type="hidden" name="item_ids" value="{{ unit.item_ids }}">
                 <input type="hidden" name="action" value="start_session">
                 <button class="px-5 py-2.5 rounded-lg bg-primary-600 text-white text-base font-semibold">
@@ -114,7 +117,8 @@
 
               <form method="post" action="{{ stage.action_url }}" class="inline">
                 {% csrf_token %}
-                <input type="hidden" name="anchor" value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
+                <input type="hidden" name="anchor"
+                  value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
                 <input type="hidden" name="item_ids" value="{{ unit.item_ids }}">
                 <input type="hidden" name="action" value="finish_activity">
                 <button class="px-5 py-2.5 rounded-lg bg-primary-600 text-white text-base font-semibold">
@@ -137,4 +141,37 @@
 
   </div>
 </div>
+
+<style>
+  .floating-nav-btn {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    background-color: #2563eb;
+    color: white !important;
+    padding: 12px 24px;
+    border-radius: 9999px;
+    text-decoration: none;
+    font-weight: 600;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 10px 15px -3px rgb(0 0 0 / 0.1);
+    z-index: 9999;
+    transition: transform 0.2s, background-color 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .floating-nav-btn:hover {
+    transform: scale(1.05);
+    background-color: #1d4ed8;
+  }
+</style>
+
+<a href="{% url 'admin:production_productionticket_order_html' ticket.pk %}" class="floating-nav-btn">
+  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+      d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+  </svg>
+  {% trans "Work Order" %}
+</a>
 {% endblock %}

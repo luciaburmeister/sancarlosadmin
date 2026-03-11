@@ -192,6 +192,6 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             "started_at": started_at,
             "completed_at": completed_at,
             "has_active_session": has_active_session,
-            "is_current": any(item_current_stages.get(item.id) == stage_name for item, _, _ in infos),
+            "is_current": all(item_current_stages.get(item.id) == stage_name for item, _, _ in infos),
             "relevant": relevant,
         }

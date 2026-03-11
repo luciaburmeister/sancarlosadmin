@@ -113,7 +113,7 @@ class ProductionItemInline(TabularInline):
 class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     change_form_template = "admin/production/productionticket/change_form.html"
 
-    list_display = ("id", "company","source_object","status", "created_at")
+    list_display = ("id", "company", "source_object", "status", "created_at", "go_to_stages_display")
 
     list_filter = (
         ("company",AutocompleteSelectMultipleFilter),
@@ -152,6 +152,15 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
             },
         ),
     )
+
+    @display(description=_("Stages"))
+    def go_to_stages_display(self, obj):
+        url = reverse("admin:production_productionticket_stages", args=[obj.pk])
+        return format_html(
+            '<a href="{}" class="bg-primary-600 font-medium px-3 py-2 rounded-md text-white whitespace-nowrap">{}</a>',
+            url,
+            _("Go to Stages")
+        )
 
     @action(
         description=_("See Work Order"),

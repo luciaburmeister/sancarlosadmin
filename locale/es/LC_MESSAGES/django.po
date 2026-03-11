@@ -1460,15 +1460,17 @@ msgstr ""
 "La clave de la regla debe comenzar con una letra y contener solo letras, "
 "números o guiones bajos."
 
-#, fuzzy
-#| msgid "Production Stages"
 msgid "Production planning"
 msgstr "Etapas de Producción"
 
-#, fuzzy
-#| msgid "Sorting Order"
 msgid "See Work Order"
-msgstr "Orden de Clasificación"
+msgstr "Ver Orden de Trabajo"
+
+msgid "Go to Stages"
+msgstr "Ir a Etapas"
+
+msgid "Work Order"
+msgstr "Orden de Trabajo"
 
 #, fuzzy
 #| msgid "General Information"
@@ -1557,9 +1559,6 @@ msgstr "Item de Producción"
 msgid "End Time"
 msgstr "Hora de finalización"
 
-msgid "Components"
-msgstr "Componentes"
-
 msgid "Production Stage"
 msgstr "Etapas de Producción"
 
@@ -1568,6 +1567,12 @@ msgstr "Creado en"
 
 msgid "Completed by"
 msgstr "Completado por"
+
+msgid "Return to Stages"
+msgstr "Volver a las etapas"
+
+msgid "Stages"
+msgstr "Etapas"
 
 msgid "End time cannot be before start time"
 msgstr "La hora de finalización no puede ser anterior a la hora de inicio."

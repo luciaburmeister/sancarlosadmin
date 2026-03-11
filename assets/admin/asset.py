@@ -5,12 +5,24 @@ from simple_history.admin import SimpleHistoryAdmin
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django_json_widget.widgets import JSONEditorWidget
-from assets.models import Asset, AssetIdentifier, AssetTransaction
+from assets.models import Asset, AssetIdentifier, AssetTransaction, AssetDocument, AssetDocumentType
 from unfold.widgets import UnfoldAdminSelectWidget
 from django import forms
 from django.urls import resolve, reverse
 from django.utils.html import format_html
 
+
+class AssetDocumentInline(TabularInline):
+    model = AssetDocument
+    extra = 0
+    tab = True
+    exclude = ["company"]
+
+@admin.register(AssetDocumentType)
+class AssetDocumentTypeAdmin(CompanyRestrictedAdmin,ModelAdmin):
+    list_display = ("name", "company")
+    search_fields = ("name",)
+    autocomplete_fields = ["company"]
 
 class AssetIdentifierInline(TabularInline):
     model = AssetIdentifier
@@ -61,7 +73,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     list_display = ("name", "asset_type", "client", "assigned_to", "qr_link", "get_identifiers")
     list_filter = ("asset_type", "client", "assigned_to")
     search_fields = ("name", "identifiers__value")
-    inlines = [AssetIdentifierInline, AssetTransactionInline]
+    inlines = [AssetIdentifierInline, AssetTransactionInline, AssetDocumentInline]
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
     }

@@ -2,7 +2,7 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 from sales.models import Client
-from company.models import CompanyOwnedModel, WorkingZone
+from company.models import CompanyOwnedModel, WorkingZone, BaseDocumentType, BaseDocument
 from django.core.exceptions import ValidationError
 from timestamps.models import Timestampable
 from django.utils import timezone
@@ -195,4 +195,35 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
 
     def __str__(self):
         return f"{self.get_transaction_type_display()} - {self.asset} ({self.from_zone} -> {self.to_zone})"
+
+class AssetDocumentType(BaseDocumentType):
+    class Meta:
+        verbose_name = _("Asset Document Type")
+        verbose_name_plural = _("Asset Document Types")
+
+class AssetDocument(BaseDocument):
+    asset = models.ForeignKey(
+        Asset,
+        on_delete=models.CASCADE,
+        related_name="documents",
+        verbose_name=_("Asset")
+    )
+    document_type = models.ForeignKey(
+        AssetDocumentType,
+        on_delete=models.PROTECT,
+        related_name="documents",
+        verbose_name=_("Document Type")
+    )
+
+    class Meta:
+        verbose_name = _("Asset Document")
+        verbose_name_plural = _("Asset Documents")
+
+    def __str__(self):
+        return f"{self.document_type.name} - {self.asset}"
+
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.asset:
+            self.company = self.asset.company
+        super().save(*args, **kwargs)
 

@@ -1,8 +1,9 @@
+from unfold.admin import StackedInline
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
 from django.urls import path, reverse
-from company.models import Employee, EmployeeType
+from company.models import Employee, EmployeeType, EmployeeDocument, EmployeeDocumentType
 from django.utils.translation import gettext_lazy as _
 from core.admin.company_admin import CompanyRestrictedAdmin
 from import_export.admin import ImportExportModelAdmin
@@ -14,11 +15,20 @@ from unfold.contrib.import_export.forms import (
     SelectableFieldsExportForm,
 )
 
-
-from django.db.models import F, Sum, Count, ExpressionWrapper, DurationField
-from unfold.decorators import display
 from company.views.employeesessions import EmployeeSessionsView
 
+
+class EmployeeDocumentInline(StackedInline):
+    model = EmployeeDocument
+    extra = 0
+    tab=True
+    exclude = ["company"]
+
+@admin.register(EmployeeDocumentType)
+class EmployeeDocumentTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ("name", "company")
+    search_fields = ("name",)
+    autocomplete_fields = ["company"]
 
 @admin.register(Employee)
 class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
@@ -112,6 +122,8 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
             },
         ),
     )
+
+    inlines = [EmployeeDocumentInline]
 
     def get_form(self, request, obj=None, change=False, **kwargs):
         form = super().get_form(request, obj, change, **kwargs)

@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django_countries.fields import CountryField
 from django.contrib.postgres.fields import ArrayField
 from location_field.models.spatial import LocationField
+from simple_history.models import HistoricalRecords
 
 User = get_user_model()
 
@@ -260,4 +261,90 @@ class BankAccount(CompanyOwnedModel):
     def save(self, *args, **kwargs):
         if self.is_default:
             BankAccount.objects.filter(company=self.company, is_default=True).exclude(pk=self.pk).update(is_default=False)
+        super().save(*args, **kwargs)
+
+# Abstract Base Classes for Documentation
+
+class BaseDocumentType(CompanyOwnedModel):
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+    description = models.TextField(blank=True, verbose_name=_("Description"))
+
+    class Meta:
+        abstract = True
+
+    def __str__(self):
+        return f"{self.name} ({self.company})"
+
+class BaseDocument(CompanyOwnedModel):
+    file = models.FileField(upload_to="documents/%Y/%m/%d/", verbose_name=_("File"))
+    expiry_date = models.DateField(null=True, blank=True, verbose_name=_("Expiry Date"))
+    issue_date = models.DateField(null=True, blank=True, verbose_name=_("Issue Date"))
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+    is_active = models.BooleanField(default=True, verbose_name=_("Is Active"))
+    
+    history = HistoricalRecords(inherit=True)
+
+    class Meta:
+        abstract = True
+
+class EmployeeDocumentType(BaseDocumentType):
+    class Meta:
+        verbose_name = _("Employee Document Type")
+        verbose_name_plural = _("Employee Document Types")
+
+class EmployeeDocument(BaseDocument):
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name="documents",
+        verbose_name=_("Employee")
+    )
+    document_type = models.ForeignKey(
+        EmployeeDocumentType,
+        on_delete=models.PROTECT,
+        related_name="documents",
+        verbose_name=_("Document Type")
+    )
+
+    class Meta:
+        verbose_name = _("Employee Document")
+        verbose_name_plural = _("Employee Documents")
+
+    def __str__(self):
+        return f"{self.document_type.name} - {self.employee}"
+
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.employee:
+            self.company = self.employee.company
+        super().save(*args, **kwargs)
+
+class MachineDocumentType(BaseDocumentType):
+    class Meta:
+        verbose_name = _("Machine Document Type")
+        verbose_name_plural = _("Machine Document Types")
+
+class MachineDocument(BaseDocument):
+    machine = models.ForeignKey(
+        Machine,
+        on_delete=models.CASCADE,
+        related_name="documents",
+        verbose_name=_("Machine")
+    )
+    document_type = models.ForeignKey(
+        MachineDocumentType,
+        on_delete=models.PROTECT,
+        related_name="documents",
+        verbose_name=_("Document Type")
+    )
+
+    class Meta:
+        verbose_name = _("Machine Document")
+        verbose_name_plural = _("Machine Documents")
+
+    def __str__(self):
+        return f"{self.document_type.name} - {self.machine}"
+
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.machine:
+            self.company = self.machine.company
         super().save(*args, **kwargs)

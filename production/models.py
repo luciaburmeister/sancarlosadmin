@@ -4,6 +4,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from timestamps.models import Timestampable
 from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.fields import ArrayField
 from company.models import Employee,Machine,CompanyOwnedModel
 from django.utils import timezone
 from django.db.models import Q
@@ -157,6 +158,14 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
 
     ticket_html = models.TextField(blank=True, null=True, verbose_name=_("Ticket HTML"))
 
+    production_stages_order = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text=_("Stable stage order derived from BOM"),
+        verbose_name=_("Production Stages Order"),
+    )
+
     class Meta:
         indexes = [
             GinIndex(fields=["planning"]),
@@ -165,13 +174,15 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
     def get_ordered_planning(self):
         """
         Returns the planning dictionary items (stage_name, info) sorted by 
-        the product template's production stages order.
+        the production_stages_order if present, otherwise fallback to product template order.
         """
         planning = self.planning or {}
         
-        # Get stage order from product template
-        stage_order = []
-        if self.ticket and self.ticket.source_object:
+        # 1. Use internal order if available
+        stage_order = list(self.production_stages_order or [])
+        
+        # 2. Fallback to product template order
+        if not stage_order and self.ticket and self.ticket.source_object:
             product = getattr(self.ticket.source_object, "product", None)
             if product:
                 stage_order = list(product.production_stages or [])
@@ -179,7 +190,7 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
         def sort_key(item):
             stage_name = item[0]
             try:
-                # Priority 0: Stages in the product template's defined order
+                # Priority 0: Stages in the defined order
                 return (0, stage_order.index(stage_name))
             except ValueError:
                 # Priority 1: Other stages sorted alphabetically

@@ -81,6 +81,7 @@ class ConfigurationToProductionService:
                     "length": float(item.length),
                 },
                 planning=planning,
+                production_stages_order=list(item.production_stages or []),
             )
             ticket_template = ConfigurationExportTemplate.get_default_for_product(
                 product=product,

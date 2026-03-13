@@ -42,9 +42,21 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
         config = ticket.source_object
         product = getattr(config, "product", None)
-        stage_order = list(getattr(product, "production_stages", []) or [])
-
+        
         items = list(ticket.items.select_related("component").order_by("id"))
+        
+        # Derive stage order from items (BOM order) with fallback to product
+        stage_order = []
+        seen_stages = set()
+        for it in items:
+            for sname in (it.production_stages_order or []):
+                if sname not in seen_stages:
+                    stage_order.append(sname)
+                    seen_stages.add(sname)
+        
+        if not stage_order and product:
+            stage_order = list(getattr(product, "production_stages", []) or [])
+
         employee = getattr(self.request.user, "employee_profile", None)
 
         item_current_stages = {}

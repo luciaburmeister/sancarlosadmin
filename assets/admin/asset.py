@@ -31,18 +31,27 @@ class AssetIdentifierInline(TabularInline):
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         if db_field.name == "label":
+            labels = []
             try:
                 resolved = resolve(request.path_info)
                 object_id = resolved.kwargs.get("object_id")
                 if object_id:
+                    # Case: Editing existing asset
                     asset = Asset.objects.select_related("company").get(pk=object_id)
                     labels = asset.company.asset_identifier_labels
-                    if labels:
-                        kwargs["widget"] = UnfoldAdminSelectWidget(
-                            choices=[("", "---------")] + [(l, l) for l in labels]
-                        )
+                else:
+                    # Case: Adding new asset
+                    from core.admin.company_access import get_user_companies
+                    companies = get_user_companies(request.user)
+                    if companies.count() == 1:
+                        labels = companies.first().asset_identifier_labels
             except Exception:
                 pass
+
+            if labels:
+                kwargs["widget"] = UnfoldAdminSelectWidget(
+                    choices=[("", "---------")] + [(l, l) for l in labels]
+                )
         return super().formfield_for_dbfield(db_field, request, **kwargs)
 
 

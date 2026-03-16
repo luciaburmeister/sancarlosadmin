@@ -868,10 +868,8 @@ msgstr "Seleccione un tipo de empleado cuando la cantidad sea > 0."
 msgid "Duplicate employee types are not allowed: %(names)s"
 msgstr "No se permiten tipos de empleados duplicados: %(names)s"
 
-#, fuzzy
-#| msgid "Machine cost"
 msgid "Machine type"
-msgstr "Costo de la máquina"
+msgstr "Tipo de máquina"
 
 msgid "Quantity must be > 0 when a machine type is selected."
 msgstr "La cantidad debe ser > 0 cuando se selecciona un tipo de máquina."
@@ -2045,18 +2043,14 @@ msgstr "artículo de Presupuesto"
 msgid "Quote items"
 msgstr "articulos de Presupuesto"
 
-#, fuzzy
-#| msgid "Delivery"
 msgid "Delivered"
-msgstr "Entrega"
+msgstr "Entregado"
 
 msgid "Delivery Order"
 msgstr "Alabarán de Transporte"
 
-#, fuzzy
-#| msgid "Delivery"
 msgid "Delivery Orders"
-msgstr "Albarán de Transporte"
+msgstr "Albaránes de Transporte"
 
 msgid "Delivery Order Item"
 msgstr "Elemento del albaran de Transporte"
@@ -2067,9 +2061,8 @@ msgstr "Items de albaran de Transporte"
 #~ msgid "You cannot create stock movements for services."
 #~ msgstr "No puedes crear movimientos de stock para servicios."
 
-#, fuzzy
 #~ msgid "Warehouse must belong to the same company as the item."
-#~ msgstr "El diario debe pertenecer a la misma empresa."
+#~ msgstr "El almacén debe pertenecer a la misma empresa."
 
 #~ msgid "Tax ID"
 #~ msgstr "ID de impuesto"

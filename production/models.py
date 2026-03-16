@@ -179,7 +179,7 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
         planning = self.planning or {}
         
         # 1. Use internal order if available
-        stage_order = list(self.production_stages_order or [])
+        stage_order = None
         
         # 2. Fallback to product template order
         if not stage_order and self.ticket and self.ticket.source_object:

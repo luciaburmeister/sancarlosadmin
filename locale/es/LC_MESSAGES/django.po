@@ -254,13 +254,9 @@ msgstr "Precio unitario"
 msgid "Asset Type"
 msgstr "Tipo de activo"
 
-#, fuzzy
-#| msgid "Client"
 msgid "Owner/Client"
 msgstr "Cliente"
 
-#, fuzzy
-#| msgid "Label"
 msgid "Name/Label"
 msgstr "Etiqueta"
 
@@ -273,10 +269,8 @@ msgstr "Datos sin esquema para este tipo específico de activo."
 msgid "Current Working Zone"
 msgstr "Zona de trabajo actual"
 
-#, fuzzy
-#| msgid "Assigned"
 msgid "Assigned To"
-msgstr "Asignado"
+msgstr "Asignado a"
 
 #, python-brace-format
 msgid "Auto-generated movement from {from_z} to {to_z}"
@@ -291,15 +285,11 @@ msgstr "e.j., VIN, Número de placa, SN"
 msgid "Value"
 msgstr "Valor"
 
-#, fuzzy
-#| msgid "Tax Identifier"
 msgid "Asset identifier"
-msgstr "Identificador Fiscal"
+msgstr "Identificador de activo"
 
-#, fuzzy
-#| msgid "Tax Identifier"
 msgid "Asset identifiers"
-msgstr "Identificador Fiscal"
+msgstr "Identificadores de Activos"
 
 #, python-format
 msgid "This label is not allowed for this company. Allowed: %(labels)s"
@@ -344,35 +334,23 @@ msgstr "Transacción de activos"
 msgid "Asset transactions"
 msgstr "Transacciones de activos"
 
-#, fuzzy
-#| msgid "Asset Type"
 msgid "Asset Document Type"
-msgstr "Tipo de activo"
+msgstr "Tipo de documento de activo"
 
-#, fuzzy
-#| msgid "Asset Types"
 msgid "Asset Document Types"
-msgstr "Tipos de Activos"
+msgstr "Tipos de documento de activo"
 
-#, fuzzy
-#| msgid "Component A"
 msgid "Document Type"
-msgstr "Componente A"
+msgstr "Tipo de documento"
 
-#, fuzzy
-#| msgid "Tax Identifier"
 msgid "Asset Document"
-msgstr "Identificador Fiscal"
+msgstr "Documento de Activo"
 
-#, fuzzy
-#| msgid "Tax Identifier"
 msgid "Asset Documents"
-msgstr "Identificador Fiscal"
+msgstr "Documentos de Activos"
 
-#, fuzzy
-#| msgid "User Account"
 msgid "Bank Accounts"
-msgstr "Cuenta de Usuario"
+msgstr "Cuenta de banco"
 
 msgid "Install Chart"
 msgstr "Instalar gráfico"

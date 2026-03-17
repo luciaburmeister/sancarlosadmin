@@ -14,21 +14,13 @@ class MachineDocumentForm(BaseDocumentForm):
         fields = "__all__"
 
 
-from company.forms import BaseDocumentForm
-
-
-class MachineDocumentForm(BaseDocumentForm):
-    class Meta:
-        model = MachineDocument
-        fields = "__all__"
-
-
 class MachineDocumentInline(StackedInline):
     model = MachineDocument
     form = MachineDocumentForm
     extra = 0
     tab = True
     exclude = ["company"]
+    autocomplete_fields = ["document_type"]
 
     fieldsets = (
         (None, {

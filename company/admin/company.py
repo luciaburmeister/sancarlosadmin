@@ -20,6 +20,7 @@ class BankAccountInline(StackedInline):
     fields = ("bank_name", "holder_name", "account_number", "iban", "swift_bic", "routing_number", "is_default")
     tab = True
     tab_title = _("Bank Accounts")
+    
 
 @admin.register(Company)
 class CompanyAdmin(ModelAdmin):

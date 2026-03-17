@@ -32,6 +32,7 @@ class EmployeeDocumentInline(StackedInline):
     extra = 0
     tab = True
     exclude = ["company"]
+    autocomplete_fields = ["document_type"]
 
     fieldsets = (
         (None, {

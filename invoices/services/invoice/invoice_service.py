@@ -99,9 +99,13 @@ class InvoiceService:
             extracted_data = self.ocr_processor.extract_data(file_path)
             messages.append(f"OCR completed - found invoice {extracted_data.invoice_number or 'N/A'}")
             
-            provider = Provider.objects.filter(tax_identifier__iexact=extracted_data.vendor_tax_id.strip()).first()
-            #if extracted_data.company_tax_id  if not throw error just as above
-            company = Company.objects.filter(tax_id__iexact=extracted_data.company_tax_id.strip()).first() 
+            # Step 2: Match company and provider
+            company = self._find_company(extracted_data.company_tax_id)
+            provider = self._get_or_create_provider(
+                extracted_data.vendor_tax_id, 
+                extracted_data.vendor_name, 
+                company
+            )
             
             # Step 3: Create invoice with hash
             invoice = self._create_invoice(extracted_data, provider, file_path, duplicate_result.hash_value, company)
@@ -186,9 +190,13 @@ class InvoiceService:
             extracted_data = self.ocr_processor.extract_data(file_path)
             
             #If no tax id found, how are we gonna throw error
-            provider = Provider.objects.filter(tax_identifier__iexact=extracted_data.vendor_tax_id.strip()).first()
-            #if extracted_data.company_tax_id  if not throw error just as above
-            company = Company.objects.filter(tax_identifier__iexact=extracted_data.company_tax_id.strip()).first() 
+            # Step 2: Match company and provider
+            company = self._find_company(extracted_data.company_tax_id)
+            provider = self._get_or_create_provider(
+                extracted_data.vendor_tax_id, 
+                extracted_data.vendor_name, 
+                company
+            )
 
 
             invoice.invoice_number = extracted_data.invoice_number or invoice.invoice_number or "UNKNOWN"
@@ -365,3 +373,33 @@ class InvoiceService:
             return datetime.strptime(date_str, '%Y-%m-%d').date()
         except (ValueError, TypeError):
             return None
+
+    def _find_company(self, tax_id: Optional[str]) -> Optional[Company]:
+        """Lookup company by tax ID"""
+        if not tax_id:
+            return None
+        return Company.objects.filter(tax_id__iexact=tax_id.strip()).first()
+
+    def _get_or_create_provider(self, vendor_tax_id: Optional[str], vendor_name: Optional[str], company: Optional[Company]) -> Optional[Provider]:
+        """
+        Lookup provider by tax ID and company.
+        If not found, create a new one with the extracted vendor details.
+        """
+        if not vendor_tax_id:
+            return None
+
+        clean_tax_id = vendor_tax_id.strip()
+        
+        provider = Provider.objects.filter(
+            tax_identifier__iexact=clean_tax_id,
+            company=company
+        ).first()
+
+        if not provider and company:
+            provider = Provider.objects.create(
+                name=vendor_name or f"New Provider {clean_tax_id}",
+                tax_identifier=clean_tax_id,
+                company=company
+            )
+            
+        return provider

@@ -183,7 +183,7 @@ EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("EMAIL_HOST_USER")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
+POPPLER_PATH = "/opt/homebrew/bin"  # adjust for your system
 
 
 # Database

@@ -155,6 +155,9 @@ class InvoiceService:
             except:
                 # If we can't even create a partial invoice, re-raise the original error
                 raise e
+            finally:
+                # Re-raise the original exception after attempt to create partial invoice
+                raise e
     
     @transaction.atomic
     def process_existing_invoice(self, invoice: Invoice, file_path: Optional[str] = None) -> InvoiceProcessingResult:
@@ -235,7 +238,7 @@ class InvoiceService:
             invoice.ocr_error = str(e)
             invoice.needs_manual_review = True
             invoice.save(update_fields=["ocr_processing", "ocr_processed", "ocr_error", "needs_manual_review"])
-            return InvoiceProcessingResult(invoice=invoice, success=False, messages=messages, needs_review=True)
+            raise  # Re-raise to let Sentry capture the error
     
     
     def _create_invoice(self, extracted_data: InvoiceData, provider: Optional[Provider], file_path: str,image_hash: str, company:Company) -> Invoice:

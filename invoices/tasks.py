@@ -175,7 +175,7 @@ def process_manual_invoice(invoice_id: int):
         invoice.ocr_processed = False
         invoice.ocr_error = str(e)
         invoice.save(update_fields=["ocr_processing", "ocr_processed", "ocr_error"])
-        return f"Exception: {e}"
+        raise  # Re-raise to let Celery/Sentry capture the error
 
     finally:
         if temp_file_path and os.path.exists(temp_file_path):

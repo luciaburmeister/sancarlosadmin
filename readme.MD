@@ -20,7 +20,7 @@ The project uses Celery for background tasks and Redis as the message broker.
 
 2. **Run Celery Worker**:
    ```bash
-   celery -A alumniniooerp worker -l info
+   celery -A alumniniooerp worker -l info --pool=solo
    ```
 
 3. **Run Celery Beat** (required for scheduled tasks):

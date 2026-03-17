@@ -14,7 +14,6 @@ from io import BytesIO
 from django.db.models import Q
 from django.core.files.uploadedfile import UploadedFile
 from invoices.models import Invoice
-
 # PDF support
 try:
     from pdf2image import convert_from_path, convert_from_bytes
@@ -121,6 +120,8 @@ class InvoiceDuplicateService:
             return str(hash_value)
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             raise InvoiceHashError(str(e))
 
     # ================================================================
@@ -202,7 +203,7 @@ class InvoiceDuplicateService:
                 )
 
             file_bytes = uploaded_file.read()
-            pages = convert_from_bytes(file_bytes, first_page=1, last_page=1,poppler_path="/usr/local/bin")
+            pages = convert_from_bytes(file_bytes, first_page=1, last_page=1)
             image = pages[0]
 
         else:

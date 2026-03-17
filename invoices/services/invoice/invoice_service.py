@@ -378,7 +378,7 @@ class InvoiceService:
         """Lookup company by tax ID"""
         if not tax_id:
             return None
-        return Company.objects.filter(tax_id__iexact=tax_id.strip()).first()
+        return Company.objects.filter(tax_identifier__iexact=tax_id.strip()).first()
 
     def _get_or_create_provider(self, vendor_tax_id: Optional[str], vendor_name: Optional[str], company: Optional[Company]) -> Optional[Provider]:
         """

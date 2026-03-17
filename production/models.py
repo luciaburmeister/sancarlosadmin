@@ -44,6 +44,12 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
 
     order_html = models.TextField(blank=True, null=True, verbose_name=_("Order HTML"))
     ticket_html = models.TextField(blank=True, null=True, verbose_name=_("Ticket HTML"))
+    work_order_pdf = models.FileField(
+        upload_to="production/work_orders/",
+        null=True,
+        blank=True,
+        verbose_name=_("Work Order PDF")
+    )
 
 
     def __str__(self):

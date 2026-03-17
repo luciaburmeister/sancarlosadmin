@@ -111,6 +111,8 @@ MIDDLEWARE = [
     'hijack.middleware.HijackUserMiddleware',
 ]
 
+X_FRAME_OPTIONS = 'SAMEORIGIN'
+
 
 if DEBUG:
     INSTALLED_APPS += ["debug_toolbar"]

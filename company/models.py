@@ -281,6 +281,7 @@ class BaseDocument(CompanyOwnedModel):
     issue_date = models.DateField(null=True, blank=True, verbose_name=_("Issue Date"))
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
     is_active = models.BooleanField(default=True, verbose_name=_("Is Active"))
+    does_not_expire = models.BooleanField(default=False, verbose_name=_("Does not expire"))
     
     history = HistoricalRecords(inherit=True)
 

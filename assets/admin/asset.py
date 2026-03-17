@@ -7,17 +7,34 @@ from django.utils.translation import gettext_lazy as _
 from django_json_widget.widgets import JSONEditorWidget
 from assets.models import Asset, AssetIdentifier, AssetTransaction, AssetDocument, AssetDocumentType
 from unfold.widgets import UnfoldAdminSelectWidget
-from django import forms
-from django.urls import resolve, reverse
+from django.urls import resolve
 from django.utils.html import format_html
+from company.forms import BaseDocumentForm
 
 
-class AssetDocumentInline(TabularInline):
+class AssetDocumentForm(BaseDocumentForm):
+    class Meta:
+        model = AssetDocument
+        fields = "__all__"
+
+
+class AssetDocumentInline(StackedInline):
     model = AssetDocument
+    form = AssetDocumentForm
     extra = 0
     tab = True
     exclude = ["company"]
 
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("document_type",  "file"),
+                ("does_not_expire","is_active"),
+                ("issue_date", "expiry_date"),
+                "notes",
+            )
+        }),
+    )
 @admin.register(AssetDocumentType)
 class AssetDocumentTypeAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = ("name", "company")

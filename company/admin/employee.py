@@ -1,6 +1,7 @@
 from unfold.admin import StackedInline
 from django.contrib import admin
 from unfold.admin import ModelAdmin
+from django.db import models
 
 from django.urls import path, reverse
 from company.models import Employee, EmployeeType, EmployeeDocument, EmployeeDocumentType
@@ -14,15 +15,34 @@ from unfold.contrib.import_export.forms import (
     ImportForm,
     SelectableFieldsExportForm,
 )
-
 from company.views.employeesessions import EmployeeSessionsView
+
+from company.forms import BaseDocumentForm
+
+
+class EmployeeDocumentForm(BaseDocumentForm):
+    class Meta:
+        model = EmployeeDocument
+        fields = "__all__"
 
 
 class EmployeeDocumentInline(StackedInline):
     model = EmployeeDocument
+    form = EmployeeDocumentForm
     extra = 0
-    tab=True
+    tab = True
     exclude = ["company"]
+
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("document_type",  "file"),
+                ("does_not_expire","is_active"),
+                ("issue_date", "expiry_date"),
+                "notes",
+            )
+        }),
+    )
 
 @admin.register(EmployeeDocumentType)
 class EmployeeDocumentTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):

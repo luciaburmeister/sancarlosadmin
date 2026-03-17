@@ -11,7 +11,7 @@ Input: Invoice file path
 Output: Created Invoice instance with processing metadata
 """
 
-from typing import Dict, Tuple, Optional
+from typing import Optional
 from decimal import Decimal
 from datetime import datetime
 from django.db import transaction
@@ -188,7 +188,6 @@ class InvoiceService:
             company = Company.objects.filter(tax_identifier__iexact=extracted_data.company_tax_id.strip()).first() 
 
 
-            # UPDATE fields on the SAME invoice (no new row)
             invoice.invoice_number = extracted_data.invoice_number or invoice.invoice_number or "UNKNOWN"
             invoice.date_issued = self._parse_date(extracted_data.date_issued) or invoice.date_issued or timezone.now().date()
             invoice.due_date = self._parse_date(extracted_data.due_date) or invoice.due_date or timezone.now().date()
@@ -199,7 +198,6 @@ class InvoiceService:
             invoice.company = company
             invoice.needs_manual_review = True  # always True initially
 
-            # line items (and persist them)
             if extracted_data.line_items:
                 cleaned_items = []
                 for item in extracted_data.line_items:
@@ -214,18 +212,14 @@ class InvoiceService:
 
             invoice.save()  # one save for all updated fields
 
-            # taxes: (optional minimal) clear & recreate so repeated runs don't duplicate
             if extracted_data.taxes:
-                # remove existing taxes for this invoice (otherwise each run stacks them)
                 AppliedTax.objects.filter(
                     content_type=ContentType.objects.get_for_model(invoice),
                     object_id=invoice.pk,
                 ).delete()
 
                 self._create_applied_taxes(invoice, extracted_data.taxes)
-                messages.append(f"Applied {len(extracted_data.taxes)} tax records")
 
-            # done flags
             invoice.ocr_processing = False
             invoice.ocr_processed = True
             invoice.ocr_error = None

@@ -1,7 +1,6 @@
 {% extends "admin/change_form.html" %}
 {% load i18n unfold %}
 
-{# This block is where the top-right “object tools” buttons live #}
 {% block object-tools-items %}
   {{ block.super }}
 
@@ -12,4 +11,62 @@
       {% endcomponent %}
     </li>
   {% endif %}
+{% endblock %}
+
+{% block content %}
+
+  {% if vacation_dashboard %}
+    <div id="vacations-dashboard" class="mb-6 hidden">
+      {% with vd=vacation_dashboard %}
+        <div class="rounded-2xl border bg-white p-5 shadow-sm">
+
+          <div class="flex items-start justify-between gap-6 mb-4">
+            <div>
+              <h2 class="text-lg font-semibold">
+                {% trans "Vacations" %} — {{ original.full_name }}
+              </h2>
+              {% if vd.wallet %}
+                <p class="text-sm text-gray-500">
+                  {{ vd.wallet.policy.name }} · {{ vd.wallet.year }}
+                </p>
+              {% endif %}
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="rounded-xl border p-4">
+              <div class="text-xs uppercase text-gray-400">{% trans "Available" %}</div>
+              <div class="text-2xl font-bold">{{ vd.available|default:"0.00" }} d</div>
+            </div>
+
+            <div class="rounded-xl border p-4">
+              <div class="text-xs uppercase text-gray-400">{% trans "Pending" %}</div>
+              <div class="text-2xl font-bold">{{ vd.pending|default:"0.00" }} d</div>
+            </div>
+
+            <div class="rounded-xl border p-4">
+              <div class="text-xs uppercase text-gray-400">{% trans "Used" %}</div>
+              <div class="text-2xl font-bold">{{ vd.used|default:"0.00" }} d</div>
+            </div>
+          </div>
+
+        </div>
+      {% endwith %}
+    </div>
+
+    <script>
+      (function () {
+        function toggle() {
+          const el = document.getElementById("vacations-dashboard");
+          if (!el) return;
+          const hash = window.location.hash || "";
+          el.classList.toggle("hidden", hash !== "#vacation_requests");
+        }
+        window.addEventListener("hashchange", toggle);
+        toggle();
+      })();
+    </script>
+  {% endif %}
+
+  {{ block.super }}
 {% endblock %}

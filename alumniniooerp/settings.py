@@ -89,6 +89,7 @@ INSTALLED_APPS = [
     'django_celery_results',
     'assets',
     'simple_history',
+    'vacations'
 ]
 
 MIDDLEWARE = [

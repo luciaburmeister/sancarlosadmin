@@ -7,7 +7,6 @@ from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from unfold.admin import ModelAdmin, TabularInline, GenericTabularInline
 from django.utils.html import format_html
 from invoices.models import (
-    InvoiceGroup,
     Invoice,
     TaxType,
     AppliedTax,
@@ -19,12 +18,9 @@ from invoices.models import (
 from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
+from accounting.tasks import classify_invoice_accounts
 
-@admin.register(InvoiceGroup)
-class InvoiceGroupAdmin(ModelAdmin):
-    list_display = ("name",)
-    search_fields = ("name",)
-    ordering = ("name",)
+
 
 @admin.register(TaxType)
 class TaxTypeAdmin(ModelAdmin):
@@ -108,14 +104,14 @@ class InvoiceAdmin(ModelAdmin):
         "date_issued",
         "due_date",
         "payment_method",
-        "group",
+        "account",
         "has_file",
         "ocr_status"
     )
 
     list_filter = (
         "payment_method",
-        "group",
+        "company",
         "date_issued",
     )
 
@@ -126,7 +122,7 @@ class InvoiceAdmin(ModelAdmin):
 
     autocomplete_fields = (
         "provider",
-        "group",
+        "account",
     )
 
     date_hierarchy = "date_issued"
@@ -134,7 +130,8 @@ class InvoiceAdmin(ModelAdmin):
     inlines = [
         AppliedTaxInline,
     ]
-    actions = ["send_to_process"]
+
+    actions = ["send_to_process", "classify_accounts"]
 
     fieldsets = (
         (
@@ -144,6 +141,7 @@ class InvoiceAdmin(ModelAdmin):
                    ( "invoice_number",
                     "provider"),
                     "file",
+                    "company"
                 )
             },
         ),
@@ -168,7 +166,7 @@ class InvoiceAdmin(ModelAdmin):
             "Notes",
             {
                 "fields": (
-                    "group",
+                    "account",
                     "observations",
                 )
             },
@@ -226,6 +224,10 @@ class InvoiceAdmin(ModelAdmin):
             process_manual_invoice.delay(invoice_id=id)
         self.message_user(request, f"Started processing {len(selected_ids)} invoices in background.")
 
+    @action(description="Define accounting account for selected invoices")
+    def classify_accounts(self, request, queryset):
+        classify_invoice_accounts.delay()
+        self.message_user(request, "Accounting classification started in background.")
         
 class SalesInvoiceItemInline(TabularInline):
     model = SalesInvoiceItem

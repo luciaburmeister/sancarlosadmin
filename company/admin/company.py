@@ -45,6 +45,7 @@ class CompanyAdmin(ModelAdmin):
                 "constituted_country",
                 "production_stages",
                 "asset_identifier_labels",
+                "business_activity_description"
             )
         }),
     )

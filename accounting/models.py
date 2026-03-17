@@ -76,6 +76,7 @@ class TemplateAccount(Timestampable):
     template = models.ForeignKey(ChartOfAccountsTemplate, on_delete=models.CASCADE, related_name="accounts")
     code = models.CharField(max_length=12, validators=[ACCOUNT_CODE_VALIDATOR])
     name = models.CharField(max_length=255)
+    description = models.TextField(null=True, blank=True)
 
     parent = models.ForeignKey(
         "self",

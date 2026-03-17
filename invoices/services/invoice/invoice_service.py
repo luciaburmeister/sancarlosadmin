@@ -17,13 +17,15 @@ from datetime import datetime
 from django.db import transaction
 from django.core.files import File
 
+from company.admin import company
+from invoices.services import invoice
 from invoices.services.ocr_services import OcrInterface, InvoiceData
-from invoices.services.invoice.invoice_service_helpers import match_provider
 from invoices.models import Invoice, AppliedTax, TaxType
 from materials.models import Provider
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from invoices.services.invoice.invoice_duplicate_service import InvoiceDuplicateService, DuplicateInvoiceError
+from company.models import Company
 
 
 
@@ -97,18 +99,12 @@ class InvoiceService:
             extracted_data = self.ocr_processor.extract_data(file_path)
             messages.append(f"OCR completed - found invoice {extracted_data.invoice_number or 'N/A'}")
             
-            provider, confidence, match_message = self._match_provider(extracted_data)
-            messages.append(f"Provider matching: {match_message}")
-            
-            # All invoices need manual review - confidence is just informational
-            needs_review = True
-            if confidence >= 80:
-                messages.append(f"High confidence match ({confidence}%) - but still requires review")
-            else:
-                messages.append(f"Low confidence match ({confidence}%) - requires review")
+            provider = Provider.objects.filter(tax_identifier__iexact=extracted_data.vendor_tax_id.strip()).first()
+            #if extracted_data.company_tax_id  if not throw error just as above
+            company = Company.objects.filter(tax_id__iexact=extracted_data.company_tax_id.strip()).first() 
             
             # Step 3: Create invoice with hash
-            invoice = self._create_invoice(extracted_data, provider, file_path, duplicate_result.hash_value)
+            invoice = self._create_invoice(extracted_data, provider, file_path, duplicate_result.hash_value, company)
             messages.append(f"Created invoice: {invoice}")
             
             # Step 4: Create line items
@@ -183,13 +179,14 @@ class InvoiceService:
                 except Exception:
                     raise ValueError("Invoice file has no local path. Provide file_path from the task.")
 
-            messages.append("Starting OCR processing...")
+            
             extracted_data = self.ocr_processor.extract_data(file_path)
-            messages.append(f"OCR completed - found invoice {extracted_data.invoice_number or 'N/A'}")
+            
+            #If no tax id found, how are we gonna throw error
+            provider = Provider.objects.filter(tax_identifier__iexact=extracted_data.vendor_tax_id.strip()).first()
+            #if extracted_data.company_tax_id  if not throw error just as above
+            company = Company.objects.filter(tax_identifier__iexact=extracted_data.company_tax_id.strip()).first() 
 
-            provider, confidence, match_message = self._match_provider(extracted_data)
-            messages.append(f"Provider matching: {match_message}")
-            messages.append(f"Confidence: {confidence}% (still requires review)")
 
             # UPDATE fields on the SAME invoice (no new row)
             invoice.invoice_number = extracted_data.invoice_number or invoice.invoice_number or "UNKNOWN"
@@ -199,6 +196,7 @@ class InvoiceService:
             invoice.total_amount = extracted_data.total_amount or invoice.total_amount
             invoice.currency = extracted_data.currency or invoice.currency or "EUR"
             invoice.payment_method = extracted_data.payment_method or invoice.payment_method or "transfer"
+            invoice.company = company
             invoice.needs_manual_review = True  # always True initially
 
             # line items (and persist them)
@@ -246,19 +244,7 @@ class InvoiceService:
             return InvoiceProcessingResult(invoice=invoice, success=False, messages=messages, needs_review=True)
     
     
-    def _match_provider(self, extracted_data: InvoiceData) -> Tuple[Optional[Provider], int, str]:
-        """
-        Match provider using helper function.
-        
-        Returns:
-            (provider_object, confidence_score, message)
-        """
-        vendor_name = extracted_data.vendor_name or ''
-        vendor_tax_id = extracted_data.vendor_tax_id or ''
-        
-        return match_provider(vendor_name, vendor_tax_id)
-    
-    def _create_invoice(self, extracted_data: InvoiceData, provider: Optional[Provider], file_path: str,image_hash: str) -> Invoice:
+    def _create_invoice(self, extracted_data: InvoiceData, provider: Optional[Provider], file_path: str,image_hash: str, company:Company) -> Invoice:
         """
         Create the main Invoice record with image hash
         """
@@ -276,6 +262,7 @@ class InvoiceService:
             currency=extracted_data.currency or 'EUR',
             payment_method=extracted_data.payment_method or 'transfer',
             image_hash=image_hash,
+            company=company,
             ocr_processing=True  # Mark as currently processing
         )
         

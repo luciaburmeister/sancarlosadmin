@@ -9,6 +9,8 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.validators import FileExtensionValidator
 from djmoney.models.fields import MoneyField
+from accounting.models import TemplateAccount
+from company.models import Company
 from django.utils import timezone
 
 
@@ -42,13 +44,15 @@ class Invoice(models.Model):
     date_issued = models.DateField(db_index=True,blank=True, null=True) 
     due_date = models.DateField(blank=True, null=True) #fecha de vencimiento
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT,blank=True, null=True) 
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="invoices", null=True)
     
-    group = models.ForeignKey(
-        InvoiceGroup, 
+    account = models.ForeignKey(
+        'accounting.TemplateAccount', 
         on_delete=models.PROTECT, 
-        related_name='invoices', 
-        null=True, #makes having a group optional
-        blank=True
+        null=True,
+        blank=True,
+        related_name='invoices',
+        help_text="Accounting account assigned by Gemini or manually overridden."
     )
     
     payment_method = models.CharField(

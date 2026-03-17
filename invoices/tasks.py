@@ -90,6 +90,7 @@ def process_manual_invoice(invoice_id: int):
     It uses the same OCR + service as email-based IncomingInvoice processing,
     but starts from the Invoice model instead.
     """
+    print(f"Processing manual invoice {invoice_id}")
     invoice = Invoice.objects.get(pk=invoice_id)
     invoice.ocr_processing = True
     invoice.save(update_fields=["ocr_processing"])
@@ -109,6 +110,7 @@ def process_manual_invoice(invoice_id: int):
         invoice.save(update_fields=["ocr_processed", "ocr_processing", "ocr_error"])
         return f"Invoice {invoice_id} has no file"
 
+
     # Initialize services (same as email task)
     api_key = settings.GEMINI_API_KEY
     if not api_key:
@@ -118,7 +120,7 @@ def process_manual_invoice(invoice_id: int):
         invoice.ocr_error = "GEMINI_API_KEY not configured."
         invoice.save(update_fields=["ocr_processed", "ocr_processing", "ocr_error"])
         return "Missing API Key"
-
+    
     ocr_processor = GeminiInvoiceProcessor(api_key=api_key)
     service = InvoiceService(ocr_processor=ocr_processor)
 

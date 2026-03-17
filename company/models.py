@@ -33,6 +33,12 @@ class Company(models.Model):
         help_text=_("Possible labels for asset identifiers (e.g., VIN, Plate Number)"),
         verbose_name=_("Asset Identifier Labels"),
     )
+    business_activity_description = models.TextField(
+    blank=True,
+    null=True,
+    verbose_name=_("Business Activity"),
+    help_text=_("Description of what the company does"),
+    )
 
 
     def __str__(self):

@@ -424,6 +424,12 @@ UNFOLD = {
                             "company.view_employee"
                         )
                     },
+                    {
+                    "title": _("Employee Clock In/Out"),
+                    "icon": "schedule",
+                    "link": reverse_lazy("admin:company_workattendance_changelist"),
+                    "permission": lambda request: request.user.has_perm("company.view_workattendance"),
+                },
                 ],
             },
             {
@@ -504,12 +510,6 @@ UNFOLD = {
                             "invoices.view_invoice"
                         ),
                     },
-                    {
-                    "title": _("Employee Clock In/Out"),
-                    "icon": "schedule",
-                    "link": reverse_lazy("admin:company_workattendance_changelist"),
-                    "permission": lambda request: request.user.has_perm("company.view_workattendance"),
-                },
                 ],
             },
         

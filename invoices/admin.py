@@ -73,7 +73,8 @@ class IncomingInvoiceAdmin(ModelAdmin):
     def process_selected_invoices(self, request, queryset):
         
         selected_ids = list(queryset.values_list('id', flat=True))
-        process_incoming_invoices.delay(invoice_ids=selected_ids)
+        for id in selected_ids:
+            process_incoming_invoices.delay(invoice_ids=[id])
         self.message_user(request, f"Started processing {len(selected_ids)} invoices in background.")
 
 class AppliedTaxInline(GenericTabularInline):

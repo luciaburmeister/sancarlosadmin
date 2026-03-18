@@ -7,7 +7,7 @@ class BaseExportStrategy:
     def __init__(self, obj: Any):
         self.obj = obj
 
-    def get_context(self) -> Dict[str, Any]:
+    def get_context(self, include_rendered_templates: bool = True) -> Dict[str, Any]:
         """
         Returns the context for template rendering.
         """

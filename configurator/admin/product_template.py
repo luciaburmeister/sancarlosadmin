@@ -1,6 +1,6 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from configurator.models import ProductTemplate, ProductParameter, BOMRule, ProductComputedVariable,ProductPricingRuleAssignment, ProductTemplateComponentGroup
+from configurator.models import ProductTemplate, ProductParameter, BOMRule, ProductComputedVariable,ProductPricingRuleAssignment, ProductTemplateComponentGroup, ProductComputedTemplate
 from unfold.admin import TabularInline,StackedInline,GenericTabularInline
 from django.db import models
 from unfold.widgets import UnfoldAdminTextareaWidget, UnfoldAdminSelectWidget
@@ -38,6 +38,21 @@ class ProductComputedVariableInline(TabularInline):
     verbose_name = _("Computed Variable")
     verbose_name_plural = _("Computed Variables")
     tab = True
+
+
+class ProductComputedTemplateInline(StackedInline):
+    model = ProductComputedTemplate
+    extra = 0
+    fields = ("name", "condition_expression", "template", "order")
+    verbose_name = _("Computed Template")
+    verbose_name_plural = _("Computed Templates")
+    tab = True
+    ordering_field = "order"
+    hide_ordering_field = True
+    
+    formfield_overrides = {
+        models.TextField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 4})},
+    }
 
 
 class ProductParameterInline(TabularInline):
@@ -168,6 +183,7 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
     inlines = [
         ProductParameterInline,
         ProductComputedVariableInline,
+        ProductComputedTemplateInline,
         BOMRuleInline,
         ProductPricingRuleAssignmentInline,
         AppliedTaxInline, 

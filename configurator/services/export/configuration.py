@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING, Any, Dict
 from .base import BaseExportStrategy
+from django.template import engines
+from configurator.utils import safe_eval
 
 if TYPE_CHECKING:
     from configurator.models import Configuration
@@ -12,7 +14,7 @@ class ConfigurationExportStrategy(BaseExportStrategy):
         super().__init__(configuration)
         self.configuration = configuration
 
-    def get_context(self) -> Dict[str, Any]:
+    def get_context(self, include_rendered_templates: bool = True) -> Dict[str, Any]:
         pricing_context = self.configuration.get_pricing_context()
         
         # Simplify items for JSON context
@@ -35,7 +37,7 @@ class ConfigurationExportStrategy(BaseExportStrategy):
             }
             items_data.append(item_dict)
 
-        return {
+        base_context = {
             **pricing_context,
             "config": self.configuration,
             "client": self.configuration.client,
@@ -45,6 +47,11 @@ class ConfigurationExportStrategy(BaseExportStrategy):
             "computed": pricing_context,
             "parameter_pricing_dictionary": pricing_context,
         }
+
+        if include_rendered_templates:
+            base_context["rendered_templates"] = getattr(self.configuration, "rendered_templates", {})
+
+        return base_context
 
     def get_product(self):
         return self.configuration.product

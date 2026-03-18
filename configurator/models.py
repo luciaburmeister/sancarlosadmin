@@ -20,7 +20,7 @@ from invoices.models import AppliedTax
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.db.models import Q
-
+from django.template import engines
 
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")
@@ -170,6 +170,8 @@ class ProductTemplate(CompanyOwnedModel):
 
             self._clone_export_templates(product_copy)
 
+            self._clone_computed_templates(product_copy)
+
             return product_copy
 
     def _clone_parameters(self, product_copy):
@@ -245,6 +247,22 @@ class ProductTemplate(CompanyOwnedModel):
                 )
             )
         ConfigurationExportTemplate.objects.bulk_create(templates)
+
+
+    def _clone_computed_templates(self, product_copy):
+        templates = []
+        for t in self.computed_templates.all():
+            templates.append(
+                ProductComputedTemplate(
+                    company=product_copy.company,
+                    product=product_copy,
+                    name=t.name,
+                    condition_expression=t.condition_expression,
+                    template=t.template,
+                    order=t.order,
+                )
+            )
+        ProductComputedTemplate.objects.bulk_create(templates)
 
 
 class ProductTemplateComponentGroup(models.Model):
@@ -560,6 +578,16 @@ class Configuration(Timestampable, CompanyOwnedModel):
         ),
     )
 
+    rendered_templates = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Rendered templates"),
+        help_text=_(
+            "HTML/SVG templates rendered at pricing time. "
+            "Used for exports."
+        ),
+    )
+
     asset = models.ForeignKey(
         "assets.Asset",
         on_delete=models.SET_NULL,
@@ -719,6 +747,9 @@ class Configuration(Timestampable, CompanyOwnedModel):
             "lines": pricing_lines,
         }
 
+        from configurator.services.export.service import ConfigurationExportService
+        self.rendered_templates = ConfigurationExportService.evaluate_configuration_templates(self)
+
         self.save(
             update_fields=[
                 "total_cost",
@@ -726,6 +757,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
                 "total_price",
                 "pricing_breakdown",
                 "tax_breakdown",
+                "rendered_templates",
             ]
         )
 
@@ -1208,6 +1240,38 @@ class ProductComputedVariable(CompanyOwnedModel):
             validate_expression_for_safe_eval(expr)
         except ValueError as e:
             raise ValidationError({"expression": f"Invalid expression: {e}"})
+
+
+class ProductComputedTemplate(CompanyOwnedModel):
+    product = models.ForeignKey(
+        ProductTemplate, on_delete=models.CASCADE, related_name="computed_templates"
+    )
+    name = models.CharField(max_length=100)
+    condition_expression = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Condition to evaluate. If true, this template is selected. Example: width > 50"
+    )
+    template = models.TextField(
+        help_text="HTML or SVG code to be injected"
+    )
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["product", "name", "order"]
+
+    def __str__(self):
+        return f"{self.product_id}.{self.name}"
+
+    def clean(self):
+        super().clean()
+
+        expr = (self.condition_expression or "").strip()
+        if expr:
+            try:
+                validate_expression_for_safe_eval(expr)
+            except ValueError as e:
+                raise ValidationError({"condition_expression": f"Invalid expression: {e}"})
 
 
 class ExportTemplateKind(models.TextChoices):

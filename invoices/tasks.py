@@ -60,8 +60,7 @@ def process_incoming_invoices(invoice_ids=None):
                         shutil.copyfileobj(f, tmp)
                     temp_file_path = tmp.name
                     file_path = temp_file_path
-            
-            result = service.process_invoice(file_path)
+            result = service.process_invoice(file_path, sender_email=incoming.sender_email)
             
             if result.success:
                 incoming.processed = True

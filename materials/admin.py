@@ -130,15 +130,22 @@ class MaterialAdmin(CompanyRestrictedAdmin,ModelAdmin):
 @admin.register(Provider)
 class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ("name", "contact", "phone", "email", "tax_identifier","company")
-    search_fields = ("name", "contact", "phone", "email", "tax_identifier",)
+    search_fields = ("name", "contact", "phone", "email", "tax_identifier", "associated_emails")
     list_select_related = ["company"]
     autocomplete_fields = ["company"]
+    
+    formfield_overrides = {
+        ArrayField: {
+            "widget": ArrayWidget,
+        }
+    }
+    
     fieldsets = (
         (_("General Information"), {
             "fields": ("name","company")
         }),
         (_("Contact Details"), {
-            "fields": ("contact", ("phone", "email"))
+            "fields": ("contact", ("phone", "email"), "associated_emails")
         }),
         (_("Finance"), {
             "fields": ("tax_identifier",)

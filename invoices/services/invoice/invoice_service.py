@@ -69,7 +69,7 @@ class InvoiceService:
         self.duplicate_service = InvoiceDuplicateService() 
     
     @transaction.atomic  # Ensures all-or-nothing database operations
-    def process_invoice(self, file_path: str) -> InvoiceProcessingResult:
+    def process_invoice(self, file_path: str, sender_email: Optional[str] = None) -> InvoiceProcessingResult:
         """
         Complete invoice processing workflow.
         
@@ -104,7 +104,8 @@ class InvoiceService:
             provider = self._get_or_create_provider(
                 extracted_data.vendor_tax_id, 
                 extracted_data.vendor_name, 
-                company
+                company,
+                sender_email
             )
             
             # Step 3: Create invoice with hash
@@ -380,11 +381,19 @@ class InvoiceService:
             return None
         return Company.objects.filter(tax_identifier__iexact=tax_id.strip()).first()
 
-    def _get_or_create_provider(self, vendor_tax_id: Optional[str], vendor_name: Optional[str], company: Optional[Company]) -> Optional[Provider]:
+    def _get_or_create_provider(self, vendor_tax_id: Optional[str], vendor_name: Optional[str], company: Optional[Company], sender_email: Optional[str] = None) -> Optional[Provider]:
         """
-        Lookup provider by tax ID and company.
+        Lookup provider by email or tax ID and company.
         If not found, create a new one with the extracted vendor details.
         """
+        if sender_email and company:
+            provider_by_email = Provider.objects.filter(
+                associated_emails__contains=[sender_email],
+                company=company
+            ).first()
+            if provider_by_email:
+                return provider_by_email
+
         if not vendor_tax_id:
             return None
 

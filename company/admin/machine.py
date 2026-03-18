@@ -1,16 +1,54 @@
+from unfold.admin import StackedInline, TabularInline
 from django.contrib import admin
 from unfold.admin import ModelAdmin
+from django.db import models
+from django.utils.translation import gettext_lazy as _
+from core.admin.company_admin import CompanyRestrictedAdmin
+from company.models import Machine, MachineType, MachineDocument, MachineDocumentType
+from company.forms import BaseDocumentForm
 
-from company.models import Machine, MachineType
+
+class MachineDocumentForm(BaseDocumentForm):
+    class Meta:
+        model = MachineDocument
+        fields = "__all__"
+
+
+class MachineDocumentInline(StackedInline):
+    model = MachineDocument
+    form = MachineDocumentForm
+    extra = 0
+    tab = True
+    exclude = ["company"]
+    autocomplete_fields = ["document_type"]
+
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("document_type",  "file"),
+                ("does_not_expire","is_active"),
+                ("issue_date", "expiry_date"),
+                "notes",
+            )
+        }),
+    )
+
+@admin.register(MachineDocumentType)
+class MachineDocumentTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ("name", "company")
+    search_fields = ("name",)
+    autocomplete_fields = ["company"]
 
 @admin.register(Machine)
-class MachineAdmin(ModelAdmin):
+class MachineAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = (
         "name",
         "company",
         "code",
         "is_active",
     )
+
+    inlines = [MachineDocumentInline]
 
     list_filter = (
         "company",

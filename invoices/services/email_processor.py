@@ -28,12 +28,23 @@ class EmailInvoiceProcessor:
         if self.mail:
             self.mail.logout()
 
-    def fetch_new_invoices(self):
-        """Fetches unread emails and processes their attachments."""
-        # Search for all unseen emails
-        status, response = self.mail.search(None, 'UNSEEN')
+    def fetch_new_invoices(self, days=90, only_unseen=True):
+        """Fetches emails from the last X days and processes their attachments."""
+        search_criteria = []
+        
+        if only_unseen:
+            search_criteria.append('UNSEEN')
+            
+        if days:
+            date_since = (timezone.now() - timezone.timedelta(days=days)).strftime("%d-%b-%Y")
+            search_criteria.append(f'SINCE {date_since}')
+            
+        search_query = " ".join(search_criteria) if search_criteria else "ALL"
+        
+        # Search for emails matches the criteria
+        status, response = self.mail.search(None, search_query)
         if status != 'OK':
-            return []
+            return 0
 
         email_ids = response[0].split()
         processed_count = 0
@@ -71,7 +82,7 @@ class EmailInvoiceProcessor:
                             try:
                                 email_date = parsedate_to_datetime(date_header)
                             except Exception:
-                                passI
+                                pass
                         
                         invoice = IncomingInvoice(
                             company=self.config.company,

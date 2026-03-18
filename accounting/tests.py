@@ -79,7 +79,7 @@ class JournalEntryNumberingTest(TransactionTestCase):
             is_closed=True
         )
         entry = self.create_balanced_entry(self.journal_gen, date(2025, 6, 1))
-        with self.assertRaisesMessage(ValidationError, str(_("Fiscal year FY 2025 is closed"))):
+        with self.assertRaisesMessage(ValidationError, str(_("Fiscal year FY 2025 is closed."))):
             entry.post()
 
     def test_lock_date(self):
@@ -224,7 +224,7 @@ class JournalEntryNumberingTest(TransactionTestCase):
         # Line with EUR (default) -> Fail
         line = JournalEntryLine(company=self.company, entry=entry, account=usd_account, debit=100, credit=0)
         # debit defaults to EUR. 
-        with self.assertRaisesMessage(ValidationError, str(_("Debit currency (EUR) must match account currency (USD)"))):
+        with self.assertRaisesMessage(ValidationError, str(_("Debit currency (EUR) must match account currency (USD)."))):
             line.clean()
             
         # Line with USD -> Pass

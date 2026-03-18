@@ -1,5 +1,10 @@
+from unfold.admin import StackedInline
 from django.contrib import admin
+from unfold.admin import ModelAdmin
+from django.db import models
+
 from django.urls import path, reverse
+from company.models import Employee, EmployeeType, EmployeeDocument, EmployeeDocumentType
 from django.utils.translation import gettext_lazy as _
 from datetime import date
 
@@ -7,6 +12,8 @@ from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import display
 
 from import_export.admin import ImportExportModelAdmin
+from unfold.contrib.forms.widgets import ArrayWidget
+from django.contrib.postgres.fields import ArrayField
 from unfold.contrib.import_export.forms import (
     ExportForm,
     ImportForm,
@@ -17,10 +24,42 @@ from core.admin.company_admin import CompanyRestrictedAdmin
 from company.models import Employee, EmployeeType
 from company.views.employeesessions import EmployeeSessionsView
 
+from company.forms import BaseDocumentForm
 from vacations.models import VacationWallet, VacationRequest, VacationRequestStatus
 from decimal import Decimal
 from django.db.models import Sum
 
+
+class EmployeeDocumentForm(BaseDocumentForm):
+    class Meta:
+        model = EmployeeDocument
+        fields = "__all__"
+
+
+class EmployeeDocumentInline(StackedInline):
+    model = EmployeeDocument
+    form = EmployeeDocumentForm
+    extra = 0
+    tab = True
+    exclude = ["company"]
+    autocomplete_fields = ["document_type"]
+
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("document_type",  "file"),
+                ("does_not_expire","is_active"),
+                ("issue_date", "expiry_date"),
+                "notes",
+            )
+        }),
+    )
+
+@admin.register(EmployeeDocumentType)
+class EmployeeDocumentTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ("name", "company")
+    search_fields = ("name",)
+    autocomplete_fields = ["company"]
 
 class VacationWalletInline(TabularInline):
     model = VacationWallet
@@ -42,12 +81,17 @@ class VacationRequestInline(TabularInline):
     readonly_fields = ("requested_days", "approved_by")
     ordering = ("-created_at",)
 
-
 @admin.register(Employee)
 class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
     import_form_class = ImportForm
     export_form_class = ExportForm
     export_form_class = SelectableFieldsExportForm
+
+    formfield_overrides = {
+        ArrayField: {
+            "widget": ArrayWidget,
+        }
+    }
 
     change_form_template = "admin/company/employee/change_form.html"
 
@@ -86,6 +130,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         (
             _("Employee"),
             {
+                "classes": ["tab"],
                 "fields": (
                     ("first_name", "last_name"),
                     ("email", "phone"),
@@ -97,6 +142,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         (
             _("Personal Information"),
             {
+                "classes": ["tab"],
                 "fields": (
                     "identification_number",
                     "birth_date",
@@ -108,6 +154,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         (
             _("Employment"),
             {
+                "classes": ["tab"],
                 "fields": (
                     "company",
                     ("hired_at", "terminated_at"),
@@ -115,9 +162,29 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
                 )
             },
         ),
+        (
+            _("Production"),
+            {
+                "classes": ["tab"],
+                "fields": (
+                    ("can_work_on_production", "production_stages"),
+                )
+            },
+        ),
     )
 
-    inlines = (VacationRequestInline, VacationWalletInline)
+    inlines = (EmployeeDocumentInline, VacationRequestInline, VacationWalletInline)
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form = super().get_form(request, obj, change, **kwargs)
+        if obj and obj.company:
+            stages = obj.company.production_stages
+            if stages:
+                form.base_fields["production_stages"].widget = ArrayWidget(
+                    choices=[(s, s) for s in stages]
+                )
+        return form
+
     readonly_fields = ()
 
     @display(description=_("Name"))

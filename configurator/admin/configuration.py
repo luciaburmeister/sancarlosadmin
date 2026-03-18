@@ -13,9 +13,6 @@ from django.http import HttpRequest
 from invoices.models import AppliedTax
 from unfold.decorators import display
 from core.admin.company_admin import CompanyRestrictedAdmin
-from unfold.contrib.forms.widgets import ArrayWidget
-from django.contrib.postgres.fields import ArrayField
-from django import forms
 from configurator.views.configuration.autocomplete_views import ClientAutocompleteView, AssetAutocompleteView
 
 
@@ -100,6 +97,7 @@ class ConfigurationItemInline(TabularInline):
         "length",
         "unit_price",
         "line_total",
+        "note",
     )
     readonly_fields = ("line_total", "is_template_item")
     tab = True
@@ -152,6 +150,7 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
     actions_row = ["export_configuration_to_template", 
                    "convert_to_production"]
     autocomplete_fields = ["client","product","asset"]
+    list_filter_submit = False
 
     inlines = [
         ParameterValueInline,

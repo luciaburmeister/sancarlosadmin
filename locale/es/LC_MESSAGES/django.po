@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-02-15 00:53+0100\n"
+"POT-Creation-Date: 2026-03-17 12:14+0100\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -32,8 +32,7 @@ msgid "If this account is postable."
 msgstr "Si esta cuenta se puede publicar."
 
 msgid "Entries prior to this date cannot be modified/posted."
-msgstr ""
-"Las entradas anteriores a esta fecha no pueden ser modificadas/publicadas."
+msgstr "Las entradas anteriores a esta fecha no pueden ser modificadas/publicadas."
 
 msgid "Asset"
 msgstr "Activo"
@@ -135,13 +134,26 @@ msgstr "La empresa de la línea debe coincidir con la empresa de entrada."
 msgid "Account must belong to same company."
 msgstr "La cuenta debe pertenecer a la misma empresa."
 
+#, fuzzy
+#| msgid "Fiscal year FY 2025 is closed"
+msgid "Fiscal year FY 2025 is closed."
+msgstr "El año fiscal FY 2025 está cerrado."
+
+#, fuzzy
+#| msgid "Cannot post empty entry."
+msgid "Cannot post entry before lock date"
+msgstr "No se puede publicar una entrada vacía."
+
+#, fuzzy
+#| msgid "Debit currency (EUR) must match account currency (USD)"
+msgid "Debit currency (EUR) must match account currency (USD)."
+msgstr "La moneda de débito (EUR) debe coincidir con la moneda de la cuenta (USD)"
+
 msgid "Español"
 msgstr "Español"
 
 msgid "English"
-msgstr ""
-"Please provide the English text that you would like to have translated into "
-"neutral Latin American Spanish."
+msgstr "Please provide the English text that you would like to have translated into neutral Latin American Spanish."
 
 msgid "Quote"
 msgstr "Presupuesto"
@@ -183,6 +195,38 @@ msgid "Production Items"
 msgstr "Items de Producción"
 
 #, fuzzy
+#| msgid "Invoice File"
+msgid "Invoices"
+msgstr "Archivo de factura"
+
+msgid "Sales Invoices"
+msgstr "Facturas de Ventas"
+
+#, fuzzy
+#| msgid "Incoming Invoices"
+msgid "Received Invoices"
+msgstr "Facturas recibidas"
+
+msgid "No expiry"
+msgstr ""
+
+#, fuzzy
+#| msgid "Configuration"
+msgid "Transaction"
+msgstr "Configuración"
+
+#, fuzzy
+#| msgid "Code"
+msgid "QR Code"
+msgstr "Codigo"
+
+msgid "Guarda el asset primero para ver el QR."
+msgstr "Guarda el asset primero para ver el QR."
+
+msgid "QR"
+msgstr "Código QR"
+
+#, fuzzy
 #| msgid "Tax Identifier"
 msgid "Identifiers"
 msgstr "Identificador Fiscal"
@@ -209,13 +253,9 @@ msgstr "Precio unitario"
 msgid "Asset Type"
 msgstr "Tipo de activo"
 
-#, fuzzy
-#| msgid "Client"
 msgid "Owner/Client"
 msgstr "Cliente"
 
-#, fuzzy
-#| msgid "Label"
 msgid "Name/Label"
 msgstr "Etiqueta"
 
@@ -224,6 +264,16 @@ msgstr "Datos Flexibles"
 
 msgid "Schema-less data for this specific asset type."
 msgstr "Datos sin esquema para este tipo específico de activo."
+
+msgid "Current Working Zone"
+msgstr "Zona de trabajo actual"
+
+msgid "Assigned To"
+msgstr "Asignado a"
+
+#, python-brace-format
+msgid "Auto-generated movement from {from_z} to {to_z}"
+msgstr "Movimiento autogenerado de {from_z} a {to_z}"
 
 msgid "Label"
 msgstr "Etiqueta"
@@ -234,20 +284,71 @@ msgstr "e.j., VIN, Número de placa, SN"
 msgid "Value"
 msgstr "Valor"
 
-#, fuzzy
-#| msgid "Tax Identifier"
 msgid "Asset identifier"
-msgstr "Identificador Fiscal"
+msgstr "Identificador de activo"
 
-#, fuzzy
-#| msgid "Tax Identifier"
 msgid "Asset identifiers"
-msgstr "Identificador Fiscal"
+msgstr "Identificadores de Activos"
 
 #, python-format
 msgid "This label is not allowed for this company. Allowed: %(labels)s"
-msgstr ""
-"Esta etiqueta no está permitida para esta empresa. Permitido: %(labels)s"
+msgstr "Esta etiqueta no está permitida para esta empresa. Permitido: %(labels)s"
+
+msgid "Delivery"
+msgstr "Entrega"
+
+msgid "Return"
+msgstr "Regresar"
+
+#, fuzzy
+#| msgid "Components"
+msgid "Movement"
+msgstr "Componentes"
+
+msgid "From Zone"
+msgstr "Desde la zona"
+
+msgid "To Zone"
+msgstr "A Zona"
+
+#, fuzzy
+#| msgid "Machine cost"
+msgid "Transaction Type"
+msgstr "Costo de la máquina"
+
+#, fuzzy
+#| msgid "Hire Date"
+msgid "Date"
+msgstr "Fecha de contratación"
+
+#, fuzzy
+#| msgid "Quotes"
+msgid "Notes"
+msgstr "Presupuestos"
+
+msgid "Asset transaction"
+msgstr "Transacción de activos"
+
+msgid "Asset transactions"
+msgstr "Transacciones de activos"
+
+msgid "Asset Document Type"
+msgstr "Tipo de documento de activo"
+
+msgid "Asset Document Types"
+msgstr "Tipos de documento de activo"
+
+msgid "Document Type"
+msgstr "Tipo de documento"
+
+msgid "Asset Document"
+msgstr "Documento de Activo"
+
+msgid "Asset Documents"
+msgstr "Documentos de Activos"
+
+msgid "Bank Accounts"
+msgstr "Cuenta de banco"
 
 msgid "Install Chart"
 msgstr "Instalar gráfico"
@@ -302,9 +403,7 @@ msgid "Production Stages"
 msgstr "Etapas de Producción"
 
 msgid "Possible labels for asset identifiers (e.g., VIN, Plate Number)"
-msgstr ""
-"Posibles etiquetas para identificadores de activos (por ejemplo, VIN, Número"
-" de Placa)"
+msgstr "Posibles etiquetas para identificadores de activos (por ejemplo, VIN, Número de Placa)"
 
 msgid "Asset Identifier Labels"
 msgstr "Etiquetas de Identificador de Activo"
@@ -380,6 +479,14 @@ msgid "Type"
 msgstr "Tipo"
 
 #, fuzzy
+#| msgid "Production Stages"
+msgid "Assigned Production Stages"
+msgstr "Etapas de Producción"
+
+msgid "Stages this employee is authorized to work on"
+msgstr "Etapas en las que este empleado está autorizado para trabajar"
+
+#, fuzzy
 #| msgid "Machine cost"
 msgid "Machine Type"
 msgstr "Costo de la máquina"
@@ -404,11 +511,6 @@ msgstr "¿Cuántos elementos se pueden procesar en paralelo?"
 
 msgid "Parallel capacity in minutes"
 msgstr "Capacidad paralela en minutos"
-
-#, fuzzy
-#| msgid "Quotes"
-msgid "Notes"
-msgstr "Presupuestos"
 
 #, fuzzy
 #| msgid "Address"
@@ -442,6 +544,163 @@ msgstr "Configuración"
 #| msgid "Configurations"
 msgid "Company Email Configurations"
 msgstr "Configuraciones"
+
+msgid "City"
+msgstr "Ciudad"
+
+#, fuzzy
+#| msgid "Post time"
+msgid "Postal Code"
+msgstr "Hora de publicación"
+
+#, fuzzy
+#| msgid "Provider"
+msgid "Province"
+msgstr "Proveedor"
+
+#, fuzzy
+#| msgid "Constitude Country"
+msgid "Country"
+msgstr "País Constituyente"
+
+#, fuzzy
+#| msgid "Activo"
+msgid "Active"
+msgstr "Activo"
+
+msgid "Working Zone"
+msgstr "Zona de Trabajo"
+
+msgid "Working Zones"
+msgstr "Zonas de Trabajo"
+
+#, fuzzy
+#| msgid "Last Name"
+msgid "Bank Name"
+msgstr "Apellido"
+
+#, fuzzy
+#| msgid "Commercial Name"
+msgid "Holder Name"
+msgstr "Nombre Comercial"
+
+msgid "IBAN"
+msgstr "IBAN"
+
+msgid "For SEPA/Europe"
+msgstr "Para SEPA/Europa"
+
+msgid "SWIFT/BIC code"
+msgstr "código SWIFT/BIC"
+
+#, fuzzy
+#| msgid "Number"
+msgid "Account Number"
+msgstr "Número"
+
+msgid "Local account number"
+msgstr "Número de cuenta local"
+
+#, fuzzy
+#| msgid "Invoice File"
+msgid "Routing Number"
+msgstr "Archivo de factura"
+
+msgid "Routing number, Sort code, ABA, etc."
+msgstr "Número de ruta, Código de clasificación, ABA, etc."
+
+#, fuzzy
+#| msgid "Address"
+msgid "Bank Address"
+msgstr "Dirección"
+
+msgid "Is Default"
+msgstr "Es default"
+
+msgid "Bank Account"
+msgstr "Cuenta de Banco"
+
+msgid "File"
+msgstr "Archivo"
+
+msgid "Expiry Date"
+msgstr "Expira el"
+
+msgid "Issue Date"
+msgstr "Fecha de Emisión"
+
+msgid "Is Active"
+msgstr "Está activo"
+
+msgid "Does not expire"
+msgstr "No expira"
+
+msgid "Employee Document Type"
+msgstr "Tipo de Documento de Empleado"
+
+msgid "Employee Document Types"
+msgstr "Tipo de Documentos de Empleado"
+
+msgid "Employee Document"
+msgstr "Documento del Empleado"
+
+msgid "Employee Documents"
+msgstr "Documentos del empleado"
+
+msgid "Machine Document Type"
+msgstr "Tipo de documento de Maquina"
+
+msgid "Machine Document Types"
+msgstr "Tipos de documento de Maquina"
+
+msgid "Machine"
+msgstr "Máquina"
+
+msgid "Machine Document"
+msgstr "Documento de la máquina"
+
+msgid "Machine Documents"
+msgstr "Documentos de la máquina"
+
+msgid "Employee sessions"
+msgstr "Sesiones de empleado"
+
+msgid "Apply"
+msgstr "Aplicar"
+
+msgid "Reset"
+msgstr "Restablecer"
+
+#, fuzzy
+#| msgid "Active Employee"
+msgid "Back to employee"
+msgstr "Empleado Activo"
+
+msgid "Sessions"
+msgstr "Sesiones"
+
+msgid "First"
+msgstr "Primera"
+
+msgid "Previous"
+msgstr "Anterior"
+
+#, fuzzy, python-format
+#| msgid ""
+#| "\n"
+#| "                Step %(current)s of %(total)s\n"
+#| "                "
+msgid ""
+"\n"
+"              Page %(number)s of %(total)s.\n"
+"            "
+msgstr "Paso %(current)s de %(total)s"
+
+msgid "Next"
+msgstr "Siguiente"
+
+msgid "Last"
+msgstr "Última"
 
 #, fuzzy
 #| msgid "Component A"
@@ -500,11 +759,32 @@ msgstr "En producción"
 msgid "Configuration successfully converted to production."
 msgstr "La configuración se ha convertido con éxito a producción."
 
+msgid "Visualizar"
+msgstr "Visualizar"
+
+msgid "Save the template first to see a preview."
+msgstr "Guarda la plantilla primero para ver una vista previa."
+
+#, fuzzy
+#| msgid "Contexto"
+msgid "Contexto JSON"
+msgstr "Contexto"
+
 msgid "Computed Variable"
 msgstr "Variable Computada"
 
 msgid "Computed Variables"
 msgstr "Variables Computadas"
+
+#, fuzzy
+#| msgid "Component A"
+msgid "Stage component group"
+msgstr "Componente A"
+
+#, fuzzy
+#| msgid "Components"
+msgid "Stage component groups"
+msgstr "Componentes"
 
 #, fuzzy
 #| msgid "Product Templates"
@@ -563,10 +843,8 @@ msgstr "Seleccione un tipo de empleado cuando la cantidad sea > 0."
 msgid "Duplicate employee types are not allowed: %(names)s"
 msgstr "No se permiten tipos de empleados duplicados: %(names)s"
 
-#, fuzzy
-#| msgid "Machine cost"
 msgid "Machine type"
-msgstr "Costo de la máquina"
+msgstr "Tipo de máquina"
 
 msgid "Quantity must be > 0 when a machine type is selected."
 msgstr "La cantidad debe ser > 0 cuando se selecciona un tipo de máquina."
@@ -647,17 +925,18 @@ msgid "Stage keys must be unique."
 msgstr "Las claves de etapa deben ser únicas."
 
 #, fuzzy
-#| msgid ""
-#| "BOM rule stages must be a subset of the product production stages."
+#| msgid "BOM rule stages must be a subset of the product production stages."
 msgid "Product stages must be a subset of the company production stages."
-msgstr ""
-"Las etapas de la regla BOM deben ser un subconjunto de las etapas de "
-"producción del producto."
+msgstr "Las etapas de la regla BOM deben ser un subconjunto de las etapas de producción del producto."
 
 msgid "Stage resources keys must be the same as stage keys"
-msgstr ""
-"Las claves de los recursos de la etapa deben ser las mismas que las claves "
-"de la etapa."
+msgstr "Las claves de los recursos de la etapa deben ser las mismas que las claves de la etapa."
+
+msgid "Stage"
+msgstr "Etapa"
+
+msgid "Stage where these components move together"
+msgstr "Etapa donde estos componentes se mueven juntos"
 
 msgid "Number"
 msgstr "Número"
@@ -718,6 +997,16 @@ msgstr "Expresión de longitud"
 msgid "Production stages this component participates in"
 msgstr "Etapas de producción en las que participa este componente"
 
+#, fuzzy
+#| msgid "Length expression"
+msgid "Note expression"
+msgstr "Expresión de longitud"
+
+#, fuzzy
+#| msgid "Internal label for this configuration"
+msgid "Expression to calculate a note stored in the configuration item."
+msgstr "Etiqueta interna para esta configuración"
+
 msgid "BOM rule"
 msgstr "Regla BOM"
 
@@ -725,9 +1014,7 @@ msgid "BOM rules"
 msgstr "Reglas de BOM"
 
 msgid "BOM rule stages must be a subset of the product production stages."
-msgstr ""
-"Las etapas de la regla BOM deben ser un subconjunto de las etapas de "
-"producción del producto."
+msgstr "Las etapas de la regla BOM deben ser un subconjunto de las etapas de producción del producto."
 
 msgid ""
 "Reusable expression.\n"
@@ -750,9 +1037,7 @@ msgid "Expression"
 msgstr "Expresión"
 
 msgid "Human-readable label for exports (e.g. Margin, Discount)"
-msgstr ""
-"Etiqueta legible para humanos para exportaciones (por ejemplo, Margen, "
-"Descuento)"
+msgstr "Etiqueta legible para humanos para exportaciones (por ejemplo, Margen, Descuento)"
 
 msgid "Show in export"
 msgstr "Mostrar en exportar"
@@ -785,11 +1070,8 @@ msgstr "Precio total"
 msgid "Tax breakdown"
 msgstr "Desglose de impuestos"
 
-msgid ""
-"Snapshot of tax calculations at pricing time. Used for exports and auditing."
-msgstr ""
-"Instantánea de cálculos fiscales en el momento de la fijación de precios. "
-"Usado para exportaciones y auditorías."
+msgid "Snapshot of tax calculations at pricing time. Used for exports and auditing."
+msgstr "Instantánea de cálculos fiscales en el momento de la fijación de precios. Usado para exportaciones y auditorías."
 
 #, fuzzy
 #| msgid "Tax breakdown"
@@ -797,14 +1079,9 @@ msgid "Pricing breakdown"
 msgstr "Desglose de impuestos"
 
 #, fuzzy
-#| msgid ""
-#| "Snapshot of tax calculations at pricing time. Used for exports and auditing."
-msgid ""
-"Snapshot of pricing rule calculations at pricing time. Used for exports and "
-"auditing."
-msgstr ""
-"Instantánea de cálculos fiscales en el momento de la fijación de precios. "
-"Usado para exportaciones y auditorías."
+#| msgid "Snapshot of tax calculations at pricing time. Used for exports and auditing."
+msgid "Snapshot of pricing rule calculations at pricing time. Used for exports and auditing."
+msgstr "Instantánea de cálculos fiscales en el momento de la fijación de precios. Usado para exportaciones y auditorías."
 
 msgid "Configurations"
 msgstr "Configuraciones"
@@ -816,9 +1093,7 @@ msgid "Length"
 msgstr "Longitud"
 
 msgid "Whether this item comes from a BOM rule or is a user add-on."
-msgstr ""
-"Ya sea que este artículo provenga de una regla de BOM o sea un complemento "
-"agregado por el usuario."
+msgstr "Ya sea que este artículo provenga de una regla de BOM o sea un complemento agregado por el usuario."
 
 msgid "Is template item"
 msgstr "¿Es un ítem de plantilla?"
@@ -845,21 +1120,40 @@ msgid "Snapshot label for this configuration item"
 msgstr "Etiqueta interna para esta configuración"
 
 #, fuzzy
+#| msgid "Quotes"
+msgid "Note"
+msgstr "Presupuestos"
+
+#, fuzzy
 #| msgid "Component"
 msgid "Unknown component"
 msgstr "Componente"
 
 #, fuzzy
-#| msgid ""
-#| "BOM rule stages must be a subset of the product production stages."
-msgid ""
-"Configuration item stages must be a subset of the company production stages."
-msgstr ""
-"Las etapas de la regla BOM deben ser un subconjunto de las etapas de "
-"producción del producto."
+#| msgid "BOM rule stages must be a subset of the product production stages."
+msgid "Configuration item stages must be a subset of the company production stages."
+msgstr "Las etapas de la regla BOM deben ser un subconjunto de las etapas de producción del producto."
 
-msgid "Stage"
-msgstr "Etapa"
+#, fuzzy
+#| msgid "Configuration"
+msgid "Quotation"
+msgstr "Configuración"
+
+#, fuzzy
+#| msgid "Production Item"
+msgid "Production Order"
+msgstr "Item de Producción"
+
+#, fuzzy
+#| msgid "Production Tickets"
+msgid "Production Ticket"
+msgstr "Tickets de Producción"
+
+msgid "Sales Invoice"
+msgstr "Factura de venta"
+
+msgid "Kind"
+msgstr "Tipo"
 
 #, fuzzy
 #| msgid "Machine cost"
@@ -880,21 +1174,9 @@ msgstr "Atrás"
 msgid "Submit form"
 msgstr "Enviar formulario"
 
-msgid "First"
-msgstr "Primera"
-
-msgid "Previous"
-msgstr "Anterior"
-
 #, python-format
 msgid "Page %(number)s of %(total)s."
 msgstr "Página %(number)s de %(total)s."
-
-msgid "Next"
-msgstr "Siguiente"
-
-msgid "Last"
-msgstr "Última"
 
 #, python-format
 msgid ""
@@ -925,6 +1207,21 @@ msgid "Configure your product"
 msgstr "Configura tu producto"
 
 #, fuzzy
+#| msgid "Configuration item"
+msgid "Configuration Template Exporter"
+msgstr "Elemento de configuración"
+
+#, fuzzy
+#| msgid "Configuration item"
+msgid "Configuration not found"
+msgstr "Elemento de configuración"
+
+#, fuzzy
+#| msgid "Internal label for this configuration"
+msgid "Template not available for this configuration"
+msgstr "Etiqueta interna para esta configuración"
+
+#, fuzzy
 #| msgid "Configure your product"
 msgid "Configure planning resources"
 msgstr "Configura tu producto"
@@ -934,9 +1231,7 @@ msgid "Configure planning resources: %(name)s"
 msgstr "Configurar recursos de planificación: %(name)s"
 
 msgid "Please correct the errors below."
-msgstr ""
-"Sure! Please provide the text or errors you'd like me to correct, and I'll "
-"be happy to help."
+msgstr "Sure! Please provide the text or errors you'd like me to correct, and I'll be happy to help."
 
 #, python-format
 msgid "Could not save: %(msg)s"
@@ -944,6 +1239,223 @@ msgstr "No se pudo guardar: %(msg)s"
 
 msgid "Planning resources saved."
 msgstr "Recursos de planificación guardados."
+
+#, fuzzy
+#| msgid "Stock In"
+msgid "Stock Location"
+msgstr "Stock Entrante"
+
+#, fuzzy
+#| msgid "Stock In"
+msgid "Stock Locations"
+msgstr "Stock Entrante"
+
+msgid "Linked source (required)"
+msgstr "Fuente vinculada (requerida)"
+
+msgid "Link this location to any object (material, warehouse master, etc.). This location must be linked to a source object."
+msgstr "Vincula esta ubicación a cualquier objeto (material, maestro de almacén, etc.). Esta ubicación debe estar vinculada a un objeto fuente."
+
+msgid "Linked source"
+msgstr "Fuente vinculada"
+
+#, fuzzy
+#| msgid "Product Templates"
+msgid "Product object"
+msgstr "Plantillas de Producto"
+
+msgid "Select a Product content type first, then choose the linked object here."
+msgstr "Primero selecciona un tipo de contenido de producto, luego elige el objeto vinculado aquí."
+
+msgid "Select both Product content type and Product object, or leave both empty."
+msgstr "Selecciona tanto el tipo de contenido de Producto como el objeto Producto, o deja ambos vacíos."
+
+#, fuzzy
+#| msgid "Item"
+msgid "Item"
+msgstr "Elemento"
+
+msgid "Warehouse"
+msgstr "Almacén"
+
+msgid "Supplier"
+msgstr "Proveedor"
+
+#, fuzzy
+#| msgid "Stock In"
+msgid "Stock on Hand"
+msgstr "Stock Entrante"
+
+msgid "Bin/Slot"
+msgstr "Bin/Slot"
+
+msgid "Other"
+msgstr "Otro"
+
+msgid "Stockable Item"
+msgstr "Artículo Almacenable"
+
+msgid "Service"
+msgstr "Servicio"
+
+#, fuzzy
+#| msgid "Finished"
+msgid "Finished Product"
+msgstr "Finalizado"
+
+msgid "Stock In"
+msgstr "Stock Entrante"
+
+msgid "Stock Out"
+msgstr "Sin Stock"
+
+msgid "Adjustment"
+msgstr "Ajuste"
+
+#, fuzzy
+#| msgid "Bank Transfer"
+msgid "Transfer"
+msgstr "Transferencia Bancaria"
+
+#, fuzzy
+#| msgid "Required"
+msgid "Requested"
+msgstr "Requerido"
+
+msgid "Reserved"
+msgstr "Reservado"
+
+#, fuzzy
+#| msgid "Category"
+msgid "Inventory Category"
+msgstr "Categoría"
+
+msgid "Inventory Categories"
+msgstr "Categorías de Inventario"
+
+msgid "Code"
+msgstr "Codigo"
+
+#, fuzzy
+#| msgid "Address"
+msgid "Address Line 1"
+msgstr "Dirección"
+
+#, fuzzy
+#| msgid "Address"
+msgid "Address Line 2"
+msgstr "Dirección"
+
+#, fuzzy
+#| msgid "Warehouse"
+msgid "Warehouses"
+msgstr "Almacén"
+
+#, fuzzy
+#| msgid "Machine cost"
+msgid "Location Type"
+msgstr "Costo de la máquina"
+
+#, fuzzy
+#| msgid "Component A"
+msgid "Content Type"
+msgstr "Componente A"
+
+msgid "Object ID"
+msgstr "ID del objeto"
+
+msgid "Select both Content Type and Object ID, or leave both empty."
+msgstr "Selecciona tanto el Tipo de Contenido como el ID de Objeto, o deja ambos vacíos."
+
+#, fuzzy
+#| msgid "Asset Type"
+msgid "Item Type"
+msgstr "Tipo de activo"
+
+#, fuzzy
+#| msgid "Default Value"
+msgid "Default Warehouse"
+msgstr "Valor predeterminado"
+
+msgid "Preferred Supplier"
+msgstr "Proveedor Preferido"
+
+#, fuzzy
+#| msgid "Product template"
+msgid "Product Content Type"
+msgstr "Plantilla de producto"
+
+#, fuzzy
+#| msgid "Product Templates"
+msgid "Product Object ID"
+msgstr "Plantillas de Producto"
+
+#, fuzzy
+#| msgid "Item"
+msgid "Items"
+msgstr "Elemento"
+
+msgid "Services cannot have a warehouse."
+msgstr "Los servicios no pueden tener un almacén."
+
+msgid "This item type requires a warehouse."
+msgstr "Este tipo de artículo requiere un almacén."
+
+#, fuzzy
+#| msgid "Components"
+msgid "Movement Type"
+msgstr "Componentes"
+
+#, fuzzy
+#| msgid "Quantity"
+msgid "Quantity Change"
+msgstr "Cantidad"
+
+msgid "Positive for stock-in, negative for stock-out."
+msgstr "Positivo para entrada de stock, negativo para salida de stock."
+
+#, fuzzy
+#| msgid "IMAP User"
+msgid "User"
+msgstr "Usuario IMAP"
+
+msgid "User who performed the movement."
+msgstr "Usuario que realizó el movimiento."
+
+#, fuzzy
+#| msgid "Components"
+msgid "Inventory Movement"
+msgstr "Componentes"
+
+msgid "Inventory Movements"
+msgstr "Movimientos de Inventario"
+
+msgid "View PDF"
+msgstr "Ver PDF"
+
+#, fuzzy
+#| msgid "Final price"
+msgid "Finalize"
+msgstr "Precio final"
+
+msgid "Invoice is already final."
+msgstr "La factura ya está finalizada."
+
+msgid "Invoice finalized and Delivery Order generated."
+msgstr "Factura finalizada y Orden de Entrega generada."
+
+msgid "Finalize selected pro forma invoices"
+msgstr "Finalizar las facturas pro forma seleccionadas"
+
+#, python-format
+msgid "Finalized %d invoices and generated Delivery Orders."
+msgstr "Finalizó %d facturas y generó Órdenes de Entrega."
+
+msgid "Please select only one invoice to download."
+msgstr "Por favor, selecciona solo una factura para descargar."
+
+msgid "Download PDF"
+msgstr "Descargar PDF"
 
 msgid "Bank Transfer"
 msgstr "Transferencia Bancaria"
@@ -994,6 +1506,74 @@ msgstr "Factura Entrante"
 msgid "Incoming Invoices"
 msgstr "Facturas recibidas"
 
+msgid "Pro Forma"
+msgstr "Pro Forma"
+
+#, fuzzy
+#| msgid "Final price"
+msgid "Final"
+msgstr "Precio final"
+
+#, fuzzy
+#| msgid "Invoice File"
+msgid "Invoice Number"
+msgstr "Archivo de factura"
+
+msgid "Date Issued"
+msgstr "Fecha de emisión"
+
+#, fuzzy
+#| msgid "Hire Date"
+msgid "Due Date"
+msgstr "Fecha de contratación"
+
+msgid "Incremental ID"
+msgstr "ID incremental"
+
+#, fuzzy
+#| msgid "Subtract"
+msgid "Subtotal"
+msgstr "Restar"
+
+msgid "Tax Amount"
+msgstr "Monto del impuesto"
+
+#, fuzzy
+#| msgid "Material cost"
+msgid "Total Amount"
+msgstr "Costo de material"
+
+#, fuzzy
+#| msgid "Invoice File"
+msgid "Invoice"
+msgstr "Archivo de factura"
+
+#, fuzzy
+#| msgid "Unit price"
+msgid "Unit Price"
+msgstr "Precio unitario"
+
+#, fuzzy
+#| msgid "User Account"
+msgid "Discount"
+msgstr "Cuenta de Usuario"
+
+#, fuzzy
+#| msgid "Line total"
+msgid "Line Total"
+msgstr "Total de la línea"
+
+#, fuzzy
+#| msgid "Incoming Invoice"
+msgid "Upload Invoice"
+msgstr "Factura Entrante"
+
+msgid "Upload the invoice file. After saving, you'll return to the invoice list."
+msgstr "Cargue el archivo de factura. Después de guardar, volverá a la lista de facturas."
+
+msgid "Upload New Invoice"
+msgstr "Subir Nueva Factura"
+
 #, fuzzy
 #| msgid "Component A"
 msgid "Component price rule"
@@ -1023,13 +1603,8 @@ msgstr "Contexto"
 msgid "Reference code"
 msgstr "Código de referencia"
 
-msgid ""
-"Internal identifier used in price rules. Must start with a letter and "
-"contain only letters, numbers, or underscores. Example: steel_4058"
-msgstr ""
-"Identificador interno utilizado en las reglas de precios. Debe comenzar con "
-"una letra y contener solo letras, números o guiones bajos. Ejemplo: "
-"steel_4058"
+msgid "Internal identifier used in price rules. Must start with a letter and contain only letters, numbers, or underscores. Example: steel_4058"
+msgstr "Identificador interno utilizado en las reglas de precios. Debe comenzar con una letra y contener solo letras, números o guiones bajos. Ejemplo: steel_4058"
 
 msgid "Rule key"
 msgstr "Clave de regla"
@@ -1050,21 +1625,15 @@ msgstr "Precio por unidad"
 msgid "Provider"
 msgstr "Proveedor"
 
-msgid "Code"
-msgstr "Codigo"
-
 #, fuzzy
 #| msgid "Component A"
 msgid "Component Type"
 msgstr "Componente A"
 
 #, fuzzy
-#| msgid ""
-#| "BOM rule stages must be a subset of the product production stages."
+#| msgid "BOM rule stages must be a subset of the product production stages."
 msgid "Component stages must be a subset of the company production stages."
-msgstr ""
-"Las etapas de la regla BOM deben ser un subconjunto de las etapas de "
-"producción del producto."
+msgstr "Las etapas de la regla BOM deben ser un subconjunto de las etapas de producción del producto."
 
 msgid ""
 "Boolean expression evaluated with safe_eval.\n"
@@ -1075,12 +1644,8 @@ msgstr ""
 "Debe devolver True o False.\n"
 "Ejemplo: width <= 1000 y quantity >= 10"
 
-msgid ""
-"Enter an expression to calculate cost. Context: base_cost (if fallback) or "
-"material prices."
-msgstr ""
-"Ingrese una expresión para calcular el costo. Contexto: base_cost (si se "
-"necesita un valor de respaldo) o precios de materiales."
+msgid "Enter an expression to calculate cost. Context: base_cost (if fallback) or material prices."
+msgstr "Ingrese una expresión para calcular el costo. Contexto: base_cost (si se necesita un valor de respaldo) o precios de materiales."
 
 msgid "Lower values are evaluated first"
 msgstr "Los valores más bajos se evalúan primero."
@@ -1088,17 +1653,37 @@ msgstr "Los valores más bajos se evalúan primero."
 msgid "Used if no other rule matches"
 msgstr "Usado si ninguna otra regla coincide"
 
-msgid ""
-"Rule key must start with a letter and contain only letters, numbers, or "
-"underscores."
-msgstr ""
-"La clave de la regla debe comenzar con una letra y contener solo letras, "
-"números o guiones bajos."
+msgid "Rule key must start with a letter and contain only letters, numbers, or underscores."
+msgstr "La clave de la regla debe comenzar con una letra y contener solo letras, números o guiones bajos."
 
-#, fuzzy
-#| msgid "Production Stages"
 msgid "Production planning"
 msgstr "Etapas de Producción"
+
+msgid "Stages"
+msgstr "Etapas"
+
+msgid "Go to Stages"
+msgstr "Ir a Etapas"
+
+msgid "See Work Order"
+msgstr "Ver Orden de Trabajo"
+
+#, fuzzy
+#| msgid "General Information"
+msgid "Generate Invoice"
+msgstr "Información General"
+
+#, fuzzy
+#| msgid "Internal label for this configuration"
+msgid "An invoice already exists for this configuration."
+msgstr "Etiqueta interna para esta configuración"
+
+#, python-brace-format
+msgid "Invoice {} generated successfully."
+msgstr "Factura {} generada con éxito."
+
+msgid "This ticket is not linked to a configuration."
+msgstr "Este ticket no está vinculado a una configuración."
 
 #, fuzzy
 #| msgid "Configuration"
@@ -1110,9 +1695,6 @@ msgstr "Vista Kanban"
 
 msgid "Assigned Employees"
 msgstr "Empleados Asignados"
-
-msgid "Sessions"
-msgstr "Sesiones"
 
 msgid "Stage status"
 msgstr "Estado de la etapa"
@@ -1132,6 +1714,14 @@ msgstr "Contexto específico de la empresa"
 msgid "Contexto"
 msgstr "Contexto"
 
+#, fuzzy
+#| msgid "Order"
+msgid "Order HTML"
+msgstr "Orden"
+
+msgid "Ticket HTML"
+msgstr "Sure, please provide the HTML content related to the ticket, and I'll help you translate the relevant strings into neutral Latin American Spanish."
+
 msgid "Snapshot data (component, dimensions, notes)"
 msgstr "Datos de la instantánea (componente, dimensiones, notas)"
 
@@ -1141,9 +1731,29 @@ msgstr "Etapas de producción y progreso por artículo"
 msgid "Process Planning"
 msgstr "Planificación del Proceso"
 
+msgid "Stable stage order derived from BOM"
+msgstr ""
 
-msgid "In progress"
-msgstr "En Progreso"
+#, fuzzy
+#| msgid "Production Stages"
+msgid "Production Stages Order"
+msgstr "Etapas de Producción"
+
+msgid "Activity started"
+msgstr "Actividad iniciada"
+
+msgid "Activity finished"
+msgstr "Actividad finalizada"
+
+#, fuzzy
+#| msgid "Session already started"
+msgid "Session started"
+msgstr "La sesión ya ha comenzado"
+
+#, fuzzy
+#| msgid "Sessions"
+msgid "Session finished"
+msgstr "Sesiones"
 
 msgid "Production Item"
 msgstr "Item de Producción"
@@ -1156,10 +1766,8 @@ msgstr "Hora de finalización"
 msgid "Comments"
 msgstr "Componentes"
 
-
 msgid "Production Stage"
 msgstr "Etapas de Producción"
-
 
 msgid "Created by"
 msgstr "Creado en"
@@ -1208,7 +1816,6 @@ msgstr "¿Podrías proporcionar el texto que deseas traducir?"
 msgid "Production Kanban"
 msgstr "Kaban de Producción"
 
-
 msgid "Back to list"
 msgstr "Volver a la lista"
 
@@ -1233,20 +1840,14 @@ msgstr "Tickets de Producción"
 msgid "Back to ticket"
 msgstr "Volver al ticket"
 
-msgid "Item"
-msgstr "Elemento"
-
 msgid "Started"
 msgstr "Empezado"
-
-msgid "Action"
-msgstr "Acción"
 
 msgid "Start activity"
 msgstr "Iniciar actividad"
 
-msgid "End session"
-msgstr "Finalizar Sesión"
+msgid "Pause"
+msgstr "Pausa"
 
 msgid "Start session"
 msgstr "Iniciar sesión"
@@ -1254,11 +1855,13 @@ msgstr "Iniciar sesión"
 msgid "Finish activity"
 msgstr "Finalizar actividad"
 
-msgid "No stages defined for this item"
-msgstr "No hay etapas definidas para este elemento"
-
-msgid "No production items found for this ticket"
+#, fuzzy
+#| msgid "No production items found for this ticket"
+msgid "No production stages found for this ticket"
 msgstr "No se han encontrado elementos de producción para este ticket"
+
+msgid "Work Order"
+msgstr "Orden de Trabajo"
 
 msgid "Permission denied"
 msgstr "Permiso denegado"
@@ -1271,15 +1874,24 @@ msgstr "Estado"
 msgid "Invalid action"
 msgstr "Acción inválida"
 
-
 msgid "Your user is not linked to an Employee."
 msgstr "Tu usuario no está vinculado a un Empleado"
+
+#, fuzzy
+#| msgid "No stages defined for this item"
+msgid "No items selected for this stage action."
+msgstr "No hay etapas definidas para este elemento"
+
+msgid "Return to Stages"
+msgstr "Volver a las etapas"
 
 msgid "e.g., SEBASTIAN HERRERO"
 msgstr "e.j., SEBASTIÁN HERRERO"
 
-msgid "Tax ID"
-msgstr "ID de impuesto"
+#, fuzzy
+#| msgid "Tax Identifier"
+msgid "Fiscal Identifier"
+msgstr "Identificador Fiscal"
 
 msgid "Clients"
 msgstr "Clientes"
@@ -1356,11 +1968,29 @@ msgstr "artículo de Presupuesto"
 msgid "Quote items"
 msgstr "articulos de Presupuesto"
 
-#~ msgid "Finished"
-#~ msgstr "Finalizado"
+msgid "Delivered"
+msgstr "Entregado"
 
-msgid "Your user is not linked to an Employee"
-msgstr "Tu usuario no está vinculado a un Empleado"
+msgid "Delivery Order"
+msgstr "Alabarán de Transporte"
+
+msgid "Delivery Orders"
+msgstr "Albaránes de Transporte"
+
+msgid "Delivery Order Item"
+msgstr "Elemento del albaran de Transporte"
+
+msgid "Delivery Order Items"
+msgstr "Items de albaran de Transporte"
+
+#~ msgid "You cannot create stock movements for services."
+#~ msgstr "No puedes crear movimientos de stock para servicios."
+
+#~ msgid "Warehouse must belong to the same company as the item."
+#~ msgstr "El almacén debe pertenecer a la misma empresa."
+
+#~ msgid "Tax ID"
+#~ msgstr "ID de impuesto"
 
 msgid "Request absence"
 msgstr "Solicitar ausencia"

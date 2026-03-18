@@ -4,6 +4,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from timestamps.models import Timestampable
 from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.fields import ArrayField
 from company.models import Employee,Machine,CompanyOwnedModel
 from django.utils import timezone
 from django.db.models import Q
@@ -17,7 +18,7 @@ class ProductionTicketStatus(models.TextChoices):
     DONE = "done", _("Done")
     CANCELLED = "cancelled", _("Cancelled")
 
-class ProductionTicket(Timestampable):
+class ProductionTicket(Timestampable, CompanyOwnedModel):
     content_type = models.ForeignKey(
         ContentType,
         on_delete=models.PROTECT,
@@ -39,6 +40,15 @@ class ProductionTicket(Timestampable):
         blank=True,
         help_text=_("Company-specific context"),
         verbose_name=_("Contexto")
+    )
+
+    order_html = models.TextField(blank=True, null=True, verbose_name=_("Order HTML"))
+    ticket_html = models.TextField(blank=True, null=True, verbose_name=_("Ticket HTML"))
+    work_order_pdf = models.FileField(
+        upload_to="production/work_orders/",
+        null=True,
+        blank=True,
+        verbose_name=_("Work Order PDF")
     )
 
 
@@ -94,7 +104,7 @@ class ProductionItemStatus(models.TextChoices):
     DONE = "done", _("Done")
     CANCELLED = "cancelled", _("Cancelled")
 
-class ProductionItem(Timestampable):
+class ProductionItem(Timestampable, CompanyOwnedModel):
     ticket = models.ForeignKey(
         ProductionTicket,
         on_delete=models.CASCADE,
@@ -152,12 +162,51 @@ class ProductionItem(Timestampable):
         verbose_name=_("Assigned Employees")
     )
 
+    ticket_html = models.TextField(blank=True, null=True, verbose_name=_("Ticket HTML"))
+
+    production_stages_order = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text=_("Stable stage order derived from BOM"),
+        verbose_name=_("Production Stages Order"),
+    )
+
     class Meta:
         indexes = [
             GinIndex(fields=["planning"]),
         ]
+
+    def get_ordered_planning(self):
+        """
+        Returns the planning dictionary items (stage_name, info) sorted by 
+        the production_stages_order if present, otherwise fallback to product template order.
+        """
+        planning = self.planning or {}
+        
+        # 1. Use internal order if available
+        stage_order = None
+        
+        # 2. Fallback to product template order
+        if not stage_order and self.ticket and self.ticket.source_object:
+            product = getattr(self.ticket.source_object, "product", None)
+            if product:
+                stage_order = list(product.production_stages or [])
+
+        def sort_key(item):
+            stage_name = item[0]
+            try:
+                # Priority 0: Stages in the defined order
+                return (0, stage_order.index(stage_name))
+            except ValueError:
+                # Priority 1: Other stages sorted alphabetically
+                return (1, stage_name)
+
+        return sorted(planning.items(), key=sort_key)
     
     def save(self, *args, **kwargs):
+        if not self.company_id and self.ticket_id:
+            self.company = self.ticket.company
         super().save(*args, **kwargs)
         self.ticket.recompute_status()
 
@@ -176,7 +225,7 @@ class ProductionItemSessionKind(models.TextChoices):
     SESSION_FINISHED = "session_finished", _("Session finished")
 
 
-class ProductionItemSession(Timestampable):
+class ProductionItemSession(Timestampable, CompanyOwnedModel):
     production_item = models.ForeignKey(
         ProductionItem,
         on_delete=models.CASCADE,
@@ -241,6 +290,8 @@ class ProductionItemSession(Timestampable):
                 raise ValidationError(_("Finished sessions must have start and end times"))
             
     def save(self, *args, **kwargs):
+        if not self.company_id and self.production_item_id:
+            self.company = self.production_item.company
         self.full_clean()
         super().save(*args, **kwargs)
 

@@ -3,6 +3,8 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from django_countries.fields import CountryField
 from django.contrib.postgres.fields import ArrayField
+from location_field.models.spatial import LocationField
+from simple_history.models import HistoricalRecords
 
 User = get_user_model()
 
@@ -31,6 +33,12 @@ class Company(models.Model):
         help_text=_("Possible labels for asset identifiers (e.g., VIN, Plate Number)"),
         verbose_name=_("Asset Identifier Labels"),
     )
+    business_activity_description = models.TextField(
+    blank=True,
+    null=True,
+    verbose_name=_("Business Activity"),
+    help_text=_("Description of what the company does"),
+    )
 
 
     def __str__(self):
@@ -42,7 +50,8 @@ class CompanyOwnedModel(models.Model):
         on_delete=models.CASCADE,
         related_name="%(class)ss",
         null=True,
-        blank=False
+        blank=False,
+        verbose_name=_("Company")
     )
 
     class Meta:
@@ -145,6 +154,14 @@ class Employee(CompanyOwnedModel):
 
     type = models.ForeignKey(EmployeeType, on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_("Type"))
 
+    production_stages = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        verbose_name=_("Assigned Production Stages"),
+        help_text=_("Stages this employee is authorized to work on"),
+    )
+
     class Meta:
         verbose_name = _("Employee")
         verbose_name_plural = _("Employees")
@@ -211,3 +228,130 @@ class CompanyEmailConfig(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.email_address} ({self.company})"
+
+class WorkingZone(CompanyOwnedModel):
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+    street_address = models.CharField(max_length=255, verbose_name=_("Address"), default="")
+    city = models.CharField(max_length=100, verbose_name=_("City"), default="")
+    postal_code = models.CharField(max_length=20, verbose_name=_("Postal Code"), default="")
+    province = models.CharField(max_length=100, verbose_name=_("Province"), default="")
+    country = CountryField(verbose_name=_("Country"), default="ES")
+    location = LocationField(based_fields=['street_address', 'city', 'postal_code', 'province', 'country'], zoom=18, default='POINT(36.7178 4.4256)')
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Working Zone")
+        verbose_name_plural = _("Working Zones")
+
+    def __str__(self):
+        return f"{self.name} ({self.company})"
+
+class BankAccount(CompanyOwnedModel):
+    bank_name = models.CharField(max_length=100, verbose_name=_("Bank Name"))
+    holder_name = models.CharField(max_length=100, blank=True, verbose_name=_("Holder Name"))
+    iban = models.CharField(max_length=34, blank=True, verbose_name=_("IBAN"), help_text=_("For SEPA/Europe"))
+    swift_bic = models.CharField(max_length=11, blank=True, verbose_name=_("SWIFT/BIC code"))
+    account_number = models.CharField(max_length=50, blank=True, verbose_name=_("Account Number"), help_text=_("Local account number"))
+    routing_number = models.CharField(max_length=50, blank=True, verbose_name=_("Routing Number"), help_text=_("Routing number, Sort code, ABA, etc."))
+    bank_address = models.TextField(blank=True, verbose_name=_("Bank Address"))
+    country = CountryField(blank=True, null=True, verbose_name=_("Country"))
+    is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
+
+    class Meta:
+        verbose_name = _("Bank Account")
+        verbose_name_plural = _("Bank Accounts")
+
+    def __str__(self):
+        return f"{self.bank_name} - {self.account_number or self.iban} ({self.company})"
+
+    def save(self, *args, **kwargs):
+        if self.is_default:
+            BankAccount.objects.filter(company=self.company, is_default=True).exclude(pk=self.pk).update(is_default=False)
+        super().save(*args, **kwargs)
+
+# Abstract Base Classes for Documentation
+
+class BaseDocumentType(CompanyOwnedModel):
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+    description = models.TextField(blank=True, verbose_name=_("Description"))
+
+    class Meta:
+        abstract = True
+
+    def __str__(self):
+        return f"{self.name} ({self.company})"
+
+class BaseDocument(CompanyOwnedModel):
+    file = models.FileField(upload_to="documents/%Y/%m/%d/", verbose_name=_("File"))
+    expiry_date = models.DateField(null=True, blank=True, verbose_name=_("Expiry Date"))
+    issue_date = models.DateField(null=True, blank=True, verbose_name=_("Issue Date"))
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+    is_active = models.BooleanField(default=True, verbose_name=_("Is Active"))
+    does_not_expire = models.BooleanField(default=False, verbose_name=_("Does not expire"))
+    
+    history = HistoricalRecords(inherit=True)
+
+    class Meta:
+        abstract = True
+
+class EmployeeDocumentType(BaseDocumentType):
+    class Meta:
+        verbose_name = _("Employee Document Type")
+        verbose_name_plural = _("Employee Document Types")
+
+class EmployeeDocument(BaseDocument):
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name="documents",
+        verbose_name=_("Employee")
+    )
+    document_type = models.ForeignKey(
+        EmployeeDocumentType,
+        on_delete=models.PROTECT,
+        related_name="documents",
+        verbose_name=_("Document Type")
+    )
+
+    class Meta:
+        verbose_name = _("Employee Document")
+        verbose_name_plural = _("Employee Documents")
+
+    def __str__(self):
+        return f"{self.document_type.name} - {self.employee}"
+
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.employee:
+            self.company = self.employee.company
+        super().save(*args, **kwargs)
+
+class MachineDocumentType(BaseDocumentType):
+    class Meta:
+        verbose_name = _("Machine Document Type")
+        verbose_name_plural = _("Machine Document Types")
+
+class MachineDocument(BaseDocument):
+    machine = models.ForeignKey(
+        Machine,
+        on_delete=models.CASCADE,
+        related_name="documents",
+        verbose_name=_("Machine")
+    )
+    document_type = models.ForeignKey(
+        MachineDocumentType,
+        on_delete=models.PROTECT,
+        related_name="documents",
+        verbose_name=_("Document Type")
+    )
+
+    class Meta:
+        verbose_name = _("Machine Document")
+        verbose_name_plural = _("Machine Documents")
+
+    def __str__(self):
+        return f"{self.document_type.name} - {self.machine}"
+
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.machine:
+            self.company = self.machine.company
+        super().save(*args, **kwargs)

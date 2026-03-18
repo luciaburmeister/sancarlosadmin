@@ -1,21 +1,26 @@
 from django.contrib import admin
-from unfold.admin import ModelAdmin
+from unfold.decorators import action, display
+from django.shortcuts import redirect
+from django.urls import path, reverse
+from django.utils.translation import gettext_lazy as _
+from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
+from unfold.admin import ModelAdmin, TabularInline, GenericTabularInline
+from django.utils.html import format_html
 from invoices.models import (
-    InvoiceGroup,
     Invoice,
     TaxType,
     AppliedTax,
     IncomingInvoice,
+    SalesInvoice,
+    SalesInvoiceItem,
+    SalesInvoiceStatus
 )
-from unfold.admin import GenericTabularInline
-from company.models import CompanyEmailConfig
-from invoices.tasks import process_incoming_invoices
+from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
+from invoices.services.sales_invoice_service import SalesInvoiceService
+from invoices.tasks import process_incoming_invoices, process_manual_invoice
+from accounting.tasks import classify_invoice_accounts
 
-@admin.register(InvoiceGroup)
-class InvoiceGroupAdmin(ModelAdmin):
-    list_display = ("name",)
-    search_fields = ("name",)
-    ordering = ("name",)
+
 
 @admin.register(TaxType)
 class TaxTypeAdmin(ModelAdmin):
@@ -91,8 +96,6 @@ class AppliedTaxInline(GenericTabularInline):
     verbose_name = "Applied tax"
     verbose_name_plural = "Applied taxes"
 
-
-
 @admin.register(Invoice)
 class InvoiceAdmin(ModelAdmin):
     list_display = (
@@ -101,13 +104,14 @@ class InvoiceAdmin(ModelAdmin):
         "date_issued",
         "due_date",
         "payment_method",
-        "group",
+        "account",
         "has_file",
+        "ocr_status"
     )
 
     list_filter = (
         "payment_method",
-        "group",
+        "company",
         "date_issued",
     )
 
@@ -118,7 +122,7 @@ class InvoiceAdmin(ModelAdmin):
 
     autocomplete_fields = (
         "provider",
-        "group",
+        "account",
     )
 
     date_hierarchy = "date_issued"
@@ -126,6 +130,8 @@ class InvoiceAdmin(ModelAdmin):
     inlines = [
         AppliedTaxInline,
     ]
+
+    actions = ["send_to_process", "classify_accounts"]
 
     fieldsets = (
         (
@@ -135,6 +141,7 @@ class InvoiceAdmin(ModelAdmin):
                    ( "invoice_number",
                     "provider"),
                     "file",
+                    "company"
                 )
             },
         ),
@@ -159,13 +166,152 @@ class InvoiceAdmin(ModelAdmin):
             "Notes",
             {
                 "fields": (
-                    "group",
+                    "account",
                     "observations",
                 )
             },
         ),
     )
-    # shows check or X depending on whether file is present
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "upload/",
+                self.admin_site.admin_view(
+                    InvoiceUploadAdminView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_upload",
+            ),           
+        ]
+        return custom + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        return redirect("admin:invoices_invoice_upload")
+
     @admin.display(boolean=True, description="Has File")
     def has_file(self, obj):
         return bool(obj.file)
+    
+
+    @admin.display(description="OCR Status")
+    def ocr_status(self, obj):
+        # Determine label + color
+        if getattr(obj, "ocr_processing", False):
+            label = "Processing"
+            color = "#facc15" 
+        elif getattr(obj, "ocr_processed", False) and not getattr(obj, "ocr_error", ""):
+            label = "OK"
+            color = "#22c55e"  
+        elif getattr(obj, "ocr_error", ""):
+            label = "Error"
+            color = "#ef4444"  
+        else:
+            label = "Not started"
+            color = "#9ca3af"  
+
+        return format_html(
+            '<span style="display:inline-block; padding:2px 8px; border-radius:999px; '
+            'font-size:11px; font-weight:600; color:white; background:{};">{}</span>',
+            color,
+            label,
+        )
+    
+    @action(description="Send selected invoices to AI processing")
+    def send_to_process(self, request, queryset):
+        selected_ids = list(queryset.values_list('id', flat=True))
+        for id in selected_ids:
+            process_manual_invoice.delay(invoice_id=id)
+        self.message_user(request, f"Started processing {len(selected_ids)} invoices in background.")
+
+    @action(description="Define accounting account for selected invoices")
+    def classify_accounts(self, request, queryset):
+        classify_invoice_accounts.delay()
+        self.message_user(request, "Accounting classification started in background.")
+        
+class SalesInvoiceItemInline(TabularInline):
+    model = SalesInvoiceItem
+    extra = 0
+    tab = True
+    fields = ("description", "quantity", "unit_price", "discount_amount", "line_total")
+    readonly_fields = ("line_total",)
+
+@admin.register(SalesInvoice)
+class SalesInvoiceAdmin(ModelAdmin):
+    list_display = ("invoice_number", "incremental_id", "get_status_label", "company", "client", "date_issued", "total_amount")
+    list_filter = ("company", "status", "date_issued")
+    search_fields = ("invoice_number", "client__name")
+    autocomplete_fields = ("company", "client", "configuration")
+    inlines = [SalesInvoiceItemInline, AppliedTaxInline]
+    
+    actions = ["download_pdf", "finalize_invoice_action"]
+    actions_row = ["view_pdf_row_action", "finalize_invoice_row_action"]
+    actions_detail = ["view_pdf_detail_action", "finalize_invoice_detail_action"]
+
+    @action(description=_("View PDF"), icon="visibility")
+    def view_pdf_row_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_salesinvoice_pdf", args=[object_id]))
+
+    @action(description=_("View PDF"), icon="visibility")
+    def view_pdf_detail_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_salesinvoice_pdf", args=[object_id]))
+
+    @action(description=_("Finalize"), icon="gavel")
+    def finalize_invoice_row_action(self, request, object_id):
+        invoice = SalesInvoice.objects.get(pk=object_id)
+        if invoice.status == SalesInvoiceStatus.FINAL:
+            self.message_user(request, _("Invoice is already final."), level="warning")
+        else:
+            SalesInvoiceService.finalize_invoice(invoice)
+            self.message_user(request, _("Invoice finalized and Delivery Order generated."))
+        return redirect(reverse("admin:invoices_salesinvoice_changelist"))
+
+    @action(description=_("Finalize"), icon="gavel")
+    def finalize_invoice_detail_action(self, request, object_id):
+        invoice = SalesInvoice.objects.get(pk=object_id)
+        if invoice.status == SalesInvoiceStatus.FINAL:
+            self.message_user(request, _("Invoice is already final."), level="warning")
+        else:
+            SalesInvoiceService.finalize_invoice(invoice)
+            self.message_user(request, _("Invoice finalized and Delivery Order generated."))
+        return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            _(SalesInvoiceStatus.FINAL): "success",  # green
+            _(SalesInvoiceStatus.PROFORMA): "warning",  # blue
+        },
+    )
+    def get_status_label(self, obj):
+        return obj.status
+
+    @admin.action(description=_("Finalize selected pro forma invoices"))
+    def finalize_invoice_action(self, request, queryset):
+        count = 0
+        for invoice in queryset.filter(status=SalesInvoiceStatus.PROFORMA):
+            SalesInvoiceService.finalize_invoice(invoice)
+            count += 1
+        self.message_user(request, _("Finalized %d invoices and generated Delivery Orders.") % count)
+
+    def download_pdf(self, request, queryset):
+        if queryset.count() != 1:
+            self.message_user(request, _("Please select only one invoice to download."), level="error")
+            return
+        
+        invoice = queryset.first()
+        return redirect(reverse("admin:invoices_salesinvoice_pdf", args=[invoice.id]))
+
+    download_pdf.short_description = _("Download PDF")
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "<int:object_id>/pdf/",
+                self.admin_site.admin_view(SalesInvoicePdfView.as_view(model_admin=self)),
+                name="invoices_salesinvoice_pdf",
+            ),
+        ]
+        return custom + urls

@@ -1,25 +1,14 @@
 """
 Invoice Duplicate Detection Service
 
-Handles perceptual hashing and duplicate detection for uploaded invoices.
-Supports both image files and PDFs (first page rendered to image).
-
-Uses perceptual hashing (pHash) to detect visually similar invoices.
+Handles file hashing and duplicate detection for uploaded invoices.
+Uses standard cryptographic hashing (SHA-256) to detect exactly identical files.
 """
 
-import imagehash
-from PIL import Image
+import hashlib
 from typing import Optional
-from io import BytesIO
-from django.db.models import Q
 from django.core.files.uploadedfile import UploadedFile
 from invoices.models import Invoice
-# PDF support
-try:
-    from pdf2image import convert_from_path, convert_from_bytes
-    PDF_SUPPORT = True
-except ImportError:
-    PDF_SUPPORT = False
 
 
 # ---------------------------------------------------------------------
@@ -59,16 +48,13 @@ class DuplicateInvoiceError(Exception):
 
 class InvoiceDuplicateService:
     """
-    Service for detecting duplicate invoices using perceptual hashing.
-
-    similarity_threshold:
-        Maximum Hamming distance to consider duplicates.
-        Lower = stricter.
-        Recommended: 5–10 for invoices.
+    Service for detecting duplicate invoices using SHA-256 cryptographic hashing.
     """
 
-    def __init__(self, similarity_threshold: int = 5):
-        self.similarity_threshold = similarity_threshold
+    def __init__(self, similarity_threshold: int = 0):
+        # Kept parameter for backward compatibility, but threshold is essentially 0
+        # for cryptographic hash matches.
+        self.similarity_threshold = 0
 
     # ================================================================
     # PUBLIC METHODS
@@ -94,30 +80,29 @@ class InvoiceDuplicateService:
 
     def calculate_hash_from_path(self, file_path: str) -> str:
         """
-        Calculate perceptual hash from file path.
-        Supports images and PDFs.
+        Calculate SHA-256 hash from file path.
         """
         try:
-            image = self._load_image_from_path(file_path)
-            hash_value = imagehash.phash(image, hash_size=8)
-            return str(hash_value)
+            sha256_hash = hashlib.sha256()
+            with open(file_path, "rb") as f:
+                # Read and update hash string value in blocks of 4K
+                for byte_block in iter(lambda: f.read(4096), b""):
+                    sha256_hash.update(byte_block)
+            return sha256_hash.hexdigest()
         except Exception as e:
             raise ValueError(f"Failed to calculate hash for {file_path}: {str(e)}")
 
     def calculate_hash_from_uploaded_file(self, uploaded_file: UploadedFile) -> str:
         """
-        Calculate perceptual hash from Django UploadedFile.
-        Supports images and PDFs.
+        Calculate SHA-256 hash from Django UploadedFile.
         """
         try:
+            sha256_hash = hashlib.sha256()
             uploaded_file.seek(0)
-
-            image = self._load_image_from_uploaded_file(uploaded_file)
-
-            hash_value = imagehash.phash(image, hash_size=8)
-
+            for chunk in uploaded_file.chunks():
+                sha256_hash.update(chunk)
             uploaded_file.seek(0)
-            return str(hash_value)
+            return sha256_hash.hexdigest()
 
         except Exception as e:
             import traceback
@@ -131,88 +116,23 @@ class InvoiceDuplicateService:
     def _compare_against_existing(self, new_hash: str) -> DuplicateDetectionResult:
         """
         Compare a newly calculated hash against stored invoice hashes.
+        Uses exact string match in the database.
         """
+        existing_invoice = Invoice.objects.filter(image_hash=new_hash).first()
 
-        existing_invoices = Invoice.objects.exclude(
-            Q(image_hash__isnull=True) | Q(image_hash="")
-        )
-
-        new_hash_obj = imagehash.hex_to_hash(new_hash)
-
-        for invoice in existing_invoices:
-            try:
-                existing_hash = imagehash.hex_to_hash(invoice.image_hash)
-                distance = existing_hash - new_hash_obj
-
-                if distance <= self.similarity_threshold:
-                    return DuplicateDetectionResult(
-                        is_duplicate=True,
-                        similar_invoice=invoice,
-                        similarity_distance=distance,
-                        hash_value=new_hash,
-                    )
-
-            except Exception:
-                # Skip invalid hashes
-                continue
+        if existing_invoice:
+            return DuplicateDetectionResult(
+                is_duplicate=True,
+                similar_invoice=existing_invoice,
+                similarity_distance=0, # Cryptographic hash distance is 0 for exact match
+                hash_value=new_hash,
+            )
 
         return DuplicateDetectionResult(
             is_duplicate=False,
             hash_value=new_hash,
         )
 
-    # ================================================================
-    # IMAGE LOADING
-    # ================================================================
-
-    def _load_image_from_path(self, file_path: str) -> Image.Image:
-        """
-        Load image from local file path.
-        If PDF → convert first page to image.
-        """
-
-        if file_path.lower().endswith(".pdf"):
-            if not PDF_SUPPORT:
-                raise RuntimeError(
-                    "pdf2image is required for PDF hashing. Install it first."
-                )
-
-            pages = convert_from_path(file_path, first_page=1, last_page=1)
-            image = pages[0]
-
-        else:
-            image = Image.open(file_path)
-
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-
-        return image
-
-    def _load_image_from_uploaded_file(self, uploaded_file: UploadedFile) -> Image.Image:
-        """
-        Load image from UploadedFile.
-        If PDF → convert first page to image.
-        """
-
-        filename = uploaded_file.name.lower()
-
-        if filename.endswith(".pdf"):
-            if not PDF_SUPPORT:
-                raise RuntimeError(
-                    "pdf2image is required for PDF hashing. Install it first."
-                )
-
-            file_bytes = uploaded_file.read()
-            pages = convert_from_bytes(file_bytes, first_page=1, last_page=1)
-            image = pages[0]
-
-        else:
-            image = Image.open(uploaded_file)
-
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-
-        return image
 
 class InvoiceHashError(Exception):
     pass

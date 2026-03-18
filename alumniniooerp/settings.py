@@ -63,8 +63,7 @@ INSTALLED_APPS = [
     "unfold.contrib.inlines",  # optional, if special inlines are needed
     "unfold.contrib.import_export",  # optional, if django-import-export package is used
     "unfold.contrib.guardian",  # optional, if django-guardian package is used
-    "unfold.contrib.simple_history",  # optional, if django-simple-history package is used
-    "unfold.contrib.location_field",  # optional, if django-location-field package is used
+    "unfold.contrib.simple_history",  # optional, if django-simple-history package is used    
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -72,6 +71,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django_json_widget',
+    "unfold.contrib.location_field",
     'import_export',
     "storages",
     'inventory',
@@ -427,32 +427,30 @@ UNFOLD = {
                 ],
             },
             {
-                "title": _("Assets"),
-                "separator": True,
-                "collapsible": False,
-                "items": [
-                    {
-                        "title": _("Assets"),
-                        "icon": "web_asset",
-                        "link": reverse_lazy(
-                            "admin:assets_asset_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "assets.view_asset"
-                        ),
-                    },
-                    {
-                        "title": _("Asset Types"),
-                        "icon": "category",
-                        "link": reverse_lazy(
-                            "admin:assets_assettype_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "assets.view_assettype"
-                        ),
-                    },
-                ],
-            },
+    "title": _("Assets"),
+    "separator": True,
+    "collapsible": False,
+    "items": [
+        {
+            "title": _("Assets"),
+            "icon": "web_asset",
+            "link": reverse_lazy("admin:assets_asset_changelist"),
+            "permission": lambda request: request.user.has_perm("assets.view_asset"),
+        },
+        {
+            "title": _("Asset Types"),
+            "icon": "category",
+            "link": reverse_lazy("admin:assets_assettype_changelist"),
+            "permission": lambda request: request.user.has_perm("assets.view_assettype"),
+        },
+        {
+            "title": _("Asset Planning"),
+            "icon": "event_note",
+            "link": reverse_lazy("admin:assets_assetplanning_changelist"),
+            "permission": lambda request: request.user.has_perm("assets.view_assetplanning"),
+        },
+    ],
+},
 
             {
                 "title": _("Production"),
@@ -506,6 +504,12 @@ UNFOLD = {
                             "invoices.view_invoice"
                         ),
                     },
+                    {
+                    "title": _("Employee Clock In/Out"),
+                    "icon": "schedule",
+                    "link": reverse_lazy("admin:company_workattendance_changelist"),
+                    "permission": lambda request: request.user.has_perm("company.view_workattendance"),
+                },
                 ],
             },
         

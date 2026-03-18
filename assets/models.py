@@ -24,7 +24,6 @@ class AssetType(CompanyOwnedModel):
     )
 
     
-
     class Meta:
         verbose_name = _("Asset type")
         verbose_name_plural = _("Asset types")
@@ -66,13 +65,13 @@ class Asset(CompanyOwnedModel):
         verbose_name=_("Current Working Zone"))
 
     assigned_to = models.ForeignKey(
-        User,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="assigned_assets",
-        verbose_name=_("Assigned To")
-        )
+    'company.Employee',
+    on_delete=models.SET_NULL,
+    null=True,
+    blank=True,
+    related_name="assigned_assets",
+    verbose_name=_("Assigned To")
+)
     
     history = HistoricalRecords()
 
@@ -196,3 +195,59 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
     def __str__(self):
         return f"{self.get_transaction_type_display()} - {self.asset} ({self.from_zone} -> {self.to_zone})"
 
+
+class AssetPlanning(CompanyOwnedModel, Timestampable):
+
+    STATUS_CHOICES = [
+        ('pending',    _('Pending')),
+        ('in_transit', _('In Transit')),
+        ('delivered',  _('Delivered')),
+        ('cancelled',  _('Cancelled')),
+    ]
+
+    asset = models.ForeignKey(
+        Asset,
+        on_delete=models.PROTECT,
+        related_name="plannings",
+        verbose_name=_("Asset")
+    )
+    origin = models.ForeignKey(
+        WorkingZone,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="plannings_origin",
+        verbose_name=_("From Zone")
+    )
+    destination = models.ForeignKey(
+        WorkingZone,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="plannings_destination",
+        verbose_name=_("To Zone")
+    )
+    assigned_to = models.ForeignKey(
+        'company.Employee',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="asset_plannings",  
+        verbose_name=_("Assigned To")
+    )
+    scheduled_date = models.DateField(
+        verbose_name=_("Scheduled Date")
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending',
+        verbose_name=_("Status")
+    )
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("Asset Planning")
+        verbose_name_plural = _("Asset Plannings")
+        ordering = ["-scheduled_date"]
+
+    def __str__(self):
+        return f"{self.asset.name} → {self.destination} ({self.scheduled_date})"

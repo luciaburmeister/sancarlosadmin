@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from timestamps.models import Timestampable
 from django.utils import timezone
 from django.contrib.auth import get_user_model
+from materials.models import Provider
 User = get_user_model()
 
 
@@ -64,6 +65,16 @@ class Asset(CompanyOwnedModel):
         blank=True,
         related_name="current_assets",
         verbose_name=_("Current Working Zone"))
+
+    provider = models.ForeignKey(
+        Provider,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assets",
+        verbose_name=_("Provider")
+    )
+    description = models.TextField(blank=True, verbose_name=_("Description"))
 
     assigned_to = models.ForeignKey(
         User,

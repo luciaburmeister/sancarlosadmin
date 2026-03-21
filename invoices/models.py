@@ -466,3 +466,36 @@ class SalesInvoiceItem(models.Model):
 
     def __str__(self):
         return f"{self.description} ({self.quantity})"
+
+class InvoiceItem(models.Model):
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.CASCADE,
+        related_name='items',
+        verbose_name=_("Invoice")
+    )
+    description = models.CharField(max_length=255, verbose_name=_("Description"))
+    quantity = models.DecimalField(max_digits=10, decimal_places=3, default=1, verbose_name=_("Quantity"))
+    unit_price = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency='EUR',
+        verbose_name=_("Unit Price")
+    )
+    line_total = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency='EUR',
+        verbose_name=_("Line Total")
+    )
+
+    def save(self, *args, **kwargs):
+        self.line_total = self.unit_price * self.quantity
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.description} ({self.quantity})"
+
+    class Meta:
+        verbose_name = "Invoice Item"
+        verbose_name_plural = "Invoice Items"

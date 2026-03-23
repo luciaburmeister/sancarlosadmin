@@ -17,6 +17,8 @@ from invoices.models import (
     InvoiceItem
 )
 from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
+from invoices.views.invoice.wizard_views import SalesInvoiceWizardView
+from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from accounting.tasks import classify_invoice_accounts
@@ -248,6 +250,13 @@ class SalesInvoiceItemInline(TabularInline):
 
 @admin.register(SalesInvoice)
 class SalesInvoiceAdmin(ModelAdmin):
+    custom_urls = (
+        (
+            "autocomplete/taxtype/",
+            "invoices_taxtype_autocomplete",
+            TaxTypeAutocompleteView.as_view(),
+        ),
+    )
     list_display = ("invoice_number", "incremental_id", "get_status_label", "company", "client", "date_issued", "total_amount")
     list_filter = ("company", "status", "date_issued")
     search_fields = ("invoice_number", "client__name")
@@ -319,9 +328,17 @@ class SalesInvoiceAdmin(ModelAdmin):
         urls = super().get_urls()
         custom = [
             path(
+                "add/",
+                self.admin_site.admin_view(SalesInvoiceWizardView.as_view(model_admin=self)),
+                name="invoices_salesinvoice_wizard",
+            ),
+            path(
                 "<int:object_id>/pdf/",
                 self.admin_site.admin_view(SalesInvoicePdfView.as_view(model_admin=self)),
                 name="invoices_salesinvoice_pdf",
             ),
         ]
         return custom + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        return redirect("admin:invoices_salesinvoice_wizard")

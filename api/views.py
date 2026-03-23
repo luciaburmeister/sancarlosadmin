@@ -133,8 +133,8 @@ def asset_by_id_view(request, asset_id):
         "zone_address": f"{zone.street_address}, {zone.city}, {zone.postal_code}" if zone else None,
         "zone_lat": zone_coords[0],
         "zone_lon": zone_coords[1],
-        "assigned_to": asset.assigned_to.username if asset.assigned_to else None,
-        "assigned_to_me": asset.assigned_to == user,
+        "assigned_to": asset.assigned_to.user.username if asset.assigned_to and asset.assigned_to.user else None,
+        "assigned_to_me": asset.assigned_to == user.employee_profile,
     })
 
 
@@ -148,14 +148,18 @@ def assign_view(request, asset_id):
     except Asset.DoesNotExist:
         return JsonResponse({"error": "Asset not found"}, status=404)
 
-    if asset.company != user.employee_profile.company:
+    try:
+        employee = user.employee_profile
+    except Exception:
+        return JsonResponse({"error": "No employee profile found"}, status=400)
+
+    if asset.company != employee.company:
         return JsonResponse({"error": "Este cubo no pertenece a tu empresa"}, status=403)
 
-    asset.assigned_to = user
+    asset.assigned_to = employee
     asset.save()
 
-    return JsonResponse({"success": True, "message": f"Cubo {asset.name} asignado a {user.username}"})
-
+    return JsonResponse({"success": True, "message": f"Cubo {asset.name} asignado a {employee.full_name}"})
 
 @require_http_methods(["GET"])
 def asset_qr_view(request, asset_id):

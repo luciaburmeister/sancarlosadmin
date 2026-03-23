@@ -92,10 +92,7 @@ class Asset(CompanyOwnedModel):
         self._original_working_zone = self.current_working_zone
 
     def save(self, *args, **kwargs):
-        # Check if working zone changed
         if self.pk:
-            # Avoid re-fetching if we used __init__ tracking, but verify to be safe against in-memory staleness if needed.
-            # Simple dirty check using _original_working_zone
             if self.current_working_zone != self._original_working_zone:
                 self.create_transaction_on_change()
         
@@ -149,7 +146,6 @@ class AssetIdentifier(models.Model):
     class Meta:
         verbose_name = _("Asset identifier")
         verbose_name_plural = _("Asset identifiers")
-        unique_together = ("label", "value")
 
     def __str__(self):
         return f"{self.label}: {self.value}"

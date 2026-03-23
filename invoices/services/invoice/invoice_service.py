@@ -20,7 +20,7 @@ from django.core.files import File
 from company.admin import company
 from invoices.services import invoice
 from invoices.services.ocr_services import OcrInterface, InvoiceData
-from invoices.models import Invoice, AppliedTax, TaxType
+from invoices.models import Invoice, AppliedTax, TaxType, InvoiceItem
 from materials.models import Provider
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
@@ -211,16 +211,8 @@ class InvoiceService:
             invoice.needs_manual_review = True  # always True initially
 
             if extracted_data.line_items:
-                cleaned_items = []
-                for item in extracted_data.line_items:
-                    cleaned_items.append({
-                        "description": item.description or "",
-                        "quantity": float(item.quantity or 0),
-                        "unit_price": float(item.unit_price or 0),
-                        "total": float(item.total or 0),
-                        "tax_rate": float(item.tax_rate or 0),
-                    })
-                invoice.line_items = cleaned_items
+                invoice.items.all().delete()
+                self._create_line_items(invoice, extracted_data.line_items)
 
             invoice.save()  # one save for all updated fields
 
@@ -283,24 +275,14 @@ class InvoiceService:
         return invoice
     
     def _create_line_items(self, invoice: Invoice, line_items_data: list):
-        """
-        Create InvoiceItems record with line items data.
-        line_items_data is now a list of LineItem dataclass objects.
-        """
-        # Convert LineItem dataclasses to dictionaries for JSON storage
-        cleaned_items = []
         for item in line_items_data:
-            cleaned_items.append({
-                'description': item.description or '',
-                'quantity': float(item.quantity or 0),
-                'unit_price': float(item.unit_price or 0),
-                'total': float(item.total or 0),
-                'tax_rate': float(item.tax_rate or 0),
-            })
-
-        invoice.line_items = cleaned_items
-        invoice.save(update_fields=["line_items"])
-    
+            InvoiceItem.objects.create(
+                invoice=invoice,
+                description=item.description or '',
+                quantity=item.quantity or Decimal('1'),
+                unit_price=item.unit_price or Decimal('0'),
+            )
+        
     def _create_applied_taxes(self, invoice: Invoice, taxes_data: list):
         """
         Create AppliedTax records for the invoice.

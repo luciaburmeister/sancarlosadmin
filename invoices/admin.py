@@ -13,7 +13,8 @@ from invoices.models import (
     IncomingInvoice,
     SalesInvoice,
     SalesInvoiceItem,
-    SalesInvoiceStatus
+    SalesInvoiceStatus,
+    InvoiceItem
 )
 from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
 from invoices.services.sales_invoice_service import SalesInvoiceService
@@ -97,6 +98,13 @@ class AppliedTaxInline(GenericTabularInline):
     verbose_name = "Applied tax"
     verbose_name_plural = "Applied taxes"
 
+class InvoiceItemInline(TabularInline):
+    model = InvoiceItem
+    extra = 0
+    tab = True
+    fields = ("description", "quantity", "unit_price", "line_total")
+    readonly_fields = ("line_total",)
+
 @admin.register(Invoice)
 class InvoiceAdmin(ModelAdmin):
     list_display = (
@@ -130,6 +138,7 @@ class InvoiceAdmin(ModelAdmin):
 
     inlines = [
         AppliedTaxInline,
+        InvoiceItemInline
     ]
 
     actions = ["send_to_process", "classify_accounts"]

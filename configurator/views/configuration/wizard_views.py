@@ -6,6 +6,7 @@ from django.urls import reverse
 from formtools.wizard.views import SessionWizardView
 from django.forms import formset_factory
 from django.utils.translation import gettext_lazy as _
+from sales.models import Quote
 
 class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
     form_list = [
@@ -51,6 +52,21 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
         return context
 
 
+    def get(self, request, *args, **kwargs):
+        if 'quote_id' in request.GET:
+            request.session['wizard_quote_id'] = request.GET['quote_id']
+        return super().get(request, *args, **kwargs)
+
+    def get_form_initial(self, step):
+        initial = super().get_form_initial(step)
+        if step == 'client_selection':
+            quote_id = self.request.GET.get('quote_id') or self.request.session.get('wizard_quote_id')
+            if quote_id:
+                quote = Quote.objects.filter(id=quote_id).first()
+                if quote:
+                    initial['client'] = quote.client
+        return initial
+
     def done(self, form_list, **kwargs):
         client_selection_form = form_list[0]
         config_form = form_list[1]
@@ -78,12 +94,23 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
                         unit_price=component.cost_per_unit,
                         is_template_item=False,
                     )
+
+        quote_id = self.request.session.pop('wizard_quote_id', None)
+        if quote_id:
+            quote = Quote.objects.filter(id=quote_id).first()
+            if quote:
+                config.quote = quote
+                config.save(update_fields=['quote'])
+
         config.copy_default_pricing_rules_from_product()
         config.copy_default_taxes_from_product()
         config.recalculate_price()
         
-        url = reverse(
-            "admin:configurator_configuration_change",
-            args=[config.id]
-        )
+        if quote_id:
+            url = reverse('admin:sales_quote_change', args=[quote_id])
+        else:
+            url = reverse(
+                "admin:configurator_configuration_change",
+                args=[config.id]
+            )
         return redirect(url)

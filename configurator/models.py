@@ -513,6 +513,15 @@ class Configuration(Timestampable, CompanyOwnedModel):
         verbose_name=_("Client"),
     )
 
+    quote = models.ForeignKey(
+        'sales.Quote',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='configurations',
+        verbose_name=_("Quote"),
+    )
+
     name = models.CharField(
         max_length=200,
         help_text=_("Internal label for this configuration"),
@@ -760,6 +769,9 @@ class Configuration(Timestampable, CompanyOwnedModel):
                 "rendered_templates",
             ]
         )
+        
+        if getattr(self, 'quote_id', None):
+            self.quote.recalc_totals()
 
     def _evaluate_bom_rule(self, rule, context):
         """

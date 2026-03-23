@@ -206,10 +206,8 @@ msgstr "Archivo de factura"
 msgid "Sales Invoices"
 msgstr "Facturas de Ventas"
 
-#, fuzzy
-#| msgid "Incoming Invoices"
 msgid "Received Invoices"
-msgstr "Facturas recibidas"
+msgstr "Facturas de compra"
 
 #, fuzzy
 #| msgid "Configuration"

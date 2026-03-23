@@ -4,7 +4,12 @@ from unfold.admin import ModelAdmin
 from unfold.decorators import display
 from .models import Client, Order, DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus
 from unfold.admin import TabularInline
-
+from .models import Quote, QuoteItem
+from configurator.models import Configuration
+from configurator.admin.configuration import AppliedTaxInline
+from django.shortcuts import redirect
+from django.urls import reverse
+from unfold.decorators import action
 from core.admin.company_admin import CompanyRestrictedAdmin
 
 @admin.register(Client)
@@ -87,3 +92,68 @@ class DeliveryOrderAdmin(ModelAdmin):
     )
     def get_status_label(self, obj):
         return obj.status
+
+
+
+
+class QuoteItemInline(TabularInline):
+    model = QuoteItem
+    extra = 1
+    tab = True
+    autocomplete_fields = ["material"]
+    readonly_fields = ["line_total"]
+
+class ConfigurationReadOnlyInline(TabularInline):
+    model = Configuration
+    extra = 0
+    tab = True
+    readonly_fields = ["name", "status", "subtotal_price", "total_price_display"]
+    fields = ["name", "status", "subtotal_price", "total_price_display"]
+    can_delete = True
+    max_num = 0
+
+    @display(description=_("Total price"))
+    def total_price_display(self, obj):
+        return obj.total_price
+
+@admin.register(Quote)
+class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ["id", "client", "project_name", "status", "total_price_display", "company"]
+    list_filter = ["status", "company", "created_at"]
+    search_fields = ["project_name", "client__name", "id"]
+    autocomplete_fields = ["client"]
+    readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown", "company"]
+    
+    inlines = [ConfigurationReadOnlyInline, QuoteItemInline, AppliedTaxInline]
+
+    actions_row = ["add_configuration_to_quote"]
+
+    fieldsets = (
+        ("Quote Details", {
+            "fields": (
+                ("client", "status"),
+                ("project_name", "company"),
+                "expires_at"
+            )
+        }),
+        ("Financials", {
+            "fields": (
+                ("subtotal_price", "tax_amount"),
+                "total_price",
+                "tax_breakdown"
+            )
+        }),
+    )
+
+    @display(description=_("Total price"))
+    def total_price_display(self, obj):
+        return obj.total_price
+
+    @action(description=_("Add Configuration"))
+    def add_configuration_to_quote(self, request, object_id: int):
+        url = reverse("admin:configurator_configuration_wizard_select")
+        return redirect(f"{url}?quote_id={object_id}")
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        form.instance.recalc_totals()

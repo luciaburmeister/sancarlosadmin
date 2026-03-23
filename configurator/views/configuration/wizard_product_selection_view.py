@@ -14,3 +14,9 @@ class ProductSelectionView(UnfoldModelAdminViewMixin,CompanyRestrictedQuerysetMi
     paginate_by = 12
     context_object_name = "products"
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if self.request.GET.get('quote_id'):
+            context['quote_id'] = self.request.GET.get('quote_id')
+        return context
+

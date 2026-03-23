@@ -350,6 +350,14 @@ UNFOLD = {
                 "collapsible": False,
                 "items": [
                     {
+                        "title": _("Quotes"),
+                        "icon": "request_quote",
+                        "link": reverse_lazy("admin:sales_quote_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "sales.view_quote"
+                        ),
+                    },
+                    {
                         "title": _("Configurator"),
                         "icon": "build",
                         "link": reverse_lazy(

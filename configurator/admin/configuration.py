@@ -149,7 +149,7 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
     readonly_fields = ("total_price","total_cost","subtotal_price","company")
     actions_row = ["export_configuration_to_template", 
                    "convert_to_production"]
-    autocomplete_fields = ["client","product","asset"]
+    autocomplete_fields = ["client","product","asset","quote"]
     list_filter_submit = False
 
     inlines = [
@@ -175,6 +175,7 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
     fieldsets = (
         (_("Configuration"), {
             "fields": (
+                ("quote"),
                 ("name", "client"),
                 ("product", "status"),
                 ("company","asset")

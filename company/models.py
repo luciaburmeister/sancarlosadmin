@@ -5,6 +5,7 @@ from django_countries.fields import CountryField
 from django.contrib.postgres.fields import ArrayField
 from location_field.models.spatial import LocationField
 from simple_history.models import HistoricalRecords
+from datetime import timedelta
 
 User = get_user_model()
 
@@ -272,11 +273,20 @@ class BankAccount(CompanyOwnedModel):
             BankAccount.objects.filter(company=self.company, is_default=True).exclude(pk=self.pk).update(is_default=False)
         super().save(*args, **kwargs)
 
-# Abstract Base Classes for Documentation
-
 class BaseDocumentType(CompanyOwnedModel):
     name = models.CharField(max_length=100, verbose_name=_("Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
+    periodicity_days = models.PositiveIntegerField(
+        null=True, 
+        blank=True, 
+        verbose_name=_("Periodicity (days)"),
+        help_text=_("Number of days this document type is valid for.")
+    )
+    notify_before_days = models.PositiveIntegerField(
+        default=30, 
+        verbose_name=_("Notify before (days)"),
+        help_text=_("How many days before expiry to send a reminder.")
+    )
 
     class Meta:
         abstract = True
@@ -291,11 +301,18 @@ class BaseDocument(CompanyOwnedModel):
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
     is_active = models.BooleanField(default=True, verbose_name=_("Is Active"))
     does_not_expire = models.BooleanField(default=False, verbose_name=_("Does not expire"))
+    reminder_sent_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Reminder Sent At"))
     
     history = HistoricalRecords(inherit=True)
 
     class Meta:
         abstract = True
+
+    def save(self, *args, **kwargs):
+        doc_type = getattr(self, "document_type", None)
+        if doc_type and doc_type.periodicity_days and self.issue_date and not self.expiry_date and not self.does_not_expire:
+            self.expiry_date = self.issue_date + timedelta(days=doc_type.periodicity_days)
+        super().save(*args, **kwargs)
 
 class EmployeeDocumentType(BaseDocumentType):
     class Meta:

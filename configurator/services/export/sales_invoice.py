@@ -44,10 +44,12 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "email": company.email,
             "phone": company.phone,
             "tax_identifier": company.tax_identifier,
+            "logo": company.logo.url if company.logo else None,
         }
 
         context = {
             "invoice": self.sales_invoice,
+            "company": company,
             "company_data": company_data,
             "client": client,
             "client_data": client_data,

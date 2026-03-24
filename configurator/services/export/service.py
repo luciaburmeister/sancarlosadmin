@@ -15,6 +15,7 @@ from .production_item import ProductionItemExportStrategy
 from .sales_invoice import SalesInvoiceExportStrategy
 import re
 from django.db.models.fields.files import FieldFile
+from django_countries.fields import Country
 
 if TYPE_CHECKING:
     from configurator.models import ConfigurationExportTemplate, Configuration
@@ -27,6 +28,15 @@ class CustomJSONEncoder(DjangoJSONEncoder):
     def default(self, obj):
         if isinstance(obj, FieldFile):
             return None
+            
+        try:
+            if isinstance(obj, Country):
+                return {
+                    "code": obj.code,
+                    "name": str(obj.name)
+                }
+        except ImportError:
+            pass
 
         if isinstance(obj, Model):
             from django.forms.models import model_to_dict

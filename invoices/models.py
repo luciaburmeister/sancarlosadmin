@@ -92,12 +92,6 @@ class Invoice(models.Model):
         help_text="Currency code (EUR, USD, etc.)"
     )
 
-    line_items = models.JSONField(
-        default=list,
-        blank=True,
-        help_text= "Line items with descriptions, quantities, prices, and tax rates"
-    )
-
     needs_manual_review = models.BooleanField(
         default=True,  # Always starts as True
         help_text="Invoice requires manual review by user (always True initially, set to False after user review)"
@@ -255,8 +249,8 @@ class AppliedTax(models.Model):
         ordering = ["content_type", "object_id", "order", "tax_type"]
         constraints = [
             models.UniqueConstraint(
-                fields=["content_type", "object_id", "tax_type"],
-                name="uniq_tax_per_object",
+                fields=["content_type", "object_id", "tax_type", "selected_percentage"],
+                name="uniq_tax_per_object_and_percentage",
             ),
         ]
         indexes = [

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 
 from django.db import transaction
 
+from company.admin import company
 from invoices.models import Invoice
 from accounting.models import TemplateAccount
 from .account_classifier_interface import (
@@ -56,19 +57,21 @@ class AccountClassifierService:
     def __init__(self, classifier: AccountClassifierInterface):
         self.classifier = classifier
 
-    def classify_unclassified_invoices(self) -> ClassificationSummary:
+    def classify_unclassified_invoices(self, invoice_ids: list = None) -> ClassificationSummary:
         errors = []
         total_classified = 0
         total_flagged = 0
 
-        # Step 1: Fetch all unclassified invoices
-        unclassified_invoices = Invoice.objects.filter(
+        qs = Invoice.objects.filter(
             account__isnull=True,
             ocr_processed=True,
-        ).exclude(
-            line_items=[]
-        ).select_related("company")  # avoid N+1 queries
+            items__isnull=False,
+        )
+        if invoice_ids:
+            qs = qs.filter(pk__in=invoice_ids)
 
+        unclassified_invoices = qs.select_related("company").distinct()
+        
         if not unclassified_invoices.exists():
             return ClassificationSummary(
                 total_invoices=0, classified=0,
@@ -96,7 +99,7 @@ class AccountClassifierService:
         # Step 4: One classifier call per company
         for company, company_invoices in invoices_by_company.items():
             invoice_payload = self._build_invoice_payload(company_invoices)
-            activity = company.business_activity_description or ""
+            activity = company.business_activity_description if company else ""
 
             try:
                 results = self.classifier.classify_invoices(
@@ -135,27 +138,17 @@ class AccountClassifierService:
         return [AccountOption(code=acc["code"], name=acc["name"]) for acc in accounts]
 
     def _build_invoice_payload(self, invoices) -> List[dict]:
-        """
-        Convert Invoice queryset into the list of dicts the classifier expects:
-        [
-            {
-                "id": 42,
-                "line_items": [InvoiceLineItem(...), ...]
-            },
-            ...
-        ]
-        """
         payload = []
         for invoice in invoices:
             line_items = [
                 InvoiceLineItem(
-                    description=item.get("description"),
-                    quantity=item.get("quantity"),
-                    unit_price=item.get("unit_price"),
-                    total=item.get("total"),
-                    tax_rate=item.get("tax_rate"),
+                    description=item.description,
+                    quantity=float(item.quantity) if item.quantity else None,
+                    unit_price=float(item.unit_price.amount) if item.unit_price else None,
+                    total=float(item.line_total.amount) if item.line_total else None,
+                    tax_rate=None,
                 )
-                for item in (invoice.line_items or [])
+                for item in invoice.items.all()  # ✅ reads from InvoiceItem rows
             ]
             payload.append({
                 "id": invoice.pk,

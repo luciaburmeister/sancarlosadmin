@@ -22,6 +22,8 @@ from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from accounting.tasks import classify_invoice_accounts
+from django.shortcuts import render
+from invoices.views.taxtype.merge_tax_type import MergeTaxTypeAdminView
 
 
 
@@ -38,6 +40,7 @@ class TaxTypeAdmin(ModelAdmin):
     list_filter = ("country", "behavior", "is_active")
     search_fields = ("tax_name",)
     ordering = ("tax_name",)
+    actions = ["merge_tax_types"] 
 
     fieldsets = (
         (
@@ -62,6 +65,18 @@ class TaxTypeAdmin(ModelAdmin):
             },
         ),
     )
+
+    @admin.action(description="Merge selected tax types (choose which to keep)")
+    def merge_tax_types(self, request, queryset):
+        if queryset.count() < 2:
+            self.message_user(
+                request,
+                "Please select exactly 2 tax types to merge.",
+                level="error"
+            )
+            return
+        ids = ",".join(str(i) for i in queryset.values_list("id", flat=True))
+        return redirect(reverse("admin:invoices_taxtype_merge") + f"?ids={ids}")
 
 @admin.register(IncomingInvoice)
 class IncomingInvoiceAdmin(ModelAdmin):
@@ -238,8 +253,9 @@ class InvoiceAdmin(ModelAdmin):
 
     @action(description="Define accounting account for selected invoices")
     def classify_accounts(self, request, queryset):
-        classify_invoice_accounts.delay()
-        self.message_user(request, "Accounting classification started in background.")
+        selected_ids = list(queryset.values_list('id', flat=True))
+        classify_invoice_accounts.delay(invoice_ids=selected_ids)
+        self.message_user(request, f"Started classification for {len(selected_ids)} invoices.")
         
 class SalesInvoiceItemInline(TabularInline):
     model = SalesInvoiceItem

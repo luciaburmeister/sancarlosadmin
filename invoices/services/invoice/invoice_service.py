@@ -289,7 +289,12 @@ class InvoiceService:
         taxes_data is now a list of TaxItem dataclass objects.
         """
         for order, tax_item in enumerate(taxes_data):
-            tax_name = tax_item.name or 'VAT'
+            raw_name = tax_item.name or 'VAT'
+            # Normalize: remove non-letters, uppercase
+            tax_name = ''.join(filter(str.isalpha, raw_name)).upper()  
+            if not tax_name:                                           
+                tax_name = 'VAT'                                        
+
             percentage = tax_item.percentage or 0
             base_amount = tax_item.base_amount or 0
             tax_amount = tax_item.tax_amount or 0

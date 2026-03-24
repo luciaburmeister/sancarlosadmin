@@ -19,7 +19,7 @@ from company.models import CompanyOwnedModel
 from invoices.models import AppliedTax
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import Q, F
 from django.template import engines
 
 class ConfigurationStatus(models.TextChoices):
@@ -1337,7 +1337,7 @@ class ConfigurationExportTemplate(CompanyOwnedModel):
         else:
             templates = templates.filter(company__isnull=True)
             
-        return templates.order_by('product__isnull', 'company__isnull').first()
+        return templates.order_by(F('product_id').desc(nulls_last=True), F('company_id').desc(nulls_last=True)).first()
 
     def __str__(self):
         return f"{self.name} (Product {self.product_id or 'Any'})"

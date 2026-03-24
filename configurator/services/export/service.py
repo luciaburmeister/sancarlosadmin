@@ -117,7 +117,8 @@ class ConfigurationExportService:
         """
         strategy = ConfigurationExportService.get_strategy(obj)
         context = strategy.get_context()
-        return json.dumps(context, cls=CustomJSONEncoder)
+        json_str = json.dumps(context, cls=CustomJSONEncoder)
+        return json_str.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
     @staticmethod
     def render_parts(obj: Any, template: "ConfigurationExportTemplate"):
@@ -138,6 +139,7 @@ class ConfigurationExportService:
         rendered_body = clean_final_html(rendered_body)
 
         serialized_context = json.dumps(context, cls=CustomJSONEncoder)
+        serialized_context = serialized_context.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
         return rendered_body, clean_css, serialized_context
 

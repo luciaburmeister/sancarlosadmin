@@ -36,8 +36,19 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "address": client.address,
         }
 
+        company = self.sales_invoice.company
+        company_data = {
+            "name": company.name,
+            "legal_name": company.legal_name,
+            "address": company.address,
+            "email": company.email,
+            "phone": company.phone,
+            "tax_identifier": company.tax_identifier,
+        }
+
         context = {
             "invoice": self.sales_invoice,
+            "company_data": company_data,
             "client": client,
             "client_data": client_data,
             "items": items_data,

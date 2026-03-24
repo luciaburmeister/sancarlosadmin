@@ -267,11 +267,11 @@ class SalesInvoiceAdmin(ModelAdmin):
     actions_row = ["view_pdf_row_action", "finalize_invoice_row_action"]
     actions_detail = ["view_pdf_detail_action", "finalize_invoice_detail_action"]
 
-    @action(description=_("View PDF"), icon="visibility")
+    @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
     def view_pdf_row_action(self, request, object_id):
         return redirect(reverse("admin:invoices_salesinvoice_pdf", args=[object_id]))
 
-    @action(description=_("View PDF"), icon="visibility")
+    @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
     def view_pdf_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_salesinvoice_pdf", args=[object_id]))
 

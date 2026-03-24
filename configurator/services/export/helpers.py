@@ -139,7 +139,7 @@ def clean_final_html(rendered: str) -> str:
     cleaned = re.sub(r'<svg.*?>.*?</svg>', heal_svg_block, cleaned, flags=re.DOTALL | re.IGNORECASE)
 
     # 8️⃣ Final clean for consecutive naked paragraphs
-    cleaned = re.sub(r'</p>\s*<p>', ' ', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'</div>\s*<div>', ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'</p>\s*<p\s*>', ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'</div>\s*<div\s*>', ' ', cleaned, flags=re.IGNORECASE)
 
     return cleaned.strip()

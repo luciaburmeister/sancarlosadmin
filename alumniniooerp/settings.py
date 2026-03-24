@@ -433,6 +433,16 @@ UNFOLD = {
                             "company.view_employee"
                         )
                     },
+                    {
+                        "title": _("Customers"),
+                        "icon": "groups",
+                        "link": reverse_lazy(
+                            "admin:sales_client_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "sales.view_client"
+                        )
+                    },
                 ],
             },
             {

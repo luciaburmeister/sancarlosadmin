@@ -36,7 +36,8 @@ class ConfigurationToProductionService:
         # 1. Production Order
         order_template = ConfigurationExportTemplate.get_default_for_product(
             product=product, 
-            kind=ExportTemplateKind.PRODUCTION_ORDER
+            kind=ExportTemplateKind.PRODUCTION_ORDER,
+            company=ticket.company
         )
         if order_template:
             ticket.order_html = ConfigurationExportService.render_html(configuration, order_template)
@@ -44,7 +45,8 @@ class ConfigurationToProductionService:
         # 2. Production Ticket (Default)
         ticket_template = ConfigurationExportTemplate.get_default_for_product(
             product=product, 
-            kind=ExportTemplateKind.PRODUCTION_TICKET
+            kind=ExportTemplateKind.PRODUCTION_TICKET,
+            company=ticket.company
         )
         if ticket_template:
             ticket.ticket_html = ConfigurationExportService.render_html(configuration, ticket_template)
@@ -85,7 +87,8 @@ class ConfigurationToProductionService:
             )
             ticket_template = ConfigurationExportTemplate.get_default_for_product(
                 product=product,
-                kind=ExportTemplateKind.PRODUCTION_TICKET
+                kind=ExportTemplateKind.PRODUCTION_TICKET,
+                company=ticket.company
             )
             if ticket_template:
                 prod_item.ticket_html = ConfigurationExportService.render_html(prod_item, ticket_template)

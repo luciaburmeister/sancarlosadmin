@@ -1320,10 +1320,10 @@ class ConfigurationExportTemplate(CompanyOwnedModel):
     is_active = models.BooleanField(default=True)
 
     @classmethod
-    def get_default_for_product(cls, product, kind):
+    def get_default_for_product(cls, product, kind, company=None):
         """
-        Look up the most specific default template for a given product and kind.
-        Prioritizes templates explicitly linked to the product.
+        Look up the most specific default template for a given product, kind and company.
+        Prioritizes templates explicitly linked to the product and the company.
         """
         
         templates = cls.objects.filter(
@@ -1332,11 +1332,12 @@ class ConfigurationExportTemplate(CompanyOwnedModel):
             is_active=True
         )
         
-        product_template = templates.filter(product=product).first()
-        if product_template:
-            return product_template
+        if company:
+            templates = templates.filter(Q(company=company) | Q(company__isnull=True))
+        else:
+            templates = templates.filter(company__isnull=True)
             
-        return templates.filter(product__isnull=True).first()
+        return templates.order_by('product__isnull', 'company__isnull').first()
 
     def __str__(self):
         return f"{self.name} (Product {self.product_id or 'Any'})"

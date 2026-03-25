@@ -13,6 +13,7 @@ from dataclasses import dataclass
 @dataclass
 class InvoiceLineItem:
     """A single line item from an invoice, passed to the classifier."""
+    id: int
     description: Optional[str]
     quantity: Optional[float]
     unit_price: Optional[float]
@@ -30,14 +31,16 @@ class AccountOption:
 @dataclass
 class ClassificationResult:
     """
-    The result of classifying a single invoice.
+    The result of classifying a single line item.
 
     - invoice_id: the PK of the Invoice being classified
+    - line_item_id: the PK of the InvoiceItem being classified
     - account_code: the code Gemini chose (e.g. "621"), or None if unsure
     - confident: True if Gemini is sure, False if unsure
-      -> If False: account_code will be None and invoice gets flagged for manual review
+      -> If False: account_code will be None and item gets flagged for manual review
     """
     invoice_id: int
+    line_item_id: int
     account_code: Optional[str]
     confident: bool
 
@@ -63,8 +66,8 @@ class AccountClassifierInterface(ABC):
             accounting_framework: The accounting standard in use, e.g. "PGC (Spain)", "UK GAAP".
 
         Returns:
-            List of ClassificationResult, one per invoice.
-            Order is not guaranteed — match by invoice_id.
+            List of ClassificationResult, one per line item.
+            Order is not guaranteed — match by invoice_id and line_item_id.
 
         Raises:
             ValueError: If the response from the provider is unparseable.

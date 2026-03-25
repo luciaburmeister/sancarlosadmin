@@ -27,18 +27,22 @@ class GeminiAccountClassifier(AccountClassifierInterface):
         "type": "ARRAY",
         "items": {
             "type": "OBJECT",
-            "required": ["invoice_id", "account_code", "confident"],
+            "required": ["invoice_id", "line_item_id", "account_code", "confident"],
             "properties": {
                 "invoice_id": {
                     "type": "INTEGER",
                     "description": "The invoice ID exactly as provided in the input.",
+                },
+                "line_item_id": {
+                    "type": "INTEGER",
+                    "description": "The line item ID exactly as provided in the input.",
                 },
                 "account_code": {
                     "type": "STRING",
                     "nullable": True,
                     "description": (
                         "The account code from the chart of accounts that best matches "
-                        "this invoice. Must be one of the provided codes. "
+                        "this line item. Must be one of the provided codes. "
                         "Set to null if you are not confident."
                     ),
                 },
@@ -46,7 +50,7 @@ class GeminiAccountClassifier(AccountClassifierInterface):
                     "type": "BOOLEAN",
                     "description": (
                         "True if you are confident in the classification. "
-                        "False if the invoice is ambiguous or no account fits well."
+                        "False if the item is ambiguous or no account fits well."
                     ),
                 },
             },
@@ -80,7 +84,7 @@ class GeminiAccountClassifier(AccountClassifierInterface):
             invoices_text += f"\nInvoice ID: {inv['id']}\nLine items:\n"
             for item in inv["line_items"]:
                 invoices_text += (
-                    f"  - {item.description or 'N/A'} "
+                    f"  - [LineItem ID: {item.id}] {item.description or 'N/A'} "
                     f"(qty: {item.quantity}, unit price: {item.unit_price}, "
                     f"total: {item.total}, tax: {item.tax_rate}%)\n"
                 )
@@ -93,10 +97,10 @@ Your task: classify each invoice into exactly one accounting account.
 
 RULES:
 - You MUST only pick account codes from the list provided below.
-- Only one account per invoice.
+- One account per line item.
 - If you are not confident, set account_code to null and confident to false.
 - Base your decision on the line item descriptions, not the amounts.
-- Return one result per invoice, using the exact invoice_id provided.
+- Return one result per line item, using the exact invoice_id and line_item_id provided.
 
 CHART OF ACCOUNTS (postable accounts only):
 {accounts_text}
@@ -133,6 +137,7 @@ COMPANY ACTIVITY DESCRIPTION:
         return [
             ClassificationResult(
                 invoice_id=item["invoice_id"],
+                line_item_id=item["line_item_id"],
                 account_code=item.get("account_code"),
                 confident=item.get("confident", False),
             )

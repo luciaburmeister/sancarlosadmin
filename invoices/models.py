@@ -484,6 +484,15 @@ class InvoiceItem(models.Model):
         verbose_name=_("Line Total")
     )
 
+    account = models.ForeignKey(
+        'accounting.CompanyAccount',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='invoice_items',
+        help_text="Accounting account assigned by Gemini or manually overridden for this specific line item."
+    )
+
     def save(self, *args, **kwargs):
         self.line_total = self.unit_price * self.quantity
         super().save(*args, **kwargs)

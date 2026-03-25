@@ -1,3 +1,4 @@
+from unfold.admin import StackedInline
 from django.contrib import admin
 from unfold.decorators import action, display
 from django.shortcuts import redirect
@@ -115,12 +116,26 @@ class AppliedTaxInline(GenericTabularInline):
     verbose_name = "Applied tax"
     verbose_name_plural = "Applied taxes"
 
-class InvoiceItemInline(TabularInline):
+class InvoiceItemInline(StackedInline):
     model = InvoiceItem
     extra = 0
     tab = True
-    fields = ("description", "quantity", "unit_price", "line_total")
     readonly_fields = ("line_total",)
+    autocomplete_fields = ("account",)
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "description",
+                    ("quantity",
+                    "unit_price",
+                    "line_total"),
+                    "account",
+                )
+            },
+        ),
+    )
 
 @admin.register(Invoice)
 class InvoiceAdmin(ModelAdmin):

@@ -17,7 +17,7 @@ from datetime import datetime
 from django.db import transaction
 from django.core.files import File
 
-from company.admin import company
+
 from invoices.services import invoice
 from invoices.services.ocr_services import OcrInterface, InvoiceData
 from invoices.models import Invoice, AppliedTax, TaxType, InvoiceItem

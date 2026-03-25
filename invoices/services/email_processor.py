@@ -6,7 +6,7 @@ import hashlib
 import os
 from django.core.files.base import ContentFile
 from django.utils import timezone
-from ..models import IncomingInvoice, CompanyEmailConfig
+from ..models import IncomingInvoice
 
 class EmailInvoiceProcessor:
     def __init__(self, email_config):

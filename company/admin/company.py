@@ -10,7 +10,6 @@ from django.contrib import messages
 from core.admin.company_access import get_user_companies
 from unfold.admin import ModelAdmin, StackedInline
 from invoices.tasks import fetch_email_invoices_task
-
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
 

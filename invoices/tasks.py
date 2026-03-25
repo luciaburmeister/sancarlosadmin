@@ -1,14 +1,12 @@
 from celery import shared_task
 from django.conf import settings
 from .models import IncomingInvoice, Invoice
-from .services.invoice.invoice_service import InvoiceService
-from .services.ocr_services.gemini_ocr import GeminiInvoiceProcessor
+from invoices.services.invoice.invoice_service import InvoiceService
+from invoices.services.ocr_services.gemini_ocr import GeminiInvoiceProcessor
 import logging
 import tempfile
 import os
 import shutil
-
-
 from company.models import CompanyEmailConfig
 from .services.email_processor import EmailInvoiceProcessor
 

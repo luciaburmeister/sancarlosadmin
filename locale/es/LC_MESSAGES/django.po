@@ -1638,10 +1638,8 @@ msgstr "Pro Forma"
 msgid "Final"
 msgstr "Precio final"
 
-#, fuzzy
-#| msgid "Invoice File"
 msgid "Invoice Number"
-msgstr "Archivo de factura"
+msgstr "Número de factura"
 
 msgid "Date Issued"
 msgstr "Fecha de emisión"

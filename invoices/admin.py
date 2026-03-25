@@ -279,7 +279,7 @@ class SalesInvoiceAdmin(ModelAdmin):
     autocomplete_fields = ("company", "client", "configuration")
     inlines = [SalesInvoiceItemInline, AppliedTaxInline]
     
-    readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount","status")
+    readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount","status","invoice_number")
 
     fieldsets = (
         (

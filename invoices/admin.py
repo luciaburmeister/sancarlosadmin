@@ -137,6 +137,7 @@ class InvoiceItemInline(StackedInline):
         ),
     )
 
+
 @admin.register(Invoice)
 class InvoiceAdmin(ModelAdmin):
     list_display = (

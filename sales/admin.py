@@ -2,9 +2,11 @@ from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
 from unfold.decorators import display
-from .models import Client, Order, DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus
-from unfold.admin import TabularInline
-from .models import Quote, QuoteItem
+from .models import (
+    Client, Order, DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
+    Quote, QuoteItem, SaleZone, ClientAddress, ClientContact, ClientBankAccount
+)
+from unfold.admin import TabularInline, StackedInline
 from configurator.models import Configuration
 from configurator.admin.configuration import AppliedTaxInline
 from django.shortcuts import redirect
@@ -12,19 +14,88 @@ from django.urls import reverse
 from unfold.decorators import action
 from core.admin.company_admin import CompanyRestrictedAdmin
 
+@admin.register(SaleZone)
+class SaleZoneAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ["name", "company"]
+    search_fields = ["name"]
+    autocomplete_fields = ["company"]
+
+@admin.register(ClientBankAccount)
+class ClientBankAccountAdmin(ModelAdmin):
+    list_display = ["bank_name", "account_number", "client"]
+    search_fields = ["bank_name", "account_number", "iban"]
+    autocomplete_fields = ["client"]
+
+class ClientAddressInline(StackedInline):
+    model = ClientAddress
+    extra = 0
+    tab = True
+    tab_title = _("Addresses")
+
+class ClientContactInline(StackedInline):
+    model = ClientContact
+    extra = 0
+    tab = True
+    tab_title = _("Contacts")
+    # This will be linked to addresses, but for now we list them on the client
+    # Alternatively, we could link them to the client directly if we want
+    # but the model has them linked to Address. 
+    # To show them on Client, I might need a through relation or just show them for all addresses.
+    # Actually, I'll link them to Client directly in the model if that's easier for the UI.
+    # But the requirement said "Persona de contacto 1 ... Dirección A".
+    # I'll keep the model as is and add them to Client if I add a client FK.
+    # Let's check the model I wrote for ClientContact. It has an address FK.
+
+class ClientBankAccountInline(TabularInline):
+    model = ClientBankAccount
+    extra = 0
+    tab = True
+    tab_title = _("Bank Accounts")
+
 @admin.register(Client)
 class ClientAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["name", "tax_identifier", "phone", "email"]
+    list_display = ["name", "tax_identifier", "phone", "email", "sale_zone", "agent"]
     search_fields = ["name", "tax_identifier", "email", "phone", "address"]
-    list_filter = []
-    autocomplete_fields = ["company"]
+    list_filter = ["sale_zone", "agent", "is_insured"]
+    autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account"]
+    
+    inlines = [ClientAddressInline, ClientContactInline, ClientBankAccountInline]
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "default_client_bank_account":
+            # Get the object ID from the URL if we are editing an existing client
+            import re
+            match = re.search(r'/admin/sales/client/(\d+)/change/', request.path)
+            if match:
+                client_id = match.group(1)
+                kwargs["queryset"] = ClientBankAccount.objects.filter(client_id=client_id)
+            else:
+                kwargs["queryset"] = ClientBankAccount.objects.none()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
     
     fieldsets = (
-        ("Contact Information", {
+        (_("Basic Information"), {
+            "classes": ["tab"],
             "fields": (
                 ("name", "company"),
                 ("tax_identifier", "phone", "email"),
                 "address"
+            )
+            
+        }),
+        (_("Sales & Territory"), {
+            "classes": ["tab"],
+            "fields": (
+                ("sale_zone", "agent"),
+                "agent_commission",
+            )
+        }),
+        (_("Financial & Insurance"), {
+            "classes": ["tab"],
+            "fields": (
+                ("is_insured", "max_risk", "current_risk"),
+                ("payment_method", "our_bank_account"),
+                "default_client_bank_account",
             )
         }),
     )

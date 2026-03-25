@@ -7,9 +7,97 @@ from django.utils.translation import gettext_lazy as _
 from company.models import CompanyOwnedModel
 from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
-from invoices.models import AppliedTax
+from invoices.models import AppliedTax, PaymentMethod
+from company.models import CompanyOwnedModel, BaseBankAccount, BankAccount
+
+class SaleZone(CompanyOwnedModel):
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+
+    class Meta:
+        verbose_name = _("Sale Zone")
+        verbose_name_plural = _("Sale Zones")
+
+    def __str__(self):
+        return f"{self.name} ({self.company})"
+
+class ClientBankAccount(CompanyOwnedModel, BaseBankAccount):
+    client = models.ForeignKey(
+        'Client',
+        on_delete=models.CASCADE,
+        related_name="client_bank_accounts",
+        verbose_name=_("Client")
+    )
+    is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
+
+    class Meta:
+        verbose_name = _("Client Bank Account")
+        verbose_name_plural = _("Client Bank Accounts")
+
+    def __str__(self):
+        return f"{self.bank_name} - {self.account_number or self.iban} ({self.client})"
+
+class ClientAddress(CompanyOwnedModel):
+    ADDRESS_TYPES = [
+        ('fiscal', _('Fiscal')),
+        ('shipping', _('Shipping')),
+        ('other', _('Other')),
+    ]
+    client = models.ForeignKey(
+        'Client',
+        on_delete=models.CASCADE,
+        related_name="addresses",
+        verbose_name=_("Client")
+    )
+    address_type = models.CharField(
+        max_length=20,
+        choices=ADDRESS_TYPES,
+        default='shipping',
+        verbose_name=_("Address Type")
+    )
+    street = models.CharField(max_length=255, verbose_name=_("Street"))
+    city = models.CharField(max_length=100, verbose_name=_("City"))
+    postal_code = models.CharField(max_length=20, verbose_name=_("Postal Code"))
+    province = models.CharField(max_length=100, verbose_name=_("Province"))
+    country = models.CharField(max_length=100, default="Spain", verbose_name=_("Country")) # Using CharField for simplicity or could use CountryField
+
+    class Meta:
+        verbose_name = _("Client Address")
+        verbose_name_plural = _("Client Addresses")
+
+    def __str__(self):
+        return f"{self.get_address_type_display()}: {self.street}, {self.city}"
+
+class ClientContact(models.Model):
+    client = models.ForeignKey(
+        'Client',
+        on_delete=models.CASCADE,
+        related_name="contacts",
+        verbose_name=_("Client"),
+        null=True,
+        blank=True
+    )
+    address = models.ForeignKey(
+        ClientAddress,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="contacts",
+        verbose_name=_("Address")
+    )
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+    position = models.CharField(max_length=100, blank=True, verbose_name=_("Position"))
+    email = models.EmailField(blank=True, verbose_name=_("Email"))
+    phone = models.CharField(max_length=20, blank=True, verbose_name=_("Phone"))
+
+    class Meta:
+        verbose_name = _("Client Contact")
+        verbose_name_plural = _("Client Contacts")
+
+    def __str__(self):
+        return f"{self.name} ({self.position})"
 
 class Client(Timestampable, CompanyOwnedModel):
+    # Existing fields
     name = models.CharField(
         max_length=200,
         help_text=_("e.g., SEBASTIAN HERRERO"),
@@ -27,6 +115,7 @@ class Client(Timestampable, CompanyOwnedModel):
     address = models.TextField(
         blank=True,
         verbose_name=_("Address"),
+        help_text=_("Main or legacy address")
     )
     tax_identifier = models.CharField(
         max_length=25,
@@ -34,12 +123,69 @@ class Client(Timestampable, CompanyOwnedModel):
         verbose_name=_("Fiscal Identifier"),
     )
 
-    class Meta:
-        verbose_name = _("Client")
-        verbose_name_plural = _("Clients")
-
-    def __str__(self):
-        return self.name
+    # New fields
+    sale_zone = models.ForeignKey(
+        SaleZone,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="clients",
+        verbose_name=_("Sale Zone")
+    )
+    agent = models.ForeignKey(
+        'company.Employee',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="managed_clients",
+        verbose_name=_("Agent")
+    )
+    agent_commission = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        verbose_name=_("Agent Commission (%)")
+    )
+    is_insured = models.BooleanField(
+        default=False,
+        verbose_name=_("Is Insured")
+    )
+    max_risk = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency='EUR',
+        verbose_name=_("Maximum Risk")
+    )
+    current_risk = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency='EUR',
+        verbose_name=_("Current Risk")
+    )
+    payment_method = models.CharField(
+        max_length=20,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.TRANSFER,
+        verbose_name=_("Payment Method")
+    )
+    our_bank_account = models.ForeignKey(
+        BankAccount,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="clients_as_deposit",
+        verbose_name=_("Our Bank Account (for deposit)")
+    )
+    default_client_bank_account = models.ForeignKey(
+        ClientBankAccount,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="is_default_for_client",
+        verbose_name=_("Default Client Bank Account")
+    )
 
     
 class OrderStatus(models.TextChoices):

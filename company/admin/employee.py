@@ -130,6 +130,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
                     "company",
                     ("hired_at", "terminated_at"),
                     "is_active",
+                    "sale_zones",
                 )
             },
         ),

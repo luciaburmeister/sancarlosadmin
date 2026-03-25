@@ -166,6 +166,13 @@ class Employee(CompanyOwnedModel):
         help_text=_("Stages this employee is authorized to work on"),
     )
 
+    sale_zones = models.ManyToManyField(
+        "sales.SaleZone",
+        blank=True,
+        related_name="employees",
+        verbose_name=_("Assigned Sale Zones")
+    )
+
     class Meta:
         verbose_name = _("Employee")
         verbose_name_plural = _("Employees")
@@ -250,7 +257,7 @@ class WorkingZone(CompanyOwnedModel):
     def __str__(self):
         return f"{self.name} ({self.company})"
 
-class BankAccount(CompanyOwnedModel):
+class BaseBankAccount(models.Model):
     bank_name = models.CharField(max_length=100, verbose_name=_("Bank Name"))
     holder_name = models.CharField(max_length=100, blank=True, verbose_name=_("Holder Name"))
     iban = models.CharField(max_length=34, blank=True, verbose_name=_("IBAN"), help_text=_("For SEPA/Europe"))
@@ -259,6 +266,11 @@ class BankAccount(CompanyOwnedModel):
     routing_number = models.CharField(max_length=50, blank=True, verbose_name=_("Routing Number"), help_text=_("Routing number, Sort code, ABA, etc."))
     bank_address = models.TextField(blank=True, verbose_name=_("Bank Address"))
     country = CountryField(blank=True, null=True, verbose_name=_("Country"))
+
+    class Meta:
+        abstract = True
+
+class BankAccount(CompanyOwnedModel, BaseBankAccount):
     is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
 
     class Meta:

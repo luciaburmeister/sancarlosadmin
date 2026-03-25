@@ -14,6 +14,12 @@ from unfold.admin import ModelAdmin, StackedInline
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
 
+@admin.register(BankAccount)
+class BankAccountAdmin(ModelAdmin):
+    list_display = ("bank_name", "account_number", "company")
+    search_fields = ("bank_name", "account_number", "iban")
+    autocomplete_fields = ("company",)
+
 class BankAccountInline(StackedInline):
     model = BankAccount
     extra = 1

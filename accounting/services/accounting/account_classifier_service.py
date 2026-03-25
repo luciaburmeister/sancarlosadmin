@@ -4,11 +4,13 @@ Account Classifier Service
 Orchestrates the workflow of classifying invoices into accounting accounts:
 
 1. Fetch all invoices that have no account assigned yet
-2. Fetch all postable accounts from the chart of accounts
-3. Send both to Gemini in a single batch call
+2. Group invoices by company
+3. For each company:
+   - Fetch that company's postable accounts
+   - Send invoices + accounts to Gemini in a single batch call
 4. For each result:
-   - If confident -> save the account to the invoice
-   - If not confident -> leave account as NULL, flag needs_manual_review=True
+   - If confident -> save the account to the invoice, needs_manual_review=False
+   - If not confident -> leave account as NULL, needs_manual_review=True
 5. Return a summary of what happened
 """
 
@@ -19,7 +21,7 @@ from django.db import transaction
 
 from company.admin import company
 from invoices.models import Invoice
-from accounting.models import TemplateAccount
+from accounting.models import CompanyAccount
 from .account_classifier_interface import (
     AccountClassifierInterface,
     AccountOption,
@@ -78,14 +80,6 @@ class AccountClassifierService:
                 flagged_for_review=0, errors=[],
             )
 
-        # Step 2: Fetch account options (same for all companies)
-        account_options = self._get_account_options()
-        if not account_options:
-            return ClassificationSummary(
-                total_invoices=0, classified=0,
-                flagged_for_review=0,
-                errors=["No postable accounts found."],
-            )
 
         # Step 3: Group invoices by company
         from collections import defaultdict
@@ -94,10 +88,15 @@ class AccountClassifierService:
             invoices_by_company[invoice.company].append(invoice)
 
         total_invoices = sum(len(v) for v in invoices_by_company.values())
-        all_results = []
+    
 
         # Step 4: One classifier call per company
         for company, company_invoices in invoices_by_company.items():
+            account_options = self._get_account_options(company)
+            if not account_options:
+                errors.append(f"No postable accounts for company {company}, skipping.")
+                continue
+
             invoice_payload = self._build_invoice_payload(company_invoices)
             activity = company.business_activity_description if company else ""
 
@@ -106,22 +105,24 @@ class AccountClassifierService:
                     invoices=invoice_payload,
                     account_options=account_options,
                     company_activity_description=activity,
+                    accounting_framework=self._get_accounting_framework(company),
                 )
-                all_results.extend(results)
+                classified, flagged, save_errors = self._save_results(
+                    results=results,
+                    valid_codes={acc.code for acc in account_options},
+                    company=company,
+                )
+                total_classified += classified
+                total_flagged += flagged
+                errors.extend(save_errors)
             except Exception as e:
                 errors.append(f"Classifier failed for company {company}: {str(e)}")
 
-        # Step 5: Save all results
-        classified, flagged, save_errors = self._save_results(
-            results=all_results,
-            valid_codes={acc.code for acc in account_options},
-        )
-        errors.extend(save_errors)
 
         return ClassificationSummary(
             total_invoices=total_invoices,
-            classified=classified,
-            flagged_for_review=flagged,
+            classified=total_classified,
+            flagged_for_review=total_flagged,
             errors=errors,
         )
 
@@ -129,13 +130,10 @@ class AccountClassifierService:
     # PRIVATE HELPERS
     # -------------------------------------------------------------------------
 
-    def _get_account_options(self) -> List[AccountOption]:
-        """
-        Fetch all postable TemplateAccount rows and convert them
-        to AccountOption dataclasses for the classifier.
-        """
-        accounts = TemplateAccount.objects.filter(is_postable=True).values("code", "name")
+    def _get_account_options(self, company) -> List[AccountOption]: 
+        accounts = CompanyAccount.objects.filter(company=company, is_postable=True).values("code", "name")
         return [AccountOption(code=acc["code"], name=acc["name"]) for acc in accounts]
+
 
     def _build_invoice_payload(self, invoices) -> List[dict]:
         payload = []
@@ -148,16 +146,27 @@ class AccountClassifierService:
                     total=float(item.line_total.amount) if item.line_total else None,
                     tax_rate=None,
                 )
-                for item in invoice.items.all()  # ✅ reads from InvoiceItem rows
+                for item in invoice.items.all()  
             ]
             payload.append({
                 "id": invoice.pk,
                 "line_items": line_items,
             })
         return payload
+    
+    def _get_accounting_framework(self, company) -> str:
+        FRAMEWORK_MAP = {
+            "ES": "PGC (Plan General Contable, Spain)",
+            "GB": "UK GAAP",
+            "US": "US GAAP",
+            "FR": "PCG (Plan Comptable Général, France)",
+            "DE": "HGB (Handelsgesetzbuch, Germany)",
+        }
+        code = str(company.constituted_country) if company.constituted_country else ""
+        return FRAMEWORK_MAP.get(code, "")
 
     @transaction.atomic
-    def _save_results(self, results, valid_codes: set):
+    def _save_results(self, results, valid_codes: set, company):
         """
         Save classification results back to the Invoice table.
 
@@ -168,13 +177,14 @@ class AccountClassifierService:
         flagged = 0
         errors = []
 
-        # Build a map of code -> TemplateAccount for fast lookup
+        # Build a map of code -> CompanyAccount for fast lookup
         code_to_account = {
-            ta.code: ta
-            for ta in TemplateAccount.objects.filter(
-                code__in=valid_codes, is_postable=True
+            ca.code: ca
+            for ca in CompanyAccount.objects.filter(
+                company=company, code__in=valid_codes, is_postable=True
             )
         }
+
 
         for result in results:
             try:

@@ -50,16 +50,17 @@ class AccountClassifierInterface(ABC):
         invoices: List[dict],
         account_options: List[AccountOption],
         company_activity_description: str = "",
+        accounting_framework: str = "",
     ) -> List[ClassificationResult]:
         """
         Classify a batch of invoices into accounting accounts.
-
         Args:
             invoices: List of dicts, each with:
                 - "id": Invoice PK (int)
                 - "line_items": list of InvoiceLineItem
-            account_options: Full list of postable AccountOption objects
-                from the chart of accounts.
+            account_options: Postable accounts for this specific company.
+            company_activity_description: What the company does.
+            accounting_framework: The accounting standard in use, e.g. "PGC (Spain)", "UK GAAP".
 
         Returns:
             List of ClassificationResult, one per invoice.

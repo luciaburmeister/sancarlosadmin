@@ -15,8 +15,6 @@ from .account_classifier_interface import (
     AccountOption,
     ClassificationResult,
 )
-from company.models import Company
-
 
 class GeminiAccountClassifier(AccountClassifierInterface):
 
@@ -64,6 +62,7 @@ class GeminiAccountClassifier(AccountClassifierInterface):
         invoices: List[dict],
         account_options: List[AccountOption],
         company_activity_description: str = "",
+        accounting_framework: str = "",
     ) -> List[ClassificationResult]:
         """
         Send all unclassified invoices + the full chart of accounts to Gemini
@@ -86,9 +85,10 @@ class GeminiAccountClassifier(AccountClassifierInterface):
                     f"total: {item.total}, tax: {item.tax_rate}%)\n"
                 )
 
+        framework_line = f"using {accounting_framework}" if accounting_framework else ""
         prompt = f"""
-You are an expert Spanish accountant using the PGC (Plan General Contable).
 
+You are an expert accountant {framework_line}.
 Your task: classify each invoice into exactly one accounting account.
 
 RULES:

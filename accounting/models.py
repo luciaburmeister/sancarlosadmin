@@ -197,7 +197,7 @@ class CompanyAccount(Timestampable):
         ]
 
     def __str__(self) -> str:
-        return f"{self.company_id}:{self.code} {self.name}"
+        return f"{self.code} {self.name}"
 
 
 class Statement(models.TextChoices):

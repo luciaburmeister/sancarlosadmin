@@ -9,7 +9,6 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.validators import FileExtensionValidator
 from djmoney.models.fields import MoneyField
-from accounting.models import TemplateAccount
 from company.models import Company
 from django.utils import timezone
 
@@ -47,7 +46,7 @@ class Invoice(models.Model):
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="invoices", null=True)
     
     account = models.ForeignKey(
-        'accounting.TemplateAccount', 
+        'accounting.CompanyAccount', 
         on_delete=models.PROTECT, 
         null=True,
         blank=True,

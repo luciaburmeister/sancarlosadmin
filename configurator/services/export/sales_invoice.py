@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Any, Dict
 from .base import BaseExportStrategy
-
+from invoices.models import AppliedTax
+from django.contrib.contenttypes.models import ContentType
 if TYPE_CHECKING:
     from invoices.models import SalesInvoice
 
@@ -61,6 +62,24 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "tax_amount": float(self.sales_invoice.tax_amount.amount),
             "total_amount": float(self.sales_invoice.total_amount.amount),
         }
+
+        # Add detailed taxes
+        
+        ct = ContentType.objects.get_for_model(self.sales_invoice)
+        applied_taxes = AppliedTax.objects.filter(
+            content_type=ct, 
+            object_id=self.sales_invoice.pk
+        ).select_related("tax_type").order_by("order")
+        
+        context["taxes"] = [
+            {
+                "name": tax.tax_type.tax_name,
+                "percentage": float(tax.selected_percentage),
+                "amount": float(tax.calculated_amount.amount) if tax.calculated_amount else 0,
+                "base": float(tax.base_amount.amount) if tax.base_amount else 0,
+            }
+            for tax in applied_taxes
+        ]
 
         default_bank = self.sales_invoice.company.bankaccounts.filter(is_default=True).first()
         if default_bank:

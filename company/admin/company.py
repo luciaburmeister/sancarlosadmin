@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
 from core.admin.company_access import get_user_companies
 from unfold.admin import ModelAdmin, StackedInline
-from invoices.tasks import fetch_email_invoices_task
+
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
 
@@ -121,7 +121,7 @@ class CompanyEmailConfigAdmin(ModelAdmin):
         icon="mail"
     )
     def pull_emails_action(self, request, object_id: int):
-        
+        from invoices.tasks import fetch_email_invoices_task
         try:
             fetch_email_invoices_task.delay(object_id)
             messages.success(request, _("Email fetching task has been triggered in the background."))

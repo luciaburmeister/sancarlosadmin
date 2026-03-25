@@ -279,6 +279,46 @@ class SalesInvoiceAdmin(ModelAdmin):
     autocomplete_fields = ("company", "client", "configuration")
     inlines = [SalesInvoiceItemInline, AppliedTaxInline]
     
+    readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount","status")
+
+    fieldsets = (
+        (
+            _("General Information"),
+            {
+                "fields": (
+                    ("company","client"),
+                    ("status", "invoice_number"),
+                    ("date_issued", "due_date"),
+                    ("reference"),
+                )
+            },
+        ),
+        (
+            _("Configuration"),
+            {
+                "fields": (
+                    "configuration",
+                )
+            },
+        ),
+        (
+            _("Financial Summary"),
+            {
+                "fields": (
+                    "subtotal_amount",
+                    "tax_amount",
+                    "total_amount",
+                ),
+            },
+        ),
+        (
+            _("Additional Notes"),
+            {
+                "fields": ("notes",),
+            },
+        ),
+    )
+    
     actions = ["download_pdf", "finalize_invoice_action"]
     actions_row = ["view_pdf_row_action", "finalize_invoice_row_action"]
     actions_detail = ["view_pdf_detail_action", "finalize_invoice_detail_action"]

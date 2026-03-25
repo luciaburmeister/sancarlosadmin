@@ -61,6 +61,7 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "subtotal": float(self.sales_invoice.subtotal_amount.amount),
             "tax_amount": float(self.sales_invoice.tax_amount.amount),
             "total_amount": float(self.sales_invoice.total_amount.amount),
+            "reference": self.sales_invoice.reference,
         }
 
         # Add detailed taxes

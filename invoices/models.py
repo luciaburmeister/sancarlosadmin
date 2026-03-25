@@ -378,6 +378,8 @@ class SalesInvoice(CompanyOwnedModel):
         verbose_name=_("Total Amount")
     )
     
+    reference = models.CharField(max_length=255, blank=True, null=True, verbose_name=_("Reference"))
+    
     notes = models.TextField(blank=True, null=True, verbose_name=_("Notes"))
 
     class Meta:

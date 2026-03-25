@@ -9,7 +9,40 @@ import os
 import shutil
 
 
+from company.models import CompanyEmailConfig
+from .services.email_processor import EmailInvoiceProcessor
+
 logger = logging.getLogger(__name__)
+
+@shared_task
+def fetch_email_invoices_task(config_id=None):
+    """
+    Background task to fetch invoices from configured email accounts.
+    If config_id is provided, only that configuration is processed.
+    """
+    if config_id:
+        configs = CompanyEmailConfig.objects.filter(id=config_id)
+    else:
+        configs = CompanyEmailConfig.objects.all()
+
+    if not configs.exists():
+        logger.info("No email configurations to process.")
+        return "No configurations found"
+
+    total_count = 0
+    for config in configs:
+        logger.info(f"Fetching emails for {config.email_address} ({config.company})")
+        processor = EmailInvoiceProcessor(config)
+        try:
+            processor.connect()
+            count = processor.fetch_new_invoices(only_unseen=False)
+            processor.disconnect()
+            total_count += count
+        except Exception as e:
+            logger.error(f"Error fetching emails for {config.email_address}: {str(e)}")
+            continue
+
+    return f"Total invoices fetched: {total_count}"
 
 #Email Only Pipeline
 @shared_task

@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
 from core.admin.company_access import get_user_companies
 from unfold.admin import ModelAdmin, StackedInline
-
+from invoices.tasks import fetch_email_invoices_task
 
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
@@ -114,3 +114,19 @@ class CompanyEmailConfigAdmin(ModelAdmin):
     list_filter = ("company", "use_ssl")
     search_fields = ("email_address", "imap_server", "imap_user")
     autocomplete_fields = ("company",)
+    actions_row = ["pull_emails_action"]
+
+    @action(
+        description=_("pull emails"),
+        url_path="pull-emails",
+        icon="mail"
+    )
+    def pull_emails_action(self, request, object_id: int):
+        
+        try:
+            fetch_email_invoices_task.delay(object_id)
+            messages.success(request, _("Email fetching task has been triggered in the background."))
+        except Exception as e:
+            messages.error(request, _(f"Error triggering task: {str(e)}"))
+            
+        return redirect(request.META.get("HTTP_REFERER"))

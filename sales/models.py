@@ -187,6 +187,13 @@ class Client(Timestampable, CompanyOwnedModel):
         verbose_name=_("Default Client Bank Account")
     )
 
+    class Meta:
+        verbose_name = _("Client")
+        verbose_name_plural = _("Clients")
+
+    def __str__(self):
+        return self.name
+
     
 class OrderStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")

@@ -1,4 +1,3 @@
-
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 from django.urls import reverse
@@ -6,7 +5,7 @@ from django.shortcuts import get_object_or_404
 
 from unfold.views import UnfoldModelAdminViewMixin
 from django.views.generic import TemplateView
-from django.utils.translation import gettext as _
+from django.utils.dateparse import parse_datetime
 
 from unfold.admin import ModelAdmin
 from unfold.decorators import display
@@ -22,6 +21,7 @@ from production.models import (
 from configurator.models import ProductTemplateComponentGroup
 from production.components.status_badge import StatusBadge
 
+
 class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
     title = _("Production stages")
     permission_required = ("production.view_productionticket",)
@@ -33,6 +33,56 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
         label = _(status_val.replace("_", " ")) if status_val else "—"
         return color, label
 
+    def _get_dt(self, info, key):
+        val = info.get(key)
+        if isinstance(val, str):
+            return parse_datetime(val)
+        return val
+
+    def _build_stage_component_map(self, product, stage_order):
+        """
+        Returns:
+            {
+                "cutting": {1, 2, 3},
+                "assembly": {4, 5},
+            }
+        Only stages explicitly configured by component group will have ids.
+        """
+        result = {stage_name: set() for stage_name in stage_order}
+
+        if not product or not stage_order:
+            return result
+
+        groups = (
+            ProductTemplateComponentGroup.objects
+            .filter(product_template=product, stage__in=stage_order)
+            .prefetch_related("components")
+        )
+
+        for group in groups:
+            result[group.stage] = set(group.components.values_list("id", flat=True))
+
+        return result
+
+    def _stage_applies_to_item(self, item, stage_name, stage_component_map):
+        """
+        A stage applies to an item if:
+        1. the item already has that stage in planning, OR
+        2. the stage is configured for the item's component through a component group
+
+        This avoids showing stages for unrelated items, while still allowing
+        configured-but-not-yet-planned stages to appear as pending.
+        """
+        planning = item.planning or {}
+
+        if stage_name in planning:
+            return True
+
+        component_ids = stage_component_map.get(stage_name, set())
+        if component_ids and item.component_id in component_ids:
+            return True
+
+        return False
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -42,36 +92,35 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
         config = ticket.source_object
         product = getattr(config, "product", None)
-        
+
         items = list(ticket.items.select_related("component").order_by("id"))
-        
         stage_order = list(getattr(product, "production_stages", []) or [])
 
         employee = getattr(self.request.user, "employee_profile", None)
+
+        stage_component_map = self._build_stage_component_map(product, stage_order)
 
         item_current_stages = {}
         for it in items:
             planning = it.planning or {}
             current_s = None
-            
+
             for sname in stage_order:
-                if sname not in planning:
+                if not self._stage_applies_to_item(it, sname, stage_component_map):
                     continue
+
                 info = planning.get(sname) or {}
                 status = info.get("status") or ProductionItemStatus.PENDING
+
                 if status != ProductionItemStatus.DONE:
                     current_s = sname
                     break
-            
-            if not current_s and stage_order:
-                current_s = stage_order[-1]
-                
+
             item_current_stages[it.id] = current_s
 
         authorized_stages = stage_order
-        if employee:
-            if employee.production_stages:
-                authorized_stages = [s for s in stage_order if s in employee.production_stages]
+        if employee and employee.production_stages:
+            authorized_stages = [s for s in stage_order if s in employee.production_stages]
 
         stages_ui = []
 
@@ -96,24 +145,40 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
             if grouped_item_ids:
                 unit_items = [item for item in items if item.id in grouped_item_ids]
-                
+
                 # Split grouped items by their status in this stage
                 status_groups = {}
                 for item in unit_items:
+                    if not self._stage_applies_to_item(item, stage_name, stage_component_map):
+                        continue
+
                     planning = item.planning or {}
                     info = planning.get(stage_name) or {}
                     status = info.get("status") or ProductionItemStatus.PENDING
                     status_groups.setdefault(status, []).append(item)
-                
+
                 for status, sub_items in status_groups.items():
-                    unit = self._build_unit(stage_name, sub_items, employee, item_current_stages)
+                    unit = self._build_unit(
+                        stage_name,
+                        sub_items,
+                        employee,
+                        item_current_stages,
+                        stage_component_map,
+                    )
                     if unit["relevant"]:
                         units.append(unit)
 
             for item in items:
                 if item.id in grouped_item_ids:
                     continue
-                unit = self._build_unit(stage_name, [item], employee, item_current_stages)
+
+                unit = self._build_unit(
+                    stage_name,
+                    [item],
+                    employee,
+                    item_current_stages,
+                    stage_component_map,
+                )
                 if unit["relevant"]:
                     units.append(unit)
 
@@ -132,14 +197,14 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
         ctx["stages_ui"] = stages_ui
         return ctx
 
-    def _build_unit(self, stage_name, items, employee, item_current_stages):
+    def _build_unit(self, stage_name, items, employee, item_current_stages, stage_component_map):
         infos = []
 
         for item in items:
-            planning = item.planning or {}
-            if stage_name not in planning:
+            if not self._stage_applies_to_item(item, stage_name, stage_component_map):
                 continue
 
+            planning = item.planning or {}
             info = planning.get(stage_name) or {}
             status = info.get("status") or ProductionItemStatus.PENDING
             infos.append((item, info, status))
@@ -159,11 +224,11 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
         status_color, status_label = self._status_display(agg_status)
 
         started_at = min(
-            (info.get("started_at") for _, info, _ in infos if info.get("started_at")),
+            (self._get_dt(info, "started_at") for _, info, _ in infos if info.get("started_at")),
             default=None,
         )
         completed_at = max(
-            (info.get("completed_at") for _, info, _ in infos if info.get("completed_at")),
+            (self._get_dt(info, "completed_at") for _, info, _ in infos if info.get("completed_at")),
             default=None,
         )
 
@@ -184,6 +249,9 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
                 {
                     "id": item.id,
                     "label": (item.component.name if item.component else (item.data.get("component") or "—")),
+                    "quantity": item.quantity,
+                    "notes": item.data.get("notes"),
+                    "length": item.length,
                 }
                 for item, _, _ in infos
             ],

@@ -2272,6 +2272,9 @@ msgstr "Elemento del albaran de Transporte"
 msgid "Delivery Order Items"
 msgstr "Items de albaran de Transporte"
 
+msgid "Resume"
+msgstr "Resumir"
+
 #~ msgid "Clients"
 #~ msgstr "Clientes"
 

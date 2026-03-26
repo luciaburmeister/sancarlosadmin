@@ -77,10 +77,12 @@ class ConfigurationToProductionService:
                 quantity=item.quantity,
                 length=item.length,
                 data={
+                    "configuration_item_id": item.id,
                     "component_id": item.component_id,
                     "component": str(item.component),
                     "quantity": float(item.quantity),
                     "length": float(item.length),
+                    "notes": item.note,
                 },
                 planning=planning,
                 production_stages_order=list(item.production_stages or []),

@@ -48,6 +48,12 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
         elif action == ProductionActions.END_SESSION:
             StagesToSessionsService.end_session(stage_name=stage_name, items=items, employee=employee)
 
+        if action == ProductionActions.FINISH_ACTIVITY and items:
+            # After finishing, try to find the next active stage to scroll there focus
+            next_stage, _ = StagesToSessionsService._get_current_stage(items[0])
+            if next_stage:
+                anchor = f"stage-{slugify(next_stage)}"
+
         redirect_url = reverse("admin:production_productionticket_stages", args=[ticket_id])
         if anchor:
             redirect_url = f"{redirect_url}#{anchor}"

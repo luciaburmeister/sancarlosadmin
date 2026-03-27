@@ -430,6 +430,12 @@ UNFOLD = {
                     "link": reverse_lazy("admin:company_workattendance_changelist"),
                     "permission": lambda request: request.user.has_perm("company.view_workattendance"),
                 },
+                {
+                    "title": _("Location Records"),      # ← add this
+                    "icon": "location_on",
+                    "link": reverse_lazy("admin:company_locationrecord_changelist"),
+                    "permission": lambda request: request.user.has_perm("company.view_locationrecord"),
+                },
                 ],
             },
             {

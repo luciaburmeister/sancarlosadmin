@@ -307,4 +307,29 @@ class WorkAttendance(CompanyOwnedModel, Timestampable):
     def __str__(self):
         return f"{self.employee} — {self.clock_in_time}"
     
+class LocationRecord(CompanyOwnedModel, Timestampable):
+    employee = models.ForeignKey(
+        Employee,                          # same pattern as WorkAttendance
+        on_delete=models.CASCADE,
+        related_name="location_records",
+        verbose_name=_("Employee")
+    )
+    latitude = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        verbose_name=_("Latitude")
+    )
+    longitude = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        verbose_name=_("Longitude")
+    )
+    recorded_at = models.DateTimeField(
+        verbose_name=_("Recorded At")
+    )
 
+    class Meta:
+        verbose_name = _("Location Record")
+        verbose_name_plural = _("Location Records")
+        ordering = ["-recorded_at"]
+
+    def __str__(self):
+        return f"{self.employee} — {self.recorded_at}"

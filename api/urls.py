@@ -1,6 +1,8 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from . import views
+from company.views.views import LocationRecordCreateView
+
 
 urlpatterns = [
     path("auth/login/", TokenObtainPairView.as_view(), name="jwt_login"),
@@ -14,4 +16,6 @@ urlpatterns = [
     path("attendance/clock-in/", views.clock_in_view, name="clock_in"),
     path("attendance/clock-out/", views.clock_out_view, name="clock_out"),
     path("attendance/status/", views.attendance_status_view, name="attendance_status"),
+    path('location-records/', LocationRecordCreateView.as_view(), name='location-record-create'),
+
 ]

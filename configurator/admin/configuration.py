@@ -81,7 +81,7 @@ class ParameterValueInline(TabularInline):
     extra = 0
     fields = ("parameter", "value","order")
     tab = True
-    readonly_fields = ["parameter"]
+    readonly_fields = []
     verbose_name = _("Parameter value")
     verbose_name_plural = _("Parameter values")
     

@@ -1,0 +1,178 @@
+{% extends "admin/base.html" %}
+{% load i18n unfold %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <script src="{% url 'admin:jsi18n' %}"></script>
+    {{ filter_form.media }}
+    <script>
+        function toggleProductionRow(rowId) {
+            const row = document.getElementById("details-" + rowId);
+            const icon = document.getElementById("icon-" + rowId);
+
+            if (!row) return;
+
+            row.classList.toggle("hidden");
+
+            if (icon) {
+                icon.classList.toggle("rotate-90");
+            }
+        }
+    </script>
+{% endblock %}
+
+{% block content %}
+<div class="px-6 py-8">
+    <div class="mb-8">
+        <h1 class="text-2xl font-bold">{% trans "Production control" %}</h1>
+        <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            {% trans "Live view of active employees." %}
+        </p>
+    </div>
+
+    <div class="mb-6">
+        <form method="get" class="border border-base-200 dark:border-base-800 rounded-default bg-white dark:bg-gray-900 p-4">
+            <div class="flex flex-wrap items-center gap-3">
+                <div style="width: 450px;">
+                    <label class="block text-sm font-medium mb-1">{% trans "Search" %}</label>
+                    {{ filter_form.q }}
+                </div>
+
+                <div class="w-44">
+                    <label class="block text-sm font-medium mb-1">{% trans "Company" %}</label>
+                    {{ filter_form.company }}
+                </div>
+
+                <div class="w-44">
+                    <label class="block text-sm font-medium mb-1">{% trans "Stage" %}</label>
+                    {{ filter_form.stage }}
+                </div>
+
+                <div class="flex gap-2 mt-5">
+                    {% component "unfold/components/button.html" with type="submit" variant="primary" %}
+                        {% trans "Apply" %}
+                    {% endcomponent %}
+                    {% component "unfold/components/button.html" with href=request.path variant="default" %}
+                        {% trans "Reset" %}
+                    {% endcomponent %}
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <div class="mb-4">
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+            {{ active_count }} {% trans "worker(s) currently active" %}
+        </span>
+    </div>
+
+    {% component "unfold/components/card.html" %}
+        <div class="overflow-x-auto -mt-2">
+            <table class="w-full table-fixed">
+                <thead>
+                    <tr class="border-b border-base-200 dark:border-base-800">
+                        <th class="px-3 py-1.5 text-left text-sm font-semibold w-10"></th>
+                        <th class="px-4 py-2 text-left text-sm font-semibold w-[32%]">{% trans "Employee" %}</th>
+                        <th class="px-4 py-2 text-left text-sm font-semibold w-[26%]">{% trans "Stage" %}</th>
+                        <th class="px-4 py-2 text-left text-sm font-semibold w-[42%]">{% trans "Item" %}</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for row in rows %}
+                        <tr class="border-b border-base-200 dark:border-base-800 hover:bg-base-50 dark:hover:bg-base-900/50 transition">
+                            <td class="px-3 py-3 align-top">
+                                <button
+                                    type="button"
+                                    onclick="toggleProductionRow('{{ row.id }}')"
+                                    class="inline-flex items-center justify-center text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                    aria-label="{% trans 'Toggle details' %}"
+                                >
+                                    <svg id="icon-{{ row.id }}" class="w-4 h-4 transition-transform" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 111.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
+                                    </svg>
+                                </button>
+                            </td>
+
+                            <td class="px-4 py-3 align-top">
+                                {% if row.employee_url %}
+                                    <a href="{{ row.employee_url }}" class="text-primary-600 hover:underline dark:text-primary-400">
+                                        {{ row.employee_name }}
+                                    </a>
+                                {% else %}
+                                    {{ row.employee_name }}
+                                {% endif %}
+                            </td>
+
+                            <td class="px-4 py-3 align-top">
+                                {{ row.stage }}
+                            </td>
+
+                            <td class="px-4 py-3 align-top">
+                                {% if row.item_url %}
+                                    <a href="{{ row.item_url }}" class="text-primary-600 hover:underline dark:text-primary-400">
+                                        {{ row.item_summary }}
+                                    </a>
+                                {% else %}
+                                    {{ row.item_summary }}
+                                {% endif %}
+                            </td>
+                        </tr>
+
+                        <tr id="details-{{ row.id }}" class="hidden border-b border-base-200 dark:border-base-800 bg-base-50 dark:bg-base-900/40">
+                            <td class="px-3 py-0"></td>
+                            <td colspan="3" class="px-5 py-5">
+                                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-10 gap-y-12 text-sm w-full leading-relaxed">
+                                    <div class="min-w-0">
+                                        <span class="font-semibold">{% trans "Company" %}:</span>
+                                        {{ row.company_name }}
+                                    </div>
+
+                                    <div class="min-w-0">
+                                        <span class="font-semibold">{% trans "Ticket" %}:</span>
+                                        {% if row.ticket_url %}
+                                            <a href="{{ row.ticket_url }}" class="text-primary-600 hover:underline dark:text-primary-400">
+                                                {{ row.ticket_display }}
+                                            </a>
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </div>
+
+                                    <div class="min-w-0">
+                                        <span class="font-semibold">{% trans "Started" %}:</span>
+                                        {{ row.started_at_display }}
+                                    </div>
+
+                                    <div class="min-w-0">
+                                        <span class="font-semibold">{% trans "Elapsed" %}:</span>
+                                        {{ row.elapsed }}
+                                    </div>
+
+                                    <div class="min-w-0">
+                                        <span class="font-semibold">{% trans "Component" %}:</span>
+                                        {{ row.component_name }}
+                                    </div>
+
+                                    <div class="min-w-0">
+                                        <span class="font-semibold">{% trans "Session" %}:</span>
+                                        <a href="{{ row.session_url }}" class="text-primary-600 hover:underline dark:text-primary-400">
+                                            {{ row.session_status }}
+                                        </a>
+                                    </div>
+                                </div>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="4" class="px-4 py-6 text-sm text-gray-500 dark:text-gray-400">
+                                {% trans "There are no active employees right now." %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endcomponent %}
+</div>
+{% endblock %}

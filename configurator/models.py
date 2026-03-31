@@ -96,11 +96,19 @@ class ProductTemplate(CompanyOwnedModel):
         editable=False,
         verbose_name=_("Planning configured"),
     )
+    show_in_configurator = models.BooleanField(
+        default=True,
+        verbose_name=_("Show in configurator"),
+        help_text=_("If false, this template will not be shown in the manual configuration creation list.")
+    )
 
     class Meta:
         verbose_name = _("Product template")
         verbose_name_plural = _("Product templates")
         permissions = [("configure_stage_resources", _("Configure stage resources"))]
+        indexes = [
+            models.Index(fields=["show_in_configurator","company"]),
+        ]
 
     def __str__(self):
         return self.name
@@ -402,7 +410,7 @@ class BOMRule(CompanyOwnedModel):
     )
 
     description = models.CharField(
-        max_length=40, null=True, blank=True, verbose_name=_("Description")
+        max_length=100, null=True, blank=True, verbose_name=_("Description")
     )
 
     production_stages = ArrayField(
@@ -606,6 +614,13 @@ class Configuration(Timestampable, CompanyOwnedModel):
         verbose_name=_("Asset"),
     )
 
+    work_order_pdf = models.FileField(
+        upload_to="configurations/work_orders/",
+        null=True,
+        blank=True,
+        verbose_name=_("Work Order PDF")
+    )
+
     class Meta:
         verbose_name = _("Configuration")
         verbose_name_plural = _("Configurations")
@@ -674,6 +689,8 @@ class Configuration(Timestampable, CompanyOwnedModel):
         return total, breakdown
 
     def recalculate_price(self):
+        if self.status != ConfigurationStatus.DRAFT:
+            return
         context = self.get_pricing_context()
 
         base_subtotal = Decimal(str(context["base_total"]))
@@ -805,6 +822,8 @@ class Configuration(Timestampable, CompanyOwnedModel):
         return {self._bom_item_key(item.component_id): item for item in items}
 
     def generate_bom(self):
+        if self.status != ConfigurationStatus.DRAFT:
+            return
         """
         Incrementally reconciles BOM rules with existing ConfigurationItems.
 
@@ -1031,7 +1050,7 @@ class ConfigurationFlow:
             ConfigurationToProductionService,
         )
 
-        ConfigurationToProductionService.create_ticket(self.configuration)
+        return ConfigurationToProductionService.create_ticket(self.configuration)
 
     @state.transition(
         source=ConfigurationStatus.COMPLETED,
@@ -1042,7 +1061,7 @@ class ConfigurationFlow:
             ConfigurationToProductionService,
         )
 
-        ConfigurationToProductionService.create_ticket(self.configuration)
+        return ConfigurationToProductionService.create_ticket(self.configuration)
 
     @state.on_success()
     def _persist(self, descriptor, source, target):

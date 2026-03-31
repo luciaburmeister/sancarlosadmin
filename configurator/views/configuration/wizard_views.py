@@ -44,7 +44,6 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
         elif self.steps.current == "addons":
             helper = AddonFormsetHelper()
             context["helper"] = helper
-            # Explicitly pass these to ensure unfold_crispy/layout/table_inline_formset.html sees them
             context["formset_id"] = helper.formset_id
             context["form_id"] = helper.form_id
             context["form_add"] = helper.form_add

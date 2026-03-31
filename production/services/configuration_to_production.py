@@ -1,5 +1,6 @@
 from django.contrib.contenttypes.models import ContentType
 from production.models import ProductionTicket, ProductionItem
+import os
 
 class ConfigurationToProductionService:
 
@@ -21,6 +22,13 @@ class ConfigurationToProductionService:
         )
 
         if created:
+            if configuration.work_order_pdf:
+                ticket.work_order_pdf.save(
+                    os.path.basename(configuration.work_order_pdf.name),
+                    configuration.work_order_pdf,
+                    save=False,
+                )
+
             cls._assign_default_templates(ticket, configuration)
             cls._create_items(ticket, configuration)
 
@@ -51,7 +59,7 @@ class ConfigurationToProductionService:
         if ticket_template:
             ticket.ticket_html = ConfigurationExportService.render_html(configuration, ticket_template)
         
-        ticket.save(update_fields=["order_html", "ticket_html"])
+        ticket.save(update_fields=["order_html", "ticket_html", "work_order_pdf"])
 
     @staticmethod
     def _create_items(ticket, configuration):

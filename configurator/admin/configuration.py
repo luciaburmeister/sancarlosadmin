@@ -58,6 +58,21 @@ class ConfigurationComponentGroupInline(StackedInline):
 
         return super().formfield_for_manytomany(db_field, request, **kwargs)
 
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_add_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_delete_permission(request, obj)
+
 
 
 class AppliedTaxInline(GenericTabularInline):
@@ -71,6 +86,21 @@ class AppliedTaxInline(GenericTabularInline):
     verbose_name = _("Applied tax")
     verbose_name_plural = _("Applied taxes")
     tab = True
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_change_permission(request, obj)
+    
+    def has_add_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_delete_permission(request, obj)
+
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("tax_type")
 
@@ -85,25 +115,54 @@ class ParameterValueInline(TabularInline):
     verbose_name = _("Parameter value")
     verbose_name_plural = _("Parameter values")
     
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_change_permission(request, obj)
+    
+    def has_add_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_delete_permission(request, obj)
+
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("parameter")
-class ConfigurationItemInline(TabularInline):
+class ConfigurationItemInline(StackedInline):
     model = ConfigurationItem
     extra = 0
-    fields = (
-        "is_template_item",
-        "component",
-        "quantity",
-        "length",
-        "unit_price",
-        "line_total",
-        "note",
-    )
     readonly_fields = ("line_total", "is_template_item")
     tab = True
     autocomplete_fields = ["component"]
     verbose_name = _("Configuration item")
     verbose_name_plural = _("Configuration items")
+    fields = (
+        ("component",
+        "quantity",
+        "length",),
+        ("unit_price",
+        "line_total",),
+        "note",
+    )
+
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_change_permission(request, obj)
+    
+    def has_add_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status == ConfigurationStatus.COMPLETED:
+            return False
+        return super().has_delete_permission(request, obj)
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("component")
@@ -115,6 +174,21 @@ class PricingRuleAssignmentInline(TabularInline):
     tab = True
     verbose_name = _("Pricing rule assignment")
     verbose_name_plural = _("Pricing rule assignments")
+
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status == ConfigurationStatus.COMPLETED:
+            return False
+        return super().has_change_permission(request, obj)
+    
+    def has_add_permission(self, request, obj=None):
+        if obj and obj.status == ConfigurationStatus.COMPLETED:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status == ConfigurationStatus.COMPLETED:
+            return False
+        return super().has_delete_permission(request, obj)
 
 @admin.register(Configuration)
 class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
@@ -189,6 +263,19 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
         }),
     )
 
+    def get_readonly_fields(self, request, obj=None):
+        readonly = super().get_readonly_fields(request, obj)
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            all_fields = []
+            for name, options in self.fieldsets:
+                for field in options['fields']:
+                    if isinstance(field, (list, tuple)):
+                        all_fields.extend(field)
+                    else:
+                        all_fields.append(field)
+            return list(set(list(readonly) + all_fields))
+        return readonly
+
     
     def get_urls(self):
 
@@ -252,12 +339,12 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
         config = Configuration.objects.get(pk=object_id)
         flow = ConfigurationFlow(config)
 
-        flow.convert()
+        ticket = flow.convert()
         self.message_user(
                 request,
                 _("Configuration successfully converted to production."),
                 "success")
 
         return redirect(
-            reverse("admin:configurator_configuration_change", args=[object_id])
+            reverse("admin:production_productionticket_change", args=[ticket.id])
         )

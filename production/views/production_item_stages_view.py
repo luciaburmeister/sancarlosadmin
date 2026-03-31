@@ -7,7 +7,7 @@ from django.utils.translation import gettext as _
 from django.utils.text import slugify
 from unfold.views import UnfoldModelAdminViewMixin
 
-from production.models import ProductionTicket, ProductionItem, ProductionItemStatus
+from production.models import ProductionTicket, ProductionItem
 from production.services.stages_to_sessions import StagesToSessionsService
 from production.constants import ProductionActions
 
@@ -50,7 +50,7 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
 
         if action == ProductionActions.FINISH_ACTIVITY and items:
             # After finishing, try to find the next active stage to scroll there focus
-            next_stage, _ = StagesToSessionsService._get_current_stage(items[0])
+            next_stage, __ = StagesToSessionsService._get_current_stage(items[0])
             if next_stage:
                 anchor = f"stage-{slugify(next_stage)}"
 

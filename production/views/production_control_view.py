@@ -7,6 +7,7 @@ from unfold.views import UnfoldModelAdminViewMixin
 
 from production.forms.production_control_filter_form import ProductionControlFilterForm
 from production.models import ProductionItemSession, ProductionItemSessionStatus
+from company.models import Employee
 
 
 class ProductionControlView(UnfoldModelAdminViewMixin, TemplateView):
@@ -33,12 +34,25 @@ class ProductionControlView(UnfoldModelAdminViewMixin, TemplateView):
             "production_item__component",
         ).filter(status=ProductionItemSessionStatus.IN_PROGRESS)
 
+        user = self.request.user
+
+        if not user.is_superuser:
+            employee = (
+                Employee.objects.filter(user=user, is_active=True,)
+                .select_related("company")
+                .first()
+            )
+
+            if employee and employee.company:
+                qs = qs.filter(company=employee.company)
+            else:
+                qs = qs.none()
+
         form = ProductionControlFilterForm(self.request.GET or None)
         self.filter_form = form
 
         if form.is_valid():
             q = form.cleaned_data.get("q")
-            company = form.cleaned_data.get("company")
             stage = form.cleaned_data.get("stage")
 
             if q:
@@ -51,9 +65,6 @@ class ProductionControlView(UnfoldModelAdminViewMixin, TemplateView):
                     | Q(production_item__ticket__id__icontains=q)
                     | Q(production_item__id__icontains=q)
                 )
-
-            if company:
-                qs = qs.filter(company_id=company)
 
             if stage:
                 qs = qs.filter(production_stage=stage)
@@ -76,12 +87,13 @@ class ProductionControlView(UnfoldModelAdminViewMixin, TemplateView):
             company = s.company
             item = s.production_item
             ticket = item.ticket if item else None
+
             ticket_display = "—"
             if ticket:
                 ticket_name = getattr(ticket.source_object, "name", None) or str(ticket.source_object)
                 ticket_display = f"#{ticket.pk} - {ticket_name}"
-            component = item.component if item else None
 
+            component = item.component if item else None
             component_name = str(component) if component else "—"
             item_summary = f"#{item.pk} - {component_name}" if item else "—"
 

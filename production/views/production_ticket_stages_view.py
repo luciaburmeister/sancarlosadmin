@@ -1,5 +1,3 @@
-
-from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 from django.urls import reverse
 from django.shortcuts import get_object_or_404
@@ -8,19 +6,16 @@ from unfold.views import UnfoldModelAdminViewMixin
 from django.views.generic import TemplateView
 from django.utils.translation import gettext as _
 
-from unfold.admin import ModelAdmin
-from unfold.decorators import display
-
 from production.models import (
     ProductionTicket,
-    ProductionItem,
     ProductionItemSession,
     ProductionItemSessionStatus,
-    ProductionItemStatus
+    ProductionItemStatus,
 )
-
 from configurator.models import ProductTemplateComponentGroup
 from production.components.status_badge import StatusBadge
+from company.models import Employee
+
 
 class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
     title = _("Production stages")
@@ -33,7 +28,6 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
         label = _(status_val.replace("_", " ")) if status_val else "—"
         return color, label
 
-
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
 
@@ -42,36 +36,50 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
         config = ticket.source_object
         product = getattr(config, "product", None)
-        
+
         items = list(ticket.items.select_related("component").order_by("id"))
-        
         stage_order = list(getattr(product, "production_stages", []) or [])
 
-        employee = getattr(self.request.user, "employee_profile", None)
+        employee = None
+        authorized_stages = stage_order
+
+        if not self.request.user.is_superuser:
+            employee = (
+                Employee.objects.filter(
+                    user=self.request.user,
+                    company=ticket.company,
+                    is_active=True,
+                )
+                .only("id", "production_stages", "can_work_on_production")
+                .first()
+            )
+
+            if not employee or not employee.can_work_on_production:
+                authorized_stages = []
+            else:
+                allowed = set(employee.production_stages or [])
+                authorized_stages = [s for s in stage_order if s in allowed]
 
         item_current_stages = {}
         for it in items:
             planning = it.planning or {}
             current_s = None
-            
+
             for sname in stage_order:
                 if sname not in planning:
                     continue
+
                 info = planning.get(sname) or {}
                 status = info.get("status") or ProductionItemStatus.PENDING
+
                 if status != ProductionItemStatus.DONE:
                     current_s = sname
                     break
-            
+
             if not current_s and stage_order:
                 current_s = stage_order[-1]
-                
-            item_current_stages[it.id] = current_s
 
-        authorized_stages = stage_order
-        if employee:
-            if employee.production_stages:
-                authorized_stages = [s for s in stage_order if s in employee.production_stages]
+            item_current_stages[it.id] = current_s
 
         stages_ui = []
 
@@ -80,31 +88,31 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
             if product:
                 group = (
-                    ProductTemplateComponentGroup.objects
-                    .filter(product_template=product, stage=stage_name)
+                    ProductTemplateComponentGroup.objects.filter(
+                        product_template=product,
+                        stage=stage_name,
+                    )
                     .prefetch_related("components")
                     .first()
                 )
                 if group:
                     component_ids = set(group.components.values_list("id", flat=True))
                     grouped_item_ids = {
-                        item.id for item in items
-                        if item.component_id in component_ids
+                        item.id for item in items if item.component_id in component_ids
                     }
 
             units = []
 
             if grouped_item_ids:
                 unit_items = [item for item in items if item.id in grouped_item_ids]
-                
-                # Split grouped items by their status in this stage
+
                 status_groups = {}
                 for item in unit_items:
                     planning = item.planning or {}
                     info = planning.get(stage_name) or {}
                     status = info.get("status") or ProductionItemStatus.PENDING
                     status_groups.setdefault(status, []).append(item)
-                
+
                 for status, sub_items in status_groups.items():
                     unit = self._build_unit(stage_name, sub_items, employee, item_current_stages)
                     if unit["relevant"]:
@@ -113,6 +121,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             for item in items:
                 if item.id in grouped_item_ids:
                     continue
+
                 unit = self._build_unit(stage_name, [item], employee, item_current_stages)
                 if unit["relevant"]:
                     units.append(unit)

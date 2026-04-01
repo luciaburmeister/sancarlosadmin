@@ -323,7 +323,8 @@ class ProductionResource(Timestampable,CompanyOwnedModel):
     object_id = models.PositiveBigIntegerField()
     target = GenericForeignKey("content_type", "object_id")
 
-    daily_capacity_minutes = models.PositiveIntegerField(default=0)
+    daily_capacity_minutes = models.PositiveIntegerField(default=1440)
+    parallel_capacity = models.PositiveSmallIntegerField(default=1)
     is_active = models.BooleanField(default=True)
 
     class Meta:

@@ -16,13 +16,6 @@ class ProductionControlFilterForm(forms.Form):
         ),
     )
 
-    company = forms.ChoiceField(
-        required=False,
-        label="Company",
-        choices=[],
-        widget=UnfoldAdminSelectWidget(),
-    )
-
     stage = forms.ChoiceField(
         required=False,
         label="Stage",
@@ -31,15 +24,8 @@ class ProductionControlFilterForm(forms.Form):
     )
 
     def __init__(self, *args, **kwargs):
+        kwargs.pop("admin_site", None)
         super().__init__(*args, **kwargs)
-
-        company_choices = list(
-            ProductionItemSession.objects.exclude(company__isnull=True)
-            .select_related("company")
-            .values_list("company_id", "company__name")
-            .distinct()
-            .order_by("company__name")
-        )
 
         stage_choices = list(
             ProductionItemSession.objects.exclude(production_stage__isnull=True)
@@ -49,5 +35,4 @@ class ProductionControlFilterForm(forms.Form):
             .order_by("production_stage")
         )
 
-        self.fields["company"].choices = [("", _("All companies"))] + company_choices
         self.fields["stage"].choices = [("", _("All stages"))] + [(s, s) for s in stage_choices]

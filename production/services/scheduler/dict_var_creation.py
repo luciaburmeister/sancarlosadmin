@@ -42,6 +42,7 @@ def optimization_dict_creation(
     dict[Configuration, list[ConfigurationItem]],
     dict[ConfigurationItem, list[str]],
     dict[tuple[ConfigurationItem, str], list[tuple[ContentType, int]]],
+    dict[tuple[ConfigurationItem, str, tuple[ContentType, int]], int],
     dict[tuple[ConfigurationItem, str], int],
     dict[tuple[ContentType, int], list[ProductionResource]],
     dict[ProductionResource, int],
@@ -74,8 +75,10 @@ def optimization_dict_creation(
         Dict mapping configurations to a list of their configuration items
     item_stages : dict[ConfigurationItem, list[str]]
         Dict mapping configuration items to a list of their stages
-    stage_resource_types : dict[str, list[tuple[ContentType, int]]]
+    stage_resource_types : dict[tuple[ConfigurationItem, str], list[tuple[ContentType, int]]]
         Dict mapping stages to a list of their required resource types [ContentType, type__pk]
+    stage_resource_type_quantity : dict[tuple[ConfigurationItem, str, tuple[ContentType, int]], int]
+        Dict mapping stages' resurce types to their needed quantity
     stage_duration : dict[tuple[ConfigurationItem, str], int]
         Dict mappint stages to their duration
     resource_type_active_resources : dict[tuple[ContentType, int], list[ProductionResource]]
@@ -97,6 +100,7 @@ def optimization_dict_creation(
     configuration_items = {}
     item_stages = {}
     stage_resource_types = {}
+    stage_resource_type_quantity = {}
     stage_duration = {}
     resource_types = set()
 
@@ -135,18 +139,16 @@ def optimization_dict_creation(
             for stage, stage_info in item.stage_resources.items():
                 item_stages[item].append(stage)
                 stage_resource_types[(item, stage)] = []
-                stage_resource_types[(item, stage)].extend(
-                    [
-                        (machine_ct, machine_type["machine_type_id"])
-                        for machine_type in stage_info.get("machine_types", [])
-                    ]
-                )
-                stage_resource_types[(item, stage)].extend(
-                    [
-                        (employee_ct, employee_type["employee_type_id"])
-                        for employee_type in stage_info.get("employee_types", [])
-                    ]
-                )
+                for machine_type in stage_info.get("machine_types", []):
+                    rt = (machine_ct, machine_type["machine_type_id"])
+                    stage_resource_types[(item, stage)].append(rt)
+                    stage_resource_type_quantity[(item, stage, rt)] = machine_type["quantity"]
+
+                for employee_type in stage_info.get("employee_types", []):
+                    rt = (employee_ct, employee_type["employee_type_id"])
+                    stage_resource_types[(item, stage)].append(rt)
+                    stage_resource_type_quantity[(item, stage, rt)] = employee_type["quantity"]
+                
                 resource_types.update(stage_resource_types[(item, stage)])
                 stage_duration[(item, stage)] = stage_info["total_time_min"]
 
@@ -192,6 +194,7 @@ def optimization_dict_creation(
         configuration_items,
         item_stages,
         stage_resource_types,
+        stage_resource_type_quantity,
         stage_duration,
         resource_type_active_resources,
         resource_parallel_capacity,

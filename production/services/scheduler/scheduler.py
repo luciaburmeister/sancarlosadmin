@@ -1,21 +1,24 @@
 from datetime import date
+from abc import ABC, abstractmethod
 
 from configurator.models import Configuration
+from production.services.scheduler.schedule_proposal import ScheduleProposal
 
-class ScheduleStrategy:
+class ScheduleStrategy(ABC):
     """
     The ScheduleStrategy interface declares the schedule method common to
     all schedule strategies. The context uses this interface to call the
     algorithm defined by the concrete strategies.
     """
 
+    @abstractmethod
     def schedule(
             self,
             start_date:date,
             end_date:date,
             configurations: list[Configuration],
-        ):
-        pass
+        ) -> ScheduleProposal:
+        raise NotImplementedError
 
 
 class Scheduler:

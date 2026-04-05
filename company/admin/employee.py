@@ -89,6 +89,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
     autocomplete_fields = (
         "company",
         "user",
+        "sale_zones"
     )
 
     ordering = (

@@ -16,8 +16,8 @@ The project uses Celery for background tasks and Redis as the message broker.
    ```bash
    # On Mac with Homebrew
    brew services start redis
-   ```
 
+   ```
 2. **Run Celery Worker**:
    ```bash
    celery -A alumniniooerp worker -l info --pool=solo

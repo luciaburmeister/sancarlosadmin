@@ -21,9 +21,15 @@ class SaleZoneAdmin(CompanyRestrictedAdmin, ModelAdmin):
     autocomplete_fields = ["company"]
 
 @admin.register(ClientBankAccount)
-class ClientBankAccountAdmin(ModelAdmin):
+class ClientBankAccountAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = ["bank_name", "account_number", "client"]
     search_fields = ["bank_name", "account_number", "iban"]
+    autocomplete_fields = ["client"]
+
+@admin.register(ClientAddress)
+class ClientAddressAdmin(CompanyRestrictedAdmin,ModelAdmin):
+    list_display = ["street", "city", "province", "country", "client"]
+    search_fields = ["street", "city", "postal_code", "province", "country", "client__name"]
     autocomplete_fields = ["client"]
 
 class ClientAddressInline(StackedInline):
@@ -31,26 +37,48 @@ class ClientAddressInline(StackedInline):
     extra = 0
     tab = True
     tab_title = _("Addresses")
+    fieldsets = (
+        (None, {
+            "fields": (
+                "address_type",
+                "country",
+                ("province", "city", "postal_code"),
+                "street",
+            ),
+        }),
+    )
 
 class ClientContactInline(StackedInline):
     model = ClientContact
     extra = 0
     tab = True
     tab_title = _("Contacts")
-    # This will be linked to addresses, but for now we list them on the client
-    # Alternatively, we could link them to the client directly if we want
-    # but the model has them linked to Address. 
-    # To show them on Client, I might need a through relation or just show them for all addresses.
-    # Actually, I'll link them to Client directly in the model if that's easier for the UI.
-    # But the requirement said "Persona de contacto 1 ... Dirección A".
-    # I'll keep the model as is and add them to Client if I add a client FK.
-    # Let's check the model I wrote for ClientContact. It has an address FK.
+    autocomplete_fields = ["address"]
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("name", "position"),
+                ("email", "phone"),
+                "address",
+            ),
+        }),
+    )
 
-class ClientBankAccountInline(TabularInline):
+class ClientBankAccountInline(StackedInline):
     model = ClientBankAccount
     extra = 0
     tab = True
     tab_title = _("Bank Accounts")
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("bank_name", "holder_name"),
+                ("iban", "swift_bic"),
+                ("account_number", "routing_number"),
+                ("country", "is_default"),
+            ),
+        }),
+    )
 
 @admin.register(Client)
 class ClientAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -81,7 +109,6 @@ class ClientAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ("tax_identifier", "phone", "email"),
                 "address"
             )
-            
         }),
         (_("Sales & Territory"), {
             "classes": ["tab"],

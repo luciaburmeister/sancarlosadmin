@@ -9,6 +9,7 @@ from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
 from invoices.models import AppliedTax, PaymentMethod
 from company.models import CompanyOwnedModel, BaseBankAccount, BankAccount
+from django_countries.fields import CountryField
 
 class SaleZone(CompanyOwnedModel):
     name = models.CharField(max_length=100, verbose_name=_("Name"))
@@ -58,7 +59,7 @@ class ClientAddress(CompanyOwnedModel):
     city = models.CharField(max_length=100, verbose_name=_("City"))
     postal_code = models.CharField(max_length=20, verbose_name=_("Postal Code"))
     province = models.CharField(max_length=100, verbose_name=_("Province"))
-    country = models.CharField(max_length=100, default="Spain", verbose_name=_("Country")) # Using CharField for simplicity or could use CountryField
+    country = CountryField(default="ES", verbose_name=_("Country"))
 
     class Meta:
         verbose_name = _("Client Address")

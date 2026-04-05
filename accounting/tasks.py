@@ -11,7 +11,7 @@ from .services.accounting.gemini_account_classifier import GeminiAccountClassifi
 logger = logging.getLogger(__name__)
 
 
-@shared_task
+@shared_task(name="accounting.tasks.classify_invoice_accounts")
 def classify_invoice_accounts(invoice_ids: list = None):
     """
     Background task to classify all unclassified invoices into

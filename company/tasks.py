@@ -12,7 +12,7 @@ from django.utils.html import strip_tags
 from django.utils.translation import gettext_lazy as _
 
 
-@shared_task
+@shared_task(name="company.tasks.send_document_reminders")
 def send_document_reminders():
     """
     Checks EmployeeDocument, MachineDocument, and AssetDocument for
@@ -35,7 +35,7 @@ def send_document_reminders():
         # that has a later expiry date, or the same expiry date but a higher ID (more recent entry).
         newer_docs = model_class.objects.filter(
             **{owner_field: OuterRef(owner_field)},
-            document_type=OuterRef('document_type')
+            document_type=OuterRef('document_type') 
         ).filter(
             models.Q(expiry_date__gt=OuterRef('expiry_date')) |
             models.Q(expiry_date=OuterRef('expiry_date'), id__gt=OuterRef('id'))

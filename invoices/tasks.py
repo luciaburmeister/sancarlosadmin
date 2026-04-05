@@ -12,7 +12,7 @@ from .services.email_processor import EmailInvoiceProcessor
 
 logger = logging.getLogger(__name__)
 
-@shared_task
+@shared_task(name="invoices.tasks.fetch_email_invoices")
 def fetch_email_invoices_task(config_id=None):
     """
     Background task to fetch invoices from configured email accounts.
@@ -43,7 +43,7 @@ def fetch_email_invoices_task(config_id=None):
     return f"Total invoices fetched: {total_count}"
 
 #Email Only Pipeline
-@shared_task
+@shared_task(name="invoices.tasks.process_incoming_invoices")
 def process_incoming_invoices(invoice_ids=None):
     """
     Background task to process IncomingInvoice records.
@@ -84,7 +84,6 @@ def process_incoming_invoices(invoice_ids=None):
             try:
                 file_path = incoming.file.path
             except NotImplementedError:
-                # S3 or other storage without local path access
                 suffix = os.path.splitext(incoming.file.name)[1]
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                     with incoming.file.open('rb') as f:
@@ -113,7 +112,7 @@ def process_incoming_invoices(invoice_ids=None):
     return f"Processed {processed_count} invoices, {errors_count} errors"
 
 # Manual Upload Pipeline
-@shared_task
+@shared_task(name="invoices.tasks.process_manual_invoice")
 def process_manual_invoice(invoice_id: int):
     """
     Background task to process a single manually uploaded Invoice.

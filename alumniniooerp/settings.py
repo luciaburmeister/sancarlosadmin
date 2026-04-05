@@ -86,7 +86,6 @@ INSTALLED_APPS = [
     'crispy_forms',
     'viewflow',
     'django_countries',
-    'company',
     'django_celery_results',
     'django_celery_beat',
     'djmoney',
@@ -96,7 +95,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'hijack',
-    'hijack.contrib.admin'
+    'hijack.contrib.admin',
+    'company',
 ]
 
 MIDDLEWARE = [

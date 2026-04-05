@@ -37,22 +37,36 @@ class CompanyAdmin(ModelAdmin):
     ordering = ("name",)
 
     fieldsets = (
-        (None, {
+        (_("Base Info"), {
+            "classes": ["tab"],
             "fields": (
-                "name",
-                "legal_name",
-                "is_active",
-                "logo",
+                ("name",
+                "legal_name"),
+                ("logo",
+                "constituted_country"),
                 "address",
-                "email",
-                "phone",
-                "tax_identifier",
-                "constituted_country",
-                "production_stages",
-                "asset_identifier_labels",
-                "business_activity_description"
+                ("email",
+                "phone"),
+                "is_active"
+
             )
         }),
+        (_("Application Configurations"), {
+            "fields": (
+
+                ("production_stages",
+                "asset_identifier_labels"),
+                ("document_reminder_emails"),
+            ),
+            "classes": ["tab"]
+        }),
+        (_("Taxes"), {
+            "fields": (
+                "tax_identifier",
+                "business_activity_description"
+            ),
+            "classes": ["tab"]
+        })
     )
 
     formfield_overrides = {

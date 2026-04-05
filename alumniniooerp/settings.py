@@ -17,6 +17,7 @@ import os
 from django.utils.translation import gettext_lazy as _
 from django.templatetags.static import static
 from datetime import timedelta
+from celery.schedules import crontab
 
 load_dotenv()
 
@@ -180,7 +181,8 @@ EMAIL_HOST = os.getenv("EMAIL_SMTP_HOST")
 EMAIL_PORT = 587
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
-DEFAULT_FROM_EMAIL = os.getenv("EMAIL_HOST_USER")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 POPPLER_PATH = "/opt/homebrew/bin"  # adjust for your system
@@ -259,7 +261,11 @@ CELERY_TIMEZONE = 'Europe/Madrid'
 CELERY_BEAT_SCHEDULE = {
     'fetch-email-invoices-daily': {
         'task': 'invoices.tasks.fetch_email_invoices_task',
-        'schedule': timedelta(days=1),
+        'schedule': crontab(hour=6, minute=0),
+    },
+    'send-document-reminders-daily': {
+        'task': 'company.tasks.send_document_reminders',
+        'schedule': crontab(hour=7, minute=0),
     },
 }
 

@@ -40,6 +40,13 @@ class Company(models.Model):
     verbose_name=_("Business Activity"),
     help_text=_("Description of what the company does"),
     )
+    document_reminder_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Document Reminder Emails"),
+        help_text=_("Emails that will receive document expiration reminders"),
+    )
 
 
     def __str__(self):
@@ -181,7 +188,7 @@ class Employee(CompanyOwnedModel):
         
 
     def __str__(self):
-        return f"{self.first_name} {self.last_name} ({self.company})"
+        return f"{self.first_name} {self.last_name}"
 
     @property
     def full_name(self):

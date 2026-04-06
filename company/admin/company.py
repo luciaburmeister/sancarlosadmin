@@ -67,6 +67,7 @@ class CompanyAdmin(ModelAdmin):
             ),
             "classes": ["tab"]
         })
+        
     )
 
     formfield_overrides = {

@@ -67,23 +67,13 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
     def _stage_applies_to_item(self, item, stage_name, stage_component_map):
         """
-        A stage applies to an item if:
-        1. the item already has that stage in planning, OR
-        2. the stage is configured for the item's component through a component group
-
-        This avoids showing stages for unrelated items, while still allowing
-        configured-but-not-yet-planned stages to appear as pending.
+        A stage applies to an item if it is explicitly defined in its planning.
+        Component groups are used for UI grouping but do not force an item into a stage.
         """
         planning = item.planning or {}
+        normalized_planning = {unicodedata.normalize("NFC", k) for k in planning.keys()}
 
-        if stage_name in planning:
-            return True
-
-        component_ids = stage_component_map.get(stage_name, set())
-        if component_ids and item.component_id in component_ids:
-            return True
-
-        return False
+        return stage_name in normalized_planning
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

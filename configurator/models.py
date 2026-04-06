@@ -1,4 +1,5 @@
 from django.db import models
+import unicodedata
 from djmoney.models.fields import MoneyField
 from sales.models import Client
 from timestamps.models import Timestampable
@@ -301,6 +302,25 @@ class ProductTemplateComponentGroup(models.Model):
     def __str__(self) -> str:
         return f"{self.product_template} — {self.stage}"
 
+    def clean(self):
+        super().clean()
+        if not self.stage:
+            return
+
+        self.stage = unicodedata.normalize("NFC", self.stage.strip())
+
+        if self.product_template:
+            valid_stages = self.product_template.production_stages or []
+            if self.stage not in valid_stages:
+                raise ValidationError(
+                    {
+                        "stage": _(
+                            "Stage '%(stage)s' is not defined in the product template stages."
+                        )
+                        % {"stage": self.stage}
+                    }
+                )
+
 
 class ParameterType(models.TextChoices):
     NUMBER = "number", _("Number")
@@ -456,6 +476,9 @@ class BOMRule(CompanyOwnedModel):
                 except ValueError as e:
                     errors[field_name] = f"Invalid expression: {e}"
         if self.production_stages:
+            self.production_stages = [
+                unicodedata.normalize("NFC", s.strip()) for s in self.production_stages
+            ]
             product_stages = set(self.product.production_stages or [])
             rule_stages = set(self.production_stages)
 

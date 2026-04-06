@@ -1,3 +1,4 @@
+import unicodedata
 from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 from django.urls import reverse
@@ -94,7 +95,10 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
         product = getattr(config, "product", None)
 
         items = list(ticket.items.select_related("component").order_by("id"))
-        stage_order = list(getattr(product, "production_stages", []) or [])
+        stage_order = [
+            unicodedata.normalize("NFC", s) 
+            for s in (getattr(product, "production_stages", []) or [])
+        ]
 
         employee = getattr(self.request.user, "employee_profile", None)
 
@@ -120,7 +124,8 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
         authorized_stages = stage_order
         if employee and employee.production_stages:
-            authorized_stages = [s for s in stage_order if s in employee.production_stages]
+            emp_stages = [unicodedata.normalize("NFC", s) for s in employee.production_stages]
+            authorized_stages = [s for s in stage_order if s in emp_stages]
 
         stages_ui = []
 

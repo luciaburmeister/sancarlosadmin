@@ -3,7 +3,7 @@ from django.utils import timezone
 from datetime import timedelta
 from django.core.mail import send_mail
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Exists, OuterRef
 from .models import EmployeeDocument, MachineDocument
 from assets.models import AssetDocument
@@ -81,6 +81,8 @@ def send_document_reminders():
         company_groups[company.id]['items'].append(item)
 
     emails_sent = 0
+    errors = []
+    
     for group in company_groups.values():
         company = group['company']
         items = group['items']
@@ -105,27 +107,30 @@ def send_document_reminders():
         }
         
         try:
-            html_message = render_to_string('company/email/document_reminder.html', context)
-            plain_message = strip_tags(html_message)
+            with transaction.atomic():
+                html_message = render_to_string('company/email/document_reminder.html', context)
+                plain_message = strip_tags(html_message)
 
-            send_mail(
-                subject,
-                plain_message,
-                settings.DEFAULT_FROM_EMAIL,
-                recipients,
-                html_message=html_message,
-                fail_silently=False,
-            )
-            
-            # Mark all documents in this email as reminded
-            for item in items:
-                doc = item['doc_instance']
-                doc.reminder_sent_at = timezone.now()
-                doc.save(update_fields=['reminder_sent_at'])
+                send_mail(
+                    subject,
+                    plain_message,
+                    settings.DEFAULT_FROM_EMAIL,
+                    recipients,
+                    html_message=html_message,
+                    fail_silently=False,
+                )
+                
+                # Mark all documents in this email as reminded
+                for item in items:
+                    doc = item['doc_instance']
+                    doc.reminder_sent_at = timezone.now()
+                    doc.save(update_fields=['reminder_sent_at'])
             
             emails_sent += 1
         except Exception as e:
-            # In a production environment, use proper logging
-            print(f"Error sending grouped email for company {company.id}: {e}")
+            errors.append(f"Error processing company {company.id} ({company.name}): {str(e)}")
+
+    if errors:
+        raise Exception(f"Document reminder task completed with errors: {'; '.join(errors)}")
 
     return f"Processed {emails_sent} company emails for {len(all_maturing_docs)} documents."

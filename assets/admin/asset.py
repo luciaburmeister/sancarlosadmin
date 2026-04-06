@@ -24,6 +24,7 @@ class AssetDocumentInline(StackedInline):
     extra = 0
     tab = True
     exclude = ["company"]
+    autocomplete_fields = ["document_type"]
 
     fieldsets = (
         (None, {
@@ -53,11 +54,9 @@ class AssetIdentifierInline(TabularInline):
                 resolved = resolve(request.path_info)
                 object_id = resolved.kwargs.get("object_id")
                 if object_id:
-                    # Case: Editing existing asset
                     asset = Asset.objects.select_related("company").get(pk=object_id)
                     labels = asset.company.asset_identifier_labels
                 else:
-                    # Case: Adding new asset
                     from core.admin.company_access import get_user_companies
                     companies = get_user_companies(request.user)
                     if companies.count() == 1:

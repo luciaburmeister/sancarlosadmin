@@ -258,18 +258,6 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Europe/Madrid'  
 
-CELERY_BEAT_SCHEDULE = {
-    'fetch-email-invoices-daily': {
-        'task': 'invoices.tasks.fetch_email_invoices_task',
-        'schedule': crontab(hour=6, minute=0),
-    },
-    'send-document-reminders-daily': {
-        'task': 'company.tasks.send_document_reminders',
-        'schedule': crontab(hour=7, minute=0),
-    },
-}
-
-
 # GEMINI API CONFIGURATION
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 

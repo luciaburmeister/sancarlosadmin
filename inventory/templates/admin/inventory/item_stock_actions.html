@@ -1,0 +1,39 @@
+{% load i18n unfold %}
+
+{% if original and original.pk %}
+
+  {% url 'admin:inventory_item_receive'  original.pk as receive_url  %}
+  {% url 'admin:inventory_item_transfer' original.pk as transfer_url %}
+  {% url 'admin:inventory_item_adjust'   original.pk as adjust_url   %}
+
+  <div class="mb-6">
+    <div class="rounded-default border border-base-200 dark:border-base-700 bg-white dark:bg-base-900 shadow-xs overflow-hidden">
+
+      <div class="px-6 py-4 border-b border-base-200 dark:border-base-700">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-font-subtle-light dark:text-font-subtle-dark m-0">
+          {% trans "Stock Actions" %}
+        </h2>
+      </div>
+
+      <div class="px-6 py-4 flex flex-wrap gap-3">
+
+        {% component "unfold/components/button.html" with href=receive_url size="md" class="!bg-green-600 !border-green-700 !text-white hover:!bg-green-700 dark:!border-green-500" %}
+          <span class="material-symbols-outlined text-[18px] leading-none">download</span>
+          {% trans "Receive Stock" %}
+        {% endcomponent %}
+
+        {% component "unfold/components/button.html" with href=transfer_url size="md" class="!bg-blue-600 !border-blue-700 !text-white hover:!bg-blue-700 dark:!border-blue-500" %}
+          <span class="material-symbols-outlined text-[18px] leading-none">swap_horiz</span>
+          {% trans "Transfer Stock" %}
+        {% endcomponent %}
+
+        {% component "unfold/components/button.html" with href=adjust_url size="md" class="!bg-orange-500 !border-orange-600 !text-white hover:!bg-orange-600 dark:!border-orange-400" %}
+          <span class="material-symbols-outlined text-[18px] leading-none">balance</span>
+          {% trans "Adjust Stock" %}
+        {% endcomponent %}
+
+      </div>
+    </div>
+  </div>
+
+{% endif %}

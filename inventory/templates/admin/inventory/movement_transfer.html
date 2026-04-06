@@ -1,0 +1,156 @@
+{% extends "admin/inventory/movement_base.html" %}
+{% load i18n unfold %}
+
+{% block form_actions %}{% endblock %}
+
+{% block form_sections %}
+<div
+  class="border border-base-200 dark:border-base-800 rounded-default shadow-xs overflow-hidden bg-white dark:bg-base-900"
+  x-data="{
+    step: 1,
+    totalSteps: 3,
+    stepLabels: ['{% trans "Source" %}', '{% trans "Destination" %}', '{% trans "Quantity & Notes" %}']
+  }"
+>
+
+  {# ── Step indicator ── #}
+  <div class="px-6 py-5 border-b border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02]">
+    <div class="flex items-center">
+      <template x-for="(label, i) in stepLabels" :key="i">
+        <div class="flex items-center" :class="i < stepLabels.length - 1 ? 'flex-1' : ''">
+          <div class="flex flex-col items-center gap-1.5 shrink-0">
+            <div
+              class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors duration-200"
+              :class="{
+                'bg-primary-600 text-white shadow-sm': step === i + 1,
+                'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-400': step > i + 1,
+                'bg-base-200 dark:bg-base-700 text-font-subtle-light dark:text-font-subtle-dark': step < i + 1
+              }"
+            >
+              <template x-if="step > i + 1">
+                <span class="material-symbols-outlined text-[15px] leading-none">check</span>
+              </template>
+              <template x-if="step <= i + 1">
+                <span x-text="i + 1"></span>
+              </template>
+            </div>
+            <span
+              class="text-xs font-medium transition-colors duration-200 whitespace-nowrap"
+              :class="{
+                'text-primary-600 dark:text-primary-400 font-semibold': step === i + 1,
+                'text-font-subtle-light dark:text-font-subtle-dark': step !== i + 1
+              }"
+              x-text="label"
+            ></span>
+          </div>
+          <template x-if="i < stepLabels.length - 1">
+            <div
+              class="flex-1 h-px mx-3 mt-[-14px] transition-colors duration-200"
+              :class="step > i + 1 ? 'bg-primary-400 dark:bg-primary-600' : 'bg-base-200 dark:bg-base-700'"
+            ></div>
+          </template>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  {# ── Step content ── #}
+  <div class="px-6 py-6 min-h-[160px]">
+
+    {# Step 1: Source #}
+    <div x-show="step === 1" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-x-2" x-transition:enter-end="opacity-100 translate-x-0">
+      {% if form.source_warehouse.errors %}
+      <div class="mb-4 flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-default px-3 py-2">
+        <span class="material-symbols-outlined text-base leading-none">warning</span>
+        {% trans "Please fix the errors in this step before continuing." %}
+      </div>
+      {% endif %}
+      <div class="lg:max-w-sm">
+        {% include "unfold/helpers/field.html" with field=form.source_warehouse %}
+      </div>
+    </div>
+
+    {# Step 2: Destination #}
+    <div x-show="step === 2" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-x-2" x-transition:enter-end="opacity-100 translate-x-0">
+      {% if form.destination_warehouse.errors %}
+      <div class="mb-4 flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-default px-3 py-2">
+        <span class="material-symbols-outlined text-base leading-none">warning</span>
+        {% trans "Please fix the errors in this step before continuing." %}
+      </div>
+      {% endif %}
+      <div class="lg:max-w-sm">
+        {% include "unfold/helpers/field.html" with field=form.destination_warehouse %}
+      </div>
+    </div>
+
+    {# Step 3: Quantity & Notes #}
+    <div x-show="step === 3" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-x-2" x-transition:enter-end="opacity-100 translate-x-0">
+      {% if form.quantity.errors or form.note.errors %}
+      <div class="mb-4 flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-default px-3 py-2">
+        <span class="material-symbols-outlined text-base leading-none">warning</span>
+        {% trans "Please fix the errors in this step before continuing." %}
+      </div>
+      {% endif %}
+      <div class="flex flex-col gap-6">
+        <div class="lg:max-w-sm">
+          {% include "unfold/helpers/field.html" with field=form.quantity %}
+        </div>
+        <div class="border-t border-dashed border-base-200 dark:border-base-800 pt-6">
+          {% include "unfold/helpers/field.html" with field=form.note %}
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  {# ── Wizard navigation ── #}
+  <div class="px-6 py-4 border-t border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02] flex items-center justify-between">
+
+    <div>
+      <a
+        x-show="step === 1"
+        href="{{ cancel_url }}"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-default text-sm font-medium border border-base-300 dark:border-base-600 bg-white dark:bg-base-800 text-font-default-light dark:text-font-default-dark hover:bg-base-50 dark:hover:bg-base-700 transition-colors no-underline"
+      >
+        <span class="material-symbols-outlined text-[16px] leading-none">arrow_back</span>
+        {% trans "Cancel" %}
+      </a>
+      <button
+        type="button"
+        x-show="step > 1"
+        @click="step--"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-default text-sm font-medium border border-base-300 dark:border-base-600 bg-white dark:bg-base-800 text-font-default-light dark:text-font-default-dark hover:bg-base-50 dark:hover:bg-base-700 transition-colors"
+      >
+        <span class="material-symbols-outlined text-[16px] leading-none">arrow_back</span>
+        {% trans "Previous" %}
+      </button>
+    </div>
+
+    <span class="text-xs text-font-subtle-light dark:text-font-subtle-dark font-medium">
+      <span x-text="step"></span> / <span x-text="totalSteps"></span>
+    </span>
+
+    <div>
+      <button
+        type="button"
+        x-show="step < totalSteps"
+        @click="step++"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-default text-sm font-medium bg-primary-600 hover:bg-primary-700 text-white transition-colors"
+      >
+        {% trans "Next" %}
+        <span class="material-symbols-outlined text-[16px] leading-none">arrow_forward</span>
+      </button>
+      <button
+        type="submit"
+        x-show="step === totalSteps"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-default text-sm font-medium bg-primary-600 hover:bg-primary-700 text-white transition-colors"
+      >
+        <span class="material-symbols-outlined text-[16px] leading-none">swap_horiz</span>
+        {% trans "Confirm Transfer" %}
+      </button>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}

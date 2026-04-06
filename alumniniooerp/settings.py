@@ -52,7 +52,6 @@ CACHES = {
 
 ALLOWED_HOSTS = ["*"]
 
-
 # Application definition
 
 INSTALLED_APPS = [
@@ -202,6 +201,11 @@ DATABASES = {
         
     }
 }
+
+GDAL_LIBRARY_PATH = os.getenv("GDAL_LIBRARY_PATH", "")
+GEOS_LIBRARY_PATH = os.getenv("GEOS_LIBRARY_PATH", "")
+
+
 # Database SSL mode
 DB_SSLMODE = os.getenv("DB_SSLMODE", "require" if not DEBUG else None)
 

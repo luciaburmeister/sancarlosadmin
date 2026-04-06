@@ -39,6 +39,7 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
         count = 0
         try:
             if action == ProductionActions.START_ACTIVITY:
+                messages.success(request, _("Activity arrived to start successfully."))
                 count = StagesToSessionsService.start_activity(stage_name=stage_name, items=items, employee=employee)
             
             elif action == ProductionActions.FINISH_ACTIVITY:

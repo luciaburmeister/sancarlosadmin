@@ -117,9 +117,9 @@ jobs:
           echo "AWS_STORAGE_BUCKET_NAME=${{ secrets.AWS_STORAGE_BUCKET_NAME }}" >> .env
           echo "AWS_S3_REGION_NAME=${{ secrets.AWS_S3_REGION_NAME }}" >> .env
           echo "EMAIL_HOST_USER=${{ secrets.EMAIL_HOST_USER }}" >> .env
-          echo "EMAIL_HOST_PASSWORD=${{ secrets.EMAIL_HOST_PASSWORD }}" >> .env
+          echo "EMAIL_HOST_PASSWORD=\"${{ secrets.EMAIL_HOST_PASSWORD }}\"" >> .env
           echo "EMAIL_SMTP_HOST=${{ secrets.EMAIL_SMTP_HOST }}" >> .env
-          echo "DEFAULT_FROM_EMAIL=${{ secrets.DEFAULT_FROM_EMAIL }}" >> .env
+          echo "DEFAULT_FROM_EMAIL=\"${{ secrets.DEFAULT_FROM_EMAIL }}\"" >> .env
           echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" >> .env
 
           echo "DEBUG=False" >> .env

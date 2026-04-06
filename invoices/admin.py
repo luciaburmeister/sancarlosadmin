@@ -25,9 +25,6 @@ from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from accounting.tasks import classify_invoice_accounts
 from core.admin.company_admin import CompanyRestrictedAdmin
 
-
-
-
 @admin.register(TaxType)
 class TaxTypeAdmin(ModelAdmin):
     list_display = (
@@ -90,7 +87,6 @@ class IncomingInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
 
     @admin.action(description="Process selected invoices with AI")
     def process_selected_invoices(self, request, queryset):
-        
         selected_ids = list(queryset.values_list('id', flat=True))
         for id in selected_ids:
             process_incoming_invoices.delay(invoice_ids=[id])
@@ -128,15 +124,12 @@ class InvoiceItemInline(StackedInline):
             {
                 "fields": (
                     "description",
-                    ("quantity",
-                    "unit_price",
-                    "line_total"),
+                    ("quantity", "unit_price", "line_total"),
                     "account",
                 )
             },
         ),
     )
-
 
 @admin.register(Invoice)
 class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
@@ -165,6 +158,7 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     autocomplete_fields = (
         "provider",
         "account",
+        "project_file",
     )
 
     date_hierarchy = "date_issued"
@@ -181,10 +175,10 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             "Invoice Info",
             {
                 "fields": (
-                   ( "invoice_number",
-                    "provider"),
+                   ( "invoice_number", "provider"),
                     "file",
-                    "company"
+                    "company",
+                    "project_file",
                 )
             },
         ),
@@ -192,8 +186,7 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             "Dates",
             {
                 "fields": (
-                    ("date_issued",
-                    "due_date"),
+                    ("date_issued", "due_date"),
                 )
             },
         ),
@@ -236,10 +229,8 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     def has_file(self, obj):
         return bool(obj.file)
     
-
     @admin.display(description="OCR Status")
     def ocr_status(self, obj):
-        # Determine label + color
         if getattr(obj, "ocr_processing", False):
             label = "Processing"
             color = "#facc15" 
@@ -292,7 +283,7 @@ class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = ("invoice_number", "incremental_id", "get_status_label", "company", "client", "date_issued", "total_amount")
     list_filter = ("company", "status", "date_issued")
     search_fields = ("invoice_number", "client__name")
-    autocomplete_fields = ("company", "client", "configuration")
+    autocomplete_fields = ("company", "client", "configuration", "project_file")
     inlines = [SalesInvoiceItemInline, AppliedTaxInline]
     
     readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount","status","invoice_number")
@@ -305,6 +296,7 @@ class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
                     ("company","client"),
                     ("status", "invoice_number"),
                     ("date_issued", "due_date"),
+                    "project_file",
                     ("reference"),
                 )
             },
@@ -371,8 +363,8 @@ class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         description=_("Status"),
         ordering="status",
         label={
-            _(SalesInvoiceStatus.FINAL): "success",  # green
-            _(SalesInvoiceStatus.PROFORMA): "warning",  # blue
+            _(SalesInvoiceStatus.FINAL): "success",  
+            _(SalesInvoiceStatus.PROFORMA): "warning",  
         },
     )
     def get_status_label(self, obj):

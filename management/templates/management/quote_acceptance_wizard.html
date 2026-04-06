@@ -1,0 +1,111 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n static %}
+
+{% block breadcrumbs %}
+<div class="px-4 py-3 bg-gray-50 border-b border-gray-200">
+    <div class="flex items-center text-sm text-gray-500">
+        <a href="{% url 'admin:index' %}" class="hover:text-primary-600">{% trans 'Home' %}</a>
+        <span class="mx-2">&raquo;</span>
+        <a href="{% url 'admin:sales_quote_changelist' %}" class="hover:text-primary-600">{% trans 'Quotes' %}</a>
+        <span class="mx-2">&raquo;</span>
+        <span>{% trans 'Accept Quote & Link Expediente' %}</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto py-8 px-4">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="p-6 border-b border-gray-100">
+            <h1 class="text-2xl font-bold text-gray-900">{% trans "Accept Quote" %}: {{ quote }}</h1>
+            <p class="mt-2 text-sm text-gray-600">
+                {% trans "To move this quote to 'Accepted', you must associate it with an Expediente (Project File)." %}
+            </p>
+        </div>
+
+        <form method="post" class="p-6 space-y-6">
+            {% csrf_token %}
+
+            {% if form.non_field_errors %}
+            <div class="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg">
+                {{ form.non_field_errors }}
+            </div>
+            {% endif %}
+
+            <div class="space-y-4">
+                <div class="font-medium text-gray-700">{{ form.action_type.label }}</div>
+                <div class="flex flex-col space-y-2">
+                    {% for radio in form.action_type %}
+                    <label class="inline-flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                        {{ radio.tag }}
+                        <span class="ml-3 font-medium text-gray-900">{{ radio.choice_label }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div id="existing-section" class="space-y-2" style="display: none;">
+                <label for="{{ form.existing_project.id_for_label }}" class="block font-medium text-gray-700">
+                    {{ form.existing_project.label }}
+                </label>
+                {{ form.existing_project }}
+                {% if form.existing_project.errors %}<p class="text-sm text-red-600">{{ form.existing_project.errors.0 }}</p>{% endif %}
+            </div>
+
+            <div id="new-section" class="space-y-2">
+                <label for="{{ form.new_project_name.id_for_label }}" class="block font-medium text-gray-700">
+                    {{ form.new_project_name.label }}
+                </label>
+                {{ form.new_project_name }}
+                {% if form.new_project_name.errors %}<p class="text-sm text-red-600">{{ form.new_project_name.errors.0 }}</p>{% endif %}
+            </div>
+
+            <div class="pt-6 border-t border-gray-100 flex items-center justify-end space-x-4">
+                <a href="{% url 'admin:sales_quote_change' quote.id %}" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                    {% trans "Cancel" %}
+                </a>
+                <button type="submit" class="px-6 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 transition-colors">
+                    {% trans "Confirm Acceptance" %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const radios = document.querySelectorAll('input[name="action_type"]');
+    const existingSection = document.getElementById('existing-section');
+    const newSection = document.getElementById('new-section');
+
+    function toggleSections() {
+        const selected = document.querySelector('input[name="action_type"]:checked').value;
+        if (selected === 'existing') {
+            existingSection.style.display = 'block';
+            newSection.style.display = 'none';
+        } else {
+            existingSection.style.display = 'none';
+            newSection.style.display = 'block';
+        }
+    }
+
+    radios.forEach(r => r.addEventListener('change', toggleSections));
+    toggleSections(); // Initial call
+});
+</script>
+
+<style>
+/* Mimic some Unfold-like styles if not fully inherited */
+input[type="text"], select {
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid #e5e7eb;
+    padding: 0.5rem 0.75rem;
+}
+input[type="radio"] {
+    width: 1.25rem;
+    height: 1.25rem;
+    accent-color: #68A7A5;
+}
+</style>
+{% endblock %}

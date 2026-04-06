@@ -357,6 +357,15 @@ class Quote(Timestampable, CompanyOwnedModel):
         verbose_name=_("Project name"),
     )
 
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="quotes",
+        verbose_name=_("Project File")
+    )
+
     expires_at = models.DateField(
         null=True,
         blank=True,
@@ -585,6 +594,14 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
         blank=True,
         related_name="delivery_orders",
         verbose_name=_("Configuration")
+    )
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delivery_orders",
+        verbose_name=_("Project File")
     )
     status = models.CharField(
         max_length=20,

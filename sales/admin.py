@@ -9,10 +9,11 @@ from .models import (
 from unfold.admin import TabularInline, StackedInline
 from configurator.models import Configuration
 from configurator.admin.configuration import AppliedTaxInline
-from django.shortcuts import redirect
-from django.urls import reverse
+from django.shortcuts import redirect, render
+from django.urls import reverse, path
 from unfold.decorators import action
 from core.admin.company_admin import CompanyRestrictedAdmin
+from management.views import QuoteAcceptanceWizardView
 
 @admin.register(SaleZone)
 class SaleZoneAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -170,11 +171,11 @@ class DeliveryOrderItemInline(TabularInline):
     tab = True
 
 @admin.register(DeliveryOrder)
-class DeliveryOrderAdmin(ModelAdmin):
+class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ["number", "incremental_id", "get_status_label", "company", "client", "date", "sales_invoice"]
     list_filter = ["company", "status", "date"]
     search_fields = ["number", "client__name"]
-    autocomplete_fields = ["company", "client", "sales_invoice", "configuration"]
+    autocomplete_fields = ["company", "client", "sales_invoice", "configuration", "project_file"]
     inlines = [DeliveryOrderItemInline]
     readonly_fields = ["number", "date"]
 
@@ -182,17 +183,14 @@ class DeliveryOrderAdmin(ModelAdmin):
         description=_("Status"),
         ordering="status",
         label={
-            _(DeliveryOrderStatus.DRAFT): "warning",  # green
-            _(DeliveryOrderStatus.DELIVERED): "success",  # green
-            _(DeliveryOrderStatus.SENT): "info",  # blue
-            _(DeliveryOrderStatus.CANCELLED): "danger",  # orange
+            _(DeliveryOrderStatus.DRAFT): "warning",  
+            _(DeliveryOrderStatus.DELIVERED): "success",  
+            _(DeliveryOrderStatus.SENT): "info",  
+            _(DeliveryOrderStatus.CANCELLED): "danger",  
         },
     )
     def get_status_label(self, obj):
         return obj.status
-
-
-
 
 class QuoteItemInline(TabularInline):
     model = QuoteItem
@@ -216,11 +214,12 @@ class ConfigurationReadOnlyInline(TabularInline):
 
 @admin.register(Quote)
 class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["id", "client", "project_name", "status", "total_price_display", "company"]
+    list_display = ["id", "client", "project_name","project_file", "status", "total_price_display", "company"]
     list_filter = ["status", "company", "created_at"]
     search_fields = ["project_name", "client__name", "id"]
-    autocomplete_fields = ["client"]
-    readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown", "company"]
+    autocomplete_fields = ["client", "project_file","company"]
+    readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown"]
+    list_select_related = ["client", "project_file", "company"]
     
     inlines = [ConfigurationReadOnlyInline, QuoteItemInline, AppliedTaxInline]
 
@@ -231,6 +230,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
             "fields": (
                 ("client", "status"),
                 ("project_name", "company"),
+                "project_file",
                 "expires_at"
             )
         }),
@@ -255,3 +255,24 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         form.instance.recalc_totals()
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:quote_id>/accept-wizard/",
+                self.admin_site.admin_view(QuoteAcceptanceWizardView.as_view()),
+                name="sales_quote_acceptance_wizard",
+            ),
+        ]
+        return custom_urls + urls
+
+    def response_change(self, request, obj):
+        if obj.status == "accepted" and not obj.project_file:
+            return redirect("admin:sales_quote_acceptance_wizard", quote_id=obj.pk)
+        return super().response_change(request, obj)
+
+    def response_add(self, request, obj, post_url_continue=None):
+        if obj.status == "accepted" and not obj.project_file:
+            return redirect("admin:sales_quote_acceptance_wizard", quote_id=obj.pk)
+        return super().response_add(request, obj, post_url_continue)

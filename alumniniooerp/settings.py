@@ -96,6 +96,7 @@ INSTALLED_APPS = [
     'hijack',
     'hijack.contrib.admin',
     'company',
+    'management',
 ]
 
 MIDDLEWARE = [
@@ -350,6 +351,21 @@ UNFOLD = {
         "show_search": True,  
         "show_all_applications": True,  
         "navigation": [
+            {
+                "title": _("Management"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Expedientes"),
+                        "icon": "folder_open",
+                        "link": reverse_lazy("admin:management_projectfile_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "management.view_projectfile"
+                        ),
+                    },
+                ],
+            },
             {
                 "title": _("Quote"),
                 "separator": True,

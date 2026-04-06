@@ -59,6 +59,14 @@ class Invoice(models.Model):
         choices=PaymentMethod.choices,
         default=PaymentMethod.TRANSFER
     )
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="purchase_invoices",
+        verbose_name=_("Project File")
+    )
 
     observations = models.TextField(blank=True, null=True)
 
@@ -354,6 +362,14 @@ class SalesInvoice(CompanyOwnedModel):
         blank=True, 
         related_name='sales_invoices',
         verbose_name=_("Configuration")
+    )
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sales_invoices",
+        verbose_name=_("Project File")
     )
     
     subtotal_amount = MoneyField(

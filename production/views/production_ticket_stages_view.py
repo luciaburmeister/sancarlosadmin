@@ -106,7 +106,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
         item_current_stages = {}
         for it in items:
-            planning = it.planning or {}
+            planning = {unicodedata.normalize("NFC", k): v for k, v in (it.planning or {}).items()}
             current_s = None
 
             for sname in stage_order:
@@ -157,7 +157,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
                     if not self._stage_applies_to_item(item, stage_name, stage_component_map):
                         continue
 
-                    planning = item.planning or {}
+                    planning = {unicodedata.normalize("NFC", k): v for k, v in (item.planning or {}).items()}
                     info = planning.get(stage_name) or {}
                     status = info.get("status") or ProductionItemStatus.PENDING
                     status_groups.setdefault(status, []).append(item)
@@ -209,7 +209,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             if not self._stage_applies_to_item(item, stage_name, stage_component_map):
                 continue
 
-            planning = item.planning or {}
+            planning = {unicodedata.normalize("NFC", k): v for k, v in (item.planning or {}).items()}
             info = planning.get(stage_name) or {}
             status = info.get("status") or ProductionItemStatus.PENDING
             infos.append((item, info, status))

@@ -194,7 +194,7 @@ class StagesToSessionsService:
 
     @classmethod
     def _save_planning(cls, production_item: ProductionItem, stage_name: str, stage_info: dict):
-        planning = production_item.planning or {}
+        planning = {unicodedata.normalize("NFC", k): v for k, v in (production_item.planning or {}).items()}
         planning[stage_name] = stage_info
 
         production_item.planning = planning

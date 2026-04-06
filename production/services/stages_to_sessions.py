@@ -11,10 +11,13 @@ from production.models import (
 from company.models import Employee
 
 
+import unicodedata
+
 class StagesToSessionsService:
 
     @classmethod
     def start_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+        stage_name = unicodedata.normalize("NFC", stage_name)
         if employee is None:
             raise ValidationError("No employee provided to start activity.")
 
@@ -45,6 +48,7 @@ class StagesToSessionsService:
 
     @classmethod
     def finish_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+        stage_name = unicodedata.normalize("NFC", stage_name)
         now = timezone.now()
 
         for item in items:
@@ -77,6 +81,7 @@ class StagesToSessionsService:
 
     @classmethod
     def start_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+        stage_name = unicodedata.normalize("NFC", stage_name)
         now = timezone.now()
 
         for item in items:
@@ -109,6 +114,7 @@ class StagesToSessionsService:
 
     @classmethod
     def end_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+        stage_name = unicodedata.normalize("NFC", stage_name)
         for item in items:
             session = (
                 ProductionItemSession.objects.filter(
@@ -130,12 +136,19 @@ class StagesToSessionsService:
 
     @classmethod
     def _get_current_stage(cls, production_item: ProductionItem, requested_stage: str | None = None):
+        if requested_stage:
+            requested_stage = unicodedata.normalize("NFC", requested_stage)
+
         planning = production_item.planning or {}
+        # Normalize planning keys for comparison
+        planning = {unicodedata.normalize("NFC", k): v for k, v in planning.items()}
 
         ticket = production_item.ticket
         config = ticket.source_object
         product = getattr(config, "product", None)
         stage_names = list(getattr(product, "production_stages", []) or [])
+        # Normalize known stage names
+        stage_names = [unicodedata.normalize("NFC", s) for s in stage_names]
 
         if not stage_names:
             return None, None

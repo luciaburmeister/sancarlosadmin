@@ -11,6 +11,11 @@ from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.utils.translation import gettext_lazy as _
 
+@shared_task(name="debug_env")
+def debug_env():
+    import os
+    return {k: v for k, v in os.environ.items() if "EMAIL" in k}
+
 
 @shared_task(name="company.tasks.send_document_reminders")
 def send_document_reminders():

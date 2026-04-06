@@ -23,8 +23,8 @@ from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from accounting.tasks import classify_invoice_accounts
-from django.shortcuts import render
-from invoices.views.taxtype.merge_tax_type import MergeTaxTypeAdminView
+from core.admin.company_admin import CompanyRestrictedAdmin
+
 
 
 
@@ -80,7 +80,7 @@ class TaxTypeAdmin(ModelAdmin):
         return redirect(reverse("admin:invoices_taxtype_merge") + f"?ids={ids}")
 
 @admin.register(IncomingInvoice)
-class IncomingInvoiceAdmin(ModelAdmin):
+class IncomingInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = ("file_hash", "company", "sender_email", "created_at", "processed")
     list_filter = ("company", "processed", "created_at")
     search_fields = ("file_hash", "source_email_id", "sender_email")
@@ -139,7 +139,7 @@ class InvoiceItemInline(StackedInline):
 
 
 @admin.register(Invoice)
-class InvoiceAdmin(ModelAdmin):
+class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = (
         "invoice_number",
         "provider",
@@ -281,7 +281,7 @@ class SalesInvoiceItemInline(TabularInline):
     readonly_fields = ("line_total",)
 
 @admin.register(SalesInvoice)
-class SalesInvoiceAdmin(ModelAdmin):
+class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     custom_urls = (
         (
             "autocomplete/taxtype/",

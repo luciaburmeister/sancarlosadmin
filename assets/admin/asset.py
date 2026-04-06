@@ -9,6 +9,8 @@ from assets.models import Asset, AssetIdentifier, AssetTransaction, AssetDocumen
 from unfold.widgets import UnfoldAdminSelectWidget
 from django.urls import resolve
 from django.utils.html import format_html
+from django.http import HttpResponse
+from assets.utils import generate_asset_qr_grid
 from company.forms import BaseDocumentForm
 
 
@@ -99,6 +101,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     list_filter = ("asset_type", "client", "provider", "assigned_to")
     search_fields = ("name", "identifiers__value")
     inlines = [AssetIdentifierInline, AssetTransactionInline, AssetDocumentInline]
+    actions = ["download_qr_grid"]
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
     }
@@ -150,3 +153,15 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     def get_identifiers(self, obj):
         return ", ".join([f"{i.label}: {i.value}" for i in obj.identifiers.all()])
     get_identifiers.short_description = _("Identifiers")
+
+    @admin.action(description=_("Download QR Grid"))
+    def download_qr_grid(self, request, queryset):
+        """Action to download a grid of QR codes for the selected assets."""
+        buffer = generate_asset_qr_grid(queryset)
+        if not buffer:
+            self.message_user(request, _("No selected assets for generation."), level="error")
+            return None
+            
+        response = HttpResponse(buffer.getvalue(), content_type="image/png")
+        response["Content-Disposition"] = 'attachment; filename="assets_qr_grid.png"'
+        return response

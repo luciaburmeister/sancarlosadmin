@@ -16,12 +16,13 @@ import unicodedata
 class StagesToSessionsService:
 
     @classmethod
-    def start_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+    def start_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
         stage_name = unicodedata.normalize("NFC", stage_name)
         if employee is None:
             raise ValidationError("No employee provided to start activity.")
 
         now = timezone.now()
+        count = 0
 
         for item in items:
             current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
@@ -45,11 +46,14 @@ class StagesToSessionsService:
                 created_by=employee,
                 kind=ProductionItemSessionKind.ACTIVITY_STARTED,
             )
+            count += 1
+        return count
 
     @classmethod
-    def finish_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+    def finish_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
         stage_name = unicodedata.normalize("NFC", stage_name)
         now = timezone.now()
+        count = 0
 
         for item in items:
             current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
@@ -78,11 +82,14 @@ class StagesToSessionsService:
             stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
             stage_info["completed_at"] = now.isoformat()
             cls._save_planning(item, stage_name, stage_info)
+            count += 1
+        return count
 
     @classmethod
-    def start_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+    def start_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
         stage_name = unicodedata.normalize("NFC", stage_name)
         now = timezone.now()
+        count = 0
 
         for item in items:
             current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
@@ -111,10 +118,13 @@ class StagesToSessionsService:
                 created_by=employee,
                 kind=ProductionItemSessionKind.SESSION_STARTED,
             )
+            count += 1
+        return count
 
     @classmethod
-    def end_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+    def end_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
         stage_name = unicodedata.normalize("NFC", stage_name)
+        count = 0
         for item in items:
             session = (
                 ProductionItemSession.objects.filter(
@@ -132,6 +142,8 @@ class StagesToSessionsService:
 
             session.kind = ProductionItemSessionKind.SESSION_FINISHED
             session.finish(completed_by=employee)
+            count += 1
+        return count
 
 
     @classmethod

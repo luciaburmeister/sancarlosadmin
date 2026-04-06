@@ -181,7 +181,7 @@ EMAIL_PORT = 587
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+BACKEND_URL = os.getenv("BACKEND_URL", "https://erp.polipusolutions.com")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 POPPLER_PATH = "/opt/homebrew/bin"  # adjust for your system

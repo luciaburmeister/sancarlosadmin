@@ -9,7 +9,6 @@ def get_company_context(company) -> Dict[str, Any]:
         return {
             "company": None,
             "company_data": {},
-            "bank_account": None,
         }
 
     company_data = {
@@ -22,12 +21,15 @@ def get_company_context(company) -> Dict[str, Any]:
         "logo": company.logo.url if company.logo and hasattr(company.logo, 'url') else None,
     }
 
-    # Fetch default bank account
-    bank_account = None
+    result = {
+        "company": company,
+        "company_data": company_data,
+    }
+
     if hasattr(company, "bankaccounts"):
         default_bank = company.bankaccounts.filter(is_default=True).first()
         if default_bank:
-            bank_account = {
+            result["bank_account"] = {
                 "bank_name": default_bank.bank_name,
                 "holder_name": default_bank.holder_name,
                 "iban": default_bank.iban,
@@ -38,8 +40,4 @@ def get_company_context(company) -> Dict[str, Any]:
                 "country": str(default_bank.country) if default_bank.country else None,
             }
 
-    return {
-        "company": company,
-        "company_data": company_data,
-        "bank_account": bank_account,
-    }
+    return result

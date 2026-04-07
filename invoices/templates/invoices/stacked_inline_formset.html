@@ -1,0 +1,59 @@
+{% load crispy_forms_tags crispy_forms_utils crispy_forms_field i18n %}
+
+{% specialspaceless %}
+    {% include "unfold_crispy/errors_formset.html" %}
+
+    <div {% if form_id %} id="{{ form_id }}"{% endif %}>
+        {{ formset.management_form|crispy }}
+
+        <div id="{{ formset_id }}-rows" class="space-y-4">
+            {% for form in formset %}
+                <div class="border border-base-200 p-4 rounded-default shadow-xs dark:border-base-800 bg-white dark:bg-base-900 relative">
+                    {% if form_show_errors and form.non_field_errors and not form.is_extra %}
+                        <div class="mb-4">
+                            {% include "unfold_crispy/errors.html" %}
+                        </div>
+                    {% endif %}
+                    
+                    {% crispy form %}
+                </div>
+            {% endfor %}
+        </div>
+
+        {% if form_add and formset_id %}
+            <div class="hidden" id="{{ formset_id }}-empty-form-wrapper">
+                <div class="empty-form border border-base-200 p-4 rounded-default shadow-xs dark:border-base-800 bg-white dark:bg-base-900 relative">
+                    {% crispy formset.empty_form %}
+                </div>
+            </div>
+
+            <div class="mt-4 flex justify-end">
+                <button type="button" id="{{ formset_id }}-add-row-button" class="border border-base-200 font-medium px-4 py-2 rounded-default transition-all w-full hover:bg-base-50 lg:block lg:w-auto dark:border-base-700 dark:hover:text-base-200 dark:hover:bg-base-900 text-sm">
+                    {% trans "Add item" %}
+                </button>
+            </div>
+        {% endif %}
+    </div>
+
+    {% if form_add and formset_id %}
+        <script>
+            document.getElementById('{{ formset_id }}-add-row-button').addEventListener('click', function() {
+                const formTotalEl = document.querySelector(`#{{ formset_id }} input[name*="TOTAL_FORMS"]`)
+                const formCount = parseInt(formTotalEl.value);
+                const emptyFormWrapper = document.getElementById('{{ formset_id }}-empty-form-wrapper');
+                const newForm = emptyFormWrapper.querySelector('.empty-form').cloneNode(true);
+
+                newForm.classList.remove('empty-form');
+                newForm.innerHTML = newForm.innerHTML.replaceAll(/__prefix__/g, formCount);
+
+                document.getElementById('{{ formset_id }}-rows').appendChild(newForm);
+
+                formTotalEl.value = formCount + 1;
+
+                newForm.dispatchEvent(new CustomEvent('formset:added', {
+                    bubbles: true
+                }));
+            });
+        </script>
+    {% endif %}
+{% endspecialspaceless %}

@@ -9,6 +9,8 @@ from assets.models import Asset, AssetIdentifier, AssetTransaction, AssetDocumen
 from unfold.widgets import UnfoldAdminSelectWidget
 from django.urls import resolve
 from django.utils.html import format_html
+from django.http import HttpResponse
+from assets.utils import generate_asset_qr_grid
 from company.forms import BaseDocumentForm
 
 
@@ -24,6 +26,7 @@ class AssetDocumentInline(StackedInline):
     extra = 0
     tab = True
     exclude = ["company"]
+    autocomplete_fields = ["document_type"]
 
     fieldsets = (
         (None, {
@@ -53,11 +56,9 @@ class AssetIdentifierInline(TabularInline):
                 resolved = resolve(request.path_info)
                 object_id = resolved.kwargs.get("object_id")
                 if object_id:
-                    # Case: Editing existing asset
                     asset = Asset.objects.select_related("company").get(pk=object_id)
                     labels = asset.company.asset_identifier_labels
                 else:
-                    # Case: Adding new asset
                     from core.admin.company_access import get_user_companies
                     companies = get_user_companies(request.user)
                     if companies.count() == 1:
@@ -96,14 +97,15 @@ class AssetTransactionInline(StackedInline):
 
 @admin.register(Asset)
 class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
-    list_display = ("name", "asset_type", "client", "assigned_to", "qr_link", "get_identifiers")
-    list_filter = ("asset_type", "client", "assigned_to")
+    list_display = ("name", "asset_type", "client", "provider", "assigned_to", "qr_link", "get_identifiers")
+    list_filter = ("asset_type", "client", "provider", "assigned_to")
     search_fields = ("name", "identifiers__value")
     inlines = [AssetIdentifierInline, AssetTransactionInline, AssetDocumentInline]
+    actions = ["download_qr_grid"]
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
     }
-    autocomplete_fields = ["asset_type", "client", "company", "current_working_zone","assigned_to"]
+    autocomplete_fields = ["asset_type", "client", "company", "current_working_zone", "assigned_to", "provider"]
     readonly_fields = ("qr_code_preview",)
     fieldsets = (
         (
@@ -112,9 +114,9 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
                 "fields": (
                     ("name", "asset_type"),
                     ("client", "company"),
+                    ("assigned_to", "provider"),
                     ("current_working_zone"),
-                    ("assigned_to"),
-                    "data",
+                    "description",
                 )
             },
         ),
@@ -151,3 +153,15 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     def get_identifiers(self, obj):
         return ", ".join([f"{i.label}: {i.value}" for i in obj.identifiers.all()])
     get_identifiers.short_description = _("Identifiers")
+
+    @admin.action(description=_("Download QR Grid"))
+    def download_qr_grid(self, request, queryset):
+        """Action to download a grid of QR codes for the selected assets."""
+        buffer = generate_asset_qr_grid(queryset)
+        if not buffer:
+            self.message_user(request, _("No selected assets for generation."), level="error")
+            return None
+            
+        response = HttpResponse(buffer.getvalue(), content_type="image/png")
+        response["Content-Disposition"] = 'attachment; filename="assets_qr_grid.png"'
+        return response

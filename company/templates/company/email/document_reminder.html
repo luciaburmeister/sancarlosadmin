@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f4f7f6; margin: 0; padding: 0; }
+        .container { padding: 40px; max-width: 800px; margin: 20px auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
+        th { background-color: #f8f9fa; color: #2c3e50; font-weight: 600; }
+        .btn { display: inline-block; padding: 6px 12px; background-color: #3498db; color: #ffffff !important; text-decoration: none; border-radius: 4px; font-size: 0.85em; }
+        .btn:hover { background-color: #2980b9; }
+        .footer { margin-top: 40px; font-size: 0.85em; color: #7f8c8d; border-top: 1px solid #eee; padding-top: 20px; }
+        .expiry-date { font-weight: bold; color: #e74c3c; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Recordatorio de Expiración de Documentos</h2>
+        <p>Hola,</p>
+        <p>Este es un resumen de los documentos de <strong>{{ company_name }}</strong> que están próximos a expirar o ya han expirado:</p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Tipo de Documento</th>
+                    <th>Propietario / Elemento</th>
+                    <th>Categoría</th>
+                    <th>Fecha Expiración</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in document_list %}
+                <tr>
+                    <td>{{ item.doc_type_name }}</td>
+                    <td>{{ item.owner_name }}</td>
+                    <td>{{ item.model_label }}</td>
+                    <td class="expiry-date">{{ item.expiry_date }}</td>
+                    <td>
+                        <a href="{{ item.admin_url }}" class="btn">Ver en Admin</a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <p>Por favor, asegúrese de que estos documentos sean renovados y actualizados en el sistema lo antes posible.</p>
+        
+        <div class="footer">
+            <p>Este es un mensaje generado automáticamente por su sistema <strong>ERP Polipus</strong>.</p>
+        </div>
+    </div>
+</body>
+</html>

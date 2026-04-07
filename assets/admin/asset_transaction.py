@@ -16,3 +16,4 @@ class AssetTransactionAdmin(ModelAdmin):
     search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes")
     autocomplete_fields = ["asset", "from_zone", "to_zone"]
     exclude = ["company"]
+    

@@ -1,0 +1,244 @@
+{% extends "admin/inventory/movement_base.html" %}
+{% load i18n unfold %}
+
+{% block form_actions %}{% endblock %}
+
+{% block form_sections %}
+<div
+  class="border border-base-200 dark:border-base-800 rounded-default shadow-xs overflow-hidden bg-white dark:bg-base-900"
+  x-data="{
+    step: 1,
+    totalSteps: 4,
+    stepLabels: ['{% trans "Invoice" %}', '{% trans "Destination" %}', '{% trans "Quantity" %}', '{% trans "Notes" %}']
+  }"
+>
+
+  {# ── Step indicator ── #}
+  <div class="px-6 py-5 border-b border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02]">
+    <div class="flex items-center">
+      <template x-for="(label, i) in stepLabels" :key="i">
+        <div class="flex items-center" :class="i < stepLabels.length - 1 ? 'flex-1' : ''">
+          <div class="flex flex-col items-center gap-1.5 shrink-0">
+            <div
+              class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors duration-200"
+              :class="{
+                'bg-primary-600 text-white shadow-sm': step === i + 1,
+                'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-400': step > i + 1,
+                'bg-base-200 dark:bg-base-700 text-font-subtle-light dark:text-font-subtle-dark': step < i + 1
+              }"
+            >
+              <template x-if="step > i + 1">
+                <span class="material-symbols-outlined text-[15px] leading-none">check</span>
+              </template>
+              <template x-if="step <= i + 1">
+                <span x-text="i + 1"></span>
+              </template>
+            </div>
+            <span
+              class="text-xs font-medium transition-colors duration-200 whitespace-nowrap"
+              :class="{
+                'text-primary-600 dark:text-primary-400 font-semibold': step === i + 1,
+                'text-font-subtle-light dark:text-font-subtle-dark': step !== i + 1
+              }"
+              x-text="label"
+            ></span>
+          </div>
+          <template x-if="i < stepLabels.length - 1">
+            <div
+              class="flex-1 h-px mx-3 mt-[-14px] transition-colors duration-200"
+              :class="step > i + 1 ? 'bg-primary-400 dark:bg-primary-600' : 'bg-base-200 dark:bg-base-700'"
+            ></div>
+          </template>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  {# ── Step content ── #}
+  <div class="px-6 py-6 min-h-[200px]">
+
+    {# ── Step 1: Invoice + Supplier + Date ── #}
+    <div x-show="step === 1" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-x-2" x-transition:enter-end="opacity-100 translate-x-0">
+      {% if form.invoice.errors or form.supplier.errors or form.received_date.errors %}
+      <div class="mb-4 flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-default px-3 py-2">
+        <span class="material-symbols-outlined text-base leading-none">warning</span>
+        {% trans "Please fix the errors in this step before continuing." %}
+      </div>
+      {% endif %}
+
+      {# Invoice row — full width #}
+      <div class="mb-5">
+        {% include "unfold/helpers/field.html" with field=form.invoice %}
+
+      </div>
+
+      {# Supplier + Date row #}
+      <div class="grid lg:grid-cols-2 gap-6">
+        <div id="supplier-field-wrapper">
+          {% include "unfold/helpers/field.html" with field=form.supplier %}
+
+        </div>
+        <div>
+          {% include "unfold/helpers/field.html" with field=form.received_date %}
+        </div>
+      </div>
+    </div>
+
+    {# ── Step 2: Destination ── #}
+    <div x-show="step === 2" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-x-2" x-transition:enter-end="opacity-100 translate-x-0">
+      {% if form.warehouse.errors %}
+      <div class="mb-4 flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-default px-3 py-2">
+        <span class="material-symbols-outlined text-base leading-none">warning</span>
+        {% trans "Please fix the errors in this step before continuing." %}
+      </div>
+      {% endif %}
+      <div class="lg:max-w-sm">
+        {% include "unfold/helpers/field.html" with field=form.warehouse %}
+      </div>
+    </div>
+
+    {# ── Step 3: Quantity ── #}
+    <div x-show="step === 3" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-x-2" x-transition:enter-end="opacity-100 translate-x-0">
+      {% if form.quantity.errors %}
+      <div class="mb-4 flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-default px-3 py-2">
+        <span class="material-symbols-outlined text-base leading-none">warning</span>
+        {% trans "Please fix the errors in this step before continuing." %}
+      </div>
+      {% endif %}
+      <div class="grid lg:grid-cols-2 gap-6">
+        <div>{% include "unfold/helpers/field.html" with field=form.quantity %}</div>
+        <div>
+          <label class="block font-semibold mb-2 text-font-important-light dark:text-font-important-dark text-sm">{% trans "Stock Impact" %}</label>
+          <div class="border border-base-200 dark:border-base-800 rounded-default bg-base-50 dark:bg-base-800 px-4 py-3 shadow-xs">
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-center flex-1">
+                <p class="text-xs text-font-subtle-light dark:text-font-subtle-dark uppercase tracking-wider mb-1">{% trans "Current" %}</p>
+                <p class="text-2xl font-bold font-mono {% if stock_on_hand > 0 %}text-green-600 dark:text-green-400{% elif stock_on_hand < 0 %}text-red-600 dark:text-red-400{% else %}text-font-subtle-light dark:text-font-subtle-dark{% endif %}">{{ stock_on_hand }}</p>
+              </div>
+              <span class="material-symbols-outlined text-xl text-green-500 dark:text-green-400 shrink-0">add</span>
+              <div class="text-center flex-1">
+                <p class="text-xs text-font-subtle-light dark:text-font-subtle-dark uppercase tracking-wider mb-1">{% trans "Receiving" %}</p>
+                <p class="text-2xl font-bold font-mono text-green-600 dark:text-green-400" id="qty-preview">—</p>
+              </div>
+              <span class="material-symbols-outlined text-xl text-font-subtle-light dark:text-font-subtle-dark shrink-0">arrow_forward</span>
+              <div class="text-center flex-1">
+                <p class="text-xs text-font-subtle-light dark:text-font-subtle-dark uppercase tracking-wider mb-1">{% trans "After" %}</p>
+                <p class="text-2xl font-bold font-mono text-font-important-light dark:text-font-important-dark" id="qty-after">—</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    {# ── Step 4: Notes ── #}
+    <div x-show="step === 4" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-x-2" x-transition:enter-end="opacity-100 translate-x-0">
+      {% include "unfold/helpers/field.html" with field=form.note %}
+    </div>
+
+  </div>
+
+  {# ── Wizard navigation ── #}
+  <div class="px-6 py-4 border-t border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02] flex items-center justify-between">
+    <div>
+      <a
+        x-show="step === 1"
+        href="{{ cancel_url }}"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-default text-sm font-medium border border-base-300 dark:border-base-600 bg-white dark:bg-base-800 text-font-default-light dark:text-font-default-dark hover:bg-base-50 dark:hover:bg-base-700 transition-colors no-underline"
+      >
+        <span class="material-symbols-outlined text-[16px] leading-none">arrow_back</span>
+        {% trans "Cancel" %}
+      </a>
+      <button
+        type="button"
+        x-show="step > 1"
+        @click="step--"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-default text-sm font-medium border border-base-300 dark:border-base-600 bg-white dark:bg-base-800 text-font-default-light dark:text-font-default-dark hover:bg-base-50 dark:hover:bg-base-700 transition-colors"
+      >
+        <span class="material-symbols-outlined text-[16px] leading-none">arrow_back</span>
+        {% trans "Previous" %}
+      </button>
+    </div>
+
+    <span class="text-xs text-font-subtle-light dark:text-font-subtle-dark font-medium">
+      <span x-text="step"></span> / <span x-text="totalSteps"></span>
+    </span>
+
+    <div>
+      <button
+        type="button"
+        x-show="step < totalSteps"
+        @click="step++"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-default text-sm font-medium bg-primary-600 hover:bg-primary-700 text-white transition-colors"
+      >
+        {% trans "Next" %}
+        <span class="material-symbols-outlined text-[16px] leading-none">arrow_forward</span>
+      </button>
+      <button
+        type="submit"
+        x-show="step === totalSteps"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-default text-sm font-medium bg-primary-600 hover:bg-primary-700 text-white transition-colors"
+      >
+        <span class="material-symbols-outlined text-[16px] leading-none">download</span>
+        {% trans "Confirm Receipt" %}
+      </button>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  // ── Stock impact preview ──────────────────────────────────────────────────
+  var qtyInput  = document.querySelector('input[name="quantity"]');
+  var previewEl = document.getElementById('qty-preview');
+  var afterEl   = document.getElementById('qty-after');
+  var current   = {{ stock_on_hand|default:0 }};
+
+  function updateQty() {
+    var val = parseInt(qtyInput ? qtyInput.value : '', 10);
+    if (!isNaN(val) && val > 0) {
+      previewEl.textContent = '+' + val;
+      afterEl.textContent   = (current + val).toString();
+    } else {
+      previewEl.textContent = '—';
+      afterEl.textContent   = '—';
+    }
+  }
+  if (qtyInput) { qtyInput.addEventListener('input', updateQty); updateQty(); }
+
+  // ── Invoice → Supplier autocomplete ──────────────────────────────────────
+  var invoiceSelect  = document.querySelector('select[name="invoice"]');
+  var supplierSelect = document.querySelector('select[name="supplier"]');
+  var autofillHint   = document.getElementById('supplier-autofill-hint');
+  var infoUrl        = '{{ invoice_info_url }}';
+
+  if (invoiceSelect && supplierSelect) {
+    invoiceSelect.addEventListener('change', function () {
+      var invoiceId = this.value;
+      if (!invoiceId) return;
+
+      fetch(infoUrl + '?invoice_id=' + invoiceId, {
+        headers: { 'X-Requested-With': 'XMLHttpRequest' }
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.provider_id) {
+          supplierSelect.value = data.provider_id;
+          // Show the "auto-filled" hint
+          if (autofillHint) autofillHint.style.display = 'block';
+        }
+      })
+      .catch(function () {});
+    });
+
+    // Hide autofill hint if user manually changes supplier
+    supplierSelect.addEventListener('change', function () {
+      if (autofillHint) autofillHint.style.display = 'none';
+    });
+  }
+});
+</script>
+{% endblock %}

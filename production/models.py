@@ -50,6 +50,14 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
         blank=True,
         verbose_name=_("Work Order PDF")
     )
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="production_tickets",
+        verbose_name=_("Project File")
+    )
 
 
     def __str__(self):

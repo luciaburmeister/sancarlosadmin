@@ -1,4 +1,5 @@
 from django.db import models
+import unicodedata
 from djmoney.models.fields import MoneyField
 from sales.models import Client
 from timestamps.models import Timestampable
@@ -19,8 +20,8 @@ from company.models import CompanyOwnedModel
 from invoices.models import AppliedTax
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
-from django.db.models import Q
-
+from django.db.models import Q, F
+from django.template import engines
 
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")
@@ -96,11 +97,19 @@ class ProductTemplate(CompanyOwnedModel):
         editable=False,
         verbose_name=_("Planning configured"),
     )
+    show_in_configurator = models.BooleanField(
+        default=True,
+        verbose_name=_("Show in configurator"),
+        help_text=_("If false, this template will not be shown in the manual configuration creation list.")
+    )
 
     class Meta:
         verbose_name = _("Product template")
         verbose_name_plural = _("Product templates")
         permissions = [("configure_stage_resources", _("Configure stage resources"))]
+        indexes = [
+            models.Index(fields=["show_in_configurator","company"]),
+        ]
 
     def __str__(self):
         return self.name
@@ -169,6 +178,8 @@ class ProductTemplate(CompanyOwnedModel):
             self._clone_computed_variables(product_copy)
 
             self._clone_export_templates(product_copy)
+
+            self._clone_computed_templates(product_copy)
 
             return product_copy
 
@@ -247,6 +258,22 @@ class ProductTemplate(CompanyOwnedModel):
         ConfigurationExportTemplate.objects.bulk_create(templates)
 
 
+    def _clone_computed_templates(self, product_copy):
+        templates = []
+        for t in self.computed_templates.all():
+            templates.append(
+                ProductComputedTemplate(
+                    company=product_copy.company,
+                    product=product_copy,
+                    name=t.name,
+                    condition_expression=t.condition_expression,
+                    template=t.template,
+                    order=t.order,
+                )
+            )
+        ProductComputedTemplate.objects.bulk_create(templates)
+
+
 class ProductTemplateComponentGroup(models.Model):
     product_template = models.ForeignKey(
         "configurator.ProductTemplate",
@@ -274,6 +301,25 @@ class ProductTemplateComponentGroup(models.Model):
 
     def __str__(self) -> str:
         return f"{self.product_template} — {self.stage}"
+
+    def clean(self):
+        super().clean()
+        if not self.stage:
+            return
+
+        self.stage = unicodedata.normalize("NFC", self.stage.strip())
+
+        if self.product_template:
+            valid_stages = self.product_template.production_stages or []
+            if self.stage not in valid_stages:
+                raise ValidationError(
+                    {
+                        "stage": _(
+                            "Stage '%(stage)s' is not defined in the product template stages."
+                        )
+                        % {"stage": self.stage}
+                    }
+                )
 
 
 class ParameterType(models.TextChoices):
@@ -384,7 +430,7 @@ class BOMRule(CompanyOwnedModel):
     )
 
     description = models.CharField(
-        max_length=40, null=True, blank=True, verbose_name=_("Description")
+        max_length=100, null=True, blank=True, verbose_name=_("Description")
     )
 
     production_stages = ArrayField(
@@ -430,6 +476,9 @@ class BOMRule(CompanyOwnedModel):
                 except ValueError as e:
                     errors[field_name] = f"Invalid expression: {e}"
         if self.production_stages:
+            self.production_stages = [
+                unicodedata.normalize("NFC", s.strip()) for s in self.production_stages
+            ]
             product_stages = set(self.product.production_stages or [])
             rule_stages = set(self.production_stages)
 
@@ -493,6 +542,15 @@ class Configuration(Timestampable, CompanyOwnedModel):
         null=True,
         blank=True,
         verbose_name=_("Client"),
+    )
+
+    quote = models.ForeignKey(
+        'sales.Quote',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='configurations',
+        verbose_name=_("Quote"),
     )
 
     name = models.CharField(
@@ -560,6 +618,16 @@ class Configuration(Timestampable, CompanyOwnedModel):
         ),
     )
 
+    rendered_templates = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Rendered templates"),
+        help_text=_(
+            "HTML/SVG templates rendered at pricing time. "
+            "Used for exports."
+        ),
+    )
+
     asset = models.ForeignKey(
         "assets.Asset",
         on_delete=models.SET_NULL,
@@ -567,6 +635,13 @@ class Configuration(Timestampable, CompanyOwnedModel):
         blank=True,
         related_name="configurations",
         verbose_name=_("Asset"),
+    )
+
+    work_order_pdf = models.FileField(
+        upload_to="configurations/work_orders/",
+        null=True,
+        blank=True,
+        verbose_name=_("Work Order PDF")
     )
 
     class Meta:
@@ -637,6 +712,8 @@ class Configuration(Timestampable, CompanyOwnedModel):
         return total, breakdown
 
     def recalculate_price(self):
+        if self.status != ConfigurationStatus.DRAFT:
+            return
         context = self.get_pricing_context()
 
         base_subtotal = Decimal(str(context["base_total"]))
@@ -719,6 +796,9 @@ class Configuration(Timestampable, CompanyOwnedModel):
             "lines": pricing_lines,
         }
 
+        from configurator.services.export.service import ConfigurationExportService
+        self.rendered_templates = ConfigurationExportService.evaluate_configuration_templates(self)
+
         self.save(
             update_fields=[
                 "total_cost",
@@ -726,8 +806,12 @@ class Configuration(Timestampable, CompanyOwnedModel):
                 "total_price",
                 "pricing_breakdown",
                 "tax_breakdown",
+                "rendered_templates",
             ]
         )
+        
+        if getattr(self, 'quote_id', None):
+            self.quote.recalc_totals()
 
     def _evaluate_bom_rule(self, rule, context):
         """
@@ -761,6 +845,8 @@ class Configuration(Timestampable, CompanyOwnedModel):
         return {self._bom_item_key(item.component_id): item for item in items}
 
     def generate_bom(self):
+        if self.status != ConfigurationStatus.DRAFT:
+            return
         """
         Incrementally reconciles BOM rules with existing ConfigurationItems.
 
@@ -987,7 +1073,7 @@ class ConfigurationFlow:
             ConfigurationToProductionService,
         )
 
-        ConfigurationToProductionService.create_ticket(self.configuration)
+        return ConfigurationToProductionService.create_ticket(self.configuration)
 
     @state.transition(
         source=ConfigurationStatus.COMPLETED,
@@ -998,7 +1084,7 @@ class ConfigurationFlow:
             ConfigurationToProductionService,
         )
 
-        ConfigurationToProductionService.create_ticket(self.configuration)
+        return ConfigurationToProductionService.create_ticket(self.configuration)
 
     @state.on_success()
     def _persist(self, descriptor, source, target):
@@ -1210,16 +1296,49 @@ class ProductComputedVariable(CompanyOwnedModel):
             raise ValidationError({"expression": f"Invalid expression: {e}"})
 
 
+class ProductComputedTemplate(CompanyOwnedModel):
+    product = models.ForeignKey(
+        ProductTemplate, on_delete=models.CASCADE, related_name="computed_templates"
+    )
+    name = models.CharField(max_length=100)
+    condition_expression = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Condition to evaluate. If true, this template is selected. Example: width > 50"
+    )
+    template = models.TextField(
+        help_text="HTML or SVG code to be injected"
+    )
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["product", "name", "order"]
+
+    def __str__(self):
+        return f"{self.product_id}.{self.name}"
+
+    def clean(self):
+        super().clean()
+
+        expr = (self.condition_expression or "").strip()
+        if expr:
+            try:
+                validate_expression_for_safe_eval(expr)
+            except ValueError as e:
+                raise ValidationError({"condition_expression": f"Invalid expression: {e}"})
+
+
 class ExportTemplateKind(models.TextChoices):
     QUOTATION = "quotation", _("Quotation")
     PRODUCTION_ORDER = "production_order", _("Production Order")
     PRODUCTION_TICKET = "production_ticket", _("Production Ticket")
     SALES_INVOICE = "sales_invoice", _("Sales Invoice")
+    CONSOLIDATED_QUOTATION = "consolidated_quotation", _("Consolidated Quotation")
 
 
 class ConfigurationExportTemplate(CompanyOwnedModel):
     kind = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=ExportTemplateKind.choices,
         default=ExportTemplateKind.QUOTATION,
         verbose_name=_("Kind"),
@@ -1244,10 +1363,10 @@ class ConfigurationExportTemplate(CompanyOwnedModel):
     is_active = models.BooleanField(default=True)
 
     @classmethod
-    def get_default_for_product(cls, product, kind):
+    def get_default_for_product(cls, product, kind, company=None):
         """
-        Look up the most specific default template for a given product and kind.
-        Prioritizes templates explicitly linked to the product.
+        Look up the most specific default template for a given product, kind and company.
+        Prioritizes templates explicitly linked to the product and the company.
         """
         
         templates = cls.objects.filter(
@@ -1256,11 +1375,12 @@ class ConfigurationExportTemplate(CompanyOwnedModel):
             is_active=True
         )
         
-        product_template = templates.filter(product=product).first()
-        if product_template:
-            return product_template
+        if company:
+            templates = templates.filter(Q(company=company) | Q(company__isnull=True))
+        else:
+            templates = templates.filter(company__isnull=True)
             
-        return templates.filter(product__isnull=True).first()
+        return templates.order_by(F('product_id').desc(nulls_last=True), F('company_id').desc(nulls_last=True)).first()
 
     def __str__(self):
         return f"{self.name} (Product {self.product_id or 'Any'})"

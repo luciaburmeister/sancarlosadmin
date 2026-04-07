@@ -17,6 +17,7 @@ import os
 from django.utils.translation import gettext_lazy as _
 from django.templatetags.static import static
 from datetime import timedelta
+from celery.schedules import crontab
 
 load_dotenv()
 
@@ -51,7 +52,6 @@ CACHES = {
 
 ALLOWED_HOSTS = ["*"]
 
-
 # Application definition
 
 INSTALLED_APPS = [
@@ -85,7 +85,6 @@ INSTALLED_APPS = [
     'crispy_forms',
     'viewflow',
     'django_countries',
-    'company',
     'django_celery_results',
     'django_celery_beat',
     'djmoney',
@@ -94,8 +93,10 @@ INSTALLED_APPS = [
     'simple_history',
     'rest_framework',
     'rest_framework_simplejwt',
-    'hijack',
-    'hijack.contrib.admin'
+    'hijack',    
+    'hijack.contrib.admin',
+    'company',
+    'management',
     'vacations'
 ]
 
@@ -179,9 +180,11 @@ AWS_S3_ADDRESSING_STYLE = "virtual"
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.getenv("EMAIL_SMTP_HOST")
 EMAIL_PORT = 587
+EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
-DEFAULT_FROM_EMAIL = os.getenv("EMAIL_HOST_USER")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
+BACKEND_URL = os.getenv("BACKEND_URL", "https://erp.polipusolutions.com")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 POPPLER_PATH = "/opt/homebrew/bin"  # adjust for your system
@@ -201,6 +204,11 @@ DATABASES = {
         
     }
 }
+
+GDAL_LIBRARY_PATH = os.getenv("GDAL_LIBRARY_PATH", "")
+GEOS_LIBRARY_PATH = os.getenv("GEOS_LIBRARY_PATH", "")
+
+
 # Database SSL mode
 DB_SSLMODE = os.getenv("DB_SSLMODE", "require" if not DEBUG else None)
 
@@ -256,7 +264,6 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Europe/Madrid'  
-
 
 # GEMINI API CONFIGURATION
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
@@ -346,10 +353,33 @@ UNFOLD = {
         "show_all_applications": True,  
         "navigation": [
             {
+                "title": _("Management"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Expedientes"),
+                        "icon": "folder_open",
+                        "link": reverse_lazy("admin:management_projectfile_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "management.view_projectfile"
+                        ),
+                    },
+                ],
+            },
+            {
                 "title": _("Quote"),
                 "separator": True,
                 "collapsible": False,
                 "items": [
+                    {
+                        "title": _("Quotes"),
+                        "icon": "request_quote",
+                        "link": reverse_lazy("admin:sales_quote_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "sales.view_quote"
+                        ),
+                    },
                     {
                         "title": _("Configurator"),
                         "icon": "build",
@@ -424,6 +454,16 @@ UNFOLD = {
                         ),
                         "permission": lambda request: request.user.has_perm(
                             "company.view_employee"
+                        )
+                    },
+                    {
+                        "title": _("Customers"),
+                        "icon": "groups",
+                        "link": reverse_lazy(
+                            "admin:sales_client_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "sales.view_client"
                         )
                     },
                 ],

@@ -148,6 +148,7 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
                     "status",
                     ("content_type", "object_id"),
                     "source_object",
+                    "project_file",
                     "work_order_pdf",
                     "context",
                 )

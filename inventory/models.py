@@ -153,6 +153,14 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         on_delete=models.PROTECT,
         related_name="supplied_items",
     )
+    invoice = models.ForeignKey(
+        "invoices.Invoice",
+        verbose_name=_("Invoice"),
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="inventory_items",
+    )
     product_content_type = models.ForeignKey(
         ContentType,
         verbose_name=_("Product Content Type"),
@@ -208,12 +216,115 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
 
     @property
     def stock_on_hand(self) -> int:
-        return self.movements.aggregate(total=models.Sum("quantity_change")).get("total") or 0
+        return self.transactions.aggregate(total=models.Sum("quantity_change")).get("total") or 0
 
+
+class ItemTransaction(Timestampable):
+    """
+    Tracks every state change / physical movement an inventory item goes through.
+
+    quantity_change: positive = stock in, negative = stock out.
+    Use `reference` to link back to the originating document
+    (purchase order, production ticket, transfer order, etc.) via a GenericForeignKey.
+    """
+
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        verbose_name=_("Item"),
+        on_delete=models.PROTECT,
+        related_name="transactions",
+    )
+    warehouse = models.ForeignKey(
+        "inventory.Warehouse",
+        verbose_name=_("Warehouse"),
+        on_delete=models.PROTECT,
+        related_name="transactions",
+    )
+    location = models.ForeignKey(
+        "inventory.StockLocation",
+        verbose_name=_("Stock Location"),
+        on_delete=models.SET_NULL,
+        related_name="transactions",
+        null=True,
+        blank=True,
+        help_text=_("Specific bin / rack / shelf inside the warehouse (optional)."),
+    )
+    movement_type = models.CharField(
+        _("Movement Type"),
+        max_length=10,
+        choices=MovementType.choices,
+        db_index=True,
+    )
+    quantity_change = models.IntegerField(
+        _("Quantity Change"),
+        help_text=_("Positive for stock-in, negative for stock-out."),
+    )
+    # ── Generic FK so any document can be a source ──────────────────────────
+    reference_content_type = models.ForeignKey(
+        ContentType,
+        verbose_name=_("Reference Type"),
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="item_transactions",
+        help_text=_("Type of the originating document (e.g. PurchaseOrder, ProductionTicket)."),
+    )
+    reference_object_id = models.PositiveBigIntegerField(
+        _("Reference ID"),
+        null=True,
+        blank=True,
+        help_text=_("PK of the originating document."),
+    )
+    reference_object = GenericForeignKey("reference_content_type", "reference_object_id")
+
+    user = models.ForeignKey(
+        "auth.User",
+        verbose_name=_("User"),
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        help_text=_("User who recorded the transaction."),
+    )
+    note = models.TextField(_("Note"), blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["created_at"], name="idx_itemtx_created_at"),
+            models.Index(fields=["movement_type"], name="idx_itemtx_type"),
+            models.Index(fields=["item"], name="idx_itemtx_item"),
+            models.Index(fields=["warehouse"], name="idx_itemtx_wh"),
+            models.Index(
+                fields=["reference_content_type", "reference_object_id"],
+                name="idx_itemtx_ref",
+            ),
+        ]
+        verbose_name = _("Item Transaction")
+        verbose_name_plural = _("Item Transactions")
+
+    def __str__(self):
+        return (
+            f"{self.created_at:%Y-%m-%d %H:%M} — {self.item} — "
+            f"{self.get_movement_type_display()} ({self.quantity_change:+d})"
+        )
+
+    def clean(self):
+        super().clean()
+        if bool(self.reference_content_type_id) ^ bool(self.reference_object_id):
+            raise ValidationError(
+                {
+                    "reference_content_type": _(
+                        "Provide both Reference Type and Reference ID, or leave both empty."
+                    )
+                }
+            )
+
+
+# ── Keep the original InventoryMovement for backwards compatibility ──────────
 
 class InventoryMovement(Timestampable):
-    """A stock movement (entry, exit, adjustment, transfer).
-    quantity_change: positive = stock in, negative = stock out."""
+    """Legacy stock movement model — superseded by ItemTransaction.
+    Kept to avoid breaking existing migrations / data."""
 
     movement_type = models.CharField(
         _("Movement Type"),
@@ -255,8 +366,8 @@ class InventoryMovement(Timestampable):
             models.Index(fields=["item"], name="idx_invmov_item"),
             models.Index(fields=["warehouse"], name="idx_invmov_wh"),
         ]
-        verbose_name = _("Inventory Movement")
-        verbose_name_plural = _("Inventory Movements")
+        verbose_name = _("Inventory Movement (legacy)")
+        verbose_name_plural = _("Inventory Movements (legacy)")
 
     def __str__(self):
         return f"{self.created_at:%Y-%m-%d %H:%M} — {self.item} — {self.quantity_change:+d}"

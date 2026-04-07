@@ -10,9 +10,14 @@ from django.contrib import messages
 from core.admin.company_access import get_user_companies
 from unfold.admin import ModelAdmin, StackedInline
 
-
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
+
+@admin.register(BankAccount)
+class BankAccountAdmin(ModelAdmin):
+    list_display = ("bank_name", "account_number", "company")
+    search_fields = ("bank_name", "account_number", "iban")
+    autocomplete_fields = ("company",)
 
 class BankAccountInline(StackedInline):
     model = BankAccount
@@ -32,22 +37,37 @@ class CompanyAdmin(ModelAdmin):
     ordering = ("name",)
 
     fieldsets = (
-        (None, {
+        (_("Base Info"), {
+            "classes": ["tab"],
             "fields": (
-                "name",
-                "legal_name",
-                "is_active",
-                "logo",
+                ("name",
+                "legal_name"),
+                ("logo",
+                "constituted_country"),
                 "address",
-                "email",
-                "phone",
-                "tax_identifier",
-                "constituted_country",
-                "production_stages",
-                "asset_identifier_labels",
-                "business_activity_description"
+                ("email",
+                "phone"),
+                "is_active"
+
             )
         }),
+        (_("Application Configurations"), {
+            "fields": (
+
+                ("production_stages",
+                "asset_identifier_labels"),
+                ("document_reminder_emails"),
+            ),
+            "classes": ["tab"]
+        }),
+        (_("Taxes"), {
+            "fields": (
+                "tax_identifier",
+                "business_activity_description"
+            ),
+            "classes": ["tab"]
+        })
+        
     )
 
     formfield_overrides = {
@@ -108,3 +128,19 @@ class CompanyEmailConfigAdmin(ModelAdmin):
     list_filter = ("company", "use_ssl")
     search_fields = ("email_address", "imap_server", "imap_user")
     autocomplete_fields = ("company",)
+    actions_row = ["pull_emails_action"]
+
+    @action(
+        description=_("pull emails"),
+        url_path="pull-emails",
+        icon="mail"
+    )
+    def pull_emails_action(self, request, object_id: int):
+        from invoices.tasks import fetch_email_invoices_task
+        try:
+            fetch_email_invoices_task.delay(object_id)
+            messages.success(request, _("Email fetching task has been triggered in the background."))
+        except Exception as e:
+            messages.error(request, _(f"Error triggering task: {str(e)}"))
+            
+        return redirect(request.META.get("HTTP_REFERER"))

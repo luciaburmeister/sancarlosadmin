@@ -1,18 +1,49 @@
 from celery import shared_task
 from django.conf import settings
 from .models import IncomingInvoice, Invoice
-from .services.invoice.invoice_service import InvoiceService
-from .services.ocr_services.gemini_ocr import GeminiInvoiceProcessor
+from invoices.services.invoice.invoice_service import InvoiceService
+from invoices.services.ocr_services.gemini_ocr import GeminiInvoiceProcessor
 import logging
 import tempfile
 import os
 import shutil
-
+from company.models import CompanyEmailConfig
+from .services.email_processor import EmailInvoiceProcessor
 
 logger = logging.getLogger(__name__)
 
+@shared_task(name="invoices.tasks.fetch_email_invoices")
+def fetch_email_invoices_task(config_id=None):
+    """
+    Background task to fetch invoices from configured email accounts.
+    If config_id is provided, only that configuration is processed.
+    """
+    if config_id:
+        configs = CompanyEmailConfig.objects.filter(id=config_id)
+    else:
+        configs = CompanyEmailConfig.objects.all()
+
+    if not configs.exists():
+        logger.info("No email configurations to process.")
+        return "No configurations found"
+
+    total_count = 0
+    for config in configs:
+        logger.info(f"Fetching emails for {config.email_address} ({config.company})")
+        processor = EmailInvoiceProcessor(config)
+        try:
+            processor.connect()
+            count = processor.fetch_new_invoices(only_unseen=False)
+            processor.disconnect()
+            total_count += count
+        except Exception as e:
+            logger.error(f"Error fetching emails for {config.email_address}: {str(e)}")
+            continue
+
+    return f"Total invoices fetched: {total_count}"
+
 #Email Only Pipeline
-@shared_task
+@shared_task(name="invoices.tasks.process_incoming_invoices")
 def process_incoming_invoices(invoice_ids=None):
     """
     Background task to process IncomingInvoice records.
@@ -53,15 +84,13 @@ def process_incoming_invoices(invoice_ids=None):
             try:
                 file_path = incoming.file.path
             except NotImplementedError:
-                # S3 or other storage without local path access
                 suffix = os.path.splitext(incoming.file.name)[1]
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                     with incoming.file.open('rb') as f:
                         shutil.copyfileobj(f, tmp)
                     temp_file_path = tmp.name
                     file_path = temp_file_path
-            
-            result = service.process_invoice(file_path)
+            result = service.process_invoice(file_path, sender_email=incoming.sender_email)
             
             if result.success:
                 incoming.processed = True
@@ -83,7 +112,7 @@ def process_incoming_invoices(invoice_ids=None):
     return f"Processed {processed_count} invoices, {errors_count} errors"
 
 # Manual Upload Pipeline
-@shared_task
+@shared_task(name="invoices.tasks.process_manual_invoice")
 def process_manual_invoice(invoice_id: int):
     """
     Background task to process a single manually uploaded Invoice.

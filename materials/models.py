@@ -9,6 +9,7 @@ from django.utils.translation import gettext_lazy as _
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from materials.validators import validate_rule_key
 
 class Provider(Timestampable,CompanyOwnedModel):
@@ -17,6 +18,13 @@ class Provider(Timestampable,CompanyOwnedModel):
     phone = models.CharField(max_length=50, blank=True, verbose_name=_("Phone"))
     email = models.EmailField(blank=True,verbose_name=_("Email"))
     tax_identifier = models.CharField(max_length=100,blank=True,verbose_name=("Tax identifier"))
+    associated_emails = ArrayField(
+        models.EmailField(),
+        blank=True,
+        default=list,
+        verbose_name=_("Associated Emails"),
+        help_text=_("List of email addresses from which invoices for this provider are received. Separate with commas.")
+    )
 
     def __str__(self):
         return self.name
@@ -24,7 +32,8 @@ class Provider(Timestampable,CompanyOwnedModel):
     class Meta:
         ordering = [Lower("name")]  
         indexes = [
-            Index(Lower("name"), name="provider_name_ci_idx")
+            Index(Lower("name"), name="provider_name_ci_idx"),
+            GinIndex(fields=['associated_emails'], name='provider_emails_gin_idx')
         ]
 
 class Category(Timestampable,CompanyOwnedModel):

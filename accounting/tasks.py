@@ -2,6 +2,8 @@ from celery import shared_task
 from django.conf import settings
 import logging
 
+from configurator.services.export import service
+
 from .services.accounting.account_classifier_service import AccountClassifierService
 from .services.accounting.gemini_account_classifier import GeminiAccountClassifier
 
@@ -9,8 +11,8 @@ from .services.accounting.gemini_account_classifier import GeminiAccountClassifi
 logger = logging.getLogger(__name__)
 
 
-@shared_task
-def classify_invoice_accounts():
+@shared_task(name="accounting.tasks.classify_invoice_accounts")
+def classify_invoice_accounts(invoice_ids: list = None):
     """
     Background task to classify all unclassified invoices into
     accounting accounts using Gemini.
@@ -38,7 +40,7 @@ def classify_invoice_accounts():
     service = AccountClassifierService(classifier=classifier)
 
     try:
-        summary = service.classify_unclassified_invoices()
+        summary = service.classify_unclassified_invoices(invoice_ids=invoice_ids)
         logger.info(f"Classification complete: {summary}")
         return str(summary)
 

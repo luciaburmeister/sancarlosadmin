@@ -1,6 +1,8 @@
 from typing import TYPE_CHECKING, Any, Dict
 from .base import BaseExportStrategy
-
+from invoices.models import AppliedTax
+from django.contrib.contenttypes.models import ContentType
+from .context_helpers import get_company_context
 if TYPE_CHECKING:
     from invoices.models import SalesInvoice
 
@@ -47,20 +49,31 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "subtotal": float(self.sales_invoice.subtotal_amount.amount),
             "tax_amount": float(self.sales_invoice.tax_amount.amount),
             "total_amount": float(self.sales_invoice.total_amount.amount),
+            "reference": self.sales_invoice.reference,
         }
 
-        default_bank = self.sales_invoice.company.bankaccounts.filter(is_default=True).first()
-        if default_bank:
-            context["bank_account"] = {
-                "bank_name": default_bank.bank_name,
-                "holder_name": default_bank.holder_name,
-                "iban": default_bank.iban,
-                "swift_bic": default_bank.swift_bic,
-                "account_number": default_bank.account_number,
-                "routing_number": default_bank.routing_number,
-                "bank_address": default_bank.bank_address,
-                "country": str(default_bank.country) if default_bank.country else None,
+        # Use common helper for company and bank information
+        company_ctx = get_company_context(self.sales_invoice.company)
+        context.update(company_ctx)
+
+        # Add detailed taxes
+        
+        ct = ContentType.objects.get_for_model(self.sales_invoice)
+        applied_taxes = AppliedTax.objects.filter(
+            content_type=ct, 
+            object_id=self.sales_invoice.pk
+        ).select_related("tax_type").order_by("order")
+        
+        context["taxes"] = [
+            {
+                "name": tax.tax_type.tax_name,
+                "percentage": float(tax.selected_percentage),
+                "amount": float(tax.calculated_amount.amount) if tax.calculated_amount else 0,
+                "base": float(tax.base_amount.amount) if tax.base_amount else 0,
             }
+            for tax in applied_taxes
+        ]
+
         
         
         if self.sales_invoice.configuration:

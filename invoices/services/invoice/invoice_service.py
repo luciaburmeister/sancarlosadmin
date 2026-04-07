@@ -17,10 +17,10 @@ from datetime import datetime
 from django.db import transaction
 from django.core.files import File
 
-from company.admin import company
+
 from invoices.services import invoice
 from invoices.services.ocr_services import OcrInterface, InvoiceData
-from invoices.models import Invoice, AppliedTax, TaxType
+from invoices.models import Invoice, AppliedTax, TaxType, InvoiceItem
 from materials.models import Provider
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
@@ -68,8 +68,7 @@ class InvoiceService:
         self.ocr_processor = ocr_processor
         self.duplicate_service = InvoiceDuplicateService() 
     
-    @transaction.atomic  # Ensures all-or-nothing database operations
-    def process_invoice(self, file_path: str) -> InvoiceProcessingResult:
+    def process_invoice(self, file_path: str, sender_email: Optional[str] = None) -> InvoiceProcessingResult:
         """
         Complete invoice processing workflow.
         
@@ -80,10 +79,9 @@ class InvoiceService:
             InvoiceProcessingResult with created invoice and processing status
         """
         messages = []
-        needs_review = False
         
         try:
-            # Step 0: Check for duplicates FIRST
+            # Step 1: Extract data using OCR (Outside atomic to keep things clean)
             messages.append("Checking for duplicate invoices...")
             duplicate_result = self.duplicate_service.check_for_duplicate(file_path)
             
@@ -94,45 +92,47 @@ class InvoiceService:
                 )
             messages.append("No duplicates found - proceeding with processing")
 
-            # Step 1: Extract data using OCR
             messages.append("Starting OCR processing...")
             extracted_data = self.ocr_processor.extract_data(file_path)
             messages.append(f"OCR completed - found invoice {extracted_data.invoice_number or 'N/A'}")
-            
-            # Step 2: Match company and provider
-            company = self._find_company(extracted_data.company_tax_id)
-            provider = self._get_or_create_provider(
-                extracted_data.vendor_tax_id, 
-                extracted_data.vendor_name, 
-                company
-            )
-            
-            # Step 3: Create invoice with hash
-            invoice = self._create_invoice(extracted_data, provider, file_path, duplicate_result.hash_value, company)
-            messages.append(f"Created invoice: {invoice}")
-            
-            # Step 4: Create line items
-            if extracted_data.line_items:
-                self._create_line_items(invoice, extracted_data.line_items)
-                messages.append(f"Added {len(extracted_data.line_items)} line items")
-            
-            # Step 5: Create tax records
-            if extracted_data.taxes:
-                self._create_applied_taxes(invoice, extracted_data.taxes)
-                messages.append(f"Applied {len(extracted_data.taxes)} tax records")
-            
-            # Step 6: Update OCR status and set manual review flag
-            invoice.ocr_processed = True
-            invoice.ocr_processing = False
-            invoice.ocr_error = None
-            invoice.needs_manual_review = True  # Always requires manual review
-            invoice.save(update_fields=['ocr_processed', 'ocr_processing', 'ocr_error', 'needs_manual_review'])
+
+            # Step 2: Atomic DB Operations
+            with transaction.atomic():
+                # Match company and provider
+                company = self._find_company(extracted_data.company_tax_id)
+                provider = self._get_or_create_provider(
+                    extracted_data.vendor_tax_id, 
+                    extracted_data.vendor_name, 
+                    company,
+                    sender_email
+                )
+                
+                # Create invoice with hash
+                invoice = self._create_invoice(extracted_data, provider, file_path, duplicate_result.hash_value, company)
+                messages.append(f"Created invoice: {invoice}")
+                
+                # Create line items
+                if extracted_data.line_items:
+                    self._create_line_items(invoice, extracted_data.line_items)
+                    messages.append(f"Added {len(extracted_data.line_items)} line items")
+                
+                # Create tax records
+                if extracted_data.taxes:
+                    self._create_applied_taxes(invoice, extracted_data.taxes)
+                    messages.append(f"Applied {len(extracted_data.taxes)} tax records")
+                
+                # Mark as processed
+                invoice.ocr_processed = True
+                invoice.ocr_processing = False
+                invoice.ocr_error = None
+                invoice.needs_manual_review = True
+                invoice.save()
             
             return InvoiceProcessingResult(
                 invoice=invoice,
                 success=True,
                 messages=messages,
-                needs_review=True  # Always needs review
+                needs_review=True
             )
         
         except DuplicateInvoiceError as e: 
@@ -163,7 +163,6 @@ class InvoiceService:
                 # Re-raise the original exception after attempt to create partial invoice
                 raise e
     
-    @transaction.atomic
     def process_existing_invoice(self, invoice: Invoice, file_path: Optional[str] = None) -> InvoiceProcessingResult:
         """
         Pipeline B: OCR + UPDATE the existing invoice.
@@ -171,7 +170,7 @@ class InvoiceService:
         """
         messages = []
         try:
-            # mark processing
+            # 1. Initial status update (Outside atomic to ensure it persists)
             invoice.ocr_processing = True
             invoice.ocr_processed = False
             invoice.ocr_error = ""
@@ -186,56 +185,47 @@ class InvoiceService:
                 except Exception:
                     raise ValueError("Invoice file has no local path. Provide file_path from the task.")
 
-            
+            # 2. OCR (Non-DB)
             extracted_data = self.ocr_processor.extract_data(file_path)
             
-            #If no tax id found, how are we gonna throw error
-            # Step 2: Match company and provider
-            company = self._find_company(extracted_data.company_tax_id)
-            provider = self._get_or_create_provider(
-                extracted_data.vendor_tax_id, 
-                extracted_data.vendor_name, 
-                company
-            )
+            # 3. Atomic DB Operations
+            with transaction.atomic():
+                # Match company and provider
+                company = self._find_company(extracted_data.company_tax_id)
+                provider = self._get_or_create_provider(
+                    extracted_data.vendor_tax_id, 
+                    extracted_data.vendor_name, 
+                    company
+                )
 
+                invoice.invoice_number = extracted_data.invoice_number or invoice.invoice_number or "UNKNOWN"
+                invoice.date_issued = self._parse_date(extracted_data.date_issued) or invoice.date_issued or timezone.now().date()
+                invoice.due_date = self._parse_date(extracted_data.due_date) or invoice.due_date or timezone.now().date()
+                invoice.provider = provider
+                invoice.total_amount = extracted_data.total_amount or invoice.total_amount
+                invoice.currency = extracted_data.currency or invoice.currency or "EUR"
+                invoice.payment_method = extracted_data.payment_method or invoice.payment_method or "transfer"
+                invoice.company = company
+                invoice.needs_manual_review = True
 
-            invoice.invoice_number = extracted_data.invoice_number or invoice.invoice_number or "UNKNOWN"
-            invoice.date_issued = self._parse_date(extracted_data.date_issued) or invoice.date_issued or timezone.now().date()
-            invoice.due_date = self._parse_date(extracted_data.due_date) or invoice.due_date or timezone.now().date()
-            invoice.provider = provider
-            invoice.total_amount = extracted_data.total_amount or invoice.total_amount
-            invoice.currency = extracted_data.currency or invoice.currency or "EUR"
-            invoice.payment_method = extracted_data.payment_method or invoice.payment_method or "transfer"
-            invoice.company = company
-            invoice.needs_manual_review = True  # always True initially
+                # Replace items
+                if extracted_data.line_items:
+                    invoice.items.all().delete()
+                    self._create_line_items(invoice, extracted_data.line_items)
 
-            if extracted_data.line_items:
-                cleaned_items = []
-                for item in extracted_data.line_items:
-                    cleaned_items.append({
-                        "description": item.description or "",
-                        "quantity": float(item.quantity or 0),
-                        "unit_price": float(item.unit_price or 0),
-                        "total": float(item.total or 0),
-                        "tax_rate": float(item.tax_rate or 0),
-                    })
-                invoice.line_items = cleaned_items
+                # Replace taxes
+                if extracted_data.taxes:
+                    AppliedTax.objects.filter(
+                        content_type=ContentType.objects.get_for_model(invoice),
+                        object_id=invoice.pk,
+                    ).delete()
+                    self._create_applied_taxes(invoice, extracted_data.taxes)
 
-            invoice.save()  # one save for all updated fields
-
-            if extracted_data.taxes:
-                AppliedTax.objects.filter(
-                    content_type=ContentType.objects.get_for_model(invoice),
-                    object_id=invoice.pk,
-                ).delete()
-
-                self._create_applied_taxes(invoice, extracted_data.taxes)
-
-            invoice.ocr_processing = False
-            invoice.ocr_processed = True
-            invoice.ocr_error = None
-            invoice.needs_manual_review = True
-            invoice.save(update_fields=["ocr_processing", "ocr_processed", "ocr_error", "needs_manual_review"])
+                invoice.ocr_processing = False
+                invoice.ocr_processed = True
+                invoice.ocr_error = None
+                invoice.needs_manual_review = True
+                invoice.save()
 
             return InvoiceProcessingResult(invoice=invoice, success=True, messages=messages, needs_review=True)
 
@@ -282,31 +272,26 @@ class InvoiceService:
         return invoice
     
     def _create_line_items(self, invoice: Invoice, line_items_data: list):
-        """
-        Create InvoiceItems record with line items data.
-        line_items_data is now a list of LineItem dataclass objects.
-        """
-        # Convert LineItem dataclasses to dictionaries for JSON storage
-        cleaned_items = []
         for item in line_items_data:
-            cleaned_items.append({
-                'description': item.description or '',
-                'quantity': float(item.quantity or 0),
-                'unit_price': float(item.unit_price or 0),
-                'total': float(item.total or 0),
-                'tax_rate': float(item.tax_rate or 0),
-            })
-
-        invoice.line_items = cleaned_items
-        invoice.save(update_fields=["line_items"])
-    
+            InvoiceItem.objects.create(
+                invoice=invoice,
+                description=item.description or '',
+                quantity=item.quantity or Decimal('1'),
+                unit_price=item.unit_price or Decimal('0'),
+            )
+        
     def _create_applied_taxes(self, invoice: Invoice, taxes_data: list):
         """
         Create AppliedTax records for the invoice.
         taxes_data is now a list of TaxItem dataclass objects.
         """
         for order, tax_item in enumerate(taxes_data):
-            tax_name = tax_item.name or 'VAT'
+            raw_name = tax_item.name or 'VAT'
+            # Normalize: remove non-letters, uppercase
+            tax_name = ''.join(filter(str.isalpha, raw_name)).upper()  
+            if not tax_name:                                           
+                tax_name = 'VAT'                                        
+
             percentage = tax_item.percentage or 0
             base_amount = tax_item.base_amount or 0
             tax_amount = tax_item.tax_amount or 0
@@ -380,11 +365,19 @@ class InvoiceService:
             return None
         return Company.objects.filter(tax_identifier__iexact=tax_id.strip()).first()
 
-    def _get_or_create_provider(self, vendor_tax_id: Optional[str], vendor_name: Optional[str], company: Optional[Company]) -> Optional[Provider]:
+    def _get_or_create_provider(self, vendor_tax_id: Optional[str], vendor_name: Optional[str], company: Optional[Company], sender_email: Optional[str] = None) -> Optional[Provider]:
         """
-        Lookup provider by tax ID and company.
+        Lookup provider by email or tax ID and company.
         If not found, create a new one with the extracted vendor details.
         """
+        if sender_email and company:
+            provider_by_email = Provider.objects.filter(
+                associated_emails__contains=[sender_email],
+                company=company
+            ).first()
+            if provider_by_email:
+                return provider_by_email
+
         if not vendor_tax_id:
             return None
 

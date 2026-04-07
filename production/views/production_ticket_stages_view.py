@@ -8,19 +8,16 @@ from unfold.views import UnfoldModelAdminViewMixin
 from django.views.generic import TemplateView
 from django.utils.dateparse import parse_datetime
 
-from unfold.admin import ModelAdmin
-from unfold.decorators import display
-
 from production.models import (
     ProductionTicket,
-    ProductionItem,
     ProductionItemSession,
     ProductionItemSessionStatus,
-    ProductionItemStatus
+    ProductionItemStatus,
 )
-
 from configurator.models import ProductTemplateComponentGroup
 from production.components.status_badge import StatusBadge
+from company.models import Employee
+
 
 
 class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
@@ -90,7 +87,25 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             for s in (getattr(product, "production_stages", []) or [])
         ]
 
-        employee = getattr(self.request.user, "employee_profile", None)
+        employee = None
+        authorized_stages = stage_order
+
+        if not self.request.user.is_superuser:
+            employee = (
+                Employee.objects.filter(
+                    user=self.request.user,
+                    company=ticket.company,
+                    is_active=True,
+                )
+                .only("id", "production_stages", "can_work_on_production")
+                .first()
+            )
+
+            if not employee or not employee.can_work_on_production:
+                authorized_stages = []
+            else:
+                allowed = set(employee.production_stages or [])
+                authorized_stages = [s for s in stage_order if s in allowed]
 
         stage_component_map = self._build_stage_component_map(product, stage_order)
 
@@ -124,16 +139,17 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
             if product:
                 group = (
-                    ProductTemplateComponentGroup.objects
-                    .filter(product_template=product, stage=stage_name)
+                    ProductTemplateComponentGroup.objects.filter(
+                        product_template=product,
+                        stage=stage_name,
+                    )
                     .prefetch_related("components")
                     .first()
                 )
                 if group:
                     component_ids = set(group.components.values_list("id", flat=True))
                     grouped_item_ids = {
-                        item.id for item in items
-                        if item.component_id in component_ids
+                        item.id for item in items if item.component_id in component_ids
                     }
 
             units = []

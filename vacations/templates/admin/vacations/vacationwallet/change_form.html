@@ -1,0 +1,144 @@
+{% extends "admin/change_form.html" %}
+{% load i18n unfold %}
+
+{% block content %}
+  {% if vacation_dashboard %}
+    <div id="vacations-dashboard" class="mb-6">
+      <div class="rounded-2xl border bg-white p-5 shadow-sm">
+
+        <div class="flex items-start justify-between gap-6 mb-4">
+          <div>
+            <h2 class="text-lg font-semibold">
+              {% trans "Vacations" %} — {{ vacation_dashboard.wallet.employee }}
+            </h2>
+            <p class="text-sm text-gray-500">
+              {{ vacation_dashboard.wallet.policy.name }} · {{ vacation_dashboard.wallet.year }}
+            </p>
+          </div>
+
+          <div class="shrink-0">
+            {% component "unfold/components/button.html" with href=vacation_dashboard.request_absence_url variant="primary" %}
+              {% trans "Request absence" %}
+            {% endcomponent %}
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div class="rounded-xl border p-4">
+            <div class="text-xs uppercase text-gray-400">{% trans "Available" %}</div>
+            <div class="text-2xl font-bold">{{ vacation_dashboard.available|default:"0.00" }} d</div>
+          </div>
+
+          <div class="rounded-xl border p-4">
+            <div class="text-xs uppercase text-gray-400">{% trans "Pending" %}</div>
+            <div class="text-2xl font-bold">{{ vacation_dashboard.pending|default:"0.00" }} d</div>
+          </div>
+
+          <div class="rounded-xl border p-4">
+            <div class="text-xs uppercase text-gray-400">{% trans "Used" %}</div>
+            <div class="text-2xl font-bold">{{ vacation_dashboard.used|default:"0.00" }} d</div>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border p-4 mb-4">
+          <div class="text-sm font-semibold mb-3">
+            {% trans "Upcoming / pending absences" %}
+          </div>
+
+          {% if vacation_dashboard.upcoming_requests %}
+            <div class="overflow-x-auto">
+              <table class="w-full">
+                <thead>
+                  <tr class="text-left text-sm text-gray-500 border-b">
+                    <th class="py-2 pr-4">{% trans "Start" %}</th>
+                    <th class="py-2 pr-4">{% trans "End" %}</th>
+                    <th class="py-2 pr-4">{% trans "Days" %}</th>
+                    <th class="py-2 pr-4">{% trans "Status" %}</th>
+                    <th class="py-2 pr-4">{% trans "Approved by" %}</th>
+                    <th class="py-2 pr-4">{% trans "Approved at" %}</th>
+                  </tr>
+                </thead>
+                <tbody class="text-sm">
+                  {% for row in vacation_dashboard.upcoming_requests %}
+                    {% with r=row.obj|default:row %}
+                      <tr class="border-b last:border-b-0">
+                        <td class="py-2 pr-4">{{ r.start_date }}</td>
+                        <td class="py-2 pr-4">{{ r.end_date }}</td>
+                        <td class="py-2 pr-4">{{ r.requested_days }}</td>
+                        <td class="py-2 pr-4">{{ r.get_status_display }}</td>
+                        <td class="py-2 pr-4">{{ r.approved_by|default:"-" }}</td>
+                        <td class="py-2 pr-4">{{ r.approved_at|date:"SHORT_DATETIME_FORMAT"|default:"-" }}</td>
+                      </tr>
+                    {% endwith %}
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="text-sm text-gray-500">{% trans "No upcoming or pending absences." %}</div>
+          {% endif %}
+        </div>
+
+        <div class="rounded-2xl border p-4">
+          <div class="text-sm font-semibold mb-3">
+            {% trans "Past absences" %}
+          </div>
+
+          {% if vacation_dashboard.past_requests %}
+            <div class="overflow-x-auto">
+              <table class="w-full">
+                <thead>
+                  <tr class="text-left text-sm text-gray-500 border-b">
+                    <th class="py-2 pr-4">{% trans "Start" %}</th>
+                    <th class="py-2 pr-4">{% trans "End" %}</th>
+                    <th class="py-2 pr-4">{% trans "Days" %}</th>
+                    <th class="py-2 pr-4">{% trans "Status" %}</th>
+                    <th class="py-2 pr-4">{% trans "Approved by" %}</th>
+                    <th class="py-2 pr-4">{% trans "Approved at" %}</th>
+                  </tr>
+                </thead>
+                <tbody class="text-sm">
+                  {% for row in vacation_dashboard.past_requests %}
+                    {% with r=row.obj|default:row %}
+                      <tr class="border-b last:border-b-0">
+                        <td class="py-2 pr-4">{{ r.start_date }}</td>
+                        <td class="py-2 pr-4">{{ r.end_date }}</td>
+                        <td class="py-2 pr-4">{{ r.requested_days }}</td>
+                        <td class="py-2 pr-4">{{ r.get_status_display }}</td>
+                        <td class="py-2 pr-4">{{ r.approved_by|default:"-" }}</td>
+                        <td class="py-2 pr-4">{{ r.approved_at|date:"SHORT_DATETIME_FORMAT"|default:"-" }}</td>
+                      </tr>
+                    {% endwith %}
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <div class="text-sm text-gray-500">{% trans "No past absences." %}</div>
+          {% endif %}
+        </div>
+
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        function toggleDashboard() {
+          var el = document.getElementById("vacations-dashboard");
+          if (!el) return;
+          if (window.location.hash === "#movements") {
+            el.style.display = "none";
+          } else {
+            el.style.display = "";
+          }
+        }
+
+        window.addEventListener("hashchange", toggleDashboard);
+        document.addEventListener("DOMContentLoaded", toggleDashboard);
+        toggleDashboard();
+      })();
+    </script>
+  {% endif %}
+
+  {{ block.super }}
+{% endblock %}

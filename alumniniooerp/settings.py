@@ -93,10 +93,11 @@ INSTALLED_APPS = [
     'simple_history',
     'rest_framework',
     'rest_framework_simplejwt',
-    'hijack',
+    'hijack',    
     'hijack.contrib.admin',
     'company',
     'management',
+    'vacations'
 ]
 
 MIDDLEWARE = [

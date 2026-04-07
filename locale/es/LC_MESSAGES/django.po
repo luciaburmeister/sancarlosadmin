@@ -2731,3 +2731,132 @@ msgstr "Items de albaran de Transporte"
 
 #~ msgid "Tax ID"
 #~ msgstr "ID de impuesto"
+
+msgid "Request absence"
+msgstr "Solicitar ausencia"
+
+msgid "Vacations"
+msgstr "Vacaciones"
+
+msgid "Vacation movements"
+msgstr "Movimientos de vacaciones"
+
+msgid "Vacation policies"
+msgstr "Políticas de vacaciones"
+
+msgid "Vacation requests"
+msgstr "Solicitudes de vacaciones"
+
+msgid "Vacation wallets"
+msgstr "Saldos de vacaciones"
+
+msgid "Wallet"
+msgstr "Saldo de vacaciones"
+
+msgid "Date"
+msgstr "Fecha"
+
+msgid "Movement type"
+msgstr "Tipo de movimiento"
+
+msgid "Days"
+msgstr "Días"
+
+msgid "Use positive values for acquisition/consumption. Adjustment may be positive or negative"
+msgstr "Use valores positivos para adquisición/consumo. El ajuste puede ser positivo o negativo"
+
+msgid "Policy absence types"
+msgstr "Tipos de ausencia de la política"
+
+msgid "Country"
+msgstr "País"
+
+msgid "Allowance"
+msgstr "Asignación"
+
+msgid "Carryover"
+msgstr "Arrastre"
+
+msgid "Carry over max"
+msgstr "Máximo de días arrastrables"
+
+msgid "Approve request"
+msgstr "Aprobar solicitud"
+
+msgid "Start date"
+msgstr "Fecha de inicio"
+
+msgid "End date"
+msgstr "Fecha de fin"
+
+msgid "Requested days"
+msgstr "Días solicitados"
+
+msgid "Approved by"
+msgstr "Aprobado por"
+
+msgid "Approved at"
+msgstr "Aprobado el"
+
+msgid "Upcoming / pending absences"
+msgstr "Ausencias próximas / pendientes"
+
+msgid "Past absences"
+msgstr "Ausencias pasadas"
+
+msgid "Annual leave"
+msgstr "Vacaciones"
+
+msgid "Personal day"
+msgstr "Día personal"
+
+msgid "Sick leave"
+msgstr "Baja médica"
+
+msgid "Medical appointment"
+msgstr "Cita médica"
+
+msgid "Family emergency"
+msgstr "Emergencia familiar"
+
+msgid "Marriage leave"
+msgstr "Permiso por matrimonio"
+
+msgid "Bereavement leave"
+msgstr "Permiso por fallecimiento"
+
+msgid "Maternity leave"
+msgstr "Permiso de maternidad"
+
+msgid "Paternity leave"
+msgstr "Permiso de paternidad"
+
+msgid "Unpaid leave"
+msgstr "Permiso sin sueldo"
+
+msgid "Other"
+msgstr "Otro"
+
+msgid "Start"
+msgstr "Inicio"
+
+msgid "End"
+msgstr "Fin"
+
+msgid "Yearly days"
+msgstr "Días anuales"
+
+msgid "Carry over max"
+msgstr "Máximo de días acumulables"
+
+msgid "Consumes vacation"
+msgstr "Consume vacaciones"
+
+msgid "Requires approval"
+msgstr "Requiere aprobación"
+
+msgid "Accrued ytd"
+msgstr "Acumulado este año"
+
+msgid "Accrued ytd"
+msgstr "Días acumulados este año"

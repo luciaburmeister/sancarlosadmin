@@ -3,12 +3,14 @@ from unfold.admin import ModelAdmin
 from unfold.decorators import action # Added import
 
 
-from company.models import Company, CompanyUser, CompanyEmailConfig, BankAccount
+from company.models import Company, CompanyUser, CompanyEmailConfig, BankAccount, CompanyDocument, CompanyDocumentType
 from django.utils.translation import gettext_lazy as _
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
 from core.admin.company_access import get_user_companies
 from unfold.admin import ModelAdmin, StackedInline
+from core.admin.company_admin import CompanyRestrictedAdmin
+from company.forms import CompanyDocumentForm
 
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
@@ -25,11 +27,35 @@ class BankAccountInline(StackedInline):
     fields = ("bank_name", "holder_name", "account_number", "iban", "swift_bic", "routing_number", "is_default")
     tab = True
     tab_title = _("Bank Accounts")
-    
+
+class CompanyDocumentInline(StackedInline):
+    model = CompanyDocument
+    form = CompanyDocumentForm
+    extra = 0
+    tab = True
+    tab_title = _("Documents")
+    autocomplete_fields = ["document_type"]
+
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("document_type",  "file"),
+                ("does_not_expire","is_active"),
+                ("issue_date", "expiry_date"),
+                "notes",
+            )
+        }),
+    )
+
+@admin.register(CompanyDocumentType)
+class CompanyDocumentTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ("name", "company")
+    search_fields = ("name",)
+    autocomplete_fields = ["company"]
 
 @admin.register(Company)
 class CompanyAdmin(ModelAdmin):
-    inlines = [BankAccountInline]
+    inlines = [BankAccountInline, CompanyDocumentInline]
     list_display = ("name", "is_active")
     list_filter = ("is_active",)
     search_fields = ("name",)

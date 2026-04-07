@@ -394,3 +394,23 @@ class MachineDocument(BaseDocument):
         if not self.company_id and self.machine:
             self.company = self.machine.company
         super().save(*args, **kwargs)
+
+class CompanyDocumentType(BaseDocumentType):
+    class Meta:
+        verbose_name = _("Company Document Type")
+        verbose_name_plural = _("Company Document Types")
+
+class CompanyDocument(BaseDocument):
+    document_type = models.ForeignKey(
+        CompanyDocumentType,
+        on_delete=models.PROTECT,
+        related_name="documents",
+        verbose_name=_("Document Type")
+    )
+
+    class Meta:
+        verbose_name = _("Company Document")
+        verbose_name_plural = _("Company Documents")
+
+    def __str__(self):
+        return f"{self.document_type.name} - {self.company}"

@@ -5,7 +5,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Exists, OuterRef
-from .models import EmployeeDocument, MachineDocument
+from .models import EmployeeDocument, MachineDocument, CompanyDocument
 from assets.models import AssetDocument
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
@@ -20,7 +20,7 @@ def debug_env():
 @shared_task(name="company.tasks.send_document_reminders")
 def send_document_reminders():
     """
-    Checks EmployeeDocument, MachineDocument, and AssetDocument for
+    Checks EmployeeDocument, MachineDocument, AssetDocument, and CompanyDocument for
     upcoming expirations logic and triggers an email reminder.
     Reminders are grouped by company to send a single summary email.
     Only sends for the latest version of a document type for each owner.
@@ -30,6 +30,7 @@ def send_document_reminders():
         (_("Asset Document"), AssetDocument, 'asset', 'assets', 'asset'),
         (_("Employee Document"), EmployeeDocument, 'employee', 'company', 'employee'),
         (_("Machine Document"), MachineDocument, 'machine', 'company', 'machine'),
+        (_("Company Document"), CompanyDocument, 'company', 'company', 'company'),
     ]
 
     today = timezone.now().date()

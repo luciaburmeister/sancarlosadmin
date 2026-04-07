@@ -26,13 +26,10 @@ class ConfigurationExportStrategy(BaseExportStrategy):
                 "quantity": float(item.quantity) if item.quantity else 0,
                 "length": float(item.length) if item.length else 0,
                 "note": item.note,
-                "production_stages": item.production_stages,
                 "component": {
                     "id": item.component.id if item.component else None,
                     "name": item.component.name if item.component else None,
                     "code": item.component.code if item.component else None,
-                    "type": item.component.component_type if item.component else None,
-                    "metadata": item.component.metadata if item.component else {},
                 }
             }
             items_data.append(item_dict)

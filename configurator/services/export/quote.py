@@ -20,12 +20,8 @@ class QuoteExportStrategy(BaseExportStrategy):
         for config in self.quote.configurations.all():
             strategy = ConfigurationExportService.get_strategy(config)
             config_context = strategy.get_context(include_rendered_templates=include_rendered_templates)
-            
-            # Add explicit fields for easier template access
             config_context["subtotal"] = float(config.subtotal_price.amount)
             config_context["total"] = float(config.total_price.amount)
-            
-            # Extract discounts from pricing breakdown if available
             pb = config.pricing_breakdown or {}
             config_context["discounts"] = [
                 l for l in pb.get("lines", []) if l.get("type") == "discount"
@@ -36,6 +32,7 @@ class QuoteExportStrategy(BaseExportStrategy):
         context = {
             "quote": self.quote,
             "client": self.quote.client,
+            "company": self.quote.company,
             "configurations": configurations_data,
             "subtotal_price": float(self.quote.subtotal_price.amount),
             "tax_amount": float(self.quote.tax_amount.amount),

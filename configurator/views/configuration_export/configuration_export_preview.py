@@ -19,39 +19,53 @@ class ExportTemplatePreviewView(UnfoldModelAdminViewMixin, View):
     Can be used by passing template_id or by posting html and css content.
     """
 
-    def _get_preview_object(self, kind, product_id, company_id, config_id=None):
+    def _get_preview_object(self, kind, product_id, company_id, object_id=None):
         filters = {}
         if company_id:
             filters["company_id"] = company_id
             
         if kind == "quotation":
             from configurator.models import Configuration
-            if config_id:
-                return Configuration.objects.filter(id=config_id).first()
+            if object_id:
+                return Configuration.objects.filter(id=object_id).first()
             
             qs = Configuration.objects.filter(**filters)
             if product_id:
                 qs = qs.filter(product_id=product_id)
-            return qs.first() or Configuration.objects.first()
+            return qs.order_by("-id").first() or Configuration.objects.order_by("-id").first()
             
         elif kind in ["production_order", "production_ticket"]:
             from production.models import ProductionItem
+            if object_id:
+                return ProductionItem.objects.filter(id=object_id).first()
+                
             qs = ProductionItem.objects.all()
             if company_id:
                 qs = qs.filter(company_id=company_id)
             if product_id:
-                for item in qs[:50]:
+                for item in qs.order_by("-id")[:50]:
                     product = getattr(item.ticket.source_object, "product", None) if getattr(item, 'ticket', None) else None
                     if product and str(product.id) == str(product_id):
                         return item
-            return qs.first()
+            return qs.order_by("-id").first()
             
         elif kind == "sales_invoice":
             from invoices.models import SalesInvoice
+            if object_id:
+                return SalesInvoice.objects.filter(id=object_id).first()
+                
             qs = SalesInvoice.objects.filter(**filters)
             if product_id:
                 qs = qs.filter(configuration__product_id=product_id)
-            return qs.first() or SalesInvoice.objects.first()
+            return qs.order_by("-id").first() or SalesInvoice.objects.order_by("-id").first()
+        
+        elif kind == "consolidated_quotation":
+            from sales.models import Quote
+            if object_id:
+                return Quote.objects.filter(id=object_id).first()
+                
+            qs = Quote.objects.filter(**filters)
+            return qs.order_by("-id").first() or Quote.objects.order_by("-id").first()
             
         return None
 
@@ -59,12 +73,12 @@ class ExportTemplatePreviewView(UnfoldModelAdminViewMixin, View):
         html_content = request.POST.get("html", "")
         css_content = request.POST.get("css", "")
         
-        config_id = request.POST.get("config_id")
+        object_id = request.POST.get("object_id") or request.POST.get("config_id")
         template_kind = request.POST.get("kind", "quotation")
         product_id = request.POST.get("product")
         company_id = request.POST.get("company")
         
-        target_obj = self._get_preview_object(template_kind, product_id, company_id, config_id)
+        target_obj = self._get_preview_object(template_kind, product_id, company_id, object_id)
 
         if not target_obj:
             return HttpResponse("No suitable object available for preview.", status=400)
@@ -88,7 +102,8 @@ class ExportTemplatePreviewView(UnfoldModelAdminViewMixin, View):
         except ConfigurationExportTemplate.DoesNotExist:
             raise Http404("Template not found")
 
-        target_obj = self._get_preview_object(template.kind, template.product_id, template.company_id, None)
+        object_id = request.GET.get("object_id")
+        target_obj = self._get_preview_object(template.kind, template.product_id, template.company_id, object_id)
 
         if not target_obj:
             return HttpResponse("No suitable object available for preview.", status=400)

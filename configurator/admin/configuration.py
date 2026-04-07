@@ -273,6 +273,10 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
                         all_fields.extend(field)
                     else:
                         all_fields.append(field)
+            
+            excluded_from_readonly = {"quote", "client"}
+            all_fields = [f for f in all_fields if f not in excluded_from_readonly]
+            
             return list(set(list(readonly) + all_fields))
         return readonly
 

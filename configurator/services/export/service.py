@@ -13,6 +13,7 @@ from .base import BaseExportStrategy
 from .configuration import ConfigurationExportStrategy
 from .production_item import ProductionItemExportStrategy
 from .sales_invoice import SalesInvoiceExportStrategy
+from .quote import QuoteExportStrategy
 import re
 from django.db.models.fields.files import FieldFile
 from django_countries.fields import Country
@@ -86,6 +87,7 @@ class ConfigurationExportService:
         from configurator.models import Configuration
         from production.models import ProductionItem
         from invoices.models import SalesInvoice
+        from sales.models import Quote
 
         if isinstance(obj, Configuration):
             return ConfigurationExportStrategy(obj)
@@ -94,6 +96,9 @@ class ConfigurationExportService:
         
         if isinstance(obj, SalesInvoice):
             return SalesInvoiceExportStrategy(obj)
+            
+        if isinstance(obj, Quote):
+            return QuoteExportStrategy(obj)
         
         raise ValueError(f"No export strategy found for object type: {type(obj)}")
 

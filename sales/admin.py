@@ -14,6 +14,7 @@ from django.urls import reverse, path
 from unfold.decorators import action
 from core.admin.company_admin import CompanyRestrictedAdmin
 from management.views import QuoteAcceptanceWizardView
+from .views.quote_export_view import QuoteExportView
 
 @admin.register(SaleZone)
 class SaleZoneAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -223,7 +224,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
     
     inlines = [ConfigurationReadOnlyInline, QuoteItemInline, AppliedTaxInline]
 
-    actions_row = ["add_configuration_to_quote"]
+    actions_row = ["add_configuration_to_quote", "export_quote_action"]
 
     fieldsets = (
         ("Quote Details", {
@@ -256,6 +257,10 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
         super().save_related(request, form, formsets, change)
         form.instance.recalc_totals()
 
+    @action(description=_("Export Quote"), attrs={"target": "_blank"})
+    def export_quote_action(self, request, object_id: int):
+        return redirect(reverse("admin:sales_quote_export", args=[object_id]))
+
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
@@ -263,6 +268,11 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 "<int:quote_id>/accept-wizard/",
                 self.admin_site.admin_view(QuoteAcceptanceWizardView.as_view()),
                 name="sales_quote_acceptance_wizard",
+            ),
+            path(
+                "<int:quote_id>/export/",
+                self.admin_site.admin_view(QuoteExportView.as_view(model_admin=self)),
+                name="sales_quote_export",
             ),
         ]
         return custom_urls + urls

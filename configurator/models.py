@@ -1333,11 +1333,12 @@ class ExportTemplateKind(models.TextChoices):
     PRODUCTION_ORDER = "production_order", _("Production Order")
     PRODUCTION_TICKET = "production_ticket", _("Production Ticket")
     SALES_INVOICE = "sales_invoice", _("Sales Invoice")
+    CONSOLIDATED_QUOTATION = "consolidated_quotation", _("Consolidated Quotation")
 
 
 class ConfigurationExportTemplate(CompanyOwnedModel):
     kind = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=ExportTemplateKind.choices,
         default=ExportTemplateKind.QUOTATION,
         verbose_name=_("Kind"),

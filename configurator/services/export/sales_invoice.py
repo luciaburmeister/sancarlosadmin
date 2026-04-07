@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Any, Dict
 from .base import BaseExportStrategy
 from invoices.models import AppliedTax
 from django.contrib.contenttypes.models import ContentType
+from .context_helpers import get_company_context
 if TYPE_CHECKING:
     from invoices.models import SalesInvoice
 
@@ -37,21 +38,8 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "address": client.address,
         }
 
-        company = self.sales_invoice.company
-        company_data = {
-            "name": company.name,
-            "legal_name": company.legal_name,
-            "address": company.address,
-            "email": company.email,
-            "phone": company.phone,
-            "tax_identifier": company.tax_identifier,
-            "logo": company.logo.url if company.logo else None,
-        }
-
         context = {
             "invoice": self.sales_invoice,
-            "company": company,
-            "company_data": company_data,
             "client": client,
             "client_data": client_data,
             "items": items_data,
@@ -63,6 +51,10 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "total_amount": float(self.sales_invoice.total_amount.amount),
             "reference": self.sales_invoice.reference,
         }
+
+        # Use common helper for company and bank information
+        company_ctx = get_company_context(self.sales_invoice.company)
+        context.update(company_ctx)
 
         # Add detailed taxes
         
@@ -82,18 +74,6 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             for tax in applied_taxes
         ]
 
-        default_bank = self.sales_invoice.company.bankaccounts.filter(is_default=True).first()
-        if default_bank:
-            context["bank_account"] = {
-                "bank_name": default_bank.bank_name,
-                "holder_name": default_bank.holder_name,
-                "iban": default_bank.iban,
-                "swift_bic": default_bank.swift_bic,
-                "account_number": default_bank.account_number,
-                "routing_number": default_bank.routing_number,
-                "bank_address": default_bank.bank_address,
-                "country": str(default_bank.country) if default_bank.country else None,
-            }
         
         
         if self.sales_invoice.configuration:

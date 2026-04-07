@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, Any, Dict
 from .base import BaseExportStrategy
 from decimal import Decimal
+from .context_helpers import get_company_context
 
 if TYPE_CHECKING:
     from sales.models import Quote
@@ -32,7 +33,6 @@ class QuoteExportStrategy(BaseExportStrategy):
         context = {
             "quote": self.quote,
             "client": self.quote.client,
-            "company": self.quote.company,
             "configurations": configurations_data,
             "subtotal_price": float(self.quote.subtotal_price.amount),
             "tax_amount": float(self.quote.tax_amount.amount),
@@ -40,6 +40,10 @@ class QuoteExportStrategy(BaseExportStrategy):
             "tax_breakdown": self.quote.tax_breakdown,
             "config_count": len(configurations_data),
         }
+
+        # Use common helper for company and bank information
+        company_ctx = get_company_context(self.quote.company)
+        context.update(company_ctx)
 
         return context
 

@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Any, Dict
 from .base import BaseExportStrategy
 from django.template import engines
 from configurator.utils import safe_eval
+from .context_helpers import get_company_context
 
 if TYPE_CHECKING:
     from configurator.models import Configuration
@@ -44,6 +45,10 @@ class ConfigurationExportStrategy(BaseExportStrategy):
             "computed": pricing_context,
             "parameter_pricing_dictionary": pricing_context,
         }
+
+        # Use common helper for company and bank information
+        company_ctx = get_company_context(self.configuration.company)
+        base_context.update(company_ctx)
 
         if include_rendered_templates:
             base_context["rendered_templates"] = getattr(self.configuration, "rendered_templates", {})

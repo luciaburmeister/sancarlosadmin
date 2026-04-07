@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Sum
 from company.models import  CompanyEmailConfig, CompanyOwnedModel
 from django.core.validators import MinValueValidator
 from decimal import Decimal
@@ -137,6 +138,40 @@ class Invoice(models.Model):
 
     def __str__(self):
         return f"{self.invoice_number} - {self.provider}"
+    
+    def recalculate_totals(self, save=True):
+        """
+        Recalculates the total amount by summing up items and applying taxes sequentially.
+        """
+        items_sum = self.items.aggregate(total=Sum('line_total'))['total']
+        if items_sum is not None:
+            gross_total = Decimal(str(items_sum.amount if hasattr(items_sum, 'amount') else items_sum))
+        else:
+            gross_total = Decimal("0.00")
+        
+        self.total_amount = gross_total
+        
+        # Pull taxes in REVERSE order to peel them off one by one
+        taxes = list(self.get_taxes().order_by('-order', '-id'))
+        
+        for tax in taxes:
+            result = tax.calculate_from_gross(gross_total)
+            tax.base_amount = result['base_amount']
+            tax.calculated_amount = result['tax_amount']
+            tax.save(update_fields=['base_amount', 'calculated_amount'])
+            # Next tax in reverse order will be calculated from this new base
+            gross_total = result['base_amount']
+            
+        if save:
+            self.save(update_fields=['total_amount'])
+            
+        return self.total_amount
+
+    def save(self, *args, **kwargs):
+        # Automatic recalculation if already exists
+        if self.pk and not kwargs.get('update_fields'):
+            self.recalculate_totals(save=False)
+        super().save(*args, **kwargs)
     
     def get_taxes(self):
         ct = ContentType.objects.get_for_model(self)
@@ -290,6 +325,34 @@ class AppliedTax(models.Model):
             "total_amount": total.quantize(Decimal("0.01")),
         }
 
+    def calculate_from_gross(self, gross_amount: Decimal) -> dict:
+        """
+        Calculates the tax components backwards from a gross amount.
+        Used for tax-inclusive prices.
+
+        Returns:
+        {
+            "tax_amount": tax_amount,
+            "base_amount": base
+        }
+        """
+        gross_total = Decimal(gross_amount)
+        rate = self.selected_percentage / Decimal("100")
+
+        if self.tax_type.behavior == "add":
+            # Gross = Base * (1 + Rate) => Base = Gross / (1 + Rate)
+            base = (gross_total / (Decimal("1.0") + rate)).quantize(Decimal("0.01"))
+            tax_amount = gross_total - base
+        else:
+            # Gross = Base * (1 - Rate) => Base = Gross / (1 - Rate)
+            base = (gross_total / (Decimal("1.0") - rate)).quantize(Decimal("0.01"))
+            tax_amount = base - gross_total
+
+        return {
+            "tax_amount": tax_amount,
+            "base_amount": base
+        }
+
     def calculate_and_store(self):
         """
         Calculate tax using the stored base_amount and save the result to calculated_amount.
@@ -411,27 +474,35 @@ class SalesInvoice(CompanyOwnedModel):
 
     def recalculate_totals(self, save=True):
         """
-        Recalculates the total and tax amounts by applying taxes sequentially
-        on top of the subtotal.
+        Recalculates the total and tax amounts by extracting taxes sequentially
+        from the total sum (which is summed from line items).
         """
+        # 1. Sum up Gross from items
+        items_sum = self.items.aggregate(total=Sum('line_total'))['total']
+        if items_sum is not None:
+             # Ensure total_amount gets the numeric value
+             self.total_amount = items_sum.amount if hasattr(items_sum, 'amount') else items_sum
+             
+        gross_total = Decimal(self.total_amount.amount)
+        
         ct = ContentType.objects.get_for_model(self)
         
-        current_total = Decimal(self.subtotal_amount.amount)
-        
-        taxes = AppliedTax.objects.filter(content_type=ct, object_id=self.pk).order_by('order', 'tax_type')
+        # Pull taxes in REVERSE order to peel them off one by one
+        taxes = list(AppliedTax.objects.filter(content_type=ct, object_id=self.pk).order_by('-order', '-id'))
         
         total_tax = Decimal("0.00")
         for tax in taxes:
-            result = tax.calculate(current_total)
-            tax.base_amount = current_total
+            result = tax.calculate_from_gross(gross_total)
+            tax.base_amount = result['base_amount']
             tax.calculated_amount = result['tax_amount']
             tax.save(update_fields=['base_amount', 'calculated_amount'])
             
             total_tax += result['tax_amount']
-            current_total = result['total_amount']
+            # New gross (base) for the next tax in reverse peeling
+            gross_total = result['base_amount']
             
         self.tax_amount = total_tax
-        self.total_amount = current_total
+        self.subtotal_amount = gross_total # Final peeled Net
         
         if save:
             self.save(update_fields=['subtotal_amount', 'tax_amount', 'total_amount'])
@@ -441,6 +512,12 @@ class SalesInvoice(CompanyOwnedModel):
             'tax': self.tax_amount,
             'total': self.total_amount
         }
+
+    def save(self, *args, **kwargs):
+        # Automatic recalculation if already exists
+        if self.pk and not kwargs.get('update_fields'):
+            self.recalculate_totals(save=False)
+        super().save(*args, **kwargs)
 
 class SalesInvoiceItem(models.Model):
     invoice = models.ForeignKey(

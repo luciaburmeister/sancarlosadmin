@@ -209,6 +209,11 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         ),
     )
 
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        # Recalculate totals after inlines (items and taxes) are saved
+        form.instance.recalculate_totals(save=True)
+
     def get_urls(self):
         urls = super().get_urls()
         custom = [
@@ -326,6 +331,10 @@ class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             },
         ),
     )
+    
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        form.instance.recalculate_totals(save=True)
     
     actions = ["download_pdf", "finalize_invoice_action"]
     actions_row = ["view_pdf_row_action", "finalize_invoice_row_action"]

@@ -193,6 +193,7 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
         verbose_name=_("Transaction Type")
     )
     date = models.DateTimeField(default=timezone.now, verbose_name=_("Date"))
+    data = models.JSONField(default=dict, blank=True, verbose_name=_("Flexible Data"))
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
 
     class Meta:

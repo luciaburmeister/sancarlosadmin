@@ -87,6 +87,7 @@ class AssetTransactionInline(StackedInline):
                 "fields": (
                     ("transaction_type", "date"),
                     ("from_zone", "to_zone"),
+                    "data",
                     "notes",
                 )
             },

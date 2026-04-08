@@ -34,7 +34,17 @@ class ExportTemplatePreviewView(UnfoldModelAdminViewMixin, View):
                 qs = qs.filter(product_id=product_id)
             return qs.order_by("-id").first() or Configuration.objects.order_by("-id").first()
             
-        elif kind in ["production_order", "production_ticket"]:
+        elif kind == "production_order":
+            from configurator.models import Configuration
+            if object_id:
+                return Configuration.objects.filter(id=object_id).first()
+            
+            qs = Configuration.objects.filter(**filters)
+            if product_id:
+                qs = qs.filter(product_id=product_id)
+            return qs.order_by("-id").first() or Configuration.objects.order_by("-id").first()
+            
+        elif kind == "production_ticket":
             from production.models import ProductionItem
             if object_id:
                 return ProductionItem.objects.filter(id=object_id).first()

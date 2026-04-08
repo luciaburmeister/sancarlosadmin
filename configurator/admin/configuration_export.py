@@ -67,7 +67,11 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
             qs = Configuration.objects.all()
             if obj.product:
                 qs = qs.filter(product=obj.product)
-        elif obj.kind in [ExportTemplateKind.PRODUCTION_ORDER, ExportTemplateKind.PRODUCTION_TICKET]:
+        elif obj.kind == ExportTemplateKind.PRODUCTION_ORDER:
+            qs = Configuration.objects.all()
+            if obj.product:
+                qs = qs.filter(product=obj.product)
+        elif obj.kind == ExportTemplateKind.PRODUCTION_TICKET:
             qs = ProductionItem.objects.all()
         elif obj.kind == ExportTemplateKind.SALES_INVOICE:
             qs = SalesInvoice.objects.all()

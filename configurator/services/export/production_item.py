@@ -52,7 +52,10 @@ class ProductionItemExportStrategy(BaseExportStrategy):
                 "client": config.client,
                 "items": items_data,
                 "parameters": config.param_values.select_related("parameter"),
+                "component_groups": config.component_groups.order_by("order"),
                 "computed": pricing_context,
+                "parameter_pricing_dictionary": pricing_context,
+                "rendered_templates": getattr(config, "rendered_templates", {}),
             })
 
         # Use common helper for company and bank information

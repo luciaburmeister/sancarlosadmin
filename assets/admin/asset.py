@@ -12,6 +12,7 @@ from django.utils.html import format_html
 from django.http import HttpResponse
 from assets.utils import generate_asset_qr_grid
 from company.forms import BaseDocumentForm
+from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 
 class AssetDocumentForm(BaseDocumentForm):
@@ -99,7 +100,7 @@ class AssetTransactionInline(StackedInline):
 @admin.register(Asset)
 class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     list_display = ("name", "asset_type", "client", "provider", "assigned_to", "qr_link", "get_identifiers")
-    list_filter = ("asset_type", "client", "provider", "assigned_to")
+    list_filter = ("asset_type", ("client",AutocompleteSelectFilter), ("provider",AutocompleteSelectFilter), "assigned_to",("company",AutocompleteSelectFilter))
     search_fields = ("name", "identifiers__value")
     inlines = [AssetIdentifierInline, AssetTransactionInline, AssetDocumentInline]
     actions = ["download_qr_grid"]

@@ -189,6 +189,7 @@ def pickup_view(request, asset_id):
         data = json.loads(request.body)
         latitude = data.get("latitude", 0)
         longitude = data.get("longitude", 0)
+        firma = data.get("firma", "")
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
@@ -220,6 +221,7 @@ def pickup_view(request, asset_id):
         transaction_type=TransactionTypeChoices.MOVEMENT,
         date=timezone.now(),
         notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
+        firma = firma,
     )
 
     return JsonResponse({"success": True, "message": "Recogida registrada"})
@@ -234,6 +236,7 @@ def deliver_view(request, asset_id):
         data = json.loads(request.body)
         latitude = data.get("latitude", 0)
         longitude = data.get("longitude", 0)
+        firma = data.get("firma", "")  
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
@@ -256,6 +259,7 @@ def deliver_view(request, asset_id):
         transaction_type=TransactionTypeChoices.DELIVERY,
         date=timezone.now(),
         notes=f"Entregado por {user.username} en {destination_zone}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
+        firma = firma,
     )
 
     asset.current_working_zone = destination_zone

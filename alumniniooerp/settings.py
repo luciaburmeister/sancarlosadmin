@@ -461,6 +461,12 @@ UNFOLD = {
             "link": reverse_lazy("admin:assets_assetplanning_changelist"),
             "permission": lambda request: request.user.has_perm("assets.view_assetplanning"),
         },
+        {                                                              # ← ADD THIS
+            "title": _("Asset Transactions"),
+            "icon": "swap_horiz",
+            "link": reverse_lazy("admin:assets_assettransaction_changelist"),
+            "permission": lambda request: request.user.has_perm("assets.view_assettransaction"),
+        },
     ],
 },
 

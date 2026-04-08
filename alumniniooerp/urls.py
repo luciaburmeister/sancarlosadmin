@@ -44,5 +44,4 @@ urlpatterns += i18n_patterns(
     path('reset/<uidb64>/<token>/', CustomPasswordResetConfirmView.as_view(), name='password_reset_confirm'),
     path('reset/done/', CustomPasswordResetCompleteView.as_view(), name='password_reset_complete'),
     path("api/", include("api.urls")),
-
 )

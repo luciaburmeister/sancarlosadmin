@@ -186,6 +186,7 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
     )
     date = models.DateTimeField(default=timezone.now, verbose_name=_("Date"))
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
+    firma = models.TextField(blank=True, null=True, verbose_name=_("Firma"))  # ← ADD THIS
 
     class Meta:
         verbose_name = _("Asset transaction")

@@ -21,7 +21,7 @@ from invoices.models import AppliedTax
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.db.models import Q, F
-from django.template import engines
+from django.utils import timezone
 
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")
@@ -1334,6 +1334,7 @@ class ExportTemplateKind(models.TextChoices):
     PRODUCTION_TICKET = "production_ticket", _("Production Ticket")
     SALES_INVOICE = "sales_invoice", _("Sales Invoice")
     CONSOLIDATED_QUOTATION = "consolidated_quotation", _("Consolidated Quotation")
+    RECEIVAL_SLIP = "receival_slip", _("Receival Slip")
 
 
 class ConfigurationExportTemplate(CompanyOwnedModel):
@@ -1436,3 +1437,80 @@ class ConfigurationComponentGroup(models.Model):
 
     def __str__(self):
         return self.label
+
+
+class ReceivalSlip(Timestampable, CompanyOwnedModel):
+    """
+    Albarán de Recibida: Document tracking items received for a configuration.
+    """
+    configuration = models.ForeignKey(
+        Configuration,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="receival_slips",
+        verbose_name=_("Configuration"),
+    )
+    reference = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name=_("Reference"),
+        help_text=_("Auto-generated internal reference (e.g., ALB-RX-00001)")
+    )
+    date = models.DateField(
+        default=timezone.now,
+        verbose_name=_("Date")
+    )
+    notes = models.TextField(
+        blank=True,
+        verbose_name=_("General Notes")
+    )
+
+    class Meta:
+        verbose_name = _("Receival Slip")
+        verbose_name_plural = _("Receival Slips")
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['company', 'reference'],
+                name='unique_receival_reference_per_company'
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.reference or f'#{self.pk}'} ({self.date})"
+
+
+class ReceivalSlipItem(models.Model):
+    receival_slip = models.ForeignKey(
+        ReceivalSlip,
+        on_delete=models.CASCADE,
+        related_name="items",
+        verbose_name=_("Receival Slip"),
+    )
+    description = models.CharField(
+        max_length=255,
+        verbose_name=_("Item Name/Description")
+    )
+    quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        verbose_name=_("Quantity")
+    )
+    measurements = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name=_("Measurements")
+    )
+    notes = models.TextField(
+        blank=True,
+        verbose_name=_("Item Notes")
+    )
+
+    class Meta:
+        verbose_name = _("Receival Slip Item")
+        verbose_name_plural = _("Receival Slip Items")
+
+    def __str__(self):
+        return f"{self.description} ({self.quantity})"

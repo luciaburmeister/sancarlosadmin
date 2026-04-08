@@ -67,6 +67,16 @@ class ExportTemplatePreviewView(UnfoldModelAdminViewMixin, View):
             qs = Quote.objects.filter(**filters)
             return qs.order_by("-id").first() or Quote.objects.order_by("-id").first()
             
+        elif kind == "receival_slip":
+            from configurator.models import ReceivalSlip
+            if object_id:
+                return ReceivalSlip.objects.filter(id=object_id).first()
+                
+            qs = ReceivalSlip.objects.filter(**filters)
+            if product_id:
+                qs = qs.filter(configuration__product_id=product_id)
+            return qs.order_by("-id").first() or ReceivalSlip.objects.order_by("-id").first()
+            
         return None
 
     def post(self, request, *args, **kwargs):

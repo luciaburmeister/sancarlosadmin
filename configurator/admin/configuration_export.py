@@ -73,6 +73,11 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
             qs = SalesInvoice.objects.all()
         elif obj.kind == ExportTemplateKind.CONSOLIDATED_QUOTATION:
             qs = Quote.objects.all()
+        elif obj.kind == ExportTemplateKind.RECEIVAL_SLIP:
+            from configurator.models import ReceivalSlip
+            qs = ReceivalSlip.objects.all()
+            if obj.product:
+                qs = qs.filter(configuration__product=obj.product)
 
         if hasattr(qs, 'filter') and obj.company:
             qs = qs.filter(company=obj.company)

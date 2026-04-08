@@ -14,6 +14,7 @@ from invoices.models import AppliedTax
 from unfold.decorators import display
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.views.configuration.autocomplete_views import ClientAutocompleteView, AssetAutocompleteView
+from configurator.services.receival_slip_service import ReceivalSlipService
 
 
 
@@ -207,6 +208,7 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = (
         "id",
         "name",
+        "product__name",
         "client",
         "subtotal_price",
         "total_price_display",
@@ -218,11 +220,13 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
                    ("client",AutocompleteSelectMultipleFilter), 
                    ("created_at",RangeDateTimeFilter))
     search_fields = ("name", "client__name")
-    list_select_related = ["client","company"]
+    list_select_related = ["client","company","product"]
 
     readonly_fields = ("total_price","total_cost","subtotal_price","company")
     actions_row = ["export_configuration_to_template", 
-                   "convert_to_production"]
+                   "convert_to_production",
+                   "create_receival_slip_action",
+                   "view_receival_slips"]
     autocomplete_fields = ["client","product","asset","quote"]
     list_filter_submit = False
 
@@ -352,3 +356,23 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
         return redirect(
             reverse("admin:production_productionticket_change", args=[ticket.id])
         )
+
+    @action(description=_("Create Receival Slip"))
+    def create_receival_slip_action(self, request: HttpRequest, object_id: int):
+        config = Configuration.objects.get(pk=object_id)
+        slip = ReceivalSlipService.create_from_configuration(config)
+        
+        self.message_user(
+            request,
+            _("Receival Slip successfully created."),
+            "success"
+        )
+
+        return redirect(
+            reverse("admin:configurator_receivalslip_change", args=[slip.id])
+        )
+
+    @action(description=_("View Receival Slips"))
+    def view_receival_slips(self, request: HttpRequest, object_id: int):
+        url = reverse("admin:configurator_receivalslip_changelist")
+        return redirect(f"{url}?configuration__id__exact={object_id}")

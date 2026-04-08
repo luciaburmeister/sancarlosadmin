@@ -14,6 +14,7 @@ from .configuration import ConfigurationExportStrategy
 from .production_item import ProductionItemExportStrategy
 from .sales_invoice import SalesInvoiceExportStrategy
 from .quote import QuoteExportStrategy
+from .receival_slip import ReceivalSlipExportStrategy
 import re
 from django.db.models.fields.files import FieldFile
 from django_countries.fields import Country
@@ -99,6 +100,10 @@ class ConfigurationExportService:
             
         if isinstance(obj, Quote):
             return QuoteExportStrategy(obj)
+        
+        from configurator.models import ReceivalSlip
+        if isinstance(obj, ReceivalSlip):
+            return ReceivalSlipExportStrategy(obj)
         
         raise ValueError(f"No export strategy found for object type: {type(obj)}")
 

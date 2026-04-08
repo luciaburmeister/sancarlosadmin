@@ -3,16 +3,23 @@ from unfold.admin import ModelAdmin
 from unfold.decorators import action # Added import
 
 
-from company.models import Company, CompanyUser, CompanyEmailConfig, BankAccount
+from company.models import Company, CompanyUser, CompanyEmailConfig, BankAccount, CompanyDocument, CompanyDocumentType
 from django.utils.translation import gettext_lazy as _
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
 from core.admin.company_access import get_user_companies
 from unfold.admin import ModelAdmin, StackedInline
-
+from core.admin.company_admin import CompanyRestrictedAdmin
+from company.forms import CompanyDocumentForm
 
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
+
+@admin.register(BankAccount)
+class BankAccountAdmin(ModelAdmin):
+    list_display = ("bank_name", "account_number", "company")
+    search_fields = ("bank_name", "account_number", "iban")
+    autocomplete_fields = ("company",)
 
 class BankAccountInline(StackedInline):
     model = BankAccount
@@ -21,9 +28,34 @@ class BankAccountInline(StackedInline):
     tab = True
     tab_title = _("Bank Accounts")
 
+class CompanyDocumentInline(StackedInline):
+    model = CompanyDocument
+    form = CompanyDocumentForm
+    extra = 0
+    tab = True
+    tab_title = _("Documents")
+    autocomplete_fields = ["document_type"]
+
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("document_type",  "file"),
+                ("does_not_expire","is_active"),
+                ("issue_date", "expiry_date"),
+                "notes",
+            )
+        }),
+    )
+
+@admin.register(CompanyDocumentType)
+class CompanyDocumentTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ("name", "company")
+    search_fields = ("name",)
+    autocomplete_fields = ["company"]
+
 @admin.register(Company)
 class CompanyAdmin(ModelAdmin):
-    inlines = [BankAccountInline]
+    inlines = [BankAccountInline, CompanyDocumentInline]
     list_display = ("name", "is_active")
     list_filter = ("is_active",)
     search_fields = ("name",)
@@ -31,21 +63,37 @@ class CompanyAdmin(ModelAdmin):
     ordering = ("name",)
 
     fieldsets = (
-        (None, {
+        (_("Base Info"), {
+            "classes": ["tab"],
             "fields": (
-                "name",
-                "legal_name",
-                "is_active",
-                "logo",
+                ("name",
+                "legal_name"),
+                ("logo",
+                "constituted_country"),
                 "address",
-                "email",
-                "phone",
-                "tax_identifier",
-                "constituted_country",
-                "production_stages",
-                "asset_identifier_labels",
+                ("email",
+                "phone"),
+                "is_active"
+
             )
         }),
+        (_("Application Configurations"), {
+            "fields": (
+
+                ("production_stages",
+                "asset_identifier_labels"),
+                ("document_reminder_emails"),
+            ),
+            "classes": ["tab"]
+        }),
+        (_("Taxes"), {
+            "fields": (
+                "tax_identifier",
+                "business_activity_description"
+            ),
+            "classes": ["tab"]
+        })
+        
     )
 
     formfield_overrides = {
@@ -106,3 +154,19 @@ class CompanyEmailConfigAdmin(ModelAdmin):
     list_filter = ("company", "use_ssl")
     search_fields = ("email_address", "imap_server", "imap_user")
     autocomplete_fields = ("company",)
+    actions_row = ["pull_emails_action"]
+
+    @action(
+        description=_("pull emails"),
+        url_path="pull-emails",
+        icon="mail"
+    )
+    def pull_emails_action(self, request, object_id: int):
+        from invoices.tasks import fetch_email_invoices_task
+        try:
+            fetch_email_invoices_task.delay(object_id)
+            messages.success(request, _("Email fetching task has been triggered in the background."))
+        except Exception as e:
+            messages.error(request, _(f"Error triggering task: {str(e)}"))
+            
+        return redirect(request.META.get("HTTP_REFERER"))

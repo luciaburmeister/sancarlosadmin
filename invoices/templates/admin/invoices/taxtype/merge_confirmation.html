@@ -1,0 +1,72 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n admin_urls unfold %}
+
+{% block content %}
+<div class="max-w-4xl">
+    {% component "unfold/components/card.html" %}
+
+        {# Header #}
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+                {% trans "Merge Tax Types" %}
+            </h1>
+            <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                {% trans "Select which tax type to keep. The other will be deleted and all its records re-pointed to the one you keep." %}
+            </p>
+        </div>
+
+        {# Form #}
+        <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="merge_tax_types">
+            {% for id in selected_ids %}
+                <input type="hidden" name="selected_ids" value="{{ id }}">
+            {% endfor %}
+            <input type="hidden" name="confirmation" value="yes">
+
+            <div class="px-6 py-4">
+                <div class="space-y-3">
+                    {% for tax in tax_types %}
+                    <label class="flex items-center gap-4 p-4 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                        <input
+                            type="radio"
+                            name="winner_id"
+                            value="{{ tax.id }}"
+                            {% if forloop.first %}checked{% endif %}
+                            class="h-4 w-4 text-primary-600 border-gray-300 focus:ring-primary-500"
+                        >
+                        <div class="flex-1 grid grid-cols-3 gap-4">
+                            <div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{% trans "Tax Name" %}</p>
+                                <p class="mt-0.5 text-sm font-semibold text-gray-900 dark:text-white">{{ tax.tax_name }}</p>
+                            </div>
+                            <div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{% trans "Country" %}</p>
+                                <p class="mt-0.5 text-sm text-gray-900 dark:text-white">{{ tax.country }}</p>
+                            </div>
+                            <div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{% trans "Default %" %}</p>
+                                <p class="mt-0.5 text-sm text-gray-900 dark:text-white">{{ tax.default_percentage }}%</p>
+                            </div>
+                        </div>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            {# Footer with buttons #}
+            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
+                <a href="{% url 'admin:invoices_taxtype_changelist' %}"
+                   class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+                    {% trans "Cancel" %}
+                </a>
+
+                {% component "unfold/components/button.html" with submit=1 %}
+                    {% trans "Confirm Merge" %}
+                {% endcomponent %}
+            </div>
+        </form>
+
+    {% endcomponent %}
+</div>
+{% endblock %}

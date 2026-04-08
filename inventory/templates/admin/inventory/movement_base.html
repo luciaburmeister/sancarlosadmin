@@ -1,0 +1,98 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% block title %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <script src="{% url 'admin:jsi18n' %}"></script>
+  {{ media }}
+{% endblock %}
+
+{% block content %}
+
+{# Breadcrumb #}
+<div class="mb-6 mt-2">
+  <ul class="flex flex-wrap items-center gap-x-1 text-sm text-font-subtle-light dark:text-font-subtle-dark list-none p-0 m-0">
+    <li><a href="{% url 'admin:index' %}" class="hover:text-primary-600 dark:hover:text-primary-400 transition-colors no-underline">{% trans "Home" %}</a></li>
+    <li class="mx-1">/</li>
+    <li><a href="{% url 'admin:inventory_inventoryitem_changelist' %}" class="hover:text-primary-600 dark:hover:text-primary-400 transition-colors no-underline">{% trans "Items" %}</a></li>
+    <li class="mx-1">/</li>
+    <li><a href="{{ cancel_url }}" class="hover:text-primary-600 dark:hover:text-primary-400 transition-colors no-underline">{{ item }}</a></li>
+    <li class="mx-1">/</li>
+    <li class="font-semibold text-font-important-light dark:text-font-important-dark">{{ title }}</li>
+  </ul>
+</div>
+
+{# Item summary card #}
+<div class="border border-base-200 dark:border-base-800 rounded-default shadow-xs mb-6 overflow-hidden bg-white dark:bg-base-900">
+
+  {# Title row #}
+  <div class="flex items-center gap-4 px-6 py-5 border-b border-base-200 dark:border-base-800">
+    <div class="w-10 h-10 rounded-default bg-primary-50 dark:bg-primary-900/30 flex items-center justify-center shrink-0">
+      <span class="material-symbols-outlined text-[22px] leading-none text-primary-600 dark:text-primary-400">{{ movement_icon }}</span>
+    </div>
+    <h1 class="text-xl font-bold text-font-important-light dark:text-font-important-dark m-0 leading-tight">{{ title }}</h1>
+  </div>
+
+  {# Stats row #}
+  <div class="grid grid-cols-3 divide-x divide-base-200 dark:divide-base-800">
+    <div class="px-6 py-4">
+      <p class="text-xs font-semibold uppercase tracking-wider text-font-subtle-light dark:text-font-subtle-dark mb-1.5">{% trans "Item Code" %}</p>
+      <p class="text-sm font-bold font-mono text-font-important-light dark:text-font-important-dark m-0">{{ item.code }}</p>
+    </div>
+    <div class="px-6 py-4">
+      <p class="text-xs font-semibold uppercase tracking-wider text-font-subtle-light dark:text-font-subtle-dark mb-1.5">{% trans "Item Name" %}</p>
+      <p class="text-sm font-bold text-font-important-light dark:text-font-important-dark m-0 truncate">{{ item.name }}</p>
+    </div>
+    <div class="px-6 py-4">
+      <p class="text-xs font-semibold uppercase tracking-wider text-font-subtle-light dark:text-font-subtle-dark mb-1.5">{% trans "Current Stock" %}</p>
+      {% if stock_on_hand > 0 %}
+        <p class="text-sm font-bold text-green-600 dark:text-green-400 m-0">+{{ stock_on_hand }}</p>
+      {% elif stock_on_hand < 0 %}
+        <p class="text-sm font-bold text-red-600 dark:text-red-400 m-0">{{ stock_on_hand }}</p>
+      {% else %}
+        <p class="text-sm font-bold text-font-subtle-light dark:text-font-subtle-dark m-0">0</p>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+{# Form #}
+<form method="post" novalidate>
+  {% csrf_token %}
+
+  <div class="flex flex-col gap-6">
+
+    {% if form.non_field_errors %}
+    <div class="border border-red-200 dark:border-red-800 rounded-default bg-red-50 dark:bg-red-950/30 px-3 py-3">
+      {% for error in form.non_field_errors %}
+        <p class="text-sm text-red-600 dark:text-red-400 m-0 flex items-center gap-2">
+          <span class="material-symbols-outlined text-base leading-none">warning</span>{{ error }}
+        </p>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% block form_sections %}{% endblock %}
+
+    {# Default action row — wizard templates override this block to replace with their own nav #}
+    {% block form_actions %}
+    <div class="flex items-center justify-between">
+      {% component "unfold/components/button.html" with href=cancel_url variant="default" size="md" %}
+        <span class="material-symbols-outlined text-[18px] leading-none">arrow_back</span>
+        {% trans "Cancel" %}
+      {% endcomponent %}
+      {% component "unfold/components/button.html" with submit=True size="md" %}
+        {% block submit_label %}{% trans "Confirm" %}{% endblock %}
+      {% endcomponent %}
+    </div>
+    {% endblock %}
+
+  </div>
+</form>
+
+{% block extra_js %}{% endblock %}
+
+{% endblock %}

@@ -1,5 +1,8 @@
 from typing import TYPE_CHECKING, Any, Dict
 from .base import BaseExportStrategy
+from django.template import engines
+from configurator.utils import safe_eval
+from .context_helpers import get_company_context
 
 if TYPE_CHECKING:
     from configurator.models import Configuration
@@ -12,7 +15,7 @@ class ConfigurationExportStrategy(BaseExportStrategy):
         super().__init__(configuration)
         self.configuration = configuration
 
-    def get_context(self) -> Dict[str, Any]:
+    def get_context(self, include_rendered_templates: bool = True) -> Dict[str, Any]:
         pricing_context = self.configuration.get_pricing_context()
         
         # Simplify items for JSON context
@@ -24,18 +27,15 @@ class ConfigurationExportStrategy(BaseExportStrategy):
                 "quantity": float(item.quantity) if item.quantity else 0,
                 "length": float(item.length) if item.length else 0,
                 "note": item.note,
-                "production_stages": item.production_stages,
                 "component": {
                     "id": item.component.id if item.component else None,
                     "name": item.component.name if item.component else None,
                     "code": item.component.code if item.component else None,
-                    "type": item.component.component_type if item.component else None,
-                    "metadata": item.component.metadata if item.component else {},
                 }
             }
             items_data.append(item_dict)
 
-        return {
+        base_context = {
             **pricing_context,
             "config": self.configuration,
             "client": self.configuration.client,
@@ -45,6 +45,15 @@ class ConfigurationExportStrategy(BaseExportStrategy):
             "computed": pricing_context,
             "parameter_pricing_dictionary": pricing_context,
         }
+
+        # Use common helper for company and bank information
+        company_ctx = get_company_context(self.configuration.company)
+        base_context.update(company_ctx)
+
+        if include_rendered_templates:
+            base_context["rendered_templates"] = getattr(self.configuration, "rendered_templates", {})
+
+        return base_context
 
     def get_product(self):
         return self.configuration.product

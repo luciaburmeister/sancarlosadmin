@@ -8,3 +8,4 @@ from .pricing_rule_assignment import PricingRuleAssignmentAdmin
 from .user_admin import UserAdmin
 from .configuration_export import ConfigurationExportTemplateAdmin
 from .configuration_item import ConfigurationItem
+from .receival_slip import ReceivalSlipAdmin

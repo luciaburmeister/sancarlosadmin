@@ -219,7 +219,8 @@ class SalesInvoiceService:
         """
         template = ConfigurationExportTemplate.get_default_for_product(
             product=sales_invoice.configuration.product if sales_invoice.configuration else None,
-            kind=ExportTemplateKind.SALES_INVOICE
+            kind=ExportTemplateKind.SALES_INVOICE,
+            company=sales_invoice.company
         )
         
         if not template:

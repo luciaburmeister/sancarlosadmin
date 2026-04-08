@@ -4,7 +4,10 @@ from django.utils.translation import gettext as _
 from unfold.views import UnfoldModelAdminViewMixin
 from django.http import HttpResponse
 from django.http import HttpRequest
+from django.utils.decorators import method_decorator
+from django.views.decorators.clickjacking import xframe_options_exempt
 from production.models import ProductionTicket
+@method_decorator(xframe_options_exempt, name='dispatch')
 class ProductionTicketHtmlRender(UnfoldModelAdminViewMixin, View):
     permission_required = ("production.view_productionticket",)
     def get(self, request: HttpRequest, ticket_id: int):
@@ -13,8 +16,8 @@ class ProductionTicketHtmlRender(UnfoldModelAdminViewMixin, View):
         stages_url = reverse("admin:production_productionticket_stages", args=[ticket_id])
         button_label = _("Return to Stages")
         
-        # Inject floating button and no-print styles
-        injected_html = f"""
+        # Style for the floating button
+        style_html = f"""
         <style>
             @media print {{
                 .no-print {{
@@ -44,8 +47,38 @@ class ProductionTicketHtmlRender(UnfoldModelAdminViewMixin, View):
             {button_label}
         </a>
         """
-        
-        full_html = ticket.order_html + injected_html
+
+        if ticket.work_order_pdf:
+            pdf_url = ticket.work_order_pdf.url
+            full_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>{_("Work Order")} #{ticket.pk}</title>
+                {style_html}
+                <style>
+                    body, html {{
+                        margin: 0;
+                        padding: 0;
+                        height: 100%;
+                        overflow: hidden;
+                    }}
+                    iframe {{
+                        width: 100%;
+                        height: 100%;
+                        border: none;
+                    }}
+                </style>
+            </head>
+            <body>
+                <iframe src="{pdf_url}"></iframe>
+            </body>
+            </html>
+            """
+            return HttpResponse(full_html, content_type="text/html; charset=utf-8")
+
+        # Inject floating button and no-print styles
+        full_html = (ticket.order_html or "") + style_html
         
         return HttpResponse(
             full_html,

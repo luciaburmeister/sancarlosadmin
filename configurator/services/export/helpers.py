@@ -22,7 +22,7 @@ def strip_wrappers(raw_html: str) -> str:
     cleaned = re.sub(r'</div>\s*<div>', ' ', cleaned, flags=re.IGNORECASE)
 
     # 3. Remove empty/spacer tags
-    cleaned = re.sub(r'<(p|div|span)[^>]*>\s*(&nbsp;)?\s*</\1>', ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'<(p|div|span)\b[^>]*>\s*(&nbsp;)?\s*</\1>', ' ', cleaned, flags=re.IGNORECASE)
 
     # 4. Remove outer-most "naked" wrappers (repetitive to handle nested ones)
     for _ in range(3):
@@ -50,7 +50,7 @@ def strip_css_wrappers(raw_css: str) -> str:
         cleaned = style_match.group(1)
 
     # Remove wrapping <div> or <p>
-    cleaned = re.sub(r'^<(div|p)[^>]*>(.*)</\1>$', r'\2', cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = re.sub(r'^<(div|p)\b[^>]*>(.*)</\1>$', r'\2', cleaned, flags=re.DOTALL | re.IGNORECASE)
 
     # Convert <br> to newlines
     cleaned = re.sub(r'<br\s*/?>', '\n', cleaned, flags=re.IGNORECASE)
@@ -65,7 +65,7 @@ def clean_final_html(rendered: str) -> str:
 
     # 1️⃣ Remove <br> after any block-level opening tag
     cleaned = re.sub(
-        r'(<(div|section|p|h[1-6]|table|thead|tbody|tr)[^>]*>)\s*(<br\s*/?>\s*)+',
+        r'(<(div|section|p|h[1-6]|table|thead|tbody|tr)\b[^>]*>)\s*(<br\s*/?>\s*)+',
         r'\1',
         cleaned,
         flags=re.IGNORECASE
@@ -73,7 +73,7 @@ def clean_final_html(rendered: str) -> str:
 
     # 2️⃣ Remove <br> before any block-level closing tag
     cleaned = re.sub(
-        r'(<br\s*/?>\s*)+(</(div|section|p|h[1-6]|table|thead|tbody|tr)>)',
+        r'(<br\s*/?>\s*)+(</(div|section|p|h[1-6]|table|thead|tbody|tr)\b>)',
         r'\2',
         cleaned,
         flags=re.IGNORECASE
@@ -89,7 +89,7 @@ def clean_final_html(rendered: str) -> str:
 
     # 4️⃣ NEW: Remove <br> between ANY closing block tag and next opening tag
     cleaned = re.sub(
-        r'(</(div|section|p|h[1-6]|table|thead|tbody|tr|td|th)>)\s*<br\s*/?>',
+        r'(</(div|section|p|h[1-6]|table|thead|tbody|tr|td|th)\b>)\s*<br\s*/?>',
         r'\1',
         cleaned,
         flags=re.IGNORECASE
@@ -97,7 +97,7 @@ def clean_final_html(rendered: str) -> str:
 
     # 5️⃣ NEW: Remove <br> before ANY block-level opening tag
     cleaned = re.sub(
-        r'<br\s*/?>\s*(<(div|section|p|h[1-6]|table|thead|tbody|tr|td|th)[^>]*>)',
+        r'<br\s*/?>\s*(<(div|section|p|h[1-6]|table|thead|tbody|tr|td|th)\b[^>]*>)',
         r'\1',
         cleaned,
         flags=re.IGNORECASE
@@ -133,13 +133,13 @@ def clean_final_html(rendered: str) -> str:
     # 7️⃣ HEAL Fragmentation: Remove ALL block wrappers and breaks inside <svg> tags
     def heal_svg_block(match):
         svg_content = match.group(0)
-        healed = re.sub(r'</?(p|div|br)[^>]*>', ' ', svg_content, flags=re.IGNORECASE)
+        healed = re.sub(r'</?(p|div|br)\b[^>]*>', ' ', svg_content, flags=re.IGNORECASE)
         return re.sub(r'\s+', ' ', healed)
 
     cleaned = re.sub(r'<svg.*?>.*?</svg>', heal_svg_block, cleaned, flags=re.DOTALL | re.IGNORECASE)
 
     # 8️⃣ Final clean for consecutive naked paragraphs
-    cleaned = re.sub(r'</p>\s*<p>', ' ', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'</div>\s*<div>', ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'</p>\s*<p\s*>', ' ', cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r'</div>\s*<div\s*>', ' ', cleaned, flags=re.IGNORECASE)
 
     return cleaned.strip()

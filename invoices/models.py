@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Sum
 from company.models import  CompanyEmailConfig, CompanyOwnedModel
 from django.core.validators import MinValueValidator
 from decimal import Decimal
@@ -9,6 +10,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.validators import FileExtensionValidator
 from djmoney.models.fields import MoneyField
+from company.models import Company
 from django.utils import timezone
 
 
@@ -42,19 +44,29 @@ class Invoice(models.Model):
     date_issued = models.DateField(db_index=True,blank=True, null=True) 
     due_date = models.DateField(blank=True, null=True) #fecha de vencimiento
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT,blank=True, null=True) 
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="invoices", null=True)
     
-    group = models.ForeignKey(
-        InvoiceGroup, 
+    account = models.ForeignKey(
+        'accounting.CompanyAccount', 
         on_delete=models.PROTECT, 
-        related_name='invoices', 
-        null=True, #makes having a group optional
-        blank=True
+        null=True,
+        blank=True,
+        related_name='invoices',
+        help_text="Accounting account assigned by Gemini or manually overridden."
     )
     
     payment_method = models.CharField(
         max_length=20,
         choices=PaymentMethod.choices,
         default=PaymentMethod.TRANSFER
+    )
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="purchase_invoices",
+        verbose_name=_("Project File")
     )
 
     observations = models.TextField(blank=True, null=True)
@@ -86,12 +98,6 @@ class Invoice(models.Model):
         max_length=3,
         default='EUR',
         help_text="Currency code (EUR, USD, etc.)"
-    )
-
-    line_items = models.JSONField(
-        default=list,
-        blank=True,
-        help_text= "Line items with descriptions, quantities, prices, and tax rates"
     )
 
     needs_manual_review = models.BooleanField(
@@ -132,6 +138,40 @@ class Invoice(models.Model):
 
     def __str__(self):
         return f"{self.invoice_number} - {self.provider}"
+    
+    def recalculate_totals(self, save=True):
+        """
+        Recalculates the total amount by summing up items and applying taxes sequentially.
+        """
+        items_sum = self.items.aggregate(total=Sum('line_total'))['total']
+        if items_sum is not None:
+             base_amount = Decimal(str(items_sum.amount if hasattr(items_sum, 'amount') else items_sum))
+        else:
+             base_amount = Decimal("0.00")
+             
+        current_total = base_amount
+        # Pull taxes in order to apply them on top
+        taxes = list(self.get_taxes().order_by('order', 'id'))
+        
+        for tax in taxes:
+            result = tax.calculate(current_total)
+            tax.base_amount = current_total
+            tax.calculated_amount = result['tax_amount']
+            tax.save(update_fields=['base_amount', 'calculated_amount'])
+            current_total = result['total_amount']
+            
+        self.total_amount = current_total
+        
+        if save:
+            self.save(update_fields=['total_amount'])
+            
+        return self.total_amount
+
+    def save(self, *args, **kwargs):
+        # Automatic recalculation if already exists
+        if self.pk and not kwargs.get('update_fields'):
+            self.recalculate_totals(save=False)
+        super().save(*args, **kwargs)
     
     def get_taxes(self):
         ct = ContentType.objects.get_for_model(self)
@@ -251,8 +291,8 @@ class AppliedTax(models.Model):
         ordering = ["content_type", "object_id", "order", "tax_type"]
         constraints = [
             models.UniqueConstraint(
-                fields=["content_type", "object_id", "tax_type"],
-                name="uniq_tax_per_object",
+                fields=["content_type", "object_id", "tax_type", "selected_percentage"],
+                name="uniq_tax_per_object_and_percentage",
             ),
         ]
         indexes = [
@@ -283,6 +323,34 @@ class AppliedTax(models.Model):
         return {
             "tax_amount": tax_amount,
             "total_amount": total.quantize(Decimal("0.01")),
+        }
+
+    def calculate_from_gross(self, gross_amount: Decimal) -> dict:
+        """
+        Calculates the tax components backwards from a gross amount.
+        Used for tax-inclusive prices.
+
+        Returns:
+        {
+            "tax_amount": tax_amount,
+            "base_amount": base
+        }
+        """
+        gross_total = Decimal(gross_amount)
+        rate = self.selected_percentage / Decimal("100")
+
+        if self.tax_type.behavior == "add":
+            # Gross = Base * (1 + Rate) => Base = Gross / (1 + Rate)
+            base = (gross_total / (Decimal("1.0") + rate)).quantize(Decimal("0.01"))
+            tax_amount = gross_total - base
+        else:
+            # Gross = Base * (1 - Rate) => Base = Gross / (1 - Rate)
+            base = (gross_total / (Decimal("1.0") - rate)).quantize(Decimal("0.01"))
+            tax_amount = base - gross_total
+
+        return {
+            "tax_amount": tax_amount,
+            "base_amount": base
         }
 
     def calculate_and_store(self):
@@ -358,6 +426,14 @@ class SalesInvoice(CompanyOwnedModel):
         related_name='sales_invoices',
         verbose_name=_("Configuration")
     )
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sales_invoices",
+        verbose_name=_("Project File")
+    )
     
     subtotal_amount = MoneyField(
         max_digits=12, 
@@ -381,6 +457,8 @@ class SalesInvoice(CompanyOwnedModel):
         verbose_name=_("Total Amount")
     )
     
+    reference = models.CharField(max_length=255, blank=True, null=True, verbose_name=_("Reference"))
+    
     notes = models.TextField(blank=True, null=True, verbose_name=_("Notes"))
 
     class Meta:
@@ -397,13 +475,19 @@ class SalesInvoice(CompanyOwnedModel):
     def recalculate_totals(self, save=True):
         """
         Recalculates the total and tax amounts by applying taxes sequentially
-        on top of the subtotal.
+        on top of the subtotal (which is summed from line items).
         """
+        # 1. Update subtotal from items if they exist
+        items_sum = self.items.aggregate(total=Sum('line_total'))['total']
+        if items_sum is not None:
+             # Ensure subtotal_amount gets the numeric value
+             self.subtotal_amount = items_sum.amount if hasattr(items_sum, 'amount') else items_sum
+             
         ct = ContentType.objects.get_for_model(self)
-        
         current_total = Decimal(self.subtotal_amount.amount)
         
-        taxes = AppliedTax.objects.filter(content_type=ct, object_id=self.pk).order_by('order', 'tax_type')
+        # 2. Sequential tax application (Additive)
+        taxes = list(AppliedTax.objects.filter(content_type=ct, object_id=self.pk).order_by('order', 'id'))
         
         total_tax = Decimal("0.00")
         for tax in taxes:
@@ -426,6 +510,12 @@ class SalesInvoice(CompanyOwnedModel):
             'tax': self.tax_amount,
             'total': self.total_amount
         }
+
+    def save(self, *args, **kwargs):
+        # Automatic recalculation if already exists
+        if self.pk and not kwargs.get('update_fields'):
+            self.recalculate_totals(save=False)
+        super().save(*args, **kwargs)
 
 class SalesInvoiceItem(models.Model):
     invoice = models.ForeignKey(
@@ -462,3 +552,45 @@ class SalesInvoiceItem(models.Model):
 
     def __str__(self):
         return f"{self.description} ({self.quantity})"
+
+class InvoiceItem(models.Model):
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.CASCADE,
+        related_name='items',
+        verbose_name=_("Invoice")
+    )
+    description = models.CharField(max_length=255, verbose_name=_("Description"))
+    quantity = models.DecimalField(max_digits=10, decimal_places=3, default=1, verbose_name=_("Quantity"))
+    unit_price = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency='EUR',
+        verbose_name=_("Unit Price")
+    )
+    line_total = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency='EUR',
+        verbose_name=_("Line Total")
+    )
+
+    account = models.ForeignKey(
+        'accounting.CompanyAccount',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='invoice_items',
+        help_text="Accounting account assigned by Gemini or manually overridden for this specific line item."
+    )
+
+    def save(self, *args, **kwargs):
+        self.line_total = self.unit_price * self.quantity
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.description} ({self.quantity})"
+
+    class Meta:
+        verbose_name = "Invoice Item"
+        verbose_name_plural = "Invoice Items"

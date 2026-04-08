@@ -43,6 +43,25 @@
             formData.append("html", htmlInput.value);
             formData.append("css", cssInput.value);
 
+            const kindSelect = document.getElementById("id_kind");
+            const productSelect = document.getElementById("id_product");
+            const companySelect = document.getElementById("id_company");
+
+            if (kindSelect && kindSelect.value) {
+                formData.append("kind", kindSelect.value);
+            }
+            if (productSelect && productSelect.value) {
+                formData.append("product", productSelect.value);
+            }
+            if (companySelect && companySelect.value) {
+                formData.append("company", companySelect.value);
+            }
+
+            const testObjectSelector = document.getElementById("test-object-selector");
+            if (testObjectSelector && testObjectSelector.value) {
+                formData.append("object_id", testObjectSelector.value);
+            }
+
             fetch(livePreviewUrl, {
                 method: "POST",
                 body: formData,
@@ -66,7 +85,7 @@
         let timeout = null;
         function debouncedUpdate() {
             clearTimeout(timeout);
-            timeout = setTimeout(updatePreview, 500);
+            timeout = setTimeout(updatePreview, 2000);
         }
 
         if (htmlInput) {
@@ -89,6 +108,26 @@
             const doc = previewIframe.contentDocument || previewIframe.contentWindow.document;
             updateContextJson(doc);
         });
+
+        const testObjectSelector = document.getElementById("test-object-selector");
+        if (testObjectSelector) {
+            testObjectSelector.addEventListener("change", () => {
+                const objectId = testObjectSelector.value;
+                try {
+                    const currentUrl = new URL(previewIframe.src, window.location.origin);
+                    if (objectId) {
+                        currentUrl.searchParams.set("object_id", objectId);
+                    } else {
+                        currentUrl.searchParams.delete("object_id");
+                    }
+                    previewIframe.src = currentUrl.toString();
+                } catch (e) {
+                    console.error("Error updating preview URL:", e);
+                }
+                // Also trigger a live update to use this object in POST
+                updatePreview();
+            });
+        }
     }
 
     if (document.readyState === "loading") {

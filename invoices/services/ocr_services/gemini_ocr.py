@@ -21,6 +21,7 @@ class GeminiInvoiceProcessor(OcrInterface):
     "required": [
         "vendor_name",
         "vendor_tax_id",
+        "company_tax_id",
         "invoice_number",
         "date_issued",
         "due_date",
@@ -33,6 +34,7 @@ class GeminiInvoiceProcessor(OcrInterface):
     "properties": {
         "vendor_name": {"type": "STRING", "nullable": True},
         "vendor_tax_id": {"type": "STRING", "nullable": True},
+        "company_tax_id": {"type": "STRING", "nullable": True},
         "invoice_number": {"type": "STRING", "nullable": True},
 
         "date_issued": {
@@ -129,6 +131,8 @@ class GeminiInvoiceProcessor(OcrInterface):
         - line_items MUST include tax_rate
         - taxes MUST include base_amount and tax_amount
         - The vendor_tax_id has to be the provider of who is issuing the invoice not the client's one.
+        - company_tax_id = tax id of the customer/client receiving the invoice (us)
+- Do    NOT confuse vendor_tax_id with company_tax_id
         """
 
         response = self.client.models.generate_content(
@@ -187,7 +191,8 @@ class GeminiInvoiceProcessor(OcrInterface):
         ]
         return InvoiceData(
             vendor_name=data.get("vendor_name"),
-            vendor_tax_id=data.get("vendor_tax_id"),
+            vendor_tax_id=self.normalize_tax_id(data.get("vendor_tax_id")),
+            company_tax_id=self.normalize_tax_id(data.get("company_tax_id")),
             invoice_number=data.get("invoice_number"),
             date_issued=self._parse_date(data.get("date_issued")),
             due_date=self._parse_date(data.get("due_date")),

@@ -76,6 +76,7 @@ class TemplateAccount(Timestampable):
     template = models.ForeignKey(ChartOfAccountsTemplate, on_delete=models.CASCADE, related_name="accounts")
     code = models.CharField(max_length=12, validators=[ACCOUNT_CODE_VALIDATOR])
     name = models.CharField(max_length=255)
+    description = models.TextField(null=True, blank=True)
 
     parent = models.ForeignKey(
         "self",
@@ -196,7 +197,7 @@ class CompanyAccount(Timestampable):
         ]
 
     def __str__(self) -> str:
-        return f"{self.company_id}:{self.code} {self.name}"
+        return f"{self.code} {self.name}"
 
 
 class Statement(models.TextChoices):

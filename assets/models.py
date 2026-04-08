@@ -2,11 +2,12 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 from sales.models import Client
-from company.models import CompanyOwnedModel, WorkingZone
+from company.models import CompanyOwnedModel, WorkingZone, BaseDocumentType, BaseDocument
 from django.core.exceptions import ValidationError
 from timestamps.models import Timestampable
 from django.utils import timezone
 from django.contrib.auth import get_user_model
+from materials.models import Provider
 User = get_user_model()
 
 
@@ -64,6 +65,16 @@ class Asset(CompanyOwnedModel):
         related_name="current_assets",
         verbose_name=_("Current Working Zone"))
 
+    provider = models.ForeignKey(
+        Provider,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assets",
+        verbose_name=_("Provider")
+    )
+    description = models.TextField(blank=True, verbose_name=_("Description"))
+
     assigned_to = models.ForeignKey(
     'company.Employee',
     on_delete=models.SET_NULL,
@@ -80,10 +91,7 @@ class Asset(CompanyOwnedModel):
         self._original_working_zone = self.current_working_zone
 
     def save(self, *args, **kwargs):
-        # Check if working zone changed
         if self.pk:
-            # Avoid re-fetching if we used __init__ tracking, but verify to be safe against in-memory staleness if needed.
-            # Simple dirty check using _original_working_zone
             if self.current_working_zone != self._original_working_zone:
                 self.create_transaction_on_change()
         
@@ -137,7 +145,6 @@ class AssetIdentifier(models.Model):
     class Meta:
         verbose_name = _("Asset identifier")
         verbose_name_plural = _("Asset identifiers")
-        unique_together = ("label", "value")
 
     def __str__(self):
         return f"{self.label}: {self.value}"
@@ -185,6 +192,7 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
         verbose_name=_("Transaction Type")
     )
     date = models.DateTimeField(default=timezone.now, verbose_name=_("Date"))
+    data = models.JSONField(default=dict, blank=True, verbose_name=_("Flexible Data"))
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
     firma = models.TextField(blank=True, null=True, verbose_name=_("Firma"))  # ← ADD THIS
 
@@ -252,3 +260,34 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
 
     def __str__(self):
         return f"{self.asset.name} → {self.destination} ({self.scheduled_date})"
+class AssetDocumentType(BaseDocumentType):
+    class Meta:
+        verbose_name = _("Asset Document Type")
+        verbose_name_plural = _("Asset Document Types")
+
+class AssetDocument(BaseDocument):
+    asset = models.ForeignKey(
+        Asset,
+        on_delete=models.CASCADE,
+        related_name="documents",
+        verbose_name=_("Asset")
+    )
+    document_type = models.ForeignKey(
+        AssetDocumentType,
+        on_delete=models.PROTECT,
+        related_name="documents",
+        verbose_name=_("Document Type")
+    )
+
+    class Meta:
+        verbose_name = _("Asset Document")
+        verbose_name_plural = _("Asset Documents")
+
+    def __str__(self):
+        return f"{self.document_type.name} - {self.asset}"
+
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.asset:
+            self.company = self.asset.company
+        super().save(*args, **kwargs)
+

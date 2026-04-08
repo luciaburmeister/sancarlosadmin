@@ -11,14 +11,18 @@ from production.models import (
 from company.models import Employee
 
 
+import unicodedata
+
 class StagesToSessionsService:
 
     @classmethod
-    def start_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+    def start_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
+        stage_name = unicodedata.normalize("NFC", stage_name)
         if employee is None:
             raise ValidationError("No employee provided to start activity.")
 
         now = timezone.now()
+        count = 0
 
         for item in items:
             current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
@@ -42,10 +46,14 @@ class StagesToSessionsService:
                 created_by=employee,
                 kind=ProductionItemSessionKind.ACTIVITY_STARTED,
             )
+            count += 1
+        return count
 
     @classmethod
-    def finish_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+    def finish_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
+        stage_name = unicodedata.normalize("NFC", stage_name)
         now = timezone.now()
+        count = 0
 
         for item in items:
             current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
@@ -74,10 +82,14 @@ class StagesToSessionsService:
             stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
             stage_info["completed_at"] = now.isoformat()
             cls._save_planning(item, stage_name, stage_info)
+            count += 1
+        return count
 
     @classmethod
-    def start_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+    def start_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
+        stage_name = unicodedata.normalize("NFC", stage_name)
         now = timezone.now()
+        count = 0
 
         for item in items:
             current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
@@ -106,9 +118,13 @@ class StagesToSessionsService:
                 created_by=employee,
                 kind=ProductionItemSessionKind.SESSION_STARTED,
             )
+            count += 1
+        return count
 
     @classmethod
-    def end_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee):
+    def end_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
+        stage_name = unicodedata.normalize("NFC", stage_name)
+        count = 0
         for item in items:
             session = (
                 ProductionItemSession.objects.filter(
@@ -126,16 +142,25 @@ class StagesToSessionsService:
 
             session.kind = ProductionItemSessionKind.SESSION_FINISHED
             session.finish(completed_by=employee)
+            count += 1
+        return count
 
 
     @classmethod
     def _get_current_stage(cls, production_item: ProductionItem, requested_stage: str | None = None):
+        if requested_stage:
+            requested_stage = unicodedata.normalize("NFC", requested_stage)
+
         planning = production_item.planning or {}
+        # Normalize planning keys for comparison
+        planning = {unicodedata.normalize("NFC", k): v for k, v in planning.items()}
 
         ticket = production_item.ticket
         config = ticket.source_object
         product = getattr(config, "product", None)
         stage_names = list(getattr(product, "production_stages", []) or [])
+        # Normalize known stage names
+        stage_names = [unicodedata.normalize("NFC", s) for s in stage_names]
 
         if not stage_names:
             return None, None
@@ -181,7 +206,7 @@ class StagesToSessionsService:
 
     @classmethod
     def _save_planning(cls, production_item: ProductionItem, stage_name: str, stage_info: dict):
-        planning = production_item.planning or {}
+        planning = {unicodedata.normalize("NFC", k): v for k, v in (production_item.planning or {}).items()}
         planning[stage_name] = stage_info
 
         production_item.planning = planning

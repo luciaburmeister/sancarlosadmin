@@ -310,6 +310,7 @@ UNFOLD = {
     "LOGIN": {
         "image": lambda request: static("site-login/login-bg.png"),
     },
+    "THEME": "light",
     "COLORS": {
     "base": {
         "50":  "oklch(98% .002 200)",

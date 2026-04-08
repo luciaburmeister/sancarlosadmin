@@ -12,6 +12,8 @@ import json
 import math
 import qrcode
 import io
+from company.models import WorkAttendance, Employee
+from decimal import Decimal
 
 
 # ✅ Custom login view that returns access + refresh + user info
@@ -77,8 +79,13 @@ def get_asset_status(last_transaction):
 @permission_classes([IsAuthenticated])
 def assets_view(request):
     user = request.user
-    assets = Asset.objects.select_related("asset_type", "current_working_zone").filter(assigned_to=user)
 
+    try:
+        employee = user.employee_profile
+        assets = Asset.objects.select_related("asset_type", "current_working_zone").filter(assigned_to=employee)
+    except Exception:
+        return JsonResponse({"assets": []})
+   
     data = []
     for asset in assets:
         last_tx = asset.transactions.order_by("-date").first()
@@ -126,8 +133,8 @@ def asset_by_id_view(request, asset_id):
         "zone_address": f"{zone.street_address}, {zone.city}, {zone.postal_code}" if zone else None,
         "zone_lat": zone_coords[0],
         "zone_lon": zone_coords[1],
-        "assigned_to": asset.assigned_to.username if asset.assigned_to else None,
-        "assigned_to_me": asset.assigned_to == user,
+        "assigned_to": asset.assigned_to.user.username if asset.assigned_to and asset.assigned_to.user else None,
+        "assigned_to_me": asset.assigned_to == user.employee_profile,
     })
 
 
@@ -141,14 +148,18 @@ def assign_view(request, asset_id):
     except Asset.DoesNotExist:
         return JsonResponse({"error": "Asset not found"}, status=404)
 
-    if asset.company != user.employee_profile.company:
+    try:
+        employee = user.employee_profile
+    except Exception:
+        return JsonResponse({"error": "No employee profile found"}, status=400)
+
+    if asset.company != employee.company:
         return JsonResponse({"error": "Este cubo no pertenece a tu empresa"}, status=403)
 
-    asset.assigned_to = user
+    asset.assigned_to = employee
     asset.save()
 
-    return JsonResponse({"success": True, "message": f"Cubo {asset.name} asignado a {user.username}"})
-
+    return JsonResponse({"success": True, "message": f"Cubo {asset.name} asignado a {employee.full_name}"})
 
 @require_http_methods(["GET"])
 def asset_qr_view(request, asset_id):
@@ -178,6 +189,7 @@ def pickup_view(request, asset_id):
         data = json.loads(request.body)
         latitude = data.get("latitude", 0)
         longitude = data.get("longitude", 0)
+        firma = data.get("firma", "")
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
@@ -209,6 +221,7 @@ def pickup_view(request, asset_id):
         transaction_type=TransactionTypeChoices.MOVEMENT,
         date=timezone.now(),
         notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
+        firma = firma,
     )
 
     return JsonResponse({"success": True, "message": "Recogida registrada"})
@@ -223,6 +236,7 @@ def deliver_view(request, asset_id):
         data = json.loads(request.body)
         latitude = data.get("latitude", 0)
         longitude = data.get("longitude", 0)
+        firma = data.get("firma", "")  
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
@@ -245,6 +259,7 @@ def deliver_view(request, asset_id):
         transaction_type=TransactionTypeChoices.DELIVERY,
         date=timezone.now(),
         notes=f"Entregado por {user.username} en {destination_zone}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
+        firma = firma,
     )
 
     asset.current_working_zone = destination_zone
@@ -254,3 +269,99 @@ def deliver_view(request, asset_id):
         "success": True,
         "message": f"Entrega registrada en {destination_zone}"
     })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def clock_in_view(request):
+    user = request.user
+
+    try:
+        data = json.loads(request.body)
+        latitude = data.get("latitude")
+        longitude = data.get("longitude")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    try:
+        employee = user.employee_profile
+    except Exception:
+        return JsonResponse({"error": "No employee profile found for this user"}, status=400)
+
+    # Check if already clocked in today without clocking out
+    existing = WorkAttendance.objects.filter(
+        employee=employee,
+        clock_out_time__isnull=True
+    ).first()
+
+    if existing:
+        return JsonResponse({"error": "Ya has fichado entrada. Ficha salida primero."}, status=400)
+
+    attendance = WorkAttendance.objects.create(
+        employee=employee,
+        company=employee.company,
+        clock_in_time=timezone.now(),
+        clock_in_lat=Decimal(str(latitude)) if latitude else None,
+        clock_in_lng=Decimal(str(longitude)) if longitude else None,
+    )
+
+    return JsonResponse({
+        "success": True,
+        "message": "Entrada registrada",
+        "attendance_id": attendance.id,
+        "clock_in_time": attendance.clock_in_time.strftime("%d/%m/%Y %H:%M:%S"),
+    })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def clock_out_view(request):
+    user = request.user
+
+    try:
+        data = json.loads(request.body)
+        latitude = data.get("latitude")
+        longitude = data.get("longitude")
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    try:
+        employee = user.employee_profile
+    except Exception:
+        return JsonResponse({"error": "No employee profile found for this user"}, status=400)
+
+    # Find the open attendance record
+    attendance = WorkAttendance.objects.filter(
+        employee=employee,
+        clock_out_time__isnull=True
+    ).first()
+
+    if not attendance:
+        return JsonResponse({"error": "No hay fichaje de entrada activo."}, status=400)
+
+    attendance.clock_out_time = timezone.now()
+    attendance.clock_out_lat = Decimal(str(latitude)) if latitude else None
+    attendance.clock_out_lng = Decimal(str(longitude)) if longitude else None
+    attendance.save()
+
+    return JsonResponse({
+        "success": True,
+        "message": "Salida registrada",
+        "clock_out_time": attendance.clock_out_time.strftime("%d/%m/%Y %H:%M:%S"),
+    })
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def attendance_status_view(request):
+    user = request.user
+    try:
+        employee = user.employee_profile
+    except Exception:
+        return JsonResponse({"is_clocked_in": False})
+
+    is_clocked_in = WorkAttendance.objects.filter(
+        employee=employee,
+        clock_out_time__isnull=True
+    ).exists()
+
+    return JsonResponse({"is_clocked_in": is_clocked_in})

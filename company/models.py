@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django_countries.fields import CountryField
 from django.contrib.postgres.fields import ArrayField
 from location_field.models.spatial import LocationField
+from timestamps.models import Timestampable
 from simple_history.models import HistoricalRecords
 from datetime import timedelta
 
@@ -292,6 +293,76 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
             BankAccount.objects.filter(company=self.company, is_default=True).exclude(pk=self.pk).update(is_default=False)
         super().save(*args, **kwargs)
 
+class WorkAttendance(CompanyOwnedModel, Timestampable):
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name="attendances",
+        verbose_name=_("Employee")
+    )
+    clock_in_time = models.DateTimeField(
+        null=True, blank=True,
+        verbose_name=_("Clock In Time")
+    )
+    clock_out_time = models.DateTimeField(
+        null=True, blank=True,
+        verbose_name=_("Clock Out Time")
+    )
+    clock_in_lat = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        null=True, blank=True,
+        verbose_name=_("Clock In Latitude")
+    )
+    clock_in_lng = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        null=True, blank=True,
+        verbose_name=_("Clock In Longitude")
+    )
+    clock_out_lat = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        null=True, blank=True,
+        verbose_name=_("Clock Out Latitude")
+    )
+    clock_out_lng = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        null=True, blank=True,
+        verbose_name=_("Clock Out Longitude")
+    )
+
+    class Meta:
+        verbose_name = _("Work Attendance")
+        verbose_name_plural = _("Work Attendances")
+        ordering = ["-clock_in_time"]
+
+    def __str__(self):
+        return f"{self.employee} — {self.clock_in_time}"
+    
+class LocationRecord(CompanyOwnedModel, Timestampable):
+    employee = models.ForeignKey(
+        Employee,                          # same pattern as WorkAttendance
+        on_delete=models.CASCADE,
+        related_name="location_records",
+        verbose_name=_("Employee")
+    )
+    latitude = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        verbose_name=_("Latitude")
+    )
+    longitude = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        verbose_name=_("Longitude")
+    )
+    recorded_at = models.DateTimeField(
+        verbose_name=_("Recorded At")
+    )
+
+    class Meta:
+        verbose_name = _("Location Record")
+        verbose_name_plural = _("Location Records")
+        ordering = ["-recorded_at"]
+
+    def __str__(self):
+        return f"{self.employee} — {self.recorded_at}"
 class BaseDocumentType(CompanyOwnedModel):
     name = models.CharField(max_length=100, verbose_name=_("Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))

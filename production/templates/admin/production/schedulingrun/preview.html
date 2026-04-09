@@ -1,0 +1,129 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% block content %}
+    {% component "unfold/components/container.html" %}
+        <div class="flex flex-col gap-6">
+
+            <div class="flex items-center justify-between gap-4">
+                <div>
+                    {% component "unfold/components/title.html" %}
+                        {{ title }}
+                    {% endcomponent %}
+                    {% component "unfold/components/text.html" with class="mt-2 text-sm text-base-500" %}
+                        {% trans "Review the proposed optimization result before applying it to planned production sessions." %}
+                    {% endcomponent %}
+                </div>
+
+                {% component "unfold/components/button.html" with href=cancel_url|default:"../" variant="secondary" %}
+                    {% trans "Back" %}
+                {% endcomponent %}
+            </div>
+
+            {% if breadcrumbs %}
+                {% component "unfold/components/navigation.html" with items=breadcrumbs %}
+                {% endcomponent %}
+            {% endif %}
+
+            <div class="grid grid-cols-1 gap-4 lg:grid-cols-4">
+                {% for card in summary_cards %}
+                    {% component "unfold/components/card.html" %}
+                        {% component "unfold/components/text.html" with class="text-xs uppercase tracking-wide text-base-500" %}
+                            {{ card.title }}
+                        {% endcomponent %}
+                        {% component "unfold/components/title.html" with class="mt-2" %}
+                            {{ card.metric }}
+                        {% endcomponent %}
+                    {% endcomponent %}
+                {% endfor %}
+            </div>
+
+            {% if proposal.warnings %}
+                {% component "unfold/components/card.html" with title=_("Warnings") %}
+                    <div class="flex flex-col gap-2">
+                        {% for warning in proposal.warnings %}
+                            <div class="rounded-default border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-900 dark:border-yellow-700 dark:bg-yellow-950 dark:text-yellow-100">
+                                {{ warning }}
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endcomponent %}
+            {% endif %}
+
+            {% component "unfold/components/card.html" with title=_("Run summary") %}
+                <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div>
+                        {% component "unfold/components/text.html" with class="text-xs uppercase text-base-500" %}
+                            {% trans "Strategy" %}
+                        {% endcomponent %}
+                        {% component "unfold/components/title.html" with class="mt-1 text-base" %}
+                            {{ run.strategy }}
+                        {% endcomponent %}
+                    </div>
+                    <div>
+                        {% component "unfold/components/text.html" with class="text-xs uppercase text-base-500" %}
+                            {% trans "Start date" %}
+                        {% endcomponent %}
+                        {% component "unfold/components/title.html" with class="mt-1 text-base" %}
+                            {{ run.start_date }}
+                        {% endcomponent %}
+                    </div>
+                    <div>
+                        {% component "unfold/components/text.html" with class="text-xs uppercase text-base-500" %}
+                            {% trans "End date" %}
+                        {% endcomponent %}
+                        {% component "unfold/components/title.html" with class="mt-1 text-base" %}
+                            {{ run.end_date }}
+                        {% endcomponent %}
+                    </div>
+                    <div>
+                        {% component "unfold/components/text.html" with class="text-xs uppercase text-base-500" %}
+                            {% trans "Slot minutes" %}
+                        {% endcomponent %}
+                        {% component "unfold/components/title.html" with class="mt-1 text-base" %}
+                            {{ run.slot_minutes }}
+                        {% endcomponent %}
+                    </div>
+                </div>
+            {% endcomponent %}
+
+            {% component "unfold/components/card.html" with title=_("Selected configurations") %}
+                {% if selected_configs_table.rows %}
+                    {% component "unfold/components/table.html" with table=selected_configs_table card_included=1 striped=1 %}
+                    {% endcomponent %}
+                {% else %}
+                    {% component "unfold/components/text.html" %}
+                        {% trans "No configurations were selected by the optimizer." %}
+                    {% endcomponent %}
+                {% endif %}
+            {% endcomponent %}
+
+            {% component "unfold/components/card.html" with title=_("Planned assignments") %}
+                {% if assignments_table.rows %}
+                    {% component "unfold/components/table.html" with table=assignments_table card_included=1 striped=1 height="32rem" %}
+                    {% endcomponent %}
+                {% else %}
+                    {% component "unfold/components/text.html" %}
+                        {% trans "No assignments were generated." %}
+                    {% endcomponent %}
+                {% endif %}
+            {% endcomponent %}
+
+            <div class="flex justify-end gap-3">
+                <form method="post" action="{% url 'admin:production_schedulingrun_discard' run.pk %}">
+                    {% csrf_token %}
+                    {% component "unfold/components/button.html" with submit=1 variant="secondary" %}
+                        {% trans "Discard" %}
+                    {% endcomponent %}
+                </form>
+
+                <form method="post" action="{% url 'admin:production_schedulingrun_apply' run.pk %}">
+                    {% csrf_token %}
+                    {% component "unfold/components/button.html" with submit=1 variant="default" %}
+                        {% trans "Apply schedule" %}
+                    {% endcomponent %}
+                </form>
+            </div>
+        </div>
+    {% endcomponent %}
+{% endblock %}

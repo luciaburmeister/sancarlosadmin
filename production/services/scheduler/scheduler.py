@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from configurator.models import Configuration
 from production.services.scheduler.schedule_proposal import ScheduleProposal
 
+
 class ScheduleStrategy(ABC):
     """
     The ScheduleStrategy interface declares the schedule method common to
@@ -13,11 +14,11 @@ class ScheduleStrategy(ABC):
 
     @abstractmethod
     def schedule(
-            self,
-            start_date:date,
-            end_date:date,
-            configurations: list[Configuration],
-        ) -> ScheduleProposal:
+        self,
+        start_date: date,
+        end_date: date,
+        configurations: list[Configuration],
+    ) -> ScheduleProposal:
         raise NotImplementedError
 
 
@@ -34,7 +35,6 @@ class Scheduler:
         """
         Return current ScheduleStrategy object.
         """
-
         return self._strategy
 
     @strategy.setter
@@ -42,13 +42,12 @@ class Scheduler:
         """
         Replace the current ScheduleStrategy object.
         """
-
         self._strategy = strategy
 
     def schedule(
-            self,
-            start_date:date,
-            end_date:date,
-            configurations: list[Configuration]
-        ):
+        self,
+        start_date: date,
+        end_date: date,
+        configurations: list[Configuration],
+    ) -> ScheduleProposal:
         return self._strategy.schedule(start_date, end_date, configurations)

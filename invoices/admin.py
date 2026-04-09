@@ -26,7 +26,10 @@ from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from accounting.tasks import classify_invoice_accounts, generate_journal_entries_task, export_a3_purchase_invoicing_task
 from core.admin.company_admin import CompanyRestrictedAdmin
-
+from unfold.contrib.filters.admin import (
+    AutocompleteSelectFilter,
+    AutocompleteSelectMultipleFilter
+)
 @admin.register(TaxType)
 class TaxTypeAdmin(ModelAdmin):
     list_display = (
@@ -140,15 +143,13 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         "provider",
         "date_issued",
         "due_date",
-        "payment_method",
-        "account",
-        "has_file",
         "ocr_status"
     )
 
     list_filter = (
         "payment_method",
-        "company",
+        ("company",AutocompleteSelectMultipleFilter),
+        ("provider",AutocompleteSelectMultipleFilter),
         "date_issued",
     )
 
@@ -171,13 +172,15 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     ]
 
     actions = ["send_to_process", "classify_accounts", "journalize_selected", "export_a3_purchase_invoices"]
+    actions_row = ["view_journal_entry_row_action"]
+    actions_detail = ["view_journal_entry_detail_action"]
 
     fieldsets = (
         (
             "Invoice Info",
             {
                 "fields": (
-                   ( "invoice_number", "provider"),
+                    ("invoice_number", "provider"),
                     "file",
                     "company",
                     "project_file",
@@ -213,7 +216,6 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
-        # Recalculate totals after inlines (items and taxes) are saved
         form.instance.recalculate_totals(save=True)
 
     def get_urls(self):
@@ -257,6 +259,16 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             color,
             label,
         )
+
+    @action(description=_("Journal Entry"), icon="leaderboard")
+    def view_journal_entry_row_action(self, request, object_id):
+        url = reverse('admin:accounting_journalentry_changelist') + f"?purchase_invoice__id={object_id}"
+        return redirect(url)
+
+    @action(description=_("Journal Entry"), icon="leaderboard")
+    def view_journal_entry_detail_action(self, request, object_id):
+        url = reverse('admin:accounting_journalentry_changelist') + f"?purchase_invoice__id={object_id}"
+        return redirect(url)
     
     @action(description="Send selected invoices to AI processing")
     def send_to_process(self, request, queryset):
@@ -323,7 +335,7 @@ class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             _("General Information"),
             {
                 "fields": (
-                    ("company","client"),
+                    ("company", "client"),
                     ("status", "invoice_number"),
                     ("date_issued", "due_date"),
                     "project_file",
@@ -362,8 +374,8 @@ class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         form.instance.recalculate_totals(save=True)
     
     actions = ["download_pdf", "finalize_invoice_action"]
-    actions_row = ["view_pdf_row_action", "finalize_invoice_row_action"]
-    actions_detail = ["view_pdf_detail_action", "finalize_invoice_detail_action"]
+    actions_row = ["view_pdf_row_action", "finalize_invoice_row_action", "view_journal_entry_row_action"]
+    actions_detail = ["view_pdf_detail_action", "finalize_invoice_detail_action", "view_journal_entry_detail_action"]
 
     @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
     def view_pdf_row_action(self, request, object_id):
@@ -440,3 +452,13 @@ class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
 
     def add_view(self, request, form_url="", extra_context=None):
         return redirect("admin:invoices_salesinvoice_wizard")
+
+    @action(description=_("Journal Entry"), icon="leaderboard")
+    def view_journal_entry_row_action(self, request, object_id):
+        url = reverse('admin:accounting_journalentry_changelist') + f"?sales_invoice__id={object_id}"
+        return redirect(url)
+
+    @action(description=_("Journal Entry"), icon="leaderboard")
+    def view_journal_entry_detail_action(self, request, object_id):
+        url = reverse('admin:accounting_journalentry_changelist') + f"?sales_invoice__id={object_id}"
+        return redirect(url)

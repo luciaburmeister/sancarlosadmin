@@ -58,15 +58,14 @@ class MarginScheduler(ScheduleStrategy):
         y = {c: pulp.LpVariable(f"y_{c.pk}", cat="Binary") for c in configurations}
 
         m = {
-            (c, i, s, d, t, r, q): pulp.LpVariable(
-                f"m_{c.pk}_{i.pk}_{s}_{d}_{t}_{r.pk}_{q}", cat="Binary"
+            (c, i, s, d, t, rt, q): pulp.LpVariable(
+                f"m_{c.pk}_{i.pk}_{s}_{d}_{t}_{rt[0].pk}_{rt[1]}_{q}", cat="Binary"
             )
             for c in configurations
             for i in configuration_items[c]
             for s in item_stages[i]
             for rt in stage_resource_types[(i, s)]
             for q in range(stage_resource_type_quantity[(i, s, rt)])
-            for r in resource_type_active_resources[rt]
             for d, wd in possible_days_weekday.items()
             for t in company_times_by_weekday[configuration_company[c]][wd]
         }
@@ -103,38 +102,41 @@ class MarginScheduler(ScheduleStrategy):
         # If configuration assigned, then stages need to be assigned their duration
         constraints.update(
             {
-                f"Duration_{c.pk}_{i.pk}_{s}_lower_bound": (
+                f"Duration_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}_lower_bound": (
                     pulp.lpSum(
                         variable_set["x"][(c, i, s, d, t, r, 0)]
                         for d, wd in possible_days_weekday.items()
                         for t in company_times_by_weekday[configuration_company[c]][wd]
-                        for r in resource_type_active_resources[stage_resource_types[(i, s)][0]]
+                        for r in resource_type_active_resources[rt]
                     ) * ts
                     >= variable_set["y"][c] * stage_duration[(i, s)],
-                    f"Duration_{c.pk}_{i.pk}_{s}_lower_bound",
+                    f"Duration_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}_lower_bound",
                 )
                 for c in configurations
                 for i in configuration_items[c]
                 for s in item_stages[i]
-                if stage_resource_types[(i, s)]
+                for rt in stage_resource_types[(i, s)]
+                for q in range(stage_resource_type_quantity[(i, s, rt)])
             }
         )
 
         constraints.update(
             {
-                f"Duration_{c.pk}_{i.pk}_{s}_upper_bound": (
+                f"Duration_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}_upper_bound": (
                     pulp.lpSum(
                         variable_set["x"][(c, i, s, d, t, r, 0)]
                         for d, wd in possible_days_weekday.items()
                         for t in company_times_by_weekday[configuration_company[c]][wd]
-                        for r in resource_type_active_resources[stage_resource_types[(i, s)][0]]
+                        for r in resource_type_active_resources[rt]
                     ) * ts
                     <= variable_set["y"][c] * stage_duration[(i, s)] + ts -1,
-                    f"Duration_{c.pk}_{i.pk}_{s}_upper_bound",
+                    f"Duration_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}_upper_bound",
                 )
                 for c in configurations
                 for i in configuration_items[c]
                 for s in item_stages[i]
+                for rt in stage_resource_types[(i, s)]
+                for q in range(stage_resource_type_quantity[(i, s, rt)])
             }
         )
 
@@ -163,7 +165,7 @@ class MarginScheduler(ScheduleStrategy):
         constraints.update(
             {
                 f"Movement_{c.pk}_{i.pk}_{s}_{d}_{t}_{r.pk}_{q}_lower_bound": (
-                    variable_set["m"][(c, i, s, d, t, r, q)]
+                    variable_set["m"][(c, i, s, d, t, rt, q)]
                     >= variable_set["x"][(c, i, s, d, t, r, q)]
                     - variable_set["x"].get(
                         (
@@ -193,7 +195,7 @@ class MarginScheduler(ScheduleStrategy):
         constraints.update(
             {
                 f"Movement_{c.pk}_{i.pk}_{s}_{d}_{t}_{r.pk}_{q}_upper_bound": (
-                    variable_set["m"][(c, i, s, d, t, r, q)]
+                    variable_set["m"][(c, i, s, d, t, rt, q)]
                     <= 2
                     - variable_set["x"][(c, i, s, d, t, r, q)]
                     - variable_set["x"].get(
@@ -225,10 +227,9 @@ class MarginScheduler(ScheduleStrategy):
             {
                 f"Movement_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}_limit_to_one": (
                     pulp.lpSum(
-                        variable_set["m"][(c, i, s, d, t, r, q)]
+                        variable_set["m"][(c, i, s, d, t, rt, q)]
                         for d, wd in possible_days_weekday.items()
                         for t in company_times_by_weekday[configuration_company[c]][wd]
-                        for r in resource_type_active_resources[rt]
                     )
                     <= 1,
                     f"Movement_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}_limit_to_one",
@@ -301,6 +302,12 @@ class MarginScheduler(ScheduleStrategy):
         )
 
         # Can't assign simultaneously to a resource more stages than its parallel_capacity
+        resource_to_type = {
+            r: rt
+            for rt, resources in resource_type_active_resources.items()
+            for r in resources
+        }
+        
         constraints.update(
             {
                 f"Parallel_capacity_{d}_{t}_{r.pk}": (
@@ -309,8 +316,10 @@ class MarginScheduler(ScheduleStrategy):
                         for c in configurations
                         for i in configuration_items[c]
                         for s in item_stages[i]
-                        for rt in stage_resource_types[(i, s)]
-                        for q in range(stage_resource_type_quantity[(i, s, rt)])
+                        if resource_to_type[r] in stage_resource_types[(i, s)]
+                        for q in range(
+                            stage_resource_type_quantity[(i, s, resource_to_type[r])]
+                        )
                     )
                     <= parallel_capacity,
                     f"Parallel_capacity_{d}_{t}_{r.pk}",
@@ -331,8 +340,10 @@ class MarginScheduler(ScheduleStrategy):
                         for c in configurations
                         for i in configuration_items[c]
                         for s in item_stages[i]
-                        for rt in stage_resource_types[(i, s)]
-                        for q in range(stage_resource_type_quantity[(i, s, rt)])
+                        if resource_to_type[r] in stage_resource_types[(i, s)]
+                        for q in range(
+                            stage_resource_type_quantity[(i, s, resource_to_type[r])]
+                        )
                         for t in company_times_by_weekday[configuration_company[c]][wd]
                     ) * ts
                     <= daily_capacity_minutes,
@@ -344,6 +355,16 @@ class MarginScheduler(ScheduleStrategy):
         )
 
         return constraints
+    
+    def _solve_problem(self, objective: pulp.LpAffineExpression, constraints: dict) -> pulp.LpProblem:
+        prob = pulp.LpProblem("Schedule configuration stages to resources", pulp.LpMaximize)
+        prob += objective
+
+        for c in constraints.values():
+            prob += c
+
+        prob.solve()
+        return prob
     
     def _merge_consecutive_slots(
         self,
@@ -533,16 +554,6 @@ class MarginScheduler(ScheduleStrategy):
             },
         )
     
-    def _solve_problem(self, objective: pulp.LpAffineExpression, constraints: dict) -> pulp.LpProblem:
-        prob = pulp.LpProblem("Schedule configuration stages to resources", pulp.LpMaximize)
-        prob += objective
-
-        for c in constraints.values():
-            prob += c
-
-        prob.solve()
-        return prob
-    
     def schedule(
         self,
         start_date: date,
@@ -576,6 +587,8 @@ class MarginScheduler(ScheduleStrategy):
             resource_daily_capacity_minutes,
         ) = optimization_dict_creation(start_date, end_date, configurations, self.ts)
 
+        print("\n", possible_days_weekday,"\n", configuration_margin,"\n", item_stages,"\n", stage_resource_type_quantity,"\n", stage_duration,"\n", resource_type_active_resources,"\n", resource_parallel_capacity,"\n", resource_daily_capacity_minutes)
+
         variable_set = self._variable_definition(
             configurations,
             possible_days_weekday,
@@ -606,6 +619,12 @@ class MarginScheduler(ScheduleStrategy):
         )
 
         prob = self._solve_problem(objective, constraints)
+
+        print("Solver status:", pulp.LpStatus[prob.status])
+        print("Objective:", pulp.value(prob.objective))
+
+        for c in configurations:
+            print(f"y[{c.pk}] =", pulp.value(variable_set["y"][c]))
 
         extracted_solution = self._extract_solution(
             prob=prob,

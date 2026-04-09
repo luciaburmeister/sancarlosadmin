@@ -2,10 +2,14 @@ from celery import shared_task
 from django.conf import settings
 import logging
 
-from configurator.services.export import service
-
 from .services.accounting.account_classifier_service import AccountClassifierService
 from .services.accounting.gemini_account_classifier import GeminiAccountClassifier
+from .services.journal_generator import JournalGeneratorService
+from .services.a3_exporter import A3PurchaseExportService
+from company.models import Company
+from datetime import date, timedelta
+from django.core.mail import EmailMessage
+import io
 
 
 logger = logging.getLogger(__name__)
@@ -47,3 +51,65 @@ def classify_invoice_accounts(invoice_ids: list = None):
     except Exception as e:
         logger.error(f"Account classification task failed: {str(e)}")
         raise
+
+@shared_task(name="accounting.tasks.generate_journal_entries_task")
+def generate_journal_entries_task(company_id=None):
+    """
+    Daily task to generate journal entries for fully classified invoices.
+    """
+    logger.info("Starting daily journal entry generation...")
+    
+    if company_id:
+        companies = Company.objects.filter(id=company_id)
+    else:
+        companies = Company.objects.filter(is_active=True)
+
+    total_processed = 0
+    for company in companies:
+        generator = JournalGeneratorService(company)
+        count = generator.journalize_all_pending()
+        total_processed += count
+        logger.info(f"Journalized {count} invoices for {company.name}")
+
+    return f"Total invoices journalized: {total_processed}"
+
+@shared_task(name="accounting.tasks.export_a3_purchase_invoicing_task")
+def export_a3_purchase_invoicing_task(company_id, user_email, start_date_str, end_date_str):
+    """
+    Export purchase invoicing to A3 format and email it.
+    Dates should be in 'YYYY-MM-DD' format.
+    """
+    logger.info(f"Starting A3 export for company {company_id} to {user_email}")
+    
+    try:
+        company = Company.objects.get(id=company_id)
+        start_date = date.fromisoformat(start_date_str)
+        end_date = date.fromisoformat(end_date_str)
+        
+        # 1. Generate the Excel
+        exporter = A3PurchaseExportService(company, start_date, end_date)
+        excel_content = exporter.generate_excel_report()
+        
+        # 2. Prepare Email
+        subject = f"Export A3 - {company.name} ({start_date_str} to {end_date_str})"
+        body = f"Adjunto enviamos el archivo de exportación para A3 correspondiente al periodo solicitado.\n\nEmpresa: {company.name}\nPeriodo: {start_date_str} - {end_date_str}"
+        
+        email = EmailMessage(
+            subject=subject,
+            body=body,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=[user_email]
+        )
+        
+        filename = f"export_a3_{company.name.lower().replace(' ', '_')}_{start_date_str}_{end_date_str}.xlsx"
+        email.attach(filename, excel_content, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        
+        email.send()
+        
+        return f"Successfully sent A3 export to {user_email}"
+        
+    except Company.DoesNotExist:
+        return f"Error: Company {company_id} not found"
+    except Exception as e:
+        logger.error(f"A3 export task failed: {str(e)}")
+        return f"Error: {str(e)}"

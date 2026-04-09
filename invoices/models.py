@@ -224,6 +224,12 @@ class TaxType(models.Model):
         help_text="Default percentage when applying this tax",
         default=0
     )
+    
+    is_debit = models.BooleanField(
+        default=True,
+        verbose_name=_("Journal as Debit"),
+        help_text=_("In a purchase invoice, identify if this tax should be journalized on the Debit side (typical for VAT).")
+    )
 
     is_active = models.BooleanField(default=True)
 

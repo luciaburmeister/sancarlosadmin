@@ -25,6 +25,14 @@ class Provider(Timestampable,CompanyOwnedModel):
         verbose_name=_("Associated Emails"),
         help_text=_("List of email addresses from which invoices for this provider are received. Separate with commas.")
     )
+    account = models.ForeignKey(
+        'accounting.CompanyAccount',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="providers",
+        verbose_name=_("Accounting Account")
+    )
 
     def __str__(self):
         return self.name

@@ -129,10 +129,10 @@ class MaterialAdmin(CompanyRestrictedAdmin,ModelAdmin):
 
 @admin.register(Provider)
 class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ("name", "contact", "phone", "email", "tax_identifier","company")
+    list_display = ("name", "contact", "phone", "email", "tax_identifier", "account", "company")
     search_fields = ("name", "contact", "phone", "email", "tax_identifier", "associated_emails")
-    list_select_related = ["company"]
-    autocomplete_fields = ["company"]
+    list_select_related = ["company", "account"]
+    autocomplete_fields = ["company", "account"]
     
     formfield_overrides = {
         ArrayField: {
@@ -148,7 +148,7 @@ class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
             "fields": ("contact", ("phone", "email"), "associated_emails")
         }),
         (_("Finance"), {
-            "fields": ("tax_identifier",)
+            "fields": ("tax_identifier", "account")
         }),
     )
 

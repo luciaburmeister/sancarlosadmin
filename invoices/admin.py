@@ -4,6 +4,7 @@ from unfold.decorators import action, display
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
+from datetime import timedelta
 from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from unfold.admin import ModelAdmin, TabularInline, GenericTabularInline
 from django.utils.html import format_html
@@ -17,12 +18,13 @@ from invoices.models import (
     SalesInvoiceStatus,
     InvoiceItem
 )
+from django.utils import timezone
 from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
 from invoices.views.invoice.wizard_views import SalesInvoiceWizardView
 from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
-from accounting.tasks import classify_invoice_accounts
+from accounting.tasks import classify_invoice_accounts, generate_journal_entries_task, export_a3_purchase_invoicing_task
 from core.admin.company_admin import CompanyRestrictedAdmin
 
 @admin.register(TaxType)
@@ -47,7 +49,7 @@ class TaxTypeAdmin(ModelAdmin):
                 "fields": (
                     "tax_name",
                     "country",
-                    "behavior",
+                    ("behavior","is_debit"),
                     "is_active",
                 )
             },
@@ -168,7 +170,7 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         InvoiceItemInline
     ]
 
-    actions = ["send_to_process", "classify_accounts"]
+    actions = ["send_to_process", "classify_accounts", "journalize_selected", "export_a3_purchase_invoices"]
 
     fieldsets = (
         (
@@ -268,6 +270,29 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         selected_ids = list(queryset.values_list('id', flat=True))
         classify_invoice_accounts.delay(invoice_ids=selected_ids)
         self.message_user(request, f"Started classification for {len(selected_ids)} invoices.")
+
+    @action(description="Generate accounting journal entries for selected company")
+    def journalize_selected(self, request, queryset):
+        # We find distinct companies from the selected invoices
+        company_ids = set(queryset.values_list('company_id', flat=True))
+        for cid in company_ids:
+            generate_journal_entries_task.delay(company_id=cid)
+        self.message_user(request, f"Started journal entry generation for {len(company_ids)} companies.")
+
+    @action(description="Export Purchase Invoices to A3 (Last 90 days)")
+    def export_a3_purchase_invoices(self, request, queryset):
+        company_ids = {cid for cid in queryset.values_list('company_id', flat=True) if cid is not None}
+        end_date = timezone.now().date()
+        start_date = end_date - timedelta(days=90)
+        
+        for cid in company_ids:
+            export_a3_purchase_invoicing_task.delay(
+                company_id=cid,
+                user_email=request.user.email,
+                start_date_str=start_date.isoformat(),
+                end_date_str=end_date.isoformat()
+            )
+        self.message_user(request, f"Started A3 export for {len(company_ids)} companies. You will receive an email shortly.")
         
 class SalesInvoiceItemInline(TabularInline):
     model = SalesInvoiceItem

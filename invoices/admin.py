@@ -165,6 +165,8 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     )
 
     date_hierarchy = "date_issued"
+    
+    list_filter_submit = True
 
     inlines = [
         AppliedTaxInline,

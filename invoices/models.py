@@ -190,6 +190,13 @@ class Invoice(models.Model):
         return total
 
  
+class A3TaxGroup(models.TextChoices):
+    IVA = "IVA", _("IVA")
+    IRPF = "IRPF", _("IRPF")
+    RE = "RE", _("Recargo de Equivalencia")
+    NONE = "NONE", _("None")
+
+
 class TaxType(models.Model):
     """
     Stores different tax types (VAT, IRPF, etc.) with their rate options.
@@ -229,6 +236,31 @@ class TaxType(models.Model):
         default=True,
         verbose_name=_("Journal as Debit"),
         help_text=_("In a purchase invoice, identify if this tax should be journalized on the Debit side (typical for VAT).")
+    )
+    
+    a3_tax_group = models.CharField(
+        max_length=10,
+        choices=A3TaxGroup.choices,
+        default=A3TaxGroup.NONE,
+        help_text=_("Mapping for A3 export columns")
+    )
+    
+    purchase_account = models.ForeignKey(
+        "accounting.TemplateAccount",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="purchase_tax_types",
+        help_text=_("Generic template account used for this tax in Purchase Invoices (resolved per company).")
+    )
+
+    sales_account = models.ForeignKey(
+        "accounting.TemplateAccount",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sales_tax_types",
+        help_text=_("Generic template account used for this tax in Sales Invoices (resolved per company).")
     )
 
     is_active = models.BooleanField(default=True)

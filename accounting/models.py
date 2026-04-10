@@ -116,6 +116,18 @@ class CompanyChartOfAccounts(Timestampable):
         blank=True, 
         help_text=_("Entries prior to this date cannot be modified/posted.")
     )
+    
+    provider_account_root = models.CharField(
+        max_length=12, 
+        default="400",
+        help_text=_("Default root for provider accounts (e.g. 400 for Spain)")
+    )
+    
+    client_account_root = models.CharField(
+        max_length=12, 
+        default="430",
+        help_text=_("Default root for client accounts (e.g. 430 for Spain)")
+    )
 
     def __str__(self) -> str:
         return f"{self.company} -> {self.template}"
@@ -185,6 +197,13 @@ class CompanyAccount(Timestampable):
     
     is_reconcilable = models.BooleanField(default=False)
     is_tax_account = models.BooleanField(default=False)
+    
+    a3_code_override = models.CharField(
+        max_length=10, 
+        blank=True, 
+        null=True, 
+        help_text=_("Optional 10-digit account code for A3 export. If empty, standard mapping applies.")
+    )
 
     class Meta:
         constraints = [

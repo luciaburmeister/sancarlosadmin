@@ -44,6 +44,7 @@ class TaxTypeAdmin(ModelAdmin):
     search_fields = ("tax_name",)
     ordering = ("tax_name",)
     actions = ["merge_tax_types"] 
+    autocomplete_fields = ("purchase_account", "sales_account")
 
     fieldsets = (
         (
@@ -52,7 +53,9 @@ class TaxTypeAdmin(ModelAdmin):
                 "fields": (
                     "tax_name",
                     "country",
-                    ("behavior","is_debit"),
+                    ("behavior", "is_debit"),
+                    "a3_tax_group",
+                    ("purchase_account", "sales_account"),
                     "is_active",
                 )
             },

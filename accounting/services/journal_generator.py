@@ -1,10 +1,7 @@
 import logging
-from decimal import Decimal
 from django.db import transaction
-from django.utils import timezone
-from django.contrib.contenttypes.models import ContentType
-from invoices.models import Invoice, AppliedTax
-from accounting.models import Journal, JournalEntry, JournalEntryLine, CompanyAccount, EntryStatus
+from invoices.models import Invoice
+from accounting.models import Journal, JournalEntry, JournalEntryLine, CompanyAccount, EntryStatus,Journal,JournalType
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +53,6 @@ class JournalGeneratorService:
         # 1. Gather accounts
         journal = self._get_purchase_journal()
         provider_account = self._get_provider_account(invoice.provider)
-        vat_account = self._get_vat_account()
 
         if not provider_account:
             logger.warning(f"Could not find provider account for {invoice.provider}, skipping.")
@@ -99,19 +95,33 @@ class JournalGeneratorService:
                 credit=0
             )
 
-        # B. Debit Taxes (VAT, etc.)
+        # B. Taxes (VAT, IRPF, etc.)
         for tax in invoice.get_taxes():
+            # Skip taxes with zero amount to avoid DB constraint violations
+            if not tax.calculated_amount or tax.calculated_amount.amount <= 0:
+                continue
+                
             if tax.tax_type.is_debit:
-                # Skip taxes with zero amount to avoid DB constraint violations
-                if not tax.calculated_amount or tax.calculated_amount.amount <= 0:
-                    continue
+                # Typically VAT (472)
+                account = self._resolve_tax_account(tax.tax_type, is_purchase=True)
                 JournalEntryLine.objects.create(
                     company=self.company,
                     entry=entry,
-                    account=vat_account,
+                    account=account,
                     description=f"{tax.tax_type.tax_name} {tax.selected_percentage}% - {invoice.invoice_number}",
                     debit=tax.calculated_amount,
                     credit=0
+                )
+            else:
+                # Typically IRPF Retention (4751) - Journalized as Credit in Purchases
+                account = self._resolve_tax_account(tax.tax_type, is_purchase=True)
+                JournalEntryLine.objects.create(
+                    company=self.company,
+                    entry=entry,
+                    account=account,
+                    description=f"{tax.tax_type.tax_name} {tax.selected_percentage}% - {invoice.invoice_number}",
+                    debit=0,
+                    credit=tax.calculated_amount
                 )
 
         # C. Credit Provider
@@ -137,13 +147,40 @@ class JournalGeneratorService:
         return entry
 
     def _get_purchase_journal(self):
-        from accounting.models import Journal, JournalType
         journal, _ = Journal.objects.get_or_create(
             company=self.company,
             type=JournalType.PURCHASE,
             defaults={'name': 'Compras', 'code': 'COM'}
         )
         return journal
+
+    def _resolve_tax_account(self, tax_type, is_purchase=True):
+        """
+        Resolves a TaxType to a specific CompanyAccount.
+        1. Try to use manual mapping from TaxType.purchase_account/sales_account (TemplateAccount)
+        2. Resolve TemplateAccount to CompanyAccount for this company
+        3. Fallback to historical 'starts with' logic.
+        """
+        template_acc = tax_type.purchase_account if is_purchase else tax_type.sales_account
+        
+        if template_acc:
+            account = CompanyAccount.objects.filter(
+                company=self.company,
+                template_account=template_acc,
+                is_postable=True
+            ).first()
+            if account:
+                return account
+        
+        # Fallback to historical logic
+        if is_purchase:
+            if tax_type.is_debit:
+                return self._get_vat_account()
+            else:
+                return self._get_irpf_account()
+        
+        # Sales fallback (to be expanded)
+        return None
 
     def _get_vat_account(self):
         # Find account starting with 472 (Hacienda Pública, IVA Soportado)
@@ -153,21 +190,32 @@ class JournalGeneratorService:
             is_postable=True
         ).first()
         if not account:
-            # Fallback or create? Usually it should exist in the PGC
-            account = CompanyAccount.objects.filter(company=self.company, is_tax_account=True, code__startswith='47').first()
+            account = CompanyAccount.objects.filter(company=self.company, is_tax_account=True, code__startswith='472').first()
+        return account
+
+    def _get_irpf_account(self):
+        account = CompanyAccount.objects.filter(
+            company=self.company,
+            code__startswith='4751',
+            is_postable=True
+        ).first()
+        if not account:
+            account = CompanyAccount.objects.filter(company=self.company, is_tax_account=True, code__startswith='475').first()
         return account
 
     def _get_provider_account(self, provider):
         if not provider:
             return None
             
-        # 1. Prioritize explicitly assigned account on the Provider model
         if getattr(provider, 'account', None):
             return provider.account
             
-        # 2. Automation: Find or Create a specific account for this provider
-        # We use code 400 + provider ID (padded to 4 digits, e.g., 4000001)
-        provider_code = f"400{provider.id:04d}"
+        # Get root from company chart or fallback to 400
+        from accounting.models import CompanyChartOfAccounts
+        chart = getattr(self.company, 'chart', None)
+        root = chart.provider_account_root if chart else "400"
+        
+        provider_code = f"{root}{provider.id:04d}"
         
         account = CompanyAccount.objects.filter(
             company=self.company,
@@ -175,9 +223,7 @@ class JournalGeneratorService:
         ).first()
         
         if not account:
-            # Create the account
-            # Try to find parent '400' for hierarchy
-            parent = CompanyAccount.objects.filter(company=self.company, code='400').first()
+            parent = CompanyAccount.objects.filter(company=self.company, code=root).first()
             
             account = CompanyAccount.objects.create(
                 company=self.company,
@@ -185,7 +231,7 @@ class JournalGeneratorService:
                 name=provider.name,
                 parent=parent,
             )
-            # Link it back to the Provider model for future use
+
             provider.account = account
             provider.save(update_fields=['account'])
             logger.info(f"Automatically created accounting account {provider_code} for provider {provider.name}")

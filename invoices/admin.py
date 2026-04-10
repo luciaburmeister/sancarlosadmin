@@ -121,7 +121,7 @@ class InvoiceItemInline(StackedInline):
     model = InvoiceItem
     extra = 0
     tab = True
-    readonly_fields = ("line_total",)
+    readonly_fields = ("discount_amount", "gross_total", "line_total")
     autocomplete_fields = ("account",)
     fieldsets = (
         (
@@ -129,7 +129,8 @@ class InvoiceItemInline(StackedInline):
             {
                 "fields": (
                     "description",
-                    ("quantity", "unit_price", "line_total"),
+                    ("quantity", "unit_price"),
+                    ("gross_total", "discount_percentage", "discount_amount", "line_total"),
                     "account",
                 )
             },
@@ -312,8 +313,8 @@ class SalesInvoiceItemInline(TabularInline):
     model = SalesInvoiceItem
     extra = 0
     tab = True
-    fields = ("description", "quantity", "unit_price", "discount_amount", "line_total")
-    readonly_fields = ("line_total",)
+    fields = ("description", "quantity", "unit_price", "discount_percentage", "discount_amount", "line_total")
+    readonly_fields = ("discount_amount", "line_total")
 
 @admin.register(SalesInvoice)
 class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):

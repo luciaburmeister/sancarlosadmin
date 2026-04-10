@@ -22,7 +22,9 @@ class LineItem:
     description: Optional[str]
     quantity: Optional[Decimal]
     unit_price: Optional[Decimal]
-    total: Optional[Decimal]
+    discount_percentage: Optional[Decimal]
+    gross_total: Optional[Decimal]  # before discount
+    net_total: Optional[Decimal]    # after discount
     tax_rate: Optional[Decimal]
 
 @dataclass 
@@ -42,6 +44,7 @@ class InvoiceData:
     invoice_number: Optional[str]
     date_issued: Optional[str]  # YYYY-MM-DD format
     due_date: Optional[str]     # YYYY-MM-DD format
+    gross_amount: Optional[Decimal]   # invoice total before discounts
     total_amount: Optional[Decimal]
     currency: Optional[str]
     payment_method: Optional[str]

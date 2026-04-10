@@ -25,6 +25,7 @@ class GeminiInvoiceProcessor(OcrInterface):
         "invoice_number",
         "date_issued",
         "due_date",
+        "gross_amount",
         "total_amount",
         "currency",
         "payment_method",
@@ -47,7 +48,11 @@ class GeminiInvoiceProcessor(OcrInterface):
             "nullable": True,
             "description": "YYYY-MM-DD",
         },
-
+        "gross_amount": {
+            "type": "NUMBER",
+            "nullable": True,
+            "description": "Invoice total before any discounts (Importe BRUTO)"
+        },
         "total_amount": {"type": "NUMBER", "nullable": True},
         "currency": {"type": "STRING", "nullable": True},
 
@@ -65,14 +70,30 @@ class GeminiInvoiceProcessor(OcrInterface):
                     "description",
                     "quantity",
                     "unit_price",
-                    "total",
+                    "discount_percentage",
+                    "gross_total",
+                    "net_total",
                     "tax_rate",
                 ],
                 "properties": {
                     "description": {"type": "STRING", "nullable": True},
                     "quantity": {"type": "NUMBER", "nullable": True},
                     "unit_price": {"type": "NUMBER", "nullable": True},
-                    "total": {"type": "NUMBER", "nullable": True},
+                    "discount_percentage": {
+                        "type": "NUMBER",
+                        "nullable": True,
+                        "description": "Discount as a percentage, e.g. 30 for 30%"
+                    },
+                    "gross_total": {
+                        "type": "NUMBER",
+                        "nullable": True,
+                        "description": "Line total before discount (quantity x unit_price)"
+                    },
+                    "net_total": {
+                        "type": "NUMBER",
+                        "nullable": True,
+                        "description": "Line total after discount applied"
+                    },
                     "tax_rate": {"type": "NUMBER", "nullable": True},
                 },
             },
@@ -174,7 +195,9 @@ class GeminiInvoiceProcessor(OcrInterface):
                 description=item.get("description"),
                 quantity=self._to_decimal(item.get("quantity")),
                 unit_price=self._to_decimal(item.get("unit_price")),
-                total=self._to_decimal(item.get("total")),
+                discount_percentage=self._to_decimal(item.get("discount_percentage")),
+                gross_total=self._to_decimal(item.get("gross_total")),
+                net_total=self._to_decimal(item.get("net_total")),
                 tax_rate=self._to_decimal(item.get("tax_rate")),
             )
             for item in data.get("line_items", [])
@@ -196,6 +219,7 @@ class GeminiInvoiceProcessor(OcrInterface):
             invoice_number=data.get("invoice_number"),
             date_issued=self._parse_date(data.get("date_issued")),
             due_date=self._parse_date(data.get("due_date")),
+            gross_amount=self._to_decimal(data.get("gross_amount")),
             total_amount=self._to_decimal(data.get("total_amount")),
             currency=data.get("currency", "EUR"),
             payment_method=self._normalize_payment_method(

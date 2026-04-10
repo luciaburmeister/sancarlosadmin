@@ -1,7 +1,7 @@
 from django.db import models
 from django.db.models import Sum
 from company.models import  CompanyEmailConfig, CompanyOwnedModel
-from django.core.validators import MinValueValidator
+from django.core.validators import MinValueValidator, MaxValueValidator
 from decimal import Decimal
 from materials.models import Provider
 from django_countries.fields import CountryField
@@ -83,7 +83,15 @@ class Invoice(models.Model):
         null=False,  
         blank=False  
     )
-
+    gross_amount = MoneyField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Total invoice amount before discounts",
+        default_currency='EUR',
+        default=0
+    )
     total_amount = MoneyField(
         max_digits=10,
         decimal_places=2,
@@ -606,6 +614,27 @@ class InvoiceItem(models.Model):
         default_currency='EUR',
         verbose_name=_("Unit Price")
     )
+    discount_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
+        verbose_name=_("Discount (%)")
+    )
+    discount_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency='EUR',
+        verbose_name=_("Discount Amount")
+    )
+    gross_total = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency='EUR',
+        verbose_name=_("Gross Total")
+    )
     line_total = MoneyField(
         max_digits=12,
         decimal_places=2,
@@ -623,7 +652,9 @@ class InvoiceItem(models.Model):
     )
 
     def save(self, *args, **kwargs):
-        self.line_total = self.unit_price * self.quantity
+        self.gross_total = self.unit_price * self.quantity
+        self.discount_amount = self.gross_total * (self.discount_percentage / Decimal("100"))
+        self.line_total = self.gross_total - self.discount_amount
         super().save(*args, **kwargs)
 
     def __str__(self):

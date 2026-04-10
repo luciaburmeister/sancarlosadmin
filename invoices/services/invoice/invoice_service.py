@@ -202,6 +202,7 @@ class InvoiceService:
                 invoice.date_issued = self._parse_date(extracted_data.date_issued) or invoice.date_issued or timezone.now().date()
                 invoice.due_date = self._parse_date(extracted_data.due_date) or invoice.due_date or timezone.now().date()
                 invoice.provider = provider
+                invoice.gross_amount = extracted_data.gross_amount or invoice.gross_amount
                 invoice.total_amount = extracted_data.total_amount or invoice.total_amount
                 invoice.currency = extracted_data.currency or invoice.currency or "EUR"
                 invoice.payment_method = extracted_data.payment_method or invoice.payment_method or "transfer"
@@ -253,6 +254,7 @@ class InvoiceService:
             date_issued=date_issued or datetime.now().date(),
             due_date=due_date or datetime.now().date(),
             provider=provider,  # Will be None if matching failed
+            gross_amount=extracted_data.gross_amount,
             total_amount=extracted_data.total_amount,
             currency=extracted_data.currency or 'EUR',
             payment_method=extracted_data.payment_method or 'transfer',
@@ -278,6 +280,8 @@ class InvoiceService:
                 description=item.description or '',
                 quantity=item.quantity or Decimal('1'),
                 unit_price=item.unit_price or Decimal('0'),
+                discount_percentage=item.discount_percentage or Decimal('0'),
+
             )
         
     def _create_applied_taxes(self, invoice: Invoice, taxes_data: list):

@@ -65,6 +65,7 @@ def generate_journal_entries_task(company_id=None):
         companies = Company.objects.filter(is_active=True)
 
     total_processed = 0
+    total_unbalanced = 0
     all_errors = []
     
     for company in companies:
@@ -72,19 +73,23 @@ def generate_journal_entries_task(company_id=None):
         result = generator.journalize_all_pending()
         
         count = result.get("processed", 0)
+        unbalanced = result.get("unbalanced", 0)
         errors = result.get("errors", [])
         
         total_processed += count
+        total_unbalanced += unbalanced
         all_errors.extend(errors)
         
         if count > 0:
             logger.info(f"Journalized {count} invoices for {company.name}")
+        if unbalanced > 0:
+            logger.info(f"Created {unbalanced} DRAFT unbalanced entries for {company.name}")
         if errors:
             logger.error(f"Encountered {len(errors)} errors for {company.name}: {errors}")
 
-    summary = f"Total invoices journalized: {total_processed}"
+    summary = f"Journalized: {total_processed} | Draft (Unbalanced): {total_unbalanced}"
     if all_errors:
-        summary += f" | ERRORS: {'; '.join(all_errors)}"
+        summary += f" | Errors: {'; '.join(all_errors)}"
         
     return summary
 

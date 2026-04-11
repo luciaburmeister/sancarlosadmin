@@ -27,17 +27,23 @@ class JournalGeneratorService:
         )
         
         processed_count = 0
+        unbalanced_count = 0
         errors = []
         for invoice in invoices:
             try:
-                if self.journalize_invoice(invoice):
-                    processed_count += 1
+                entry = self.journalize_invoice(invoice)
+                if entry:
+                    if entry.status == EntryStatus.POSTED:
+                        processed_count += 1
+                    else:
+                        unbalanced_count += 1
             except Exception as e:
                 err_msg = f"Invoice {invoice.invoice_number or invoice.id}: {str(e)}"
                 errors.append(err_msg)
         
         return {
             "processed": processed_count,
+            "unbalanced": unbalanced_count,
             "errors": errors
         }
 
@@ -148,11 +154,9 @@ class JournalGeneratorService:
         )
 
         # 4. Attempt to post if balanced
-        if not entry.is_balanced():
-            diff = abs(entry.total_debit - entry.total_credit)
-            raise ValueError(f"Entry is not balanced. Difference: {diff}. Debit: {entry.total_debit}, Credit: {entry.total_credit}")
+        if entry.is_balanced():
+            entry.post()
 
-        entry.post()
         return entry
 
     def _get_purchase_journal(self):

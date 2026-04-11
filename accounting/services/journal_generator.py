@@ -69,9 +69,9 @@ class JournalGeneratorService:
             logger.warning(f"Could not find provider account for {invoice.provider}, skipping.")
             return None
 
-        # 1.5 Safety check: Skip if no total
-        if not invoice.total_amount or invoice.total_amount.amount <= 0:
-            logger.warning(f"Invoice {invoice.id} has no valid total, skipping journalization.")
+        # 1.5 Safety check: Skip if no total (allow negative for returns)
+        if not invoice.total_amount or invoice.total_amount.amount == 0:
+            logger.warning(f"Invoice {invoice.id} has no valid total (0.00), skipping journalization.")
             return None
 
         # 2. Create Journal Entry
@@ -93,17 +93,17 @@ class JournalGeneratorService:
                 # Use a default or fall back?
                 continue
             
-            # Skip items with zero total to avoid DB constraint violations
-            if not item.line_total or item.line_total.amount <= 0:
-                continue
-                
+            # Support returns: positive line_total -> Debit, negative line_total -> Credit
+            debit_amt = item.line_total if item.line_total.amount > 0 else 0
+            credit_amt = abs(item.line_total) if item.line_total.amount < 0 else 0
+
             JournalEntryLine.objects.create(
                 company=self.company,
                 entry=entry,
                 account=item.account,
                 description=f"{invoice.provider.name}: {item.description}",
-                debit=item.line_total,
-                credit=0
+                debit=debit_amt,
+                credit=credit_amt
             )
 
         # B. Taxes (VAT, IRPF, etc.)
@@ -120,37 +120,46 @@ class JournalGeneratorService:
             # Use absolute value for the money object to ensure it passes DB constraints (must be positive)
             money_amount = tax.calculated_amount.__class__(tax_amount, tax.calculated_amount.currency)
 
+            # Support returns: 
+            # If is_debit=True (VAT): positive -> Debit, negative -> Credit
+            # If is_debit=False (IRPF): positive -> Credit, negative -> Debit
+            
+            is_pos = tax.calculated_amount.amount > 0
+            
             if tax.tax_type.is_debit:
-                # Typically VAT (472)
+                # Typically VAT
                 account = self._resolve_tax_account(tax.tax_type, is_purchase=True)
                 JournalEntryLine.objects.create(
                     company=self.company,
                     entry=entry,
                     account=account,
                     description=f"{tax.tax_type.tax_name} {tax.selected_percentage}% - {invoice.invoice_number}",
-                    debit=money_amount,
-                    credit=0
+                    debit=money_amount if is_pos else 0,
+                    credit=0 if is_pos else money_amount
                 )
             else:
-                # Typically IRPF Retention (4751) - Journalized as Credit in Purchases
+                # Typically IRPF Retention
                 account = self._resolve_tax_account(tax.tax_type, is_purchase=True)
                 JournalEntryLine.objects.create(
                     company=self.company,
                     entry=entry,
                     account=account,
                     description=f"{tax.tax_type.tax_name} {tax.selected_percentage}% - {invoice.invoice_number}",
-                    debit=0,
-                    credit=money_amount
+                    debit=0 if is_pos else money_amount,
+                    credit=money_amount if is_pos else 0
                 )
 
-        # C. Credit Provider
+        # Support returns: positive total -> Credit, negative total -> Debit
+        debit_provider = abs(invoice.total_amount) if invoice.total_amount.amount < 0 else 0
+        credit_provider = invoice.total_amount if invoice.total_amount.amount > 0 else 0
+
         JournalEntryLine.objects.create(
             company=self.company,
             entry=entry,
             account=provider_account,
             description=f"Factura {invoice.invoice_number} - {invoice.provider.name}",
-            debit=0,
-            credit=invoice.total_amount
+            debit=debit_provider,
+            credit=credit_provider
         )
 
         # 4. Attempt to post if balanced

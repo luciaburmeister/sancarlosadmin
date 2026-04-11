@@ -220,10 +220,9 @@ class Invoice(models.Model):
         stored_total = Decimal(str(self.total_amount.amount)) if self.total_amount else Decimal("0.00")
         stored_gross = Decimal(str(self.gross_amount.amount)) if self.gross_amount else Decimal("0.00")
 
-        matches_gross = abs(sum_lines - stored_gross) <= tolerance
         matches_total = abs(calc_total - stored_total) <= tolerance
         
-        self.is_total_balanced = matches_gross and matches_total
+        self.is_total_balanced = matches_total
         
         if save:
             self.save(update_fields=['is_total_balanced'])

@@ -173,6 +173,11 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         "project_file",
     )
 
+    readonly_fields = (
+        "gross_amount",
+        "total_amount",
+    )
+
     date_hierarchy = "date_issued"
     
     list_filter_submit = True
@@ -192,6 +197,7 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             {
                 "fields": (
                     ("invoice_number", "provider"),
+                    ("gross_amount", "total_amount"),
                     "file",
                     "company",
                     "project_file",

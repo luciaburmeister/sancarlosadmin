@@ -300,13 +300,18 @@ class InvoiceService:
             tax_amount = tax_item.tax_amount or 0
             
             # Find or create tax type
+            # Determine behavior: if tax_amount is negative or name suggests retention
+            behavior = 'subtract' if (tax_amount < 0 or 'IRPF' in tax_name) else 'add'
+            is_debit = (behavior == 'add')
+            
             tax_type, created = TaxType.objects.get_or_create(
                 tax_name=tax_name,
                 country='ES',  # Default to Spain
                 defaults={
-                    'behavior': 'add',
+                    'behavior': behavior,
+                    'is_debit': is_debit,
                     'percentage_options': [0, 4, 10, 21],
-                    'default_percentage': Decimal(str(percentage)),
+                    'default_percentage': Decimal(str(abs(percentage))),
                     'is_active': True
                 }
             )
@@ -314,7 +319,7 @@ class InvoiceService:
             # Create applied tax
             AppliedTax.objects.create(
                 tax_type=tax_type,
-                selected_percentage=Decimal(str(percentage)),
+                selected_percentage=Decimal(str(abs(percentage))),
                 base_amount=Decimal(str(base_amount)),
                 calculated_amount=Decimal(str(tax_amount)),
                 content_object=invoice,

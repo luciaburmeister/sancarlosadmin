@@ -65,13 +65,28 @@ def generate_journal_entries_task(company_id=None):
         companies = Company.objects.filter(is_active=True)
 
     total_processed = 0
+    all_errors = []
+    
     for company in companies:
         generator = JournalGeneratorService(company)
-        count = generator.journalize_all_pending()
+        result = generator.journalize_all_pending()
+        
+        count = result.get("processed", 0)
+        errors = result.get("errors", [])
+        
         total_processed += count
-        logger.info(f"Journalized {count} invoices for {company.name}")
+        all_errors.extend(errors)
+        
+        if count > 0:
+            logger.info(f"Journalized {count} invoices for {company.name}")
+        if errors:
+            logger.error(f"Encountered {len(errors)} errors for {company.name}: {errors}")
 
-    return f"Total invoices journalized: {total_processed}"
+    summary = f"Total invoices journalized: {total_processed}"
+    if all_errors:
+        summary += f" | ERRORS: {'; '.join(all_errors)}"
+        
+    return summary
 
 @shared_task(name="accounting.tasks.export_a3_purchase_invoicing_task")
 def export_a3_purchase_invoicing_task(company_id, user_email, start_date_str, end_date_str):

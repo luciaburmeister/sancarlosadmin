@@ -27,14 +27,19 @@ class JournalGeneratorService:
         )
         
         processed_count = 0
+        errors = []
         for invoice in invoices:
             try:
                 if self.journalize_invoice(invoice):
                     processed_count += 1
             except Exception as e:
-                logger.error(f"Failed to journalize invoice {invoice.id}: {str(e)}")
+                err_msg = f"Invoice {invoice.invoice_number or invoice.id}: {str(e)}"
+                errors.append(err_msg)
         
-        return processed_count
+        return {
+            "processed": processed_count,
+            "errors": errors
+        }
 
     @transaction.atomic
     def journalize_invoice(self, invoice: Invoice):
@@ -143,15 +148,11 @@ class JournalGeneratorService:
         )
 
         # 4. Attempt to post if balanced
-        try:
-            if entry.is_balanced():
-                # entry.post() # Stay as Draft for now to allow user review? 
-                # User asked for "daily task to do all entries". Usually entries are posted.
-                # However, post() requires numbering logic. I'll leave them in POSTED if they balance.
-                entry.post()
-        except Exception as e:
-            logger.error(f"Failed to post entry for invoice {invoice.id}: {str(e)}")
+        if not entry.is_balanced():
+            diff = abs(entry.total_debit - entry.total_credit)
+            raise ValueError(f"Entry is not balanced. Difference: {diff}. Debit: {entry.total_debit}, Credit: {entry.total_credit}")
 
+        entry.post()
         return entry
 
     def _get_purchase_journal(self):

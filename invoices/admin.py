@@ -31,7 +31,7 @@ from unfold.contrib.filters.admin import (
     ChoicesDropdownFilter,
     AutocompleteSelectMultipleFilter
 )
-from .filters import HasItemsFilter, ItemsMissingAccountFilter
+from .filters import HasItemsFilter, ItemsMissingAccountFilter, BalanceStatusFilter
 @admin.register(TaxType)
 class TaxTypeAdmin(ModelAdmin):
     list_display = (
@@ -149,12 +149,13 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         "provider",
         "date_issued",
         "due_date",
-        "ocr_status"
+        "ocr_status",
+        "balance_status",
     )
 
     list_filter = (
-        HasItemsFilter,
         ItemsMissingAccountFilter,
+        BalanceStatusFilter,
         ("payment_method",ChoicesDropdownFilter),
         ("company",AutocompleteSelectMultipleFilter),
         ("provider",AutocompleteSelectMultipleFilter),
@@ -247,7 +248,7 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     @admin.display(boolean=True, description="Has File")
     def has_file(self, obj):
         return bool(obj.file)
-    
+
     @admin.display(description="OCR Status")
     def ocr_status(self, obj):
         if getattr(obj, "ocr_processing", False):
@@ -269,6 +270,16 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             color,
             label,
         )
+    @display(description=_("Balance"),
+    label={
+            _("Balanced"): "success",  # green
+            _("Unbalanced"): "danger",  # red
+        },)
+    def balance_status(self, obj):
+        if obj.is_total_balanced:
+            return _("Balanced")
+        else:
+            return _("Unbalanced")
 
     @action(description=_("Journal Entry"), icon="leaderboard")
     def view_journal_entry_row_action(self, request, object_id):

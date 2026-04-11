@@ -138,6 +138,12 @@ class Invoice(models.Model):
         help_text="Error if OCR failed"
     )
 
+    is_total_balanced = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text="Check if the sum of line items and taxes matches the total_amount"
+    )
+
     class Meta: 
         unique_together = ['provider','invoice_number']
         ordering = ['-date_issued']
@@ -179,10 +185,50 @@ class Invoice(models.Model):
             
         self.total_amount = current_total
         
+        # When manually recalculating, we should also update the balance status
+        self.verify_total_balance(save=False)
+        
         if save:
-            self.save(update_fields=['total_amount'])
+            self.save(update_fields=['total_amount', 'is_total_balanced'])
             
         return self.total_amount
+
+    def verify_total_balance(self, save=True):
+        """
+        Verifies if sum of line items + taxes matches total_amount.
+        Updates is_total_balanced field.
+        """
+        items_sum = self.items.aggregate(total=Sum('line_total'))['total']
+        if items_sum is not None:
+            sum_lines = Decimal(str(items_sum.amount if hasattr(items_sum, 'amount') else items_sum))
+        else:
+            sum_lines = Decimal("0.00")
+
+        sum_taxes = Decimal("0.00")
+        for tax in self.get_taxes():
+            if tax.calculated_amount:
+                amt = abs(tax.calculated_amount.amount)
+                if tax.tax_type.behavior == "add":
+                    sum_taxes += amt
+                else:
+                    sum_taxes -= amt
+        
+        calc_total = sum_lines + sum_taxes
+        
+        tolerance = Decimal("0.01")
+        
+        stored_total = Decimal(str(self.total_amount.amount)) if self.total_amount else Decimal("0.00")
+        stored_gross = Decimal(str(self.gross_amount.amount)) if self.gross_amount else Decimal("0.00")
+
+        matches_gross = abs(sum_lines - stored_gross) <= tolerance
+        matches_total = abs(calc_total - stored_total) <= tolerance
+        
+        self.is_total_balanced = matches_gross and matches_total
+        
+        if save:
+            self.save(update_fields=['is_total_balanced'])
+            
+        return self.is_total_balanced
 
     def save(self, *args, **kwargs):
         # Automatic recalculation if already exists

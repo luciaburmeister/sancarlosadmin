@@ -37,3 +37,20 @@ class ItemsMissingAccountFilter(RadioFilter):
             # Exclude invoices that have any item with no account
             return queryset.exclude(items__account__isnull=True, items__isnull=False)
         return queryset
+
+class BalanceStatusFilter(RadioFilter):
+    title = _("total balanced")
+    parameter_name = "is_total_balanced"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", _("Balanced")),
+            ("no", _("Unbalanced")),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.filter(is_total_balanced=True)
+        if self.value() == "no":
+            return queryset.filter(is_total_balanced=False)
+        return queryset

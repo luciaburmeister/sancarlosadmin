@@ -138,9 +138,9 @@ class Invoice(models.Model):
         help_text="Error if OCR failed"
     )
 
-    class Meta: #"rulebook", how we store the data
-        unique_together = ['provider','invoice_number'] # Ensures that a specific provider cannot have two invoices with the same number
-        ordering = ['-date_issued'] #newest first
+    class Meta: 
+        unique_together = ['provider','invoice_number']
+        ordering = ['-date_issued']
         verbose_name = "Invoice"
         verbose_name_plural = "Invoices"
 
@@ -162,11 +162,20 @@ class Invoice(models.Model):
         taxes = list(self.get_taxes().order_by('order', 'id'))
         
         for tax in taxes:
-            result = tax.calculate(current_total)
-            tax.base_amount = current_total
-            tax.calculated_amount = result['tax_amount']
-            tax.save(update_fields=['base_amount', 'calculated_amount'])
-            current_total = result['total_amount']
+            if not tax.calculated_amount:
+                continue
+            
+            # Use the magnitude of the calculated amount
+            amt = abs(tax.calculated_amount.amount)
+            
+            if tax.tax_type.behavior == "add":
+                current_total += amt
+            else:
+                current_total -= amt
+            
+            # Update the base_amount for this tax (for information) to the original base
+            tax.base_amount = base_amount
+            tax.save(update_fields=['base_amount'])
             
         self.total_amount = current_total
         
@@ -537,13 +546,20 @@ class SalesInvoice(CompanyOwnedModel):
         
         total_tax = Decimal("0.00")
         for tax in taxes:
-            result = tax.calculate(current_total)
-            tax.base_amount = current_total
-            tax.calculated_amount = result['tax_amount']
-            tax.save(update_fields=['base_amount', 'calculated_amount'])
+            if not tax.calculated_amount:
+                continue
+                
+            amt = abs(tax.calculated_amount.amount)
             
-            total_tax += result['tax_amount']
-            current_total = result['total_amount']
+            if tax.tax_type.behavior == "add":
+                total_tax += amt
+                current_total += amt
+            else:
+                total_tax -= amt
+                current_total -= amt
+            
+            tax.base_amount = self.subtotal_amount
+            tax.save(update_fields=['base_amount'])
             
         self.tax_amount = total_tax
         self.total_amount = current_total

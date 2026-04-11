@@ -97,10 +97,18 @@ class JournalGeneratorService:
 
         # B. Taxes (VAT, IRPF, etc.)
         for tax in invoice.get_taxes():
-            # Skip taxes with zero amount to avoid DB constraint violations
-            if not tax.calculated_amount or tax.calculated_amount.amount <= 0:
+            if not tax.calculated_amount:
                 continue
-                
+
+            tax_amount = abs(tax.calculated_amount.amount)
+            
+            # Skip taxes with zero amount to avoid DB constraint violations
+            if tax_amount <= 0:
+                continue
+            
+            # Use absolute value for the money object to ensure it passes DB constraints (must be positive)
+            money_amount = tax.calculated_amount.__class__(tax_amount, tax.calculated_amount.currency)
+
             if tax.tax_type.is_debit:
                 # Typically VAT (472)
                 account = self._resolve_tax_account(tax.tax_type, is_purchase=True)
@@ -109,7 +117,7 @@ class JournalGeneratorService:
                     entry=entry,
                     account=account,
                     description=f"{tax.tax_type.tax_name} {tax.selected_percentage}% - {invoice.invoice_number}",
-                    debit=tax.calculated_amount,
+                    debit=money_amount,
                     credit=0
                 )
             else:
@@ -121,7 +129,7 @@ class JournalGeneratorService:
                     account=account,
                     description=f"{tax.tax_type.tax_name} {tax.selected_percentage}% - {invoice.invoice_number}",
                     debit=0,
-                    credit=tax.calculated_amount
+                    credit=money_amount
                 )
 
         # C. Credit Provider

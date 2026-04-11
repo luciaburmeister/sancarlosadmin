@@ -277,11 +277,10 @@ class InvoiceService:
         for item in line_items_data:
             InvoiceItem.objects.create(
                 invoice=invoice,
-                description=item.description or '',
+                description=(item.description or '')[:255],
                 quantity=item.quantity or Decimal('1'),
                 unit_price=item.unit_price or Decimal('0'),
                 discount_percentage=item.discount_percentage or Decimal('0'),
-
             )
         
     def _create_applied_taxes(self, invoice: Invoice, taxes_data: list):

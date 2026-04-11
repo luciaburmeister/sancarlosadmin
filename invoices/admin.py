@@ -27,9 +27,11 @@ from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from accounting.tasks import classify_invoice_accounts, generate_journal_entries_task, export_a3_purchase_invoicing_task
 from core.admin.company_admin import CompanyRestrictedAdmin
 from unfold.contrib.filters.admin import (
-    AutocompleteSelectFilter,
+    RangeDateFilter,
+    ChoicesDropdownFilter,
     AutocompleteSelectMultipleFilter
 )
+from .filters import HasItemsFilter
 @admin.register(TaxType)
 class TaxTypeAdmin(ModelAdmin):
     list_display = (
@@ -151,10 +153,11 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     )
 
     list_filter = (
-        "payment_method",
+        HasItemsFilter,
+        ("payment_method",ChoicesDropdownFilter),
         ("company",AutocompleteSelectMultipleFilter),
         ("provider",AutocompleteSelectMultipleFilter),
-        "date_issued",
+        ("date_issued",RangeDateFilter),
     )
 
     search_fields = (

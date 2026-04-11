@@ -31,7 +31,7 @@ from unfold.contrib.filters.admin import (
     ChoicesDropdownFilter,
     AutocompleteSelectMultipleFilter
 )
-from .filters import HasItemsFilter
+from .filters import HasItemsFilter, ItemsMissingAccountFilter
 @admin.register(TaxType)
 class TaxTypeAdmin(ModelAdmin):
     list_display = (
@@ -154,6 +154,7 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
 
     list_filter = (
         HasItemsFilter,
+        ItemsMissingAccountFilter,
         ("payment_method",ChoicesDropdownFilter),
         ("company",AutocompleteSelectMultipleFilter),
         ("provider",AutocompleteSelectMultipleFilter),

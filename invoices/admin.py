@@ -1,3 +1,4 @@
+from assets import urls
 from unfold.admin import StackedInline
 from django.contrib import admin
 from unfold.decorators import action, display
@@ -5,11 +6,11 @@ from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
 from datetime import timedelta
-from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from unfold.admin import ModelAdmin, TabularInline, GenericTabularInline
 from django.utils.html import format_html
 from invoices.models import (
     Invoice,
+    ConfirmationStatus,
     TaxType,
     AppliedTax,
     IncomingInvoice,
@@ -22,6 +23,8 @@ from django.utils import timezone
 from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
 from invoices.views.invoice.wizard_views import SalesInvoiceWizardView
 from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
+from invoices.views.invoice.review_invoice import InvoiceReviewAdminView
+from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from accounting.tasks import classify_invoice_accounts, generate_journal_entries_task, export_a3_purchase_invoicing_task
@@ -151,12 +154,14 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         "due_date",
         "ocr_status",
         "balance_status",
+        "confirmation_badge",
     )
 
     list_filter = (
         ItemsMissingAccountFilter,
         BalanceStatusFilter,
         ("payment_method",ChoicesDropdownFilter),
+        ("confirmation_status", ChoicesDropdownFilter),
         ("company",AutocompleteSelectMultipleFilter),
         ("provider",AutocompleteSelectMultipleFilter),
         ("date_issued",RangeDateFilter),
@@ -188,8 +193,11 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     ]
 
     actions = ["send_to_process", "classify_accounts", "journalize_selected", "export_a3_purchase_invoices"]
-    actions_row = ["view_journal_entry_row_action"]
+    actions_row = ["review_invoice_row_action", "view_journal_entry_row_action"]
     actions_detail = ["view_journal_entry_detail_action"]
+    @action(description=_("Review"), icon="rate_review")
+    def review_invoice_row_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_invoice_review", args=[object_id]))
 
     fieldsets = (
         (
@@ -244,7 +252,14 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
                     InvoiceUploadAdminView.as_view(model_admin=self)
                 ),
                 name="invoices_invoice_upload",
-            ),           
+            ), 
+            path(
+            "<int:object_id>/review/",
+            self.admin_site.admin_view(
+                InvoiceReviewAdminView.as_view(model_admin=self)
+            ),
+            name="invoices_invoice_review",
+            ),
         ]
         return custom + urls
 
@@ -259,21 +274,20 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     def ocr_status(self, obj):
         if getattr(obj, "ocr_processing", False):
             label = "Processing"
-            color = "#facc15" 
+            css = "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400"
         elif getattr(obj, "ocr_processed", False) and not getattr(obj, "ocr_error", ""):
             label = "OK"
-            color = "#22c55e"  
+            css = "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400"
         elif getattr(obj, "ocr_error", ""):
             label = "Error"
-            color = "#ef4444"  
+            css = "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"
         else:
             label = "Not started"
-            color = "#9ca3af"  
+            css = "bg-base-500/8 text-base-700 dark:bg-base-500/20 dark:text-base-200"
 
         return format_html(
-            '<span style="display:inline-block; padding:2px 8px; border-radius:999px; '
-            'font-size:11px; font-weight:600; color:white; background:{};">{}</span>',
-            color,
+            '<span class="inline-block font-semibold rounded-default text-[11px] uppercase whitespace-nowrap h-6 leading-6 px-2 {}">{}</span>',
+            css,
             label,
         )
     @display(description=_("Balance"),
@@ -286,6 +300,22 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             return _("Balanced")
         else:
             return _("Unbalanced")
+        
+    @display(
+        description=_("Confirmation"),
+        label={
+            "APPROVED":       "success",
+            "PENDING REVIEW": "warning",
+            "DECLINED":       "danger",
+        },
+    )
+    def confirmation_badge(self, obj):
+        labels = {
+            ConfirmationStatus.APPROVED: "APPROVED",
+            ConfirmationStatus.PENDING:  "PENDING REVIEW",
+            ConfirmationStatus.DECLINED: "DECLINED",
+        }
+        return labels.get(obj.confirmation_status, "PENDING REVIEW")
 
     @action(description=_("Journal Entry"), icon="leaderboard")
     def view_journal_entry_row_action(self, request, object_id):

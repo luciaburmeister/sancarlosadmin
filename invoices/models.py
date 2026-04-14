@@ -26,17 +26,18 @@ class InvoiceGroup(models.Model):
     def __str__(self):
         return self.name
 
-
-
 class PaymentMethod(models.TextChoices):
     TRANSFER = 'transfer', _('Bank Transfer')  
     CASH = 'cash', _('Cash')
     CARD = 'card', _('Credit/Debit Card')
 
+class ConfirmationStatus(models.TextChoices):
+    APPROVED = 'approved', _('Approved')
+    PENDING = 'pending', _('Pending Review')
+    DECLINED = 'declined', _('Declined')
 
 def invoice_file_path(instance, filename):
     return f"invoices/uploads/{filename}"
-
 
 
 class Invoice(models.Model):
@@ -111,6 +112,13 @@ class Invoice(models.Model):
     needs_manual_review = models.BooleanField(
         default=True,  # Always starts as True
         help_text="Invoice requires manual review by user (always True initially, set to False after user review)"
+    )
+
+    confirmation_status = models.CharField(
+        max_length=20,
+        choices=ConfirmationStatus.choices,
+        default=ConfirmationStatus.PENDING,
+        help_text="Review status of this invoice"
     )
 
     image_hash = models.CharField(

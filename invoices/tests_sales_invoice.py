@@ -242,3 +242,32 @@ class SalesInvoiceTest(TestCase):
         self.assertEqual(new_item.unit_price.amount, Decimal('100.00'))
         self.assertEqual(new_item.discount_amount.amount, Decimal('20.00'))
         self.assertEqual(new_item.line_total.amount, Decimal('80.00'))
+
+    def test_wizard_item_creation(self):
+        # Simulating what the wizard's done method does
+        invoice = SalesInvoice.objects.create(
+            company=self.company,
+            client=self.client,
+            status=SalesInvoiceStatus.PROFORMA
+        )
+        
+        # Simulating items data from wizard form
+        item_qty = Decimal('2.000')
+        item_price = Decimal('50.00')
+        item_discount_pct = Decimal('10.00')
+        
+        SalesInvoiceItem.objects.create(
+            invoice=invoice,
+            description="Wizard Item",
+            quantity=item_qty,
+            unit_price=item_price,
+            discount_percentage=item_discount_pct,
+        )
+        
+        invoice.recalculate_totals()
+        
+        item = invoice.items.first()
+        # 10% of (2 * 50) = 10
+        self.assertEqual(item.discount_amount.amount, Decimal('10.00'))
+        self.assertEqual(item.line_total.amount, Decimal('90.00'))
+        self.assertEqual(invoice.total_amount.amount, Decimal('90.00'))

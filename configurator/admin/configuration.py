@@ -228,7 +228,7 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
                    "create_receival_slip_action",
                    "view_receival_slips"]
     autocomplete_fields = ["client","product","asset","quote"]
-    list_filter_submit = False
+    list_filter_submit = True
 
     inlines = [
         ParameterValueInline,

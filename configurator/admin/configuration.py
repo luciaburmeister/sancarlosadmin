@@ -15,6 +15,10 @@ from unfold.decorators import display
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.views.configuration.autocomplete_views import ClientAutocompleteView, AssetAutocompleteView
 from configurator.services.receival_slip_service import ReceivalSlipService
+from import_export.admin import ImportExportModelAdmin
+from unfold.contrib.import_export.forms import ExportForm, ImportForm, SelectableFieldsExportForm
+from django.http import HttpResponse
+from configurator.resources.configuration_resource import SummarizedConfigurationResource, DetailedItemsResource
 
 
 
@@ -192,7 +196,10 @@ class PricingRuleAssignmentInline(TabularInline):
         return super().has_delete_permission(request, obj)
 
 @admin.register(Configuration)
-class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
+class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAdmin):
+    resource_classes = [SummarizedConfigurationResource, DetailedItemsResource]
+    import_form_class = ImportForm
+    export_form_class = SelectableFieldsExportForm
     custom_urls = (
         (
             "autocomplete/client/",

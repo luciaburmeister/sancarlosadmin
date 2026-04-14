@@ -350,10 +350,15 @@ class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         ),
     )
     list_display = ("invoice_number", "incremental_id", "get_status_label", "company", "client", "date_issued", "total_amount")
-    list_filter = ("company", "status", "date_issued")
+    list_filter = (
+        ("status",ChoicesDropdownFilter),
+        ("company",AutocompleteSelectMultipleFilter),
+        ("client",AutocompleteSelectMultipleFilter),
+        ("date_issued",RangeDateFilter),)
     search_fields = ("invoice_number", "client__name")
     autocomplete_fields = ("company", "client", "configuration", "project_file")
     inlines = [SalesInvoiceItemInline, AppliedTaxInline]
+    list_filter_submit = True
     
     readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount","status","invoice_number")
 

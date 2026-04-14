@@ -12,7 +12,8 @@ from django.core.validators import FileExtensionValidator
 from djmoney.models.fields import MoneyField
 from company.models import Company
 from django.utils import timezone
-
+import unicodedata
+import re
 
 class InvoiceGroup(models.Model):
     """Categories to classify invoices"""
@@ -41,10 +42,10 @@ def invoice_file_path(instance, filename):
 
 
 class Invoice(models.Model):
-    invoice_number = models.CharField(max_length=30,blank=True, null=True) #numero de factura
-    date_issued = models.DateField(db_index=True,blank=True, null=True) 
-    due_date = models.DateField(blank=True, null=True) #fecha de vencimiento
-    provider = models.ForeignKey(Provider, on_delete=models.PROTECT,blank=True, null=True) 
+    invoice_number = models.CharField(max_length=30,blank=True, null=True,verbose_name=_("Invoice number")) #numero de factura
+    date_issued = models.DateField(db_index=True,blank=True, null=True,verbose_name=_("Date issued")) 
+    due_date = models.DateField(blank=True, null=True,verbose_name=_("Due date")) #fecha de vencimiento
+    provider = models.ForeignKey(Provider, on_delete=models.PROTECT,blank=True, null=True,verbose_name=_("Provider")) 
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="invoices", null=True)
     
     account = models.ForeignKey(
@@ -347,6 +348,25 @@ class TaxType(models.Model):
     def get_percentage_choices(self):
         return [(Decimal(str(rate)), f"{rate}%") for rate in (self.percentage_options or [])]
 
+    @staticmethod
+    def normalize_tax_name(name: str) -> str:
+        """
+        Normalizes tax names:
+        - Strip accents
+        - Uppercase
+        - Remove non-alphanumeric characters (dots, spaces, etc.)
+        - Strip leading/trailing spaces
+        """
+        if not name:
+            return ""
+        
+        normalized = unicodedata.normalize('NFKD', name)
+        ascii_name = normalized.encode('ascii', 'ignore').decode('ascii')
+        
+        clean_name = re.sub(r'[^A-Z0-9]', '', ascii_name.upper())
+        
+        return clean_name.strip()
+
 
 class AppliedTax(models.Model):
     """
@@ -496,6 +516,7 @@ class IncomingInvoice(CompanyOwnedModel):
     source_email_id = models.CharField(max_length=255, verbose_name=_("Source Email ID"))
     sender_email = models.EmailField(null=True, blank=True, verbose_name=_("Sender Email"))
     processed = models.BooleanField(default=False, verbose_name=_("Processed by AI"))
+    is_duplicate = models.BooleanField(default=False, verbose_name=_("Is Duplicate"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
 
     class Meta:

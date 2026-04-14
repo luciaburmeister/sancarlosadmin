@@ -94,9 +94,10 @@ def process_incoming_invoices(invoice_ids=None):
             
             if result.success:
                 incoming.processed = True
+                incoming.is_duplicate = getattr(result, 'is_duplicate', False)
                 incoming.save()
                 processed_count += 1
-                logger.info(f"Successfully processed invoice {incoming.id}")
+                logger.info(f"Successfully processed invoice {incoming.id} (Duplicate: {incoming.is_duplicate})")
             else:
                 errors_count += 1
                 logger.error(f"Failed to process invoice {incoming.id}: {result.messages}")

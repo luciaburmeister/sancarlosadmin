@@ -110,7 +110,7 @@ class GeminiInvoiceProcessor(OcrInterface):
                     "tax_amount",
                 ],
                 "properties": {
-                    "name": {"type": "STRING", "nullable": True},
+                    "name": {"type": "STRING", "nullable": True, "enum": ["IVA", "IRPF", "RETENCION"]},
                     "percentage": {"type": "NUMBER", "nullable": True},
                     "base_amount": {"type": "NUMBER", "nullable": True},
                     "tax_amount": {"type": "NUMBER", "nullable": True},
@@ -151,9 +151,10 @@ class GeminiInvoiceProcessor(OcrInterface):
         - payment_method must be: transfer, cash, or card
         - line_items MUST include tax_rate
         - taxes MUST include base_amount and tax_amount
+        - taxes names MUST be classified into: IVA, IRPF, or RETENCION.
         - The vendor_tax_id has to be the provider of who is issuing the invoice not the client's one.
         - company_tax_id = tax id of the customer/client receiving the invoice (us)
-- Do    NOT confuse vendor_tax_id with company_tax_id
+        - Do NOT confuse vendor_tax_id with company_tax_id
         """
 
         response = self.client.models.generate_content(

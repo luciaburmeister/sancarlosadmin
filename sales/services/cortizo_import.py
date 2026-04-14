@@ -90,8 +90,9 @@ class CortizoImportService:
         from invoices.models import TaxType, AppliedTax
         from django.contrib.contenttypes.models import ContentType
         
+        tax_name = TaxType.normalize_tax_name(tax_name)
         tax_type, _ = TaxType.objects.get_or_create(
-            tax_name=tax_name,
+            tax_name=tax_name or "IVA",
             country="ES",
             defaults={
                 "behavior": "add",

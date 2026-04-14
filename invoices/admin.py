@@ -91,8 +91,8 @@ class TaxTypeAdmin(ModelAdmin):
 
 @admin.register(IncomingInvoice)
 class IncomingInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
-    list_display = ("file_hash", "company", "sender_email", "created_at", "processed")
-    list_filter = ("company", "processed", "created_at")
+    list_display = ("file_hash", "company", "sender_email", "created_at", "processed", "is_duplicate")
+    list_filter = ("company", "processed", "is_duplicate", "created_at")
     search_fields = ("file_hash", "source_email_id", "sender_email")
     readonly_fields = ("file_hash", "source_email_id", "created_at", "sender_email")
     autocomplete_fields = ("company", "email_config")

@@ -178,6 +178,11 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         "total_amount",
     )
 
+    list_select_related = (
+        "provider",
+        "company",
+    )
+
     date_hierarchy = "date_issued"
     
     list_filter_submit = True

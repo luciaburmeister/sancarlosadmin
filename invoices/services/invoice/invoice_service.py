@@ -415,9 +415,10 @@ class InvoiceService:
 
     def _find_company(self, tax_id: Optional[str]) -> Optional[Company]:
         """Lookup company by tax ID"""
-        if not tax_id:
+        clean_tax_id = self.ocr_processor.normalize_tax_id(tax_id)
+        if not clean_tax_id:
             return None
-        return Company.objects.filter(tax_identifier__iexact=tax_id.strip()).first()
+        return Company.objects.filter(tax_identifier__iexact=clean_tax_id).first()
 
     def _get_or_create_provider(self, vendor_tax_id: Optional[str], vendor_name: Optional[str], company: Optional[Company], sender_email: Optional[str] = None) -> Optional[Provider]:
         """
@@ -434,7 +435,7 @@ class InvoiceService:
 
         if not vendor_tax_id:
             return None
-
+        
         clean_tax_id = vendor_tax_id.strip()
         
         provider = Provider.objects.filter(

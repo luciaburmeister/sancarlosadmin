@@ -79,8 +79,16 @@ class OcrInterface(ABC):
     def normalize_tax_id(self, tax_id: Optional[str]) -> Optional[str]:
         """
         Normalize tax ID by removing non-alphanumeric characters and converting to uppercase.
-        This helps ensure consistent matching against provider records.
+        Also removes 'ES' prefix if present.
         """
         if tax_id is None:
             return None
-        return ''.join(filter(str.isalnum, tax_id)).upper()
+            
+        # Remove non-alphanumeric and uppercase
+        clean_tax_id = "".join(filter(str.isalnum, tax_id)).upper()
+        
+        # Remove ES prefix if present (Spanish country code)
+        if clean_tax_id.startswith("ES"):
+            clean_tax_id = clean_tax_id[2:]
+            
+        return clean_tax_id

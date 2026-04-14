@@ -38,7 +38,20 @@ class ConfirmationStatus(models.TextChoices):
     DECLINED = 'declined', _('Declined')
 
 def invoice_file_path(instance, filename):
-    return f"invoices/uploads/{filename}"
+    """
+    Determines the path where the invoice file will be stored.
+    Format: invoices/uploads/company_{id}/provider_{id}/{timestamp}_{filename}
+    Handles cases where company or provider are not yet assigned.
+    """
+    timestamp = int(timezone.now().timestamp())
+    
+    company_folder = f"company_{instance.company_id}" if instance.company_id else "unknown_company"
+    provider_folder = f"provider_{instance.provider_id}" if instance.provider_id else "unknown_provider"
+    
+    # Ensure unique filename with timestamp
+    unique_filename = f"{timestamp}_{filename}"
+    
+    return f"invoices/uploads/{company_folder}/{provider_folder}/{unique_filename}"
 
 
 class Invoice(models.Model):

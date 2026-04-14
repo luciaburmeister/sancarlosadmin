@@ -187,6 +187,12 @@ def process_manual_invoice(invoice_id: int):
             invoice.save(update_fields=["ocr_processing", "ocr_processed", "ocr_error"])
             return "OK"
         else:
+            if getattr(result, 'is_duplicate', False):
+                logger.warning(f"Deleting duplicate MANUAL invoice {invoice.id}")
+                invoice_id_for_log = invoice.id
+                invoice.delete()
+                return f"Duplicate deleted: {invoice_id_for_log}"
+
             logger.error(
                 f"Failed to process MANUAL invoice {invoice.id}: {result.messages}"
             )

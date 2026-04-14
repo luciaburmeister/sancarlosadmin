@@ -316,7 +316,10 @@ class InvoiceService:
         """
         Create AppliedTax records for the invoice.
         taxes_data is now a list of TaxItem dataclass objects.
+        Consolidates taxes by (tax_type, percentage) to avoid unique constraint violations.
         """
+        consolidated_taxes = {} # key: (tax_type_id, percentage), value: dict with sum
+
         for order, tax_item in enumerate(taxes_data):
             raw_name = tax_item.name or 'IVA'
             # Normalize using the centralized model logic
@@ -324,12 +327,12 @@ class InvoiceService:
             if not tax_name:
                 tax_name = 'IVA'
 
-            percentage = tax_item.percentage or 0
-            base_amount = tax_item.base_amount or 0
-            tax_amount = tax_item.tax_amount or 0
+            # Normalize values
+            percentage = Decimal(str(abs(tax_item.percentage or 0)))
+            base_amount = Decimal(str(tax_item.base_amount or 0))
+            tax_amount = Decimal(str(tax_item.tax_amount or 0))
             
-            # Find or create tax type
-            # Determine behavior: if tax_amount is negative or name suggests retention
+            # Find or create tax type to get a consistent ID for grouping
             behavior = 'subtract' if (tax_amount < 0 or 'IRPF' in tax_name) else 'add'
             is_debit = (behavior == 'add')
             
@@ -340,19 +343,33 @@ class InvoiceService:
                     'behavior': behavior,
                     'is_debit': is_debit,
                     'percentage_options': [0, 4, 10, 21],
-                    'default_percentage': Decimal(str(abs(percentage))),
+                    'default_percentage': percentage,
                     'is_active': True
                 }
             )
             
-            # Create applied tax
+            key = (tax_type.id, percentage)
+            if key not in consolidated_taxes:
+                consolidated_taxes[key] = {
+                    'tax_type': tax_type,
+                    'percentage': percentage,
+                    'base_amount': Decimal('0'),
+                    'tax_amount': Decimal('0'),
+                    'order': order
+                }
+            
+            consolidated_taxes[key]['base_amount'] += base_amount
+            consolidated_taxes[key]['tax_amount'] += tax_amount
+
+        # Create applied tax records from the consolidated results
+        for data in consolidated_taxes.values():
             AppliedTax.objects.create(
-                tax_type=tax_type,
-                selected_percentage=Decimal(str(abs(percentage))),
-                base_amount=Decimal(str(base_amount)),
-                calculated_amount=Decimal(str(tax_amount)),
+                tax_type=data['tax_type'],
+                selected_percentage=data['percentage'],
+                base_amount=data['base_amount'],
+                calculated_amount=data['tax_amount'],
                 content_object=invoice,
-                order=order
+                order=data['order']
             )
     
     def _create_partial_invoice(self, file_path: str, error_message: str) -> Invoice:

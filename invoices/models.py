@@ -633,6 +633,13 @@ class SalesInvoiceItem(models.Model):
     )
     description = models.CharField(max_length=255, verbose_name=_("Description"))
     quantity = models.DecimalField(max_digits=10, decimal_places=3, default=1, verbose_name=_("Quantity"))
+    discount_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
+        verbose_name=_("Discount (%)")
+    )
     unit_price = MoneyField(
         max_digits=12, 
         decimal_places=2, 

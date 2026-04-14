@@ -80,7 +80,7 @@ class SalesInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
                 description=form.cleaned_data.get('description'),
                 quantity=form.cleaned_data.get('quantity'),
                 unit_price=form.cleaned_data.get('unit_price'),
-                discount_amount=form.cleaned_data.get('discount_amount', 0),
+                discount_percentage=form.cleaned_data.get('discount_percentage', 0),
             )
             subtotal += item.line_total.amount # amount from Money object
 

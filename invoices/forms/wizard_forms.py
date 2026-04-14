@@ -127,7 +127,7 @@ class WizardItemForm(forms.Form):
     )
     quantity = forms.DecimalField(label=_("Qty"), max_digits=10, decimal_places=3, initial=1, widget=UnfoldAdminDecimalFieldWidget)
     unit_price = forms.DecimalField(label=_("Unit Price"), max_digits=12, decimal_places=2, widget=UnfoldAdminDecimalFieldWidget)
-    discount_amount = forms.DecimalField(label=_("Discount"), max_digits=12, decimal_places=2, initial=0, widget=UnfoldAdminDecimalFieldWidget, required=False)
+    discount_percentage = forms.DecimalField(label=_("Discount (%)"), max_digits=5, decimal_places=2, initial=0, widget=UnfoldAdminDecimalFieldWidget, required=False)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -141,7 +141,7 @@ class WizardItemForm(forms.Form):
             Row(
                 Column(Field("quantity"), css_class="col-span-12 md:col-span-4"),
                 Column(Field("unit_price"), css_class="col-span-12 md:col-span-4"),
-                Column(Field("discount_amount"), css_class="col-span-12 md:col-span-4"),
+                Column(Field("discount_percentage"), css_class="col-span-12 md:col-span-4"),
                 css_class="gap-4"
             )
         )

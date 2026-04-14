@@ -661,6 +661,7 @@ class SalesInvoiceItem(models.Model):
     )
 
     def save(self, *args, **kwargs):
+        self.discount_amount = (self.unit_price * self.quantity) * (self.discount_percentage / Decimal("100"))
         self.line_total = (self.unit_price * self.quantity) - self.discount_amount
         super().save(*args, **kwargs)
 

@@ -1,0 +1,211 @@
+{% extends "admin/inventory/movement_base.html" %}
+{% load i18n unfold %}
+
+{% block form_actions %}{% endblock %}
+
+{% block form_sections %}
+<div
+  class="border border-base-200 dark:border-base-800 rounded-default shadow-xs overflow-hidden bg-white dark:bg-base-900"
+  x-data="{
+    step: 1,
+    totalSteps: 2,
+    stepLabels: ['{% trans "Location" %}', '{% trans "Adjustment" %}']
+  }"
+>
+
+  {# ── Step indicator ── #}
+  <div class="px-6 py-5 border-b border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02]">
+    <div class="flex items-center">
+      <template x-for="(label, i) in stepLabels" :key="i">
+        <div class="flex items-center" :class="i < stepLabels.length - 1 ? 'flex-1' : ''">
+          <div class="flex flex-col items-center gap-1.5 shrink-0">
+            <div
+              class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-colors duration-200"
+              :class="{
+                'bg-primary-600 text-white shadow-sm': step === i + 1,
+                'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-400': step > i + 1,
+                'bg-base-200 dark:bg-base-700 text-font-subtle-light dark:text-font-subtle-dark': step < i + 1
+              }"
+            >
+              <template x-if="step > i + 1">
+                <span class="material-symbols-outlined text-[15px] leading-none">check</span>
+              </template>
+              <template x-if="step <= i + 1">
+                <span x-text="i + 1"></span>
+              </template>
+            </div>
+            <span
+              class="text-xs font-medium transition-colors duration-200 whitespace-nowrap"
+              :class="{
+                'text-primary-600 dark:text-primary-400 font-semibold': step === i + 1,
+                'text-font-subtle-light dark:text-font-subtle-dark': step !== i + 1
+              }"
+              x-text="label"
+            ></span>
+          </div>
+          <template x-if="i < stepLabels.length - 1">
+            <div
+              class="flex-1 h-px mx-3 mt-[-14px] transition-colors duration-200"
+              :class="step > i + 1 ? 'bg-primary-400 dark:bg-primary-600' : 'bg-base-200 dark:bg-base-700'"
+            ></div>
+          </template>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  {# ── Step content ── #}
+  <div class="px-6 py-6 min-h-[160px]">
+
+    {# Step 1: Location #}
+    <div x-show="step === 1" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-x-2" x-transition:enter-end="opacity-100 translate-x-0">
+      {% if form.warehouse.errors %}
+      <div class="mb-4 flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-default px-3 py-2">
+        <span class="material-symbols-outlined text-base leading-none">warning</span>
+        {% trans "Please fix the errors in this step before continuing." %}
+      </div>
+      {% endif %}
+      <div class="lg:max-w-sm">
+        {% include "unfold/helpers/field.html" with field=form.warehouse %}
+      </div>
+    </div>
+
+    {# Step 2: Adjustment #}
+    <div x-show="step === 2" x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 translate-x-2" x-transition:enter-end="opacity-100 translate-x-0">
+      {% if form.quantity_change.errors or form.note.errors %}
+      <div class="mb-4 flex items-center gap-2 text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-default px-3 py-2">
+        <span class="material-symbols-outlined text-base leading-none">warning</span>
+        {% trans "Please fix the errors in this step before continuing." %}
+      </div>
+      {% endif %}
+      <div class="grid lg:grid-cols-2 gap-6">
+        <div class="flex flex-col gap-6">
+          <div>{% include "unfold/helpers/field.html" with field=form.quantity_change %}</div>
+          <div class="border-t border-dashed border-base-200 dark:border-base-800 pt-6">
+            {% include "unfold/helpers/field.html" with field=form.note %}
+
+          </div>
+        </div>
+        <div>
+          <label class="block font-semibold mb-2 text-font-important-light dark:text-font-important-dark text-sm">{% trans "Stock after adjustment" %}</label>
+          <div class="border border-base-200 dark:border-base-800 rounded-default bg-base-50 dark:bg-base-800 px-4 py-3 shadow-xs">
+            <div class="flex items-center justify-between gap-2">
+              <div class="text-center flex-1">
+                <p class="text-xs text-font-subtle-light dark:text-font-subtle-dark uppercase tracking-wider mb-1">{% trans "Current" %}</p>
+                <p class="text-2xl font-bold font-mono {% if stock_on_hand > 0 %}text-green-600 dark:text-green-400{% elif stock_on_hand < 0 %}text-red-600 dark:text-red-400{% else %}text-font-subtle-light dark:text-font-subtle-dark{% endif %}">{{ stock_on_hand }}</p>
+              </div>
+              <span class="material-symbols-outlined text-xl text-font-subtle-light dark:text-font-subtle-dark shrink-0" id="adj-sign-icon">add</span>
+              <div class="text-center flex-1">
+                <p class="text-xs text-font-subtle-light dark:text-font-subtle-dark uppercase tracking-wider mb-1">{% trans "Change" %}</p>
+                <p class="text-2xl font-bold font-mono text-font-subtle-light dark:text-font-subtle-dark" id="adj-change-preview">—</p>
+              </div>
+              <span class="material-symbols-outlined text-xl text-font-subtle-light dark:text-font-subtle-dark shrink-0">arrow_forward</span>
+              <div class="text-center flex-1">
+                <p class="text-xs text-font-subtle-light dark:text-font-subtle-dark uppercase tracking-wider mb-1">{% trans "After" %}</p>
+                <p class="text-2xl font-bold font-mono text-font-important-light dark:text-font-important-dark" id="adj-after-preview">—</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  {# ── Wizard navigation ── #}
+  <div class="px-6 py-4 border-t border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02] flex items-center justify-between">
+
+    <div>
+      <a
+        x-show="step === 1"
+        href="{{ cancel_url }}"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-default text-sm font-medium border border-base-300 dark:border-base-600 bg-white dark:bg-base-800 text-font-default-light dark:text-font-default-dark hover:bg-base-50 dark:hover:bg-base-700 transition-colors no-underline"
+      >
+        <span class="material-symbols-outlined text-[16px] leading-none">arrow_back</span>
+        {% trans "Cancel" %}
+      </a>
+      <button
+        type="button"
+        x-show="step > 1"
+        @click="step--"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-default text-sm font-medium border border-base-300 dark:border-base-600 bg-white dark:bg-base-800 text-font-default-light dark:text-font-default-dark hover:bg-base-50 dark:hover:bg-base-700 transition-colors"
+      >
+        <span class="material-symbols-outlined text-[16px] leading-none">arrow_back</span>
+        {% trans "Previous" %}
+      </button>
+    </div>
+
+    <span class="text-xs text-font-subtle-light dark:text-font-subtle-dark font-medium">
+      <span x-text="step"></span> / <span x-text="totalSteps"></span>
+    </span>
+
+    <div>
+      <button
+        type="button"
+        x-show="step < totalSteps"
+        @click="step++"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-default text-sm font-medium bg-primary-600 hover:bg-primary-700 text-white transition-colors"
+      >
+        {% trans "Next" %}
+        <span class="material-symbols-outlined text-[16px] leading-none">arrow_forward</span>
+      </button>
+      <button
+        type="submit"
+        x-show="step === totalSteps"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-default text-sm font-medium bg-primary-600 hover:bg-primary-700 text-white transition-colors"
+      >
+        <span class="material-symbols-outlined text-[16px] leading-none">balance</span>
+        {% trans "Confirm Adjustment" %}
+      </button>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    var input    = document.querySelector('input[name="quantity_change"]');
+    var changeEl = document.getElementById('adj-change-preview');
+    var afterEl  = document.getElementById('adj-after-preview');
+    var signIcon = document.getElementById('adj-sign-icon');
+    var current  = {{ stock_on_hand|default:0 }};
+
+    function setClasses(el, add, remove) {
+      remove.forEach(function(c){ el.classList.remove(c); });
+      add.forEach(function(c){ el.classList.add(c); });
+    }
+
+    function update() {
+      var raw = input ? input.value.trim() : '';
+      var val = parseInt(raw, 10);
+      if (!isNaN(val) && raw !== '' && raw !== '-') {
+        var after = current + val;
+        changeEl.textContent = (val > 0 ? '+' : '') + val;
+        if (val > 0) {
+          setClasses(changeEl, ['text-green-600','dark:text-green-400'], ['text-red-600','dark:text-red-400','text-font-subtle-light','dark:text-font-subtle-dark']);
+          signIcon.textContent = 'add';
+          setClasses(signIcon, ['text-green-500','dark:text-green-400'], ['text-red-500','dark:text-red-400','text-font-subtle-light','dark:text-font-subtle-dark']);
+        } else {
+          setClasses(changeEl, ['text-red-600','dark:text-red-400'], ['text-green-600','dark:text-green-400','text-font-subtle-light','dark:text-font-subtle-dark']);
+          signIcon.textContent = 'remove';
+          setClasses(signIcon, ['text-red-500','dark:text-red-400'], ['text-green-500','dark:text-green-400','text-font-subtle-light','dark:text-font-subtle-dark']);
+        }
+        afterEl.textContent = after.toString();
+        if (after > 0) setClasses(afterEl, ['text-green-600','dark:text-green-400'], ['text-red-600','dark:text-red-400','text-font-important-light','dark:text-font-important-dark','text-font-subtle-light','dark:text-font-subtle-dark']);
+        else if (after < 0) setClasses(afterEl, ['text-red-600','dark:text-red-400'], ['text-green-600','dark:text-green-400','text-font-important-light','dark:text-font-important-dark','text-font-subtle-light','dark:text-font-subtle-dark']);
+        else setClasses(afterEl, ['text-font-subtle-light','dark:text-font-subtle-dark'], ['text-green-600','dark:text-green-400','text-red-600','dark:text-red-400','text-font-important-light','dark:text-font-important-dark']);
+      } else {
+        changeEl.textContent = '—'; afterEl.textContent = '—';
+        setClasses(changeEl, ['text-font-subtle-light','dark:text-font-subtle-dark'], ['text-green-600','dark:text-green-400','text-red-600','dark:text-red-400']);
+        setClasses(afterEl, ['text-font-important-light','dark:text-font-important-dark'], ['text-green-600','dark:text-green-400','text-red-600','dark:text-red-400','text-font-subtle-light','dark:text-font-subtle-dark']);
+        signIcon.textContent = 'add';
+        setClasses(signIcon, ['text-font-subtle-light','dark:text-font-subtle-dark'], ['text-green-500','dark:text-green-400','text-red-500','dark:text-red-400']);
+      }
+    }
+    if (input) { input.addEventListener('input', update); update(); }
+  });
+</script>
+{% endblock %}

@@ -16,6 +16,7 @@ __pycache__/
 .env
 .env_prod
 .venv
+venv/
 .vscode/*
 box_config.json
 __pycache__

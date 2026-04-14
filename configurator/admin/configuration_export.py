@@ -16,13 +16,8 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
     list_display = ("name", "kind", "product", "is_active","company")
     list_filter = (("kind"), "is_active", ("product",AutocompleteSelectMultipleFilter))
     search_fields = ("name", "html")
-    readonly_fields = ("visualizar", "contexto_json")
+    readonly_fields = ("visualizar", "contexto_json", "test_object_selector")
     autocomplete_fields = ["product","company"]
-    formfield_overrides = {
-        models.TextField: {
-            "widget": WysiwygWidget,
-        }
-    }
     list_select_related = ["company"]
 
     fieldsets = (
@@ -33,7 +28,7 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
             "fields": ("html","css"),
         }),
         (_("Visualizar"), {
-            "fields": (("visualizar", "contexto_json"),),
+            "fields": ("test_object_selector", ("visualizar", "contexto_json"),),
         }),
     )
 
@@ -57,6 +52,51 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
         ''')
     
     contexto_json.short_description = _("Contexto JSON")
+
+    def test_object_selector(self, obj):
+        if not obj.pk:
+            return _("Save the template first.")
+            
+        from configurator.models import Configuration, ExportTemplateKind
+        from sales.models import Quote
+        from production.models import ProductionItem
+        from invoices.models import SalesInvoice
+
+        qs = []
+        if obj.kind == ExportTemplateKind.QUOTATION:
+            qs = Configuration.objects.all()
+            if obj.product:
+                qs = qs.filter(product=obj.product)
+        elif obj.kind == ExportTemplateKind.PRODUCTION_ORDER:
+            qs = Configuration.objects.all()
+            if obj.product:
+                qs = qs.filter(product=obj.product)
+        elif obj.kind == ExportTemplateKind.PRODUCTION_TICKET:
+            qs = ProductionItem.objects.all()
+        elif obj.kind == ExportTemplateKind.SALES_INVOICE:
+            qs = SalesInvoice.objects.all()
+        elif obj.kind == ExportTemplateKind.CONSOLIDATED_QUOTATION:
+            qs = Quote.objects.all()
+        elif obj.kind == ExportTemplateKind.RECEIVAL_SLIP:
+            from configurator.models import ReceivalSlip
+            qs = ReceivalSlip.objects.all()
+            if obj.product:
+                qs = qs.filter(configuration__product=obj.product)
+
+        if hasattr(qs, 'filter') and obj.company:
+            qs = qs.filter(company=obj.company)
+            
+        latest_objects = qs.order_by('-id')[:10] if hasattr(qs, 'order_by') else []
+
+        html = [f'<select id="test-object-selector" style="margin-bottom: 1rem; width: 100%; border-radius: 0.375rem; border: 1px solid #d1d5db; padding: 0.5rem;" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">']
+        html.append(f'<option value="">{_("Latest (Default)")}</option>')
+        for item in latest_objects:
+            html.append(f'<option value="{item.pk}">{item}</option>')
+        html.append('</select>')
+        
+        return mark_safe("".join(html))
+
+    test_object_selector.short_description = _("Objeto de prueba")
 
     def get_urls(self):
         urls = super().get_urls()

@@ -1,0 +1,16 @@
+{% extends "admin/change_form.html" %}
+{% load i18n unfold %}
+
+{% block object-tools-items %}
+  {{ block.super }}
+
+  {% if original and original.status == "pending" %}
+    {% if perms.vacations.can_approve_vacations or request.user.is_superuser %}
+      <li>
+        {% component "unfold/components/button.html" with href=approve_url variant="primary" %}
+          {% trans "Approve request" %}
+        {% endcomponent %}
+      </li>
+    {% endif %}
+  {% endif %}
+{% endblock %}

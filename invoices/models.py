@@ -1,6 +1,7 @@
 from django.db import models
+from django.db.models import Sum
 from company.models import  CompanyEmailConfig, CompanyOwnedModel
-from django.core.validators import MinValueValidator
+from django.core.validators import MinValueValidator, MaxValueValidator
 from decimal import Decimal
 from materials.models import Provider
 from django_countries.fields import CountryField
@@ -9,6 +10,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.validators import FileExtensionValidator
 from djmoney.models.fields import MoneyField
+from company.models import Company
 from django.utils import timezone
 
 
@@ -42,19 +44,29 @@ class Invoice(models.Model):
     date_issued = models.DateField(db_index=True,blank=True, null=True) 
     due_date = models.DateField(blank=True, null=True) #fecha de vencimiento
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT,blank=True, null=True) 
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="invoices", null=True)
     
-    group = models.ForeignKey(
-        InvoiceGroup, 
+    account = models.ForeignKey(
+        'accounting.CompanyAccount', 
         on_delete=models.PROTECT, 
-        related_name='invoices', 
-        null=True, #makes having a group optional
-        blank=True
+        null=True,
+        blank=True,
+        related_name='invoices',
+        help_text="Accounting account assigned by Gemini or manually overridden."
     )
     
     payment_method = models.CharField(
         max_length=20,
         choices=PaymentMethod.choices,
         default=PaymentMethod.TRANSFER
+    )
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="purchase_invoices",
+        verbose_name=_("Project File")
     )
 
     observations = models.TextField(blank=True, null=True)
@@ -71,7 +83,15 @@ class Invoice(models.Model):
         null=False,  
         blank=False  
     )
-
+    gross_amount = MoneyField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Total invoice amount before discounts",
+        default_currency='EUR',
+        default=0
+    )
     total_amount = MoneyField(
         max_digits=10,
         decimal_places=2,
@@ -86,12 +106,6 @@ class Invoice(models.Model):
         max_length=3,
         default='EUR',
         help_text="Currency code (EUR, USD, etc.)"
-    )
-
-    line_items = models.JSONField(
-        default=list,
-        blank=True,
-        help_text= "Line items with descriptions, quantities, prices, and tax rates"
     )
 
     needs_manual_review = models.BooleanField(
@@ -124,14 +138,102 @@ class Invoice(models.Model):
         help_text="Error if OCR failed"
     )
 
-    class Meta: #"rulebook", how we store the data
-        unique_together = ['provider','invoice_number'] # Ensures that a specific provider cannot have two invoices with the same number
-        ordering = ['-date_issued'] #newest first
+    is_total_balanced = models.BooleanField(
+        default=True,
+        db_index=True,
+        help_text="Check if the sum of line items and taxes matches the total_amount"
+    )
+
+    class Meta: 
+        unique_together = ['provider','invoice_number']
+        ordering = ['-date_issued']
         verbose_name = "Invoice"
         verbose_name_plural = "Invoices"
 
     def __str__(self):
         return f"{self.invoice_number} - {self.provider}"
+    
+    def recalculate_totals(self, save=True):
+        """
+        Recalculates the total amount by summing up items and applying taxes sequentially.
+        """
+        items_sum = self.items.aggregate(total=Sum('line_total'))['total']
+        if items_sum is not None:
+             base_amount = Decimal(str(items_sum.amount if hasattr(items_sum, 'amount') else items_sum))
+        else:
+             base_amount = Decimal("0.00")
+             
+        current_total = base_amount
+        # Pull taxes in order to apply them on top
+        taxes = list(self.get_taxes().order_by('order', 'id'))
+        
+        for tax in taxes:
+            if not tax.calculated_amount:
+                continue
+            
+            # Use the magnitude of the calculated amount
+            amt = abs(tax.calculated_amount.amount)
+            
+            if tax.tax_type.behavior == "add":
+                current_total += amt
+            else:
+                current_total -= amt
+            
+            # Update the base_amount for this tax (for information) to the original base
+            tax.base_amount = base_amount
+            tax.save(update_fields=['base_amount'])
+            
+        self.total_amount = current_total
+        
+        # When manually recalculating, we should also update the balance status
+        self.verify_total_balance(save=False)
+        
+        if save:
+            self.save(update_fields=['total_amount', 'is_total_balanced'])
+            
+        return self.total_amount
+
+    def verify_total_balance(self, save=True):
+        """
+        Verifies if sum of line items + taxes matches total_amount.
+        Updates is_total_balanced field.
+        """
+        items_sum = self.items.aggregate(total=Sum('line_total'))['total']
+        if items_sum is not None:
+            sum_lines = Decimal(str(items_sum.amount if hasattr(items_sum, 'amount') else items_sum))
+        else:
+            sum_lines = Decimal("0.00")
+
+        sum_taxes = Decimal("0.00")
+        for tax in self.get_taxes():
+            if tax.calculated_amount:
+                amt = abs(tax.calculated_amount.amount)
+                if tax.tax_type.behavior == "add":
+                    sum_taxes += amt
+                else:
+                    sum_taxes -= amt
+        
+        calc_total = sum_lines + sum_taxes
+        
+        tolerance = Decimal("0.01")
+        
+        stored_total = Decimal(str(self.total_amount.amount)) if self.total_amount else Decimal("0.00")
+        stored_gross = Decimal(str(self.gross_amount.amount)) if self.gross_amount else Decimal("0.00")
+
+        matches_total = abs(calc_total - stored_total) <= tolerance
+        
+        self.is_total_balanced = matches_total
+        
+        if save:
+            self.save(update_fields=['is_total_balanced'])
+            
+        return self.is_total_balanced
+
+    def save(self, *args, **kwargs):
+        # Automatic recalculation if already exists
+        if self.pk and not kwargs.get('update_fields'):
+            self.recalculate_totals(save=False)
+        super().save(*args, **kwargs)
     
     def get_taxes(self):
         ct = ContentType.objects.get_for_model(self)
@@ -150,6 +252,13 @@ class Invoice(models.Model):
         return total
 
  
+class A3TaxGroup(models.TextChoices):
+    IVA = "IVA", _("IVA")
+    IRPF = "IRPF", _("IRPF")
+    RE = "RE", _("Recargo de Equivalencia")
+    NONE = "NONE", _("None")
+
+
 class TaxType(models.Model):
     """
     Stores different tax types (VAT, IRPF, etc.) with their rate options.
@@ -183,6 +292,37 @@ class TaxType(models.Model):
         validators=[MinValueValidator(Decimal("0.00"))],
         help_text="Default percentage when applying this tax",
         default=0
+    )
+    
+    is_debit = models.BooleanField(
+        default=True,
+        verbose_name=_("Journal as Debit"),
+        help_text=_("In a purchase invoice, identify if this tax should be journalized on the Debit side (typical for VAT).")
+    )
+    
+    a3_tax_group = models.CharField(
+        max_length=10,
+        choices=A3TaxGroup.choices,
+        default=A3TaxGroup.NONE,
+        help_text=_("Mapping for A3 export columns")
+    )
+    
+    purchase_account = models.ForeignKey(
+        "accounting.TemplateAccount",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="purchase_tax_types",
+        help_text=_("Generic template account used for this tax in Purchase Invoices (resolved per company).")
+    )
+
+    sales_account = models.ForeignKey(
+        "accounting.TemplateAccount",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sales_tax_types",
+        help_text=_("Generic template account used for this tax in Sales Invoices (resolved per company).")
     )
 
     is_active = models.BooleanField(default=True)
@@ -251,8 +391,8 @@ class AppliedTax(models.Model):
         ordering = ["content_type", "object_id", "order", "tax_type"]
         constraints = [
             models.UniqueConstraint(
-                fields=["content_type", "object_id", "tax_type"],
-                name="uniq_tax_per_object",
+                fields=["content_type", "object_id", "tax_type", "selected_percentage"],
+                name="uniq_tax_per_object_and_percentage",
             ),
         ]
         indexes = [
@@ -283,6 +423,34 @@ class AppliedTax(models.Model):
         return {
             "tax_amount": tax_amount,
             "total_amount": total.quantize(Decimal("0.01")),
+        }
+
+    def calculate_from_gross(self, gross_amount: Decimal) -> dict:
+        """
+        Calculates the tax components backwards from a gross amount.
+        Used for tax-inclusive prices.
+
+        Returns:
+        {
+            "tax_amount": tax_amount,
+            "base_amount": base
+        }
+        """
+        gross_total = Decimal(gross_amount)
+        rate = self.selected_percentage / Decimal("100")
+
+        if self.tax_type.behavior == "add":
+            # Gross = Base * (1 + Rate) => Base = Gross / (1 + Rate)
+            base = (gross_total / (Decimal("1.0") + rate)).quantize(Decimal("0.01"))
+            tax_amount = gross_total - base
+        else:
+            # Gross = Base * (1 - Rate) => Base = Gross / (1 - Rate)
+            base = (gross_total / (Decimal("1.0") - rate)).quantize(Decimal("0.01"))
+            tax_amount = base - gross_total
+
+        return {
+            "tax_amount": tax_amount,
+            "base_amount": base
         }
 
     def calculate_and_store(self):
@@ -358,6 +526,14 @@ class SalesInvoice(CompanyOwnedModel):
         related_name='sales_invoices',
         verbose_name=_("Configuration")
     )
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sales_invoices",
+        verbose_name=_("Project File")
+    )
     
     subtotal_amount = MoneyField(
         max_digits=12, 
@@ -381,6 +557,8 @@ class SalesInvoice(CompanyOwnedModel):
         verbose_name=_("Total Amount")
     )
     
+    reference = models.CharField(max_length=255, blank=True, null=True, verbose_name=_("Reference"))
+    
     notes = models.TextField(blank=True, null=True, verbose_name=_("Notes"))
 
     class Meta:
@@ -397,23 +575,36 @@ class SalesInvoice(CompanyOwnedModel):
     def recalculate_totals(self, save=True):
         """
         Recalculates the total and tax amounts by applying taxes sequentially
-        on top of the subtotal.
+        on top of the subtotal (which is summed from line items).
         """
+        # 1. Update subtotal from items if they exist
+        items_sum = self.items.aggregate(total=Sum('line_total'))['total']
+        if items_sum is not None:
+             # Ensure subtotal_amount gets the numeric value
+             self.subtotal_amount = items_sum.amount if hasattr(items_sum, 'amount') else items_sum
+             
         ct = ContentType.objects.get_for_model(self)
-        
         current_total = Decimal(self.subtotal_amount.amount)
         
-        taxes = AppliedTax.objects.filter(content_type=ct, object_id=self.pk).order_by('order', 'tax_type')
+        # 2. Sequential tax application (Additive)
+        taxes = list(AppliedTax.objects.filter(content_type=ct, object_id=self.pk).order_by('order', 'id'))
         
         total_tax = Decimal("0.00")
         for tax in taxes:
-            result = tax.calculate(current_total)
-            tax.base_amount = current_total
-            tax.calculated_amount = result['tax_amount']
-            tax.save(update_fields=['base_amount', 'calculated_amount'])
+            if not tax.calculated_amount:
+                continue
+                
+            amt = abs(tax.calculated_amount.amount)
             
-            total_tax += result['tax_amount']
-            current_total = result['total_amount']
+            if tax.tax_type.behavior == "add":
+                total_tax += amt
+                current_total += amt
+            else:
+                total_tax -= amt
+                current_total -= amt
+            
+            tax.base_amount = self.subtotal_amount
+            tax.save(update_fields=['base_amount'])
             
         self.tax_amount = total_tax
         self.total_amount = current_total
@@ -427,6 +618,12 @@ class SalesInvoice(CompanyOwnedModel):
             'total': self.total_amount
         }
 
+    def save(self, *args, **kwargs):
+        # Automatic recalculation if already exists
+        if self.pk and not kwargs.get('update_fields'):
+            self.recalculate_totals(save=False)
+        super().save(*args, **kwargs)
+
 class SalesInvoiceItem(models.Model):
     invoice = models.ForeignKey(
         SalesInvoice, 
@@ -436,6 +633,13 @@ class SalesInvoiceItem(models.Model):
     )
     description = models.CharField(max_length=255, verbose_name=_("Description"))
     quantity = models.DecimalField(max_digits=10, decimal_places=3, default=1, verbose_name=_("Quantity"))
+    discount_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
+        verbose_name=_("Discount (%)")
+    )
     unit_price = MoneyField(
         max_digits=12, 
         decimal_places=2, 
@@ -457,8 +661,74 @@ class SalesInvoiceItem(models.Model):
     )
 
     def save(self, *args, **kwargs):
+        self.discount_amount = (self.unit_price * self.quantity) * (self.discount_percentage / Decimal("100"))
         self.line_total = (self.unit_price * self.quantity) - self.discount_amount
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.description} ({self.quantity})"
+
+class InvoiceItem(models.Model):
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.CASCADE,
+        related_name='items',
+        verbose_name=_("Invoice")
+    )
+    description = models.CharField(max_length=255, verbose_name=_("Description"))
+    quantity = models.DecimalField(max_digits=10, decimal_places=3, default=1, verbose_name=_("Quantity"))
+    unit_price = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency='EUR',
+        verbose_name=_("Unit Price")
+    )
+    discount_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00")), MaxValueValidator(Decimal("100.00"))],
+        verbose_name=_("Discount (%)")
+    )
+    discount_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency='EUR',
+        verbose_name=_("Discount Amount")
+    )
+    gross_total = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency='EUR',
+        verbose_name=_("Gross Total")
+    )
+    line_total = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency='EUR',
+        verbose_name=_("Line Total")
+    )
+
+    account = models.ForeignKey(
+        'accounting.CompanyAccount',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='invoice_items',
+        help_text="Accounting account assigned by Gemini or manually overridden for this specific line item."
+    )
+
+    def save(self, *args, **kwargs):
+        self.gross_total = self.unit_price * self.quantity
+        self.discount_amount = self.gross_total * (self.discount_percentage / Decimal("100"))
+        self.line_total = self.gross_total - self.discount_amount
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.description} ({self.quantity})"
+
+    class Meta:
+        verbose_name = "Invoice Item"
+        verbose_name_plural = "Invoice Items"

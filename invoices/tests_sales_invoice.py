@@ -1,3 +1,4 @@
+from scratch.test_money import discount_percentage
 from django.test import TestCase
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
@@ -84,16 +85,16 @@ class SalesInvoiceTest(TestCase):
         self.assertEqual(inv1.incremental_id, 1)
         self.assertEqual(inv2.incremental_id, 2)
 
-    def test_sequential_tax_calculation(self):
+    def test_additive_tax_calculation(self):
         # Create a new config with a specific subtotal
         config = Configuration.objects.create(
-            name="Sequential Tax Config",
+            name="Additive Tax Config",
             company=self.company,
             product=self.product,
             client=self.client,
             status=ConfigurationStatus.COMPLETED,
             subtotal_price=100,
-            total_price=121 # 100 + 10 (10%) + 11 (10% on 110)
+            total_price=120 # 100 + 10 (10% on 100) + 10 (10% on 100)
         )
         Component.objects.create(
             name="Sequential Component",
@@ -123,8 +124,8 @@ class SalesInvoiceTest(TestCase):
             content_object=config,
             tax_type=tax_type2,
             selected_percentage=10,
-            base_amount=110,
-            calculated_amount=11,
+            base_amount=100,
+            calculated_amount=10,
             order=2
         )
         
@@ -143,14 +144,14 @@ class SalesInvoiceTest(TestCase):
         self.assertEqual(taxes[0].base_amount.amount, Decimal('100.00'))
         self.assertEqual(taxes[0].calculated_amount.amount, Decimal('10.00'))
         
-        # Tax 2 (Sequential: base should be 110)
+        # Tax 2 (Now additive: base should be 100, magnitude 10)
         self.assertEqual(taxes[1].selected_percentage, 10)
-        self.assertEqual(taxes[1].base_amount.amount, Decimal('110.00'))
-        self.assertEqual(taxes[1].calculated_amount.amount, Decimal('11.00'))
+        self.assertEqual(taxes[1].base_amount.amount, Decimal('100.00'))
+        self.assertEqual(taxes[1].calculated_amount.amount, Decimal('10.00'))
         
         # Total
-        self.assertEqual(invoice.total_amount.amount, Decimal('121.00'))
-        self.assertEqual(invoice.tax_amount.amount, Decimal('21.00'))
+        self.assertEqual(invoice.total_amount.amount, Decimal('120.00'))
+        self.assertEqual(invoice.tax_amount.amount, Decimal('20.00'))
 
     def test_subtotal_preservation(self):
         # Create a config where subtotal_price (120) != sum of line items (100)
@@ -223,6 +224,7 @@ class SalesInvoiceTest(TestCase):
             description="Test Item",
             quantity=1,
             unit_price=100,
+            discount_percentage=20,
             discount_amount=20,
             line_total=80
         )

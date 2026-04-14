@@ -5,8 +5,24 @@ from invoices.services.email_processor import EmailInvoiceProcessor
 class Command(BaseCommand):
     help = "Processes all configured company email accounts to download new invoices."
 
+    def add_arguments(self, parser):
+        parser.add_argument(
+            '--days',
+            type=int,
+            default=90,
+            help='Number of days to look back (default: 90)'
+        )
+        parser.add_argument(
+            '--all',
+            action='store_true',
+            help='Fetch all emails (ignore UNSEEN flag)'
+        )
+
     def handle(self, *args, **options):
-        self.stdout.write("Starting email invoice processing...")
+        days = options['days']
+        only_unseen = not options['all']
+        
+        self.stdout.write(f"Starting email invoice processing (lookback: {days} days, only_unseen: {only_unseen})...")
         
         configs = CompanyEmailConfig.objects.all()
         if not configs.exists():
@@ -18,7 +34,7 @@ class Command(BaseCommand):
             processor = EmailInvoiceProcessor(config)
             try:
                 processor.connect()
-                count = processor.fetch_new_invoices()
+                count = processor.fetch_new_invoices(days=days, only_unseen=only_unseen)
                 processor.disconnect()
                 
                 if count > 0:

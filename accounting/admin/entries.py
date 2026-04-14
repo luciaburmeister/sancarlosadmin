@@ -33,12 +33,11 @@ class JournalEntryLineInline(TabularInline):
 class JournalEntryAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ["number", "date", "journal", "company", "status", "total_debit", "total_credit", "is_balanced"]
     list_filter = ["company", "journal", "status", "date"]
-    search_fields = ["number", "reference", "description"] # description is on lines? Entry has no description field?
-    # Entry has validation checks.
+    search_fields = ["number", "reference", "description"]
     
     ordering = ["-date", "-number"]
     list_select_related = ["company", "journal"]
-    autocomplete_fields = ["journal"]
+    autocomplete_fields = ["company","journal","purchase_invoice","sales_invoice"]
     date_hierarchy = "date"
     
     inlines = [JournalEntryLineInline]

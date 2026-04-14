@@ -9,7 +9,7 @@
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {% for product in products %}
-        <a href="{% url 'admin:configurator_configuration_wizard_form' product.id %}"
+        <a href="{% url 'admin:configurator_configuration_wizard_form' product.id %}{% if quote_id %}?quote_id={{ quote_id }}{% endif %}"
            class="block group h-full">
 
             <div

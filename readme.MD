@@ -2,6 +2,33 @@ For more translations
 django-admin makemessages -l es --no-location --no-wrap
 django-admin compilemessages
 
+## 🚀 Running the Project
+
+### Django Development Server
+```bash
+python manage.py runserver
+```
+
+### Celery Background Tasks
+The project uses Celery for background tasks and Redis as the message broker.
+
+1. **Start Redis**:
+   ```bash
+   # On Mac with Homebrew
+   brew services start redis
+
+   ```
+2. **Run Celery Worker**:
+   ```bash
+   celery -A alumniniooerp worker -l info --pool=solo
+   ```
+
+3. **Run Celery Beat** (required for scheduled tasks):
+   ```bash
+   celery -A alumniniooerp beat -l info
+   ```
+
+
 ⚙️ How it all works together
 Step 1
 

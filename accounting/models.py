@@ -76,6 +76,7 @@ class TemplateAccount(Timestampable):
     template = models.ForeignKey(ChartOfAccountsTemplate, on_delete=models.CASCADE, related_name="accounts")
     code = models.CharField(max_length=12, validators=[ACCOUNT_CODE_VALIDATOR])
     name = models.CharField(max_length=255)
+    description = models.TextField(null=True, blank=True)
 
     parent = models.ForeignKey(
         "self",
@@ -114,6 +115,18 @@ class CompanyChartOfAccounts(Timestampable):
         null=True, 
         blank=True, 
         help_text=_("Entries prior to this date cannot be modified/posted.")
+    )
+    
+    provider_account_root = models.CharField(
+        max_length=12, 
+        default="400",
+        help_text=_("Default root for provider accounts (e.g. 400 for Spain)")
+    )
+    
+    client_account_root = models.CharField(
+        max_length=12, 
+        default="430",
+        help_text=_("Default root for client accounts (e.g. 430 for Spain)")
     )
 
     def __str__(self) -> str:
@@ -184,6 +197,13 @@ class CompanyAccount(Timestampable):
     
     is_reconcilable = models.BooleanField(default=False)
     is_tax_account = models.BooleanField(default=False)
+    
+    a3_code_override = models.CharField(
+        max_length=10, 
+        blank=True, 
+        null=True, 
+        help_text=_("Optional 10-digit account code for A3 export. If empty, standard mapping applies.")
+    )
 
     class Meta:
         constraints = [
@@ -196,7 +216,7 @@ class CompanyAccount(Timestampable):
         ]
 
     def __str__(self) -> str:
-        return f"{self.company_id}:{self.code} {self.name}"
+        return f"{self.code} {self.name}"
 
 
 class Statement(models.TextChoices):
@@ -307,11 +327,29 @@ class JournalEntry(Timestampable, CompanyOwnedModel):
     journal = models.ForeignKey(Journal, on_delete=models.PROTECT, related_name="entries")
     number = models.CharField(max_length=32, blank=True) 
     date = models.DateField()
-    reference = models.CharField(max_length=255, blank=True)
+    reference = models.CharField(max_length=1024, blank=True)
     status = models.CharField(
         max_length=16,
         choices=EntryStatus.choices,
         default=EntryStatus.DRAFT,
+    )
+    
+    # Links to source documents
+    purchase_invoice = models.ForeignKey(
+        "invoices.Invoice",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="journal_entries",
+        verbose_name=_("Purchase Invoice")
+    )
+    sales_invoice = models.ForeignKey(
+        "invoices.SalesInvoice",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="journal_entries",
+        verbose_name=_("Sales Invoice")
     )
     
     posted_at = models.DateTimeField(null=True, blank=True)
@@ -503,7 +541,7 @@ class JournalEntryLine(Timestampable, CompanyOwnedModel):
         on_delete=models.PROTECT,
         related_name="entry_lines",
     )
-    description = models.CharField(max_length=255)
+    description = models.CharField(max_length=1024)
     
     debit = MoneyField(max_digits=19, decimal_places=4, default_currency="EUR", default=0)
     credit = MoneyField(max_digits=19, decimal_places=4, default_currency="EUR", default=0)
@@ -535,10 +573,6 @@ class JournalEntryLine(Timestampable, CompanyOwnedModel):
         
         # Verify Post Status
         if self.entry_id:
-             # If entry is POSTED, creating/editing lines is FORBIDDEN.
-             # Note: if entry is being created, entry_id might be None depending on flow, but usually set.
-             # We need to fetch entry from DB to check status if we are editing existing line.
-             # If adding new line, we check self.entry.status.
              if self.entry.status == EntryStatus.POSTED:
                  raise ValidationError(_("Cannot add or modify lines of a posted entry."))
         

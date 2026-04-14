@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Any, Dict
 from .base import BaseExportStrategy
+from .context_helpers import get_company_context
 
 if TYPE_CHECKING:
     from production.models import ProductionItem
@@ -35,7 +36,6 @@ class ProductionItemExportStrategy(BaseExportStrategy):
                     "quantity": float(item.quantity) if item.quantity else 0,
                     "length": float(item.length) if item.length else 0,
                     "note": item.note,
-                    "production_stages": item.production_stages,
                     "component": {
                         "id": item.component.id if item.component else None,
                         "name": item.component.name if item.component else None,
@@ -52,8 +52,15 @@ class ProductionItemExportStrategy(BaseExportStrategy):
                 "client": config.client,
                 "items": items_data,
                 "parameters": config.param_values.select_related("parameter"),
+                "component_groups": config.component_groups.order_by("order"),
                 "computed": pricing_context,
+                "parameter_pricing_dictionary": pricing_context,
+                "rendered_templates": getattr(config, "rendered_templates", {}),
             })
+
+        # Use common helper for company and bank information
+        company_ctx = get_company_context(self.production_item.company)
+        context.update(company_ctx)
 
         return context
 

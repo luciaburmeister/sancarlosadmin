@@ -11,12 +11,13 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
-from decouple import config
 from dotenv import load_dotenv
 from django.urls import reverse_lazy
 import os
 from django.utils.translation import gettext_lazy as _
 from django.templatetags.static import static
+from datetime import timedelta
+from celery.schedules import crontab
 
 load_dotenv()
 
@@ -51,7 +52,6 @@ CACHES = {
 
 ALLOWED_HOSTS = ["*"]
 
-
 # Application definition
 
 INSTALLED_APPS = [
@@ -61,8 +61,7 @@ INSTALLED_APPS = [
     "unfold.contrib.inlines",  # optional, if special inlines are needed
     "unfold.contrib.import_export",  # optional, if django-import-export package is used
     "unfold.contrib.guardian",  # optional, if django-guardian package is used
-    "unfold.contrib.simple_history",  # optional, if django-simple-history package is used
-    "unfold.contrib.location_field",  # optional, if django-location-field package is used
+    "unfold.contrib.simple_history",  # optional, if django-simple-history package is used    
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -70,6 +69,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django_json_widget',
+    "unfold.contrib.location_field",
     'import_export',
     "storages",
     'inventory',
@@ -85,14 +85,19 @@ INSTALLED_APPS = [
     'crispy_forms',
     'viewflow',
     'django_countries',
-    'company',
     'django_celery_results',
+    'django_celery_beat',
     'djmoney',
     'assets',
     'location_field',
     'simple_history',
-    'hijack',
-    'hijack.contrib.admin'
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'hijack',    
+    'hijack.contrib.admin',
+    'company',
+    'management',
+    'vacations'
 ]
 
 MIDDLEWARE = [
@@ -107,6 +112,8 @@ MIDDLEWARE = [
     'simple_history.middleware.HistoryRequestMiddleware',
     'hijack.middleware.HijackUserMiddleware',
 ]
+
+X_FRAME_OPTIONS = 'SAMEORIGIN'
 
 
 if DEBUG:
@@ -173,12 +180,14 @@ AWS_S3_ADDRESSING_STYLE = "virtual"
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = os.getenv("EMAIL_SMTP_HOST")
 EMAIL_PORT = 587
+EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
-DEFAULT_FROM_EMAIL = os.getenv("EMAIL_HOST_USER")
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
+BACKEND_URL = os.getenv("BACKEND_URL", "https://erp.polipusolutions.com")
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
+POPPLER_PATH = "/opt/homebrew/bin"  # adjust for your system
 
 
 # Database
@@ -195,6 +204,11 @@ DATABASES = {
         
     }
 }
+
+GDAL_LIBRARY_PATH = os.getenv("GDAL_LIBRARY_PATH", "")
+GEOS_LIBRARY_PATH = os.getenv("GEOS_LIBRARY_PATH", "")
+
+
 # Database SSL mode
 DB_SSLMODE = os.getenv("DB_SSLMODE", "require" if not DEBUG else None)
 
@@ -251,7 +265,6 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Europe/Madrid'  
 
-
 # GEMINI API CONFIGURATION
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
@@ -297,6 +310,7 @@ UNFOLD = {
     "LOGIN": {
         "image": lambda request: static("site-login/login-bg.png"),
     },
+    "THEME": "light",
     "COLORS": {
     "base": {
         "50":  "oklch(98% .002 200)",
@@ -340,10 +354,33 @@ UNFOLD = {
         "show_all_applications": True,  
         "navigation": [
             {
+                "title": _("Management"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Expedientes"),
+                        "icon": "folder_open",
+                        "link": reverse_lazy("admin:management_projectfile_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "management.view_projectfile"
+                        ),
+                    },
+                ],
+            },
+            {
                 "title": _("Quote"),
                 "separator": True,
                 "collapsible": False,
                 "items": [
+                    {
+                        "title": _("Quotes"),
+                        "icon": "request_quote",
+                        "link": reverse_lazy("admin:sales_quote_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "sales.view_quote"
+                        ),
+                    },
                     {
                         "title": _("Configurator"),
                         "icon": "build",
@@ -420,35 +457,49 @@ UNFOLD = {
                             "company.view_employee"
                         )
                     },
+                    {
+                        "title": _("Customers"),
+                        "icon": "groups",
+                        "link": reverse_lazy(
+                            "admin:sales_client_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "sales.view_client"
+                        )
+                    },
                 ],
             },
             {
-                "title": _("Assets"),
-                "separator": True,
-                "collapsible": False,
-                "items": [
-                    {
-                        "title": _("Assets"),
-                        "icon": "web_asset",
-                        "link": reverse_lazy(
-                            "admin:assets_asset_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "assets.view_asset"
-                        ),
-                    },
-                    {
-                        "title": _("Asset Types"),
-                        "icon": "category",
-                        "link": reverse_lazy(
-                            "admin:assets_assettype_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "assets.view_assettype"
-                        ),
-                    },
-                ],
-            },
+    "title": _("Assets"),
+    "separator": True,
+    "collapsible": False,
+    "items": [
+        {
+            "title": _("Assets"),
+            "icon": "web_asset",
+            "link": reverse_lazy("admin:assets_asset_changelist"),
+            "permission": lambda request: request.user.has_perm("assets.view_asset"),
+        },
+        {
+            "title": _("Asset Types"),
+            "icon": "category",
+            "link": reverse_lazy("admin:assets_assettype_changelist"),
+            "permission": lambda request: request.user.has_perm("assets.view_assettype"),
+        },
+        {
+            "title": _("Asset Planning"),
+            "icon": "event_note",
+            "link": reverse_lazy("admin:assets_assetplanning_changelist"),
+            "permission": lambda request: request.user.has_perm("assets.view_assetplanning"),
+        },
+        {                                                              # ← ADD THIS
+            "title": _("Asset Transactions"),
+            "icon": "swap_horiz",
+            "link": reverse_lazy("admin:assets_assettransaction_changelist"),
+            "permission": lambda request: request.user.has_perm("assets.view_assettransaction"),
+        },
+    ],
+},
 
             {
                 "title": _("Production"),
@@ -521,3 +572,18 @@ UNFOLD = {
 
 GDAL_LIBRARY_PATH = os.getenv("GDAL_LIBRARY_PATH", "")
 GEOS_LIBRARY_PATH = os.getenv("GEOS_LIBRARY_PATH", "")
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',  
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+}
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=12),   
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),     
+    'ROTATE_REFRESH_TOKENS': False,
+}

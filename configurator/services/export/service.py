@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any
 from django.template import engines
 from django.template.loader import get_template
 from django.db.models import Q, QuerySet, Model
@@ -6,22 +6,40 @@ from django.core.serializers.json import DjangoJSONEncoder
 from decimal import Decimal
 from core.admin.company_access import get_user_companies
 import json
-import base64
-
+from django.template import engines
+from configurator.utils import safe_eval
 from .helpers import strip_wrappers, strip_css_wrappers, clean_final_html
 from .base import BaseExportStrategy
 from .configuration import ConfigurationExportStrategy
 from .production_item import ProductionItemExportStrategy
 from .sales_invoice import SalesInvoiceExportStrategy
+from .quote import QuoteExportStrategy
+from .receival_slip import ReceivalSlipExportStrategy
+import re
+from django.db.models.fields.files import FieldFile
+from django_countries.fields import Country
 
 if TYPE_CHECKING:
-    from configurator.models import ConfigurationExportTemplate
+    from configurator.models import ConfigurationExportTemplate, Configuration
+
 
 class CustomJSONEncoder(DjangoJSONEncoder):
     """
     Custom JSON encoder that handles Django models and QuerySets.
     """
     def default(self, obj):
+        if isinstance(obj, FieldFile):
+            return None
+            
+        try:
+            if isinstance(obj, Country):
+                return {
+                    "code": obj.code,
+                    "name": str(obj.name)
+                }
+        except ImportError:
+            pass
+
         if isinstance(obj, Model):
             from django.forms.models import model_to_dict
             try:
@@ -33,11 +51,17 @@ class CustomJSONEncoder(DjangoJSONEncoder):
                 data['__str__'] = str(obj)
                 
                 # Cleanup data for JSON
+                keys_to_delete = []
                 for key, value in list(data.items()):
                     if isinstance(value, Decimal):
                         data[key] = float(value)
                     elif hasattr(value, 'amount'): # djmoney Money object
                         data[key] = float(value.amount)
+                    elif isinstance(value, FieldFile):
+                        keys_to_delete.append(key)
+
+                for key in keys_to_delete:
+                    del data[key]
                 
                 return data
             except Exception:
@@ -64,6 +88,7 @@ class ConfigurationExportService:
         from configurator.models import Configuration
         from production.models import ProductionItem
         from invoices.models import SalesInvoice
+        from sales.models import Quote
 
         if isinstance(obj, Configuration):
             return ConfigurationExportStrategy(obj)
@@ -72,6 +97,13 @@ class ConfigurationExportService:
         
         if isinstance(obj, SalesInvoice):
             return SalesInvoiceExportStrategy(obj)
+            
+        if isinstance(obj, Quote):
+            return QuoteExportStrategy(obj)
+        
+        from configurator.models import ReceivalSlip
+        if isinstance(obj, ReceivalSlip):
+            return ReceivalSlipExportStrategy(obj)
         
         raise ValueError(f"No export strategy found for object type: {type(obj)}")
 
@@ -105,7 +137,8 @@ class ConfigurationExportService:
         """
         strategy = ConfigurationExportService.get_strategy(obj)
         context = strategy.get_context()
-        return json.dumps(context, cls=CustomJSONEncoder)
+        json_str = json.dumps(context, cls=CustomJSONEncoder)
+        return json_str.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
     @staticmethod
     def render_parts(obj: Any, template: "ConfigurationExportTemplate"):
@@ -126,6 +159,7 @@ class ConfigurationExportService:
         rendered_body = clean_final_html(rendered_body)
 
         serialized_context = json.dumps(context, cls=CustomJSONEncoder)
+        serialized_context = serialized_context.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
         return rendered_body, clean_css, serialized_context
 
@@ -140,3 +174,54 @@ class ConfigurationExportService:
             "css": clean_css,
             "context_json": serialized_context,
         })
+
+    @staticmethod
+    def evaluate_configuration_templates(configuration):
+        """
+        Evaluates ProductComputedTemplates for a configuration using its export context.
+        """
+        
+
+        strategy = ConfigurationExportService.get_strategy(configuration)
+        
+        try:
+            # We must get context without evaluating rendered_templates to avoid circular evaluation
+            base_context = strategy.get_context(include_rendered_templates=False)
+        except TypeError:
+            # Fallback if strategy doesn't support the flag natively
+            base_context = strategy.get_context()
+
+        rendered_templates = {}
+        if getattr(configuration, "product", None):
+            django_engine = engines["django"]
+            computed_templates = configuration.product.computed_templates.all().order_by("name", "order")
+            resolved_names = set()
+
+            for tmpl in computed_templates:
+                if tmpl.name in resolved_names:
+                    continue
+                    
+                is_match = True
+                expr = (tmpl.condition_expression or "").strip()
+                if expr:
+                    try:
+                        # Use base_context for conditions so they can reference standard config variables
+                        is_match = bool(safe_eval(expr, base_context))
+                    except Exception:
+                        is_match = False
+                        
+                if is_match:
+                    try:
+                        user_tpl = django_engine.from_string(tmpl.template)
+                        rendered_html = user_tpl.render(base_context)
+                    except Exception as e:
+                        rendered_html = f"<!-- Template Error in {tmpl.name}: {e} -->"
+                        
+                    # Clean up white space and new lines before storing
+                    rendered_html = re.sub(r'[\r\n]+', ' ', rendered_html)
+                    rendered_html = re.sub(r'\s{2,}', ' ', rendered_html).strip()
+                    
+                    rendered_templates[tmpl.name] = rendered_html
+                    resolved_names.add(tmpl.name)
+
+        return rendered_templates

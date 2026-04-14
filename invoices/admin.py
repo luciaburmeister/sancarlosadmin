@@ -1,31 +1,37 @@
+from unfold.admin import StackedInline
 from django.contrib import admin
 from unfold.decorators import action, display
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
+from datetime import timedelta
 from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from unfold.admin import ModelAdmin, TabularInline, GenericTabularInline
 from django.utils.html import format_html
 from invoices.models import (
-    InvoiceGroup,
     Invoice,
     TaxType,
     AppliedTax,
     IncomingInvoice,
     SalesInvoice,
     SalesInvoiceItem,
-    SalesInvoiceStatus
+    SalesInvoiceStatus,
+    InvoiceItem
 )
+from django.utils import timezone
 from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
+from invoices.views.invoice.wizard_views import SalesInvoiceWizardView
+from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
-
-@admin.register(InvoiceGroup)
-class InvoiceGroupAdmin(ModelAdmin):
-    list_display = ("name",)
-    search_fields = ("name",)
-    ordering = ("name",)
-
+from accounting.tasks import classify_invoice_accounts, generate_journal_entries_task, export_a3_purchase_invoicing_task
+from core.admin.company_admin import CompanyRestrictedAdmin
+from unfold.contrib.filters.admin import (
+    RangeDateFilter,
+    ChoicesDropdownFilter,
+    AutocompleteSelectMultipleFilter
+)
+from .filters import HasItemsFilter, ItemsMissingAccountFilter, BalanceStatusFilter
 @admin.register(TaxType)
 class TaxTypeAdmin(ModelAdmin):
     list_display = (
@@ -39,6 +45,8 @@ class TaxTypeAdmin(ModelAdmin):
     list_filter = ("country", "behavior", "is_active")
     search_fields = ("tax_name",)
     ordering = ("tax_name",)
+    actions = ["merge_tax_types"] 
+    autocomplete_fields = ("purchase_account", "sales_account")
 
     fieldsets = (
         (
@@ -47,7 +55,9 @@ class TaxTypeAdmin(ModelAdmin):
                 "fields": (
                     "tax_name",
                     "country",
-                    "behavior",
+                    ("behavior", "is_debit"),
+                    "a3_tax_group",
+                    ("purchase_account", "sales_account"),
                     "is_active",
                 )
             },
@@ -64,8 +74,20 @@ class TaxTypeAdmin(ModelAdmin):
         ),
     )
 
+    @admin.action(description="Merge selected tax types (choose which to keep)")
+    def merge_tax_types(self, request, queryset):
+        if queryset.count() < 2:
+            self.message_user(
+                request,
+                "Please select exactly 2 tax types to merge.",
+                level="error"
+            )
+            return
+        ids = ",".join(str(i) for i in queryset.values_list("id", flat=True))
+        return redirect(reverse("admin:invoices_taxtype_merge") + f"?ids={ids}")
+
 @admin.register(IncomingInvoice)
-class IncomingInvoiceAdmin(ModelAdmin):
+class IncomingInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = ("file_hash", "company", "sender_email", "created_at", "processed")
     list_filter = ("company", "processed", "created_at")
     search_fields = ("file_hash", "source_email_id", "sender_email")
@@ -75,9 +97,9 @@ class IncomingInvoiceAdmin(ModelAdmin):
 
     @admin.action(description="Process selected invoices with AI")
     def process_selected_invoices(self, request, queryset):
-        
         selected_ids = list(queryset.values_list('id', flat=True))
-        process_incoming_invoices.delay(invoice_ids=selected_ids)
+        for id in selected_ids:
+            process_incoming_invoices.delay(invoice_ids=[id])
         self.message_user(request, f"Started processing {len(selected_ids)} invoices in background.")
 
 class AppliedTaxInline(GenericTabularInline):
@@ -100,23 +122,44 @@ class AppliedTaxInline(GenericTabularInline):
     verbose_name = "Applied tax"
     verbose_name_plural = "Applied taxes"
 
+class InvoiceItemInline(StackedInline):
+    model = InvoiceItem
+    extra = 0
+    tab = True
+    readonly_fields = ("discount_amount", "gross_total", "line_total")
+    autocomplete_fields = ("account",)
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "description",
+                    ("quantity", "unit_price"),
+                    ("gross_total", "discount_percentage", "discount_amount", "line_total"),
+                    "account",
+                )
+            },
+        ),
+    )
+
 @admin.register(Invoice)
-class InvoiceAdmin(ModelAdmin):
+class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = (
         "invoice_number",
         "provider",
         "date_issued",
         "due_date",
-        "payment_method",
-        "group",
-        "has_file",
-        "ocr_status"
+        "ocr_status",
+        "balance_status",
     )
 
     list_filter = (
-        "payment_method",
-        "group",
-        "date_issued",
+        ItemsMissingAccountFilter,
+        BalanceStatusFilter,
+        ("payment_method",ChoicesDropdownFilter),
+        ("company",AutocompleteSelectMultipleFilter),
+        ("provider",AutocompleteSelectMultipleFilter),
+        ("date_issued",RangeDateFilter),
     )
 
     search_fields = (
@@ -126,24 +169,38 @@ class InvoiceAdmin(ModelAdmin):
 
     autocomplete_fields = (
         "provider",
-        "group",
+        "account",
+        "project_file",
+    )
+
+    readonly_fields = (
+        "gross_amount",
+        "total_amount",
     )
 
     date_hierarchy = "date_issued"
+    
+    list_filter_submit = True
 
     inlines = [
         AppliedTaxInline,
+        InvoiceItemInline
     ]
-    actions = ["send_to_process"]
+
+    actions = ["send_to_process", "classify_accounts", "journalize_selected", "export_a3_purchase_invoices"]
+    actions_row = ["view_journal_entry_row_action"]
+    actions_detail = ["view_journal_entry_detail_action"]
 
     fieldsets = (
         (
             "Invoice Info",
             {
                 "fields": (
-                   ( "invoice_number",
-                    "provider"),
+                    ("invoice_number", "provider"),
+                    ("gross_amount", "total_amount"),
                     "file",
+                    "company",
+                    "project_file",
                 )
             },
         ),
@@ -151,8 +208,7 @@ class InvoiceAdmin(ModelAdmin):
             "Dates",
             {
                 "fields": (
-                    ("date_issued",
-                    "due_date"),
+                    ("date_issued", "due_date"),
                 )
             },
         ),
@@ -168,12 +224,16 @@ class InvoiceAdmin(ModelAdmin):
             "Notes",
             {
                 "fields": (
-                    "group",
+                    "account",
                     "observations",
                 )
             },
         ),
     )
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        form.instance.recalculate_totals(save=True)
 
     def get_urls(self):
         urls = super().get_urls()
@@ -194,11 +254,9 @@ class InvoiceAdmin(ModelAdmin):
     @admin.display(boolean=True, description="Has File")
     def has_file(self, obj):
         return bool(obj.file)
-    
 
     @admin.display(description="OCR Status")
     def ocr_status(self, obj):
-        # Determine label + color
         if getattr(obj, "ocr_processing", False):
             label = "Processing"
             color = "#facc15" 
@@ -218,6 +276,26 @@ class InvoiceAdmin(ModelAdmin):
             color,
             label,
         )
+    @display(description=_("Balance"),
+    label={
+            _("Balanced"): "success",  # green
+            _("Unbalanced"): "danger",  # red
+        },)
+    def balance_status(self, obj):
+        if obj.is_total_balanced:
+            return _("Balanced")
+        else:
+            return _("Unbalanced")
+
+    @action(description=_("Journal Entry"), icon="leaderboard")
+    def view_journal_entry_row_action(self, request, object_id):
+        url = reverse('admin:accounting_journalentry_changelist') + f"?purchase_invoice__id={object_id}"
+        return redirect(url)
+
+    @action(description=_("Journal Entry"), icon="leaderboard")
+    def view_journal_entry_detail_action(self, request, object_id):
+        url = reverse('admin:accounting_journalentry_changelist') + f"?purchase_invoice__id={object_id}"
+        return redirect(url)
     
     @action(description="Send selected invoices to AI processing")
     def send_to_process(self, request, queryset):
@@ -226,31 +304,111 @@ class InvoiceAdmin(ModelAdmin):
             process_manual_invoice.delay(invoice_id=id)
         self.message_user(request, f"Started processing {len(selected_ids)} invoices in background.")
 
+    @action(description="Define accounting account for selected invoices")
+    def classify_accounts(self, request, queryset):
+        selected_ids = list(queryset.values_list('id', flat=True))
+        classify_invoice_accounts.delay(invoice_ids=selected_ids)
+        self.message_user(request, f"Started classification for {len(selected_ids)} invoices.")
+
+    @action(description="Generate accounting journal entries for selected company")
+    def journalize_selected(self, request, queryset):
+        # We find distinct companies from the selected invoices
+        company_ids = set(queryset.values_list('company_id', flat=True))
+        for cid in company_ids:
+            generate_journal_entries_task.delay(company_id=cid)
+        self.message_user(request, f"Started journal entry generation for {len(company_ids)} companies.")
+
+    @action(description="Export Purchase Invoices to A3 (Last 90 days)")
+    def export_a3_purchase_invoices(self, request, queryset):
+        company_ids = {cid for cid in queryset.values_list('company_id', flat=True) if cid is not None}
+        end_date = timezone.now().date()
+        start_date = end_date - timedelta(days=90)
+        
+        for cid in company_ids:
+            export_a3_purchase_invoicing_task.delay(
+                company_id=cid,
+                user_email=request.user.email,
+                start_date_str=start_date.isoformat(),
+                end_date_str=end_date.isoformat()
+            )
+        self.message_user(request, f"Started A3 export for {len(company_ids)} companies. You will receive an email shortly.")
         
 class SalesInvoiceItemInline(TabularInline):
     model = SalesInvoiceItem
     extra = 0
     tab = True
-    fields = ("description", "quantity", "unit_price", "discount_amount", "line_total")
-    readonly_fields = ("line_total",)
+    fields = ("description", "quantity", "unit_price", "discount_percentage", "discount_amount", "line_total")
+    readonly_fields = ("discount_amount", "line_total")
 
 @admin.register(SalesInvoice)
-class SalesInvoiceAdmin(ModelAdmin):
+class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
+    custom_urls = (
+        (
+            "autocomplete/taxtype/",
+            "invoices_taxtype_autocomplete",
+            TaxTypeAutocompleteView.as_view(),
+        ),
+    )
     list_display = ("invoice_number", "incremental_id", "get_status_label", "company", "client", "date_issued", "total_amount")
     list_filter = ("company", "status", "date_issued")
     search_fields = ("invoice_number", "client__name")
-    autocomplete_fields = ("company", "client", "configuration")
+    autocomplete_fields = ("company", "client", "configuration", "project_file")
     inlines = [SalesInvoiceItemInline, AppliedTaxInline]
     
-    actions = ["download_pdf", "finalize_invoice_action", "duplicate_invoice_action"]
-    actions_row = ["view_pdf_row_action", "finalize_invoice_row_action", "duplicate_invoice_row_action"]
-    actions_detail = ["view_pdf_detail_action", "finalize_invoice_detail_action", "duplicate_invoice_detail_action"]
+    readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount","status","invoice_number")
 
-    @action(description=_("View PDF"), icon="visibility")
+    fieldsets = (
+        (
+            _("General Information"),
+            {
+                "fields": (
+                    ("company", "client"),
+                    ("status", "invoice_number"),
+                    ("date_issued", "due_date"),
+                    "project_file",
+                    ("reference"),
+                )
+            },
+        ),
+        (
+            _("Configuration"),
+            {
+                "fields": (
+                    "configuration",
+                )
+            },
+        ),
+        (
+            _("Financial Summary"),
+            {
+                "fields": (
+                    "subtotal_amount",
+                    "tax_amount",
+                    "total_amount",
+                ),
+            },
+        ),
+        (
+            _("Additional Notes"),
+            {
+                "fields": ("notes",),
+            },
+        ),
+    )
+    
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        form.instance.recalculate_totals(save=True)
+    
+    actions = ["download_pdf", "finalize_invoice_action"]
+    actions_row = ["view_pdf_row_action", "finalize_invoice_row_action", "view_journal_entry_row_action"]
+    actions_detail = ["view_pdf_detail_action", "finalize_invoice_detail_action", "view_journal_entry_detail_action"]
+
+    @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
     def view_pdf_row_action(self, request, object_id):
         return redirect(reverse("admin:invoices_salesinvoice_pdf", args=[object_id]))
 
-    @action(description=_("View PDF"), icon="visibility")
+    @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
     def view_pdf_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_salesinvoice_pdf", args=[object_id]))
 
@@ -274,26 +432,12 @@ class SalesInvoiceAdmin(ModelAdmin):
             self.message_user(request, _("Invoice finalized and Delivery Order generated."))
         return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
 
-    @action(description=_("Clone"), icon="content_copy")
-    def duplicate_invoice_row_action(self, request, object_id):
-        invoice = SalesInvoice.objects.get(pk=object_id)
-        new_invoice = SalesInvoiceService.duplicate_invoice(invoice)
-        self.message_user(request, _("Invoice duplicated successfully."))
-        return redirect(reverse("admin:invoices_salesinvoice_change", args=[new_invoice.pk]))
-
-    @action(description=_("Clone"), icon="content_copy")
-    def duplicate_invoice_detail_action(self, request, object_id):
-        invoice = SalesInvoice.objects.get(pk=object_id)
-        new_invoice = SalesInvoiceService.duplicate_invoice(invoice)
-        self.message_user(request, _("Invoice duplicated successfully."))
-        return redirect(reverse("admin:invoices_salesinvoice_change", args=[new_invoice.pk]))
-
     @display(
         description=_("Status"),
         ordering="status",
         label={
-            _(SalesInvoiceStatus.FINAL): "success",  # green
-            _(SalesInvoiceStatus.PROFORMA): "warning",  # blue
+            _(SalesInvoiceStatus.FINAL): "success",  
+            _(SalesInvoiceStatus.PROFORMA): "warning",  
         },
     )
     def get_status_label(self, obj):
@@ -306,14 +450,6 @@ class SalesInvoiceAdmin(ModelAdmin):
             SalesInvoiceService.finalize_invoice(invoice)
             count += 1
         self.message_user(request, _("Finalized %d invoices and generated Delivery Orders.") % count)
-
-    @admin.action(description=_("Duplicate selected invoices"))
-    def duplicate_invoice_action(self, request, queryset):
-        count = 0
-        for invoice in queryset:
-            SalesInvoiceService.duplicate_invoice(invoice)
-            count += 1
-        self.message_user(request, _("Duplicated %d invoices.") % count)
 
     def download_pdf(self, request, queryset):
         if queryset.count() != 1:
@@ -329,9 +465,27 @@ class SalesInvoiceAdmin(ModelAdmin):
         urls = super().get_urls()
         custom = [
             path(
+                "add/",
+                self.admin_site.admin_view(SalesInvoiceWizardView.as_view(model_admin=self)),
+                name="invoices_salesinvoice_wizard",
+            ),
+            path(
                 "<int:object_id>/pdf/",
                 self.admin_site.admin_view(SalesInvoicePdfView.as_view(model_admin=self)),
                 name="invoices_salesinvoice_pdf",
             ),
         ]
         return custom + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        return redirect("admin:invoices_salesinvoice_wizard")
+
+    @action(description=_("Journal Entry"), icon="leaderboard")
+    def view_journal_entry_row_action(self, request, object_id):
+        url = reverse('admin:accounting_journalentry_changelist') + f"?sales_invoice__id={object_id}"
+        return redirect(url)
+
+    @action(description=_("Journal Entry"), icon="leaderboard")
+    def view_journal_entry_detail_action(self, request, object_id):
+        url = reverse('admin:accounting_journalentry_changelist') + f"?sales_invoice__id={object_id}"
+        return redirect(url)

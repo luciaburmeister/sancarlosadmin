@@ -5,6 +5,9 @@ from django_countries.fields import CountryField
 from django.contrib.postgres.fields import ArrayField
 from location_field.models.spatial import LocationField
 from django.core.exceptions import ValidationError
+from timestamps.models import Timestampable
+from simple_history.models import HistoricalRecords
+from datetime import timedelta
 
 User = get_user_model()
 
@@ -33,9 +36,25 @@ class Company(models.Model):
         help_text=_("Possible labels for asset identifiers (e.g., VIN, Plate Number)"),
         verbose_name=_("Asset Identifier Labels"),
     )
+    business_activity_description = models.TextField(
+    blank=True,
+    null=True,
+    verbose_name=_("Business Activity"),
+    help_text=_("Description of what the company does"),
+    )
+    document_reminder_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Document Reminder Emails"),
+        help_text=_("Emails that will receive document expiration reminders"),
+    )
 
     def __str__(self):
         return self.name
+
+    class Meta:
+        verbose_name = _("Company")
 
 class CompanyOwnedModel(models.Model):
     company = models.ForeignKey(
@@ -155,6 +174,13 @@ class Employee(CompanyOwnedModel):
         help_text=_("Stages this employee is authorized to work on"),
     )
 
+    sale_zones = models.ManyToManyField(
+        "sales.SaleZone",
+        blank=True,
+        related_name="employees",
+        verbose_name=_("Assigned Sale Zones")
+    )
+
     class Meta:
         verbose_name = _("Employee")
         verbose_name_plural = _("Employees")
@@ -163,7 +189,7 @@ class Employee(CompanyOwnedModel):
         
 
     def __str__(self):
-        return f"{self.first_name} {self.last_name} ({self.company})"
+        return f"{self.first_name} {self.last_name}"
 
     @property
     def full_name(self):
@@ -296,3 +322,224 @@ class CompanyScheduleSlot(models.Model):
                 raise ValidationError(
                     _("This time slot overlaps with another slot on the same day.")
                 )
+
+class BaseBankAccount(models.Model):
+    bank_name = models.CharField(max_length=100, verbose_name=_("Bank Name"))
+    holder_name = models.CharField(max_length=100, blank=True, verbose_name=_("Holder Name"))
+    iban = models.CharField(max_length=34, blank=True, verbose_name=_("IBAN"), help_text=_("For SEPA/Europe"))
+    swift_bic = models.CharField(max_length=11, blank=True, verbose_name=_("SWIFT/BIC code"))
+    account_number = models.CharField(max_length=50, blank=True, verbose_name=_("Account Number"), help_text=_("Local account number"))
+    routing_number = models.CharField(max_length=50, blank=True, verbose_name=_("Routing Number"), help_text=_("Routing number, Sort code, ABA, etc."))
+    bank_address = models.TextField(blank=True, verbose_name=_("Bank Address"))
+    country = CountryField(blank=True, null=True, verbose_name=_("Country"))
+
+    class Meta:
+        abstract = True
+
+class BankAccount(CompanyOwnedModel, BaseBankAccount):
+    is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
+
+    class Meta:
+        verbose_name = _("Bank Account")
+        verbose_name_plural = _("Bank Accounts")
+
+    def __str__(self):
+        return f"{self.bank_name} - {self.account_number or self.iban} ({self.company})"
+
+    def save(self, *args, **kwargs):
+        if self.is_default:
+            BankAccount.objects.filter(company=self.company, is_default=True).exclude(pk=self.pk).update(is_default=False)
+        super().save(*args, **kwargs)
+
+class WorkAttendance(CompanyOwnedModel, Timestampable):
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name="attendances",
+        verbose_name=_("Employee")
+    )
+    clock_in_time = models.DateTimeField(
+        null=True, blank=True,
+        verbose_name=_("Clock In Time")
+    )
+    clock_out_time = models.DateTimeField(
+        null=True, blank=True,
+        verbose_name=_("Clock Out Time")
+    )
+    clock_in_lat = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        null=True, blank=True,
+        verbose_name=_("Clock In Latitude")
+    )
+    clock_in_lng = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        null=True, blank=True,
+        verbose_name=_("Clock In Longitude")
+    )
+    clock_out_lat = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        null=True, blank=True,
+        verbose_name=_("Clock Out Latitude")
+    )
+    clock_out_lng = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        null=True, blank=True,
+        verbose_name=_("Clock Out Longitude")
+    )
+
+    class Meta:
+        verbose_name = _("Work Attendance")
+        verbose_name_plural = _("Work Attendances")
+        ordering = ["-clock_in_time"]
+
+    def __str__(self):
+        return f"{self.employee} — {self.clock_in_time}"
+    
+class LocationRecord(CompanyOwnedModel, Timestampable):
+    employee = models.ForeignKey(
+        Employee,                          # same pattern as WorkAttendance
+        on_delete=models.CASCADE,
+        related_name="location_records",
+        verbose_name=_("Employee")
+    )
+    latitude = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        verbose_name=_("Latitude")
+    )
+    longitude = models.DecimalField(
+        max_digits=9, decimal_places=6,
+        verbose_name=_("Longitude")
+    )
+    recorded_at = models.DateTimeField(
+        verbose_name=_("Recorded At")
+    )
+
+    class Meta:
+        verbose_name = _("Location Record")
+        verbose_name_plural = _("Location Records")
+        ordering = ["-recorded_at"]
+
+    def __str__(self):
+        return f"{self.employee} — {self.recorded_at}"
+class BaseDocumentType(CompanyOwnedModel):
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+    description = models.TextField(blank=True, verbose_name=_("Description"))
+    periodicity_days = models.PositiveIntegerField(
+        null=True, 
+        blank=True, 
+        verbose_name=_("Periodicity (days)"),
+        help_text=_("Number of days this document type is valid for.")
+    )
+    notify_before_days = models.PositiveIntegerField(
+        default=30, 
+        verbose_name=_("Notify before (days)"),
+        help_text=_("How many days before expiry to send a reminder.")
+    )
+
+    class Meta:
+        abstract = True
+
+    def __str__(self):
+        return f"{self.name} ({self.company})"
+
+class BaseDocument(CompanyOwnedModel):
+    file = models.FileField(upload_to="documents/%Y/%m/%d/", verbose_name=_("File"))
+    expiry_date = models.DateField(null=True, blank=True, verbose_name=_("Expiry Date"))
+    issue_date = models.DateField(null=True, blank=True, verbose_name=_("Issue Date"))
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+    is_active = models.BooleanField(default=True, verbose_name=_("Is Active"))
+    does_not_expire = models.BooleanField(default=False, verbose_name=_("Does not expire"))
+    reminder_sent_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Reminder Sent At"))
+    
+    history = HistoricalRecords(inherit=True)
+
+    class Meta:
+        abstract = True
+
+    def save(self, *args, **kwargs):
+        doc_type = getattr(self, "document_type", None)
+        if doc_type and doc_type.periodicity_days and self.issue_date and not self.expiry_date and not self.does_not_expire:
+            self.expiry_date = self.issue_date + timedelta(days=doc_type.periodicity_days)
+        super().save(*args, **kwargs)
+
+class EmployeeDocumentType(BaseDocumentType):
+    class Meta:
+        verbose_name = _("Employee Document Type")
+        verbose_name_plural = _("Employee Document Types")
+
+class EmployeeDocument(BaseDocument):
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name="documents",
+        verbose_name=_("Employee")
+    )
+    document_type = models.ForeignKey(
+        EmployeeDocumentType,
+        on_delete=models.PROTECT,
+        related_name="documents",
+        verbose_name=_("Document Type")
+    )
+
+    class Meta:
+        verbose_name = _("Employee Document")
+        verbose_name_plural = _("Employee Documents")
+
+    def __str__(self):
+        return f"{self.document_type.name} - {self.employee}"
+
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.employee:
+            self.company = self.employee.company
+        super().save(*args, **kwargs)
+
+class MachineDocumentType(BaseDocumentType):
+    class Meta:
+        verbose_name = _("Machine Document Type")
+        verbose_name_plural = _("Machine Document Types")
+
+class MachineDocument(BaseDocument):
+    machine = models.ForeignKey(
+        Machine,
+        on_delete=models.CASCADE,
+        related_name="documents",
+        verbose_name=_("Machine")
+    )
+    document_type = models.ForeignKey(
+        MachineDocumentType,
+        on_delete=models.PROTECT,
+        related_name="documents",
+        verbose_name=_("Document Type")
+    )
+
+    class Meta:
+        verbose_name = _("Machine Document")
+        verbose_name_plural = _("Machine Documents")
+
+    def __str__(self):
+        return f"{self.document_type.name} - {self.machine}"
+
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.machine:
+            self.company = self.machine.company
+        super().save(*args, **kwargs)
+
+class CompanyDocumentType(BaseDocumentType):
+    class Meta:
+        verbose_name = _("Company Document Type")
+        verbose_name_plural = _("Company Document Types")
+
+class CompanyDocument(BaseDocument):
+    document_type = models.ForeignKey(
+        CompanyDocumentType,
+        on_delete=models.PROTECT,
+        related_name="documents",
+        verbose_name=_("Document Type")
+    )
+
+    class Meta:
+        verbose_name = _("Company Document")
+        verbose_name_plural = _("Company Documents")
+
+    def __str__(self):
+        return f"{self.document_type.name} - {self.company}"

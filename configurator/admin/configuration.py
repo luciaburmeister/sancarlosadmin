@@ -13,10 +13,8 @@ from django.http import HttpRequest
 from invoices.models import AppliedTax
 from unfold.decorators import display
 from core.admin.company_admin import CompanyRestrictedAdmin
-from unfold.contrib.forms.widgets import ArrayWidget
-from django.contrib.postgres.fields import ArrayField
-from django import forms
 from configurator.views.configuration.autocomplete_views import ClientAutocompleteView, AssetAutocompleteView
+from configurator.services.receival_slip_service import ReceivalSlipService
 
 
 
@@ -61,6 +59,21 @@ class ConfigurationComponentGroupInline(StackedInline):
 
         return super().formfield_for_manytomany(db_field, request, **kwargs)
 
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_add_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_delete_permission(request, obj)
+
 
 
 class AppliedTaxInline(GenericTabularInline):
@@ -74,6 +87,21 @@ class AppliedTaxInline(GenericTabularInline):
     verbose_name = _("Applied tax")
     verbose_name_plural = _("Applied taxes")
     tab = True
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_change_permission(request, obj)
+    
+    def has_add_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_delete_permission(request, obj)
+
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("tax_type")
 
@@ -84,29 +112,58 @@ class ParameterValueInline(TabularInline):
     extra = 0
     fields = ("parameter", "value","order")
     tab = True
-    readonly_fields = ["parameter"]
+    readonly_fields = []
     verbose_name = _("Parameter value")
     verbose_name_plural = _("Parameter values")
     
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_change_permission(request, obj)
+    
+    def has_add_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_delete_permission(request, obj)
+
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("parameter")
-class ConfigurationItemInline(TabularInline):
+class ConfigurationItemInline(StackedInline):
     model = ConfigurationItem
     extra = 0
-    fields = (
-        "is_template_item",
-        "component",
-        "quantity",
-        "length",
-        "unit_price",
-        "line_total",
-        "note",
-    )
     readonly_fields = ("line_total", "is_template_item")
     tab = True
     autocomplete_fields = ["component"]
     verbose_name = _("Configuration item")
     verbose_name_plural = _("Configuration items")
+    fields = (
+        ("component",
+        "quantity",
+        "length",),
+        ("unit_price",
+        "line_total",),
+        "note",
+    )
+
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_change_permission(request, obj)
+    
+    def has_add_permission(self, request, obj=None):
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status == ConfigurationStatus.COMPLETED:
+            return False
+        return super().has_delete_permission(request, obj)
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("component")
@@ -118,6 +175,21 @@ class PricingRuleAssignmentInline(TabularInline):
     tab = True
     verbose_name = _("Pricing rule assignment")
     verbose_name_plural = _("Pricing rule assignments")
+
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status == ConfigurationStatus.COMPLETED:
+            return False
+        return super().has_change_permission(request, obj)
+    
+    def has_add_permission(self, request, obj=None):
+        if obj and obj.status == ConfigurationStatus.COMPLETED:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status == ConfigurationStatus.COMPLETED:
+            return False
+        return super().has_delete_permission(request, obj)
 
 @admin.register(Configuration)
 class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
@@ -136,6 +208,7 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = (
         "id",
         "name",
+        "product__name",
         "client",
         "subtotal_price",
         "total_price_display",
@@ -147,12 +220,15 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
                    ("client",AutocompleteSelectMultipleFilter), 
                    ("created_at",RangeDateTimeFilter))
     search_fields = ("name", "client__name")
-    list_select_related = ["client","company"]
+    list_select_related = ["client","company","product"]
 
     readonly_fields = ("total_price","total_cost","subtotal_price","company")
     actions_row = ["export_configuration_to_template", 
-                   "convert_to_production"]
-    autocomplete_fields = ["client","product","asset"]
+                   "convert_to_production",
+                   "create_receival_slip_action",
+                   "view_receival_slips"]
+    autocomplete_fields = ["client","product","asset","quote"]
+    list_filter_submit = False
 
     inlines = [
         ParameterValueInline,
@@ -177,6 +253,7 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
     fieldsets = (
         (_("Configuration"), {
             "fields": (
+                ("quote"),
                 ("name", "client"),
                 ("product", "status"),
                 ("company","asset")
@@ -189,6 +266,23 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
                 ),
         }),
     )
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = super().get_readonly_fields(request, obj)
+        if obj and obj.status != ConfigurationStatus.DRAFT:
+            all_fields = []
+            for name, options in self.fieldsets:
+                for field in options['fields']:
+                    if isinstance(field, (list, tuple)):
+                        all_fields.extend(field)
+                    else:
+                        all_fields.append(field)
+            
+            excluded_from_readonly = {"quote", "client"}
+            all_fields = [f for f in all_fields if f not in excluded_from_readonly]
+            
+            return list(set(list(readonly) + all_fields))
+        return readonly
 
     
     def get_urls(self):
@@ -253,12 +347,32 @@ class ConfigurationAdmin(CompanyRestrictedAdmin,ModelAdmin):
         config = Configuration.objects.get(pk=object_id)
         flow = ConfigurationFlow(config)
 
-        flow.convert()
+        ticket = flow.convert()
         self.message_user(
                 request,
                 _("Configuration successfully converted to production."),
                 "success")
 
         return redirect(
-            reverse("admin:configurator_configuration_change", args=[object_id])
+            reverse("admin:production_productionticket_change", args=[ticket.id])
         )
+
+    @action(description=_("Create Receival Slip"))
+    def create_receival_slip_action(self, request: HttpRequest, object_id: int):
+        config = Configuration.objects.get(pk=object_id)
+        slip = ReceivalSlipService.create_from_configuration(config)
+        
+        self.message_user(
+            request,
+            _("Receival Slip successfully created."),
+            "success"
+        )
+
+        return redirect(
+            reverse("admin:configurator_receivalslip_change", args=[slip.id])
+        )
+
+    @action(description=_("View Receival Slips"))
+    def view_receival_slips(self, request: HttpRequest, object_id: int):
+        url = reverse("admin:configurator_receivalslip_changelist")
+        return redirect(f"{url}?configuration__id__exact={object_id}")

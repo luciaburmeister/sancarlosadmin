@@ -34,6 +34,7 @@ from production.views.planned_sessions_schedule_view import PlannedSessionsSched
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
 from production.views.production_item_stages_view import ProductionItemAdvanceStageView
 from production.views.production_ticket_stages_view import ProductionTicketStagesView
+from production.views.production_control_view import ProductionControlView
 from production.views import ProductionTicketHtmlRender
 from production.components.status_badge import StatusBadge
 
@@ -119,7 +120,7 @@ class ProductionItemInline(TabularInline):
 class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     change_form_template = "admin/production/productionticket/change_form.html"
 
-    list_display = ("id", "company","source_object","status", "created_at")
+    list_display = ("id", "company", "source_object", "status", "created_at", "go_to_stages_display")
 
     list_filter = (
         ("company",AutocompleteSelectMultipleFilter),
@@ -153,11 +154,22 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
                     "status",
                     ("content_type", "object_id"),
                     "source_object",
+                    "project_file",
+                    "work_order_pdf",
                     "context",
                 )
             },
         ),
     )
+
+    @display(description=_("Stages"))
+    def go_to_stages_display(self, obj):
+        url = reverse("admin:production_productionticket_stages", args=[obj.pk])
+        return format_html(
+            '<a href="{}" class="bg-primary-600 font-medium px-3 py-2 rounded-md text-white whitespace-nowrap">{}</a>',
+            url,
+            _("Go to Stages")
+        )
 
     @action(
         description=_("See Work Order"),
@@ -195,33 +207,44 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
             self.message_user(request, _("This ticket is not linked to a configuration."), level="error")
             return redirect(request.META.get('HTTP_REFERER'))
 
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["production_control_url"] = reverse("admin:production_control")
+        return super().changelist_view(request, extra_context=extra_context)
+    
     def get_queryset(self, request):
         return super().get_queryset(request).prefetch_related("source_object")
 
     def get_urls(self):
         urls = super().get_urls()
 
-    
         custom = [
+            path(
+                "control/",
+                self.admin_site.admin_view(
+                    ProductionControlView.as_view(model_admin=self)
+                ),
+                name="production_control",
+            ),
             path(
                 "<int:object_id>/stages/",
                 self.admin_site.admin_view(
-            ProductionTicketStagesView.as_view(model_admin=self)
-        ),
+                    ProductionTicketStagesView.as_view(model_admin=self)
+                ),
                 name="production_productionticket_stages",
             ),
             path(
                 "<int:ticket_id>/stages/<str:stage_name>/action/",
                 self.admin_site.admin_view(
-            ProductionItemAdvanceStageView.as_view(model_admin=self)
-        ),
+                    ProductionItemAdvanceStageView.as_view(model_admin=self)
+                ),
                 name="production_productionticket_stage_action",
             ),
             path(
                 "<int:ticket_id>/order_html/",
                 self.admin_site.admin_view(
-            ProductionTicketHtmlRender.as_view(model_admin=self)
-        ),
+                    ProductionTicketHtmlRender.as_view(model_admin=self)
+                ),
                 name="production_productionticket_order_html",
             ),
         ]

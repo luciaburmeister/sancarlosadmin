@@ -1,3 +1,4 @@
+from scratch.test_money import discount_percentage
 from django.test import TestCase
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
@@ -223,6 +224,7 @@ class SalesInvoiceTest(TestCase):
             description="Test Item",
             quantity=1,
             unit_price=100,
+            discount_percentage=20,
             discount_amount=20,
             line_total=80
         )

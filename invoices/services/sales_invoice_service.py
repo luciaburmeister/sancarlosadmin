@@ -24,7 +24,12 @@ class SalesInvoiceService:
         # Extract pricing information from the configuration's breakdown
         pricing_breakdown = configuration.pricing_breakdown or {}
         pre_discount_subtotal = Decimal(pricing_breakdown.get('pre_discount_subtotal', str(configuration.subtotal_price.amount)))
-        discount_total = Decimal(pricing_breakdown.get('discount_total', '0.00'))
+        discount_total = abs(Decimal(pricing_breakdown.get('discount_total', '0.00')))
+        
+        # Calculate discount percentage to support the model's auto-calculation logic
+        discount_percentage = Decimal("0.00")
+        if pre_discount_subtotal > 0:
+            discount_percentage = (discount_total / pre_discount_subtotal) * Decimal("100")
         
         sales_invoice = SalesInvoice.objects.create(
             company=company,
@@ -44,8 +49,8 @@ class SalesInvoiceService:
             description=str(configuration.product.description or configuration.product.name),
             quantity=Decimal("1.000"),
             unit_price=pre_discount_subtotal,
-            discount_amount=abs(discount_total),
-            line_total=configuration.subtotal_price
+            discount_percentage=discount_percentage,
+            # discount_amount and line_total are auto-calculated in model's save()
         )
 
         cls._copy_taxes(configuration, sales_invoice)
@@ -108,8 +113,7 @@ class SalesInvoiceService:
                 description=item.description,
                 quantity=item.quantity,
                 unit_price=item.unit_price,
-                discount_amount=item.discount_amount,
-                line_total=item.line_total
+                discount_percentage=item.discount_percentage,
             )
             
         # Copy taxes

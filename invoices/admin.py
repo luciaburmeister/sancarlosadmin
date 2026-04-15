@@ -294,26 +294,25 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     def has_file(self, obj):
         return bool(obj.file)
 
-    @admin.display(description="OCR Status")
+    @display(
+        description=_("OCR Status"),
+        label={
+            "Processing":  "warning",
+            "OK":          "success",
+            "Error":       "danger",
+            "Not started": "default",
+        },
+    )
     def ocr_status(self, obj):
         if getattr(obj, "ocr_processing", False):
-            label = "Processing"
-            css = "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-400"
+            return "Processing"
         elif getattr(obj, "ocr_processed", False) and not getattr(obj, "ocr_error", ""):
-            label = "OK"
-            css = "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-400"
+            return "OK"
         elif getattr(obj, "ocr_error", ""):
-            label = "Error"
-            css = "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-400"
+            return "Error"
         else:
-            label = "Not started"
-            css = "bg-base-500/8 text-base-700 dark:bg-base-500/20 dark:text-base-200"
-
-        return format_html(
-            '<span class="inline-block font-semibold rounded-default text-[11px] uppercase whitespace-nowrap h-6 leading-6 px-2 {}">{}</span>',
-            css,
-            label,
-        )
+            return "Not started"
+        
     @display(description=_("Balance"),
     label={
             _("Balanced"): "success",  # green

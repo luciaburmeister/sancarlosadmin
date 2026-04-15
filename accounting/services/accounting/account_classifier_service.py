@@ -105,29 +105,35 @@ class AccountClassifierService:
             if not invoice_payload:
                 continue
 
-            # Count items in this batch
-            batch_items = sum(len(inv["line_items"]) for inv in invoice_payload)
-            total_processed_items += batch_items
-
             activity = company.business_activity_description if company else ""
+            framework = self._get_accounting_framework(company)
 
-            try:
-                batch_response = self.classifier.classify_invoices(
-                    invoices=invoice_payload,
-                    account_options=account_options,
-                    company_activity_description=activity,
-                    accounting_framework=self._get_accounting_framework(company),
-                )
-                classified, flagged, save_errors = self._save_results(
-                    batch_response=batch_response,
-                    valid_codes={acc.code for acc in account_options},
-                    company=company,
-                )
-                total_classified_items += classified
-                total_flagged_items += flagged
-                errors.extend(save_errors)
-            except Exception as e:
-                errors.append(f"Classifier failed for company {company}: {str(e)}")
+            # Process in batches of 10 to avoid exceeding AI context/limits
+            batch_size = 10
+            for i in range(0, len(invoice_payload), batch_size):
+                chunk = invoice_payload[i:i + batch_size]
+                
+                # Count items in this specific chunk
+                chunk_items_count = sum(len(inv["line_items"]) for inv in chunk)
+                total_processed_items += chunk_items_count
+
+                try:
+                    batch_response = self.classifier.classify_invoices(
+                        invoices=chunk,
+                        account_options=account_options,
+                        company_activity_description=activity,
+                        accounting_framework=framework,
+                    )
+                    classified, flagged, save_errors = self._save_results(
+                        batch_response=batch_response,
+                        valid_codes={acc.code for acc in account_options},
+                        company=company,
+                    )
+                    total_classified_items += classified
+                    total_flagged_items += flagged
+                    errors.extend(save_errors)
+                except Exception as e:
+                    errors.append(f"Classifier failed for company {company} (batch {i//batch_size + 1}): {str(e)}")
 
 
         return ClassificationSummary(

@@ -62,6 +62,8 @@ class UnitChoices(models.TextChoices):
     KILOGRAMS = "kg"
     HOURS = "h"
     M2 = "m2"
+    TONELADAS = "t"
+    M3 = "m3"
 
 
         

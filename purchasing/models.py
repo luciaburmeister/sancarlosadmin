@@ -1,4 +1,5 @@
 from django.db import models, transaction
+from decimal import Decimal
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 from djmoney.models.fields import MoneyField
@@ -8,7 +9,8 @@ from materials.models import Provider
 from inventory.models import InventoryItem, Warehouse, ItemTransaction
 from inventory.choices import ItemType, MovementType
 from configurator.utils.codegen import next_scoped_code
-from decimal import Decimal
+from django.core.exceptions import ValidationError
+
 
 class PurchaseOrderStatus(models.TextChoices):
     DRAFT = "DRAFT", _("Draft")
@@ -76,7 +78,8 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
                 model=PurchaseOrder,
                 scope_filter={"company": self.company},
                 prefix="PO",
-                width=5
+                width=5,
+                field_name="number"
             )
         super().save(*args, **kwargs)
 
@@ -84,6 +87,30 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         total = sum(item.line_total.amount for item in self.items.all())
         self.total_amount = total
         self.save(update_fields=["total_amount"])
+
+    def check_and_update_status(self):
+        """
+        Closes the PO if all items are fully received. 
+        Re-opens it if it was closed but items are now missing.
+        """
+        if self.status not in [PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.CLOSED]:
+            return
+
+        all_received = True
+        has_items = False
+        for item in self.items.all():
+            has_items = True
+            if item.received_quantity < item.quantity:
+                all_received = False
+                break
+        
+        if has_items:
+            if all_received and self.status == PurchaseOrderStatus.APPROVED:
+                self.status = PurchaseOrderStatus.CLOSED
+                self.save(update_fields=["status"])
+            elif not all_received and self.status == PurchaseOrderStatus.CLOSED:
+                self.status = PurchaseOrderStatus.APPROVED
+                self.save(update_fields=["status"])
 
 class PurchaseOrderItem(Timestampable):
     purchase_order = models.ForeignKey(
@@ -103,9 +130,7 @@ class PurchaseOrderItem(Timestampable):
         blank=True,
         verbose_name=_("Description")
     )
-    quantity = models.DecimalField(
-        max_digits=12,
-        decimal_places=4,
+    quantity = models.IntegerField(
         verbose_name=_("Quantity")
     )
     unit_price = MoneyField(
@@ -121,9 +146,7 @@ class PurchaseOrderItem(Timestampable):
         editable=False,
         verbose_name=_("Line Total")
     )
-    received_quantity = models.DecimalField(
-        max_digits=12,
-        decimal_places=4,
+    received_quantity = models.IntegerField(
         default=0,
         verbose_name=_("Received Quantity")
     )
@@ -133,7 +156,7 @@ class PurchaseOrderItem(Timestampable):
         verbose_name_plural = _("PO Items")
 
     def __str__(self):
-        return f"{self.inventory_item.name} ({self.quantity})"
+        return f"{self.inventory_item.name} ({int(self.quantity)})"
 
     def save(self, *args, **kwargs):
         if not self.description:
@@ -179,16 +202,20 @@ class PurchaseOrderReceipt(Timestampable, CompanyOwnedModel):
         verbose_name_plural = _("PO Receipts")
         ordering = ["-received_at", "-number"]
 
-    def __str__(self):
-        return f"{self.number or _('PENDING')} - {self.purchase_order.number}"
+    def clean(self):
+        super().clean()
+        if self.purchase_order_id and self.purchase_order.status != PurchaseOrderStatus.APPROVED:
+            raise ValidationError(_("Receipts can only be created for APPROVED Purchase Orders."))
 
     def save(self, *args, **kwargs):
+        self.full_clean()
         if not self.number and self.company:
             self.number = next_scoped_code(
                 model=PurchaseOrderReceipt,
                 scope_filter={"company": self.company},
                 prefix="REC",
-                width=5
+                width=5,
+                field_name="number"
             )
         super().save(*args, **kwargs)
 
@@ -205,9 +232,7 @@ class PurchaseOrderReceiptItem(Timestampable):
         related_name="receipt_lines",
         verbose_name=_("PO Item")
     )
-    quantity_received = models.DecimalField(
-        max_digits=12,
-        decimal_places=4,
+    quantity_received = models.IntegerField(
         verbose_name=_("Quantity Received")
     )
 
@@ -218,8 +243,27 @@ class PurchaseOrderReceiptItem(Timestampable):
     def __str__(self):
         return f"{self.po_item.inventory_item.name} - {self.quantity_received}"
 
+    def clean(self):
+        super().clean()
+        if self.po_item_id:
+            old_quantity = Decimal("0")
+            if self.pk:
+                # We need to fetch the current value from DB to calculate the diff accurately
+                old_quantity = PurchaseOrderReceiptItem.objects.get(pk=self.pk).quantity_received
+            
+            # Check if total received would exceed ordered quantity
+            total_after_save = self.po_item.received_quantity + (self.quantity_received - old_quantity)
+            if total_after_save > self.po_item.quantity:
+                raise ValidationError(
+                    _("Cannot receive more than ordered. Ordered: %(ordered)s, Total Received: %(total)s") % {
+                        "ordered": self.po_item.quantity,
+                        "total": total_after_save
+                    }
+                )
+
     @transaction.atomic
     def save(self, *args, **kwargs):
+        self.full_clean()
         is_new = self.pk is None
         old_quantity = 0
         if not is_new:
@@ -238,20 +282,23 @@ class PurchaseOrderReceiptItem(Timestampable):
                 item=self.po_item.inventory_item,
                 warehouse=self.receipt.warehouse,
                 movement_type=MovementType.IN,
-                quantity_change=int(diff), # ItemTransaction uses IntegerField for quantity_change
-                reference_content_type_id=None, # Will be set below
+                quantity_change=diff, # Note: using full diff (decimal)
                 reference_object=self.receipt,
                 user=self.receipt.received_by,
                 note=_("Received via PO Receipt %s") % self.receipt.number
             )
         
         # Check if PO should be closed
-        all_items_received = True
-        for item in self.po_item.purchase_order.items.all():
-            if item.received_quantity < item.quantity:
-                all_items_received = False
-                break
+        self.po_item.purchase_order.check_and_update_status()
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        # Update PO Item received quantity backwards
+        self.po_item.received_quantity -= self.quantity_received
+        self.po_item.save(update_fields=["received_quantity"])
         
-        if all_items_received:
-            self.po_item.purchase_order.status = PurchaseOrderStatus.CLOSED
-            self.po_item.purchase_order.save(update_fields=["status"])
+        # Check if PO should be re-opened
+        po = self.po_item.purchase_order
+        
+        super().delete(*args, **kwargs)
+        po.check_and_update_status()

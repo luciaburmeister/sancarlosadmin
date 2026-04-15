@@ -4,17 +4,58 @@ from django.utils import timezone
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action, display
 from core.admin.company_admin import CompanyRestrictedAdmin
+from django.urls import path, reverse
 from .models import (
     PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus,
     PurchaseOrderReceipt, PurchaseOrderReceiptItem
 )
+from django.shortcuts import redirect
+from .views import DirectReceiptView
 
 class PurchaseOrderItemInline(TabularInline):
     model = PurchaseOrderItem
     extra = 1
     tab = True
     autocomplete_fields = ["inventory_item"]
-    readonly_fields = ["line_total", "received_quantity"]
+    readonly_fields = ["line_total", "formatted_quantity", "formatted_received", "formatted_pending"]
+    fields = [
+        "inventory_item",
+        "formatted_quantity",
+        "formatted_received",
+        "formatted_pending",
+        "unit_price",
+        "line_total",
+        "description",
+    ]
+
+    @display(description=_("Quantity"))
+    def formatted_quantity(self, obj):
+        return int(obj.quantity)
+
+    @display(description=_("Received"))
+    def formatted_received(self, obj):
+        return int(obj.received_quantity)
+
+    @display(description=_("Pending"))
+    def formatted_pending(self, obj):
+        if obj.pk:
+            return int(obj.quantity - obj.received_quantity)
+        return "-"
+
+    def has_add_permission(self, request, obj=None):
+        if obj and obj.status != PurchaseOrderStatus.DRAFT:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status != PurchaseOrderStatus.DRAFT:
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status != PurchaseOrderStatus.DRAFT:
+            return False
+        return super().has_delete_permission(request, obj)
 
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -26,7 +67,7 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     
     inlines = [PurchaseOrderItemInline]
     
-    actions_row = ["approve_po"]
+    actions_row = ["send_to_approval", "approve_po", "receive_directly"]
 
     @display(
         description=_("Status"),
@@ -42,17 +83,60 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def get_status_label(self, obj):
         return obj.status
 
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.status != PurchaseOrderStatus.DRAFT:
+            # If not in draft, everything is readonly
+            return [f.name for f in self.model._meta.fields if f.name != "id"] + list(self.readonly_fields)
+        return super().get_readonly_fields(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status != PurchaseOrderStatus.DRAFT:
+            return False
+        return super().has_delete_permission(request, obj)
+
+    @action(description=_("Send to Approval"))
+    def send_to_approval(self, request, object_id: int):
+        po = PurchaseOrder.objects.get(pk=object_id)
+        if po.status == PurchaseOrderStatus.DRAFT:
+            po.status = PurchaseOrderStatus.PENDING_APPROVAL
+            po.save()
+            self.message_user(request, _("Purchase Order sent for approval."))
+        else:
+            self.message_user(request, _("Only Draft POs can be sent for approval."), level="error")
+        return redirect("admin:purchasing_purchaseorder_changelist")
+
     @action(description=_("Approve PO"))
     def approve_po(self, request, object_id: int):
         po = PurchaseOrder.objects.get(pk=object_id)
-        if po.status in [PurchaseOrderStatus.DRAFT, PurchaseOrderStatus.PENDING_APPROVAL]:
+        if po.status == PurchaseOrderStatus.PENDING_APPROVAL:
             po.status = PurchaseOrderStatus.APPROVED
             po.approved_by = request.user
             po.approved_at = timezone.now()
             po.save()
             self.message_user(request, _("Purchase Order approved successfully."))
         else:
-            self.message_user(request, _("Only Draft or Pending POs can be approved."), level="error")
+            self.message_user(request, _("Only Pending POs can be approved."), level="error")
+        return redirect("admin:purchasing_purchaseorder_changelist")
+        
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:po_id>/receive-directly",
+                self.admin_site.admin_view(DirectReceiptView.as_view(model_admin=self)),
+                name="purchasing_purchaseorder_receive_directly_view",
+            ),
+        ]
+        return custom_urls + urls
+
+    @action(description=_("Receive items directly"),
+            url_path="receive_directly-row-action")
+    def receive_directly(self, request, object_id: int):
+        po = PurchaseOrder.objects.get(pk=object_id)
+        if po.status != PurchaseOrderStatus.APPROVED:
+            self.message_user(request, _("Only APPROVED Purchase Orders can receive items."), level="error")
+            return redirect("admin:purchasing_purchaseorder_change", object_id)
+        return redirect(reverse("admin:purchasing_purchaseorder_receive_directly_view", args=[object_id]))
 
 class PurchaseOrderReceiptItemInline(TabularInline):
     model = PurchaseOrderReceiptItem

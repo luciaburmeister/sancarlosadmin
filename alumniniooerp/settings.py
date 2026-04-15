@@ -97,7 +97,8 @@ INSTALLED_APPS = [
     'hijack.contrib.admin',
     'company',
     'management',
-    'vacations'
+    'vacations',
+    "payments"
 ]
 
 MIDDLEWARE = [

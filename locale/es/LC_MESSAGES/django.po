@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-14 13:57+0200\n"
+"POT-Creation-Date: 2026-04-15 13:49+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -242,6 +242,16 @@ msgstr "Tickets de Producción"
 
 msgid "Production Items"
 msgstr "Items de Producción"
+
+msgid "Purchasing"
+msgstr "Compras"
+
+
+msgid "Purchase Orders"
+msgstr "Ordenes de Compra"
+
+msgid "PO Receipts"
+msgstr "Albaránes de Recibido"
 
 #, fuzzy
 #| msgid "Invoice File"
@@ -1836,23 +1846,17 @@ msgstr "Facturas de compra"
 msgid "Receiving Warehouse"
 msgstr "Almacén"
 
-#, fuzzy
-#| msgid "Quantity expression"
 msgid "Quantity Received"
-msgstr "Expresión de cantidad"
+msgstr "Cantidad recibidas"
 
-#, fuzzy
-#| msgid "Required"
 msgid "Requested"
-msgstr "Requerido"
+msgstr "Solicitado"
 
 msgid "Reserved"
 msgstr "Reservado"
 
-#, fuzzy
-#| msgid "Category"
 msgid "Inventory Category"
-msgstr "Categoría"
+msgstr "Categoría de Inventario"
 
 msgid "Inventory Categories"
 msgstr "Categorías de Inventario"
@@ -2095,6 +2099,24 @@ msgid "Review"
 msgstr "Revisar"
 
 #, fuzzy
+#| msgid "Invoice File"
+msgid "Invoice Info"
+msgstr "Archivo de factura"
+
+#, fuzzy
+#| msgid "Hire Date"
+msgid "Dates"
+msgstr "Fecha de contratación"
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "Payment"
+msgstr "Método de Pago"
+
+msgid "AI Classification"
+msgstr "Clasificación de IA"
+
+#, fuzzy
 #| msgid "Off Balance"
 msgid "Balance"
 msgstr "Fuera de balance"
@@ -2303,6 +2325,11 @@ msgstr "Correo electrónico"
 
 msgid "Processed by AI"
 msgstr "Procesado por IA"
+
+#, fuzzy
+#| msgid "Is Default"
+msgid "Is Duplicate"
+msgstr "Es default"
 
 #, fuzzy
 #| msgid "Created at"
@@ -2915,6 +2942,95 @@ msgid "Return to Stages"
 msgstr "Volver a las etapas"
 
 #, fuzzy
+#| msgid "Approved by"
+msgid "Approve PO"
+msgstr "Aprobado por"
+
+#, fuzzy
+#| msgid "Invoice {} generated successfully."
+msgid "Purchase Order approved successfully."
+msgstr "Factura {} generada con éxito."
+
+#, fuzzy
+#| msgid "Only pending sessions can be started"
+msgid "Only Draft or Pending POs can be approved."
+msgstr "Solo se pueden iniciar sesiones pendientes."
+
+#, fuzzy
+#| msgid "Pending"
+msgid "Pending Approval"
+msgstr "Pendiente"
+
+msgid "Closed"
+msgstr "Cerrado"
+
+#, fuzzy
+#| msgid "Number"
+msgid "PO Number"
+msgstr "Número"
+
+
+msgid "Date Ordered"
+msgstr "Fecha de Orden"
+
+
+msgid "Approved By"
+msgstr "Aprobado por"
+
+msgid "Approved At"
+msgstr "Aprobado el"
+
+msgid "Purchase Order"
+msgstr "Orden de Compra"
+
+msgid "DRAFT"
+msgstr "BORRADOR"
+
+
+msgid "Received Quantity"
+msgstr "Cantidad Recibida"
+
+msgid "PO Item"
+msgstr "Elemento"
+
+msgid "PO Items"
+msgstr "Elementos"
+
+msgid "Receipt Number"
+msgstr "Número"
+
+msgid "Received At"
+msgstr "Recibido el"
+
+
+msgid "Received By"
+msgstr "Recibido por"
+
+msgid "PO Receipt"
+msgstr "Recibo de Orden de Compra"
+
+msgid "PENDING"
+msgstr "PENDIENTE"
+
+#, fuzzy
+#| msgid "Receive"
+msgid "Receipt"
+msgstr "Recibir"
+
+msgid "Receipt Item"
+msgstr "Item recibido"
+
+#, fuzzy
+#| msgid "Receival Slip Items"
+msgid "Receipt Items"
+msgstr "Artículos del Recibo de Entrega"
+
+#, fuzzy, python-format
+#| msgid "Received Invoices"
+msgid "Received via PO Receipt %s"
+msgstr "Facturas de compra"
+
+#, fuzzy
 #| msgid "Address"
 msgid "Addresses"
 msgstr "Dirección"
@@ -3174,11 +3290,6 @@ msgstr "Recalcular saldo a partir de los movimientos"
 
 msgid "Selected wallets were recomputed."
 msgstr "Las billeteras seleccionadas fueron recalculadas."
-
-#, fuzzy
-#| msgid "Hire Date"
-msgid "Dates"
-msgstr "Fecha de contratación"
 
 msgid "Policy"
 msgstr "Política"

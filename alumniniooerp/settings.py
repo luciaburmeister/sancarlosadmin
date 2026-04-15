@@ -97,7 +97,8 @@ INSTALLED_APPS = [
     'hijack.contrib.admin',
     'company',
     'management',
-    'vacations'
+    'purchasing',
+    'vacations',
 ]
 
 MIDDLEWARE = [
@@ -525,6 +526,25 @@ UNFOLD = {
                         "permission": lambda request: request.user.has_perm(
                             "production.view_productionitem"
                         ),
+                    },
+                ],
+            },
+            {
+                "title": _("Purchasing"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Purchase Orders"),
+                        "icon": "shopping_cart",
+                        "link": reverse_lazy("admin:purchasing_purchaseorder_changelist"),
+                        "permission": lambda request: request.user.has_perm("purchasing.view_purchaseorder"),
+                    },
+                    {
+                        "title": _("PO Receipts"),
+                        "icon": "receipt",
+                        "link": reverse_lazy("admin:purchasing_purchaseorderreceipt_changelist"),
+                        "permission": lambda request: request.user.has_perm("purchasing.view_purchaseorderreceipt"),
                     },
                 ],
             },

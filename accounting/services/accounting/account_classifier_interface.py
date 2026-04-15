@@ -6,7 +6,7 @@ Any account classifier (Gemini, OpenAI, etc.) must implement this interface.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Any, Union
 from dataclasses import dataclass
 
 
@@ -45,6 +45,20 @@ class ClassificationResult:
     confident: bool
 
 
+@dataclass
+class ClassificationBatchResponse:
+    """
+    The result of classifying a batch of invoices.
+    
+    - results: List of ClassificationResult, one per line item.
+    - raw_response: The raw response from the AI provider (e.g. JSON dict or list).
+    - metadata: Optional additional info (model used, token counts, etc.).
+    """
+    results: List[ClassificationResult]
+    raw_response: Union[dict, list, Any]  # Can be dict or list depending on the provider
+    metadata: Optional[dict] = None
+
+
 class AccountClassifierInterface(ABC):
 
     @abstractmethod
@@ -54,7 +68,7 @@ class AccountClassifierInterface(ABC):
         account_options: List[AccountOption],
         company_activity_description: str = "",
         accounting_framework: str = "",
-    ) -> List[ClassificationResult]:
+    ) -> ClassificationBatchResponse:
         """
         Classify a batch of invoices into accounting accounts.
         Args:

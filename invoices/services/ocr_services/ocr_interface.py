@@ -50,6 +50,7 @@ class InvoiceData:
     payment_method: Optional[str]
     line_items: List[LineItem]
     taxes: List[TaxItem]
+    raw_response: Optional[Dict] = None
 
 
 class OcrInterface(ABC):

@@ -26,6 +26,7 @@ from .account_classifier_interface import (
     AccountClassifierInterface,
     AccountOption,
     InvoiceLineItem,
+    ClassificationBatchResponse,
 )
 
 
@@ -111,14 +112,14 @@ class AccountClassifierService:
             activity = company.business_activity_description if company else ""
 
             try:
-                results = self.classifier.classify_invoices(
+                batch_response = self.classifier.classify_invoices(
                     invoices=invoice_payload,
                     account_options=account_options,
                     company_activity_description=activity,
                     accounting_framework=self._get_accounting_framework(company),
                 )
                 classified, flagged, save_errors = self._save_results(
-                    results=results,
+                    batch_response=batch_response,
                     valid_codes={acc.code for acc in account_options},
                     company=company,
                 )
@@ -180,7 +181,7 @@ class AccountClassifierService:
         return FRAMEWORK_MAP.get(code, "")
 
     @transaction.atomic
-    def _save_results(self, results, valid_codes: set, company):
+    def _save_results(self, batch_response: ClassificationBatchResponse, valid_codes: set, company):
         """
         Save classification results back to the InvoiceItem table.
 
@@ -188,8 +189,9 @@ class AccountClassifierService:
         - Not confident or invalid code -> leave item.account NULL
         
         Also updates Invoice.needs_manual_review if any item is not confident.
+        And saves the relevant raw response to Invoice.gemini_account_response.
         """
-        from invoices.models import InvoiceItem
+        from invoices.models import InvoiceItem, Invoice
 
         classified = 0
         flagged = 0
@@ -206,7 +208,7 @@ class AccountClassifierService:
         # Track which invoices were affected to update their needs_manual_review status
         affected_invoice_ids = set()
 
-        for result in results:
+        for result in batch_response.results:
             try:
                 item = InvoiceItem.objects.get(pk=result.line_item_id)
                 affected_invoice_ids.add(result.invoice_id)
@@ -227,14 +229,23 @@ class AccountClassifierService:
             except Exception as e:
                 errors.append(f"Failed to save result for item {result.line_item_id}: {str(e)}")
 
-        # Update needs_manual_review for all affected invoices
+        # Update needs_manual_review and gemini_account_response for all affected invoices
         for inv_id in affected_invoice_ids:
             try:
                 invoice = Invoice.objects.get(pk=inv_id)
                 # An invoice needs review if ANY of its items have no account
                 has_unclassified_items = invoice.items.filter(account__isnull=True).exists()
                 invoice.needs_manual_review = has_unclassified_items
-                invoice.save(update_fields=["needs_manual_review"])
+                
+                # Filter raw response for this invoice only
+                if isinstance(batch_response.raw_response, list):
+                    relevant_raw = [
+                        item for item in batch_response.raw_response 
+                        if item.get("invoice_id") == inv_id
+                    ]
+                    invoice.gemini_account_response = relevant_raw
+                
+                invoice.save(update_fields=["needs_manual_review", "gemini_account_response"])
             except Invoice.DoesNotExist:
                 pass
 

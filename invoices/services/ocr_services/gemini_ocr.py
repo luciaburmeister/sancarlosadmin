@@ -180,13 +180,13 @@ class GeminiInvoiceProcessor(OcrInterface):
         else:
             raise TypeError(f"Unexpected Gemini JSON type: {type(raw)}")
 
-        return self._convert_to_dataclass(data)
+        return self._convert_to_dataclass(data, raw_response=data)
 
     # =========================
     # CONVERSION
     # =========================
 
-    def _convert_to_dataclass(self, data: Dict) -> InvoiceData:
+    def _convert_to_dataclass(self, data: Dict, raw_response: Optional[Dict] = None) -> InvoiceData:
         """
         Convert raw dictionary to InvoiceData dataclass.
         """
@@ -228,6 +228,7 @@ class GeminiInvoiceProcessor(OcrInterface):
             ),
             line_items=line_items,
             taxes=taxes,
+            raw_response=raw_response,
         )
 
     # =========================

@@ -236,6 +236,7 @@ class InvoiceService:
                 invoice.currency = extracted_data.currency or invoice.currency or "EUR"
                 invoice.payment_method = extracted_data.payment_method or invoice.payment_method or "transfer"
                 invoice.company = company
+                invoice.ocr_raw_response = extracted_data.raw_response
                 invoice.needs_manual_review = True
 
                 # Replace items
@@ -289,6 +290,7 @@ class InvoiceService:
             payment_method=extracted_data.payment_method or 'transfer',
             image_hash=image_hash,
             company=company,
+            ocr_raw_response=extracted_data.raw_response,
             ocr_processing=True  # Mark as currently processing
         )
         

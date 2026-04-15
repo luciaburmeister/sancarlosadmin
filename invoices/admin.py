@@ -8,6 +8,8 @@ from django.utils.translation import gettext_lazy as _
 from datetime import timedelta
 from unfold.admin import ModelAdmin, TabularInline, GenericTabularInline
 from django.utils.html import format_html
+from django.db import models
+from django_json_widget.widgets import JSONEditorWidget
 from invoices.models import (
     Invoice,
     ConfirmationStatus,
@@ -178,9 +180,17 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         "project_file",
     )
 
+    formfield_overrides = {
+        models.JSONField: {
+            "widget": JSONEditorWidget,
+        },
+    }
+
     readonly_fields = (
         "gross_amount",
         "total_amount",
+        "gemini_account_response",
+        "ocr_raw_response",
     )
 
     list_select_related = (
@@ -206,7 +216,7 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
 
     fieldsets = (
         (
-            "Invoice Info",
+            _("Invoice Info"),
             {
                 "fields": (
                     ("invoice_number", "provider"),
@@ -218,7 +228,7 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             },
         ),
         (
-            "Dates",
+            _("Dates"),
             {
                 "fields": (
                     ("date_issued", "due_date"),
@@ -226,7 +236,7 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             },
         ),
         (
-            "Payment",
+            _("Payment"),
             {
                 "fields": (
                     "payment_method",
@@ -234,11 +244,20 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             },
         ),
         (
-            "Notes",
+            _("Notes"),
             {
                 "fields": (
                     "account",
                     "observations",
+                )
+            },
+        ),
+        (
+            _("AI Classification"),
+            {
+                "fields": (
+                    "gemini_account_response",
+                    "ocr_raw_response",
                 )
             },
         ),

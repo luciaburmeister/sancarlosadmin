@@ -14,6 +14,7 @@ from .account_classifier_interface import (
     AccountClassifierInterface,
     AccountOption,
     ClassificationResult,
+    ClassificationBatchResponse,
 )
 
 class GeminiAccountClassifier(AccountClassifierInterface):
@@ -67,7 +68,7 @@ class GeminiAccountClassifier(AccountClassifierInterface):
         account_options: List[AccountOption],
         company_activity_description: str = "",
         accounting_framework: str = "",
-    ) -> List[ClassificationResult]:
+    ) -> ClassificationBatchResponse:
         """
         Send all unclassified invoices + the full chart of accounts to Gemini
         in a single call and get back one classification per invoice.
@@ -134,7 +135,7 @@ COMPANY ACTIVITY DESCRIPTION:
         else:
             raise ValueError(f"Unexpected Gemini response type: {type(raw)}")
 
-        return [
+        results = [
             ClassificationResult(
                 invoice_id=item["invoice_id"],
                 line_item_id=item["line_item_id"],
@@ -143,3 +144,9 @@ COMPANY ACTIVITY DESCRIPTION:
             )
             for item in data
         ]
+
+        return ClassificationBatchResponse(
+            results=results,
+            raw_response=data,
+            metadata={"model": self.model_name}
+        )

@@ -160,6 +160,18 @@ class Invoice(models.Model):
         help_text="Error if OCR failed"
     )
 
+    ocr_raw_response = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="Raw JSON response from Gemini for initial OCR"
+    )
+    
+    gemini_account_response = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="Raw JSON response from Gemini for account classification"
+    )
+
     is_total_balanced = models.BooleanField(
         default=True,
         db_index=True,

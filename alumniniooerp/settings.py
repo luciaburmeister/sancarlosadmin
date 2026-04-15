@@ -99,6 +99,7 @@ INSTALLED_APPS = [
     'management',
     'purchasing',
     'vacations',
+    "payments"
 ]
 
 MIDDLEWARE = [

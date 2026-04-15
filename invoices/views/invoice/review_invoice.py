@@ -1,12 +1,15 @@
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.shortcuts import redirect
+from unfold.views import UnfoldModelAdminViewMixin
 from django.views import View
 from invoices.models import Invoice, ConfirmationStatus
 
 
-class InvoiceReviewAdminView(View):
-    model_admin = None  # injected by admin when the view is registered
+class InvoiceReviewAdminView(UnfoldModelAdminViewMixin, View):
+    model_admin = None
+    permission_required = ("invoices.change_invoice",)
+    title = "Review Invoice"
 
     def get(self, request, object_id):
         invoice = get_object_or_404(Invoice, pk=object_id)

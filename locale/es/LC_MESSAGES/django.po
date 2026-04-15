@@ -1864,30 +1864,22 @@ msgstr "Categorías de Inventario"
 msgid "Code"
 msgstr "Codigo"
 
-#, fuzzy
-#| msgid "Address"
+
 msgid "Address Line 1"
-msgstr "Dirección"
+msgstr "Dirección 1"
 
-#, fuzzy
-#| msgid "Address"
 msgid "Address Line 2"
-msgstr "Dirección"
+msgstr "Dirección 2"
 
-#, fuzzy
-#| msgid "Warehouse"
 msgid "Warehouses"
-msgstr "Almacén"
+msgstr "Almacénes"
 
-#, fuzzy
-#| msgid "Machine cost"
+
 msgid "Location Type"
-msgstr "Costo de la máquina"
+msgstr "Tipo de ubicación"
 
-#, fuzzy
-#| msgid "Component A"
 msgid "Content Type"
-msgstr "Componente A"
+msgstr "Tipo de contenido"
 
 msgid "Object ID"
 msgstr "ID del objeto"

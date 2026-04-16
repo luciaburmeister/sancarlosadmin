@@ -202,8 +202,13 @@ class Invoice(models.Model):
         taxes = list(self.get_taxes().order_by('order', 'id'))
         
         for tax in taxes:
-            if not tax.calculated_amount:
-                continue
+            # Always update the base_amount for this tax
+            tax.base_amount = base_amount
+            
+            # Recalculate the amount
+            res = tax.calculate(base_amount)
+            tax.calculated_amount = res['tax_amount']
+            tax.save(update_fields=['base_amount', 'calculated_amount'])
             
             # Use the magnitude of the calculated amount
             amt = abs(tax.calculated_amount.amount)
@@ -212,10 +217,6 @@ class Invoice(models.Model):
                 current_total += amt
             else:
                 current_total -= amt
-            
-            # Update the base_amount for this tax (for information) to the original base
-            tax.base_amount = base_amount
-            tax.save(update_fields=['base_amount'])
             
         self.total_amount = current_total
         
@@ -438,6 +439,16 @@ class AppliedTax(models.Model):
     content_object = GenericForeignKey("content_type", "object_id")
     order = models.PositiveIntegerField(default=0,db_index=True)
 
+    def save(self, *args, **kwargs):
+        # Check if parent is a finalized SalesInvoice
+        if self.content_type.model == 'salesinvoice' and self.pk:
+            from invoices.models import SalesInvoiceStatus
+            invoice = self.content_object
+            if invoice and invoice.status == SalesInvoiceStatus.FINAL:
+                from django.core.exceptions import ValidationError
+                raise ValidationError(_("Cannot edit taxes in a finalized invoice."))
+        super().save(*args, **kwargs)
+
     class Meta:
         verbose_name = "Applied Tax"
         verbose_name_plural = "Applied Taxes"
@@ -630,7 +641,16 @@ class SalesInvoice(CompanyOwnedModel):
         """
         Recalculates the total and tax amounts by applying taxes sequentially
         on top of the subtotal (which is summed from line items).
+        
+        If the status is FINAL, no recalculation is performed to preserve history.
         """
+        if self.status == SalesInvoiceStatus.FINAL:
+            return {
+                'subtotal': self.subtotal_amount,
+                'tax': self.tax_amount,
+                'total': self.total_amount
+            }
+
         # 1. Update subtotal from items if they exist
         items_sum = self.items.aggregate(total=Sum('line_total'))['total']
         if items_sum is not None:
@@ -645,8 +665,13 @@ class SalesInvoice(CompanyOwnedModel):
         
         total_tax = Decimal("0.00")
         for tax in taxes:
-            if not tax.calculated_amount:
-                continue
+            # Always update the base_amount for this tax
+            tax.base_amount = self.subtotal_amount
+            
+            # Recalculate the amount
+            res = tax.calculate(self.subtotal_amount.amount)
+            tax.calculated_amount = res['tax_amount']
+            tax.save(update_fields=['base_amount', 'calculated_amount'])
                 
             amt = abs(tax.calculated_amount.amount)
             
@@ -656,9 +681,6 @@ class SalesInvoice(CompanyOwnedModel):
             else:
                 total_tax -= amt
                 current_total -= amt
-            
-            tax.base_amount = self.subtotal_amount
-            tax.save(update_fields=['base_amount'])
             
         self.tax_amount = total_tax
         self.total_amount = current_total
@@ -686,7 +708,7 @@ class SalesInvoiceItem(models.Model):
         verbose_name=_("Invoice")
     )
     description = models.CharField(max_length=500, verbose_name=_("Description"))
-    quantity = models.DecimalField(max_digits=10, decimal_places=3, default=1, verbose_name=_("Quantity"))
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1, verbose_name=_("Quantity"))
     discount_percentage = models.DecimalField(
         max_digits=5,
         decimal_places=2,
@@ -715,6 +737,10 @@ class SalesInvoiceItem(models.Model):
     )
 
     def save(self, *args, **kwargs):
+        if self.invoice.status == SalesInvoiceStatus.FINAL and self.pk:
+            from django.core.exceptions import ValidationError
+            raise ValidationError(_("Cannot edit items in a finalized invoice."))
+            
         self.discount_amount = (self.unit_price * self.quantity) * (self.discount_percentage / Decimal("100"))
         self.line_total = (self.unit_price * self.quantity) - self.discount_amount
         super().save(*args, **kwargs)

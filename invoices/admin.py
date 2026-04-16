@@ -128,6 +128,21 @@ class AppliedTaxInline(GenericTabularInline):
     verbose_name = "Applied tax"
     verbose_name_plural = "Applied taxes"
 
+    def has_add_permission(self, request, obj):
+        if isinstance(obj, SalesInvoice) and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if isinstance(obj, SalesInvoice) and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if isinstance(obj, SalesInvoice) and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_delete_permission(request, obj)
+
 class InvoiceItemInline(StackedInline):
     model = InvoiceItem
     extra = 0
@@ -410,6 +425,21 @@ class SalesInvoiceItemInline(StackedInline):
         ),
     )
 
+    def has_add_permission(self, request, obj):
+        if obj and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_delete_permission(request, obj)
+
 @admin.register(SalesInvoice)
 class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     custom_urls = (
@@ -431,6 +461,21 @@ class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_filter_submit = True
     
     readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount","status","invoice_number")
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = super().get_readonly_fields(request, obj)
+        if obj and obj.status == SalesInvoiceStatus.FINAL:
+            return list(set(
+                [f.name for f in self.model._meta.fields] +
+                [f.name for f in self.model._meta.many_to_many] +
+                list(readonly_fields)
+            ))
+        return readonly_fields
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_delete_permission(request, obj)
 
     fieldsets = (
         (

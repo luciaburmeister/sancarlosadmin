@@ -6,7 +6,7 @@ from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
 from datetime import timedelta
-from unfold.admin import ModelAdmin, TabularInline, GenericTabularInline
+from unfold.admin import ModelAdmin, GenericTabularInline
 from django.utils.html import format_html
 from django.db import models
 from django_json_widget.widgets import JSONEditorWidget
@@ -36,6 +36,7 @@ from unfold.contrib.filters.admin import (
     ChoicesDropdownFilter,
     AutocompleteSelectMultipleFilter
 )
+from unfold.widgets import UnfoldAdminTextareaWidget
 from .filters import HasItemsFilter, ItemsMissingAccountFilter, BalanceStatusFilter
 @admin.register(TaxType)
 class TaxTypeAdmin(ModelAdmin):
@@ -386,12 +387,28 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             )
         self.message_user(request, f"Started A3 export for {len(company_ids)} companies. You will receive an email shortly.")
         
-class SalesInvoiceItemInline(TabularInline):
+class SalesInvoiceItemInline(StackedInline):
     model = SalesInvoiceItem
     extra = 0
     tab = True
-    fields = ("description", "quantity", "unit_price", "discount_percentage", "discount_amount", "line_total")
     readonly_fields = ("discount_amount", "line_total")
+    formfield_overrides = {
+        models.CharField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 2})},
+    }
+    fieldsets = (
+        (
+            _("Line Item"),
+            {
+                "fields": (
+                    ("quantity",
+                    "unit_price"),
+                    ("discount_percentage", "discount_amount"), 
+                    "description",
+                    "line_total"
+                )
+            },
+        ),
+    )
 
 @admin.register(SalesInvoice)
 class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):

@@ -685,7 +685,7 @@ class SalesInvoiceItem(models.Model):
         related_name='items',
         verbose_name=_("Invoice")
     )
-    description = models.CharField(max_length=255, verbose_name=_("Description"))
+    description = models.CharField(max_length=500, verbose_name=_("Description"))
     quantity = models.DecimalField(max_digits=10, decimal_places=3, default=1, verbose_name=_("Quantity"))
     discount_percentage = models.DecimalField(
         max_digits=5,

@@ -210,13 +210,13 @@ class Invoice(models.Model):
             tax.calculated_amount = res['tax_amount']
             tax.save(update_fields=['base_amount', 'calculated_amount'])
             
-            # Use the magnitude of the calculated amount
-            amt = abs(tax.calculated_amount.amount)
-            
+            # Use the signed calculated amount (preserves sign for negative/credit invoices)
+            tax_val = Decimal(str(tax.calculated_amount.amount))
+
             if tax.tax_type.behavior == "add":
-                current_total += amt
+                current_total += tax_val
             else:
-                current_total -= amt
+                current_total -= tax_val
             
         self.total_amount = current_total
         
@@ -242,11 +242,11 @@ class Invoice(models.Model):
         sum_taxes = Decimal("0.00")
         for tax in self.get_taxes():
             if tax.calculated_amount:
-                amt = abs(tax.calculated_amount.amount)
+                tax_val = Decimal(str(tax.calculated_amount.amount))
                 if tax.tax_type.behavior == "add":
-                    sum_taxes += amt
+                    sum_taxes += tax_val
                 else:
-                    sum_taxes -= amt
+                    sum_taxes -= tax_val
         
         calc_total = sum_lines + sum_taxes
         

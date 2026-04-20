@@ -155,6 +155,16 @@ class GeminiInvoiceProcessor(OcrInterface):
         - The vendor_tax_id has to be the provider of who is issuing the invoice not the client's one.
         - company_tax_id = tax id of the customer/client receiving the invoice (us)
         - Do NOT confuse vendor_tax_id with company_tax_id
+
+      CRITICAL - Amounts on credit notes (any invoice where amounts are negative, regardless of language):
+        - A credit note is any invoice whose monetary amounts are negative.
+        - Do NOT calculate gross_amount or total_amount. Read both values directly from the document.
+        - Do NOT adjust, correct, or apply taxes to derive either value. Just read what is printed.
+        - On a credit note, taxes make total_amount MORE negative than gross_amount, not less.
+        - Therefore: total_amount is always more negative than gross_amount (further from zero).
+        - Wrong reasoning: gross=-X, tax=Y, so total=-X+Y. THIS IS INCORRECT.
+        - Correct reasoning: gross=-X, tax=-Y, so total=-X+(-Y)=-X-Y. THIS IS CORRECT.
+
         """
 
         response = self.client.models.generate_content(

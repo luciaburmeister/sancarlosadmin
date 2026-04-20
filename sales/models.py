@@ -343,6 +343,12 @@ class OrderItem(Timestampable):
         self.line_total = self.unit_price * self.quantity
         super().save(*args, **kwargs)
 
+class QuoteStatus(models.TextChoices):
+    DRAFT = "draft", _("Draft")
+    SENT = "sent", _("Sent")
+    ACCEPTED = "accepted", _("Accepted")
+    REJECTED = "rejected", _("Rejected")
+
 
 class Quote(Timestampable, CompanyOwnedModel):
     client = models.ForeignKey(
@@ -374,13 +380,8 @@ class Quote(Timestampable, CompanyOwnedModel):
 
     status = models.CharField(
         max_length=20,
-        choices=[
-            ("draft", _("Draft")),
-            ("sent", _("Sent")),
-            ("accepted", _("Accepted")),
-            ("rejected", _("Rejected")),
-        ],
-        default="draft",
+        choices=QuoteStatus.choices,
+        default=QuoteStatus.DRAFT,
         verbose_name=_("Status"),
     )
 

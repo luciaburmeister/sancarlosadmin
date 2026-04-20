@@ -181,8 +181,8 @@ class Invoice(models.Model):
     class Meta: 
         unique_together = ['provider','invoice_number']
         ordering = ['-date_issued']
-        verbose_name = "Invoice"
-        verbose_name_plural = "Invoices"
+        verbose_name = _("Invoice")
+        verbose_name_plural = _("Invoices")
 
     def __str__(self):
         return f"{self.invoice_number} - {self.provider}"
@@ -530,13 +530,13 @@ class AppliedTax(models.Model):
             )
         
         # Use the existing calculate method
-        result = self.calculate(self.base_amount)
+        result = self.calculate(self.base_amount.amount)
         
         # Store the calculated tax amount
         self.calculated_amount = result['tax_amount']
         
         # Save to database
-        self.save(update_fields=['calculated_amount'])
+        self.save(update_fields=['calculated_amount', 'base_amount'])
         
         return result
 def incoming_invoice_upload_path(instance, filename):

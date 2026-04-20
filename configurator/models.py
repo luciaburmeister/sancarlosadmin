@@ -26,7 +26,7 @@ from django.utils import timezone
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")
     COMPLETED = "completed", _("Completed")
-    CONVERTED = "converted", _("Converted to Quote")
+    CONVERTED = "converted", _("Converted to Production")
 
 
 class IncompatibilityRule(CompanyOwnedModel):
@@ -695,6 +695,10 @@ class Configuration(Timestampable, CompanyOwnedModel):
         total = Decimal(base_amount)
 
         for tax in self.get_taxes():
+            tax.base_amount = total
+            tax.save()
+            tax.calculate_and_store()
+
             result = tax.calculate(total)
 
             breakdown.append(
@@ -1065,18 +1069,7 @@ class ConfigurationFlow:
             raise ValidationError("Cannot complete an empty configuration.")
 
     @state.transition(
-        source=ConfigurationStatus.DRAFT,
-        target=ConfigurationStatus.CONVERTED,
-    )
-    def convert(self):
-        from production.services.configuration_to_production import (
-            ConfigurationToProductionService,
-        )
-
-        return ConfigurationToProductionService.create_ticket(self.configuration)
-
-    @state.transition(
-        source=ConfigurationStatus.COMPLETED,
+        source=[ConfigurationStatus.DRAFT, ConfigurationStatus.COMPLETED],
         target=ConfigurationStatus.CONVERTED,
     )
     def convert(self):

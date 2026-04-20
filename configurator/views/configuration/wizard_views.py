@@ -63,7 +63,7 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
             if quote_id:
                 quote = Quote.objects.filter(id=quote_id).first()
                 if quote:
-                    initial['client'] = quote.client
+                    initial['quote'] = quote
         return initial
 
     def done(self, form_list, **kwargs):
@@ -71,7 +71,8 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
         config_form = form_list[1]
         addon_formset = form_list[2] if len(form_list) > 2 else None
         
-        client = client_selection_form.cleaned_data.get("client")
+        quote = client_selection_form.cleaned_data.get("quote")
+        client = quote.client if quote else None
         asset = client_selection_form.cleaned_data.get("asset")
         
         config = config_form.save(client=client, asset=asset)
@@ -94,21 +95,17 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
                         is_template_item=False,
                     )
 
-        quote_id = self.request.session.pop('wizard_quote_id', None)
-        if quote_id:
-            quote = Quote.objects.filter(id=quote_id).first()
-            if quote:
-                config.quote = quote
-                config.save(update_fields=['quote'])
+        self.request.session.pop('wizard_quote_id', None)
+        if quote:
+            config.quote = quote
+            config.save(update_fields=['quote'])
 
         config.copy_default_pricing_rules_from_product()
         config.copy_default_taxes_from_product()
         config.recalculate_price()
         
-        if quote_id:
-            url = reverse('admin:sales_quote_change', args=[quote_id])
-        else:
-            url = reverse(
+        
+        url = reverse(
                 "admin:configurator_configuration_change",
                 args=[config.id]
             )

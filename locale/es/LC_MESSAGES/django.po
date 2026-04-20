@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-15 13:49+0200\n"
+"POT-Creation-Date: 2026-04-20 05:20-0600\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -109,8 +109,6 @@ msgstr "Hora de publicación"
 msgid "Cancelled"
 msgstr "Cancelado"
 
-#, fuzzy
-#| msgid "Sales Invoice"
 msgid "Purchase Invoice"
 msgstr "Factura de venta"
 
@@ -246,17 +244,14 @@ msgstr "Items de Producción"
 msgid "Purchasing"
 msgstr "Compras"
 
-
 msgid "Purchase Orders"
 msgstr "Ordenes de Compra"
 
 msgid "PO Receipts"
 msgstr "Albaránes de Recibido"
 
-#, fuzzy
-#| msgid "Invoice File"
 msgid "Invoices"
-msgstr "Archivo de factura"
+msgstr "Facturas"
 
 msgid "Sales Invoices"
 msgstr "Facturas de Ventas"
@@ -264,15 +259,11 @@ msgstr "Facturas de Ventas"
 msgid "Received Invoices"
 msgstr "Facturas de compra"
 
-#, fuzzy
-#| msgid "Configuration"
 msgid "Transaction"
-msgstr "Configuración"
+msgstr "Transacción"
 
-#, fuzzy
-#| msgid "Code"
 msgid "QR Code"
-msgstr "Codigo"
+msgstr "Codigo QR"
 
 msgid "Guarda el asset primero para ver el QR."
 msgstr "Guarda el asset primero para ver el QR."
@@ -777,10 +768,8 @@ msgstr "Número"
 msgid "Local account number"
 msgstr "Número de cuenta local"
 
-#, fuzzy
-#| msgid "Invoice File"
 msgid "Routing Number"
-msgstr "Archivo de factura"
+msgstr "Código de Seguimiento"
 
 msgid "Routing number, Sort code, ABA, etc."
 msgstr "Número de ruta, Código de clasificación, ABA, etc."
@@ -1023,6 +1012,11 @@ msgstr "Precio total"
 msgid "Convert to production"
 msgstr "En producción"
 
+msgid "Cannot convert to production. The associated quote must be accepted."
+msgstr ""
+"No se puede convertir a producción. La cotización asociada debe ser "
+"aceptada."
+
 msgid "Configuration successfully converted to production."
 msgstr "La configuración se ha convertido con éxito a producción."
 
@@ -1122,13 +1116,13 @@ msgstr "Exportar Recibo de Recepción"
 
 #, fuzzy
 #| msgid "General Information"
-msgid "Client and Asset Information"
+msgid "Quote and Asset Information"
 msgstr "Información General"
 
 #, fuzzy
-#| msgid "Select"
-msgid "Select Client"
-msgstr "Seleccionar"
+#| msgid "Accepted"
+msgid "Select Quote"
+msgstr "Aceptado"
 
 msgid "Select Asset (Optional)"
 msgstr "Seleccionar activo (opcional)"
@@ -1178,8 +1172,8 @@ msgstr "Hora de publicación"
 msgid "Completed"
 msgstr "Completado"
 
-msgid "Converted to Quote"
-msgstr "Convertido a Cotización"
+msgid "Converted to Production"
+msgstr "En producción"
 
 msgid "Component A"
 msgstr "Componente A"
@@ -1568,15 +1562,12 @@ msgstr "Precio Unitario"
 msgid "Unit Price Currency"
 msgstr "Precio Unitario"
 
-#, fuzzy
-#| msgid "Material cost"
-msgid "Line Total Amount"
-msgstr "Costo de material"
 
-#, fuzzy
-#| msgid "Line total"
+msgid "Line Total Amount"
+msgstr "Total de linea"
+
 msgid "Line Total Currency"
-msgstr "Total de la línea"
+msgstr "Moneda del total"
 
 msgid "Machines"
 msgstr "Costo de la máquina"
@@ -1825,10 +1816,8 @@ msgstr "Cantidad"
 msgid "Quantity change cannot be zero."
 msgstr "Cantidad"
 
-#, fuzzy
-#| msgid "Invoice File"
 msgid "Invoice"
-msgstr "Archivo de factura"
+msgstr "Factura"
 
 msgid "— Select invoice —"
 msgstr "— Seleccionar factura —"
@@ -1864,7 +1853,6 @@ msgstr "Categorías de Inventario"
 msgid "Code"
 msgstr "Codigo"
 
-
 msgid "Address Line 1"
 msgstr "Dirección 1"
 
@@ -1873,7 +1861,6 @@ msgstr "Dirección 2"
 
 msgid "Warehouses"
 msgstr "Almacénes"
-
 
 msgid "Location Type"
 msgstr "Tipo de ubicación"
@@ -2109,6 +2096,11 @@ msgid "AI Classification"
 msgstr "Clasificación de IA"
 
 #, fuzzy
+#| msgid "Status"
+msgid "OCR Status"
+msgstr "Estado"
+
+#, fuzzy
 #| msgid "Off Balance"
 msgid "Balance"
 msgstr "Fuera de balance"
@@ -2132,6 +2124,11 @@ msgstr "Configuración"
 #| msgid "Country"
 msgid "Journal Entry"
 msgstr "País"
+
+#, fuzzy
+#| msgid "Line total"
+msgid "Line Item"
+msgstr "Total de la línea"
 
 msgid "General Information"
 msgstr "Información General"
@@ -2188,6 +2185,11 @@ msgstr "La entrada no está equilibrada."
 #| msgid "Invoice File"
 msgid "Invoice Details"
 msgstr "Archivo de factura"
+
+#, fuzzy
+#| msgid "Select"
+msgid "Select Client"
+msgstr "Seleccionar"
 
 msgid "Qty"
 msgstr "Cantidad"
@@ -2294,6 +2296,9 @@ msgstr ""
 "Plantilla genérica de cuenta utilizada para este impuesto en las Facturas de"
 " Venta (resuelto por empresa)."
 
+msgid "Cannot edit taxes in a finalized invoice."
+msgstr "No se pueden editar los impuestos en una factura finalizada."
+
 msgid "Invoice File"
 msgstr "Archivo de factura"
 
@@ -2362,18 +2367,18 @@ msgstr "Restar"
 msgid "Tax Amount"
 msgstr "Monto del impuesto"
 
-#, fuzzy
-#| msgid "Material cost"
 msgid "Total Amount"
-msgstr "Costo de material"
+msgstr "Cantidad Total"
 
 msgid "Discount"
 msgstr "Descuento"
 
-#, fuzzy
-#| msgid "Line total"
+
 msgid "Line Total"
 msgstr "Total de la línea"
+
+msgid "Cannot edit items in a finalized invoice."
+msgstr "No se pueden editar elementos en una factura finalizada."
 
 #, fuzzy
 #| msgid "Discount"
@@ -2491,8 +2496,7 @@ msgstr "En Espera"
 msgid "Auto-generated internal reference (e.g., EXP-00001)"
 msgstr "Referencia interna autogenerada (por ejemplo, EXP-00001)"
 
-#, fuzzy
-#| msgid "Project name"
+
 msgid "Project Name"
 msgstr "Nombre del proyecto"
 
@@ -2501,15 +2505,11 @@ msgstr "Nombre del proyecto"
 msgid "Project or site name"
 msgstr "Nombre del proyecto"
 
-#, fuzzy
-#| msgid "Started"
 msgid "Start Date"
-msgstr "Empezado"
+msgstr "Fecha de Inicio"
 
-#, fuzzy
-#| msgid "Email"
 msgid "End Date"
-msgstr "Correo electrónico"
+msgstr "Fecha de Fin"
 
 msgid "Project Files"
 msgstr "Expedientes"
@@ -2517,10 +2517,8 @@ msgstr "Expedientes"
 msgid "Accept Quote & Link Expediente"
 msgstr "Aceptar Cotización y Enlace Expediente"
 
-#, fuzzy
-#| msgid "Accepted"
 msgid "Accept Quote"
-msgstr "Aceptado"
+msgstr "Aceptar Cotización"
 
 msgid ""
 "To move this quote to 'Accepted', you must associate it with an Expediente "
@@ -2642,6 +2640,74 @@ msgid ""
 msgstr ""
 "La clave de la regla debe comenzar con una letra y contener solo letras, "
 "números o guiones bajos."
+
+msgid "Inbound"
+msgstr "Entrante"
+
+msgid "Outbound"
+msgstr "Saliente"
+
+msgid "Confirmed"
+msgstr "Confirmado"
+
+msgid "Reconciled"
+msgstr "Reconciliado"
+
+msgid "Cheque"
+msgstr "Cheque"
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "Payment Date"
+msgstr "Método de Pago"
+
+#, fuzzy
+#| msgid "Tax Amount"
+msgid "Amount"
+msgstr "Monto del impuesto"
+
+#, fuzzy
+#| msgid "Configuration"
+msgid "Direction"
+msgstr "Configuración"
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "Method"
+msgstr "Método de Pago"
+
+#, fuzzy
+#| msgid "Bank Account"
+msgid "Amount Pending Allocation"
+msgstr "Cuenta de Banco"
+
+msgid "Stored field. Updated inside a transaction on every allocation change."
+msgstr ""
+"Campo almacenado. Actualizado dentro de una transacción en cada cambio de "
+"asignación."
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "Payments"
+msgstr "Método de Pago"
+
+msgid "Amount Applied"
+msgstr "Monto Aplicado"
+
+#, fuzzy
+#| msgid "Asset Documents"
+msgid "Document ID"
+msgstr "Documentos de Activos"
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "Payment Allocation"
+msgstr "Método de Pago"
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "Payment Allocations"
+msgstr "Método de Pago"
 
 msgid "Production planning"
 msgstr "Etapas de Producción"
@@ -2934,6 +3000,26 @@ msgid "Return to Stages"
 msgstr "Volver a las etapas"
 
 #, fuzzy
+#| msgid "Receive"
+msgid "Received"
+msgstr "Recibir"
+
+#, fuzzy
+#| msgid "Pending"
+msgid "Send to Approval"
+msgstr "Pendiente"
+
+#, fuzzy
+#| msgid "Invoice {} generated successfully."
+msgid "Purchase Order sent for approval."
+msgstr "Factura {} generada con éxito."
+
+#, fuzzy
+#| msgid "Only pending sessions can be started"
+msgid "Only Draft POs can be sent for approval."
+msgstr "Solo se pueden iniciar sesiones pendientes."
+
+#, fuzzy
 #| msgid "Approved by"
 msgid "Approve PO"
 msgstr "Aprobado por"
@@ -2945,8 +3031,21 @@ msgstr "Factura {} generada con éxito."
 
 #, fuzzy
 #| msgid "Only pending sessions can be started"
-msgid "Only Draft or Pending POs can be approved."
+msgid "Only Pending POs can be approved."
 msgstr "Solo se pueden iniciar sesiones pendientes."
+
+#, fuzzy
+#| msgid "Received Quantity"
+msgid "Receive items directly"
+msgstr "Cantidad Recibida"
+
+msgid "Only APPROVED Purchase Orders can receive items."
+msgstr "Solo las Órdenes de Compra APROBADAS pueden recibir artículos."
+
+#, fuzzy
+#| msgid "Quantity Received"
+msgid "Quantity to Receive"
+msgstr "Cantidad recibidas"
 
 #, fuzzy
 #| msgid "Pending"
@@ -2961,10 +3060,8 @@ msgstr "Cerrado"
 msgid "PO Number"
 msgstr "Número"
 
-
 msgid "Date Ordered"
 msgstr "Fecha de Orden"
-
 
 msgid "Approved By"
 msgstr "Aprobado por"
@@ -2977,7 +3074,6 @@ msgstr "Orden de Compra"
 
 msgid "DRAFT"
 msgstr "BORRADOR"
-
 
 msgid "Received Quantity"
 msgstr "Cantidad Recibida"
@@ -2994,15 +3090,14 @@ msgstr "Número"
 msgid "Received At"
 msgstr "Recibido el"
 
-
 msgid "Received By"
 msgstr "Recibido por"
 
 msgid "PO Receipt"
 msgstr "Recibo de Orden de Compra"
 
-msgid "PENDING"
-msgstr "PENDIENTE"
+msgid "Receipts can only be created for APPROVED Purchase Orders."
+msgstr "Las facturas solo se pueden crear para Órdenes de Compra APROBADAS."
 
 #, fuzzy
 #| msgid "Receive"
@@ -3017,10 +3112,59 @@ msgstr "Item recibido"
 msgid "Receipt Items"
 msgstr "Artículos del Recibo de Entrega"
 
+#, python-format
+msgid ""
+"Cannot receive more than ordered. Ordered: %(ordered)s, Total Received: "
+"%(total)s"
+msgstr ""
+"No se puede recibir más de lo ordenado. Ordenado: %(ordered)s, Total "
+"Recibido: %(total)s"
+
 #, fuzzy, python-format
 #| msgid "Received Invoices"
 msgid "Received via PO Receipt %s"
 msgstr "Facturas de compra"
+
+#, fuzzy
+#| msgid "Receival Slip Items"
+msgid "Receive Items"
+msgstr "Artículos del Recibo de Entrega"
+
+#, fuzzy
+#| msgid "Receival Slip Items"
+msgid "Receive Items for PO"
+msgstr "Artículos del Recibo de Entrega"
+
+#, fuzzy
+#| msgid "Order"
+msgid "Ordered"
+msgstr "Orden"
+
+#, fuzzy
+#| msgid "Receiving"
+msgid "Receiving Now"
+msgstr "Recibiendo"
+
+#, fuzzy
+#| msgid "Confirmed"
+msgid "Confirm Reception"
+msgstr "Confirmado"
+
+#, fuzzy
+#| msgid "Receival Slip Items"
+msgid "Receive Items Directly"
+msgstr "Artículos del Recibo de Entrega"
+
+#, python-format
+msgid "Receipt %(number)s created successfully with %(count)d items."
+msgstr "Recibo %(number)s creado con éxito con %(count)d artículos."
+
+msgid "No quantities were entered. No receipt was created."
+msgstr "No se ingresaron cantidades. No se creó ningún recibo."
+
+#, python-format
+msgid "An error occurred while saving the receipt: %(error)s"
+msgstr "Ocurrió un error al guardar el recibo: %(error)s"
 
 #, fuzzy
 #| msgid "Address"
@@ -3141,9 +3285,6 @@ msgstr "Cuenta de Banco"
 msgid "Clients"
 msgstr "Clientes"
 
-msgid "Confirmed"
-msgstr "Confirmado"
-
 msgid "In production"
 msgstr "En producción"
 
@@ -3189,9 +3330,6 @@ msgstr "Elemento del pedido"
 msgid "Order items"
 msgstr "Items del pedido"
 
-msgid "Expires at"
-msgstr "Expira el"
-
 msgid "Sent"
 msgstr "Enviado"
 
@@ -3200,6 +3338,9 @@ msgstr "Aceptado"
 
 msgid "Rejected"
 msgstr "Rechazado"
+
+msgid "Expires at"
+msgstr "Expira el"
 
 #, fuzzy
 #| msgid "Total price"
@@ -3481,6 +3622,12 @@ msgstr "Ausencias pasadas"
 
 msgid "No past absences."
 msgstr "No hay ausencias pasadas"
+
+#~ msgid "Converted to Quote"
+#~ msgstr "Convertido a Cotización"
+
+#~ msgid "PENDING"
+#~ msgstr "PENDIENTE"
 
 #~ msgid "Name/Reference"
 #~ msgstr "Nombre/Referencia"

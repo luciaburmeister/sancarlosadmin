@@ -266,7 +266,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
         custom_urls = [
             path(
                 "<int:quote_id>/accept-wizard/",
-                self.admin_site.admin_view(QuoteAcceptanceWizardView.as_view()),
+                self.admin_site.admin_view(QuoteAcceptanceWizardView.as_view(model_admin=self)),
                 name="sales_quote_acceptance_wizard",
             ),
             path(

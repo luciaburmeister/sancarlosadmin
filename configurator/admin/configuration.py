@@ -1,6 +1,7 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from unfold.admin import ModelAdmin
 from configurator.models import Configuration, ConfigurationParameterValue, ConfigurationItem, PricingRuleAssignment, ConfigurationFlow,ConfigurationStatus,ConfigurationComponentGroup
+from sales.models import QuoteStatus
 from unfold.admin import TabularInline,GenericTabularInline,StackedInline
 from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter,RangeDateTimeFilter,MultipleChoicesDropdownFilter
 from django.urls import path
@@ -13,7 +14,7 @@ from django.http import HttpRequest
 from invoices.models import AppliedTax
 from unfold.decorators import display
 from core.admin.company_admin import CompanyRestrictedAdmin
-from configurator.views.configuration.autocomplete_views import ClientAutocompleteView, AssetAutocompleteView
+from configurator.views.configuration.autocomplete_views import ClientAutocompleteView, AssetAutocompleteView, QuoteAutocompleteView
 from configurator.services.receival_slip_service import ReceivalSlipService
 from import_export.admin import ImportExportModelAdmin
 from unfold.contrib.import_export.forms import ExportForm, ImportForm, SelectableFieldsExportForm
@@ -87,7 +88,10 @@ class AppliedTaxInline(GenericTabularInline):
     extra = 0
     autocomplete_fields = ("tax_type",)
     ordering = ("order",)
-    fields = ("tax_type", "selected_percentage", "order")
+
+    fieldset = {
+        "Applied tax": (("tax_type", "selected_percentage"),("base_amount","calculated_amount"), "order")
+    }
     verbose_name = _("Applied tax")
     verbose_name_plural = _("Applied taxes")
     tab = True
@@ -210,6 +214,11 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
             "autocomplete/asset/",
             "asset_autocomplete",
             AssetAutocompleteView.as_view(),
+        ),
+        (
+            "autocomplete/quote/",
+            "quote_autocomplete",
+            QuoteAutocompleteView.as_view(),
         ),
     )
     list_display = (
@@ -352,6 +361,15 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
     description=_("Convert to production"))
     def convert_to_production(self, request: HttpRequest, object_id: int):
         config = Configuration.objects.get(pk=object_id)
+        
+        if config.quote and config.quote.status != QuoteStatus.ACCEPTED:
+            self.message_user(
+                request,
+                _("Cannot convert to production. The associated quote must be accepted."),
+                messages.ERROR
+            )
+            return redirect(request.META.get('HTTP_REFERER', 'admin:configurator_configuration_changelist'))
+
         flow = ConfigurationFlow(config)
 
         ticket = flow.convert()

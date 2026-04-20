@@ -74,7 +74,7 @@ class DirectReceiptView(UnfoldModelAdminViewMixin, FormView):
                             continue
                 
                 if items_received > 0:
-                    messages.success(self.request, _("Receipt %s created successfully with %d items.") % (receipt.number, items_received))
+                    messages.success(self.request, _("Receipt %(number)s created successfully with %(count)d items.") % {'number': receipt.number, 'count': items_received})
                 else:
                     receipt.delete()
                     messages.warning(self.request, _("No quantities were entered. No receipt was created."))
@@ -82,7 +82,7 @@ class DirectReceiptView(UnfoldModelAdminViewMixin, FormView):
             messages.error(self.request, ", ".join(e.messages))
             return self.form_invalid(form)
         except Exception as e:
-            messages.error(self.request, _("An error occurred while saving the receipt: %s") % str(e))
+            messages.error(self.request, _("An error occurred while saving the receipt: %(error)s") % {'error': str(e)})
             return self.form_invalid(form)
                 
         return redirect("admin:purchasing_purchaseorder_change", po.id)

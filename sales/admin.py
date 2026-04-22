@@ -4,7 +4,7 @@ from unfold.admin import ModelAdmin
 from unfold.decorators import display
 from .models import (
     Client, Order, DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
-    Quote, QuoteItem, SaleZone, ClientAddress, ClientContact, ClientBankAccount
+    Quote, QuoteItem, SaleZone, ClientAddress, ClientContact, ClientBankAccount, QuoteStatus
 )
 from unfold.admin import TabularInline, StackedInline
 from configurator.models import Configuration
@@ -215,7 +215,7 @@ class ConfigurationReadOnlyInline(TabularInline):
 
 @admin.register(Quote)
 class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["id", "client", "project_name","project_file", "status", "total_price_display", "company"]
+    list_display = ["id", "client", "project_name","project_file", "show_status_customized_color", "total_price_display", "company"]
     list_filter = ["status", "company", "created_at"]
     search_fields = ["project_name", "client__name", "id"]
     autocomplete_fields = ["client", "project_file","company"]
@@ -247,6 +247,20 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
     @display(description=_("Total price"))
     def total_price_display(self, obj):
         return obj.total_price
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            _(QuoteStatus.ACCEPTED.label): "success",  # green
+            _(QuoteStatus.SENT.label): "info",  # blue
+            _(QuoteStatus.REJECTED.label): "warning",  # orange
+            _(QuoteStatus.DRAFT.label): "primary",  # orange
+            
+        },
+    )
+    def show_status_customized_color(self, obj):
+        return _(obj.get_status_display())
 
     @action(description=_("Add Configuration"))
     def add_configuration_to_quote(self, request, object_id: int):

@@ -27,6 +27,8 @@ class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")
     COMPLETED = "completed", _("Completed")
     CONVERTED = "converted", _("Converted to Production")
+    SHOP = "shop", _("Direct to Shop")
+    PRODUCTION_DONE = "production_done", _("Production Done")
 
 
 class IncompatibilityRule(CompanyOwnedModel):
@@ -62,6 +64,11 @@ class IncompatibilityRule(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.component_a} ❌ {self.component_b}"
+
+
+class ProductFlowKind(models.TextChoices):
+    QUOTABLE = "quotable", _("Quotable")
+    SHOP = "shop", _("Shop")
 
 
 class ProductTemplate(CompanyOwnedModel):
@@ -101,6 +108,12 @@ class ProductTemplate(CompanyOwnedModel):
         default=True,
         verbose_name=_("Show in configurator"),
         help_text=_("If false, this template will not be shown in the manual configuration creation list.")
+    )
+    flow_kind = models.CharField(
+        max_length=20,
+        choices=ProductFlowKind.choices,
+        default=ProductFlowKind.QUOTABLE,
+        verbose_name=_("Flow Kind"),
     )
 
     class Meta:
@@ -716,7 +729,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
         return total, breakdown
 
     def recalculate_price(self):
-        if self.status != ConfigurationStatus.DRAFT:
+        if self.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE, ConfigurationStatus.SHOP]:
             return
         context = self.get_pricing_context()
 
@@ -849,7 +862,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
         return {self._bom_item_key(item.component_id): item for item in items}
 
     def generate_bom(self):
-        if self.status != ConfigurationStatus.DRAFT:
+        if self.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE, ConfigurationStatus.SHOP]:
             return
         """
         Incrementally reconciles BOM rules with existing ConfigurationItems.

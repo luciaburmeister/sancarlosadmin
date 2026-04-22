@@ -58,6 +58,7 @@ class AddonForm(forms.Form):
 class BaseAddonFormSet(BaseFormSet):
     def __init__(self, *args, product=None, **kwargs):
         self.request = kwargs.pop("request", None)
+        kwargs.pop("instance",None)
         super().__init__(*args, **kwargs)
         self.product = product
 

@@ -19,14 +19,23 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
     title = _("Configure your product")
 
     
-    def dispatch(self, request, product_id, *args, **kwargs):
-        self.product = get_object_or_404(ProductTemplate, pk=product_id)
-        return super().dispatch(request, product_id, *args, **kwargs)
+    def dispatch(self, request, product_id=None, config_id=None, *args, **kwargs):
+        self.instance = None
+        if config_id:
+            from configurator.models import Configuration
+            self.instance = get_object_or_404(Configuration, pk=config_id)
+            self.product = self.instance.product
+        else:
+            self.product = get_object_or_404(ProductTemplate, pk=product_id)
+            
+        return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self, step):
         kwargs = super().get_form_kwargs(step)
         kwargs["product"] = self.product
         kwargs["request"] = self.request
+        if step == "measures" or step == "addons":
+            kwargs["instance"] = self.instance
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -59,11 +68,24 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
     def get_form_initial(self, step):
         initial = super().get_form_initial(step)
         if step == 'client_selection':
-            quote_id = self.request.GET.get('quote_id') or self.request.session.get('wizard_quote_id')
-            if quote_id:
-                quote = Quote.objects.filter(id=quote_id).first()
-                if quote:
-                    initial['quote'] = quote
+            if self.instance:
+                initial['quote'] = self.instance.quote
+                initial['client'] = self.instance.client
+                initial['asset'] = self.instance.asset
+            else:
+                quote_id = self.request.GET.get('quote_id') or self.request.session.get('wizard_quote_id')
+                if quote_id:
+                    quote = Quote.objects.filter(id=quote_id).first()
+                    if quote:
+                        initial['quote'] = quote
+        elif step == 'addons' and self.instance:
+            # Pre-populate addons
+            from configurator.models import ConfigurationItem
+            manual_items = self.instance.items.filter(is_template_item=False)
+            initial = [
+                {'addons': item.component, 'quantity': item.quantity}
+                for item in manual_items
+            ]
         return initial
 
     def done(self, form_list, **kwargs):
@@ -72,12 +94,17 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
         addon_formset = form_list[2] if len(form_list) > 2 else None
         
         quote = client_selection_form.cleaned_data.get("quote")
-        client = quote.client if quote else None
+        client = quote.client if quote else client_selection_form.cleaned_data.get("client")
         asset = client_selection_form.cleaned_data.get("asset")
         
+        # If we are editing, form.save() will handle it
         config = config_form.save(client=client, asset=asset)
         
         if addon_formset:
+            # If editing, clear old manual items
+            if self.instance:
+                config.items.filter(is_template_item=False).delete()
+
             for form in addon_formset:
                 if not form.cleaned_data:
                     continue
@@ -87,6 +114,7 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
                 quantity = form.cleaned_data.get("quantity", 1)
 
                 if component:
+                    from configurator.models import ConfigurationItem
                     ConfigurationItem.objects.create(
                         configuration=config,
                         component=component,
@@ -100,8 +128,10 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
             config.quote = quote
             config.save(update_fields=['quote'])
 
-        config.copy_default_pricing_rules_from_product()
-        config.copy_default_taxes_from_product()
+        if not self.instance:
+            config.copy_default_pricing_rules_from_product()
+            config.copy_default_taxes_from_product()
+        
         config.recalculate_price()
         
         

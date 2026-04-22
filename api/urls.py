@@ -18,6 +18,6 @@ urlpatterns = [
     path("attendance/clock-out/", views.clock_out_view, name="clock_out"),
     path("attendance/status/", views.attendance_status_view, name="attendance_status"),
     path("location-records/", LocationRecordCreateView.as_view(), name="location-record-create"),
-    path("zones/", views.zones_view, name="zones"),
-    path("clients/", views.clients_view, name="clients"),
+    path("zones/", views.zones_view.as_view(), name="zones"),
+    path("clients/", views.clients_view.as_view(), name="clients"),
 ]

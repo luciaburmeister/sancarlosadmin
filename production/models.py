@@ -105,6 +105,12 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
             ProductionTicket.objects.filter(pk=self.pk).update(status=new_status)
             self.status = new_status
 
+            if new_status == ProductionTicketStatus.DONE:
+                from configurator.models import Configuration, ConfigurationStatus
+                if isinstance(self.source_object, Configuration):
+                    self.source_object.status = ConfigurationStatus.PRODUCTION_DONE
+                    self.source_object.save(update_fields=["status"])
+
 
 class ProductionItemStatus(models.TextChoices):
     PENDING = "pending", _("Pending")

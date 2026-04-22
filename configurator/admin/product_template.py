@@ -174,7 +174,7 @@ class ProductTemplateComponentGroupInline(StackedInline):
 
 @admin.register(ProductTemplate)
 class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
-    list_display = ("id", "name","company", "planning_configured_badge", "planning_configure_link")
+    list_display = ("id", "name", "flow_kind", "company", "planning_configured_badge", "planning_configure_link")
     search_fields = ("name",)
     actions_row = ["duplicate_product"]
     list_select_related = ["company"]
@@ -192,7 +192,7 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
 
     fieldsets = (
         (_("Product Template"), {
-            "fields": (("name", "image"),"description",("production_stages","parameter_group_options")),
+            "fields": (("name", "image"), "description", ("production_stages", "parameter_group_options"), "flow_kind"),
         })
         ,(_("Ownership"), {
             "fields": ("company",),

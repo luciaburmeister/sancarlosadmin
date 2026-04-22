@@ -100,7 +100,6 @@ INSTALLED_APPS = [
     'vacations',
     'django_filters',
     'purchasing',
-    'vacations',
     "payments"
 ]
 

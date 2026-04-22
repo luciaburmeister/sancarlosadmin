@@ -14,7 +14,7 @@ from django.http import HttpRequest
 from invoices.models import AppliedTax
 from unfold.decorators import display
 from core.admin.company_admin import CompanyRestrictedAdmin
-from configurator.views.configuration.autocomplete_views import ClientAutocompleteView, AssetAutocompleteView, QuoteAutocompleteView
+from configurator.views.configuration.autocomplete_views import ClientAutocompleteView, AssetAutocompleteView, QuoteAutocompleteView, ProjectFileAutocompleteView
 from configurator.services.receival_slip_service import ReceivalSlipService
 from import_export.admin import ImportExportModelAdmin
 from unfold.contrib.import_export.forms import ExportForm, ImportForm, SelectableFieldsExportForm
@@ -65,17 +65,17 @@ class ConfigurationComponentGroupInline(StackedInline):
         return super().formfield_for_manytomany(db_field, request, **kwargs)
 
     def has_change_permission(self, request, obj=None):
-        if obj and obj.status != ConfigurationStatus.DRAFT:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
             return False
         return super().has_change_permission(request, obj)
 
     def has_add_permission(self, request, obj=None):
-        if obj and obj.status != ConfigurationStatus.DRAFT:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
             return False
         return super().has_add_permission(request, obj)
 
     def has_delete_permission(self, request, obj=None):
-        if obj and obj.status != ConfigurationStatus.DRAFT:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
             return False
         return super().has_delete_permission(request, obj)
 
@@ -96,17 +96,17 @@ class AppliedTaxInline(GenericTabularInline):
     verbose_name_plural = _("Applied taxes")
     tab = True
     def has_change_permission(self, request, obj=None):
-        if obj and obj.status != ConfigurationStatus.DRAFT:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
             return False
         return super().has_change_permission(request, obj)
     
     def has_add_permission(self, request, obj=None):
-        if obj and obj.status != ConfigurationStatus.DRAFT:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
             return False
         return super().has_add_permission(request, obj)
 
     def has_delete_permission(self, request, obj=None):
-        if obj and obj.status != ConfigurationStatus.DRAFT:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
             return False
         return super().has_delete_permission(request, obj)
 
@@ -125,17 +125,17 @@ class ParameterValueInline(TabularInline):
     verbose_name_plural = _("Parameter values")
     
     def has_change_permission(self, request, obj=None):
-        if obj and obj.status != ConfigurationStatus.DRAFT:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
             return False
         return super().has_change_permission(request, obj)
     
     def has_add_permission(self, request, obj=None):
-        if obj and obj.status != ConfigurationStatus.DRAFT:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
             return False
         return super().has_add_permission(request, obj)
 
     def has_delete_permission(self, request, obj=None):
-        if obj and obj.status != ConfigurationStatus.DRAFT:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
             return False
         return super().has_delete_permission(request, obj)
 
@@ -159,17 +159,17 @@ class ConfigurationItemInline(StackedInline):
     )
 
     def has_change_permission(self, request, obj=None):
-        if obj and obj.status != ConfigurationStatus.DRAFT:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
             return False
         return super().has_change_permission(request, obj)
     
     def has_add_permission(self, request, obj=None):
-        if obj and obj.status != ConfigurationStatus.DRAFT:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
             return False
         return super().has_add_permission(request, obj)
 
     def has_delete_permission(self, request, obj=None):
-        if obj and obj.status == ConfigurationStatus.COMPLETED:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE] and obj.status == ConfigurationStatus.COMPLETED:
             return False
         return super().has_delete_permission(request, obj)
 
@@ -185,17 +185,17 @@ class PricingRuleAssignmentInline(TabularInline):
     verbose_name_plural = _("Pricing rule assignments")
 
     def has_change_permission(self, request, obj=None):
-        if obj and obj.status == ConfigurationStatus.COMPLETED:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE] and obj.status == ConfigurationStatus.COMPLETED:
             return False
         return super().has_change_permission(request, obj)
     
     def has_add_permission(self, request, obj=None):
-        if obj and obj.status == ConfigurationStatus.COMPLETED:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE] and obj.status == ConfigurationStatus.COMPLETED:
             return False
         return super().has_add_permission(request, obj)
 
     def has_delete_permission(self, request, obj=None):
-        if obj and obj.status == ConfigurationStatus.COMPLETED:
+        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE] and obj.status == ConfigurationStatus.COMPLETED:
             return False
         return super().has_delete_permission(request, obj)
 
@@ -220,6 +220,11 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
             "quote_autocomplete",
             QuoteAutocompleteView.as_view(),
         ),
+        (
+            "autocomplete/project/",
+            "project_autocomplete",
+            ProjectFileAutocompleteView.as_view(),
+        ),
     )
     list_display = (
         "id",
@@ -241,6 +246,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
     readonly_fields = ("total_price","total_cost","subtotal_price","company")
     actions_row = ["export_configuration_to_template", 
                    "convert_to_production",
+                   "record_actual_values",
                    "create_receival_slip_action",
                    "view_receival_slips"]
     autocomplete_fields = ["client","product","asset","quote"]
@@ -261,6 +267,8 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
             _(ConfigurationStatus.COMPLETED.label): "success",  # green
             _(ConfigurationStatus.DRAFT.label): "info",  # blue
             _(ConfigurationStatus.CONVERTED.label): "warning",  # orange
+            _(ConfigurationStatus.PRODUCTION_DONE.label): "success", # purple/grey
+            _(ConfigurationStatus.SHOP.label): "warning", # purple/grey
         },
     )
     def show_status_customized_color(self, obj):
@@ -297,8 +305,33 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
             excluded_from_readonly = {"quote", "client"}
             all_fields = [f for f in all_fields if f not in excluded_from_readonly]
             
+            if obj.status == ConfigurationStatus.PRODUCTION_DONE:
+                 return list(readonly) # Allow editing everything? 
+                 # Wait, the user wants them to go to the wizard. 
+                 # But if they are in the admin form, we should probably allow some edits too.
+            
             return list(set(list(readonly) + all_fields))
         return readonly
+
+    def get_wizard_view(self, product_id):
+        from configurator.models import ProductTemplate, ProductFlowKind
+        from configurator.views.configuration.shop_wizard_views import ShopConfigurationWizardView
+        from configurator.views import ConfigurationWizardView
+        
+        product = ProductTemplate.objects.get(pk=product_id)
+        if product.flow_kind == ProductFlowKind.SHOP:
+            return ShopConfigurationWizardView
+        return ConfigurationWizardView
+
+    def get_wizard_view_for_config(self, config_id):
+        from configurator.models import Configuration, ProductFlowKind
+        from configurator.views.configuration.shop_wizard_views import ShopConfigurationWizardView
+        from configurator.views import ConfigurationWizardView
+        
+        config = Configuration.objects.get(pk=config_id)
+        if config.product.flow_kind == ProductFlowKind.SHOP:
+            return ShopConfigurationWizardView
+        return ConfigurationWizardView
 
     
     def get_urls(self):
@@ -312,8 +345,17 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
             ),
             path(
                 "wizard/<int:product_id>/",
-                self.admin_site.admin_view(ConfigurationWizardView.as_view(model_admin=self)),
+                self.admin_site.admin_view(
+                    lambda request, product_id: self.get_wizard_view(product_id).as_view(model_admin=self)(request, product_id=product_id)
+                ),
                 name="configurator_configuration_wizard_form",
+            ),
+            path(
+                "wizard/edit/<int:product_id>/<int:config_id>/",
+                self.admin_site.admin_view(
+                    lambda request, product_id, config_id: self.get_wizard_view_for_config(config_id).as_view(model_admin=self)(request, product_id=product_id, config_id=config_id)
+                ),
+                name="configurator_configuration_wizard_edit",
             ),
             path(
             "<int:config_id>/export/",
@@ -358,7 +400,10 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
         return obj.total_price
     
     @action(
-    description=_("Convert to production"))
+    description=_("Convert to production"),
+    attrs={"target": "_blank"}
+
+)
     def convert_to_production(self, request: HttpRequest, object_id: int):
         config = Configuration.objects.get(pk=object_id)
         
@@ -401,3 +446,20 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
     def view_receival_slips(self, request: HttpRequest, object_id: int):
         url = reverse("admin:configurator_receivalslip_changelist")
         return redirect(f"{url}?configuration__id__exact={object_id}")
+
+    @action(
+        description=_("Record Actual Values"),
+        url_path="record-actual-values",
+    )
+    def record_actual_values(self, request, object_id: int):
+        config = Configuration.objects.get(pk=object_id)
+        if config.status != ConfigurationStatus.SHOP:
+            self.message_user(
+                request,
+                _("Cannot record actual values. The configuration must be in production."),
+                messages.ERROR
+            )
+            return redirect(request.META.get('HTTP_REFERER', 'admin:configurator_configuration_changelist'))
+             
+        url = reverse("admin:configurator_configuration_wizard_edit", args=[config.product_id,object_id])
+        return redirect(url)

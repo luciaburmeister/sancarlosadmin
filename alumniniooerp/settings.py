@@ -97,6 +97,8 @@ INSTALLED_APPS = [
     'hijack.contrib.admin',
     'company',
     'management',
+    'vacations',
+    'django_filters',
     'purchasing',
     'vacations',
     "payments"
@@ -286,6 +288,13 @@ CRISPY_TEMPLATE_PACK = "unfold_crispy"
 CRISPY_ALLOWED_TEMPLATE_PACKS = ["unfold_crispy"]
 
 LANGUAGE_CODE = "es"
+
+LOCATION_FIELD = {
+    'map.provider': 'openstreetmap',
+    'search.provider': 'nominatim',
+    'provider.nominatim.country_codes': 'es',
+    'provider.openstreetmap.tiles': 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+}
 
 USE_I18N = True
 
@@ -583,10 +592,13 @@ UNFOLD = {
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',  
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
+    ),
+    'DEFAULT_FILTER_BACKENDS': (
+        'django_filters.rest_framework.DjangoFilterBackend',
     ),
 }
 

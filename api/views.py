@@ -7,16 +7,19 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework.response import Response
+from rest_framework import generics, filters
+from django_filters.rest_framework import DjangoFilterBackend
 import json
 import math
 import qrcode
 import io
 from company.models import WorkAttendance, Employee
 from decimal import Decimal
+from assets.constants import MAX_ZONE_RADIUS_M
+from assets.serializers import WorkingZoneSerializer, ClientSerializer
+from assets.models import Client
 
 
-# ✅ Custom login view that returns access + refresh + user info
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def validate(self, attrs):
         data = super().validate(attrs)
@@ -53,7 +56,7 @@ def get_zone_coordinates(zone):
         return None, None
 
 
-def find_zone_within_radius(latitude, longitude, company, radius_metres=100):
+def find_zone_within_radius(latitude, longitude, company, radius_metres=MAX_ZONE_RADIUS_M):
     zones = WorkingZone.objects.filter(company=company, is_active=True)
     for zone in zones:
         zone_lat, zone_lon = get_zone_coordinates(zone)
@@ -85,7 +88,7 @@ def assets_view(request):
         assets = Asset.objects.select_related("asset_type", "current_working_zone").filter(assigned_to=employee)
     except Exception:
         return JsonResponse({"assets": []})
-   
+
     data = []
     for asset in assets:
         last_tx = asset.transactions.order_by("-date").first()
@@ -101,6 +104,8 @@ def assets_view(request):
             "zone_address": f"{zone.street_address}, {zone.city}, {zone.postal_code}" if zone else None,
             "zone_lat": zone_coords[0],
             "zone_lon": zone_coords[1],
+            "cliente": asset.client.name if asset.client else "",
+            "obra": str(zone) if zone else "",
         })
 
     return JsonResponse({"assets": data})
@@ -135,6 +140,8 @@ def asset_by_id_view(request, asset_id):
         "zone_lon": zone_coords[1],
         "assigned_to": asset.assigned_to.user.username if asset.assigned_to and asset.assigned_to.user else None,
         "assigned_to_me": asset.assigned_to == user.employee_profile,
+        "cliente": asset.client.name if asset.client else "",
+        "obra": str(asset.current_working_zone) if asset.current_working_zone else "",
     })
 
 
@@ -161,6 +168,7 @@ def assign_view(request, asset_id):
 
     return JsonResponse({"success": True, "message": f"Cubo {asset.name} asignado a {employee.full_name}"})
 
+
 @require_http_methods(["GET"])
 def asset_qr_view(request, asset_id):
     try:
@@ -180,16 +188,49 @@ def asset_qr_view(request, asset_id):
     return HttpResponse(buffer, content_type="image/png")
 
 
+class zones_view(generics.ListAPIView):
+    """
+    Returns active zones for the user's company.
+    Supports ?zone_type=obra or ?zone_type=vertedero filtering automatically.
+    """
+    serializer_class = WorkingZoneSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
+    filterset_fields = ["zone_type"]
+    ordering = ["name"]
+
+    def get_queryset(self):
+        company = self.request.user.employee_profile.company
+        return WorkingZone.objects.filter(company=company, is_active=True)
+
+
+class clients_view(generics.ListAPIView):
+    """
+    Returns all clients for the user's company.
+    """
+    serializer_class = ClientSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [filters.OrderingFilter]
+    ordering = ["name"]
+
+    def get_queryset(self):
+        company = self.request.user.employee_profile.company
+        return Client.objects.filter(company=company)
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def pickup_view(request, asset_id):
     user = request.user
 
     try:
-        data = json.loads(request.body)
-        latitude = data.get("latitude", 0)
-        longitude = data.get("longitude", 0)
-        firma = data.get("firma", "")
+        raw = json.loads(request.body)
+        latitude = raw.get("latitude", 0)
+        longitude = raw.get("longitude", 0)
+        firma = raw.get("firma", "")
+        # All fields except the fixed GPS/firma ones are saved automatically.
+        # No backend changes needed when the form adds new fields.
+        form_data = {k: v for k, v in raw.items() if k not in ("latitude", "longitude", "firma")}
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
@@ -207,10 +248,10 @@ def pickup_view(request, asset_id):
 
     distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
 
-    if distance > 100:
+    if distance > MAX_ZONE_RADIUS_M:
         return JsonResponse({
             "error": f"Estás demasiado lejos de {asset.current_working_zone}. "
-                     f"Estás a {int(distance)}m. Debes estar a menos de 100m."
+                     f"Estás a {int(distance)}m. Debes estar a menos de {MAX_ZONE_RADIUS_M}m."
         }, status=400)
 
     AssetTransaction.objects.create(
@@ -220,8 +261,10 @@ def pickup_view(request, asset_id):
         to_zone=None,
         transaction_type=TransactionTypeChoices.MOVEMENT,
         date=timezone.now(),
+        performed_by=user.employee_profile,
         notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
-        firma = firma,
+        firma=firma,
+        data=form_data,
     )
 
     return JsonResponse({"success": True, "message": "Recogida registrada"})
@@ -233,10 +276,13 @@ def deliver_view(request, asset_id):
     user = request.user
 
     try:
-        data = json.loads(request.body)
-        latitude = data.get("latitude", 0)
-        longitude = data.get("longitude", 0)
-        firma = data.get("firma", "")  
+        raw = json.loads(request.body)
+        latitude = raw.get("latitude", 0)
+        longitude = raw.get("longitude", 0)
+        firma = raw.get("firma", "")
+        # All fields except the fixed GPS/firma ones are saved automatically.
+        # No backend changes needed when the form adds new fields.
+        form_data = {k: v for k, v in raw.items() if k not in ("latitude", "longitude", "firma")}
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
 
@@ -248,18 +294,20 @@ def deliver_view(request, asset_id):
     destination_zone, distance = find_zone_within_radius(latitude, longitude, asset.company)
     if destination_zone is None:
         return JsonResponse({
-            "error": "No estás cerca de ninguna zona de entrega conocida. Debes estar a menos de 10m."
+            "error": "No estás cerca de ninguna zona de entrega conocida."
         }, status=400)
 
     AssetTransaction.objects.create(
         asset=asset,
         company=asset.company,
-        from_zone=None,
+        from_zone=asset.current_working_zone,
         to_zone=destination_zone,
         transaction_type=TransactionTypeChoices.DELIVERY,
         date=timezone.now(),
+        performed_by=user.employee_profile,
         notes=f"Entregado por {user.username} en {destination_zone}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
-        firma = firma,
+        firma=firma,
+        data=form_data,
     )
 
     asset.current_working_zone = destination_zone
@@ -269,6 +317,31 @@ def deliver_view(request, asset_id):
         "success": True,
         "message": f"Entrega registrada en {destination_zone}"
     })
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def check_delivery_location_view(request, asset_id):
+    try:
+        data = json.loads(request.body)
+        latitude = data.get("latitude", 0)
+        longitude = data.get("longitude", 0)
+    except json.JSONDecodeError:
+        return JsonResponse({"error": "Invalid JSON"}, status=400)
+
+    try:
+        asset = Asset.objects.get(id=asset_id)
+    except Asset.DoesNotExist:
+        return JsonResponse({"error": "Asset not found"}, status=404)
+
+    destination_zone, distance = find_zone_within_radius(latitude, longitude, asset.company)
+    if destination_zone is None:
+        return JsonResponse({
+            "allowed": False,
+            "error": "No estás cerca de ninguna zona de entrega. Acércate más."
+        }, status=200)
+
+    return JsonResponse({"allowed": True})
 
 
 @api_view(["POST"])
@@ -288,7 +361,6 @@ def clock_in_view(request):
     except Exception:
         return JsonResponse({"error": "No employee profile found for this user"}, status=400)
 
-    # Check if already clocked in today without clocking out
     existing = WorkAttendance.objects.filter(
         employee=employee,
         clock_out_time__isnull=True
@@ -330,7 +402,6 @@ def clock_out_view(request):
     except Exception:
         return JsonResponse({"error": "No employee profile found for this user"}, status=400)
 
-    # Find the open attendance record
     attendance = WorkAttendance.objects.filter(
         employee=employee,
         clock_out_time__isnull=True
@@ -349,6 +420,7 @@ def clock_out_view(request):
         "message": "Salida registrada",
         "clock_out_time": attendance.clock_out_time.strftime("%d/%m/%Y %H:%M:%S"),
     })
+
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])

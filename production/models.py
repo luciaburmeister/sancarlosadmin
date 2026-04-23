@@ -131,56 +131,42 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
         if not items:
             return None
 
-        # 1. Build comprehensive stage order
-        base_stages = []
+        # 1. Get global stage order from product template
+        product_stages = []
         if self.source_object and hasattr(self.source_object, 'product'):
-             base_stages = [
-                 unicodedata.normalize("NFC", s) 
-                 for s in (getattr(self.source_object.product, "production_stages", []) or [])
-             ]
-        
-        all_item_stages = set()
-        for item in items:
-            if item.planning:
-                all_item_stages.update(unicodedata.normalize("NFC", k) for k in item.planning.keys())
-        
-        stage_order = list(base_stages)
-        extras = sorted([s for s in all_item_stages if s not in stage_order])
-        stage_order.extend(extras)
-        
-        if not stage_order:
-            return None
+             product_stages = list(getattr(self.source_object.product, "production_stages", []) or [])
 
-        # 2. Find current stage for each relevant item
-        active_indices = []
+        candidates = [] # (stage_name, weight)
         
         for item in items:
-            if not item.planning:
+            ordered = item.get_ordered_planning()
+            if not ordered:
                 continue
-                
-            planning = {unicodedata.normalize("NFC", k): v for k, v in item.planning.items()}
-            for idx, sname in enumerate(stage_order):
-                if sname not in planning:
-                    continue
-                info = planning.get(sname, {})
-                status = (info.get("status") or ProductionItemStatus.PENDING)
+            
+            # Find the FIRST non-done stage for this item
+            for i, (sname, info) in enumerate(ordered):
+                status = (info or {}).get("status") or ProductionItemStatus.PENDING
                 if status != ProductionItemStatus.DONE:
-                    active_indices.append((idx, sname, status))
+                    # Use global index as weight to compare across items
+                    try:
+                        weight = product_stages.index(sname)
+                    except ValueError:
+                        weight = 1000 + i # Extras at the end
+                        
+                    candidates.append((sname, weight))
                     break
         
-        if not active_indices:
+        if not candidates:
             if any(item.planning for item in items):
                 from django.utils.translation import gettext as _
                 return _("Done")
             return None
 
-        # 3. Aggregate: Pick the MOST ADVANCED (MAX) index
-        latest_idx = max(idx for idx, _, _ in active_indices)
+        # Aggregate: Pick the stage that is most advanced (highest index in planning)
+        # across all items.
+        best_stage, _ = min(candidates, key=lambda x: x[1])
         
-        candidates = [ (sname, status) for idx, sname, status in active_indices if idx == latest_idx]
-        chosen_stage = candidates[0][0]
-
-        return f"{chosen_stage}"
+        return best_stage
 
 
 class ProductionItemStatus(models.TextChoices):
@@ -277,6 +263,9 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
             product = getattr(self.ticket.source_object, "product", None)
             if product:
                 stage_order = list(product.production_stages or [])
+        
+        if stage_order is None:
+            stage_order = []
 
         def sort_key(item):
             stage_name = item[0]

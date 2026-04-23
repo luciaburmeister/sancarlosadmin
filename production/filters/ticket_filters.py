@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 from django.core.cache import cache
 
-from production.models import ProductionItem
+from production.models import ProductionItem, ProductionTicketStatus
 from production.constants import (
     TICKET_STAGE_LOOKUPS_KEY,
     TICKET_STAGE_STATUS_LOOKUPS_KEY,

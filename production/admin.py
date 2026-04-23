@@ -6,7 +6,8 @@ from django.utils.html import format_html
 from django.urls import path, reverse
 from core.admin.company_admin import CompanyRestrictedAdmin
 from unfold.contrib.filters.admin import (
-    AutocompleteSelectMultipleFilter
+    AutocompleteSelectMultipleFilter,
+    MultipleChoicesDropdownFilter
 )
 from unfold.admin import ModelAdmin, TabularInline, StackedInline
 from unfold.decorators import display
@@ -20,7 +21,7 @@ from production.models import (
     PlannedSessionResource,
     ProductionResource,
     OperationRequirement,
-    ProductionTicketStatus
+    ProductionTicketStatus,
 )
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
 from production.views.production_item_stages_view import ProductionItemAdvanceStageView
@@ -115,14 +116,14 @@ class ProductionItemInline(TabularInline):
 class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     change_form_template = "admin/production/productionticket/change_form.html"
 
-    list_display = ("id", "company", "source_object", "show_status_customized_color", "created_at", "go_to_stages_display")
+    list_display = ("id", "company", "source_object", "show_status_customized_color", "last_stage_label", "created_at", "go_to_stages_display")
 
     list_filter = (
         ("company",AutocompleteSelectMultipleFilter),
+        ("status",MultipleChoicesDropdownFilter),
         TicketStageFilter,
         TicketStageStatusFilter,
-        "status",
-        "content_type",
+        "last_stage_label",
     )
 
     search_fields = ("object_id",)
@@ -131,6 +132,7 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     inlines = [ProductionItemInline]
     autocomplete_fields = ("company",)
+    list_filter_submit = True
 
     readonly_fields = (
         "content_type",
@@ -147,6 +149,7 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 "fields": (
                     "company",
                     "status",
+                    "last_stage_label",
                     ("content_type", "object_id"),
                     "source_object",
                     "project_file",

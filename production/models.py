@@ -10,6 +10,7 @@ from django.utils import timezone
 from django.db.models import Q
 from django.core.exceptions import ValidationError
 from materials.models import Component
+import unicodedata
 
 
 class ProductionTicketStatus(models.TextChoices):
@@ -59,6 +60,14 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
         verbose_name=_("Project File")
     )
 
+    last_stage_label = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name=_("Last Stage")
+    )
+
 
     def __str__(self):
         return str(self.pk)
@@ -66,6 +75,7 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
     class Meta:
         indexes = [
             models.Index(fields=["content_type", "object_id"]),
+            models.Index(fields=["company", "last_stage_label"]),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -100,16 +110,77 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
 
     def recompute_status(self):
         new_status = self.compute_status_from_items()
+        new_label = self.compute_last_stage_label()
 
-        if new_status != self.status:
-            ProductionTicket.objects.filter(pk=self.pk).update(status=new_status)
+        if new_status != self.status or new_label != self.last_stage_label:
+            ProductionTicket.objects.filter(pk=self.pk).update(
+                status=new_status,
+                last_stage_label=new_label
+            )
             self.status = new_status
+            self.last_stage_label = new_label
 
             if new_status == ProductionTicketStatus.DONE:
                 from configurator.models import Configuration, ConfigurationStatus
                 if isinstance(self.source_object, Configuration):
                     self.source_object.status = ConfigurationStatus.PRODUCTION_DONE
                     self.source_object.save(update_fields=["status"])
+
+    def compute_last_stage_label(self):
+        items = list(self.items.all())
+        if not items:
+            return None
+
+        # 1. Build comprehensive stage order
+        base_stages = []
+        if self.source_object and hasattr(self.source_object, 'product'):
+             base_stages = [
+                 unicodedata.normalize("NFC", s) 
+                 for s in (getattr(self.source_object.product, "production_stages", []) or [])
+             ]
+        
+        all_item_stages = set()
+        for item in items:
+            if item.planning:
+                all_item_stages.update(unicodedata.normalize("NFC", k) for k in item.planning.keys())
+        
+        stage_order = list(base_stages)
+        extras = sorted([s for s in all_item_stages if s not in stage_order])
+        stage_order.extend(extras)
+        
+        if not stage_order:
+            return None
+
+        # 2. Find current stage for each relevant item
+        active_indices = []
+        
+        for item in items:
+            if not item.planning:
+                continue
+                
+            planning = {unicodedata.normalize("NFC", k): v for k, v in item.planning.items()}
+            for idx, sname in enumerate(stage_order):
+                if sname not in planning:
+                    continue
+                info = planning.get(sname, {})
+                status = (info.get("status") or ProductionItemStatus.PENDING)
+                if status != ProductionItemStatus.DONE:
+                    active_indices.append((idx, sname, status))
+                    break
+        
+        if not active_indices:
+            if any(item.planning for item in items):
+                from django.utils.translation import gettext as _
+                return _("Done")
+            return None
+
+        # 3. Aggregate: Pick the MOST ADVANCED (MAX) index
+        latest_idx = max(idx for idx, _, _ in active_indices)
+        
+        candidates = [ (sname, status) for idx, sname, status in active_indices if idx == latest_idx]
+        chosen_stage = candidates[0][0]
+
+        return f"{chosen_stage}"
 
 
 class ProductionItemStatus(models.TextChoices):

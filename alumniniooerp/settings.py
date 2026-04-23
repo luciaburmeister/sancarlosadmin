@@ -12,7 +12,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from dotenv import load_dotenv
-from django.urls import reverse_lazy
+from django.urls import reverse_lazy, reverse
+from django.utils.functional import lazy
 import os
 from django.utils.translation import gettext_lazy as _
 from django.templatetags.static import static
@@ -519,9 +520,7 @@ UNFOLD = {
                     {
                         "title": _("Production Tickets"),
                         "icon": "brick",
-                        "link": reverse_lazy(
-                            "admin:production_productionticket_changelist"
-                        ),
+                        "link": lazy(lambda: f"{reverse('admin:production_productionticket_changelist')}?status__exact=pending&status__exact=in_progress", str)(),
                         "permission": lambda request: request.user.has_perm(
                             "production.view_productionticket"
                         ),

@@ -20,6 +20,7 @@ from production.models import (
     PlannedSessionResource,
     ProductionResource,
     OperationRequirement,
+    ProductionTicketStatus
 )
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
 from production.views.production_item_stages_view import ProductionItemAdvanceStageView
@@ -114,7 +115,7 @@ class ProductionItemInline(TabularInline):
 class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     change_form_template = "admin/production/productionticket/change_form.html"
 
-    list_display = ("id", "company", "source_object", "status", "created_at", "go_to_stages_display")
+    list_display = ("id", "company", "source_object", "show_status_customized_color", "created_at", "go_to_stages_display")
 
     list_filter = (
         ("company",AutocompleteSelectMultipleFilter),
@@ -155,6 +156,20 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
             },
         ),
     )
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            _(ProductionTicketStatus.DONE.label): "success",  # green
+            _(ProductionTicketStatus.PENDING.label): "info",  # blue
+            _(ProductionTicketStatus.IN_PROGRESS.label): "warning",  # orange
+            _(ProductionTicketStatus.CANCELLED.label): "danger",  # red
+            
+        },
+    )
+    def show_status_customized_color(self, obj):
+        return _(obj.get_status_display())
 
     @display(description=_("Stages"))
     def go_to_stages_display(self, obj):

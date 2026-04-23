@@ -29,6 +29,7 @@ urlpatterns = [
     path("health/", health, name="health"),
     path("i18n/", include("django.conf.urls.i18n")),
     path('hijack/', include('hijack.urls')),
+    path("api/", include("api.urls")),
 ] 
 
 
@@ -43,5 +44,4 @@ urlpatterns += i18n_patterns(
     path('password_reset/done/', CustomPasswordResetDoneView.as_view(), name='password_reset_done'),
     path('reset/<uidb64>/<token>/', CustomPasswordResetConfirmView.as_view(), name='password_reset_confirm'),
     path('reset/done/', CustomPasswordResetCompleteView.as_view(), name='password_reset_complete'),
-    path("api/", include("api.urls")),
 )

@@ -15,7 +15,7 @@ import qrcode
 import io
 from company.models import WorkAttendance, Employee
 from decimal import Decimal
-from assets.constants import MAX_ZONE_RADIUS_M
+from api.constants import MAX_ZONE_RADIUS_M
 from assets.serializers import WorkingZoneSerializer, ClientSerializer
 from assets.models import Client
 

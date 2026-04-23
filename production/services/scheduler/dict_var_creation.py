@@ -78,9 +78,9 @@ def optimization_dict_creation(
     stage_resource_types : dict[tuple[ConfigurationItem, str], list[tuple[ContentType, int]]]
         Dict mapping stages to a list of their required resource types [ContentType, type__pk]
     stage_resource_type_quantity : dict[tuple[ConfigurationItem, str, tuple[ContentType, int]], int]
-        Dict mapping stages' resurce types to their needed quantity
+        Dict mapping stages' resource types to their needed quantity
     stage_duration : dict[tuple[ConfigurationItem, str], int]
-        Dict mappint stages to their duration
+        Dict mapping stages to their duration
     resource_type_active_resources : dict[tuple[ContentType, int], list[ProductionResource]]
         Dict mapping resource types to a list of the active production resources of that type
     resource_parallel_capacity : dict[ProductionResource, int]
@@ -125,30 +125,48 @@ def optimization_dict_creation(
                 company_times_by_weekday[company][slot.weekday].extend(
                     times_every_n_minutes(slot.start_time, slot.end_time, ts)
                 )
-        
+
         # Dictionary of margin per configuration
         configuration_margin[configuration] = float(
             configuration.total_price.amount - configuration.total_cost.amount
         )
 
         configuration_items[configuration] = []
-        # Dictionarys of resource types per stage per item per configuration
-        for item in configuration.items.select_related("component"):
+
+        # Dictionaries of resource types per stage per item per configuration
+        for item in configuration.items.select_related("component").filter(is_template_item=True):
             configuration_items[configuration].append(item)
+
             item_stages[item] = []
-            for stage, stage_info in item.stage_resources.items():
+
+            item_stage_resources = item.stage_resources or {}
+            ordered_production_stages = item.production_stages or []
+
+            for stage in ordered_production_stages:
+                stage_info = item_stage_resources.get(stage, {})
+
+                if not stage_info or "total_time_min" not in stage_info:
+                    continue
+
                 item_stages[item].append(stage)
                 stage_resource_types[(item, stage)] = []
+
+                seen_stage_resource_types = set()
+
                 for machine_type in stage_info.get("machine_types", []):
                     rt = (machine_ct, machine_type["machine_type_id"])
-                    stage_resource_types[(item, stage)].append(rt)
+                    if rt not in seen_stage_resource_types:
+                        stage_resource_types[(item, stage)].append(rt)
+                        seen_stage_resource_types.add(rt)
                     stage_resource_type_quantity[(item, stage, rt)] = machine_type["quantity"]
 
                 for employee_type in stage_info.get("employee_types", []):
                     rt = (employee_ct, employee_type["employee_type_id"])
-                    stage_resource_types[(item, stage)].append(rt)
+                    if rt not in seen_stage_resource_types:
+                        stage_resource_types[(item, stage)].append(rt)
+                        seen_stage_resource_types.add(rt)
                     stage_resource_type_quantity[(item, stage, rt)] = employee_type["quantity"]
-                
+
                 resource_types.update(stage_resource_types[(item, stage)])
                 stage_duration[(item, stage)] = stage_info["total_time_min"]
 

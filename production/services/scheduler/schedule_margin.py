@@ -1,3 +1,5 @@
+import math
+
 from configurator.models import Configuration
 from production.services.scheduler.dict_var_creation import optimization_dict_creation
 from production.services.scheduler.schedule_proposal import ScheduleProposal, ScheduledAssignment
@@ -10,40 +12,327 @@ from typing import Any
 class MarginScheduler(ScheduleStrategy):
     def __init__(self, optimization_params):
         self.ts = optimization_params["ts"]
-
-    @staticmethod
-    def _previous_slot_day(d, t, minutes=10):
-        current_dt = datetime.combine(d, t)
-        prev_dt = current_dt - timedelta(minutes=minutes)
-        return prev_dt.date()
-
-    @staticmethod
-    def _previous_slot_time(d, t, minutes=10):
-        current_dt = datetime.combine(d, t)
-        prev_dt = current_dt - timedelta(minutes=minutes)
-        return prev_dt.time()
     
     @staticmethod
     def _var_value_is_one(var: pulp.LpVariable, tol: float = 1e-5) -> bool:
         value = pulp.value(var)
         return value is not None and value >= 1 - tol
+    
+    @staticmethod
+    def _slot_indexed_company_slots(possible_days_weekday, company_times_by_weekday, companies):
+        """
+        Build ordered slot lists per company.
 
-    def _variable_definition(
+        Returns
+        -------
+        dict[Company, list[tuple[date, time]]]
+            Ordered slots for each company.
+        """
+        return {
+            company: [
+                (d, t)
+                for d, wd in sorted(possible_days_weekday.items())
+                for t in company_times_by_weekday[company].get(wd, [])
+            ]
+            for company in companies
+        }
+    
+    @staticmethod
+    def _stage_required_slots(stage_duration, ts):
+        """
+        Convert stage duration in minutes to required number of slots.
+        """
+        return {
+            key: math.ceil(duration / ts)
+            for key, duration in stage_duration.items()
+        }
+    
+    @staticmethod
+    def _item_stage_suffix_slots(configuration_items, item_stages, stage_required_slots):
+        """
+        For each (item, stage), how many slots are needed from that stage to the end
+        of the item's sequence.
+        """
+        suffix = {}
+
+        for item in {i for items in configuration_items.values() for i in items}:
+            running = 0
+            for stage in reversed(item_stages[item]):
+                running += stage_required_slots[(item, stage)]
+                suffix[(item, stage)] = running
+
+        return suffix
+    
+    @staticmethod
+    def _valid_stage_start_positions(
+        company_ordered_slots,
+        configuration_company,
+        configurations,
+        configuration_items,
+        item_stages,
+        stage_suffix_slots,
+    ):
+        """
+        Stage starts are bounded so that the stage itself and all later stages can fit.
+        This is a big pruning win.
+        """
+        valid_start_positions = {}
+
+        for c in configurations:
+            company = configuration_company[c]
+            total_slots = len(company_ordered_slots[company])
+
+            for i in configuration_items[c]:
+                for s in item_stages[i]:
+                    needed_for_rest_of_item = stage_suffix_slots[(i, s)]
+                    latest_start = max(0, total_slots - needed_for_rest_of_item + 1)
+                    valid_start_positions[(c, i, s)] = list(range(latest_start))
+
+        return valid_start_positions
+
+    @staticmethod
+    def _covering_start_positions(valid_start_positions, stage_required_slots):
+        """
+        For each stage and slot position p, returns the start positions that make the
+        stage active at p.
+
+        If a stage starts at tau and needs n slots, it is active at positions:
+            tau, tau+1, ..., tau+n-1
+        """
+        covering_start_positions = {}
+
+        for key, starts in valid_start_positions.items():
+            i, s = key[1], key[2]
+            needed_slots = stage_required_slots[(i, s)]
+
+            if not starts:
+                covering_start_positions[key] = {}
+                continue
+
+            max_pos = starts[-1] + needed_slots
+            stage_cover = {}
+
+            for pos in range(max_pos):
+                stage_cover[pos] = [
+                    tau
+                    for tau in starts
+                    if tau <= pos < tau + needed_slots
+                ]
+
+            covering_start_positions[key] = stage_cover
+
+        return covering_start_positions
+    
+    @staticmethod
+    def _resource_symmetry_groups(resource_type_active_resources, resource_parallel_capacity, resource_daily_capacity_minutes):
+        """
+        Group interchangeable resources. Only resources with the same type and the
+        same capacities are treated as symmetric.
+        """
+        groups = {}
+
+        for rt, resources in resource_type_active_resources.items():
+            for r in resources:
+                key = (
+                    rt,
+                    r.company_id,
+                    resource_parallel_capacity[r],
+                    resource_daily_capacity_minutes[r],
+                )
+                groups.setdefault(key, []).append(r)
+
+        return [sorted(resources, key=lambda r: r.pk) for resources in groups.values() if len(resources) > 1]
+    
+    def _should_use_warm_start(
         self,
         configurations,
-        possible_days_weekday,
         configuration_company,
-        company_times_by_weekday,
+        company_ordered_slots,
         configuration_items,
         item_stages,
         stage_resource_types,
         stage_resource_type_quantity,
         resource_type_active_resources,
+    ):
+        estimated = 0
+
+        for c in configurations:
+            slot_count = len(company_ordered_slots[configuration_company[c]])
+
+            for i in configuration_items[c]:
+                for s in item_stages[i]:
+                    estimated += slot_count  # start variables
+
+                    for rt in stage_resource_types[(i, s)]:
+                        qty = stage_resource_type_quantity[(i, s, rt)]
+                        rcount = len(resource_type_active_resources[rt])
+
+                        estimated += slot_count * qty * rcount  # x variables
+                        estimated += qty * rcount               # z variables
+
+        return estimated >= 3000
+    
+    def _apply_greedy_warm_start(
+        self,
+        variable_set,
+        configurations,
+        configuration_margin,
+        configuration_company,
+        company_ordered_slots,
+        configuration_items,
+        item_stages,
+        stage_resource_types,
+        stage_resource_type_quantity,
+        stage_required_slots,
+        valid_start_positions,
+        resource_type_active_resources,
+    ):
+        """
+        Build a feasible greedy start:
+        - sort configurations by margin descending
+        - place each stage at the earliest feasible position
+        - choose the first free interchangeable resource(s)
+        """
+        resource_to_type = {
+            r: rt
+            for rt, resources in resource_type_active_resources.items()
+            for r in resources
+        }
+        resource_order = {
+            rt: sorted(resources, key=lambda r: r.pk)
+            for rt, resources in resource_type_active_resources.items()
+        }
+
+        occupied = {r: set() for r in resource_to_type}
+
+        def resource_is_free(resource, slot_range, local_occupied):
+            occ = local_occupied[resource]
+            return all(pos not in occ for pos in slot_range)
+
+        # Default everything to 0
+        for var in variable_set["y"].values():
+            var.setInitialValue(0)
+        for var in variable_set["start"].values():
+            var.setInitialValue(0)
+        for var in variable_set["z"].values():
+            var.setInitialValue(0)
+        for var in variable_set["x"].values():
+            var.setInitialValue(0)
+
+        for c in sorted(configurations, key=lambda c: (-configuration_margin[c], c.pk)):
+            company = configuration_company[c]
+            slots = company_ordered_slots[company]
+            local_occupied = {r: set(v) for r, v in occupied.items()}
+
+            chosen_stages = []
+            earliest_allowed = 0
+            feasible = True
+
+            for i in configuration_items[c]:
+                for s in item_stages[i]:
+                    if not stage_resource_types[(i, s)]:
+                        continue
+
+                    needed_slots = stage_required_slots[(i, s)]
+                    chosen = None
+
+                    for pos in valid_start_positions[(c, i, s)]:
+                        if pos < earliest_allowed:
+                            continue
+
+                        slot_range = range(pos, pos + needed_slots)
+                        chosen_resources = {}
+                        ok = True
+
+                        for rt in stage_resource_types[(i, s)]:
+                            qty = stage_resource_type_quantity[(i, s, rt)]
+                            used_this_stage = set()
+
+                            for q in range(qty):
+                                resource = next(
+                                    (
+                                        r
+                                        for r in resource_order[rt]
+                                        if r not in used_this_stage
+                                        and resource_is_free(r, slot_range, local_occupied)
+                                    ),
+                                    None,
+                                )
+                                if resource is None:
+                                    ok = False
+                                    break
+
+                                used_this_stage.add(resource)
+                                chosen_resources[(rt, q)] = resource
+
+                            if not ok:
+                                break
+
+                        if ok:
+                            chosen = (pos, chosen_resources)
+                            break
+
+                    if chosen is None:
+                        feasible = False
+                        break
+
+                    pos, chosen_resources = chosen
+                    chosen_stages.append((i, s, pos, chosen_resources))
+
+                    # commit occupancy tentatively
+                    for (rt, q), resource in chosen_resources.items():
+                        for slot_pos in range(pos, pos + needed_slots):
+                            local_occupied[resource].add(slot_pos)
+
+                    earliest_allowed = pos + needed_slots
+
+                if not feasible:
+                    break
+
+            if feasible:
+                occupied = local_occupied
+                variable_set["y"][c].setInitialValue(1)
+
+                for i, s, pos, chosen_resources in chosen_stages:
+                    variable_set["start"][(c, i, s, pos)].setInitialValue(1)
+                    needed_slots = stage_required_slots[(i, s)]
+
+                    for (rt, q), resource in chosen_resources.items():
+                        variable_set["z"][(c, i, s, rt, resource, q)].setInitialValue(1)
+                        for slot_pos in range(pos, pos + needed_slots):
+                            variable_set["x"][(c, i, s, slot_pos, resource, q)].setInitialValue(1)
+
+    def _variable_definition(
+        self,
+        configurations,
+        configuration_company,
+        company_ordered_slots,
+        configuration_items,
+        item_stages,
+        stage_resource_types,
+        stage_resource_type_quantity,
+        resource_type_active_resources,
+        valid_start_positions,
     ) -> dict:
+        """
+        Variables
+        ---------
+        x[c,i,s,pos,r,q]
+            1 if at slot position pos, resource r is occupied by stage s copy q
+        
+        y[c]
+            1 if configuration c is selected
+
+        start[c,i,s,pos]
+            1 if stage s of item i in configuration c starts at slot position pos
+
+        z[c,i,s,rt,r,q]
+            1 if for stage s, resource copy q of resource type rt is assigned to resource r
+        """
 
         x = {
-            (c, i, s, d, t, r, q): pulp.LpVariable(
-                f"x_{c.pk}_{i.pk}_{s}_{d}_{t}_{r.pk}_{q}", cat="Binary"
+            (c, i, s, pos, r, q): pulp.LpVariable(
+                f"x_{c.pk}_{i.pk}_{s}_{pos}_{r.pk}_{q}", cat="Binary"
             )
             for c in configurations
             for i in configuration_items[c]
@@ -51,26 +340,36 @@ class MarginScheduler(ScheduleStrategy):
             for rt in stage_resource_types[(i, s)]
             for q in range(stage_resource_type_quantity[(i, s, rt)])
             for r in resource_type_active_resources[rt]
-            for d, wd in possible_days_weekday.items()
-            for t in company_times_by_weekday[configuration_company[c]][wd]
+            for pos in range(len(company_ordered_slots[configuration_company[c]]))
         }
 
         y = {c: pulp.LpVariable(f"y_{c.pk}", cat="Binary") for c in configurations}
 
-        m = {
-            (c, i, s, d, t, rt, q): pulp.LpVariable(
-                f"m_{c.pk}_{i.pk}_{s}_{d}_{t}_{rt[0].pk}_{rt[1]}_{q}", cat="Binary"
+        start = {
+            (c, i, s, pos): pulp.LpVariable(
+                f"start_{c.pk}_{i.pk}_{s}_{pos}",
+                cat="Binary",
+            )
+            for c in configurations
+            for i in configuration_items[c]
+            for s in item_stages[i]
+            for pos in valid_start_positions[(c, i, s)]
+        }
+
+        z = {
+            (c, i, s, rt, r, q): pulp.LpVariable(
+                f"z_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{r.pk}_{q}",
+                cat="Binary",
             )
             for c in configurations
             for i in configuration_items[c]
             for s in item_stages[i]
             for rt in stage_resource_types[(i, s)]
             for q in range(stage_resource_type_quantity[(i, s, rt)])
-            for d, wd in possible_days_weekday.items()
-            for t in company_times_by_weekday[configuration_company[c]][wd]
+            for r in resource_type_active_resources[rt]
         }
 
-        variable_set = {"x": x, "y": y, "m": m}
+        variable_set = {"x": x, "y": y, "start": start, "z": z}
 
         return variable_set
 
@@ -84,14 +383,15 @@ class MarginScheduler(ScheduleStrategy):
         self,
         variable_set,
         configurations,
-        possible_days_weekday,
         configuration_company,
-        company_times_by_weekday,
+        company_ordered_slots,
         configuration_items,
         item_stages,
         stage_resource_types,
         stage_resource_type_quantity,
-        stage_duration,
+        stage_required_slots,
+        valid_start_positions,
+        covering_start_positions,
         resource_type_active_resources,
         resource_parallel_capacity,
         resource_daily_capacity_minutes,
@@ -99,220 +399,123 @@ class MarginScheduler(ScheduleStrategy):
     ):
         constraints = {}
 
-        # If configuration assigned, then stages need to be assigned their duration
+        resource_to_type = {
+            r: rt
+            for rt, resources in resource_type_active_resources.items()
+            for r in resources
+        }
+
+        # Each stage starts exactly once if the configuration is selected
         constraints.update(
             {
-                f"Duration_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}_lower_bound": (
+                f"Stage_start_once_{c.pk}_{i.pk}_{s}": (
                     pulp.lpSum(
-                        variable_set["x"][(c, i, s, d, t, r, 0)]
-                        for d, wd in possible_days_weekday.items()
-                        for t in company_times_by_weekday[configuration_company[c]][wd]
-                        for r in resource_type_active_resources[rt]
-                    ) * ts
-                    >= variable_set["y"][c] * stage_duration[(i, s)],
-                    f"Duration_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}_lower_bound",
+                        variable_set["start"][(c, i, s, pos)]
+                        for pos in valid_start_positions[(c, i, s)]
+                    )
+                    == variable_set["y"][c],
+                    f"Stage_start_once_{c.pk}_{i.pk}_{s}",
                 )
                 for c in configurations
                 for i in configuration_items[c]
                 for s in item_stages[i]
-                for rt in stage_resource_types[(i, s)]
-                for q in range(stage_resource_type_quantity[(i, s, rt)])
             }
         )
 
+        # Each stage-resource-type copy chooses exactly one concrete resource if selected
         constraints.update(
             {
-                f"Duration_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}_upper_bound": (
+                f"Choose_one_resource_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}": (
                     pulp.lpSum(
-                        variable_set["x"][(c, i, s, d, t, r, 0)]
-                        for d, wd in possible_days_weekday.items()
-                        for t in company_times_by_weekday[configuration_company[c]][wd]
-                        for r in resource_type_active_resources[rt]
-                    ) * ts
-                    <= variable_set["y"][c] * stage_duration[(i, s)] + ts -1,
-                    f"Duration_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}_upper_bound",
-                )
-                for c in configurations
-                for i in configuration_items[c]
-                for s in item_stages[i]
-                for rt in stage_resource_types[(i, s)]
-                for q in range(stage_resource_type_quantity[(i, s, rt)])
-            }
-        )
-
-        # Stages assigned to up to one resource of each (resource type, q) per slot
-        constraints.update(
-            {
-                f"Assignment_{c.pk}_{i.pk}_{s}_{d}_{t}_{rt[0].pk}_{rt[1]}_{q}": (
-                    pulp.lpSum(
-                        variable_set["x"][(c, i, s, d, t, r, q)]
+                        variable_set["z"][(c, i, s, rt, r, q)]
                         for r in resource_type_active_resources[rt]
                     )
-                    <= variable_set["y"][c],
-                    f"Assignment_{c.pk}_{i.pk}_{s}_{d}_{t}_{rt[0].pk}_{rt[1]}_{q}",
+                    == variable_set["y"][c],
+                    f"Choose_one_resource_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}",
                 )
                 for c in configurations
                 for i in configuration_items[c]
                 for s in item_stages[i]
-                for d, wd in possible_days_weekday.items()
-                for t in company_times_by_weekday[configuration_company[c]][wd]
                 for rt in stage_resource_types[(i, s)]
                 for q in range(stage_resource_type_quantity[(i, s, rt)])
             }
         )
 
-        # Stages can't change resource they use of each resource type
+        # For each resource type copy q, exactly one concrete resource must be occupied
+        # whenever the stage is active at that slot (start and consecutive slots to meet duration)
         constraints.update(
             {
-                f"Movement_{c.pk}_{i.pk}_{s}_{d}_{t}_{r.pk}_{q}_lower_bound": (
-                    variable_set["m"][(c, i, s, d, t, rt, q)]
-                    >= variable_set["x"][(c, i, s, d, t, r, q)]
-                    - variable_set["x"].get(
-                        (
-                            c,
-                            i,
-                            s,
-                            self._previous_slot_day(d, t, self.ts),
-                            self._previous_slot_time(d, t, self.ts),
-                            r,
-                            q,
-                        ),
-                        0,
-                    ),
-                    f"Movement_{c.pk}_{i.pk}_{s}_{d}_{t}_{r.pk}_{q}_lower_bound",
-                )
-                for c in configurations
-                for i in configuration_items[c]
-                for s in item_stages[i]
-                for d, wd in possible_days_weekday.items()
-                for t in company_times_by_weekday[configuration_company[c]][wd]
-                for rt in stage_resource_types[(i, s)]
-                for r in resource_type_active_resources[rt]
-                for q in range(stage_resource_type_quantity[(i, s, rt)])
-            }
-        )
-
-        constraints.update(
-            {
-                f"Movement_{c.pk}_{i.pk}_{s}_{d}_{t}_{r.pk}_{q}_upper_bound": (
-                    variable_set["m"][(c, i, s, d, t, rt, q)]
-                    <= 2
-                    - variable_set["x"][(c, i, s, d, t, r, q)]
-                    - variable_set["x"].get(
-                        (
-                            c,
-                            i,
-                            s,
-                            self._previous_slot_day(d, t, self.ts),
-                            self._previous_slot_time(d, t, self.ts),
-                            r,
-                            q,
-                        ),
-                        0,
-                    ),
-                    f"Movement_{c.pk}_{i.pk}_{s}_{d}_{t}_{r.pk}_{q}_upper_bound",
-                )
-                for c in configurations
-                for i in configuration_items[c]
-                for s in item_stages[i]
-                for d, wd in possible_days_weekday.items()
-                for t in company_times_by_weekday[configuration_company[c]][wd]
-                for rt in stage_resource_types[(i, s)]
-                for r in resource_type_active_resources[rt]
-                for q in range(stage_resource_type_quantity[(i, s, rt)])
-            }
-        )
-
-        constraints.update(
-            {
-                f"Movement_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}_limit_to_one": (
+                f"Stage_active_profile_{c.pk}_{i.pk}_{s}_{pos}_{rt[0].pk}_{rt[1]}_{q}": (
                     pulp.lpSum(
-                        variable_set["m"][(c, i, s, d, t, rt, q)]
-                        for d, wd in possible_days_weekday.items()
-                        for t in company_times_by_weekday[configuration_company[c]][wd]
-                    )
-                    <= 1,
-                    f"Movement_{c.pk}_{i.pk}_{s}_{rt[0].pk}_{rt[1]}_{q}_limit_to_one",
-                )
-                for c in configurations
-                for i in configuration_items[c]
-                for s in item_stages[i]
-                for rt in stage_resource_types[(i, s)]
-                for q in range(stage_resource_type_quantity[(i, s, rt)])
-            }
-        )
-
-        # Stages need to schedule all the resource types they need at the same time
-        constraints.update(
-            {
-                f"Assign_all_resource_types_{c.pk}_{i.pk}_{s}_{d}_{t}_{rt[0].pk}_{rt[1]}_{q}": (
-                    pulp.lpSum(
-                        variable_set["x"][(c, i, s, d, t, r, 0)]
-                        for r in resource_type_active_resources[stage_resource_types[(i, s)][0]]
+                        variable_set["x"][(c, i, s, pos, r, q)]
+                        for r in resource_type_active_resources[rt]
                     )
                     == pulp.lpSum(
-                        variable_set["x"][(c, i, s, d, t, r, q)]
-                        for r in resource_type_active_resources[rt]
+                        variable_set["start"][(c, i, s, tau)]
+                        for tau in covering_start_positions[(c, i, s)].get(pos, [])
+                        if (c, i, s, tau) in variable_set["start"]
                     ),
-                    f"Assign_all_resource_types_{c.pk}_{i.pk}_{s}_{d}_{t}_{rt[0].pk}_{rt[1]}_{q}",
+                    f"Stage_active_profile_{c.pk}_{i.pk}_{s}_{pos}_{rt[0].pk}_{rt[1]}_{q}",
                 )
                 for c in configurations
                 for i in configuration_items[c]
                 for s in item_stages[i]
-                for d, wd in possible_days_weekday.items()
-                for t in company_times_by_weekday[configuration_company[c]][wd]
                 for rt in stage_resource_types[(i, s)]
                 for q in range(stage_resource_type_quantity[(i, s, rt)])
-                if stage_resource_types[(i, s)]
-                if not (rt == stage_resource_types[(i, s)][0] and q == 0)
+                for pos in range(len(company_ordered_slots[configuration_company[c]]))
             }
         )
 
-        # Stages of an item need to be sequential (e.g. stage 2 can't start before 1 ends)
-        company_ordered_slots = {
-            company: [
-                (d, t)
-                for d, wd in sorted(possible_days_weekday.items())
-                for t in company_times_by_weekday[company].get(wd, [])
-            ]
-            for company in {configuration_company[c] for c in configurations}
-        }
+        # A slot can only use a resource if that resource was chosen for that stage/resource copy
         constraints.update(
             {
-                f"Stage_sequence_{c.pk}_{i.pk}_{prev_s}_{s}_{d}_{t}": (
+                f"Use_only_chosen_resource_{c.pk}_{i.pk}_{s}_{pos}_{r.pk}_{q}": (
+                    variable_set["x"][(c, i, s, pos, r, q)]
+                    <= variable_set["z"][(c, i, s, resource_to_type[r], r, q)],
+                    f"Use_only_chosen_resource_{c.pk}_{i.pk}_{s}_{pos}_{r.pk}_{q}",
+                )
+                for c in configurations
+                for i in configuration_items[c]
+                for s in item_stages[i]
+                for rt in stage_resource_types[(i, s)]
+                for q in range(stage_resource_type_quantity[(i, s, rt)])
+                for r in resource_type_active_resources[rt]
+                for pos in range(len(company_ordered_slots[configuration_company[c]]))
+            }
+        )
+
+        # Stage sequence:
+        # if y=1, start(next) >= start(prev) + required_slots(prev)
+        constraints.update(
+            {
+                f"Stage_sequence_{c.pk}_{i.pk}_{prev_s}_{s}": (
                     pulp.lpSum(
-                        variable_set["x"].get((c, i, s, d, t, r, 0), 0)
-                        for r in resource_type_active_resources[stage_resource_types[(i, s)][0]]
-                    ) * stage_duration[(i,prev_s)]
-                    <=
+                        pos * variable_set["start"][(c, i, s, pos)]
+                        for pos in valid_start_positions[(c, i, s)]
+                    )
+                    >=
                     pulp.lpSum(
-                        variable_set["x"].get((c, i, prev_s, d_prev, t_prev, r_prev, 0), 0)
-                        for (d_prev, t_prev) in company_ordered_slots[configuration_company[c]][:pos]
-                        for r_prev in resource_type_active_resources[stage_resource_types[(i, prev_s)][0]]
-                    ) * ts,
-                    f"Stage_sequence_{c.pk}_{i.pk}_{prev_s}_{s}_{d}_{t}",
+                        pos * variable_set["start"][(c, i, prev_s, pos)]
+                        for pos in valid_start_positions[(c, i, prev_s)]
+                    )
+                    + stage_required_slots[(i, prev_s)] * variable_set["y"][c],
+                    f"Stage_sequence_{c.pk}_{i.pk}_{prev_s}_{s}",
                 )
                 for c in configurations
                 for i in configuration_items[c]
                 for stage_idx in range(1, len(item_stages[i]))
                 for prev_s in [item_stages[i][stage_idx - 1]]
                 for s in [item_stages[i][stage_idx]]
-                for pos, (d, t) in enumerate(company_ordered_slots[configuration_company[c]])
             }
         )
 
-        # Can't assign simultaneously to a resource more stages than its parallel_capacity
-        resource_to_type = {
-            r: rt
-            for rt, resources in resource_type_active_resources.items()
-            for r in resources
-        }
-        
+        # Parallel capacity:
+        # a resource cannot process more simultaneous stage copies than its parallel_capacity
         constraints.update(
             {
-                f"Parallel_capacity_{d}_{t}_{r.pk}": (
+                f"Parallel_capacity_{r.pk}_{pos}": (
                     pulp.lpSum(
-                        variable_set["x"].get((c, i, s, d, t, r, q), 0)
+                        variable_set["x"].get((c, i, s, pos, r, q), 0)
                         for c in configurations
                         for i in configuration_items[c]
                         for s in item_stages[i]
@@ -322,21 +525,19 @@ class MarginScheduler(ScheduleStrategy):
                         )
                     )
                     <= parallel_capacity,
-                    f"Parallel_capacity_{d}_{t}_{r.pk}",
+                    f"Parallel_capacity_{r.pk}_{pos}",
                 )
-                for d, wd in possible_days_weekday.items()
                 for r, parallel_capacity in resource_parallel_capacity.items()
-                for t in company_times_by_weekday[r.company].get(wd, [])
+                for pos in range(len(company_ordered_slots[r.company]))
             }
         )
 
-        # The sum of stages assigned to a resource per day need to be less than its daily_capacity_minutes
-        # TODO: right now stages running in parallel each count, could make it so that they count as 1? (would need to add another variable -> more complexity & time to run)
+        # Daily capacity in minutes
         constraints.update(
             {
-                f"Daily_capacity_minutes_{d}_{r.pk}": (
+                f"Daily_capacity_minutes_{r.pk}_{d}": (
                     pulp.lpSum(
-                        variable_set["x"].get((c, i, s, d, t, r, q), 0)
+                        variable_set["x"].get((c, i, s, pos, r, q), 0)
                         for c in configurations
                         for i in configuration_items[c]
                         for s in item_stages[i]
@@ -344,26 +545,115 @@ class MarginScheduler(ScheduleStrategy):
                         for q in range(
                             stage_resource_type_quantity[(i, s, resource_to_type[r])]
                         )
-                        for t in company_times_by_weekday[configuration_company[c]][wd]
+                        for pos, (slot_day, _) in enumerate(company_ordered_slots[r.company])
+                        if slot_day == d
                     ) * ts
                     <= daily_capacity_minutes,
-                    f"Daily_capacity_minutes_{d}_{r.pk}",
+                    f"Daily_capacity_minutes_{r.pk}_{d}",
                 )
                 for r, daily_capacity_minutes in resource_daily_capacity_minutes.items()
-                for d, wd in possible_days_weekday.items()
+                for d in {
+                    slot_day
+                    for slot_day, _ in company_ordered_slots[r.company]
+                }
             }
+        )
+
+        constraints.update(
+            self._resource_symmetry_constraints(
+                variable_set=variable_set,
+                configurations=configurations,
+                configuration_items=configuration_items,
+                item_stages=item_stages,
+                stage_resource_types=stage_resource_types,
+                stage_resource_type_quantity=stage_resource_type_quantity,
+                company_ordered_slots=company_ordered_slots,
+                configuration_company=configuration_company,
+                resource_type_active_resources=resource_type_active_resources,
+                resource_parallel_capacity=resource_parallel_capacity,
+                resource_daily_capacity_minutes=resource_daily_capacity_minutes,
+            )
         )
 
         return constraints
     
-    def _solve_problem(self, objective: pulp.LpAffineExpression, constraints: dict) -> pulp.LpProblem:
+    def _resource_symmetry_constraints(
+        self,
+        variable_set,
+        configurations,
+        configuration_items,
+        item_stages,
+        stage_resource_types,
+        stage_resource_type_quantity,
+        company_ordered_slots,
+        configuration_company,
+        resource_type_active_resources,
+        resource_parallel_capacity,
+        resource_daily_capacity_minutes,
+    ):
+        constraints = {}
+        groups = self._resource_symmetry_groups(
+            resource_type_active_resources,
+            resource_parallel_capacity,
+            resource_daily_capacity_minutes,
+        )
+
+        resource_to_type = {
+            r: rt
+            for rt, resources in resource_type_active_resources.items()
+            for r in resources
+        }
+
+        for group_idx, group in enumerate(groups):
+            for left, right in zip(group, group[1:]):
+                left_rt = resource_to_type[left]
+
+                left_load = pulp.lpSum(
+                    variable_set["x"].get((c, i, s, pos, left, q), 0)
+                    for c in configurations
+                    for i in configuration_items[c]
+                    for s in item_stages[i]
+                    if left_rt in stage_resource_types[(i, s)]
+                    for q in range(stage_resource_type_quantity[(i, s, left_rt)])
+                    for pos in range(len(company_ordered_slots[configuration_company[c]]))
+                )
+
+                right_load = pulp.lpSum(
+                    variable_set["x"].get((c, i, s, pos, right, q), 0)
+                    for c in configurations
+                    for i in configuration_items[c]
+                    for s in item_stages[i]
+                    if left_rt in stage_resource_types[(i, s)]
+                    for q in range(stage_resource_type_quantity[(i, s, left_rt)])
+                    for pos in range(len(company_ordered_slots[configuration_company[c]]))
+                )
+
+                constraints[f"Symmetry_resource_load_{group_idx}_{left.pk}_{right.pk}"] = (
+                    left_load >= right_load,
+                    f"Symmetry_resource_load_{group_idx}_{left.pk}_{right.pk}",
+                )
+
+        return constraints
+    
+    def _solve_problem(
+        self,
+        objective: pulp.LpAffineExpression,
+        constraints: dict,
+        use_warm_start: bool = False,
+    ) -> pulp.LpProblem:
         prob = pulp.LpProblem("Schedule configuration stages to resources", pulp.LpMaximize)
         prob += objective
 
         for c in constraints.values():
             prob += c
 
-        prob.solve()
+        solver = pulp.PULP_CBC_CMD(
+            msg=True,
+            warmStart=use_warm_start,
+            presolve=True,
+            cuts=True,
+        )
+        prob.solve(solver)
         return prob
     
     def _merge_consecutive_slots(
@@ -409,6 +699,8 @@ class MarginScheduler(ScheduleStrategy):
         prob: pulp.LpProblem,
         variable_set: dict,
         configurations,
+        configuration_company,
+        company_ordered_slots,
         configuration_margin,
         configuration_items,
         item_stages,
@@ -450,15 +742,17 @@ class MarginScheduler(ScheduleStrategy):
             else:
                 unselected_configurations.append(c)
 
-        # For every selected configuration, collect active slots by (item, stage, resource, q)
+        # Read x variables back into date/time slots for display
         for c in selected_configurations:
+            company = configuration_company[c]
+
             for i in configuration_items[c]:
                 for s in item_stages[i]:
                     if not stage_resource_types[(i, s)]:
                         continue
 
-                    # Collect all relevant (resource, q) combinations for this stage
                     seen_resource_q_pairs = set()
+
                     for rt in stage_resource_types[(i, s)]:
                         for q in range(stage_resource_type_quantity[(i, s, rt)]):
                             for r in resource_type_active_resources[rt]:
@@ -468,10 +762,10 @@ class MarginScheduler(ScheduleStrategy):
                                 seen_resource_q_pairs.add(key)
 
                                 active_slots = []
-                                for (c2, i2, s2, d, t, r2, q2), var in variable_set["x"].items():
-                                    if c2 == c and i2 == i and s2 == s and r2 == r and q2 == q:
-                                        if self._var_value_is_one(var):
-                                            active_slots.append((d, t))
+                                for pos in range(len(company_ordered_slots[company])):
+                                    var = variable_set["x"].get((c, i, s, pos, r, q))
+                                    if var is not None and self._var_value_is_one(var):
+                                        active_slots.append(company_ordered_slots[company][pos])
 
                                 if not active_slots:
                                     continue
@@ -587,38 +881,93 @@ class MarginScheduler(ScheduleStrategy):
             resource_daily_capacity_minutes,
         ) = optimization_dict_creation(start_date, end_date, configurations, self.ts)
 
-        print("\n", possible_days_weekday,"\n", configuration_margin,"\n", item_stages,"\n", stage_resource_type_quantity,"\n", stage_duration,"\n", resource_type_active_resources,"\n", resource_parallel_capacity,"\n", resource_daily_capacity_minutes)
+        company_ordered_slots = self._slot_indexed_company_slots(
+            possible_days_weekday,
+            company_times_by_weekday,
+            {configuration_company[c] for c in configurations},
+        )
+
+        stage_required_slots = self._stage_required_slots(stage_duration, self.ts)
+        stage_suffix_slots = self._item_stage_suffix_slots(
+            configuration_items,
+            item_stages,
+            stage_required_slots,
+        )
+
+        valid_start_positions = self._valid_stage_start_positions(
+            company_ordered_slots,
+            configuration_company,
+            configurations,
+            configuration_items,
+            item_stages,
+            stage_suffix_slots,
+        )
+
+        covering_start_positions = self._covering_start_positions(
+            valid_start_positions,
+            stage_required_slots,
+        )
 
         variable_set = self._variable_definition(
             configurations,
-            possible_days_weekday,
             configuration_company,
-            company_times_by_weekday,
+            company_ordered_slots,
             configuration_items,
             item_stages,
             stage_resource_types,
             stage_resource_type_quantity,
-            resource_type_active_resources
+            resource_type_active_resources,
+            valid_start_positions,
         )
+
+        use_warm_start = self._should_use_warm_start(
+            configurations,
+            configuration_company,
+            company_ordered_slots,
+            configuration_items,
+            item_stages,
+            stage_resource_types,
+            stage_resource_type_quantity,
+            resource_type_active_resources,
+        )
+
+        if use_warm_start:
+            self._apply_greedy_warm_start(
+                variable_set,
+                configurations,
+                configuration_margin,
+                configuration_company,
+                company_ordered_slots,
+                configuration_items,
+                item_stages,
+                stage_resource_types,
+                stage_resource_type_quantity,
+                stage_required_slots,
+                valid_start_positions,
+                resource_type_active_resources,
+            )
+
         objective = self._objective_definition(variable_set, configuration_margin)
+
         constraints = self._constraint_definition(
             variable_set,
             configurations,
-            possible_days_weekday,
             configuration_company,
-            company_times_by_weekday,
+            company_ordered_slots,
             configuration_items,
             item_stages,
             stage_resource_types,
             stage_resource_type_quantity,
-            stage_duration,
+            stage_required_slots,
+            valid_start_positions,
+            covering_start_positions,
             resource_type_active_resources,
             resource_parallel_capacity,
             resource_daily_capacity_minutes,
             self.ts,
         )
 
-        prob = self._solve_problem(objective, constraints)
+        prob = self._solve_problem(objective, constraints, use_warm_start)
 
         print("Solver status:", pulp.LpStatus[prob.status])
         print("Objective:", pulp.value(prob.objective))
@@ -630,6 +979,8 @@ class MarginScheduler(ScheduleStrategy):
             prob=prob,
             variable_set=variable_set,
             configurations=configurations,
+            configuration_company=configuration_company,
+            company_ordered_slots=company_ordered_slots,
             configuration_margin=configuration_margin,
             configuration_items=configuration_items,
             item_stages=item_stages,

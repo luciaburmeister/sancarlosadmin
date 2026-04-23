@@ -133,7 +133,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     def qr_code_preview(self, obj):
         """Shows the QR code image directly in the asset detail page."""
         if obj.pk:
-            url = f"/en/api/assets/{obj.pk}/qr/"
+            url = f"/api/assets/{obj.pk}/qr/"
             return format_html(
                 '<a href="{}" target="_blank">'
                 '<img src="{}" style="width:200px; height:200px;" />'
@@ -147,7 +147,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     def qr_link(self, obj):
         """Shows a small QR link in the asset list."""
         if obj.pk:
-            url = f"/en/api/assets/{obj.pk}/qr/"
+            url = f"/api/assets/{obj.pk}/qr/"
             return format_html('<a href="{}" target="_blank"> QR</a>', url)
         return "-"
     qr_link.short_description = _("QR")

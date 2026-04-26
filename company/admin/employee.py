@@ -110,7 +110,6 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         "first_name",
         "last_name",
         "email",
-        "employee_id",
         "user__username",
         "user__email",
     )

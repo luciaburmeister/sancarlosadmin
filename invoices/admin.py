@@ -38,6 +38,14 @@ from unfold.contrib.filters.admin import (
 )
 from unfold.widgets import UnfoldAdminTextareaWidget
 from .filters import HasItemsFilter, ItemsMissingAccountFilter, BalanceStatusFilter
+from import_export.admin import ImportExportModelAdmin, ExportActionModelAdmin
+from unfold.contrib.import_export.forms import ExportForm, ImportForm, SelectableFieldsExportForm
+from .resources import (
+    InvoiceResource, 
+    InvoiceItemResource, 
+    SalesInvoiceResource, 
+    SalesInvoiceItemResource
+)
 @admin.register(TaxType)
 class TaxTypeAdmin(ModelAdmin):
     list_display = (
@@ -164,10 +172,15 @@ class InvoiceItemInline(StackedInline):
     )
 
 @admin.register(Invoice)
-class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
+class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
+    resource_classes = [InvoiceResource, InvoiceItemResource]
+    import_form_class = ImportForm
+    export_form_class = SelectableFieldsExportForm
+
     list_display = (
         "invoice_number",
         "provider",
+        "total_amount",
         "date_issued",
         "due_date",
         "ocr_status",
@@ -441,7 +454,10 @@ class SalesInvoiceItemInline(StackedInline):
         return super().has_delete_permission(request, obj)
 
 @admin.register(SalesInvoice)
-class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
+class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
+    resource_classes = [SalesInvoiceResource, SalesInvoiceItemResource]
+    export_form_class = SelectableFieldsExportForm
+
     custom_urls = (
         (
             "autocomplete/taxtype/",

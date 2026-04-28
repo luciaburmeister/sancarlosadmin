@@ -4,7 +4,6 @@
 {% block content %}
     {% component "unfold/components/container.html" %}
         <div class="flex flex-col gap-6">
-
             <div class="flex items-center justify-between gap-4">
                 <div>
                     {% component "unfold/components/title.html" %}
@@ -15,9 +14,25 @@
                     {% endcomponent %}
                 </div>
 
-                {% component "unfold/components/button.html" with href=cancel_url|default:"../" variant="secondary" %}
-                    {% trans "Back" %}
-                {% endcomponent %}
+                <div class="flex items-center gap-3">
+                    {% component "unfold/components/button.html" with href=cancel_url|default:"../" variant="secondary" %}
+                        {% trans "Back" %}
+                    {% endcomponent %}
+
+                    <form method="post" action="{% url 'admin:production_schedulingrun_discard' run.pk %}">
+                        {% csrf_token %}
+                        {% component "unfold/components/button.html" with submit=1 variant="secondary" %}
+                            {% trans "Discard" %}
+                        {% endcomponent %}
+                    </form>
+
+                    <form method="post" action="{% url 'admin:production_schedulingrun_apply' run.pk %}">
+                        {% csrf_token %}
+                        {% component "unfold/components/button.html" with submit=1 variant="default" %}
+                            {% trans "Apply schedule" %}
+                        {% endcomponent %}
+                    </form>
+                </div>
             </div>
 
             {% if breadcrumbs %}
@@ -108,22 +123,6 @@
                     {% endcomponent %}
                 {% endif %}
             {% endcomponent %}
-
-            <div class="flex justify-end gap-3">
-                <form method="post" action="{% url 'admin:production_schedulingrun_discard' run.pk %}">
-                    {% csrf_token %}
-                    {% component "unfold/components/button.html" with submit=1 variant="secondary" %}
-                        {% trans "Discard" %}
-                    {% endcomponent %}
-                </form>
-
-                <form method="post" action="{% url 'admin:production_schedulingrun_apply' run.pk %}">
-                    {% csrf_token %}
-                    {% component "unfold/components/button.html" with submit=1 variant="default" %}
-                        {% trans "Apply schedule" %}
-                    {% endcomponent %}
-                </form>
-            </div>
         </div>
     {% endcomponent %}
 {% endblock %}

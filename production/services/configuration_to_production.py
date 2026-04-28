@@ -4,8 +4,9 @@ from django.db.models import F, Sum, ExpressionWrapper, DurationField
 from company.models import Employee, EmployeeType, Machine, MachineType
 from production.models import ProductionResource, ProductionTicket, ProductionItem, PlannedProductionSession, PlannedProductionSessionSource
 from datetime import datetime, time, timedelta
-from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
+from configurator.models import Configuration, ConfigurationExportTemplate, ExportTemplateKind
 from configurator.services.export import ConfigurationExportService
+import os
         
 def get_or_create_resource_for_target(target) -> ProductionResource|None:
     if not target:
@@ -67,9 +68,13 @@ def possible_resources_for_stage(resources:list[ProductionResource], day, durati
             possible_resources.add(res.pk)
     
     return possible_resources
-import os
 
 class ConfigurationToProductionService:
+    @classmethod
+    def create_ticket_by_id(cls, configuration_id):
+        configuration = Configuration.objects.get(pk=configuration_id)
+        return cls.create_ticket(configuration)
+
     @classmethod
     def create_ticket(cls, configuration):
         ct = ContentType.objects.get_for_model(configuration)
@@ -129,7 +134,19 @@ class ConfigurationToProductionService:
 
     @staticmethod
     def _create_items(ticket, configuration):
-        SCHEDULE = {"start": configuration.company.start_time, "end": configuration.company.end_time}
+        slots = configuration.company.schedule_slots.all().order_by("weekday", "start_time")
+
+        if not slots.exists():
+            raise ValueError("Company has no schedule slots configured")
+
+        # Simplification: assume same schedule every day → take first slot
+        max_start = max(slot.start_time for slot in slots)
+        min_end = min(slot.end_time for slot in slots)
+
+        SCHEDULE = {
+            "start": max_start,
+            "end": min_end,
+        }
         product = configuration.product
 
         for item in configuration.items.select_related("component"):

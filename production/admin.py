@@ -1,3 +1,5 @@
+import traceback
+
 from django.contrib import admin, messages
 from django.http import HttpRequest
 from unfold.admin import ModelAdmin, TabularInline,StackedInline
@@ -637,6 +639,7 @@ class SchedulingRunAdmin(ModelAdmin):
                     run.status = "error"
                     run.error_message = str(exc)
                     run.save(update_fields=["status", "error_message"])
+                    traceback.print_exc()
                     messages.error(request, f"Optimization failed: {exc}")
                     return redirect("admin:production_schedulingrun_change", run.pk)
         else:
@@ -663,7 +666,7 @@ class SchedulingRunAdmin(ModelAdmin):
         selected_rows = [
             [
                 config_id,
-                proposal.configuration_margins.get(config_id, 0),
+                proposal.configuration_margins.get(str(config_id), 0),
             ]
             for config_id in proposal.selected_configuration_ids
         ]

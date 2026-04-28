@@ -59,11 +59,36 @@ class PurchaseOrderItemInline(TabularInline):
 
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["number", "provider", "get_status_label", "date_ordered", "total_amount", "company"]
+    list_display = ["number", "provider", "requested_by", "get_status_label", "date_ordered", "total_amount", "company"]
     list_filter = ["status", "date_ordered", "company"]
-    search_fields = ["number", "provider__name"]
-    autocomplete_fields = ["provider", "company", "approved_by"]
-    readonly_fields = ["number", "total_amount", "approved_at", "approved_by"]
+    search_fields = ["number", "provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name"]
+    autocomplete_fields = ["provider", "company", "approved_by", "requested_by"]
+    readonly_fields = ["number", "total_amount", "approved_at", "approved_by", "requested_by"]
+    
+    fieldsets = (
+        (_("General Information"), {
+            "fields": (
+                "number",
+                "company",
+                "provider",
+                "requested_by",
+                "date_ordered",
+                "status",
+            )
+        }),
+        (_("Financials & Approval"), {
+            "fields": (
+                "total_amount",
+                ("approved_by", "approved_at"),
+            )
+        }),
+        (_("Notes"), {
+            "fields": (
+                "notes",
+            ),
+            "classes": ["collapse"],
+        }),
+    )
     
     inlines = [PurchaseOrderItemInline]
     
@@ -82,6 +107,11 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
     def get_status_label(self, obj):
         return obj.status
+
+    def save_model(self, request, obj, form, change):
+        if not getattr(obj, "requested_by", None):
+            obj.requested_by = request.user
+        super().save_model(request, obj, form, change)
 
     def get_readonly_fields(self, request, obj=None):
         if obj and obj.status != PurchaseOrderStatus.DRAFT:

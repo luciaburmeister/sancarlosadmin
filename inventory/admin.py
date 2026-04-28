@@ -3,6 +3,7 @@ from django.contrib import admin
 from django.contrib.contenttypes.models import ContentType
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
+from core.admin.company_admin import CompanyRestrictedAdmin
 
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action
@@ -234,7 +235,7 @@ class InventoryItemForm(forms.ModelForm):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @admin.register(InventoryItem)
-class InventoryItemAdmin(ModelAdmin):
+class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
     form = InventoryItemForm
     inlines = [ItemTransactionInline]
     actions_row = ["row_receive_stock", "row_transfer_stock", "row_adjust_stock"]
@@ -262,7 +263,7 @@ class InventoryItemAdmin(ModelAdmin):
         "default_warehouse__name",
     )
     ordering = ("-created_at",)
-    autocomplete_fields = ("default_warehouse", "preferred_supplier", "product_content_type", "invoice")
+    autocomplete_fields = ("default_warehouse", "preferred_supplier", "product_content_type", "invoice","company")
     change_form_outer_before_template = "admin/inventory/item_stock_actions.html"
     readonly_fields = (
         "code",
@@ -276,6 +277,7 @@ class InventoryItemAdmin(ModelAdmin):
     fieldsets = (
         (_("Item"), {
             "fields": (
+                ("company"),
                 ("code", "item_type"),
                 ("name", "stock_on_hand_display"),
                 "description",

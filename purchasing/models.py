@@ -62,6 +62,14 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         blank=True,
         verbose_name=_("Approved At")
     )
+    requested_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="requested_pos",
+        verbose_name=_("Requested By")
+    )
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
 
     class Meta:

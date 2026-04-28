@@ -30,10 +30,14 @@ class PurchaseOrderItemInline(TabularInline):
 
     @display(description=_("Quantity"))
     def formatted_quantity(self, obj):
+        if obj.quantity is None:
+            return "-"
         return int(obj.quantity)
 
     @display(description=_("Received"))
     def formatted_received(self, obj):
+        if obj.received_quantity is None:
+            return "-"
         return int(obj.received_quantity)
 
     @display(description=_("Pending"))

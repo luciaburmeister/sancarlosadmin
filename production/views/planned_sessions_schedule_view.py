@@ -78,27 +78,28 @@ class PlannedSessionsScheduleDayView(UnfoldModelAdminViewMixin, TemplateView):
         end_of_window = timezone.make_aware(datetime.combine(day, end_t))
 
         # Resources
-        resources_qs = ProductionResource.objects.filter(is_active=True).filter(company=company).order_by("id")
-
-        if resource_obj:
-            resource_id = resource_obj.pk
-            resources_qs = resources_qs.filter(pk=resource_id)
-        else:
-            resource_id = None
-
-        resources = list(resources_qs)
-        resource_ids = [r.id for r in resources]
-
-        # Sessions overlapping the window
-        sessions = (
+        sessions_qs = (
             PlannedProductionSession.objects
             .select_related("production_item", "production_item__ticket", "primary_resource")
             .filter(
-                primary_resource_id__in=resource_ids,
+                primary_resource__company=company,
                 planned_start__lt=end_of_window,
                 planned_end__gt=start_of_window,
             )
-            .order_by("planned_start")
+        )
+
+        # If filtering by specific resource
+        if resource_obj:
+            sessions_qs = sessions_qs.filter(primary_resource=resource_obj)
+
+        sessions = list(sessions_qs.order_by("planned_start"))
+
+        # Extract only used resources
+        resource_ids = sorted({s.primary_resource_id for s in sessions})
+
+        resources = list(
+            ProductionResource.objects.filter(id__in=resource_ids)
+            .order_by("id")
         )
 
         # Build blocks per resource
@@ -142,7 +143,7 @@ class PlannedSessionsScheduleDayView(UnfoldModelAdminViewMixin, TemplateView):
             grid=grid,
             total_minutes=total_minutes,
             step_minutes=STEP_MINUTES,
-            selected_resource_id=int(resource_id) if resource_id else None,
+            selected_resource_id=resource_obj.pk if resource_obj else None,
             all_resources=list(
                 ProductionResource.objects.filter(is_active=True, company=company).order_by("id")
             ),

@@ -17,10 +17,10 @@ class PurchaseOrderItemInline(TabularInline):
     extra = 1
     tab = True
     autocomplete_fields = ["inventory_item"]
-    readonly_fields = ["line_total", "formatted_quantity", "formatted_received", "formatted_pending"]
+    readonly_fields = ["line_total","formatted_received", "formatted_pending"]
     fields = [
         "inventory_item",
-        "formatted_quantity",
+        "quantity",
         "formatted_received",
         "formatted_pending",
         "unit_price",
@@ -28,11 +28,7 @@ class PurchaseOrderItemInline(TabularInline):
         "description",
     ]
 
-    @display(description=_("Quantity"))
-    def formatted_quantity(self, obj):
-        if obj.quantity is None:
-            return "-"
-        return int(obj.quantity)
+
 
     @display(description=_("Received"))
     def formatted_received(self, obj):

@@ -76,6 +76,9 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         verbose_name = _("Purchase Order")
         verbose_name_plural = _("Purchase Orders")
         ordering = ["-date_ordered", "-number"]
+        permissions = [
+            ("can_approve_purchase_order", _("Can approve Purchase Orders")),
+        ]
 
     def __str__(self):
         return f"{self.number or _('DRAFT')} - {self.provider.name}"

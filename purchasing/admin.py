@@ -63,7 +63,7 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_filter = ["status", "date_ordered", "company"]
     search_fields = ["number", "provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name"]
     autocomplete_fields = ["provider", "company", "approved_by", "requested_by"]
-    readonly_fields = ["number", "total_amount", "approved_at", "approved_by", "requested_by"]
+    readonly_fields = ["number", "total_amount", "approved_at", "approved_by", "requested_by", "status"]
     
     fieldsets = (
         (_("General Information"), {
@@ -119,11 +119,6 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
             return [f.name for f in self.model._meta.fields if f.name != "id"] + list(self.readonly_fields)
         return super().get_readonly_fields(request, obj)
 
-    def has_delete_permission(self, request, obj=None):
-        if obj and obj.status != PurchaseOrderStatus.DRAFT:
-            return False
-        return super().has_delete_permission(request, obj)
-
     @action(description=_("Send to Approval"))
     def send_to_approval(self, request, object_id: int):
         po = PurchaseOrder.objects.get(pk=object_id)
@@ -135,7 +130,7 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
             self.message_user(request, _("Only Draft POs can be sent for approval."), level="error")
         return redirect("admin:purchasing_purchaseorder_changelist")
 
-    @action(description=_("Approve PO"))
+    @action(description=_("Approve PO"), permissions=["can_approve_purchase_order"])
     def approve_po(self, request, object_id: int):
         po = PurchaseOrder.objects.get(pk=object_id)
         if po.status == PurchaseOrderStatus.PENDING_APPROVAL:
@@ -147,6 +142,9 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         else:
             self.message_user(request, _("Only Pending POs can be approved."), level="error")
         return redirect("admin:purchasing_purchaseorder_changelist")
+
+    def has_can_approve_purchase_order_permission(self, request, obj=None):
+        return request.user.has_perm("purchasing.can_approve_purchase_order")
         
     def get_urls(self):
         urls = super().get_urls()

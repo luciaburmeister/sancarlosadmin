@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-22 06:48-0600\n"
+"POT-Creation-Date: 2026-04-29 09:32+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -32,16 +32,13 @@ msgid "If this account is postable."
 msgstr "Si esta cuenta se puede publicar."
 
 msgid "Entries prior to this date cannot be modified/posted."
-msgstr ""
-"Las entradas anteriores a esta fecha no pueden ser modificadas/publicadas."
+msgstr "Las entradas anteriores a esta fecha no pueden ser modificadas/publicadas."
 
 msgid "Default root for provider accounts (e.g. 400 for Spain)"
-msgstr ""
-"Raíz predeterminada para cuentas de proveedor (por ej. 400 para España)"
+msgstr "Raíz predeterminada para cuentas de proveedor (por ej. 400 para España)"
 
 msgid "Default root for client accounts (e.g. 430 for Spain)"
-msgstr ""
-"Raíz predeterminada para cuentas de cliente (por ejemplo, 430 para España)"
+msgstr "Raíz predeterminada para cuentas de cliente (por ejemplo, 430 para España)"
 
 msgid "Asset"
 msgstr "Activo"
@@ -73,12 +70,8 @@ msgstr "Anular Moneda de Cuenta"
 msgid "Force this account to use a specific currency."
 msgstr "Forzar esta cuenta a utilizar una moneda específica."
 
-msgid ""
-"Optional 10-digit account code for A3 export. If empty, standard mapping "
-"applies."
-msgstr ""
-"Código de cuenta opcional de 10 dígitos para exportación A3. Si está vacío, "
-"se aplica la asignación estándar."
+msgid "Optional 10-digit account code for A3 export. If empty, standard mapping applies."
+msgstr "Código de cuenta opcional de 10 dígitos para exportación A3. Si está vacío, se aplica la asignación estándar."
 
 msgid "General"
 msgstr "General"
@@ -169,16 +162,13 @@ msgstr "No se puede publicar una entrada vacía."
 #, fuzzy
 #| msgid "Debit currency (EUR) must match account currency (USD)"
 msgid "Debit currency (EUR) must match account currency (USD)."
-msgstr ""
-"La moneda de débito (EUR) debe coincidir con la moneda de la cuenta (USD)"
+msgstr "La moneda de débito (EUR) debe coincidir con la moneda de la cuenta (USD)"
 
 msgid "Español"
 msgstr "Español"
 
 msgid "English"
-msgstr ""
-"Please provide the English text that you would like to have translated into "
-"neutral Latin American Spanish."
+msgstr "Please provide the English text that you would like to have translated into neutral Latin American Spanish."
 
 msgid "Management"
 msgstr "Gestión"
@@ -366,8 +356,7 @@ msgstr "Identificadores de Activos"
 
 #, python-format
 msgid "This label is not allowed for this company. Allowed: %(labels)s"
-msgstr ""
-"Esta etiqueta no está permitida para esta empresa. Permitido: %(labels)s"
+msgstr "Esta etiqueta no está permitida para esta empresa. Permitido: %(labels)s"
 
 msgid "Delivery"
 msgstr "Entrega"
@@ -477,9 +466,7 @@ msgid "pull emails"
 msgstr "recopilar correos electrónicos"
 
 msgid "Email fetching task has been triggered in the background."
-msgstr ""
-"La tarea de obtención de correos electrónicos ha sido activada en segundo "
-"plano."
+msgstr "La tarea de obtención de correos electrónicos ha sido activada en segundo plano."
 
 msgid "Employee"
 msgstr "Empleado"
@@ -548,9 +535,7 @@ msgid "Production Stages"
 msgstr "Etapas de Producción"
 
 msgid "Possible labels for asset identifiers (e.g., VIN, Plate Number)"
-msgstr ""
-"Posibles etiquetas para identificadores de activos (por ejemplo, VIN, Número"
-" de Placa)"
+msgstr "Posibles etiquetas para identificadores de activos (por ejemplo, VIN, Número de Placa)"
 
 msgid "Asset Identifier Labels"
 msgstr "Etiquetas de Identificador de Activo"
@@ -569,8 +554,7 @@ msgid "Document Reminder Emails"
 msgstr "Correo electrónico"
 
 msgid "Emails that will receive document expiration reminders"
-msgstr ""
-"Correos electrónicos que recibirán recordatorios de expiración de documentos"
+msgstr "Correos electrónicos que recibirán recordatorios de expiración de documentos"
 
 msgid "Male"
 msgstr "Masculino"
@@ -855,8 +839,7 @@ msgid "Notify before (days)"
 msgstr "Notificar antes (días)"
 
 msgid "How many days before expiry to send a reminder."
-msgstr ""
-"¿Cuántos días antes de la fecha de caducidad se debe enviar un recordatorio?"
+msgstr "¿Cuántos días antes de la fecha de caducidad se debe enviar un recordatorio?"
 
 msgid "File"
 msgstr "Archivo"
@@ -1022,9 +1005,7 @@ msgid "Convert to production"
 msgstr "Convertir a producción"
 
 msgid "Cannot convert to production. The associated quote must be accepted."
-msgstr ""
-"No se puede convertir a producción. La cotización asociada debe ser "
-"aceptada."
+msgstr "No se puede convertir a producción. La cotización asociada debe ser aceptada."
 
 msgid "Configuration successfully converted to production."
 msgstr "La configuración se ha convertido con éxito a producción."
@@ -1042,9 +1023,7 @@ msgid "Record Actual Values"
 msgstr "Registrar Valores Actuales"
 
 msgid "Cannot record actual values. The configuration must be in production."
-msgstr ""
-"No se pueden registrar los valores reales. La configuración debe estar en "
-"producción."
+msgstr "No se pueden registrar los valores reales. La configuración debe estar en producción."
 
 msgid "Visualizar"
 msgstr "Visualizar"
@@ -1253,12 +1232,8 @@ msgstr "Etapas de Producción"
 msgid "Show in configurator"
 msgstr "Configurador"
 
-msgid ""
-"If false, this template will not be shown in the manual configuration "
-"creation list."
-msgstr ""
-"Si es falso, esta plantilla no se mostrará en la lista de creación de "
-"configuración manual."
+msgid "If false, this template will not be shown in the manual configuration creation list."
+msgstr "Si es falso, esta plantilla no se mostrará en la lista de creación de configuración manual."
 
 #, fuzzy
 #| msgid "Kind"
@@ -1283,17 +1258,12 @@ msgid "Stage keys must be unique."
 msgstr "Las claves de etapa deben ser únicas."
 
 #, fuzzy
-#| msgid ""
-#| "BOM rule stages must be a subset of the product production stages."
+#| msgid "BOM rule stages must be a subset of the product production stages."
 msgid "Product stages must be a subset of the company production stages."
-msgstr ""
-"Las etapas de la regla BOM deben ser un subconjunto de las etapas de "
-"producción del producto."
+msgstr "Las etapas de la regla BOM deben ser un subconjunto de las etapas de producción del producto."
 
 msgid "Stage resources keys must be the same as stage keys"
-msgstr ""
-"Las claves de los recursos de la etapa deben ser las mismas que las claves "
-"de la etapa."
+msgstr "Las claves de los recursos de la etapa deben ser las mismas que las claves de la etapa."
 
 msgid "Stage"
 msgstr "Etapa"
@@ -1303,9 +1273,7 @@ msgstr "Etapa donde estos componentes se mueven juntos"
 
 #, python-format
 msgid "Stage '%(stage)s' is not defined in the product template stages."
-msgstr ""
-"La etapa '%(stage)s' no está definida en las etapas de la plantilla del "
-"producto."
+msgstr "La etapa '%(stage)s' no está definida en las etapas de la plantilla del producto."
 
 msgid "Number"
 msgstr "Número"
@@ -1383,9 +1351,7 @@ msgid "BOM rules"
 msgstr "Reglas de BOM"
 
 msgid "BOM rule stages must be a subset of the product production stages."
-msgstr ""
-"Las etapas de la regla BOM deben ser un subconjunto de las etapas de "
-"producción del producto."
+msgstr "Las etapas de la regla BOM deben ser un subconjunto de las etapas de producción del producto."
 
 msgid ""
 "Reusable expression.\n"
@@ -1408,9 +1374,7 @@ msgid "Expression"
 msgstr "Expresión"
 
 msgid "Human-readable label for exports (e.g. Margin, Discount)"
-msgstr ""
-"Etiqueta legible para humanos para exportaciones (por ejemplo, Margen, "
-"Descuento)"
+msgstr "Etiqueta legible para humanos para exportaciones (por ejemplo, Margen, Descuento)"
 
 msgid "Show in export"
 msgstr "Mostrar en exportar"
@@ -1443,11 +1407,8 @@ msgstr "Precio total"
 msgid "Tax breakdown"
 msgstr "Desglose de impuestos"
 
-msgid ""
-"Snapshot of tax calculations at pricing time. Used for exports and auditing."
-msgstr ""
-"Instantánea de cálculos fiscales en el momento de la fijación de precios. "
-"Usado para exportaciones y auditorías."
+msgid "Snapshot of tax calculations at pricing time. Used for exports and auditing."
+msgstr "Instantánea de cálculos fiscales en el momento de la fijación de precios. Usado para exportaciones y auditorías."
 
 #, fuzzy
 #| msgid "Tax breakdown"
@@ -1455,14 +1416,9 @@ msgid "Pricing breakdown"
 msgstr "Desglose de impuestos"
 
 #, fuzzy
-#| msgid ""
-#| "Snapshot of tax calculations at pricing time. Used for exports and auditing."
-msgid ""
-"Snapshot of pricing rule calculations at pricing time. Used for exports and "
-"auditing."
-msgstr ""
-"Instantánea de cálculos fiscales en el momento de la fijación de precios. "
-"Usado para exportaciones y auditorías."
+#| msgid "Snapshot of tax calculations at pricing time. Used for exports and auditing."
+msgid "Snapshot of pricing rule calculations at pricing time. Used for exports and auditing."
+msgstr "Instantánea de cálculos fiscales en el momento de la fijación de precios. Usado para exportaciones y auditorías."
 
 #, fuzzy
 #| msgid "Product templates"
@@ -1470,12 +1426,9 @@ msgid "Rendered templates"
 msgstr "Plantillas de productos"
 
 #, fuzzy
-#| msgid ""
-#| "Snapshot of tax calculations at pricing time. Used for exports and auditing."
+#| msgid "Snapshot of tax calculations at pricing time. Used for exports and auditing."
 msgid "HTML/SVG templates rendered at pricing time. Used for exports."
-msgstr ""
-"Instantánea de cálculos fiscales en el momento de la fijación de precios. "
-"Usado para exportaciones y auditorías."
+msgstr "Instantánea de cálculos fiscales en el momento de la fijación de precios. Usado para exportaciones y auditorías."
 
 #, fuzzy
 #| msgid "Work Order"
@@ -1492,9 +1445,7 @@ msgid "Length"
 msgstr "Longitud"
 
 msgid "Whether this item comes from a BOM rule or is a user add-on."
-msgstr ""
-"Ya sea que este artículo provenga de una regla de BOM o sea un complemento "
-"agregado por el usuario."
+msgstr "Ya sea que este artículo provenga de una regla de BOM o sea un complemento agregado por el usuario."
 
 msgid "Is template item"
 msgstr "¿Es un ítem de plantilla?"
@@ -1531,13 +1482,9 @@ msgid "Unknown component"
 msgstr "Componente"
 
 #, fuzzy
-#| msgid ""
-#| "BOM rule stages must be a subset of the product production stages."
-msgid ""
-"Configuration item stages must be a subset of the company production stages."
-msgstr ""
-"Las etapas de la regla BOM deben ser un subconjunto de las etapas de "
-"producción del producto."
+#| msgid "BOM rule stages must be a subset of the product production stages."
+msgid "Configuration item stages must be a subset of the company production stages."
+msgstr "Las etapas de la regla BOM deben ser un subconjunto de las etapas de producción del producto."
 
 #, fuzzy
 #| msgid "Configuration"
@@ -1569,8 +1516,7 @@ msgid "Reference"
 msgstr "Referencia"
 
 msgid "Auto-generated internal reference (e.g., ALB-RX-00001)"
-msgstr ""
-"Referencia interna generada automáticamente (por ejemplo, ALB-RX-00001)"
+msgstr "Referencia interna generada automáticamente (por ejemplo, ALB-RX-00001)"
 
 msgid "General Notes"
 msgstr "Notas General"
@@ -1689,9 +1635,7 @@ msgid "Configure planning resources: %(name)s"
 msgstr "Configurar recursos de planificación: %(name)s"
 
 msgid "Please correct the errors below."
-msgstr ""
-"Sure! Please provide the text or errors you'd like me to correct, and I'll "
-"be happy to help."
+msgstr "Sure! Please provide the text or errors you'd like me to correct, and I'll be happy to help."
 
 #, python-format
 msgid "Could not save: %(msg)s"
@@ -1724,12 +1668,8 @@ msgstr "Stock Entrante"
 msgid "Linked source (required)"
 msgstr "Fuente vinculada (requerida)"
 
-msgid ""
-"Link this location to any object (material, warehouse master, etc.). This "
-"location must be linked to a source object."
-msgstr ""
-"Vincula esta ubicación a cualquier objeto (material, maestro de almacén, "
-"etc.). Esta ubicación debe estar vinculada a un objeto fuente."
+msgid "Link this location to any object (material, warehouse master, etc.). This location must be linked to a source object."
+msgstr "Vincula esta ubicación a cualquier objeto (material, maestro de almacén, etc.). Esta ubicación debe estar vinculada a un objeto fuente."
 
 msgid "Linked source"
 msgstr "Fuente vinculada"
@@ -1747,17 +1687,11 @@ msgstr "Cantidad Δ"
 msgid "Product object"
 msgstr "Plantillas de Producto"
 
-msgid ""
-"Select a Product content type first, then choose the linked object here."
-msgstr ""
-"Primero selecciona un tipo de contenido de producto, luego elige el objeto "
-"vinculado aquí."
+msgid "Select a Product content type first, then choose the linked object here."
+msgstr "Primero selecciona un tipo de contenido de producto, luego elige el objeto vinculado aquí."
 
-msgid ""
-"Select both Product content type and Product object, or leave both empty."
-msgstr ""
-"Selecciona tanto el tipo de contenido de Producto como el objeto Producto, o"
-" deja ambos vacíos."
+msgid "Select both Product content type and Product object, or leave both empty."
+msgstr "Selecciona tanto el tipo de contenido de Producto como el objeto Producto, o deja ambos vacíos."
 
 msgid "Warehouse"
 msgstr "Almacén"
@@ -1920,9 +1854,7 @@ msgid "Object ID"
 msgstr "ID del objeto"
 
 msgid "Select both Content Type and Object ID, or leave both empty."
-msgstr ""
-"Selecciona tanto el Tipo de Contenido como el ID de Objeto, o deja ambos "
-"vacíos."
+msgstr "Selecciona tanto el Tipo de Contenido como el ID de Objeto, o deja ambos vacíos."
 
 #, fuzzy
 #| msgid "Product Templates"
@@ -1936,9 +1868,7 @@ msgid "This item type requires a warehouse."
 msgstr "Este tipo de artículo requiere un almacén."
 
 msgid "Specific bin / rack / shelf inside the warehouse (optional)."
-msgstr ""
-"Ubicación específica del contenedor / estante / estante dentro del almacén "
-"(opcional)."
+msgstr "Ubicación específica del contenedor / estante / estante dentro del almacén (opcional)."
 
 #, fuzzy
 #| msgid "Components"
@@ -1951,10 +1881,8 @@ msgstr "Positivo para entrada de stock, negativo para salida de stock."
 msgid "Reference Type"
 msgstr "Tipo de referencia"
 
-msgid ""
-"Type of the originating document (e.g. PurchaseOrder, ProductionTicket)."
-msgstr ""
-"Tipo de documento de origen (por ejemplo, PurchaseOrder, ProductionTicket)."
+msgid "Type of the originating document (e.g. PurchaseOrder, ProductionTicket)."
+msgstr "Tipo de documento de origen (por ejemplo, PurchaseOrder, ProductionTicket)."
 
 msgid "Reference ID"
 msgstr "Código de referencia"
@@ -1977,9 +1905,7 @@ msgstr "Transacciones de artículo"
 #, fuzzy
 #| msgid "Select both Content Type and Object ID, or leave both empty."
 msgid "Provide both Reference Type and Reference ID, or leave both empty."
-msgstr ""
-"Selecciona tanto el Tipo de Contenido como el ID de Objeto, o deja ambos "
-"vacíos."
+msgstr "Selecciona tanto el Tipo de Contenido como el ID de Objeto, o deja ambos vacíos."
 
 msgid "User who performed the movement."
 msgstr "Usuario que realizó el movimiento."
@@ -2320,29 +2246,17 @@ msgstr "Restar"
 msgid "Journal as Debit"
 msgstr "Diario como Débito"
 
-msgid ""
-"In a purchase invoice, identify if this tax should be journalized on the "
-"Debit side (typical for VAT)."
-msgstr ""
-"En una factura de compra, identifica si este impuesto debe ser registrado en"
-" el lado del Debe (típico para el IVA)."
+msgid "In a purchase invoice, identify if this tax should be journalized on the Debit side (typical for VAT)."
+msgstr "En una factura de compra, identifica si este impuesto debe ser registrado en el lado del Debe (típico para el IVA)."
 
 msgid "Mapping for A3 export columns"
 msgstr "Mapeo para las columnas de exportación A3"
 
-msgid ""
-"Generic template account used for this tax in Purchase Invoices (resolved "
-"per company)."
-msgstr ""
-"Plantilla genérica de cuenta utilizada para este impuesto en las Facturas de"
-" Compra (resuelto por empresa)."
+msgid "Generic template account used for this tax in Purchase Invoices (resolved per company)."
+msgstr "Plantilla genérica de cuenta utilizada para este impuesto en las Facturas de Compra (resuelto por empresa)."
 
-msgid ""
-"Generic template account used for this tax in Sales Invoices (resolved per "
-"company)."
-msgstr ""
-"Plantilla genérica de cuenta utilizada para este impuesto en las Facturas de"
-" Venta (resuelto por empresa)."
+msgid "Generic template account used for this tax in Sales Invoices (resolved per company)."
+msgstr "Plantilla genérica de cuenta utilizada para este impuesto en las Facturas de Venta (resuelto por empresa)."
 
 msgid "Cannot edit taxes in a finalized invoice."
 msgstr "No se pueden editar los impuestos en una factura finalizada."
@@ -2436,27 +2350,25 @@ msgid "Gross Total"
 msgstr "Total Bruto"
 
 #, fuzzy
+#| msgid "Current Risk"
+msgid "Currency"
+msgstr "Riesgo Actual"
+
+#, fuzzy
 #| msgid "Incoming Invoice"
 msgid "Upload Invoice"
 msgstr "Factura Entrante"
 
-msgid ""
-"Upload the invoice file. After saving, you'll return to the invoice list."
-msgstr ""
-"Cargue el archivo de factura. Después de guardar, volverá a la lista de "
-"facturas."
+msgid "Upload the invoice file. After saving, you'll return to the invoice list."
+msgstr "Cargue el archivo de factura. Después de guardar, volverá a la lista de facturas."
 
 #, fuzzy
 #| msgid "Type"
 msgid "Merge Tax Types"
 msgstr "Tipo"
 
-msgid ""
-"Select which tax type to keep. The other will be deleted and all its records"
-" re-pointed to the one you keep."
-msgstr ""
-"Seleccione qué tipo de impuesto desea conservar. El otro será eliminado y "
-"todos sus registros recalibrados al que conserve."
+msgid "Select which tax type to keep. The other will be deleted and all its records re-pointed to the one you keep."
+msgstr "Seleccione qué tipo de impuesto desea conservar. El otro será eliminado y todos sus registros recalibrados al que conserve."
 
 #, fuzzy
 #| msgid "Last Name"
@@ -2525,11 +2437,8 @@ msgstr "Solo necesario si se vincula a uno existente."
 msgid "New Expediente Name"
 msgstr "Nuevo Nombre de Expediente"
 
-msgid ""
-"Only required if creating a new one. Defaults to the Quote's project name."
-msgstr ""
-"Solo requerido si se está creando uno nuevo. Por defecto, se usa el nombre "
-"del proyecto de la Cotización."
+msgid "Only required if creating a new one. Defaults to the Quote's project name."
+msgstr "Solo requerido si se está creando uno nuevo. Por defecto, se usa el nombre del proyecto de la Cotización."
 
 msgid "Please select an existing expediente."
 msgstr "Por favor, selecciona un expediente existente."
@@ -2566,11 +2475,8 @@ msgstr "Aceptar Cotización y Enlace Expediente"
 msgid "Accept Quote"
 msgstr "Aceptar Cotización"
 
-msgid ""
-"To move this quote to 'Accepted', you must associate it with an Expediente "
-"(Project File)."
-msgstr ""
-"Para mover esta cotización a 'Aceptada', debes asociarla con un Expediente."
+msgid "To move this quote to 'Accepted', you must associate it with an Expediente (Project File)."
+msgstr "Para mover esta cotización a 'Aceptada', debes asociarla con un Expediente."
 
 #, fuzzy
 #| msgid "Confirmed"
@@ -2611,12 +2517,8 @@ msgstr "Contexto"
 msgid "Associated Emails"
 msgstr "Empleados Asignados"
 
-msgid ""
-"List of email addresses from which invoices for this provider are received. "
-"Separate with commas."
-msgstr ""
-"Lista de direcciones de correo electrónico desde las cuales se reciben "
-"facturas para este proveedor. Separe con comas."
+msgid "List of email addresses from which invoices for this provider are received. Separate with commas."
+msgstr "Lista de direcciones de correo electrónico desde las cuales se reciben facturas para este proveedor. Separe con comas."
 
 #, fuzzy
 #| msgid "Bank Account"
@@ -2626,13 +2528,8 @@ msgstr "Cuenta de Banco"
 msgid "Reference code"
 msgstr "Código de referencia"
 
-msgid ""
-"Internal identifier used in price rules. Must start with a letter and "
-"contain only letters, numbers, or underscores. Example: steel_4058"
-msgstr ""
-"Identificador interno utilizado en las reglas de precios. Debe comenzar con "
-"una letra y contener solo letras, números o guiones bajos. Ejemplo: "
-"steel_4058"
+msgid "Internal identifier used in price rules. Must start with a letter and contain only letters, numbers, or underscores. Example: steel_4058"
+msgstr "Identificador interno utilizado en las reglas de precios. Debe comenzar con una letra y contener solo letras, números o guiones bajos. Ejemplo: steel_4058"
 
 msgid "Rule key"
 msgstr "Clave de regla"
@@ -2654,9 +2551,7 @@ msgid "Component Type"
 msgstr "Tipo de Componente"
 
 msgid "Component stages must be a subset of the company production stages."
-msgstr ""
-"Las etapas de la regla BOM deben ser un subconjunto de las etapas de "
-"producción del producto."
+msgstr "Las etapas de la regla BOM deben ser un subconjunto de las etapas de producción del producto."
 
 msgid ""
 "Boolean expression evaluated with safe_eval.\n"
@@ -2667,12 +2562,8 @@ msgstr ""
 "Debe devolver True o False.\n"
 "Ejemplo: width <= 1000 y quantity >= 10"
 
-msgid ""
-"Enter an expression to calculate cost. Context: base_cost (if fallback) or "
-"material prices."
-msgstr ""
-"Ingrese una expresión para calcular el costo. Contexto: base_cost (si se "
-"necesita un valor de respaldo) o precios de materiales."
+msgid "Enter an expression to calculate cost. Context: base_cost (if fallback) or material prices."
+msgstr "Ingrese una expresión para calcular el costo. Contexto: base_cost (si se necesita un valor de respaldo) o precios de materiales."
 
 msgid "Lower values are evaluated first"
 msgstr "Los valores más bajos se evalúan primero."
@@ -2680,12 +2571,8 @@ msgstr "Los valores más bajos se evalúan primero."
 msgid "Used if no other rule matches"
 msgstr "Usado si ninguna otra regla coincide"
 
-msgid ""
-"Rule key must start with a letter and contain only letters, numbers, or "
-"underscores."
-msgstr ""
-"La clave de la regla debe comenzar con una letra y contener solo letras, "
-"números o guiones bajos."
+msgid "Rule key must start with a letter and contain only letters, numbers, or underscores."
+msgstr "La clave de la regla debe comenzar con una letra y contener solo letras, números o guiones bajos."
 
 msgid "Inbound"
 msgstr "Entrante"
@@ -2728,9 +2615,7 @@ msgid "Amount Pending Allocation"
 msgstr "Cuenta de Banco"
 
 msgid "Stored field. Updated inside a transaction on every allocation change."
-msgstr ""
-"Campo almacenado. Actualizado dentro de una transacción en cada cambio de "
-"asignación."
+msgstr "Campo almacenado. Actualizado dentro de una transacción en cada cambio de asignación."
 
 #, fuzzy
 #| msgid "Payment Method"
@@ -2824,9 +2709,12 @@ msgid "Order HTML"
 msgstr "Orden"
 
 msgid "Ticket HTML"
-msgstr ""
-"Sure, please provide the HTML content related to the ticket, and I'll help "
-"you translate the relevant strings into neutral Latin American Spanish."
+msgstr "Sure, please provide the HTML content related to the ticket, and I'll help you translate the relevant strings into neutral Latin American Spanish."
+
+#, fuzzy
+#| msgid "Last Name"
+msgid "Last Stage"
+msgstr "Apellido"
 
 msgid "Snapshot data (component, dimensions, notes)"
 msgstr "Datos de la instantánea (componente, dimensiones, notas)"
@@ -2936,9 +2824,7 @@ msgstr "Archivo de factura"
 #, fuzzy
 #| msgid "Ticket HTML"
 msgid "Ticket"
-msgstr ""
-"Sure, please provide the HTML content related to the ticket, and I'll help "
-"you translate the relevant strings into neutral Latin American Spanish."
+msgstr "Sure, please provide the HTML content related to the ticket, and I'll help you translate the relevant strings into neutral Latin American Spanish."
 
 msgid "Started"
 msgstr "Empezado"
@@ -2997,12 +2883,8 @@ msgstr "Resumir"
 msgid "No production stages"
 msgstr "Etapas de Producción"
 
-msgid ""
-"This ticket doesn't have any production stages assigned yet. Check the "
-"product configuration."
-msgstr ""
-"Este ticket aún no tiene ninguna etapa de producción asignada. Verifica la "
-"configuración del producto."
+msgid "This ticket doesn't have any production stages assigned yet. Check the product configuration."
+msgstr "Este ticket aún no tiene ninguna etapa de producción asignada. Verifica la configuración del producto."
 
 msgid "Work Order"
 msgstr "Orden de Trabajo"
@@ -3035,66 +2917,47 @@ msgid "{} items processed successfully."
 msgstr "Factura {} generada con éxito."
 
 #, python-brace-format
-msgid ""
-"No items were processed for stage '{}'. Check if they are already in the "
-"correct status."
-msgstr ""
-"No se procesaron elementos para la etapa '{}'. Verifica si ya están en el "
-"estado correcto."
+msgid "No items were processed for stage '{}'. Check if they are already in the correct status."
+msgstr "No se procesaron elementos para la etapa '{}'. Verifica si ya están en el estado correcto."
 
 msgid "Return to Stages"
 msgstr "Volver a las etapas"
 
-#, fuzzy
-#| msgid "Receive"
 msgid "Received"
-msgstr "Recibir"
+msgstr "Recibido"
 
 #, fuzzy
-#| msgid "Pending"
+#| msgid "Financial & Insurance"
+msgid "Financials & Approval"
+msgstr "Finanzas y Seguro"
+
 msgid "Send to Approval"
-msgstr "Pendiente"
+msgstr "Mandar a aprobación"
 
-#, fuzzy
-#| msgid "Invoice {} generated successfully."
 msgid "Purchase Order sent for approval."
-msgstr "Factura {} generada con éxito."
+msgstr "Ordén de compra mandada a aprobación."
 
-#, fuzzy
-#| msgid "Only pending sessions can be started"
 msgid "Only Draft POs can be sent for approval."
-msgstr "Solo se pueden iniciar sesiones pendientes."
+msgstr "Solo se pueden iniciar ordenes de compra pendientes."
 
-#, fuzzy
-#| msgid "Approved by"
 msgid "Approve PO"
-msgstr "Aprobado por"
+msgstr "Aprobadr OC"
 
-#, fuzzy
-#| msgid "Invoice {} generated successfully."
 msgid "Purchase Order approved successfully."
-msgstr "Factura {} generada con éxito."
+msgstr "Orden de Compra generada con éxito."
 
-#, fuzzy
-#| msgid "Only pending sessions can be started"
 msgid "Only Pending POs can be approved."
-msgstr "Solo se pueden iniciar sesiones pendientes."
+msgstr "Solo se pueden mandar a aprobar las ordenes de compra pendientes."
 
-#, fuzzy
-#| msgid "Received Quantity"
 msgid "Receive items directly"
-msgstr "Cantidad Recibida"
+msgstr "Recibir articulos"
 
 msgid "Only APPROVED Purchase Orders can receive items."
 msgstr "Solo las Órdenes de Compra APROBADAS pueden recibir artículos."
 
-#, fuzzy
-#| msgid "Quantity Received"
 msgid "Quantity to Receive"
-msgstr "Cantidad recibidas"
+msgstr "Cantidad a recibir"
 
-#, fuzzy
-#| msgid "Pending"
 msgid "Pending Approval"
 msgstr "Pendiente"
 
@@ -3115,8 +2978,15 @@ msgstr "Aprobado por"
 msgid "Approved At"
 msgstr "Aprobado el"
 
+
+msgid "Requested By"
+msgstr "Solicitado por"
+
 msgid "Purchase Order"
 msgstr "Orden de Compra"
+
+msgid "Can approve Purchase Orders"
+msgstr "Puedes aprobar Ordenes de Compra"
 
 msgid "DRAFT"
 msgstr "BORRADOR"
@@ -3159,12 +3029,8 @@ msgid "Receipt Items"
 msgstr "Artículos del Recibo de Entrega"
 
 #, python-format
-msgid ""
-"Cannot receive more than ordered. Ordered: %(ordered)s, Total Received: "
-"%(total)s"
-msgstr ""
-"No se puede recibir más de lo ordenado. Ordenado: %(ordered)s, Total "
-"Recibido: %(total)s"
+msgid "Cannot receive more than ordered. Ordered: %(ordered)s, Total Received: %(total)s"
+msgstr "No se puede recibir más de lo ordenado. Ordenado: %(ordered)s, Total Recibido: %(total)s"
 
 #, fuzzy, python-format
 #| msgid "Received Invoices"
@@ -3559,19 +3425,12 @@ msgid "Taken / Consumption"
 msgstr "Tomado / Consumo"
 
 #, fuzzy
-#| msgid ""
-#| "Use positive values for acquisition/consumption. Adjustment may be positive "
-#| "or negative"
-msgid ""
-"Use positive values for acquisition/consumption. Adjustment may be positive "
-"or negative."
-msgstr ""
-"Use valores positivos para adquisición/consumo. El ajuste puede ser positivo"
-" o negativo"
+#| msgid "Use positive values for acquisition/consumption. Adjustment may be positive or negative"
+msgid "Use positive values for acquisition/consumption. Adjustment may be positive or negative."
+msgstr "Use valores positivos para adquisición/consumo. El ajuste puede ser positivo o negativo"
 
 msgid "Acquisition and consumption movements must use positive days."
-msgstr ""
-"Los movimientos de adquisición y consumo deben utilizar días positivos."
+msgstr "Los movimientos de adquisición y consumo deben utilizar días positivos."
 
 msgid "Annual leave"
 msgstr "Vacaciones"

@@ -10,7 +10,11 @@ from inventory.models import InventoryItem, Warehouse, ItemTransaction
 from inventory.choices import ItemType, MovementType
 from configurator.utils.codegen import next_scoped_code
 from django.core.exceptions import ValidationError
+from django.core.validators import FileExtensionValidator
 
+def po_file_path(instance, filename):
+    """Path: purchasing/pos/company_{id}/{filename}"""
+    return f"purchasing/pos/company_{instance.company_id}/{filename}"
 
 class PurchaseOrderStatus(models.TextChoices):
     DRAFT = "DRAFT", _("Draft")
@@ -71,6 +75,18 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         verbose_name=_("Requested By")
     )
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
+    file = models.FileField(
+        upload_to=po_file_path,
+        null=True,
+        blank=True,
+        validators=[
+            FileExtensionValidator(
+                allowed_extensions=['pdf', 'png', 'jpg', 'jpeg']
+            )
+        ],
+        verbose_name=_("Provider Quote/File"),
+        help_text=_("Upload the quote from the provider to support approval.")
+    )
 
     class Meta:
         verbose_name = _("Purchase Order")

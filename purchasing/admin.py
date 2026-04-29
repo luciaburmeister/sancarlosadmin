@@ -74,6 +74,7 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 "requested_by",
                 "date_ordered",
                 "status",
+                "file",
             )
         }),
         (_("Financials & Approval"), {

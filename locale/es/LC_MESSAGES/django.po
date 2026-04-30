@@ -579,13 +579,11 @@ msgstr "Empleado"
 msgid "User Account"
 msgstr "Cuenta de Usuario"
 
-#, fuzzy
-#| msgid "Production Stages"
 msgid "Can work on production stages"
-msgstr "Etapas de Producción"
+msgstr "Trabaja en Etapas de Producción"
 
 msgid "First Name"
-msgstr "Primera"
+msgstr "Nombre"
 
 msgid "Last Name"
 msgstr "Apellido"
@@ -605,39 +603,30 @@ msgstr "Empleado Activo"
 msgid "Identification Number"
 msgstr "Número de identificación"
 
-#, fuzzy
-#| msgid "Hire Date"
 msgid "Birth Date"
-msgstr "Fecha de contratación"
+msgstr "Fecha de nacimiento"
 
 msgid "Sex"
 msgstr "Sexo"
 
-#, fuzzy
-#| msgid "Status"
 msgid "Civil Status"
-msgstr "Estado"
+msgstr "Estado Civil"
 
-#, fuzzy
-#| msgid "Constitude Country"
 msgid "Birth Country"
 msgstr "País Constituyente"
 
 msgid "Type"
 msgstr "Tipo"
 
-#, fuzzy
-#| msgid "Production Stages"
+
 msgid "Assigned Production Stages"
-msgstr "Etapas de Producción"
+msgstr "Etapas de Producción Asignadas"
 
 msgid "Stages this employee is authorized to work on"
 msgstr "Etapas en las que este empleado está autorizado para trabajar"
 
-#, fuzzy
-#| msgid "Assigned Employees"
 msgid "Assigned Sale Zones"
-msgstr "Empleados Asignados"
+msgstr "Zona de venta asignada"
 
 #, fuzzy
 #| msgid "Machine cost"

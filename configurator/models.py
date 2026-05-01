@@ -868,19 +868,6 @@ class Configuration(Timestampable, CompanyOwnedModel):
 
         return Decimal(str(qty)), length
 
-    def _bom_item_key(self, component_id):
-        """
-        Defines identity of a BOM-derived ConfigurationItem.
-        Adjust here if you later support multiple BOM items per component.
-        """
-        return (component_id,)
-
-    def _get_existing_bom_items(self):
-        """
-        Returns a dict mapping BOM identity → ConfigurationItem
-        """
-        items = self.items.filter(is_template_item=True)
-        return {self._bom_item_key(item.component_id): item for item in items}
 
     def generate_bom(self):
         if self.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE, ConfigurationStatus.SHOP]:
@@ -888,26 +875,28 @@ class Configuration(Timestampable, CompanyOwnedModel):
         """
         Incrementally reconciles BOM rules with existing ConfigurationItems.
 
-        - Updates existing items
-        - Creates missing items
-        - Deletes obsolete items
-        - Preserves primary keys whenever possible
+        - Updates existing items linked to the same rule
+        - Creates missing items for new rules
+        - Deletes items that no longer have a corresponding rule
         """
         context = self.get_pricing_context()
 
-        existing_items = self._get_existing_bom_items()
-        seen_keys = set()
+        # Map existing items by their rule ID for easy lookup
+        # We only consider items that are already linked to a rule
+        existing_items = {
+            item.bom_rule_id: item 
+            for item in self.items.filter(is_template_item=True, bom_rule__isnull=False)
+        }
+        
+        seen_item_ids = []
 
         for rule in self.product.bom_rules.select_related("component"):
             qty, length = self._evaluate_bom_rule(rule, context)
             if qty is None:
                 continue
 
-            key = self._bom_item_key(rule.component_id)
-            seen_keys.add(key)
-
-            if key in existing_items:
-                item = existing_items[key]
+            if rule.id in existing_items:
+                item = existing_items[rule.id]
                 item.quantity = qty
                 item.length = length
                 item.unit_price = rule.component.compute_unit_price(context)
@@ -915,8 +904,9 @@ class Configuration(Timestampable, CompanyOwnedModel):
                 item.note = safe_eval(rule.note_expression, context) if rule.note_expression else ""
                 item.save()
             else:
-                ConfigurationItem.objects.create(
+                item = ConfigurationItem.objects.create(
                     configuration=self,
+                    bom_rule=rule,
                     component=rule.component,
                     quantity=qty,
                     length=length,
@@ -925,10 +915,12 @@ class Configuration(Timestampable, CompanyOwnedModel):
                     production_stages=rule.production_stages or [],
                     note=safe_eval(rule.note_expression, context) if rule.note_expression else "",
                 )
+            
+            seen_item_ids.append(item.id)
 
-        for key, item in existing_items.items():
-            if key not in seen_keys:
-                item.delete()
+        # Cleanup: delete all template items that were not seen/updated in this run
+        # This includes stale items and items whose rules no longer evaluate to a quantity
+        self.items.filter(is_template_item=True).exclude(id__in=seen_item_ids).delete()
 
     def evaluate_computed_variables(self, context):
         """
@@ -1173,6 +1165,15 @@ class ConfigurationItem(Timestampable):
         decimal_places=5,
         default_currency="EUR",
         verbose_name=_("Unit price"),
+    )
+
+    bom_rule = models.ForeignKey(
+        'BOMRule',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="configuration_items",
+        verbose_name=_("BOM rule"),
     )
 
     production_stages = ArrayField(

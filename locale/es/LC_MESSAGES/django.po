@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-04-29 09:45+0200\n"
+"POT-Creation-Date: 2026-05-01 18:30+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -617,7 +617,6 @@ msgstr "País Constituyente"
 
 msgid "Type"
 msgstr "Tipo"
-
 
 msgid "Assigned Production Stages"
 msgstr "Etapas de Producción Asignadas"
@@ -1380,18 +1379,20 @@ msgstr "Cliente"
 msgid "Internal label for this configuration"
 msgstr "Etiqueta interna para esta configuración"
 
-#, fuzzy
-#| msgid "Material cost"
 msgid "Total cost"
-msgstr "Costo de material"
+msgstr "Costo total"
 
 msgid "Subtotal (before tax)"
 msgstr "Subtotal (antes de impuestos)"
 
-#, fuzzy
-#| msgid "Total price"
 msgid "Total price (after tax)"
 msgstr "Precio total"
+
+msgid "Price override"
+msgstr "Override del precio"
+
+msgid "If set, this price will be used as subtotal, bypassing pricing rules."
+msgstr ""
 
 msgid "Tax breakdown"
 msgstr "Desglose de impuestos"
@@ -1399,10 +1400,9 @@ msgstr "Desglose de impuestos"
 msgid "Snapshot of tax calculations at pricing time. Used for exports and auditing."
 msgstr "Instantánea de cálculos fiscales en el momento de la fijación de precios. Usado para exportaciones y auditorías."
 
-#, fuzzy
-#| msgid "Tax breakdown"
+
 msgid "Pricing breakdown"
-msgstr "Desglose de impuestos"
+msgstr "Desglose de precios"
 
 #, fuzzy
 #| msgid "Snapshot of tax calculations at pricing time. Used for exports and auditing."
@@ -1426,6 +1426,9 @@ msgstr "Orden de Trabajo"
 
 msgid "Configurations"
 msgstr "Configuraciones"
+
+msgid "Price Override"
+msgstr "Override del precio"
 
 msgid "Length factor used for pricing (e.g. meters)."
 msgstr "Factor de longitud utilizado para precios (por ejemplo, metros)."

@@ -120,7 +120,7 @@ class ParameterValueInline(TabularInline):
     extra = 0
     fields = ("parameter", "value","order")
     tab = True
-    readonly_fields = []
+    readonly_fields = ["parameter"]
     verbose_name = _("Parameter value")
     verbose_name_plural = _("Parameter values")
     
@@ -285,8 +285,8 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
         }),
         (_("Pricing"), {
             "fields": (
-                ("total_cost","subtotal_price",),
-                "total_price"
+                ("total_cost", "subtotal_price"),
+                ("price_override", "total_price"),
                 ),
         }),
     )

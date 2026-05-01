@@ -611,6 +611,16 @@ class Configuration(Timestampable, CompanyOwnedModel):
         verbose_name=_("Total price (after tax)"),
     )
 
+    price_override = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        default_currency="EUR",
+        verbose_name=_("Price override"),
+        help_text=_("If set, this price will be used as subtotal, bypassing pricing rules.")
+    )
+
     tax_breakdown = models.JSONField(
         default=list,
         blank=True,
@@ -734,66 +744,77 @@ class Configuration(Timestampable, CompanyOwnedModel):
         context = self.get_pricing_context()
 
         base_subtotal = Decimal(str(context["base_total"]))
-        subtotal = base_subtotal
-
         pricing_lines = []
-
-        for assignment in self.pricing_rules.select_related("rule").filter(
-            enabled=True
-        ):
-            rule = assignment.rule
-            amount = Decimal(str(safe_eval(rule.expression, context)))
-
-            if amount <= 0:
-                continue
-
-            subtotal_before = subtotal
-            subtotal += amount
-            pricing_lines.append(
-                {
-                    "label": rule.label or rule.name,
-                    "type": "charge",
-                    "expression": rule.expression,
-                    "subtotal_before": str(subtotal_before.quantize(Decimal("0.01"))),
-                    "amount": str(amount.quantize(Decimal("0.01"))),
-                    "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
-                }
-            )
-
-            context["base_total"] = float(subtotal)
-
-        pre_discount_subtotal = subtotal
-
+        pre_discount_subtotal = Decimal("0.00")
         discount_total = Decimal("0.00")
 
-        for assignment in self.pricing_rules.select_related("rule").filter(
-            enabled=True
-        ):
-            rule = assignment.rule
-            amount = Decimal(str(safe_eval(rule.expression, context)))
+        if self.price_override and self.price_override.amount > 0:
+            subtotal = Decimal(str(self.price_override.amount))
+            pricing_lines.append(
+                {
+                    "label": str(_("Price Override")),
+                    "type": "override",
+                    "amount": str(subtotal.quantize(Decimal("0.01"))),
+                }
+            )
+            pre_discount_subtotal = subtotal
+        else:
+            subtotal = base_subtotal
 
-            if amount >= 0:
-                continue
+            for assignment in self.pricing_rules.select_related("rule").filter(
+                enabled=True
+            ):
+                rule = assignment.rule
+                amount = Decimal(str(safe_eval(rule.expression, context)))
 
-            subtotal_before = subtotal
-            subtotal += amount
-            discount_total += amount
+                if amount <= 0:
+                    continue
 
-            if rule.show_in_export:
+                subtotal_before = subtotal
+                subtotal += amount
                 pricing_lines.append(
                     {
                         "label": rule.label or rule.name,
-                        "type": "discount",
+                        "type": "charge",
                         "expression": rule.expression,
-                        "subtotal_before": str(
-                            subtotal_before.quantize(Decimal("0.01"))
-                        ),
+                        "subtotal_before": str(subtotal_before.quantize(Decimal("0.01"))),
                         "amount": str(amount.quantize(Decimal("0.01"))),
                         "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
                     }
                 )
 
-            context["base_total"] = float(subtotal)
+                context["base_total"] = float(subtotal)
+
+            pre_discount_subtotal = subtotal
+
+            for assignment in self.pricing_rules.select_related("rule").filter(
+                enabled=True
+            ):
+                rule = assignment.rule
+                amount = Decimal(str(safe_eval(rule.expression, context)))
+
+                if amount >= 0:
+                    continue
+
+                subtotal_before = subtotal
+                subtotal += amount
+                discount_total += amount
+
+                if rule.show_in_export:
+                    pricing_lines.append(
+                        {
+                            "label": rule.label or rule.name,
+                            "type": "discount",
+                            "expression": rule.expression,
+                            "subtotal_before": str(
+                                subtotal_before.quantize(Decimal("0.01"))
+                            ),
+                            "amount": str(amount.quantize(Decimal("0.01"))),
+                            "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
+                        }
+                    )
+
+                context["base_total"] = float(subtotal)
 
         self.total_cost = base_subtotal
         self.subtotal_price = subtotal

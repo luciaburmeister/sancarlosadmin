@@ -33,7 +33,7 @@ class OptimizeScheduleForm(forms.Form):
     )
     ts = forms.IntegerField(
         min_value=1,
-        initial=10,
+        initial=30,
         widget=UnfoldAdminIntegerFieldWidget,
         label="Time step (minutes)",
         help_text="Slot size used by the optimizer.",

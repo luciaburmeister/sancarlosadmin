@@ -5,7 +5,7 @@ from company.views.views import LocationRecordCreateView
 
 
 urlpatterns = [
-    path("auth/login/", TokenObtainPairView.as_view(), name="jwt_login"),
+    path("auth/login/", views.login_view.as_view(), name="jwt_login"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="jwt_refresh"),
     path("assets/", views.assets_view, name="assets"),
     path("assets/<int:asset_id>/", views.asset_by_id_view, name="asset_by_id"),
@@ -20,4 +20,7 @@ urlpatterns = [
     path("location-records/", LocationRecordCreateView.as_view(), name="location-record-create"),
     path("zones/", views.zones_view.as_view(), name="zones"),
     path("clients/", views.clients_view.as_view(), name="clients"),
+    path("plannings/", views.plannings_view, name="plannings"),
+    path("movements/", views.movements_view, name="movements"),
+
 ]

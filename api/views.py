@@ -21,6 +21,13 @@ from assets.models import Client
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        token["username"] = user.username
+        token["full_name"] = f"{user.first_name} {user.last_name}".strip() or user.username
+        return token
+
     def validate(self, attrs):
         data = super().validate(attrs)
         user = self.user
@@ -189,10 +196,6 @@ def asset_qr_view(request, asset_id):
 
 
 class zones_view(generics.ListAPIView):
-    """
-    Returns active zones for the user's company.
-    Supports ?zone_type=obra or ?zone_type=vertedero filtering automatically.
-    """
     serializer_class = WorkingZoneSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
@@ -205,9 +208,6 @@ class zones_view(generics.ListAPIView):
 
 
 class clients_view(generics.ListAPIView):
-    """
-    Returns all clients for the user's company.
-    """
     serializer_class = ClientSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [filters.OrderingFilter]
@@ -228,8 +228,6 @@ def pickup_view(request, asset_id):
         latitude = raw.get("latitude", 0)
         longitude = raw.get("longitude", 0)
         firma = raw.get("firma", "")
-        # All fields except the fixed GPS/firma ones are saved automatically.
-        # No backend changes needed when the form adds new fields.
         form_data = {k: v for k, v in raw.items() if k not in ("latitude", "longitude", "firma")}
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
@@ -247,6 +245,15 @@ def pickup_view(request, asset_id):
         return JsonResponse({"error": "La zona de recogida no tiene coordenadas configuradas."}, status=400)
 
     distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
+    print(f"PICKUP: your GPS={latitude},{longitude}, zone={zone_lat},{zone_lon}, distance={int(distance)}m, max={MAX_ZONE_RADIUS_M}m")
+
+    if distance > MAX_ZONE_RADIUS_M:
+        return JsonResponse({
+            "error": f"Estás demasiado lejos de {asset.current_working_zone}. "
+                    f"Estás a {int(distance)}m. Debes estar a menos de {MAX_ZONE_RADIUS_M}m."
+        }, status=400)
+
+        
 
     if distance > MAX_ZONE_RADIUS_M:
         return JsonResponse({
@@ -280,8 +287,6 @@ def deliver_view(request, asset_id):
         latitude = raw.get("latitude", 0)
         longitude = raw.get("longitude", 0)
         firma = raw.get("firma", "")
-        # All fields except the fixed GPS/firma ones are saved automatically.
-        # No backend changes needed when the form adds new fields.
         form_data = {k: v for k, v in raw.items() if k not in ("latitude", "longitude", "firma")}
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON"}, status=400)
@@ -437,3 +442,60 @@ def attendance_status_view(request):
     ).exists()
 
     return JsonResponse({"is_clocked_in": is_clocked_in})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def plannings_view(request):
+    user = request.user
+    try:
+        employee = user.employee_profile
+    except Exception:
+        return JsonResponse({"plannings": []})
+
+    from assets.models import AssetPlanning
+    plannings = AssetPlanning.objects.filter(
+        assigned_to=employee,
+        status__in=["pending", "in_transit"]
+    ).select_related("asset", "origin", "destination")
+
+    data = []
+    for p in plannings:
+        data.append({
+            "asset_id": p.asset.id,
+            "origin": p.origin.name if p.origin else None,
+            "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,
+            "destination": p.destination.name if p.destination else None,
+            "destination_address": f"{p.destination.street_address}, {p.destination.city}, {p.destination.postal_code}" if p.destination else None,
+            "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
+            "status": p.status,
+        })
+
+    return JsonResponse({"plannings": data})
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def movements_view(request):
+    user = request.user
+    try:
+        employee = user.employee_profile
+    except Exception:
+        return JsonResponse({"movements": []})
+
+    transactions = AssetTransaction.objects.filter(
+        company=employee.company
+    ).select_related("asset", "from_zone", "to_zone", "performed_by").order_by("-date")[:100]
+
+    data = []
+    for t in transactions:
+        data.append({
+            "id": t.id,
+            "asset": t.asset.name,
+            "from_zone": t.from_zone.name if t.from_zone else None,
+            "to_zone": t.to_zone.name if t.to_zone else None,
+            "transaction_type": t.transaction_type,
+            "date": t.date.strftime("%d/%m/%Y %H:%M"),
+            "performed_by": t.performed_by.full_name if t.performed_by else None,
+        })
+
+    return JsonResponse({"movements": data})

@@ -104,6 +104,28 @@ def _serialize_client(c):
 
 # ─── Clients ──────────────────────────────────────────────────────────────────
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def wash_me_view(request):
+    try:
+        employee = request.user.employee_profile
+    except Exception:
+        return JsonResponse({"error": "User has no employee profile linked."}, status=403)
+
+    first_name = (employee.first_name or "").strip()
+    last_name = (employee.last_name or "").strip()
+    full_name = " ".join([p for p in [first_name, last_name] if p]).strip()
+
+    return JsonResponse({
+        "employee_first_name": first_name or None,
+        "employee_last_name": last_name or None,
+        "employee_full_name": full_name or None,
+        "username": request.user.username,
+    })
+
+
+# ─── Clients ──────────────────────────────────────────────────────────────────
+
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def wash_clients_view(request):
@@ -168,19 +190,18 @@ def wash_expedientes_view(request):
 
     body = json.loads(request.body)
     client_id = body.get("client_id")
-    vehicle = body.get("vehicle", "")
-    plate = body.get("plate", "")
+    name = body.get("name", "").strip()
 
     try:
         client = Client.objects.get(id=client_id, company=company)
     except Client.DoesNotExist:
         return JsonResponse({"error": "Client not found"}, status=404)
 
-    parts = [p for p in [vehicle, plate] if p]
-    name = " - ".join(parts) if parts else "Vehicle"
     start_date, err = _parse_date_or_error(body.get("date"))
     if err:
         return err
+    if not name:
+        name = f"Expediente {start_date.strftime('%d/%m/%Y')}" if start_date else f"Expediente {client.name}"
 
     with transaction.atomic():
         project_file = ProjectFile.objects.create(
@@ -308,12 +329,24 @@ def wash_configuration_manage_view(request, expediente_id, config_id):
         return JsonResponse({"success": True})
 
     body = json.loads(request.body)
-    price = body.get("price")
     param_values = body.get("param_values", {})
 
     with transaction.atomic():
-        config.price_override = Money(price, "EUR") if price is not None else None
-        config.save(update_fields=["price_override", "price_override_currency"])
+        update_fields = []
+
+        if "price" in body:
+            price = body["price"]
+            config.price_override = Money(price, "EUR") if price is not None else None
+            update_fields += ["price_override", "price_override_currency"]
+
+        if "status" in body:
+            new_status = body["status"]
+            if new_status in {s.value for s in ConfigurationStatus}:
+                config.status = new_status
+                update_fields.append("status")
+
+        if update_fields:
+            config.save(update_fields=update_fields)
 
         if param_values:
             config.param_values.all().delete()

@@ -24,6 +24,7 @@ urlpatterns = [
     path("movements/", views.movements_view, name="movements"),
 
     # Wash
+    path("wash/me/", wash_views.wash_me_view, name="wash_me"),
     path("wash/clients/", wash_views.wash_clients_view, name="wash_clients"),
     path("wash/templates/", wash_views.wash_templates_view, name="wash_templates"),
     path("wash/expedientes/", wash_views.wash_expedientes_view, name="wash_expedientes"),

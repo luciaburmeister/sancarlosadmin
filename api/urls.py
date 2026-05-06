@@ -1,6 +1,6 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from . import views
+from . import views, wash_views
 from company.views.views import LocationRecordCreateView
 
 
@@ -23,4 +23,11 @@ urlpatterns = [
     path("plannings/", views.plannings_view, name="plannings"),
     path("movements/", views.movements_view, name="movements"),
 
+    # Wash
+    path("wash/clients/", wash_views.wash_clients_view, name="wash_clients"),
+    path("wash/templates/", wash_views.wash_templates_view, name="wash_templates"),
+    path("wash/expedientes/", wash_views.wash_expedientes_view, name="wash_expedientes"),
+    path("wash/expedientes/<int:expediente_id>/", wash_views.wash_expediente_detail_view, name="wash_expediente_detail"),
+    path("wash/expedientes/<int:expediente_id>/configure/", wash_views.wash_expediente_configure_view, name="wash_expediente_configure"),
+    path("wash/expedientes/<int:expediente_id>/configurations/<int:config_id>/", wash_views.wash_configuration_manage_view, name="wash_configuration_manage"),
 ]

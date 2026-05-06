@@ -419,6 +419,9 @@ class Quote(Timestampable, CompanyOwnedModel):
     class Meta:
         verbose_name = _("Quote")
         verbose_name_plural = _("Quotes")
+        permissions = [
+            ("can_view_quote_dashboard", _("Can view quote dashboard")),
+        ]
 
     def __str__(self):
         return f"{_('Quote')} #{self.id} – {self.client} - {self.project_name}"

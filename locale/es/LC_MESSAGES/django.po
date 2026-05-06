@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-01 18:30+0200\n"
+"POT-Creation-Date: 2026-05-06 12:27+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -1389,17 +1389,16 @@ msgid "Total price (after tax)"
 msgstr "Precio total"
 
 msgid "Price override"
-msgstr "Override del precio"
+msgstr "Sobrescribir precio"
 
 msgid "If set, this price will be used as subtotal, bypassing pricing rules."
-msgstr ""
+msgstr "Si está configurado, este precio se utilizará como subtotal, omitiendo las reglas de precios."
 
 msgid "Tax breakdown"
 msgstr "Desglose de impuestos"
 
 msgid "Snapshot of tax calculations at pricing time. Used for exports and auditing."
 msgstr "Instantánea de cálculos fiscales en el momento de la fijación de precios. Usado para exportaciones y auditorías."
-
 
 msgid "Pricing breakdown"
 msgstr "Desglose de precios"
@@ -2149,6 +2148,65 @@ msgstr "La entrada no está equilibrada."
 
 #, fuzzy
 #| msgid "Invoice File"
+msgid "Invoice Setup"
+msgstr "Archivo de factura"
+
+#, fuzzy
+#| msgid "Production Stage"
+msgid "By Percentage"
+msgstr "Etapas de Producción"
+
+#, fuzzy
+#| msgid "Discount"
+msgid "Custom Amount"
+msgstr "Descuento"
+
+msgid "Date Issued"
+msgstr "Fecha de emisión"
+
+msgid "Due Date"
+msgstr "Fecha de vencimiento"
+
+#, fuzzy
+#| msgid "Invoice File"
+msgid "Invoice Mode"
+msgstr "Archivo de factura"
+
+#, fuzzy
+#| msgid "Production Stage"
+msgid "Percentage (%)"
+msgstr "Etapas de Producción"
+
+msgid "Percentage of the remaining invoiceable amount"
+msgstr ""
+
+msgid "Custom Amount (Subtotal)"
+msgstr ""
+
+msgid "Custom subtotal amount for this invoice"
+msgstr ""
+
+#, fuzzy
+#| msgid "Please select an existing expediente."
+msgid "Please enter a valid percentage."
+msgstr "Por favor, selecciona un expediente existente."
+
+msgid "Percentage cannot exceed 100%."
+msgstr ""
+
+#, python-format
+msgid "This percentage would exceed the remaining invoiceable amount (%(remaining)s)."
+msgstr ""
+
+msgid "Please enter a valid amount."
+msgstr ""
+
+#, python-format
+msgid "Amount cannot exceed the remaining invoiceable subtotal (%(remaining)s)."
+msgstr ""
+
+#, fuzzy
+#| msgid "Invoice File"
 msgid "Invoice Details"
 msgstr "Archivo de factura"
 
@@ -2304,12 +2362,6 @@ msgstr "Precio final"
 msgid "Invoice Number"
 msgstr "Número de factura"
 
-msgid "Date Issued"
-msgstr "Fecha de emisión"
-
-msgid "Due Date"
-msgstr "Fecha de vencimiento"
-
 msgid "Incremental ID"
 msgstr "ID incremental"
 
@@ -2346,6 +2398,13 @@ msgstr "Total Bruto"
 msgid "Currency"
 msgstr "Riesgo Actual"
 
+msgid "This project file has no accepted quotes. Cannot create an invoice."
+msgstr ""
+
+#, python-format
+msgid "This invoice would exceed the invoiceable amount. Total invoiceable: %(invoiceable)s, Already invoiced (including this): %(invoiced)s, Over by: %(over)s"
+msgstr ""
+
 #, fuzzy
 #| msgid "Incoming Invoice"
 msgid "Upload Invoice"
@@ -2378,9 +2437,45 @@ msgid "Confirm Merge"
 msgstr "Confirmado"
 
 #, fuzzy
+#| msgid "Invoice"
+msgid "Invoiced"
+msgstr "Factura"
+
+msgid "Remaining"
+msgstr ""
+
+#, fuzzy
+#| msgid "Sales Invoice"
+msgid "Total Invoiceable"
+msgstr "Factura de venta"
+
+#, fuzzy
+#| msgid "Incoming Invoice"
+msgid "Already Invoiced"
+msgstr "Factura Entrante"
+
+#, fuzzy
+#| msgid "No production stages found for this ticket"
+msgid "No accepted quotes found for thisproject file."
+msgstr "No se han encontrado elementos de producción para este ticket"
+
+#, fuzzy
+#| msgid "Sales Invoice"
+msgid "Create Invoice"
+msgstr "Factura de venta"
+
+#, fuzzy
 #| msgid "Order item"
 msgid "Add item"
 msgstr "Elemento del pedido"
+
+msgid "Create Invoice from Project File"
+msgstr ""
+
+#, fuzzy, python-format
+#| msgid "Invoice {} generated successfully."
+msgid "Sales Invoice created successfully from %(ref)s."
+msgstr "Factura {} generada con éxito."
 
 msgid "Upload New Invoice"
 msgstr "Subir Nueva Factura"
@@ -2404,12 +2499,30 @@ msgid "Basic Information"
 msgstr "Información General"
 
 #, fuzzy
+#| msgid "Invoice"
+msgid "Invoicing"
+msgstr "Factura"
+
+#, fuzzy
 #| msgid "End Time"
 msgid "Timeline"
 msgstr "Hora de finalización"
 
 msgid "Internal Data"
 msgstr "Datos Internos"
+
+#, fuzzy
+#| msgid "Financial & Insurance"
+msgid "Invoicing Summary"
+msgstr "Finanzas y Seguro"
+
+msgid "No accepted quotes yet."
+msgstr ""
+
+#, fuzzy
+#| msgid "Invoice"
+msgid "invoiced"
+msgstr "Factura"
 
 msgid "Link to an existing Expediente"
 msgstr "Enlace a un Expediente existente"
@@ -3101,6 +3214,26 @@ msgstr "Configuración"
 msgid "Export Quote"
 msgstr "Aceptado"
 
+msgid "Quote Dashboard"
+msgstr ""
+
+msgid "Sent"
+msgstr "Enviado"
+
+msgid "Accepted"
+msgstr "Aceptado"
+
+msgid "Rejected"
+msgstr "Rechazado"
+
+msgid "Total Quoted (€)"
+msgstr ""
+
+#, fuzzy
+#| msgid "Quotes"
+msgid "# Quotes"
+msgstr "Presupuestos"
+
 msgid "Sale Zone"
 msgstr "Zona de venta"
 
@@ -3239,15 +3372,6 @@ msgstr "Elemento del pedido"
 msgid "Order items"
 msgstr "Items del pedido"
 
-msgid "Sent"
-msgstr "Enviado"
-
-msgid "Accepted"
-msgstr "Aceptado"
-
-msgid "Rejected"
-msgstr "Rechazado"
-
 msgid "Expires at"
 msgstr "Expira el"
 
@@ -3263,6 +3387,9 @@ msgstr "Monto del impuesto"
 
 msgid "Stores the aggregated tax bases and amounts"
 msgstr "Almacena las bases imponibles y montos agregados."
+
+msgid "Can view quote dashboard"
+msgstr ""
 
 msgid "Quote item"
 msgstr "artículo de Presupuesto"
@@ -3282,15 +3409,36 @@ msgstr "Elemento del albaran de Transporte"
 msgid "Delivery Order Items"
 msgstr "Items de albaran de Transporte"
 
+msgid "Total Quoted"
+msgstr "Total Presupuestado"
+
+msgid "quotes"
+msgstr "Presupuestos"
+
+
+msgid "Total Tax"
+msgstr "Total Impuestos"
+
+msgid "Avg. Quote Value"
+msgstr "Valor Promedio del Presupuesto"
+
+msgid "Breakdown by Status"
+msgstr "Desglose por Estado"
+
+
+msgid "Tax"
+msgstr "Impuestos"
+
+msgid "Total"
+msgstr "Total"
+
 #, fuzzy
 #| msgid "Configuration item"
 msgid "Quote Template Exporter"
 msgstr "Elemento de configuración"
 
-#, fuzzy
-#| msgid "Configuration item"
 msgid "Quote not found"
-msgstr "Elemento de configuración"
+msgstr "Presupuesto no encontrado"
 
 #, fuzzy
 #| msgid "Internal label for this configuration"
@@ -3539,9 +3687,6 @@ msgstr "No hay ausencias pasadas"
 
 #~ msgid "Finish activity"
 #~ msgstr "Finalizar actividad"
-
-#~ msgid "No production stages found for this ticket"
-#~ msgstr "No se han encontrado elementos de producción para este ticket"
 
 #~ msgid "Created at"
 #~ msgstr "Creado en"

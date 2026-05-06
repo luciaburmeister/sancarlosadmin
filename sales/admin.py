@@ -15,6 +15,8 @@ from unfold.decorators import action
 from core.admin.company_admin import CompanyRestrictedAdmin
 from management.views import QuoteAcceptanceWizardView
 from .views.quote_export_view import QuoteExportView
+from .views.quote_dashboard_view import QuoteDashboardView
+from .components.quote_dashboard_charts import QuoteValueByStatusChart, QuoteCountByStatusChart  # noqa: F401
 
 @admin.register(SaleZone)
 class SaleZoneAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -224,6 +226,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
     
     inlines = [ConfigurationReadOnlyInline, QuoteItemInline, AppliedTaxInline]
 
+    actions_list = ["quote_dashboard_action"]
     actions_row = ["add_configuration_to_quote", "export_quote_action"]
 
     fieldsets = (
@@ -275,9 +278,28 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def export_quote_action(self, request, object_id: int):
         return redirect(reverse("admin:sales_quote_export", args=[object_id]))
 
+    @action(
+        description=_("Quote Dashboard"),
+        url_path="quote-dashboard-action",
+        permissions=["quote_dashboard"],
+        icon="bar_chart",
+    )
+    def quote_dashboard_action(self, request):
+        return redirect(reverse("admin:sales_quote_dashboard"))
+
+    def has_quote_dashboard_permission(self, request):
+        return request.user.has_perm("sales.can_view_quote_dashboard")
+
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
+            path(
+                "dashboard/",
+                self.admin_site.admin_view(
+                    QuoteDashboardView.as_view(model_admin=self)
+                ),
+                name="sales_quote_dashboard",
+            ),
             path(
                 "<int:quote_id>/accept-wizard/",
                 self.admin_site.admin_view(QuoteAcceptanceWizardView.as_view(model_admin=self)),

@@ -12,7 +12,8 @@ from unfold.fields import UnfoldAdminMultipleAutocompleteModelChoiceField
 
 
 STRATEGY_CHOICES = [
-    ("margin", "Margin"),
+    ("margin", _("Maximize margin")),
+    ("quantity", _("Maximize quantity")),
 ]
 
 

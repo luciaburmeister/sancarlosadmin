@@ -6,6 +6,7 @@ from django.views.generic import TemplateView
 
 from unfold.views import UnfoldModelAdminViewMixin
 
+from core.admin.company_access import get_user_companies
 from sales.models import Quote, QuoteStatus
 
 
@@ -14,10 +15,17 @@ class QuoteDashboardView(UnfoldModelAdminViewMixin, TemplateView):
     permission_required = ("sales.can_view_quote_dashboard",)
     template_name = "admin/sales/quote/dashboard.html"
 
+    def _get_quotes(self):
+        """Return quotes scoped to the user's accessible companies."""
+        qs = Quote.objects.all()
+        if not self.request.user.is_superuser:
+            qs = qs.filter(company__in=get_user_companies(self.request.user))
+        return qs
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
 
-        quotes = Quote.objects.all()
+        quotes = self._get_quotes()
 
         # ── Global KPIs ─────────────────────────────────────────
         totals = quotes.aggregate(

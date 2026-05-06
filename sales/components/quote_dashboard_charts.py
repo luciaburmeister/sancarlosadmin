@@ -2,6 +2,20 @@ import json
 
 from unfold.components import BaseComponent, register_component
 
+from core.admin.company_access import get_user_companies
+from sales.models import QuoteStatus
+from django.db.models import Sum
+from django.utils.translation import gettext as _
+
+def _get_company_filtered_quotes(request):
+    """Return a Quote queryset scoped to the user's accessible companies."""
+    from sales.models import Quote
+
+    qs = Quote.objects.all()
+    if not request.user.is_superuser:
+        qs = qs.filter(company__in=get_user_companies(request.user))
+    return qs
+
 
 @register_component
 class QuoteValueByStatusChart(BaseComponent):
@@ -9,9 +23,9 @@ class QuoteValueByStatusChart(BaseComponent):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        from sales.models import Quote, QuoteStatus
-        from django.db.models import Sum, Count
-        from django.utils.translation import gettext as _
+        
+
+        quotes = _get_company_filtered_quotes(self.request)
 
         status_meta = [
             (QuoteStatus.DRAFT, _("Draft"), "#6366f1"),
@@ -25,7 +39,7 @@ class QuoteValueByStatusChart(BaseComponent):
         colors = []
 
         for status_value, label, color in status_meta:
-            agg = Quote.objects.filter(status=status_value).aggregate(
+            agg = quotes.filter(status=status_value).aggregate(
                 total=Sum("total_price"),
             )
             labels.append(str(label))
@@ -54,9 +68,9 @@ class QuoteCountByStatusChart(BaseComponent):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        from sales.models import Quote, QuoteStatus
-        from django.db.models import Count
-        from django.utils.translation import gettext as _
+
+
+        quotes = _get_company_filtered_quotes(self.request)
 
         status_meta = [
             (QuoteStatus.DRAFT, _("Draft"), "#6366f1"),
@@ -70,7 +84,7 @@ class QuoteCountByStatusChart(BaseComponent):
         colors = []
 
         for status_value, label, color in status_meta:
-            count = Quote.objects.filter(status=status_value).count()
+            count = quotes.filter(status=status_value).count()
             labels.append(str(label))
             counts.append(count)
             colors.append(color)

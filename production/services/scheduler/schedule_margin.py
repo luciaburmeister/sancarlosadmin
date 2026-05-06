@@ -660,6 +660,10 @@ class MarginScheduler(ScheduleStrategy):
         objective: pulp.LpAffineExpression,
         constraints: dict,
         use_warm_start: bool = False,
+        time_limit: int | None = None,
+        gap_rel: float | None = None,
+        gap_abs: float | None = None,
+        max_nodes: int | None = None,
     ) -> pulp.LpProblem:
         prob = pulp.LpProblem("Schedule configuration stages to resources", pulp.LpMaximize)
         prob += objective
@@ -672,6 +676,10 @@ class MarginScheduler(ScheduleStrategy):
             warmStart=use_warm_start,
             presolve=True,
             cuts=True,
+            timeLimit=time_limit,
+            gapRel=gap_rel,
+            gapAbs=gap_abs,
+            maxNodes=max_nodes,
         )
         prob.solve(solver)
         return prob

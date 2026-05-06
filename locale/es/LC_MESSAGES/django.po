@@ -2444,46 +2444,36 @@ msgstr "Factura"
 msgid "Remaining"
 msgstr ""
 
-#, fuzzy
-#| msgid "Sales Invoice"
 msgid "Total Invoiceable"
-msgstr "Factura de venta"
+msgstr "Total Facturable"
 
-#, fuzzy
-#| msgid "Incoming Invoice"
+
 msgid "Already Invoiced"
-msgstr "Factura Entrante"
+msgstr "Ya facturado"
 
-#, fuzzy
-#| msgid "No production stages found for this ticket"
-msgid "No accepted quotes found for thisproject file."
-msgstr "No se han encontrado elementos de producción para este ticket"
+msgid "No accepted quotes found for this project file."
+msgstr "No se han encontrado presupuestos aceptados para este expediente."
 
-#, fuzzy
-#| msgid "Sales Invoice"
+
 msgid "Create Invoice"
-msgstr "Factura de venta"
+msgstr "Crear factura"
 
-#, fuzzy
-#| msgid "Order item"
+
 msgid "Add item"
-msgstr "Elemento del pedido"
+msgstr "Agregar línea"
 
 msgid "Create Invoice from Project File"
-msgstr ""
+msgstr "Crear factura desde expediente"
 
-#, fuzzy, python-format
-#| msgid "Invoice {} generated successfully."
 msgid "Sales Invoice created successfully from %(ref)s."
-msgstr "Factura {} generada con éxito."
+msgstr "Factura %(ref)s creada con éxito."
 
 msgid "Upload New Invoice"
 msgstr "Subir Nueva Factura"
 
-#, fuzzy
-#| msgid "Sales Invoice"
+
 msgid "Create Sales Invoice"
-msgstr "Factura de venta"
+msgstr "Crear factura de venta"
 
 msgid "Logistics"
 msgstr "Logística"

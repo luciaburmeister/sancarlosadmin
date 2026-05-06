@@ -1,5 +1,7 @@
 import json
 from datetime import datetime, date
+from django.core.paginator import Paginator
+from django.db.models import Q
 from django.http import JsonResponse
 from django.db import transaction
 from rest_framework.decorators import api_view, permission_classes
@@ -95,6 +97,7 @@ def _serialize_configuration(config):
             pv.parameter.name: pv.parameter.label or pv.parameter.name
             for pv in config.param_values.select_related("parameter").all()
         },
+        "created_at": config.created_at.strftime("%Y-%m-%d") if config.created_at else None,
     }
 
 
@@ -180,13 +183,47 @@ def wash_expedientes_view(request):
         return error
 
     if request.method == "GET":
-        date_str = request.GET.get("date")
-        qs = ProjectFile.objects.filter(company=company).prefetch_related(
+        status_filter = request.GET.get("status", "open")   # open | completed | all
+        search = request.GET.get("search", "").strip()
+        try:
+            page_num = max(1, int(request.GET.get("page", 1)))
+        except ValueError:
+            page_num = 1
+
+        _PAGE_SIZE = 20
+
+        base_qs = ProjectFile.objects.filter(company=company)
+        if search:
+            base_qs = base_qs.filter(
+                Q(name__icontains=search) | Q(client__name__icontains=search)
+            )
+
+        # Counts for both tabs (reflects active search)
+        open_count = base_qs.exclude(status__in=["completed", "cancelled"]).count()
+        completed_count = base_qs.filter(status="completed").count()
+
+        if status_filter == "open":
+            filtered_qs = base_qs.exclude(status__in=["completed", "cancelled"])
+        elif status_filter == "completed":
+            filtered_qs = base_qs.filter(status="completed")
+        else:
+            filtered_qs = base_qs
+
+        filtered_qs = filtered_qs.prefetch_related(
             "quotes__configurations__param_values__parameter"
         ).order_by("-created_at")
-        if date_str:
-            qs = qs.filter(start_date=date_str)
-        return JsonResponse({"expedientes": [_serialize_expediente(pf, include_total=True) for pf in qs]})
+
+        paginator = Paginator(filtered_qs, _PAGE_SIZE)
+        page = paginator.get_page(page_num)
+
+        return JsonResponse({
+            "results": [_serialize_expediente(pf, include_total=True) for pf in page],
+            "count": paginator.count,
+            "open_count": open_count,
+            "completed_count": completed_count,
+            "page": page_num,
+            "has_next": page.has_next(),
+        })
 
     body = json.loads(request.body)
     client_id = body.get("client_id")
@@ -201,7 +238,12 @@ def wash_expedientes_view(request):
     if err:
         return err
     if not name:
-        name = f"Expediente {start_date.strftime('%d/%m/%Y')}" if start_date else f"Expediente {client.name}"
+        _months_es = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                      'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+        if start_date:
+            name = f"{client.name} - {_months_es[start_date.month - 1]} {start_date.year}"
+        else:
+            name = client.name
 
     with transaction.atomic():
         project_file = ProjectFile.objects.create(
@@ -281,13 +323,27 @@ def wash_expediente_configure_view(request, expediente_id):
     except ProductTemplate.DoesNotExist:
         return JsonResponse({"error": "Template not found"}, status=404)
 
+    # Build a meaningful config name from vehicle params
+    from datetime import date as _today
+    modelo = str(param_values.get('modelo', '')).strip()
+    matricula = str(param_values.get('matricula', '')).strip()
+    day_str = _today.today().strftime('%d/%m')
+    if modelo and matricula:
+        config_name = f"{modelo} ({matricula}) - {day_str}"
+    elif modelo:
+        config_name = f"{modelo} - {day_str}"
+    elif matricula:
+        config_name = f"{matricula} - {day_str}"
+    else:
+        config_name = f"{template.name} - {day_str}"
+
     with transaction.atomic():
         config = Configuration.objects.create(
             company=company,
             client=quote.client,
             quote=quote,
             product=template,
-            name=pf.name,
+            name=config_name,
             status=ConfigurationStatus.DRAFT,
             price_override=Money(price, "EUR") if price is not None else None,
         )

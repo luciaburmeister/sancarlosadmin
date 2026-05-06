@@ -967,7 +967,14 @@ class MarginScheduler(ScheduleStrategy):
                 resource_type_active_resources,
             )
 
-        objective = self._objective_definition(variable_set, configuration_margin)
+        objective = self._objective_definition(
+            variable_set,
+            configuration_margin,
+            configurations,
+            configuration_items,
+            item_stages,
+            valid_start_positions,
+        )
 
         constraints = self._constraint_definition(
             variable_set,

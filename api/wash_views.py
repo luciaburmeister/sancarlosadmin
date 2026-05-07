@@ -627,7 +627,13 @@ def wash_stage_start_view(request, config_id, stage_name):
     if ticket is None:
         return JsonResponse({"error": "No production ticket. Convert first."}, status=404)
 
-    items = list(ticket.items.all())
+    items = list(ticket.items.prefetch_related("assigned_employees").all())
+
+    relevant_items = [item for item in items if stage_name in (item.planning or {})]
+    any_assigned = any(item.assigned_employees.exists() for item in relevant_items)
+    if not any_assigned:
+        for item in relevant_items:
+            item.assigned_employees.add(employee)
 
     try:
         count = StagesToSessionsService.start_activity(

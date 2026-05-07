@@ -503,7 +503,8 @@ def wash_configuration_convert_view(request, config_id):
     if err:
         return err
 
-    if ticket is not None:
+    # If already properly converted and ticket exists, just return current stages
+    if ticket is not None and config.status == ConfigurationStatus.CONVERTED:
         return JsonResponse({
             "status": config.status,
             "stages": _serialize_stages(ticket),

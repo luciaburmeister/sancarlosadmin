@@ -667,6 +667,16 @@ class Configuration(Timestampable, CompanyOwnedModel):
         verbose_name=_("Work Order PDF")
     )
 
+    quote_group = models.ForeignKey(
+        "sales.QuoteConfigurationGroup",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="configurations",
+        verbose_name=_("Quote Group"),
+        help_text=_("Optional group for organising configurations within a quote."),
+    )
+
     class Meta:
         verbose_name = _("Configuration")
         verbose_name_plural = _("Configurations")

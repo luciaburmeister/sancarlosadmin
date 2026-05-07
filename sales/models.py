@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Sum
 from django.utils import timezone
 from djmoney.models.fields import MoneyField
 from materials.models import Material
@@ -546,6 +547,59 @@ class Quote(Timestampable, CompanyOwnedModel):
             Decimal("0.00"),
         )
         return config_total + item_total
+
+class QuoteConfigurationGroup(Timestampable):
+    """
+    An optional organisational group that clusters Configurations within a Quote.
+    Purely presentational — does not affect the Quote's financial totals.
+    """
+    quote = models.ForeignKey(
+        Quote,
+        on_delete=models.CASCADE,
+        related_name="configuration_groups",
+        verbose_name=_("Quote"),
+    )
+
+    name = models.CharField(
+        max_length=200,
+        verbose_name=_("Name"),
+    )
+
+    notes = models.TextField(
+        blank=True,
+        verbose_name=_("Notes"),
+    )
+
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Order"),
+        db_index=True,
+    )
+
+    class Meta:
+        verbose_name = _("Configuration Group")
+        verbose_name_plural = _("Configuration Groups")
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def subtotal(self):
+        """Sum of subtotal_price of all member configurations."""
+        return sum(
+            (c.subtotal_price.amount for c in self.configurations.all()),
+            Decimal("0.00"),
+        )
+
+    @property
+    def total(self):
+        """Sum of total_price (after tax) of all member configurations."""
+        return sum(
+            (c.total_price.amount for c in self.configurations.all()),
+            Decimal("0.00"),
+        )
+
 
 class QuoteItem(Timestampable):
     quote = models.ForeignKey(

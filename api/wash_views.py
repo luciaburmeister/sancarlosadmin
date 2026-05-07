@@ -12,9 +12,13 @@ from management.models import ProjectFile
 from configurator.models import (
     Configuration,
     ConfigurationStatus,
+    ConfigurationFlow,
     ConfigurationParameterValue,
     ProductTemplate,
 )
+from django.contrib.contenttypes.models import ContentType
+from production.models import ProductionTicket
+from production.services.stages_to_sessions import StagesToSessionsService
 from sales.models import Quote, Client
 
 
@@ -358,6 +362,7 @@ def wash_expediente_configure_view(request, expediente_id):
             for param_name, value in param_values.items()
             if (param := params_by_name.get(param_name))
         ])
+        config.generate_bom()
 
     return JsonResponse(_serialize_configuration(config), status=201)
 
@@ -417,5 +422,258 @@ def wash_configuration_manage_view(request, expediente_id, config_id):
                 for param_name, value in param_values.items()
                 if (param := params_by_name.get(param_name))
             ])
+            config.generate_bom()
 
     return JsonResponse(_serialize_configuration(config))
+
+
+# ─── Production stages helpers ────────────────────────────────────────────────
+
+def _get_ticket_for_config(config_id, company):
+    """Returns (config, ticket, error_response). ticket may be None if not yet converted."""
+    try:
+        config = Configuration.objects.get(id=config_id, company=company)
+    except Configuration.DoesNotExist:
+        return None, None, JsonResponse({"error": "Not found"}, status=404)
+
+    ct = ContentType.objects.get_for_model(config)
+    try:
+        ticket = ProductionTicket.objects.prefetch_related(
+            "items__assigned_employees"
+        ).get(content_type=ct, object_id=config.id)
+    except ProductionTicket.DoesNotExist:
+        return config, None, None
+
+    return config, ticket, None
+
+
+def _serialize_stages(ticket):
+    """Aggregate planning stages across all ProductionItems for a ticket."""
+    items = list(ticket.items.prefetch_related("assigned_employees").all())
+
+    product = getattr(ticket.source_object, "product", None)
+    stage_order = list(getattr(product, "production_stages", []) or [])
+
+    stage_data = {}
+    for item in items:
+        for stage_name, info in (item.planning or {}).items():
+            if stage_name not in stage_data:
+                stage_data[stage_name] = {"statuses": [], "assigned_employees": {}}
+            status = (info or {}).get("status") or "pending"
+            stage_data[stage_name]["statuses"].append(status)
+            for emp in item.assigned_employees.all():
+                stage_data[stage_name]["assigned_employees"][emp.id] = emp.full_name
+
+    def _agg_status(statuses):
+        if all(s == "done" for s in statuses):
+            return "done"
+        if any(s == "in_progress" for s in statuses):
+            return "in_progress"
+        return "pending"
+
+    def _sort_key(name):
+        try:
+            return stage_order.index(name)
+        except ValueError:
+            return 1000
+
+    return [
+        {
+            "name": name,
+            "status": _agg_status(stage_data[name]["statuses"]),
+            "assigned_employees": [
+                {"id": emp_id, "full_name": emp_name}
+                for emp_id, emp_name in stage_data[name]["assigned_employees"].items()
+            ],
+        }
+        for name in sorted(stage_data.keys(), key=_sort_key)
+    ]
+
+
+# ─── Convert configuration to production ──────────────────────────────────────
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def wash_configuration_convert_view(request, config_id):
+    company, error = _company_or_error(request)
+    if error:
+        return error
+
+    config, ticket, err = _get_ticket_for_config(config_id, company)
+    if err:
+        return err
+
+    if ticket is not None:
+        return JsonResponse({
+            "status": config.status,
+            "stages": _serialize_stages(ticket),
+        })
+
+    if config.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.COMPLETED]:
+        return JsonResponse({"error": "Configuration cannot be converted in its current state."}, status=400)
+
+    try:
+        config.generate_bom()
+        flow = ConfigurationFlow(config)
+        ticket = flow.convert()
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+    ticket = ProductionTicket.objects.prefetch_related("items__assigned_employees").get(pk=ticket.pk)
+
+    return JsonResponse({
+        "status": config.status,
+        "stages": _serialize_stages(ticket),
+    })
+
+
+# ─── Get production stages for a configuration ────────────────────────────────
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def wash_configuration_stages_view(request, config_id):
+    company, error = _company_or_error(request)
+    if error:
+        return error
+
+    config, ticket, err = _get_ticket_for_config(config_id, company)
+    if err:
+        return err
+
+    if ticket is None:
+        return JsonResponse({"error": "No production ticket found. Convert the configuration first."}, status=404)
+
+    return JsonResponse({
+        "ticket_status": ticket.status,
+        "stages": _serialize_stages(ticket),
+    })
+
+
+# ─── Eligible employees for a stage ──────────────────────────────────────────
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def wash_eligible_employees_view(request):
+    company, error = _company_or_error(request)
+    if error:
+        return error
+
+    from company.models import Employee
+
+    stage = request.GET.get("stage", "").strip()
+
+    qs = Employee.objects.filter(company=company, can_work_on_production=True, is_active=True)
+    if stage:
+        qs = qs.filter(production_stages__contains=[stage])
+
+    return JsonResponse({
+        "employees": [
+            {"id": e.id, "full_name": e.full_name}
+            for e in qs.order_by("last_name", "first_name")
+        ]
+    })
+
+
+# ─── Assign employees to a stage ─────────────────────────────────────────────
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def wash_stage_assign_view(request, config_id, stage_name):
+    company, error = _company_or_error(request)
+    if error:
+        return error
+
+    config, ticket, err = _get_ticket_for_config(config_id, company)
+    if err:
+        return err
+
+    if ticket is None:
+        return JsonResponse({"error": "No production ticket. Convert first."}, status=404)
+
+    from company.models import Employee
+
+    body = json.loads(request.body)
+    employee_ids = body.get("employee_ids", [])
+    employees = list(Employee.objects.filter(id__in=employee_ids, company=company))
+
+    for item in ticket.items.prefetch_related("assigned_employees").all():
+        if stage_name in (item.planning or {}):
+            item.assigned_employees.set(employees)
+
+    ticket = ProductionTicket.objects.prefetch_related("items__assigned_employees").get(pk=ticket.pk)
+
+    return JsonResponse({"success": True, "stages": _serialize_stages(ticket)})
+
+
+# ─── Start a production stage ─────────────────────────────────────────────────
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def wash_stage_start_view(request, config_id, stage_name):
+    company, error = _company_or_error(request)
+    if error:
+        return error
+
+    try:
+        employee = request.user.employee_profile
+    except Exception:
+        return JsonResponse({"error": "User has no employee profile linked."}, status=403)
+
+    config, ticket, err = _get_ticket_for_config(config_id, company)
+    if err:
+        return err
+
+    if ticket is None:
+        return JsonResponse({"error": "No production ticket. Convert first."}, status=404)
+
+    items = list(ticket.items.all())
+
+    try:
+        count = StagesToSessionsService.start_activity(
+            stage_name=stage_name,
+            items=items,
+            employee=employee,
+        )
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+    ticket = ProductionTicket.objects.prefetch_related("items__assigned_employees").get(pk=ticket.pk)
+
+    return JsonResponse({"started": count, "stages": _serialize_stages(ticket)})
+
+
+# ─── Finish a production stage ────────────────────────────────────────────────
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def wash_stage_finish_view(request, config_id, stage_name):
+    company, error = _company_or_error(request)
+    if error:
+        return error
+
+    try:
+        employee = request.user.employee_profile
+    except Exception:
+        return JsonResponse({"error": "User has no employee profile linked."}, status=403)
+
+    config, ticket, err = _get_ticket_for_config(config_id, company)
+    if err:
+        return err
+
+    if ticket is None:
+        return JsonResponse({"error": "No production ticket. Convert first."}, status=404)
+
+    items = list(ticket.items.all())
+
+    try:
+        count = StagesToSessionsService.finish_activity(
+            stage_name=stage_name,
+            items=items,
+            employee=employee,
+        )
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+    ticket = ProductionTicket.objects.prefetch_related("items__assigned_employees").get(pk=ticket.pk)
+
+    return JsonResponse({"finished": count, "stages": _serialize_stages(ticket)})

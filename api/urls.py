@@ -31,4 +31,12 @@ urlpatterns = [
     path("wash/expedientes/<int:expediente_id>/", wash_views.wash_expediente_detail_view, name="wash_expediente_detail"),
     path("wash/expedientes/<int:expediente_id>/configure/", wash_views.wash_expediente_configure_view, name="wash_expediente_configure"),
     path("wash/expedientes/<int:expediente_id>/configurations/<int:config_id>/", wash_views.wash_configuration_manage_view, name="wash_configuration_manage"),
+
+    # Wash — production stages
+    path("wash/configurations/<int:config_id>/convert/", wash_views.wash_configuration_convert_view, name="wash_configuration_convert"),
+    path("wash/configurations/<int:config_id>/stages/", wash_views.wash_configuration_stages_view, name="wash_configuration_stages"),
+    path("wash/configurations/<int:config_id>/stages/<str:stage_name>/assign/", wash_views.wash_stage_assign_view, name="wash_stage_assign"),
+    path("wash/configurations/<int:config_id>/stages/<str:stage_name>/start/", wash_views.wash_stage_start_view, name="wash_stage_start"),
+    path("wash/configurations/<int:config_id>/stages/<str:stage_name>/finish/", wash_views.wash_stage_finish_view, name="wash_stage_finish"),
+    path("wash/employees/eligible/", wash_views.wash_eligible_employees_view, name="wash_eligible_employees"),
 ]

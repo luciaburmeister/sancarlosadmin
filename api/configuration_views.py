@@ -31,6 +31,24 @@ def _default_config_name(template):
     return f"{template.name} - {date.today().strftime('%d/%m')}"
 
 
+def _missing_required_params(template, param_values):
+    missing = []
+    values = param_values or {}
+    for p in template.parameters.all():
+        if not p.required:
+            continue
+        if p.name not in values:
+            missing.append(p.label)
+            continue
+        v = values.get(p.name)
+        if v is None:
+            missing.append(p.label)
+            continue
+        if p.type in {"text", "number", "select"} and str(v).strip() == "":
+            missing.append(p.label)
+    return missing
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def configuration_preview_view(request):
@@ -111,6 +129,13 @@ def configuration_create_view(request, project_file_id):
     except ProductTemplate.DoesNotExist:
         return JsonResponse({"error": "Template not found"}, status=404)
 
+    missing_required = _missing_required_params(template, param_values)
+    if missing_required:
+        return JsonResponse(
+            {"error": "Missing required parameters", "fields": missing_required},
+            status=400,
+        )
+
     if not config_name:
         config_name = _default_config_name(template)
 
@@ -163,6 +188,14 @@ def configuration_manage_view(request, project_file_id, config_id):
 
     body = json.loads(request.body)
     param_values = body.get("param_values", {})
+
+    if "param_values" in body:
+        missing_required = _missing_required_params(config.product, param_values)
+        if missing_required:
+            return JsonResponse(
+                {"error": "Missing required parameters", "fields": missing_required},
+                status=400,
+            )
 
     with transaction.atomic():
         update_fields = []

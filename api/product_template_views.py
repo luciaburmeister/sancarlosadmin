@@ -19,7 +19,7 @@ def product_template_list_view(request):
     data = []
     for t in templates:
         params = list(t.parameters.order_by("order").values(
-            "id", "name", "label", "type", "options", "order"
+            "id", "name", "label", "type", "options", "order", "parameter_group", "required"
         ))
         data.append({"id": t.id, "name": t.name, "parameters": params})
     return JsonResponse({"templates": data})

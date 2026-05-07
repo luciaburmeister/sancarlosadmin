@@ -202,13 +202,15 @@ class Invoice(models.Model):
         taxes = list(self.get_taxes().order_by('order', 'id'))
         
         for tax in taxes:
-            # Always update the base_amount for this tax
-            tax.base_amount = base_amount
-            
-            # Recalculate the amount
-            res = tax.calculate(base_amount)
-            tax.calculated_amount = res['tax_amount']
-            tax.save(update_fields=['base_amount', 'calculated_amount'])
+            # Use the tax's own stored base_amount and calculated_amount
+            # (set during OCR scraping). Only recalculate if calculated_amount is missing.
+            if tax.calculated_amount is None:
+                tax_base = Decimal(str(tax.base_amount.amount)) if tax.base_amount else base_amount
+                res = tax.calculate(tax_base)
+                tax.calculated_amount = res['tax_amount']
+                if tax.base_amount is None:
+                    tax.base_amount = tax_base
+                tax.save(update_fields=['base_amount', 'calculated_amount'])
             
             # Use the signed calculated amount (preserves sign for negative/credit invoices)
             tax_val = Decimal(str(tax.calculated_amount.amount))

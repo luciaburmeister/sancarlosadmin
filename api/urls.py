@@ -1,10 +1,21 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from . import views, wash_views
+
+from . import (
+    client_views,
+    configuration_views,
+    employee_views,
+    me_views,
+    product_template_views,
+    production_stage_views,
+    project_file_views,
+    views,
+)
 from company.views.views import LocationRecordCreateView
 
 
 urlpatterns = [
+    # ── Auth & legacy fleet/attendance ────────────────────────────────────────
     path("auth/login/", views.login_view.as_view(), name="jwt_login"),
     path("auth/refresh/", TokenRefreshView.as_view(), name="jwt_refresh"),
     path("assets/", views.assets_view, name="assets"),
@@ -23,21 +34,24 @@ urlpatterns = [
     path("plannings/", views.plannings_view, name="plannings"),
     path("movements/", views.movements_view, name="movements"),
 
-    # Wash
-    path("wash/me/", wash_views.wash_me_view, name="wash_me"),
-    path("wash/clients/", wash_views.wash_clients_view, name="wash_clients"),
-    path("wash/templates/", wash_views.wash_templates_view, name="wash_templates"),
-    path("wash/expedientes/", wash_views.wash_expedientes_view, name="wash_expedientes"),
-    path("wash/expedientes/<int:expediente_id>/", wash_views.wash_expediente_detail_view, name="wash_expediente_detail"),
-    path("wash/expedientes/<int:expediente_id>/configure/", wash_views.wash_expediente_configure_view, name="wash_expediente_configure"),
-    path("wash/configurations/preview/", wash_views.wash_configuration_preview_view, name="wash_configuration_preview"),
-    path("wash/expedientes/<int:expediente_id>/configurations/<int:config_id>/", wash_views.wash_configuration_manage_view, name="wash_configuration_manage"),
+    # ── Generic API (reusable across companies / mobile apps) ─────────────────
+    path("me/", me_views.me_view, name="me"),
 
-    # Wash — production stages
-    path("wash/configurations/<int:config_id>/convert/", wash_views.wash_configuration_convert_view, name="wash_configuration_convert"),
-    path("wash/configurations/<int:config_id>/stages/", wash_views.wash_configuration_stages_view, name="wash_configuration_stages"),
-    path("wash/configurations/<int:config_id>/stages/<str:stage_name>/assign/", wash_views.wash_stage_assign_view, name="wash_stage_assign"),
-    path("wash/configurations/<int:config_id>/stages/<str:stage_name>/start/", wash_views.wash_stage_start_view, name="wash_stage_start"),
-    path("wash/configurations/<int:config_id>/stages/<str:stage_name>/finish/", wash_views.wash_stage_finish_view, name="wash_stage_finish"),
-    path("wash/employees/eligible/", wash_views.wash_eligible_employees_view, name="wash_eligible_employees"),
+    path("sales/clients/", client_views.client_list_create_view, name="client_list_create"),
+
+    path("product-templates/", product_template_views.product_template_list_view, name="product_template_list"),
+
+    path("project-files/", project_file_views.project_file_list_create_view, name="project_file_list_create"),
+    path("project-files/<int:project_file_id>/", project_file_views.project_file_detail_view, name="project_file_detail"),
+    path("project-files/<int:project_file_id>/configurations/", configuration_views.configuration_create_view, name="configuration_create"),
+    path("project-files/<int:project_file_id>/configurations/<int:config_id>/", configuration_views.configuration_manage_view, name="configuration_manage"),
+
+    path("configurations/preview/", configuration_views.configuration_preview_view, name="configuration_preview"),
+    path("configurations/<int:config_id>/convert/", configuration_views.configuration_convert_view, name="configuration_convert"),
+    path("configurations/<int:config_id>/stages/", production_stage_views.configuration_stages_view, name="configuration_stages"),
+    path("configurations/<int:config_id>/stages/<str:stage_name>/assign/", production_stage_views.stage_assign_view, name="stage_assign"),
+    path("configurations/<int:config_id>/stages/<str:stage_name>/start/", production_stage_views.stage_start_view, name="stage_start"),
+    path("configurations/<int:config_id>/stages/<str:stage_name>/finish/", production_stage_views.stage_finish_view, name="stage_finish"),
+
+    path("employees/eligible/", employee_views.eligible_employees_view, name="eligible_employees"),
 ]

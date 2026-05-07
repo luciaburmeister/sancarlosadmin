@@ -30,6 +30,7 @@ urlpatterns = [
     path("wash/expedientes/", wash_views.wash_expedientes_view, name="wash_expedientes"),
     path("wash/expedientes/<int:expediente_id>/", wash_views.wash_expediente_detail_view, name="wash_expediente_detail"),
     path("wash/expedientes/<int:expediente_id>/configure/", wash_views.wash_expediente_configure_view, name="wash_expediente_configure"),
+    path("wash/configurations/preview/", wash_views.wash_configuration_preview_view, name="wash_configuration_preview"),
     path("wash/expedientes/<int:expediente_id>/configurations/<int:config_id>/", wash_views.wash_configuration_manage_view, name="wash_configuration_manage"),
 
     # Wash — production stages

@@ -85,6 +85,17 @@ def _serialize_expediente(pf, include_total=False):
 
 
 def _serialize_configuration(config):
+    items = list(config.items.select_related("component").all())
+    items_data = [
+        {
+            "id": it.id,
+            "name": it.component.name if it.component else "—",
+            "quantity": float(it.quantity or 0),
+            "unit_price": float(it.unit_price.amount) if it.unit_price else 0.0,
+            "line_total": float(it.line_total.amount) if it.line_total else 0.0,
+        }
+        for it in items
+    ]
     return {
         "id": config.id,
         "name": config.name,
@@ -93,6 +104,8 @@ def _serialize_configuration(config):
         "template_name": config.product.name if config.product else None,
         "price_override": float(config.price_override.amount) if config.price_override else None,
         "total_price": float(config.total_price.amount) if config.total_price else None,
+        "subtotal_price": float(config.subtotal_price.amount) if config.subtotal_price else None,
+        "items": items_data,
         "param_values": {
             pv.parameter.name: pv.value
             for pv in config.param_values.select_related("parameter").all()
@@ -299,6 +312,56 @@ def wash_expediente_detail_view(request, expediente_id):
     return JsonResponse(data)
 
 
+# ─── Configuration preview (no persistence) ──────────────────────────────────
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def wash_configuration_preview_view(request):
+    """Compute items + subtotal for a template + param_values without persisting."""
+    company, error = _company_or_error(request)
+    if error:
+        return error
+
+    body = json.loads(request.body)
+    template_id = body.get("template_id")
+    param_values = body.get("param_values", {})
+    price = body.get("price")
+
+    try:
+        template = ProductTemplate.objects.get(id=template_id, company=company)
+    except ProductTemplate.DoesNotExist:
+        return JsonResponse({"error": "Template not found"}, status=404)
+
+    sid = transaction.savepoint()
+    try:
+        config = Configuration.objects.create(
+            company=company,
+            product=template,
+            name="__preview__",
+            status=ConfigurationStatus.DRAFT,
+            price_override=Money(price, "EUR") if price is not None else None,
+        )
+        params_by_name = {p.name: p for p in template.parameters.all()}
+        ConfigurationParameterValue.objects.bulk_create([
+            ConfigurationParameterValue(
+                configuration=config,
+                parameter=param,
+                value=str(param.normalize_value(value)),
+                order=param.order,
+            )
+            for param_name, value in param_values.items()
+            if (param := params_by_name.get(param_name))
+        ])
+        config.generate_bom()
+        config.recalculate_price()
+        config.refresh_from_db()
+        data = _serialize_configuration(config)
+    finally:
+        transaction.savepoint_rollback(sid)
+
+    return JsonResponse(data)
+
+
 # ─── Configuration create ─────────────────────────────────────────────────────
 
 @api_view(["POST"])
@@ -363,6 +426,7 @@ def wash_expediente_configure_view(request, expediente_id):
             if (param := params_by_name.get(param_name))
         ])
         config.generate_bom()
+        config.recalculate_price()
 
     return JsonResponse(_serialize_configuration(config), status=201)
 
@@ -394,11 +458,13 @@ def wash_configuration_manage_view(request, expediente_id, config_id):
 
     with transaction.atomic():
         update_fields = []
+        price_changed = False
 
         if "price" in body:
             price = body["price"]
             config.price_override = Money(price, "EUR") if price is not None else None
             update_fields += ["price_override", "price_override_currency"]
+            price_changed = True
 
         if "status" in body:
             new_status = body["status"]
@@ -423,6 +489,10 @@ def wash_configuration_manage_view(request, expediente_id, config_id):
                 if (param := params_by_name.get(param_name))
             ])
             config.generate_bom()
+            price_changed = True
+
+        if price_changed:
+            config.recalculate_price()
 
     return JsonResponse(_serialize_configuration(config))
 

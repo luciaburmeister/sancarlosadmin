@@ -36,6 +36,7 @@ urlpatterns = [
 
     # ── Generic API (reusable across companies / mobile apps) ─────────────────
     path("me/", me_views.me_view, name="me"),
+    path("me/tasks/", me_views.my_tasks_view, name="my_tasks"),
 
     path("sales/clients/", client_views.client_list_create_view, name="client_list_create"),
 
@@ -52,6 +53,7 @@ urlpatterns = [
     path("configurations/<int:config_id>/stages/<str:stage_name>/assign/", production_stage_views.stage_assign_view, name="stage_assign"),
     path("configurations/<int:config_id>/stages/<str:stage_name>/start/", production_stage_views.stage_start_view, name="stage_start"),
     path("configurations/<int:config_id>/stages/<str:stage_name>/finish/", production_stage_views.stage_finish_view, name="stage_finish"),
+    path("configurations/<int:config_id>/stages/<str:stage_name>/revert/", production_stage_views.stage_revert_view, name="stage_revert"),
 
     path("employees/eligible/", employee_views.eligible_employees_view, name="eligible_employees"),
 ]

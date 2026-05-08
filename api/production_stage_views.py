@@ -10,7 +10,7 @@ from company.models import Employee
 from production.models import ProductionTicket
 from production.services.stages_to_sessions import StagesToSessionsService
 
-from ._serializers import get_ticket_for_config, serialize_stages
+from ._serializers import active_ticket_items, get_ticket_for_config, serialize_stages
 from ._utils import company_or_error
 
 
@@ -31,9 +31,10 @@ def configuration_stages_view(request, config_id):
             status=404,
         )
 
+    items = active_ticket_items(ticket)
     return JsonResponse({
         "ticket_status": ticket.status,
-        "stages": serialize_stages(ticket),
+        "stages": serialize_stages(ticket, items=items),
     })
 
 
@@ -55,7 +56,8 @@ def stage_assign_view(request, config_id, stage_name):
     employee_ids = body.get("employee_ids", [])
     employees = list(Employee.objects.filter(id__in=employee_ids, company=company))
 
-    for item in ticket.items.prefetch_related("assigned_employees").all():
+    items = active_ticket_items(ticket)
+    for item in items:
         if stage_name in (item.planning or {}):
             item.assigned_employees.set(employees)
 
@@ -63,12 +65,15 @@ def stage_assign_view(request, config_id, stage_name):
         "items__assigned_employees"
     ).get(pk=ticket.pk)
 
-    return JsonResponse({"success": True, "stages": serialize_stages(ticket)})
+    items = active_ticket_items(ticket)
+    return JsonResponse({"success": True, "stages": serialize_stages(ticket, items=items)})
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def stage_start_view(request, config_id, stage_name):
+    import unicodedata as _uc
+
     company, error = company_or_error(request)
     if error:
         return error
@@ -78,6 +83,18 @@ def stage_start_view(request, config_id, stage_name):
     except Exception:
         return JsonResponse({"error": "User has no employee profile linked."}, status=403)
 
+    # Enforce stage authorization: if the employee has specific production stages
+    # defined, the requested stage must be among them.
+    employee_stages = [_uc.normalize("NFC", s) for s in (employee.production_stages or [])]
+    if employee_stages and _uc.normalize("NFC", stage_name) not in employee_stages:
+        return JsonResponse(
+            {
+                "error": "No estás autorizado para iniciar esta etapa.",
+                "code": "not_authorized_for_stage",
+            },
+            status=403,
+        )
+
     _, ticket, err = get_ticket_for_config(config_id, company)
     if err:
         return err
@@ -85,7 +102,7 @@ def stage_start_view(request, config_id, stage_name):
     if ticket is None:
         return JsonResponse({"error": "No production ticket. Convert first."}, status=404)
 
-    items = list(ticket.items.prefetch_related("assigned_employees").all())
+    items = active_ticket_items(ticket)
 
     relevant_items = [item for item in items if stage_name in (item.planning or {})]
     any_assigned = any(item.assigned_employees.exists() for item in relevant_items)
@@ -106,7 +123,44 @@ def stage_start_view(request, config_id, stage_name):
         "items__assigned_employees"
     ).get(pk=ticket.pk)
 
-    return JsonResponse({"started": count, "stages": serialize_stages(ticket)})
+    items = active_ticket_items(ticket)
+    return JsonResponse({"started": count, "stages": serialize_stages(ticket, items=items)})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def stage_revert_view(request, config_id, stage_name):
+    company, error = company_or_error(request)
+    if error:
+        return error
+
+    _, ticket, err = get_ticket_for_config(config_id, company)
+    if err:
+        return err
+
+    if ticket is None:
+        return JsonResponse({"error": "No production ticket. Convert first."}, status=404)
+
+    body = json.loads(request.body) if request.body else {}
+    target_status = body.get("target", "in_progress")
+
+    items = active_ticket_items(ticket)
+
+    try:
+        count = StagesToSessionsService.revert_activity(
+            stage_name=stage_name,
+            items=items,
+            target_status=target_status,
+        )
+    except Exception as e:
+        return JsonResponse({"error": str(e)}, status=400)
+
+    ticket = ProductionTicket.objects.prefetch_related(
+        "items__assigned_employees"
+    ).get(pk=ticket.pk)
+
+    items = active_ticket_items(ticket)
+    return JsonResponse({"reverted": count, "stages": serialize_stages(ticket, items=items)})
 
 
 @api_view(["POST"])
@@ -128,7 +182,7 @@ def stage_finish_view(request, config_id, stage_name):
     if ticket is None:
         return JsonResponse({"error": "No production ticket. Convert first."}, status=404)
 
-    items = list(ticket.items.all())
+    items = active_ticket_items(ticket)
 
     try:
         count = StagesToSessionsService.finish_activity(
@@ -143,4 +197,5 @@ def stage_finish_view(request, config_id, stage_name):
         "items__assigned_employees"
     ).get(pk=ticket.pk)
 
-    return JsonResponse({"finished": count, "stages": serialize_stages(ticket)})
+    items = active_ticket_items(ticket)
+    return JsonResponse({"finished": count, "stages": serialize_stages(ticket, items=items)})

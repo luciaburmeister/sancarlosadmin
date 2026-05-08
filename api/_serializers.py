@@ -113,9 +113,37 @@ def get_ticket_for_config(config_id, company):
     return config, ticket, None
 
 
-def serialize_stages(ticket):
-    """Aggregate planning stages across all ProductionItems for a ticket."""
+def active_ticket_items(ticket):
+    """Return ProductionItems that still belong to the current configuration BOM.
+
+    If the ticket source is not a Configuration (or cannot be resolved), return all
+    ticket items to preserve backward-compatible behavior.
+    """
     items = list(ticket.items.prefetch_related("assigned_employees").all())
+    source = getattr(ticket, "source_object", None)
+    if source is None or not hasattr(source, "items"):
+        return items
+
+    current_config_item_ids = set(source.items.values_list("id", flat=True))
+    if not current_config_item_ids:
+        return []
+
+    filtered = []
+    for item in items:
+        cfg_item_id = (item.data or {}).get("configuration_item_id")
+        try:
+            cfg_item_id = int(cfg_item_id)
+        except (TypeError, ValueError):
+            cfg_item_id = None
+        if cfg_item_id in current_config_item_ids:
+            filtered.append(item)
+    return filtered
+
+
+def serialize_stages(ticket, items=None):
+    """Aggregate planning stages across ProductionItems for a ticket."""
+    if items is None:
+        items = list(ticket.items.prefetch_related("assigned_employees").all())
 
     product = getattr(ticket.source_object, "product", None)
     stage_order = list(getattr(product, "production_stages", []) or [])

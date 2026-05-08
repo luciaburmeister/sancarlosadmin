@@ -20,6 +20,7 @@ from management.models import ProjectFile
 from production.models import ProductionTicket
 
 from ._serializers import (
+    active_ticket_items,
     get_ticket_for_config,
     serialize_configuration,
     serialize_stages,
@@ -67,8 +68,7 @@ def configuration_preview_view(request):
     except ProductTemplate.DoesNotExist:
         return JsonResponse({"error": "Template not found"}, status=404)
 
-    sid = transaction.savepoint()
-    try:
+    with transaction.atomic():
         config = Configuration.objects.create(
             company=company,
             product=template,
@@ -91,8 +91,8 @@ def configuration_preview_view(request):
         config.recalculate_price()
         config.refresh_from_db()
         data = serialize_configuration(config)
-    finally:
-        transaction.savepoint_rollback(sid)
+        # Roll back the atomic block on exit so the preview config is never persisted.
+        transaction.set_rollback(True)
 
     return JsonResponse(data)
 
@@ -251,9 +251,10 @@ def configuration_convert_view(request, config_id):
         return err
 
     if ticket is not None and config.status == ConfigurationStatus.CONVERTED:
+        items = active_ticket_items(ticket)
         return JsonResponse({
             "status": config.status,
-            "stages": serialize_stages(ticket),
+            "stages": serialize_stages(ticket, items=items),
         })
 
     if config.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.COMPLETED]:
@@ -272,8 +273,9 @@ def configuration_convert_view(request, config_id):
     ticket = ProductionTicket.objects.prefetch_related(
         "items__assigned_employees"
     ).get(pk=ticket.pk)
+    items = active_ticket_items(ticket)
 
     return JsonResponse({
         "status": config.status,
-        "stages": serialize_stages(ticket),
+        "stages": serialize_stages(ticket, items=items),
     })

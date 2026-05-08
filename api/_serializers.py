@@ -10,17 +10,6 @@ from production.models import ProductionTicket
 # ─── Project files (a.k.a. expedientes) ───────────────────────────────────────
 
 
-def config_total(project_file):
-    total = 0.0
-    for q in project_file.quotes.all():
-        for c in q.configurations.all():
-            if c.price_override:
-                total += float(c.price_override.amount)
-            elif c.total_price:
-                total += float(c.total_price.amount)
-    return round(total, 2)
-
-
 def serialize_project_file(project_file, include_total=False):
     start_date = project_file.start_date
     data = {
@@ -34,17 +23,65 @@ def serialize_project_file(project_file, include_total=False):
         "created_at": project_file.created_at.strftime("%Y-%m-%d %H:%M"),
     }
     if include_total:
-        data["total_price"] = config_total(project_file)
-        configs = [c for q in project_file.quotes.all() for c in q.configurations.all()]
-        data["configuration_count"] = len(configs)
-        services = []
-        seen = set()
-        for c in configs:
-            for pv in c.param_values.all():
-                if pv.value in ("true", "True") and pv.parameter.name not in seen:
-                    seen.add(pv.parameter.name)
-                    services.append(pv.parameter.label or pv.parameter.name)
-        data["services"] = services
+        quotes = list(project_file.quotes.all())
+        data["quote_count"] = len(quotes)
+        data["total_price"] = round(
+            sum(float(q.total_price.amount) for q in quotes if q.total_price), 2
+        )
+    return data
+
+
+# ─── Presupuestos (quotes) ────────────────────────────────────────────────────
+
+
+def serialize_product_config(config):
+    """Client-facing configuration: shows price to client, hides internal costs."""
+    pricing_breakdown = [
+        {"label": line.get("label", ""), "amount": float(line.get("amount", 0))}
+        for line in (config.pricing_breakdown or [])
+        if isinstance(line, dict) and line.get("show_in_export")
+    ]
+    return {
+        "id": config.id,
+        "name": config.name,
+        "status": config.status,
+        "template_id": config.product_id,
+        "template_name": config.product.name if config.product else None,
+        "total_price": float(config.total_price.amount) if config.total_price else None,
+        "price_override": float(config.price_override.amount) if config.price_override else None,
+        "param_values": {
+            pv.parameter.name: pv.value
+            for pv in config.param_values.select_related("parameter").all()
+        },
+        "param_labels": {
+            pv.parameter.name: pv.parameter.label or pv.parameter.name
+            for pv in config.param_values.select_related("parameter").all()
+        },
+        "pricing_breakdown": pricing_breakdown,
+        "created_at": config.created_at.strftime("%Y-%m-%d") if config.created_at else None,
+    }
+
+
+def serialize_presupuesto(quote, include_products=True):
+    data = {
+        "id": quote.id,
+        "name": quote.project_name,
+        "status": quote.status,
+        "created_at": quote.created_at.strftime("%Y-%m-%d %H:%M"),
+        "expires_at": quote.expires_at.strftime("%Y-%m-%d") if quote.expires_at else None,
+        "total_price": float(quote.total_price.amount) if quote.total_price else 0.0,
+    }
+    if include_products:
+        configs = list(
+            quote.configurations
+            .select_related("product")
+            .prefetch_related("param_values__parameter")
+            .all()
+        )
+        data["product_count"] = len(configs)
+        data["products"] = [serialize_product_config(c) for c in configs]
+    else:
+        data["product_count"] = quote.configurations.count()
     return data
 
 

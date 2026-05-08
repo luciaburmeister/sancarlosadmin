@@ -3,14 +3,13 @@
 import json
 
 from django.core.paginator import Paginator
-from django.db import transaction
 from django.db.models import Q
 from django.http import JsonResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 
 from management.models import ProjectFile
-from sales.models import Client, Quote
+from sales.models import Client
 
 from ._serializers import serialize_configuration, serialize_project_file
 from ._utils import company_or_error, parse_date_or_error
@@ -40,6 +39,12 @@ def project_file_list_create_view(request):
         _PAGE_SIZE = 20
 
         base_qs = ProjectFile.objects.filter(company=company)
+        client_id = request.GET.get("client_id")
+        if client_id:
+            try:
+                base_qs = base_qs.filter(client_id=int(client_id))
+            except (ValueError, TypeError):
+                pass
         if search:
             base_qs = base_qs.filter(
                 Q(name__icontains=search) | Q(client__name__icontains=search)
@@ -55,9 +60,7 @@ def project_file_list_create_view(request):
         else:
             filtered_qs = base_qs
 
-        filtered_qs = filtered_qs.prefetch_related(
-            "quotes__configurations__param_values__parameter"
-        ).order_by("-created_at")
+        filtered_qs = filtered_qs.prefetch_related("quotes").order_by("-created_at")
 
         paginator = Paginator(filtered_qs, _PAGE_SIZE)
         page = paginator.get_page(page_num)
@@ -89,17 +92,10 @@ def project_file_list_create_view(request):
         else:
             name = client.name
 
-    with transaction.atomic():
-        project_file = ProjectFile.objects.create(
-            company=company, client=client, name=name, start_date=start_date,
-        )
-        quote = Quote.objects.create(
-            company=company, client=client, project_name=name, project_file=project_file,
-        )
-
-    data = serialize_project_file(project_file)
-    data["quote_id"] = quote.id
-    return JsonResponse(data, status=201)
+    project_file = ProjectFile.objects.create(
+        company=company, client=client, name=name, start_date=start_date,
+    )
+    return JsonResponse(serialize_project_file(project_file), status=201)
 
 
 @api_view(["GET", "PATCH", "DELETE"])

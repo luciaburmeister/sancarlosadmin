@@ -9,6 +9,7 @@ from . import (
     product_template_views,
     production_stage_views,
     project_file_views,
+    quote_views,
     views,
 )
 from company.views.views import LocationRecordCreateView
@@ -46,6 +47,11 @@ urlpatterns = [
     path("project-files/<int:project_file_id>/", project_file_views.project_file_detail_view, name="project_file_detail"),
     path("project-files/<int:project_file_id>/configurations/", configuration_views.configuration_create_view, name="configuration_create"),
     path("project-files/<int:project_file_id>/configurations/<int:config_id>/", configuration_views.configuration_manage_view, name="configuration_manage"),
+
+    path("project-files/<int:project_file_id>/quotes/", quote_views.presupuesto_list_create_view, name="presupuesto_list_create"),
+    path("quotes/<int:quote_id>/", quote_views.presupuesto_detail_view, name="presupuesto_detail"),
+    path("quotes/<int:quote_id>/configurations/", quote_views.producto_list_create_view, name="producto_list_create"),
+    path("quotes/<int:quote_id>/configurations/<int:config_id>/", quote_views.producto_detail_view, name="producto_detail"),
 
     path("configurations/preview/", configuration_views.configuration_preview_view, name="configuration_preview"),
     path("configurations/<int:config_id>/convert/", configuration_views.configuration_convert_view, name="configuration_convert"),

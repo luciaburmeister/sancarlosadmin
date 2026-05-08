@@ -23,6 +23,7 @@ from ._serializers import (
     active_ticket_items,
     get_ticket_for_config,
     serialize_configuration,
+    serialize_product_config,
     serialize_stages,
 )
 from ._utils import company_or_error
@@ -90,7 +91,7 @@ def configuration_preview_view(request):
         config.generate_bom()
         config.recalculate_price()
         config.refresh_from_db()
-        data = serialize_configuration(config)
+        data = serialize_product_config(config)
         # Roll back the atomic block on exit so the preview config is never persisted.
         transaction.set_rollback(True)
 

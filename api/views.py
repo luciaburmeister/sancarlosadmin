@@ -52,14 +52,20 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 
 def get_zone_coordinates(zone):
     try:
-        point_str = str(zone.location)
+        loc = zone.location
+        # Production (PostGIS): location is a geometry object with .x and .y
+        if hasattr(loc, 'x') and hasattr(loc, 'y'):
+            return loc.y, loc.x  # y=lat, x=lon
+        # Fallback: parse string like "SRID=4326;POINT (-3.687 40.406)"
+        point_str = str(loc)
         if ";" in point_str:
             point_str = point_str.split(";")[1]
-        coords = point_str.replace("POINT (", "").replace("POINT(", "").replace(")", "").split()
+        coords = point_str.strip().replace("POINT (", "").replace("POINT(", "").replace(")", "").split()
         lon = float(coords[0])
         lat = float(coords[1])
         return lat, lon
-    except Exception:
+    except Exception as e:
+        print(f"get_zone_coordinates error for zone {zone}: {e}")
         return None, None
 
 
@@ -246,14 +252,6 @@ def pickup_view(request, asset_id):
 
     distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
     print(f"PICKUP: your GPS={latitude},{longitude}, zone={zone_lat},{zone_lon}, distance={int(distance)}m, max={MAX_ZONE_RADIUS_M}m")
-
-    if distance > MAX_ZONE_RADIUS_M:
-        return JsonResponse({
-            "error": f"Estás demasiado lejos de {asset.current_working_zone}. "
-                    f"Estás a {int(distance)}m. Debes estar a menos de {MAX_ZONE_RADIUS_M}m."
-        }, status=400)
-
-        
 
     if distance > MAX_ZONE_RADIUS_M:
         return JsonResponse({

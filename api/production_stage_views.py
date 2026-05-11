@@ -124,7 +124,7 @@ def stage_start_view(request, config_id, stage_name):
     ).get(pk=ticket.pk)
 
     items = active_ticket_items(ticket)
-    return JsonResponse({"started": count, "stages": serialize_stages(ticket, items=items)})
+    return JsonResponse({"started": count, "ticket_status": ticket.status, "stages": serialize_stages(ticket, items=items)})
 
 
 @api_view(["POST"])
@@ -160,7 +160,7 @@ def stage_revert_view(request, config_id, stage_name):
     ).get(pk=ticket.pk)
 
     items = active_ticket_items(ticket)
-    return JsonResponse({"reverted": count, "stages": serialize_stages(ticket, items=items)})
+    return JsonResponse({"reverted": count, "ticket_status": ticket.status, "stages": serialize_stages(ticket, items=items)})
 
 
 @api_view(["POST"])
@@ -198,4 +198,4 @@ def stage_finish_view(request, config_id, stage_name):
     ).get(pk=ticket.pk)
 
     items = active_ticket_items(ticket)
-    return JsonResponse({"finished": count, "stages": serialize_stages(ticket, items=items)})
+    return JsonResponse({"finished": count, "ticket_status": ticket.status, "stages": serialize_stages(ticket, items=items)})

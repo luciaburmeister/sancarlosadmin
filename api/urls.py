@@ -5,6 +5,7 @@ from . import (
     client_views,
     configuration_views,
     employee_views,
+    invoice_views,
     me_views,
     product_template_views,
     production_stage_views,
@@ -55,6 +56,7 @@ urlpatterns = [
 
     path("configurations/preview/", configuration_views.configuration_preview_view, name="configuration_preview"),
     path("configurations/<int:config_id>/convert/", configuration_views.configuration_convert_view, name="configuration_convert"),
+    path("quotes/<int:quote_id>/invoice/", invoice_views.quote_invoice_view, name="quote_invoice"),
     path("configurations/<int:config_id>/stages/", production_stage_views.configuration_stages_view, name="configuration_stages"),
     path("configurations/<int:config_id>/stages/<str:stage_name>/assign/", production_stage_views.stage_assign_view, name="stage_assign"),
     path("configurations/<int:config_id>/stages/<str:stage_name>/start/", production_stage_views.stage_start_view, name="stage_start"),

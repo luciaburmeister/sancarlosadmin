@@ -109,6 +109,8 @@ def project_file_detail_view(request, project_file_id):
         pf = ProjectFile.objects.prefetch_related(
             "quotes__configurations__param_values__parameter",
             "quotes__configurations__product",
+            "sales_invoices",
+            "production_tickets",
         ).get(id=project_file_id, company=company)
     except ProjectFile.DoesNotExist:
         return JsonResponse({"error": "Not found"}, status=404)
@@ -129,5 +131,24 @@ def project_file_detail_view(request, project_file_id):
         serialize_configuration(config)
         for quote in pf.quotes.all()
         for config in quote.configurations.all()
+    ]
+    data["sales_invoices"] = [
+        {
+            "id": inv.id,
+            "invoice_number": inv.invoice_number,
+            "date_issued": inv.date_issued.strftime("%Y-%m-%d") if inv.date_issued else None,
+            "total_amount": float(inv.total_amount.amount) if inv.total_amount else 0.0,
+            "status": inv.status,
+        }
+        for inv in pf.sales_invoices.all()
+    ]
+    data["production_tickets"] = [
+        {
+            "id": t.id,
+            "status": t.status,
+            "last_stage_label": t.last_stage_label,
+            "created_at": t.created_at.strftime("%Y-%m-%d %H:%M"),
+        }
+        for t in pf.production_tickets.all()
     ]
     return JsonResponse(data)

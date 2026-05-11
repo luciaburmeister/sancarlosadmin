@@ -1,5 +1,7 @@
 """Shared serializers and lookup helpers for the API views."""
 
+import unicodedata
+
 from django.contrib.contenttypes.models import ContentType
 from django.http import JsonResponse
 
@@ -36,6 +38,7 @@ def serialize_project_file(project_file, include_total=False):
 
 def serialize_product_config(config):
     """Client-facing configuration: shows price to client, hides internal costs."""
+    needs_assignment = _config_needs_assignment(config)
     pricing_breakdown = [
         {"label": line.get("label", ""), "amount": float(line.get("amount", 0))}
         for line in (config.pricing_breakdown or [])
@@ -57,12 +60,23 @@ def serialize_product_config(config):
             pv.parameter.name: pv.parameter.label or pv.parameter.name
             for pv in config.param_values.select_related("parameter").all()
         },
+        "needs_assignment": needs_assignment,
         "pricing_breakdown": pricing_breakdown,
         "created_at": config.created_at.strftime("%Y-%m-%d") if config.created_at else None,
     }
 
 
 def serialize_presupuesto(quote, include_products=True):
+    from invoices.models import SalesInvoice
+    try:
+        client_name = (
+            quote.project_file.client.name
+            if quote.project_file and quote.project_file.client
+            else None
+        )
+    except Exception:
+        client_name = None
+
     data = {
         "id": quote.id,
         "name": quote.project_name,
@@ -70,6 +84,7 @@ def serialize_presupuesto(quote, include_products=True):
         "created_at": quote.created_at.strftime("%Y-%m-%d %H:%M"),
         "expires_at": quote.expires_at.strftime("%Y-%m-%d") if quote.expires_at else None,
         "total_price": float(quote.total_price.amount) if quote.total_price else 0.0,
+        "client_name": client_name,
     }
     if include_products:
         configs = list(
@@ -80,8 +95,14 @@ def serialize_presupuesto(quote, include_products=True):
         )
         data["product_count"] = len(configs)
         data["products"] = [serialize_product_config(c) for c in configs]
+        config_ids = [c.id for c in configs]
+        invoiced_count = SalesInvoice.objects.filter(
+            configuration_id__in=config_ids
+        ).values("configuration_id").distinct().count()
+        data["is_invoiced"] = bool(config_ids) and invoiced_count >= len(config_ids)
     else:
         data["product_count"] = quote.configurations.count()
+        data["is_invoiced"] = False
     return data
 
 
@@ -89,6 +110,7 @@ def serialize_presupuesto(quote, include_products=True):
 
 
 def serialize_configuration(config):
+    needs_assignment = _config_needs_assignment(config)
     items = list(config.items.select_related("component").all())
     items_data = [
         {
@@ -118,6 +140,7 @@ def serialize_configuration(config):
             pv.parameter.name: pv.parameter.label or pv.parameter.name
             for pv in config.param_values.select_related("parameter").all()
         },
+        "needs_assignment": needs_assignment,
         "created_at": config.created_at.strftime("%Y-%m-%d") if config.created_at else None,
     }
 
@@ -126,10 +149,43 @@ def serialize_configuration(config):
 
 
 def serialize_client(c):
-    return {"id": c.id, "name": c.name, "phone": c.phone or "", "email": c.email or ""}
+    return {
+        "id": c.id,
+        "name": c.name,
+        "phone": c.phone or "",
+        "email": c.email or "",
+        "payment_method": c.payment_method or "transfer",
+    }
 
 
 # ─── Production tickets and stages ────────────────────────────────────────────
+
+
+def _config_needs_assignment(config):
+    """
+    Returns True when a production config has at least one pending/in-progress
+    stage without any employee assigned to its item.
+    """
+    if config.status not in {"converted", "shop"}:
+        return False
+
+    ct = ContentType.objects.get_for_model(config)
+    ticket = (
+        ProductionTicket.objects.prefetch_related("items__assigned_employees")
+        .filter(content_type=ct, object_id=config.id)
+        .first()
+    )
+    if ticket is None:
+        return False
+
+    items = active_ticket_items(ticket)
+    for item in items:
+        has_assigned = bool(list(item.assigned_employees.all()))
+        for info in (item.planning or {}).values():
+            status = (info or {}).get("status") or "pending"
+            if status in {"pending", "in_progress"} and not has_assigned:
+                return True
+    return False
 
 
 def get_ticket_for_config(config_id, company):

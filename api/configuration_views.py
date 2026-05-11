@@ -69,31 +69,39 @@ def configuration_preview_view(request):
     except ProductTemplate.DoesNotExist:
         return JsonResponse({"error": "Template not found"}, status=404)
 
-    with transaction.atomic():
-        config = Configuration.objects.create(
-            company=company,
-            product=template,
-            name="__preview__",
-            status=ConfigurationStatus.DRAFT,
-            price_override=Money(price, "EUR") if price is not None else None,
-        )
-        params_by_name = {p.name: p for p in template.parameters.all()}
-        ConfigurationParameterValue.objects.bulk_create([
-            ConfigurationParameterValue(
-                configuration=config,
-                parameter=param,
-                value=str(param.normalize_value(value)),
-                order=param.order,
+    try:
+        with transaction.atomic():
+            config = Configuration.objects.create(
+                company=company,
+                product=template,
+                name="__preview__",
+                status=ConfigurationStatus.DRAFT,
+                price_override=Money(price, "EUR") if price is not None else None,
             )
-            for param_name, value in param_values.items()
-            if (param := params_by_name.get(param_name))
-        ])
-        config.generate_bom()
-        config.recalculate_price()
-        config.refresh_from_db()
-        data = serialize_product_config(config)
-        # Roll back the atomic block on exit so the preview config is never persisted.
-        transaction.set_rollback(True)
+            params_by_name = {p.name: p for p in template.parameters.all()}
+            ConfigurationParameterValue.objects.bulk_create([
+                ConfigurationParameterValue(
+                    configuration=config,
+                    parameter=param,
+                    value=str(param.normalize_value(value)),
+                    order=param.order,
+                )
+                for param_name, value in param_values.items()
+                if (param := params_by_name.get(param_name))
+            ])
+            config.generate_bom()
+            config.recalculate_price()
+            config.refresh_from_db()
+            data = serialize_product_config(config)
+            # Roll back the atomic block on exit so the preview config is never persisted.
+            transaction.set_rollback(True)
+    except Exception as exc:
+        # Preview is best-effort: surface the failure to the client as 400 rather
+        # than 500 so a partially-filled form does not look like a backend crash.
+        return JsonResponse(
+            {"error": "preview_failed", "detail": str(exc)},
+            status=400,
+        )
 
     return JsonResponse(data)
 

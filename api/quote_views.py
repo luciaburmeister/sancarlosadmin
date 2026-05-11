@@ -16,7 +16,7 @@ from configurator.models import (
     ConfigurationStatus,
     ProductTemplate,
 )
-from management.models import ProjectFile
+from management.models import ProjectFile, ProjectFileStatus
 from sales.models import Quote
 
 from ._serializers import serialize_presupuesto, serialize_product_config
@@ -73,6 +73,7 @@ def presupuesto_list_create_view(request, project_file_id):
     if not name:
         name = f"Presupuesto {date.today().strftime('%d/%m/%Y')}"
 
+    had_quotes = pf.quotes.exists()
     quote = Quote.objects.create(
         company=company,
         client=pf.client,
@@ -80,6 +81,14 @@ def presupuesto_list_create_view(request, project_file_id):
         project_file=pf,
         expires_at=expires_at,
     )
+    # First presupuesto moves expediente from "new" to "active".
+    if not had_quotes and pf.status == ProjectFileStatus.NEW:
+        pf.status = ProjectFileStatus.ACTIVE
+        pf.save(update_fields=["status", "updated_at"])
+    # Re-open completed expedientes when a new presupuesto is created from mobile.
+    elif pf.status == ProjectFileStatus.COMPLETED:
+        pf.status = ProjectFileStatus.ACTIVE
+        pf.save(update_fields=["status", "updated_at"])
     return JsonResponse(serialize_presupuesto(quote, include_products=False), status=201)
 
 
@@ -182,6 +191,10 @@ def producto_list_create_view(request, quote_id):
             status=ConfigurationStatus.DRAFT,
             price_override=Money(price, "EUR") if price is not None else None,
         )
+        # Keep API flow consistent with admin wizard:
+        # apply product defaults before pricing (rules + taxes).
+        config.copy_default_pricing_rules_from_product()
+        config.copy_default_taxes_from_product()
         params_by_name = {p.name: p for p in template.parameters.all()}
         ConfigurationParameterValue.objects.bulk_create([
             ConfigurationParameterValue(

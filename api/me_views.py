@@ -133,9 +133,17 @@ def my_tasks_view(request):
                 ),
             }
 
+        quote = getattr(config, "quote", None)
+        quote_name = (
+            (quote.project_name or "").strip()
+            if quote and (quote.project_name or "").strip()
+            else (getattr(config, "name", None) or "")
+        )
+
         results.append({
             "config_id": config.id,
             "config_name": getattr(config, "name", None) or "",
+            "quote_name": quote_name,
             "template_name": config.product.name if getattr(config, "product", None) else None,
             "ticket_status": ticket.status,
             "expediente": expediente_data,

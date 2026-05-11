@@ -11,8 +11,8 @@ from company.models import Employee, EmployeeType, Machine, MachineType
 from production.models import (
     PlannedProductionSession,
     PlannedProductionSessionSource,
-    ProductionItem,
     ProductionResource,
+    ProductionTicket,
 )
 
 
@@ -116,10 +116,10 @@ def possible_resources_for_stage(
 
 class SessionScheduler:
     """
-    Creates PlannedProductionSessions for a single ProductionItem.
+    Creates PlannedProductionSessions for a ProductionTicket.
 
     Public API:
-        schedule_item(production_item, stage_resources, schedule_ctx, search_start)
+        schedule_item(production_ticket, stage_resources, schedule_ctx, search_start)
     """
 
     # -- public entry point -------------------------------------------------
@@ -127,12 +127,12 @@ class SessionScheduler:
     @classmethod
     def schedule_item(
         cls,
-        production_item: ProductionItem,
+        production_ticket: ProductionTicket,
         stage_resources: dict,
         schedule_ctx: ScheduleContext,
         search_start: datetime | None = None,
     ) -> None:
-        """Schedule all stages for *production_item* sequentially."""
+        """Schedule all stages for *production_ticket* sequentially."""
         if search_start is None:
             tomorrow = timezone.localdate() + timedelta(days=1)
             search_start = timezone.make_aware(
@@ -148,7 +148,7 @@ class SessionScheduler:
                 else search_start
             )
             last_session = cls._schedule_stage(
-                production_item=production_item,
+                production_ticket=production_ticket,
                 stage=stage,
                 stage_info=stage_info,
                 schedule_ctx=schedule_ctx,
@@ -160,7 +160,7 @@ class SessionScheduler:
     @classmethod
     def _schedule_stage(
         cls,
-        production_item: ProductionItem,
+        production_ticket: ProductionTicket,
         stage: str,
         stage_info: dict,
         schedule_ctx: ScheduleContext,
@@ -187,7 +187,7 @@ class SessionScheduler:
         slot_start, resource_id = result
 
         return PlannedProductionSession.objects.create(
-            production_item=production_item,
+            production_ticket=production_ticket,
             production_stage=stage,
             planned_start=slot_start,
             planned_end=slot_start + duration,

@@ -483,7 +483,7 @@ class PlannedSessionResourceInline(TabularInline):
 class PlannedProductionSessionAdmin(ModelAdmin):
     list_display = (
         "id",
-        "production_item",
+        "production_ticket",
         "production_stage",
         "planned_start",
         "planned_end",
@@ -493,13 +493,13 @@ class PlannedProductionSessionAdmin(ModelAdmin):
     )
     list_filter = ("locked", "source")
     search_fields = ("production_stage",)
-    autocomplete_fields = ("production_item", "primary_resource")
+    autocomplete_fields = ("production_ticket", "primary_resource")
     inlines = (PlannedSessionResourceInline,)
 
     fieldsets = (
         (None, {
             "fields": (
-                "production_item",
+                "production_ticket",
                 "production_stage",
             )
         }),
@@ -564,6 +564,18 @@ class SchedulingRunAdmin(ModelAdmin):
         "discarded_at",
         "error_message",
     )
+    actions_row = ["preview_schedule_action"]
+
+    @action(
+        description=_("Preview Schedule"),
+        url_path="preview-schedule",
+    )
+    def preview_schedule_action(self, request: HttpRequest, object_id: int):
+        run = get_object_or_404(SchedulingRun, pk=object_id)
+        if run.status != "solved":
+            messages.warning(request, _("This run has not been solved yet."))
+            return redirect(reverse("admin:production_schedulingrun_change", args=[object_id]))
+        return redirect(reverse("admin:production_schedulingrun_preview", args=[object_id]))
 
     def get_urls(self):
         urls = super().get_urls()
@@ -657,10 +669,8 @@ class SchedulingRunAdmin(ModelAdmin):
         assignment_rows = [
             [
                 a.configuration_name,
-                a.item_name,
                 a.stage_name,
                 a.resource_name,
-                a.copy_index,
                 timezone.localtime(a.start) if timezone.is_aware(a.start) else a.start,
                 timezone.localtime(a.end) if timezone.is_aware(a.end) else a.end,
                 a.minutes,
@@ -692,10 +702,8 @@ class SchedulingRunAdmin(ModelAdmin):
             "assignments_table": {
                 "headers": [
                     _("Configuration"),
-                    _("Item"),
                     _("Stage"),
                     _("Resource"),
-                    _("Copy"),
                     _("Start"),
                     _("End"),
                     _("Minutes"),

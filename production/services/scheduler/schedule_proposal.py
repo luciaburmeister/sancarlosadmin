@@ -6,12 +6,9 @@ from typing import Any
 class ScheduledAssignment:
     configuration_id: int
     configuration_name: str
-    configuration_item_id: int
-    item_name: str
     stage_name: str
     resource_id: int
     resource_name: str
-    copy_index: int
     start: datetime
     end: datetime
     slot_count: int

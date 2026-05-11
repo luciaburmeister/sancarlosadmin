@@ -1,4 +1,4 @@
-from configurator.models import Configuration, ConfigurationItem
+from configurator.models import Configuration
 from datetime import datetime, date, time, timedelta
 
 from production.models import ProductionResource
@@ -39,16 +39,15 @@ def optimization_dict_creation(
     dict[Configuration, Company],
     dict[Company, dict[int, list[time]]],
     dict[Configuration, float],
-    dict[Configuration, list[ConfigurationItem]],
-    dict[ConfigurationItem, list[str]],
-    dict[tuple[ConfigurationItem, str], list[tuple[ContentType, int]]],
-    dict[tuple[ConfigurationItem, str, tuple[ContentType, int]], int],
-    dict[tuple[ConfigurationItem, str], int],
+    dict[Configuration, list[str]],
+    dict[tuple[Configuration, str], list[tuple[ContentType, int]]],
+    dict[tuple[Configuration, str, tuple[ContentType, int]], int],
+    dict[tuple[Configuration, str], int],
     dict[tuple[ContentType, int], list[ProductionResource]],
     dict[ProductionResource, int],
     dict[ProductionResource, int],
 ]:
-    """Creates dictionaries used for variable, objective, and constraint creation for the optimization problem
+    """Creates dictionaries for the optimization problem, aggregated at config×stage level.
 
     Parameters
     ----------
@@ -64,29 +63,27 @@ def optimization_dict_creation(
     Returns
     -------
     possible_days_weekday : dict[date, int]
-        Dict of days between start_date and end_date and their corresponding weekday (0-> monday, 6-> sunday)
+        Days between start_date and end_date with their weekday
     configuration_company : dict[Configuration, Company]
-        Dict mapping configurations to their company
+        Map configurations to their company
     company_times_by_weekday : dict[Company, dict[int, list[time]]]
-        Dict mapping companies to a dictionary of open times separated by ts minutes per weekday
+        Open times separated by ts minutes per weekday per company
     configuration_margin : dict[Configuration, float]
-        Dict mapping configurations to their margin
-    configuration_items : dict[Configuration, list[ConfigurationItem]]
-        Dict mapping configurations to a list of their configuration items
-    item_stages : dict[ConfigurationItem, list[str]]
-        Dict mapping configuration items to a list of their stages
-    stage_resource_types : dict[tuple[ConfigurationItem, str], list[tuple[ContentType, int]]]
-        Dict mapping stages to a list of their required resource types [ContentType, type__pk]
-    stage_resource_type_quantity : dict[tuple[ConfigurationItem, str, tuple[ContentType, int]], int]
-        Dict mapping stages' resource types to their needed quantity
-    stage_duration : dict[tuple[ConfigurationItem, str], int]
-        Dict mapping stages to their duration
+        Margin per configuration
+    configuration_stages : dict[Configuration, list[str]]
+        Ordered list of unique schedulable stages per configuration
+    stage_resource_types : dict[tuple[Configuration, str], list[tuple[ContentType, int]]]
+        Resource types required per (config, stage)
+    stage_resource_type_quantity : dict[tuple[Configuration, str, tuple[ContentType, int]], int]
+        Quantity of each resource type needed per (config, stage)
+    stage_duration : dict[tuple[Configuration, str], int]
+        Aggregated duration in minutes per (config, stage)
     resource_type_active_resources : dict[tuple[ContentType, int], list[ProductionResource]]
-        Dict mapping resource types to a list of the active production resources of that type
+        Active production resources per resource type
     resource_parallel_capacity : dict[ProductionResource, int]
-        Dict mapping resources to their parallel capacity
+        Parallel capacity per resource
     resource_daily_capacity_minutes : dict[ProductionResource, int]
-        Dict mapping resources to their daily production capacity in minutes
+        Daily capacity in minutes per resource
     """
     # Assignable times
     possible_days_weekday = days_with_weekday(start_date, end_date)
@@ -96,9 +93,8 @@ def optimization_dict_creation(
     # Margins
     configuration_margin = {}
 
-    # Items, stages, and needed resources
-    configuration_items = {}
-    item_stages = {}
+    # Config-level stage aggregation
+    configuration_stages = {}
     stage_resource_types = {}
     stage_resource_type_quantity = {}
     stage_duration = {}
@@ -131,44 +127,54 @@ def optimization_dict_creation(
             configuration.total_price.amount - configuration.total_cost.amount
         )
 
-        configuration_items[configuration] = []
+        # Aggregate stages across all items in this configuration
+        # Use the product's stage ordering as the canonical order
+        product_stage_order = configuration.product.production_stages or []
 
-        # Dictionaries of resource types per stage per item per configuration
+        # Collect per-stage aggregated data
+        config_stage_durations = {}       # stage -> total minutes
+        config_stage_rt = {}              # stage -> {rt: max_qty}
+
         for item in configuration.items.select_related("component").filter(is_template_item=True):
-            configuration_items[configuration].append(item)
-
-            item_stages[item] = []
-
             item_stage_resources = item.stage_resources or {}
-            ordered_production_stages = item.production_stages or []
 
-            for stage in ordered_production_stages:
+            for stage in (item.production_stages or []):
                 stage_info = item_stage_resources.get(stage, {})
 
                 if not stage_info or not stage_info.get("total_time_min"):
                     continue
 
-                item_stages[item].append(stage)
-                stage_resource_types[(item, stage)] = []
+                # Sum duration across items
+                config_stage_durations[stage] = (
+                    config_stage_durations.get(stage, 0) + stage_info["total_time_min"]
+                )
 
-                seen_stage_resource_types = set()
+                # Union resource types, take max quantity
+                if stage not in config_stage_rt:
+                    config_stage_rt[stage] = {}
 
                 for machine_type in stage_info.get("machine_types", []):
                     rt = (machine_ct, machine_type["machine_type_id"])
-                    if rt not in seen_stage_resource_types:
-                        stage_resource_types[(item, stage)].append(rt)
-                        seen_stage_resource_types.add(rt)
-                    stage_resource_type_quantity[(item, stage, rt)] = machine_type["quantity"]
+                    existing_qty = config_stage_rt[stage].get(rt, 0)
+                    config_stage_rt[stage][rt] = max(existing_qty, machine_type["quantity"])
 
                 for employee_type in stage_info.get("employee_types", []):
                     rt = (employee_ct, employee_type["employee_type_id"])
-                    if rt not in seen_stage_resource_types:
-                        stage_resource_types[(item, stage)].append(rt)
-                        seen_stage_resource_types.add(rt)
-                    stage_resource_type_quantity[(item, stage, rt)] = employee_type["quantity"]
+                    existing_qty = config_stage_rt[stage].get(rt, 0)
+                    config_stage_rt[stage][rt] = max(existing_qty, employee_type["quantity"])
 
-                resource_types.update(stage_resource_types[(item, stage)])
-                stage_duration[(item, stage)] = stage_info["total_time_min"]
+        # Build ordered stage list following product stage order
+        ordered_stages = [s for s in product_stage_order if s in config_stage_durations]
+        configuration_stages[configuration] = ordered_stages
+
+        for stage in ordered_stages:
+            stage_duration[(configuration, stage)] = config_stage_durations[stage]
+            stage_resource_types[(configuration, stage)] = list(config_stage_rt.get(stage, {}).keys())
+
+            for rt, qty in config_stage_rt.get(stage, {}).items():
+                stage_resource_type_quantity[(configuration, stage, rt)] = qty
+
+            resource_types.update(stage_resource_types[(configuration, stage)])
 
     # Dictionary of active resources per resource type
     for content_type, resource_type in resource_types:
@@ -209,8 +215,7 @@ def optimization_dict_creation(
         configuration_company,
         company_times_by_weekday,
         configuration_margin,
-        configuration_items,
-        item_stages,
+        configuration_stages,
         stage_resource_types,
         stage_resource_type_quantity,
         stage_duration,

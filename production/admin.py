@@ -564,6 +564,18 @@ class SchedulingRunAdmin(ModelAdmin):
         "discarded_at",
         "error_message",
     )
+    actions_row = ["preview_schedule_action"]
+
+    @action(
+        description=_("Preview Schedule"),
+        url_path="preview-schedule",
+    )
+    def preview_schedule_action(self, request: HttpRequest, object_id: int):
+        run = get_object_or_404(SchedulingRun, pk=object_id)
+        if run.status != "solved":
+            messages.warning(request, _("This run has not been solved yet."))
+            return redirect(reverse("admin:production_schedulingrun_change", args=[object_id]))
+        return redirect(reverse("admin:production_schedulingrun_preview", args=[object_id]))
 
     def get_urls(self):
         urls = super().get_urls()

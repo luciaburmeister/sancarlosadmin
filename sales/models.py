@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Sum
 from django.utils import timezone
 from djmoney.models.fields import MoneyField
 from materials.models import Material
@@ -343,6 +344,12 @@ class OrderItem(Timestampable):
         self.line_total = self.unit_price * self.quantity
         super().save(*args, **kwargs)
 
+class QuoteStatus(models.TextChoices):
+    DRAFT = "draft", _("Draft")
+    SENT = "sent", _("Sent")
+    ACCEPTED = "accepted", _("Accepted")
+    REJECTED = "rejected", _("Rejected")
+
 
 class Quote(Timestampable, CompanyOwnedModel):
     client = models.ForeignKey(
@@ -374,13 +381,8 @@ class Quote(Timestampable, CompanyOwnedModel):
 
     status = models.CharField(
         max_length=20,
-        choices=[
-            ("draft", _("Draft")),
-            ("sent", _("Sent")),
-            ("accepted", _("Accepted")),
-            ("rejected", _("Rejected")),
-        ],
-        default="draft",
+        choices=QuoteStatus.choices,
+        default=QuoteStatus.DRAFT,
         verbose_name=_("Status"),
     )
 
@@ -418,6 +420,9 @@ class Quote(Timestampable, CompanyOwnedModel):
     class Meta:
         verbose_name = _("Quote")
         verbose_name_plural = _("Quotes")
+        permissions = [
+            ("can_view_quote_dashboard", _("Can view quote dashboard")),
+        ]
 
     def __str__(self):
         return f"{_('Quote')} #{self.id} – {self.client} - {self.project_name}"
@@ -426,80 +431,175 @@ class Quote(Timestampable, CompanyOwnedModel):
         if not self.id:
             return
 
-        
+        item_total, config_subtotal = self._calculate_subtotal()
+        self._sync_applied_taxes()
+        tax_amount, tax_breakdown = self._build_tax_breakdown()
+        total = self._calculate_total(item_total)
 
-        # Calculate Subtotal
-        item_total = sum(item.line_total.amount for item in self.items.all())
-        config_subtotal = sum(c.subtotal_price.amount for c in self.configurations.all())
         self.subtotal_price = item_total + config_subtotal
-
-        breakdown_dict = {}
-
-        # Aggregate Configuration Taxes
-        for c in self.configurations.all():
-            for tax in c.tax_breakdown or []:
-                key = f"{tax['tax_name']}_{tax['percentage']}"
-                if key not in breakdown_dict:
-                    breakdown_dict[key] = {
-                        "tax_name": tax['tax_name'],
-                        "percentage": tax['percentage'],
-                        "base": Decimal("0.00"),
-                        "tax_amount": Decimal("0.00"),
-                    }
-                breakdown_dict[key]["base"] += Decimal(str(tax.get('base', 0)))
-                breakdown_dict[key]["tax_amount"] += Decimal(str(tax.get('tax_amount', 0)))
-
-        # 2. Quote-level taxes (Applied to QuoteItem subtotal, or overall if needed)
-        # Note: If Quote has AppliedTax, we apply them to item_total (since configs have their own taxes)
-        # Or, we could apply Quote taxes to the whole subtotal if the user configures it that way.
-        # Assuming Quote AppliedTaxes apply to the `item_total` (loose items):
-        ct = ContentType.objects.get_for_model(self)
-        quote_taxes = AppliedTax.objects.filter(content_type=ct, object_id=self.pk).order_by('order', 'tax_type')
-
-        current_item_total = Decimal(str(item_total))
-        quote_tax_total = Decimal("0.00")
-
-        for tax in quote_taxes:
-            result = tax.calculate(current_item_total)
-            tax.base_amount = current_item_total
-            tax_calculated = result['tax_amount']
-            tax.calculated_amount = tax_calculated
-            tax.save(update_fields=['base_amount', 'calculated_amount'])
-            
-            quote_tax_total += tax_calculated
-            current_item_total = result['total_amount']
-
-            key = f"{tax.tax_type.tax_name}_{tax.selected_percentage}"
-            if key not in breakdown_dict:
-                breakdown_dict[key] = {
-                    "tax_name": tax.tax_type.tax_name,
-                    "percentage": str(tax.selected_percentage),
-                    "base": Decimal("0.00"),
-                    "tax_amount": Decimal("0.00"),
-                }
-            breakdown_dict[key]["base"] += current_item_total - tax_calculated  # original base
-            breakdown_dict[key]["tax_amount"] += tax_calculated
-
-        # Format breakdown for JSON
-        final_breakdown = []
-        total_tax_amount = Decimal("0.00")
-        for k, v in breakdown_dict.items():
-            final_breakdown.append({
-                "tax_name": v["tax_name"],
-                "percentage": str(v["percentage"]),
-                "base": str(v["base"].quantize(Decimal("0.01"))),
-                "tax_amount": str(v["tax_amount"].quantize(Decimal("0.01"))),
-            })
-            total_tax_amount += v["tax_amount"]
-
-        self.tax_breakdown = final_breakdown
-        self.tax_amount = total_tax_amount
-        
-        config_total_with_tax = sum(c.total_price.amount for c in self.configurations.all())
-        items_total_with_tax = item_total + quote_tax_total
-
-        self.total_price = config_total_with_tax + items_total_with_tax
+        self.tax_amount = tax_amount
+        self.tax_breakdown = tax_breakdown
+        self.total_price = total
         self.save(update_fields=['subtotal_price', 'tax_amount', 'total_price', 'tax_breakdown'])
+
+    def _calculate_subtotal(self):
+        """Returns (item_total, config_subtotal) as raw Decimals."""
+        item_total = sum(
+            (item.line_total.amount for item in self.items.all()),
+            Decimal("0.00"),
+        )
+        config_subtotal = sum(
+            (c.subtotal_price.amount for c in self.configurations.all()),
+            Decimal("0.00"),
+        )
+        return item_total, config_subtotal
+
+    def _sync_applied_taxes(self):
+        """
+        Aggregates AppliedTax records from all linked configurations
+        and syncs them as Quote-level AppliedTax records.
+        """
+        ct = ContentType.objects.get_for_model(self)
+
+        # Aggregate taxes across all configurations
+        aggregation = {}  # key: (tax_type_id, percentage) -> {tax_type, base, calc, order}
+        for config in self.configurations.all():
+            for tax in config.get_taxes():
+                key = (tax.tax_type_id, tax.selected_percentage)
+                if key not in aggregation:
+                    aggregation[key] = {
+                        "tax_type": tax.tax_type,
+                        "selected_percentage": tax.selected_percentage,
+                        "base_amount": Decimal("0.00"),
+                        "calculated_amount": Decimal("0.00"),
+                        "order": tax.order,
+                    }
+                # Use tax_breakdown snapshot values as fallback for older configs
+                # where base_amount / calculated_amount may be null
+                base = tax.base_amount.amount if tax.base_amount else Decimal("0.00")
+                calc = tax.calculated_amount.amount if tax.calculated_amount else Decimal("0.00")
+
+                # If the config has a tax_breakdown with amounts, prefer those
+                # (they're always in sync with total_price)
+                for tb in config.tax_breakdown or []:
+                    if (tb.get('tax_name') == tax.tax_type.tax_name
+                            and Decimal(str(tb.get('percentage', 0))) == tax.selected_percentage):
+                        base = Decimal(str(tb.get('base', base)))
+                        calc = Decimal(str(tb.get('tax_amount', calc)))
+                        break
+
+                aggregation[key]["base_amount"] += base
+                aggregation[key]["calculated_amount"] += calc
+
+        # Upsert Quote-level AppliedTax records
+        seen_ids = []
+        for (_, _), agg in aggregation.items():
+            applied, _ = AppliedTax.objects.update_or_create(
+                content_type=ct,
+                object_id=self.pk,
+                tax_type=agg["tax_type"],
+                selected_percentage=agg["selected_percentage"],
+                defaults={
+                    "base_amount": agg["base_amount"].quantize(Decimal("0.01")),
+                    "calculated_amount": agg["calculated_amount"].quantize(Decimal("0.01")),
+                    "order": agg["order"],
+                },
+            )
+            seen_ids.append(applied.pk)
+
+        # Remove stale taxes no longer present in any configuration
+        AppliedTax.objects.filter(
+            content_type=ct,
+            object_id=self.pk,
+        ).exclude(pk__in=seen_ids).delete()
+
+    def _build_tax_breakdown(self):
+        """
+        Derives the tax_breakdown JSON and total tax amount
+        from the Quote's own AppliedTax records (single source of truth).
+        """
+        ct = ContentType.objects.get_for_model(self)
+        taxes = AppliedTax.objects.filter(
+            content_type=ct,
+            object_id=self.pk,
+        ).select_related("tax_type").order_by("order")
+
+        breakdown = []
+        total_tax = Decimal("0.00")
+        for tax in taxes:
+            calc = tax.calculated_amount.amount if tax.calculated_amount else Decimal("0.00")
+            base = tax.base_amount.amount if tax.base_amount else Decimal("0.00")
+            breakdown.append({
+                "tax_name": tax.tax_type.tax_name,
+                "percentage": str(tax.selected_percentage),
+                "base": str(base.quantize(Decimal("0.01"))),
+                "tax_amount": str(calc.quantize(Decimal("0.01"))),
+            })
+            total_tax += calc
+        return total_tax, breakdown
+
+    def _calculate_total(self, item_total):
+        """
+        Total = sum of config totals (already include taxes) + loose item total.
+        """
+        config_total = sum(
+            (c.total_price.amount for c in self.configurations.all()),
+            Decimal("0.00"),
+        )
+        return config_total + item_total
+
+class QuoteConfigurationGroup(Timestampable):
+    """
+    An optional organisational group that clusters Configurations within a Quote.
+    Purely presentational — does not affect the Quote's financial totals.
+    """
+    quote = models.ForeignKey(
+        Quote,
+        on_delete=models.CASCADE,
+        related_name="configuration_groups",
+        verbose_name=_("Quote"),
+    )
+
+    name = models.CharField(
+        max_length=200,
+        verbose_name=_("Name"),
+    )
+
+    notes = models.TextField(
+        blank=True,
+        verbose_name=_("Notes"),
+    )
+
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Order"),
+        db_index=True,
+    )
+
+    class Meta:
+        verbose_name = _("Configuration Group")
+        verbose_name_plural = _("Configuration Groups")
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def subtotal(self):
+        """Sum of subtotal_price of all member configurations."""
+        return sum(
+            (c.subtotal_price.amount for c in self.configurations.all()),
+            Decimal("0.00"),
+        )
+
+    @property
+    def total(self):
+        """Sum of total_price (after tax) of all member configurations."""
+        return sum(
+            (c.total_price.amount for c in self.configurations.all()),
+            Decimal("0.00"),
+        )
+
 
 class QuoteItem(Timestampable):
     quote = models.ForeignKey(

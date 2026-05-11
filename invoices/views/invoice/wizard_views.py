@@ -64,10 +64,7 @@ class SalesInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
         # 1. Save Basic Invoice
         invoice = basic_form.save(commit=False)
         invoice.notes = notes_form.cleaned_data.get('notes', '')
-        # We need to calculate subtotal from items before saving if possible, 
-        # but recalculate_totals handles it. Oh wait, recalculate_totals expects subtotal_amount
-        # to be calculated manually or from items. Normally, recalculate_totals doesn't calculate subtotal,
-        # so we must calculate subtotal from items.
+    
         invoice.save()
 
         # 2. Save Items and compute subtotal

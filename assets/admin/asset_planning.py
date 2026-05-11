@@ -14,13 +14,13 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
     )
     list_filter = ("status", "company", "origin", "destination")
     search_fields = (
-    "asset__name",
-    "assigned_to__first_name",
-    "assigned_to__last_name",
-    "origin__name",
-    "destination__name",
+        "asset__name",
+        "assigned_to__first_name",
+        "assigned_to__last_name",
+        "origin__name",
+        "destination__name",
     )
-    autocomplete_fields = ["asset", "origin", "destination", "assigned_to", "company"]
+    autocomplete_fields = ["asset", "origin", "destination", "assigned_to"]
     exclude = ["company"]
     fieldsets = (
         (_("Asset"), {
@@ -41,3 +41,8 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
             )
         }),
     )
+
+    def save_model(self, request, obj, form, change):
+        if obj.asset and obj.asset.company:
+            obj.company = obj.asset.company
+        super().save_model(request, obj, form, change)

@@ -26,7 +26,9 @@ from django.utils import timezone
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")
     COMPLETED = "completed", _("Completed")
-    CONVERTED = "converted", _("Converted to Quote")
+    CONVERTED = "converted", _("Converted to Production")
+    SHOP = "shop", _("Direct to Shop")
+    PRODUCTION_DONE = "production_done", _("Production Done")
 
 
 class IncompatibilityRule(CompanyOwnedModel):
@@ -62,6 +64,11 @@ class IncompatibilityRule(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.component_a} ❌ {self.component_b}"
+
+
+class ProductFlowKind(models.TextChoices):
+    QUOTABLE = "quotable", _("Quotable")
+    SHOP = "shop", _("Shop")
 
 
 class ProductTemplate(CompanyOwnedModel):
@@ -101,6 +108,12 @@ class ProductTemplate(CompanyOwnedModel):
         default=True,
         verbose_name=_("Show in configurator"),
         help_text=_("If false, this template will not be shown in the manual configuration creation list.")
+    )
+    flow_kind = models.CharField(
+        max_length=20,
+        choices=ProductFlowKind.choices,
+        default=ProductFlowKind.QUOTABLE,
+        verbose_name=_("Flow Kind"),
     )
 
     class Meta:
@@ -598,6 +611,16 @@ class Configuration(Timestampable, CompanyOwnedModel):
         verbose_name=_("Total price (after tax)"),
     )
 
+    price_override = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        default_currency="EUR",
+        verbose_name=_("Price override"),
+        help_text=_("If set, this price will be used as subtotal, bypassing pricing rules.")
+    )
+
     tax_breakdown = models.JSONField(
         default=list,
         blank=True,
@@ -642,6 +665,16 @@ class Configuration(Timestampable, CompanyOwnedModel):
         null=True,
         blank=True,
         verbose_name=_("Work Order PDF")
+    )
+
+    quote_group = models.ForeignKey(
+        "sales.QuoteConfigurationGroup",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="configurations",
+        verbose_name=_("Quote Group"),
+        help_text=_("Optional group for organising configurations within a quote."),
     )
 
     class Meta:
@@ -695,6 +728,10 @@ class Configuration(Timestampable, CompanyOwnedModel):
         total = Decimal(base_amount)
 
         for tax in self.get_taxes():
+            tax.base_amount = total
+            tax.save()
+            tax.calculate_and_store()
+
             result = tax.calculate(total)
 
             breakdown.append(
@@ -712,71 +749,82 @@ class Configuration(Timestampable, CompanyOwnedModel):
         return total, breakdown
 
     def recalculate_price(self):
-        if self.status != ConfigurationStatus.DRAFT:
+        if self.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE, ConfigurationStatus.SHOP]:
             return
         context = self.get_pricing_context()
 
         base_subtotal = Decimal(str(context["base_total"]))
-        subtotal = base_subtotal
-
         pricing_lines = []
-
-        for assignment in self.pricing_rules.select_related("rule").filter(
-            enabled=True
-        ):
-            rule = assignment.rule
-            amount = Decimal(str(safe_eval(rule.expression, context)))
-
-            if amount <= 0:
-                continue
-
-            subtotal_before = subtotal
-            subtotal += amount
-            pricing_lines.append(
-                {
-                    "label": rule.label or rule.name,
-                    "type": "charge",
-                    "expression": rule.expression,
-                    "subtotal_before": str(subtotal_before.quantize(Decimal("0.01"))),
-                    "amount": str(amount.quantize(Decimal("0.01"))),
-                    "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
-                }
-            )
-
-            context["base_total"] = float(subtotal)
-
-        pre_discount_subtotal = subtotal
-
+        pre_discount_subtotal = Decimal("0.00")
         discount_total = Decimal("0.00")
 
-        for assignment in self.pricing_rules.select_related("rule").filter(
-            enabled=True
-        ):
-            rule = assignment.rule
-            amount = Decimal(str(safe_eval(rule.expression, context)))
+        if self.price_override and self.price_override.amount > 0:
+            subtotal = Decimal(str(self.price_override.amount))
+            pricing_lines.append(
+                {
+                    "label": str(_("Price Override")),
+                    "type": "override",
+                    "amount": str(subtotal.quantize(Decimal("0.01"))),
+                }
+            )
+            pre_discount_subtotal = subtotal
+        else:
+            subtotal = base_subtotal
 
-            if amount >= 0:
-                continue
+            for assignment in self.pricing_rules.select_related("rule").filter(
+                enabled=True
+            ):
+                rule = assignment.rule
+                amount = Decimal(str(safe_eval(rule.expression, context)))
 
-            subtotal_before = subtotal
-            subtotal += amount
-            discount_total += amount
+                if amount <= 0:
+                    continue
 
-            if rule.show_in_export:
+                subtotal_before = subtotal
+                subtotal += amount
                 pricing_lines.append(
                     {
                         "label": rule.label or rule.name,
-                        "type": "discount",
+                        "type": "charge",
                         "expression": rule.expression,
-                        "subtotal_before": str(
-                            subtotal_before.quantize(Decimal("0.01"))
-                        ),
+                        "subtotal_before": str(subtotal_before.quantize(Decimal("0.01"))),
                         "amount": str(amount.quantize(Decimal("0.01"))),
                         "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
                     }
                 )
 
-            context["base_total"] = float(subtotal)
+                context["base_total"] = float(subtotal)
+
+            pre_discount_subtotal = subtotal
+
+            for assignment in self.pricing_rules.select_related("rule").filter(
+                enabled=True
+            ):
+                rule = assignment.rule
+                amount = Decimal(str(safe_eval(rule.expression, context)))
+
+                if amount >= 0:
+                    continue
+
+                subtotal_before = subtotal
+                subtotal += amount
+                discount_total += amount
+
+                if rule.show_in_export:
+                    pricing_lines.append(
+                        {
+                            "label": rule.label or rule.name,
+                            "type": "discount",
+                            "expression": rule.expression,
+                            "subtotal_before": str(
+                                subtotal_before.quantize(Decimal("0.01"))
+                            ),
+                            "amount": str(amount.quantize(Decimal("0.01"))),
+                            "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
+                        }
+                    )
+
+                context["base_total"] = float(subtotal)
 
         self.total_cost = base_subtotal
         self.subtotal_price = subtotal
@@ -854,56 +902,56 @@ class Configuration(Timestampable, CompanyOwnedModel):
         return {stage: product_resources.get(stage, {}) for stage in (stages or [])}
 
     def generate_bom(self):
-        if self.status != ConfigurationStatus.DRAFT:
+        if self.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE, ConfigurationStatus.SHOP]:
             return
         """
         Incrementally reconciles BOM rules with existing ConfigurationItems.
 
-        - Updates existing items
-        - Creates missing items
-        - Deletes obsolete items
-        - Preserves primary keys whenever possible
+        - Updates existing items linked to the same rule
+        - Creates missing items for new rules
+        - Deletes items that no longer have a corresponding rule
         """
         context = self.get_pricing_context()
 
-        existing_items = self._get_existing_bom_items()
-        seen_keys = set()
+        # Map existing items by their rule ID for easy lookup
+        # We only consider items that are already linked to a rule
+        existing_items = {
+            item.bom_rule_id: item 
+            for item in self.items.filter(is_template_item=True, bom_rule__isnull=False)
+        }
+        
+        seen_item_ids = []
 
         for rule in self.product.bom_rules.select_related("component"):
             qty, length = self._evaluate_bom_rule(rule, context)
             if qty is None:
                 continue
 
-            key = self._bom_item_key(rule.component_id)
-            seen_keys.add(key)
-
-            if key in existing_items:
-                item = existing_items[key]
+            if rule.id in existing_items:
+                item = existing_items[rule.id]
                 item.quantity = qty
                 item.length = length
                 item.unit_price = rule.component.compute_unit_price(context)
                 item.production_stages = rule.production_stages or []
-                item.stage_resources = self._get_item_stage_resources_snapshot(stages=item.production_stages)
                 item.note = safe_eval(rule.note_expression, context) if rule.note_expression else ""
                 item.save()
             else:
-                stages = rule.production_stages or []
-
-                ConfigurationItem.objects.create(
+                item = ConfigurationItem.objects.create(
                     configuration=self,
+                    bom_rule=rule,
                     component=rule.component,
                     quantity=qty,
                     length=length,
                     unit_price= rule.component.compute_unit_price(context),
                     is_template_item=True,
-                    production_stages=stages,
-                    stage_resources=self._get_item_stage_resources_snapshot(stages=stages),
+                    production_stages=rule.production_stages or [],
                     note=safe_eval(rule.note_expression, context) if rule.note_expression else "",
                 )
+            
+            seen_item_ids.append(item.id)
 
-        for key, item in existing_items.items():
-            if key not in seen_keys:
-                item.delete()
+        self.items.filter(is_template_item=True).exclude(id__in=seen_item_ids).delete()
+
 
     def evaluate_computed_variables(self, context):
         """
@@ -1078,18 +1126,7 @@ class ConfigurationFlow:
             raise ValidationError("Cannot complete an empty configuration.")
 
     @state.transition(
-        source=ConfigurationStatus.DRAFT,
-        target=ConfigurationStatus.CONVERTED,
-    )
-    def convert(self):
-        from production.services.configuration_to_production import (
-            ConfigurationToProductionService,
-        )
-
-        return ConfigurationToProductionService.create_ticket(self.configuration)
-
-    @state.transition(
-        source=ConfigurationStatus.COMPLETED,
+        source=[ConfigurationStatus.DRAFT, ConfigurationStatus.COMPLETED],
         target=ConfigurationStatus.CONVERTED,
     )
     def convert(self):
@@ -1159,6 +1196,15 @@ class ConfigurationItem(Timestampable):
         decimal_places=5,
         default_currency="EUR",
         verbose_name=_("Unit price"),
+    )
+
+    bom_rule = models.ForeignKey(
+        'BOMRule',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="configuration_items",
+        verbose_name=_("BOM rule"),
     )
 
     production_stages = ArrayField(

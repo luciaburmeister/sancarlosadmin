@@ -4,7 +4,8 @@ from unfold.admin import ModelAdmin
 from unfold.decorators import display
 from .models import (
     Client, Order, DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
-    Quote, QuoteItem, SaleZone, ClientAddress, ClientContact, ClientBankAccount
+    Quote, QuoteItem, SaleZone, ClientAddress, ClientContact, ClientBankAccount,
+    QuoteStatus, QuoteConfigurationGroup,
 )
 from unfold.admin import TabularInline, StackedInline
 from configurator.models import Configuration
@@ -15,6 +16,8 @@ from unfold.decorators import action
 from core.admin.company_admin import CompanyRestrictedAdmin
 from management.views import QuoteAcceptanceWizardView
 from .views.quote_export_view import QuoteExportView
+from .views.quote_dashboard_view import QuoteDashboardView
+from .components.quote_dashboard_charts import QuoteValueByStatusChart, QuoteCountByStatusChart  # noqa: F401
 
 @admin.register(SaleZone)
 class SaleZoneAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -200,30 +203,67 @@ class QuoteItemInline(TabularInline):
     autocomplete_fields = ["material"]
     readonly_fields = ["line_total"]
 
+class QuoteConfigurationGroupInline(StackedInline):
+    model = QuoteConfigurationGroup
+    extra = 1
+    tab = True
+    tab_title = _("Configuration Groups")
+    fields = ["name", "notes", "order"]
+    ordering = ["order"]
+
+
+@admin.register(QuoteConfigurationGroup)
+class QuoteConfigurationGroupAdmin(ModelAdmin):
+    list_display = ["name", "quote", "order"]
+    search_fields = ["name"]
+    autocomplete_fields = ["quote"]
+    list_filter = ["quote"]
+
+
 class ConfigurationReadOnlyInline(TabularInline):
     model = Configuration
     extra = 0
     tab = True
-    readonly_fields = ["name", "status", "subtotal_price", "total_price_display"]
-    fields = ["name", "status", "subtotal_price", "total_price_display"]
+    readonly_fields = ["config_link", "status", "subtotal_price", "total_price_display"]
+    fields = ["config_link", "status", "quote_group", "subtotal_price", "total_price_display"]
     can_delete = True
     max_num = 0
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "quote_group":
+            import re
+            match = re.search(r'/admin/sales/quote/(\d+)/change/', request.path)
+            if match:
+                kwargs["queryset"] = QuoteConfigurationGroup.objects.filter(
+                    quote_id=match.group(1)
+                ).order_by("order")
+            else:
+                kwargs["queryset"] = QuoteConfigurationGroup.objects.none()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    @display(description=_("Name"))
+    def config_link(self, obj):
+        from django.utils.html import format_html
+        url = reverse("admin:configurator_configuration_change", args=[obj.pk])
+        return format_html('<a href="{}" target="_blank">{}</a>', url, obj.name)
 
     @display(description=_("Total price"))
     def total_price_display(self, obj):
         return obj.total_price
 
+
 @admin.register(Quote)
 class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["id", "client", "project_name","project_file", "status", "total_price_display", "company"]
+    list_display = ["id", "client", "project_name","project_file", "show_status_customized_color", "total_price_display", "company"]
     list_filter = ["status", "company", "created_at"]
     search_fields = ["project_name", "client__name", "id"]
     autocomplete_fields = ["client", "project_file","company"]
     readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown"]
     list_select_related = ["client", "project_file", "company"]
     
-    inlines = [ConfigurationReadOnlyInline, QuoteItemInline, AppliedTaxInline]
+    inlines = [ ConfigurationReadOnlyInline,QuoteConfigurationGroupInline, QuoteItemInline, AppliedTaxInline]
 
+    actions_list = ["quote_dashboard_action"]
     actions_row = ["add_configuration_to_quote", "export_quote_action"]
 
     fieldsets = (
@@ -248,6 +288,20 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def total_price_display(self, obj):
         return obj.total_price
 
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            _(QuoteStatus.ACCEPTED.label): "success",  # green
+            _(QuoteStatus.SENT.label): "info",  # blue
+            _(QuoteStatus.REJECTED.label): "warning",  # orange
+            _(QuoteStatus.DRAFT.label): "primary",  # orange
+            
+        },
+    )
+    def show_status_customized_color(self, obj):
+        return _(obj.get_status_display())
+
     @action(description=_("Add Configuration"))
     def add_configuration_to_quote(self, request, object_id: int):
         url = reverse("admin:configurator_configuration_wizard_select")
@@ -261,12 +315,31 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def export_quote_action(self, request, object_id: int):
         return redirect(reverse("admin:sales_quote_export", args=[object_id]))
 
+    @action(
+        description=_("Quote Dashboard"),
+        url_path="quote-dashboard-action",
+        permissions=["quote_dashboard"],
+        icon="bar_chart",
+    )
+    def quote_dashboard_action(self, request):
+        return redirect(reverse("admin:sales_quote_dashboard"))
+
+    def has_quote_dashboard_permission(self, request):
+        return request.user.has_perm("sales.can_view_quote_dashboard")
+
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
             path(
+                "dashboard/",
+                self.admin_site.admin_view(
+                    QuoteDashboardView.as_view(model_admin=self)
+                ),
+                name="sales_quote_dashboard",
+            ),
+            path(
                 "<int:quote_id>/accept-wizard/",
-                self.admin_site.admin_view(QuoteAcceptanceWizardView.as_view()),
+                self.admin_site.admin_view(QuoteAcceptanceWizardView.as_view(model_admin=self)),
                 name="sales_quote_acceptance_wizard",
             ),
             path(

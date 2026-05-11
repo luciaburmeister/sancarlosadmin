@@ -1,32 +1,15 @@
 from rest_framework import serializers
-from .models import AssetTransaction, AssetPlanning, TransactionTypeChoices
+from company.models import WorkingZone
+from assets.models import Client
 
 
-class AssetTransactionSerializer(serializers.ModelSerializer):
-    # These are set automatically by the view, not sent by Android
-    asset = serializers.PrimaryKeyRelatedField(read_only=True)
-    company = serializers.PrimaryKeyRelatedField(read_only=True)
-
+class WorkingZoneSerializer(serializers.ModelSerializer):
     class Meta:
-        model = AssetTransaction
-        fields = [
-            'id',
-            'asset',
-            'company',
-            'from_zone',
-            'to_zone',
-            'transaction_type',
-            'date',
-            'notes',
-            'firma',     # ← the signature field
-        ]
+        model = WorkingZone
+        fields = ["id", "name"]
 
 
-class AssetPlanningDeliverSerializer(serializers.ModelSerializer):
-    """
-    Used only for the delivery action — updates the planning status.
-    """
+class ClientSerializer(serializers.ModelSerializer):
     class Meta:
-        model = AssetPlanning
-        fields = ['id', 'status']
-        read_only_fields = ['id']
+        model = Client
+        fields = ["id", "name"]

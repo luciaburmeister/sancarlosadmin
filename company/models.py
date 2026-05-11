@@ -248,8 +248,19 @@ class CompanyEmailConfig(CompanyOwnedModel):
     def __str__(self):
         return f"{self.email_address} ({self.company})"
 
+
 class WorkingZone(CompanyOwnedModel):
+    class ZoneType(models.TextChoices):
+        OBRA = "obra", _("Obra")
+        VERTEDERO = "vertedero", _("Vertedero")
+
     name = models.CharField(max_length=100, verbose_name=_("Name"))
+    zone_type = models.CharField(
+        max_length=20,
+        choices=ZoneType.choices,
+        default=ZoneType.OBRA,
+        verbose_name=_("Zone Type")
+    )
     street_address = models.CharField(max_length=255, verbose_name=_("Address"), default="")
     city = models.CharField(max_length=100, verbose_name=_("City"), default="")
     postal_code = models.CharField(max_length=20, verbose_name=_("Postal Code"), default="")
@@ -397,7 +408,7 @@ class WorkAttendance(CompanyOwnedModel, Timestampable):
     
 class LocationRecord(CompanyOwnedModel, Timestampable):
     employee = models.ForeignKey(
-        Employee,                          # same pattern as WorkAttendance
+        Employee,
         on_delete=models.CASCADE,
         related_name="location_records",
         verbose_name=_("Employee")
@@ -421,6 +432,7 @@ class LocationRecord(CompanyOwnedModel, Timestampable):
 
     def __str__(self):
         return f"{self.employee} — {self.recorded_at}"
+
 class BaseDocumentType(CompanyOwnedModel):
     name = models.CharField(max_length=100, verbose_name=_("Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))

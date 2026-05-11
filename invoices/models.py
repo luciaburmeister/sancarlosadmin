@@ -12,7 +12,8 @@ from django.core.validators import FileExtensionValidator
 from djmoney.models.fields import MoneyField
 from company.models import Company
 from django.utils import timezone
-
+import unicodedata
+import re
 
 class InvoiceGroup(models.Model):
     """Categories to classify invoices"""
@@ -26,24 +27,38 @@ class InvoiceGroup(models.Model):
     def __str__(self):
         return self.name
 
-
-
 class PaymentMethod(models.TextChoices):
     TRANSFER = 'transfer', _('Bank Transfer')  
     CASH = 'cash', _('Cash')
     CARD = 'card', _('Credit/Debit Card')
 
+class ConfirmationStatus(models.TextChoices):
+    APPROVED = 'approved', _('Approved')
+    PENDING = 'pending', _('Pending Review')
+    DECLINED = 'declined', _('Declined')
 
 def invoice_file_path(instance, filename):
-    return f"invoices/uploads/{filename}"
-
+    """
+    Determines the path where the invoice file will be stored.
+    Format: invoices/uploads/company_{id}/provider_{id}/{timestamp}_{filename}
+    Handles cases where company or provider are not yet assigned.
+    """
+    timestamp = int(timezone.now().timestamp())
+    
+    company_folder = f"company_{instance.company_id}" if instance.company_id else "unknown_company"
+    provider_folder = f"provider_{instance.provider_id}" if instance.provider_id else "unknown_provider"
+    
+    # Ensure unique filename with timestamp
+    unique_filename = f"{timestamp}_{filename}"
+    
+    return f"invoices/uploads/{company_folder}/{provider_folder}/{unique_filename}"
 
 
 class Invoice(models.Model):
-    invoice_number = models.CharField(max_length=30,blank=True, null=True) #numero de factura
-    date_issued = models.DateField(db_index=True,blank=True, null=True) 
-    due_date = models.DateField(blank=True, null=True) #fecha de vencimiento
-    provider = models.ForeignKey(Provider, on_delete=models.PROTECT,blank=True, null=True) 
+    invoice_number = models.CharField(max_length=30,blank=True, null=True,verbose_name=_("Invoice number")) #numero de factura
+    date_issued = models.DateField(db_index=True,blank=True, null=True,verbose_name=_("Date issued")) 
+    due_date = models.DateField(blank=True, null=True,verbose_name=_("Due date")) #fecha de vencimiento
+    provider = models.ForeignKey(Provider, on_delete=models.PROTECT,blank=True, null=True,verbose_name=_("Provider")) 
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="invoices", null=True)
     
     account = models.ForeignKey(
@@ -113,6 +128,13 @@ class Invoice(models.Model):
         help_text="Invoice requires manual review by user (always True initially, set to False after user review)"
     )
 
+    confirmation_status = models.CharField(
+        max_length=20,
+        choices=ConfirmationStatus.choices,
+        default=ConfirmationStatus.PENDING,
+        help_text="Review status of this invoice"
+    )
+
     image_hash = models.CharField(
         max_length=64, 
         db_index=True, 
@@ -138,6 +160,18 @@ class Invoice(models.Model):
         help_text="Error if OCR failed"
     )
 
+    ocr_raw_response = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="Raw JSON response from Gemini for initial OCR"
+    )
+    
+    gemini_account_response = models.JSONField(
+        blank=True,
+        null=True,
+        help_text="Raw JSON response from Gemini for account classification"
+    )
+
     is_total_balanced = models.BooleanField(
         default=True,
         db_index=True,
@@ -147,8 +181,8 @@ class Invoice(models.Model):
     class Meta: 
         unique_together = ['provider','invoice_number']
         ordering = ['-date_issued']
-        verbose_name = "Invoice"
-        verbose_name_plural = "Invoices"
+        verbose_name = _("Invoice")
+        verbose_name_plural = _("Invoices")
 
     def __str__(self):
         return f"{self.invoice_number} - {self.provider}"
@@ -168,20 +202,23 @@ class Invoice(models.Model):
         taxes = list(self.get_taxes().order_by('order', 'id'))
         
         for tax in taxes:
-            if not tax.calculated_amount:
-                continue
+            # Use the tax's own stored base_amount and calculated_amount
+            # (set during OCR scraping). Only recalculate if calculated_amount is missing.
+            if tax.calculated_amount is None:
+                tax_base = Decimal(str(tax.base_amount.amount)) if tax.base_amount else base_amount
+                res = tax.calculate(tax_base)
+                tax.calculated_amount = res['tax_amount']
+                if tax.base_amount is None:
+                    tax.base_amount = tax_base
+                tax.save(update_fields=['base_amount', 'calculated_amount'])
             
-            # Use the magnitude of the calculated amount
-            amt = abs(tax.calculated_amount.amount)
-            
+            # Use the signed calculated amount (preserves sign for negative/credit invoices)
+            tax_val = Decimal(str(tax.calculated_amount.amount))
+
             if tax.tax_type.behavior == "add":
-                current_total += amt
+                current_total += tax_val
             else:
-                current_total -= amt
-            
-            # Update the base_amount for this tax (for information) to the original base
-            tax.base_amount = base_amount
-            tax.save(update_fields=['base_amount'])
+                current_total -= tax_val
             
         self.total_amount = current_total
         
@@ -207,11 +244,11 @@ class Invoice(models.Model):
         sum_taxes = Decimal("0.00")
         for tax in self.get_taxes():
             if tax.calculated_amount:
-                amt = abs(tax.calculated_amount.amount)
+                tax_val = Decimal(str(tax.calculated_amount.amount))
                 if tax.tax_type.behavior == "add":
-                    sum_taxes += amt
+                    sum_taxes += tax_val
                 else:
-                    sum_taxes -= amt
+                    sum_taxes -= tax_val
         
         calc_total = sum_lines + sum_taxes
         
@@ -339,6 +376,25 @@ class TaxType(models.Model):
     def get_percentage_choices(self):
         return [(Decimal(str(rate)), f"{rate}%") for rate in (self.percentage_options or [])]
 
+    @staticmethod
+    def normalize_tax_name(name: str) -> str:
+        """
+        Normalizes tax names:
+        - Strip accents
+        - Uppercase
+        - Remove non-alphanumeric characters (dots, spaces, etc.)
+        - Strip leading/trailing spaces
+        """
+        if not name:
+            return ""
+        
+        normalized = unicodedata.normalize('NFKD', name)
+        ascii_name = normalized.encode('ascii', 'ignore').decode('ascii')
+        
+        clean_name = re.sub(r'[^A-Z0-9]', '', ascii_name.upper())
+        
+        return clean_name.strip()
+
 
 class AppliedTax(models.Model):
     """
@@ -384,6 +440,16 @@ class AppliedTax(models.Model):
     object_id = models.PositiveIntegerField()
     content_object = GenericForeignKey("content_type", "object_id")
     order = models.PositiveIntegerField(default=0,db_index=True)
+
+    def save(self, *args, **kwargs):
+        # Check if parent is a finalized SalesInvoice
+        if self.content_type.model == 'salesinvoice' and self.pk:
+            from invoices.models import SalesInvoiceStatus
+            invoice = self.content_object
+            if invoice and invoice.status == SalesInvoiceStatus.FINAL:
+                from django.core.exceptions import ValidationError
+                raise ValidationError(_("Cannot edit taxes in a finalized invoice."))
+        super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = "Applied Tax"
@@ -466,13 +532,13 @@ class AppliedTax(models.Model):
             )
         
         # Use the existing calculate method
-        result = self.calculate(self.base_amount)
+        result = self.calculate(self.base_amount.amount)
         
         # Store the calculated tax amount
         self.calculated_amount = result['tax_amount']
         
         # Save to database
-        self.save(update_fields=['calculated_amount'])
+        self.save(update_fields=['calculated_amount', 'base_amount'])
         
         return result
 def incoming_invoice_upload_path(instance, filename):
@@ -488,6 +554,7 @@ class IncomingInvoice(CompanyOwnedModel):
     source_email_id = models.CharField(max_length=255, verbose_name=_("Source Email ID"))
     sender_email = models.EmailField(null=True, blank=True, verbose_name=_("Sender Email"))
     processed = models.BooleanField(default=False, verbose_name=_("Processed by AI"))
+    is_duplicate = models.BooleanField(default=False, verbose_name=_("Is Duplicate"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
 
     class Meta:
@@ -576,7 +643,16 @@ class SalesInvoice(CompanyOwnedModel):
         """
         Recalculates the total and tax amounts by applying taxes sequentially
         on top of the subtotal (which is summed from line items).
+        
+        If the status is FINAL, no recalculation is performed to preserve history.
         """
+        if self.status == SalesInvoiceStatus.FINAL:
+            return {
+                'subtotal': self.subtotal_amount,
+                'tax': self.tax_amount,
+                'total': self.total_amount
+            }
+
         # 1. Update subtotal from items if they exist
         items_sum = self.items.aggregate(total=Sum('line_total'))['total']
         if items_sum is not None:
@@ -591,8 +667,13 @@ class SalesInvoice(CompanyOwnedModel):
         
         total_tax = Decimal("0.00")
         for tax in taxes:
-            if not tax.calculated_amount:
-                continue
+            # Always update the base_amount for this tax
+            tax.base_amount = self.subtotal_amount
+            
+            # Recalculate the amount
+            res = tax.calculate(self.subtotal_amount.amount)
+            tax.calculated_amount = res['tax_amount']
+            tax.save(update_fields=['base_amount', 'calculated_amount'])
                 
             amt = abs(tax.calculated_amount.amount)
             
@@ -602,9 +683,6 @@ class SalesInvoice(CompanyOwnedModel):
             else:
                 total_tax -= amt
                 current_total -= amt
-            
-            tax.base_amount = self.subtotal_amount
-            tax.save(update_fields=['base_amount'])
             
         self.tax_amount = total_tax
         self.total_amount = current_total
@@ -631,8 +709,8 @@ class SalesInvoiceItem(models.Model):
         related_name='items',
         verbose_name=_("Invoice")
     )
-    description = models.CharField(max_length=255, verbose_name=_("Description"))
-    quantity = models.DecimalField(max_digits=10, decimal_places=3, default=1, verbose_name=_("Quantity"))
+    description = models.CharField(max_length=500, verbose_name=_("Description"))
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1, verbose_name=_("Quantity"))
     discount_percentage = models.DecimalField(
         max_digits=5,
         decimal_places=2,
@@ -661,6 +739,10 @@ class SalesInvoiceItem(models.Model):
     )
 
     def save(self, *args, **kwargs):
+        if self.invoice.status == SalesInvoiceStatus.FINAL and self.pk:
+            from django.core.exceptions import ValidationError
+            raise ValidationError(_("Cannot edit items in a finalized invoice."))
+            
         self.discount_amount = (self.unit_price * self.quantity) * (self.discount_percentage / Decimal("100"))
         self.line_total = (self.unit_price * self.quantity) - self.discount_amount
         super().save(*args, **kwargs)

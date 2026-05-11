@@ -8,7 +8,9 @@ from django.utils.translation import gettext_lazy as _
 from core.admin.company_admin import CompanyRestrictedAdmin
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
-from django import forms
+from unfold.contrib.filters.admin import (
+    AutocompleteSelectMultipleFilter
+)
 
 class ComponentPriceRuleInline(TabularInline):
     model = ComponentPriceRule
@@ -110,7 +112,11 @@ class MaterialAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_filter = ["category",  "unit_type"]
     search_fields = ["reference_code", "name"]
     ordering = ["reference_code"]
-    list_filter = ["provider"]
+    list_filter = [
+        ("provider",AutocompleteSelectMultipleFilter),
+        ("category",AutocompleteSelectMultipleFilter)
+        ]
+    list_filter_submit = True
     autocomplete_fields = ["provider","company"]
     list_select_related = ["company"]
 

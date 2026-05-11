@@ -44,6 +44,8 @@ dependencies = [
     "django-celery-beat (>=2.9.0,<3.0.0)",
     "poetry-plugin-export (>=1.10.0,<2.0.0)",
     "openpyxl (>=3.1.5,<4.0.0)",
+    "django-filter (>=25.2,<26.0)",
+    "pulp (>=3.3.1,<4.0.0)",
 ]
 
 

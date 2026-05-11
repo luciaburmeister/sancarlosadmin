@@ -1,3 +1,4 @@
+from assets import urls
 from unfold.admin import StackedInline
 from django.contrib import admin
 from unfold.decorators import action, display
@@ -5,11 +6,13 @@ from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
 from datetime import timedelta
-from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
-from unfold.admin import ModelAdmin, TabularInline, GenericTabularInline
+from unfold.admin import ModelAdmin, GenericTabularInline
 from django.utils.html import format_html
+from django.db import models
+from django_json_widget.widgets import JSONEditorWidget
 from invoices.models import (
     Invoice,
+    ConfirmationStatus,
     TaxType,
     AppliedTax,
     IncomingInvoice,
@@ -22,6 +25,8 @@ from django.utils import timezone
 from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
 from invoices.views.invoice.wizard_views import SalesInvoiceWizardView
 from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
+from invoices.views.invoice.review_invoice import InvoiceReviewAdminView
+from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from accounting.tasks import classify_invoice_accounts, generate_journal_entries_task, export_a3_purchase_invoicing_task
@@ -31,7 +36,16 @@ from unfold.contrib.filters.admin import (
     ChoicesDropdownFilter,
     AutocompleteSelectMultipleFilter
 )
+from unfold.widgets import UnfoldAdminTextareaWidget
 from .filters import HasItemsFilter, ItemsMissingAccountFilter, BalanceStatusFilter
+from import_export.admin import ImportExportModelAdmin, ExportActionModelAdmin
+from unfold.contrib.import_export.forms import ExportForm, ImportForm, SelectableFieldsExportForm
+from .resources import (
+    InvoiceResource, 
+    InvoiceItemResource, 
+    SalesInvoiceResource, 
+    SalesInvoiceItemResource
+)
 @admin.register(TaxType)
 class TaxTypeAdmin(ModelAdmin):
     list_display = (
@@ -88,8 +102,8 @@ class TaxTypeAdmin(ModelAdmin):
 
 @admin.register(IncomingInvoice)
 class IncomingInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
-    list_display = ("file_hash", "company", "sender_email", "created_at", "processed")
-    list_filter = ("company", "processed", "created_at")
+    list_display = ("file_hash", "company", "sender_email", "created_at", "processed", "is_duplicate")
+    list_filter = ("company", "processed", "is_duplicate", "created_at")
     search_fields = ("file_hash", "source_email_id", "sender_email")
     readonly_fields = ("file_hash", "source_email_id", "created_at", "sender_email")
     autocomplete_fields = ("company", "email_config")
@@ -122,6 +136,21 @@ class AppliedTaxInline(GenericTabularInline):
     verbose_name = "Applied tax"
     verbose_name_plural = "Applied taxes"
 
+    def has_add_permission(self, request, obj):
+        if isinstance(obj, SalesInvoice) and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if isinstance(obj, SalesInvoice) and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if isinstance(obj, SalesInvoice) and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_delete_permission(request, obj)
+
 class InvoiceItemInline(StackedInline):
     model = InvoiceItem
     extra = 0
@@ -143,20 +172,27 @@ class InvoiceItemInline(StackedInline):
     )
 
 @admin.register(Invoice)
-class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
+class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
+    resource_classes = [InvoiceResource, InvoiceItemResource]
+    import_form_class = ImportForm
+    export_form_class = SelectableFieldsExportForm
+
     list_display = (
         "invoice_number",
         "provider",
+        "total_amount",
         "date_issued",
         "due_date",
         "ocr_status",
         "balance_status",
+        "confirmation_badge",
     )
 
     list_filter = (
         ItemsMissingAccountFilter,
         BalanceStatusFilter,
         ("payment_method",ChoicesDropdownFilter),
+        ("confirmation_status", ChoicesDropdownFilter),
         ("company",AutocompleteSelectMultipleFilter),
         ("provider",AutocompleteSelectMultipleFilter),
         ("date_issued",RangeDateFilter),
@@ -173,9 +209,22 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         "project_file",
     )
 
+    formfield_overrides = {
+        models.JSONField: {
+            "widget": JSONEditorWidget,
+        },
+    }
+
     readonly_fields = (
         "gross_amount",
         "total_amount",
+        "gemini_account_response",
+        "ocr_raw_response",
+    )
+
+    list_select_related = (
+        "provider",
+        "company",
     )
 
     date_hierarchy = "date_issued"
@@ -188,12 +237,15 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     ]
 
     actions = ["send_to_process", "classify_accounts", "journalize_selected", "export_a3_purchase_invoices"]
-    actions_row = ["view_journal_entry_row_action"]
+    actions_row = ["review_invoice_row_action", "view_journal_entry_row_action"]
     actions_detail = ["view_journal_entry_detail_action"]
+    @action(description=_("Review"), icon="rate_review")
+    def review_invoice_row_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_invoice_review", args=[object_id]))
 
     fieldsets = (
         (
-            "Invoice Info",
+            _("Invoice Info"),
             {
                 "fields": (
                     ("invoice_number", "provider"),
@@ -205,7 +257,7 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             },
         ),
         (
-            "Dates",
+            _("Dates"),
             {
                 "fields": (
                     ("date_issued", "due_date"),
@@ -213,7 +265,7 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             },
         ),
         (
-            "Payment",
+            _("Payment"),
             {
                 "fields": (
                     "payment_method",
@@ -221,11 +273,20 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             },
         ),
         (
-            "Notes",
+            _("Notes"),
             {
                 "fields": (
                     "account",
                     "observations",
+                )
+            },
+        ),
+        (
+            _("AI Classification"),
+            {
+                "fields": (
+                    "gemini_account_response",
+                    "ocr_raw_response",
                 )
             },
         ),
@@ -244,7 +305,14 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
                     InvoiceUploadAdminView.as_view(model_admin=self)
                 ),
                 name="invoices_invoice_upload",
-            ),           
+            ), 
+            path(
+            "<int:object_id>/review/",
+            self.admin_site.admin_view(
+                InvoiceReviewAdminView.as_view(model_admin=self)
+            ),
+            name="invoices_invoice_review",
+            ),
         ]
         return custom + urls
 
@@ -255,27 +323,25 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
     def has_file(self, obj):
         return bool(obj.file)
 
-    @admin.display(description="OCR Status")
+    @display(
+        description=_("OCR Status"),
+        label={
+            "Processing":  "warning",
+            "OK":          "success",
+            "Error":       "danger",
+            "Not started": "default",
+        },
+    )
     def ocr_status(self, obj):
         if getattr(obj, "ocr_processing", False):
-            label = "Processing"
-            color = "#facc15" 
+            return "Processing"
         elif getattr(obj, "ocr_processed", False) and not getattr(obj, "ocr_error", ""):
-            label = "OK"
-            color = "#22c55e"  
+            return "OK"
         elif getattr(obj, "ocr_error", ""):
-            label = "Error"
-            color = "#ef4444"  
+            return "Error"
         else:
-            label = "Not started"
-            color = "#9ca3af"  
-
-        return format_html(
-            '<span style="display:inline-block; padding:2px 8px; border-radius:999px; '
-            'font-size:11px; font-weight:600; color:white; background:{};">{}</span>',
-            color,
-            label,
-        )
+            return "Not started"
+        
     @display(description=_("Balance"),
     label={
             _("Balanced"): "success",  # green
@@ -286,6 +352,22 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             return _("Balanced")
         else:
             return _("Unbalanced")
+        
+    @display(
+        description=_("Confirmation"),
+        label={
+            "APPROVED":       "success",
+            "PENDING REVIEW": "warning",
+            "DECLINED":       "danger",
+        },
+    )
+    def confirmation_badge(self, obj):
+        labels = {
+            ConfirmationStatus.APPROVED: "APPROVED",
+            ConfirmationStatus.PENDING:  "PENDING REVIEW",
+            ConfirmationStatus.DECLINED: "DECLINED",
+        }
+        return labels.get(obj.confirmation_status, "PENDING REVIEW")
 
     @action(description=_("Journal Entry"), icon="leaderboard")
     def view_journal_entry_row_action(self, request, object_id):
@@ -333,15 +415,49 @@ class InvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             )
         self.message_user(request, f"Started A3 export for {len(company_ids)} companies. You will receive an email shortly.")
         
-class SalesInvoiceItemInline(TabularInline):
+class SalesInvoiceItemInline(StackedInline):
     model = SalesInvoiceItem
     extra = 0
     tab = True
-    fields = ("description", "quantity", "unit_price", "discount_percentage", "discount_amount", "line_total")
     readonly_fields = ("discount_amount", "line_total")
+    formfield_overrides = {
+        models.CharField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 2})},
+    }
+    fieldsets = (
+        (
+            _("Line Item"),
+            {
+                "fields": (
+                    ("quantity",
+                    "unit_price"),
+                    ("discount_percentage", "discount_amount"), 
+                    "description",
+                    "line_total"
+                )
+            },
+        ),
+    )
+
+    def has_add_permission(self, request, obj):
+        if obj and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_delete_permission(request, obj)
 
 @admin.register(SalesInvoice)
-class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
+class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
+    resource_classes = [SalesInvoiceResource, SalesInvoiceItemResource]
+    export_form_class = SelectableFieldsExportForm
+
     custom_urls = (
         (
             "autocomplete/taxtype/",
@@ -350,12 +466,32 @@ class SalesInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
         ),
     )
     list_display = ("invoice_number", "incremental_id", "get_status_label", "company", "client", "date_issued", "total_amount")
-    list_filter = ("company", "status", "date_issued")
+    list_filter = (
+        ("status",ChoicesDropdownFilter),
+        ("company",AutocompleteSelectMultipleFilter),
+        ("client",AutocompleteSelectMultipleFilter),
+        ("date_issued",RangeDateFilter),)
     search_fields = ("invoice_number", "client__name")
     autocomplete_fields = ("company", "client", "configuration", "project_file")
     inlines = [SalesInvoiceItemInline, AppliedTaxInline]
+    list_filter_submit = True
     
     readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount","status","invoice_number")
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = super().get_readonly_fields(request, obj)
+        if obj and obj.status == SalesInvoiceStatus.FINAL:
+            return list(set(
+                [f.name for f in self.model._meta.fields] +
+                [f.name for f in self.model._meta.many_to_many] +
+                list(readonly_fields)
+            ))
+        return readonly_fields
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status == SalesInvoiceStatus.FINAL:
+            return False
+        return super().has_delete_permission(request, obj)
 
     fieldsets = (
         (

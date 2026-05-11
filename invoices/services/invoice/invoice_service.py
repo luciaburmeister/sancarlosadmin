@@ -33,11 +33,12 @@ from company.models import Company
 class InvoiceProcessingResult:
     """Container for processing results and metadata"""
     
-    def __init__(self, invoice: Invoice, success: bool, messages: list, needs_review: bool = False):
+    def __init__(self, invoice: Invoice, success: bool, messages: list, needs_review: bool = False, is_duplicate: bool = False):
         self.invoice = invoice
         self.success = success
         self.messages = messages  # List of processing messages/warnings
         self.needs_review = needs_review  # Provider matching failed or other issues
+        self.is_duplicate = is_duplicate
         
     def __str__(self):
         status = "SUCCESS" if self.success else "FAILED" 
@@ -106,6 +107,19 @@ class InvoiceService:
                     company,
                     sender_email
                 )
+
+                # Check for existing invoice by number/provider (metadata duplicate)
+                invoice_number = extracted_data.invoice_number or 'UNKNOWN'
+                if provider and invoice_number != 'UNKNOWN':
+                    existing = Invoice.objects.filter(provider=provider, invoice_number=invoice_number).first()
+                    if existing:
+                        return InvoiceProcessingResult(
+                            invoice=existing,
+                            success=True,
+                            messages=messages + ["Duplicate detected: invoice with same number already exists for this provider."],
+                            needs_review=True,
+                            is_duplicate=True
+                        )
                 
                 # Create invoice with hash
                 invoice = self._create_invoice(extracted_data, provider, file_path, duplicate_result.hash_value, company)
@@ -136,12 +150,13 @@ class InvoiceService:
             )
         
         except DuplicateInvoiceError as e: 
-            messages.append(f"Duplicate detected: {str(e)}")
+            messages.append(f"Duplicate detected (file hash): {str(e)}")
             return InvoiceProcessingResult(
                 invoice=e.similar_invoice,  # Return the existing invoice
-                success=False,
+                success=True,
                 messages=messages,
-                needs_review=True
+                needs_review=True,
+                is_duplicate=True
             )
         
         except Exception as e:
@@ -198,7 +213,21 @@ class InvoiceService:
                     company
                 )
 
-                invoice.invoice_number = extracted_data.invoice_number or invoice.invoice_number or "UNKNOWN"
+                invoice_num = extracted_data.invoice_number or invoice.invoice_number or "UNKNOWN"
+                
+                # Check for conflict with ANOTHER invoice (not itself)
+                if provider and invoice_num != 'UNKNOWN':
+                    conflict = Invoice.objects.filter(provider=provider, invoice_number=invoice_num).exclude(pk=invoice.pk).first()
+                    if conflict:
+                        return InvoiceProcessingResult(
+                            invoice=invoice,
+                            success=False,
+                            messages=messages + [f"Conflict detected: another invoice ({conflict.id}) already has number {invoice_num} for this provider."],
+                            needs_review=True,
+                            is_duplicate=True
+                        )
+
+                invoice.invoice_number = invoice_num
                 invoice.date_issued = self._parse_date(extracted_data.date_issued) or invoice.date_issued or timezone.now().date()
                 invoice.due_date = self._parse_date(extracted_data.due_date) or invoice.due_date or timezone.now().date()
                 invoice.provider = provider
@@ -207,6 +236,7 @@ class InvoiceService:
                 invoice.currency = extracted_data.currency or invoice.currency or "EUR"
                 invoice.payment_method = extracted_data.payment_method or invoice.payment_method or "transfer"
                 invoice.company = company
+                invoice.ocr_raw_response = extracted_data.raw_response
                 invoice.needs_manual_review = True
 
                 # Replace items
@@ -260,6 +290,7 @@ class InvoiceService:
             payment_method=extracted_data.payment_method or 'transfer',
             image_hash=image_hash,
             company=company,
+            ocr_raw_response=extracted_data.raw_response,
             ocr_processing=True  # Mark as currently processing
         )
         
@@ -287,20 +318,23 @@ class InvoiceService:
         """
         Create AppliedTax records for the invoice.
         taxes_data is now a list of TaxItem dataclass objects.
+        Consolidates taxes by (tax_type, percentage) to avoid unique constraint violations.
         """
-        for order, tax_item in enumerate(taxes_data):
-            raw_name = tax_item.name or 'VAT'
-            # Normalize: remove non-letters, uppercase
-            tax_name = ''.join(filter(str.isalpha, raw_name)).upper()  
-            if not tax_name:                                           
-                tax_name = 'VAT'                                        
+        consolidated_taxes = {} # key: (tax_type_id, percentage), value: dict with sum
 
-            percentage = tax_item.percentage or 0
-            base_amount = tax_item.base_amount or 0
-            tax_amount = tax_item.tax_amount or 0
+        for order, tax_item in enumerate(taxes_data):
+            raw_name = tax_item.name or 'IVA'
+            # Normalize using the centralized model logic
+            tax_name = TaxType.normalize_tax_name(raw_name)
+            if not tax_name:
+                tax_name = 'IVA'
+
+            # Normalize values
+            percentage = Decimal(str(abs(tax_item.percentage or 0)))
+            base_amount = Decimal(str(tax_item.base_amount or 0))
+            tax_amount = Decimal(str(tax_item.tax_amount or 0))
             
-            # Find or create tax type
-            # Determine behavior: if tax_amount is negative or name suggests retention
+            # Find or create tax type to get a consistent ID for grouping
             behavior = 'subtract' if (tax_amount < 0 or 'IRPF' in tax_name) else 'add'
             is_debit = (behavior == 'add')
             
@@ -311,19 +345,33 @@ class InvoiceService:
                     'behavior': behavior,
                     'is_debit': is_debit,
                     'percentage_options': [0, 4, 10, 21],
-                    'default_percentage': Decimal(str(abs(percentage))),
+                    'default_percentage': percentage,
                     'is_active': True
                 }
             )
             
-            # Create applied tax
+            key = (tax_type.id, percentage)
+            if key not in consolidated_taxes:
+                consolidated_taxes[key] = {
+                    'tax_type': tax_type,
+                    'percentage': percentage,
+                    'base_amount': Decimal('0'),
+                    'tax_amount': Decimal('0'),
+                    'order': order
+                }
+            
+            consolidated_taxes[key]['base_amount'] += base_amount
+            consolidated_taxes[key]['tax_amount'] += tax_amount
+
+        # Create applied tax records from the consolidated results
+        for data in consolidated_taxes.values():
             AppliedTax.objects.create(
-                tax_type=tax_type,
-                selected_percentage=Decimal(str(abs(percentage))),
-                base_amount=Decimal(str(base_amount)),
-                calculated_amount=Decimal(str(tax_amount)),
+                tax_type=data['tax_type'],
+                selected_percentage=data['percentage'],
+                base_amount=data['base_amount'],
+                calculated_amount=data['tax_amount'],
                 content_object=invoice,
-                order=order
+                order=data['order']
             )
     
     def _create_partial_invoice(self, file_path: str, error_message: str) -> Invoice:
@@ -369,9 +417,10 @@ class InvoiceService:
 
     def _find_company(self, tax_id: Optional[str]) -> Optional[Company]:
         """Lookup company by tax ID"""
-        if not tax_id:
+        clean_tax_id = self.ocr_processor.normalize_tax_id(tax_id)
+        if not clean_tax_id:
             return None
-        return Company.objects.filter(tax_identifier__iexact=tax_id.strip()).first()
+        return Company.objects.filter(tax_identifier__iexact=clean_tax_id).first()
 
     def _get_or_create_provider(self, vendor_tax_id: Optional[str], vendor_name: Optional[str], company: Optional[Company], sender_email: Optional[str] = None) -> Optional[Provider]:
         """
@@ -388,7 +437,7 @@ class InvoiceService:
 
         if not vendor_tax_id:
             return None
-
+        
         clean_tax_id = vendor_tax_id.strip()
         
         provider = Provider.objects.filter(

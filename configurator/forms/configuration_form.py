@@ -93,24 +93,39 @@ class ConfigurationForm(forms.Form):
     Dynamically builds fields based on the product's parameters.
     """
 
-    def __init__(self, *args, product=None, **kwargs):
+    def __init__(self, *args, product=None, instance=None, **kwargs):
         self.product = product
+        self.instance = instance
         self.request = kwargs.pop("request", None)
     
         super().__init__(*args, **kwargs)
 
-        if not product:
+        if not product and instance:
+            self.product = instance.product
+            product = self.product
+
+        if not self.product:
             raise ValueError("ConfigurationForm requires a product.")
 
+        if self.instance:
+            existing_values = {
+                f"param_{pv.parameter_id}": pv.value
+                for pv in self.instance.param_values.all()
+            }
+        else:
+            existing_values = {}
+
         # Build fields dynamically
-        for param in product.parameters.all():
+        for param in self.product.parameters.all():
             field_name = f"param_{param.id}"
+            
+            initial_value = existing_values.get(field_name, param.default_value)
 
             if param.type == ParameterType.NUMBER:
                 field = forms.FloatField(
                     label=param.label,
                     required=param.required,
-                    initial=param.default_value,
+                    initial=initial_value,
                     widget=UnfoldAdminDecimalFieldWidget(),
                 )
 
@@ -118,16 +133,23 @@ class ConfigurationForm(forms.Form):
                 field = forms.CharField(
                     label=param.label,
                     required=param.required,
-                    initial=param.default_value,
+                    initial=initial_value,
                     max_length=200,
                     widget=UnfoldAdminTextInputWidget(),
                 )
 
             elif param.type == ParameterType.BOOLEAN:
+                # Convert string 'true'/'false' to boolean if needed
+                val = initial_value
+                if isinstance(val, str):
+                    val = val.lower() == 'true'
+                else:
+                    val = bool(val)
+
                 field = forms.BooleanField(
                     label=param.label,
                     required=False,
-                    initial=param.default_value == 'true' if isinstance(param.default_value, str) else bool(param.default_value),
+                    initial=val,
                 )
 
             elif param.type == ParameterType.SELECT:
@@ -139,7 +161,7 @@ class ConfigurationForm(forms.Form):
                 field = forms.ChoiceField(
                     label=param.label,
                     required=param.required,
-                    initial=param.default_value,
+                    initial=initial_value,
                     choices=choices,
                     widget=UnfoldAdminSelectWidget(),
                 )
@@ -151,19 +173,28 @@ class ConfigurationForm(forms.Form):
 
 
     def save(self, client=None, asset=None):
-        """Create the Configuration + Parameter values."""
+        """Create or update the Configuration + Parameter values."""
         product = self.product
 
-        config = Configuration.objects.create(
-            name=f"{product.name} Configuration",
-            product=product,
-            status=ConfigurationStatus.DRAFT,
-            client=client,
-            asset=asset,
-            company=product.company
-        )
+        if self.instance:
+            config = self.instance
+            if client:
+                config.client = client
+            if asset:
+                config.asset = asset
+            config.save()
+            config.param_values.all().delete()
+        else:
+            config = Configuration.objects.create(
+                name=f"{product.name} Configuration",
+                product=product,
+                status=ConfigurationStatus.DRAFT,
+                client=client,
+                asset=asset,
+                company=product.company
+            )
 
-        for param in product.parameters.all():
+        for param in self.product.parameters.all():
             field_name = f"param_{param.id}"
             value = self.cleaned_data.get(field_name)
 

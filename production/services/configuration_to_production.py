@@ -76,7 +76,7 @@ class ConfigurationToProductionService:
         return cls.create_ticket(configuration)
 
     @classmethod
-    def create_ticket(cls, configuration):
+    def create_ticket(cls, configuration, project_file=None):
         ct = ContentType.objects.get_for_model(configuration)
 
         ticket, created = ProductionTicket.objects.get_or_create(
@@ -84,6 +84,7 @@ class ConfigurationToProductionService:
             object_id=configuration.id,
             defaults={
                 "company": configuration.company,
+                "project_file": project_file,
                 "context": {
                     "configuration_id": configuration.id,
                     "product": configuration.product.name,

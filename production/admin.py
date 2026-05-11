@@ -12,7 +12,8 @@ from django.utils import timezone
 
 from core.admin.company_admin import CompanyRestrictedAdmin
 from unfold.contrib.filters.admin import (
-    AutocompleteSelectMultipleFilter
+    AutocompleteSelectMultipleFilter,
+    MultipleChoicesDropdownFilter
 )
 
 from production.forms.optimization_form import OptimizeScheduleForm
@@ -26,6 +27,7 @@ from production.models import (
     ProductionResource,
     OperationRequirement,
     SchedulingRun,
+    ProductionTicketStatus,
 )
 from production.services.scheduler.apply_schedule import ScheduleProposalApplier
 from production.services.scheduler.factory import build_scheduler_strategy
@@ -122,14 +124,14 @@ class ProductionItemInline(TabularInline):
 class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     change_form_template = "admin/production/productionticket/change_form.html"
 
-    list_display = ("id", "company", "source_object", "status", "created_at", "go_to_stages_display")
+    list_display = ("id", "company", "source_object", "show_status_customized_color", "last_stage_label", "created_at", "go_to_stages_display")
 
     list_filter = (
         ("company",AutocompleteSelectMultipleFilter),
+        ("status",MultipleChoicesDropdownFilter),
         TicketStageFilter,
         TicketStageStatusFilter,
-        "status",
-        "content_type",
+        "last_stage_label",
     )
 
     search_fields = ("object_id",)
@@ -138,6 +140,7 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     inlines = [ProductionItemInline]
     autocomplete_fields = ("company",)
+    list_filter_submit = True
 
     readonly_fields = (
         "content_type",
@@ -154,6 +157,7 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 "fields": (
                     "company",
                     "status",
+                    "last_stage_label",
                     ("content_type", "object_id"),
                     "source_object",
                     "project_file",
@@ -163,6 +167,20 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
             },
         ),
     )
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            _(ProductionTicketStatus.DONE.label): "success",  # green
+            _(ProductionTicketStatus.PENDING.label): "info",  # blue
+            _(ProductionTicketStatus.IN_PROGRESS.label): "warning",  # orange
+            _(ProductionTicketStatus.CANCELLED.label): "danger",  # red
+            
+        },
+    )
+    def show_status_customized_color(self, obj):
+        return _(obj.get_status_display())
 
     @display(description=_("Stages"))
     def go_to_stages_display(self, obj):

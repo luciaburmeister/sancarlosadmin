@@ -12,7 +12,8 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 from dotenv import load_dotenv
-from django.urls import reverse_lazy
+from django.urls import reverse_lazy, reverse
+from django.utils.functional import lazy
 import os
 from django.utils.translation import gettext_lazy as _
 from django.templatetags.static import static
@@ -97,7 +98,10 @@ INSTALLED_APPS = [
     'hijack.contrib.admin',
     'company',
     'management',
-    'vacations'
+    'vacations',
+    'django_filters',
+    'purchasing',
+    "payments"
 ]
 
 MIDDLEWARE = [
@@ -284,6 +288,13 @@ CRISPY_TEMPLATE_PACK = "unfold_crispy"
 CRISPY_ALLOWED_TEMPLATE_PACKS = ["unfold_crispy"]
 
 LANGUAGE_CODE = "es"
+
+LOCATION_FIELD = {
+    'map.provider': 'openstreetmap',
+    'search.provider': 'nominatim',
+    'provider.nominatim.country_codes': 'es',
+    'provider.openstreetmap.tiles': 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+}
 
 USE_I18N = True
 
@@ -509,9 +520,7 @@ UNFOLD = {
                     {
                         "title": _("Production Tickets"),
                         "icon": "brick",
-                        "link": reverse_lazy(
-                            "admin:production_productionticket_changelist"
-                        ),
+                        "link": lazy(lambda: f"{reverse('admin:production_productionticket_changelist')}?status__exact=pending&status__exact=in_progress", str)(),
                         "permission": lambda request: request.user.has_perm(
                             "production.view_productionticket"
                         ),
@@ -535,6 +544,25 @@ UNFOLD = {
                         "permission": lambda request: request.user.has_perm(
                             "production.view_plannedproductionsession"
                         ),
+                    },
+                ],
+            },
+            {
+                "title": _("Purchasing"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Purchase Orders"),
+                        "icon": "shopping_cart",
+                        "link": reverse_lazy("admin:purchasing_purchaseorder_changelist"),
+                        "permission": lambda request: request.user.has_perm("purchasing.view_purchaseorder"),
+                    },
+                    {
+                        "title": _("PO Receipts"),
+                        "icon": "receipt",
+                        "link": reverse_lazy("admin:purchasing_purchaseorderreceipt_changelist"),
+                        "permission": lambda request: request.user.has_perm("purchasing.view_purchaseorderreceipt"),
                     },
                 ],
             },
@@ -575,10 +603,13 @@ GEOS_LIBRARY_PATH = os.getenv("GEOS_LIBRARY_PATH", "")
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',  
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
+    ),
+    'DEFAULT_FILTER_BACKENDS': (
+        'django_filters.rest_framework.DjangoFilterBackend',
     ),
 }
 

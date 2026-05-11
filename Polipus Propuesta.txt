@@ -1,0 +1,623 @@
+﻿]\
+
+
+
+
+
+
+
+
+
+
+
+
+ERP
+  
+
+by 
+
+
+
+
+
+
+Plataforma Integral Inteligente para Gestión Empresarial
+26 de Noviembre de 2025
+
+
+
+
+
+
+
+
+
+
+Indice
+1. Resumen Ejecutivo
+2. Contexto y Necesidad del Sistema
+3. Arquitectura General
+4. Módulos Principales
+Módulo Contable
+Módulo Recursos Humanos (RRHH)
+Módulo Fiscal
+Módulo Mercantil
+Módulo Operaciones
+Módulo Marketing
+5. Funcionamiento del Sistema e IA
+6. Experiencia del Usuario
+7. RoadMap de CoreSuite
+8. Flow del sistema
+
+
+1. Resumen Ejecutivo
+CoreSuite es una plataforma integral e inteligente desarrollada para transformar la gestión empresarial. Su propósito es reemplazar la actual fragmentación tecnológica, marcada por el uso desconectado de herramientas como A3 Asesor, Holded o Sage, por un único ecosistema donde toda la información se gestiona de forma coherente, centralizada y automatizada.
+
+
+La clave diferencial de CoreSuite reside en su metodología de "Input Documental" (Zero-Typing). A diferencia de los sistemas tradicionales que dependen de la entrada manual de datos, CoreSuite elimina el tecleo: el sistema se alimenta directamente de documentos (PDFs de facturas, contratos, extractos). Un motor de Inteligencia Artificial transversal lee, clasifica y procesa esta información automáticamente, erradicando el error humano y asegurando que nadie en el equipo dedique tiempo a picar datos.
+
+
+La plataforma se estructura en seis módulos principales (Recursos Humanos, Fiscal, Contable, Mercantil, Marketing y Operaciones) que operan sobre una base de datos unificada. Gracias a esta arquitectura, cualquier documento procesado por la IA se refleja y contabiliza instantáneamente en todos los módulos, garantizando una consistencia total sin duplicidades.
+
+
+CoreSuite no solo mejora la experiencia del usuario, es una herramienta estratégica de rentabilidad. La automatización profunda permite escalar la gestión de clientes sin necesidad de aumentar la estructura de costes, liberando al equipo de tareas manuales para enfocarse en aportar valor real.
+
+
+2. Contexto y Necesidad del Sistema
+Actualmente, las consultoras y empresas se enfrentan a un dilema crítico en sus herramientas de gestión: 
+
+
+1. La rigidez del "Enterprise": Existen ERPs integrales de gran calibre como SAP, Oracle o Microsoft Dynamics. Sin embargo, su implementación requiere inversiones millonarias y poseen una rigidez estructural que no se adapta a la agilidad y velocidad de cambio.
+
+
+2. La fragmentación del "SaaS": Por otro lado, herramientas accesibles como A3 Asesor, Holded o Sage resuelven problemas específicos (contabilidad o facturación), pero operan en silos. No se comunican nativamente entre sí, obligando al equipo a duplicar información, "picar" datos manualmente y revisar errores de sincronización.
+
+
+La Solución: CoreSuite
+CoreSuite nace para ocupar ese vacío estratégico. Buscamos la potencia integral de un gran ERP corporativo, pero con la agilidad, usabilidad y coste de las herramientas modernas. 
+
+
+Su arquitectura modular y la integración nativa de inteligencia artificial permitirán automatizar tareas repetitivas, interpretar documentos, aplicar convenios y normativa de forma dinámica, generar cálculos precisos y conectar automáticamente cada proceso con el resto del sistema, eliminando duplicidades y aumentando la coherencia operativa.
+
+
+3. Arquitectura General
+CoreSuite AI se construye sobre una arquitectura cloud unificada, diseñada para centralizar en un solo entorno todos los procesos de una empresa. Su núcleo combina una base de datos centralizada, un motor de inteligencia artificial transversal y un sistema multicliente y multinivel, lo que permite gestionar múltiples empresas desde un panel único con roles y permisos diferenciados.
+El sistema es Multicliente y Multinivel, lo que permite gestionar una cartera de múltiples empresas desde un único panel maestro, con segregación estricta de datos y roles diferenciados (Administrador, Consultor, Cliente Final).
+Componentes del Núcleo
+La arquitectura se sostiene sobre tres pilares fundamentales:
+1. Ingesta de datos (input): El input se realiza mediante la carga directa de evidencia documental (PDFs, fotos, excels). El usuario arrastra una factura o contrato, y CoreSuite se encarga de todo el resto: lectura, extracción, clasificación y contabilización. la convierte en datos estructurados para activar automatizaciones inmediatas. Sin necesidad de carga manual.
+2. Motor de Inteligencia Artificial Transversal: La IA será capaz de 
+   1. Interpretar (entender el contexto).
+   2. Actualizar normativa e información oficial (vía scraping ético y APIs).
+   3. Identificar riesgos, anticipa necesidades de cashflow y ajusta cálculos contables/fiscales automáticamente.
+3. Base de Datos Unificada
+
+
+Integraciones Externas
+CoreSuite contempla conexiones mediante API con sistemas externos esenciales para la automatización total.
+* Bancaria (conciliación automática de movimientos y saldos en tiempo real)
+* Gubernamental
+   * Seguridad Social / SILTRA: Gestión de altas, bajas y cotizaciones
+   * Agencia Tributaria – AEAT: presentación de modelos cuando el organismo lo permita
+   * Registro Mercantil (elaboración CCAA, libros…)
+* Operativa
+   * Marketing (Metricool/Meta/Google): Importación de métricas de rendimiento
+   * Comunicaciones: Integración con correo electrónico y sistemas de notificación push.
+
+
+Interfaz y Experiencia de Usuario
+La plataforma tendrá una interfaz moderna, intuitiva y visualmente clara, basada en dashboards dinámicos y navegación simple. Elementos clave de la UI:
+* Diseño contemporáneo similar a Holded pero más completo
+* Paneles con indicadores automáticos
+* Navegación rápida y lógica
+* Compatible con dispositivos móviles (posiblemente mediante aplicación)
+* Personalizable según rol o empresa
+
+
+4. Módulos Principales
+Cada módulo opera de forma autónoma pero conectado a la base de datos central y al motor de inteligencia artificial, lo que permite que cualquier acción ejecutada en uno de ellos impacte automáticamente en el resto del sistema. Esta interconexión asegura coherencia normativa, reducción de errores, automatización de procesos y una trazabilidad completa de la información.
+
+
+Módulo Contable 
+El módulo contable constituye el núcleo operativo que registra, interpreta y analiza todas las operaciones económicas de las empresas gestionadas. Está diseñado para ofrecer una contabilidad inteligente, automatizada y completamente interconectada con los otros módulos. La IA clasifica facturas (PDF, fotos), extrae importes, identifica proveedores y categorías, aplica IVA, genera asientos contables automáticos y ejecuta conciliación bancaria mediante conexión directa con entidades financieras.
+
+
+La conciliación bancaria se realizará mediante conexión directa con los bancos, clasificando movimientos, relacionándolos con facturas o asientos y detectando discrepancias. El sistema generará balance, pérdidas y ganancias, amortizaciones, libros oficiales y otros informes contables de forma automática. También permite la automatización de la elaboración de presupuestos (imágenes, productos, servicios…) y  proformas cerrando el ciclo de ventas. Toda operación contable se transmite automáticamente a los demás módulos, asegurando coherencia normativa y actualización inmediata.
+
+
+En resumen este módulo es el que sigue el registro de toda la actividad de una empresa , todo lo que compra, vende, paga y cobra. El objetivo es automatizar este registro para  saber:
+* Que debe y que le deben a la empresa
+* El saldo del banco
+* Las pérdidas o ganancias
+* Impuestos a presentar
+
+
+Para el flujo de el modulo contable mirar ANEXO 1
+	
+
+Módulo Recursos Humanos (RRHH)
+Gestiona toda la relación laboral entre empresa y empleado, abarcando contratación, gestión documental, variaciones laborales, bajas, vacaciones, control horario y cálculo de nóminas. El módulo aplica de forma automática convenios colectivos, actualizaciones normativas y reglas salariales según actividad y territorio. La IA interpreta contratos, identifica irregularidades, actualiza tipos y conceptos retributivos, emite documentos oficiales y monitoriza fechas críticas.
+
+
+Incluye generación de nóminas, finiquitos, comunicaciones con Seguridad Social/SILTRA, actualizaciones automáticas de convenios y registro de todos los movimientos laborales con trazabilidad completa.
+Módulo Fiscal 
+Centraliza la gestión de modelos y obligaciones tributarias tanto de autónomos como de sociedades. Determina automáticamente qué modelos corresponden según actividad, tamaño y régimen fiscal. La IA completa modelos (111, 115, 303, 130, 200, 390, 190, etc.) utilizando datos validados provenientes de contabilidad, RRHH y mercantil, aplicando la normativa vigente en tiempo real. Interpretará normativas, deducciones, retenciones y obligaciones según territorios, detectando inconsistencias o riesgos y alertando al usuario con anticipación. 
+
+
+El módulo detecta incoherencias, anticipa riesgos, calcula previsiones fiscales y sincroniza obligaciones con organismos oficiales.
+
+
+Módulo Mercantil
+Gestiona la documentación societaria y todas las obligaciones legales relacionadas con la estructura y actividad de la empresa. La IA analiza poderes, actas, estatutos, certificaciones y CCAA, autocompletando información societaria y manteniéndola actualizada en toda la plataforma.
+
+
+Permite generar libros y actas, preparar cuentas anuales y conectarse con Registro Mercantil y sistemas como D2 para la presentación oficial. El módulo mantiene trazabilidad completa de versiones, firmas autorizadas, cambios administrativos y documentación legal vinculada a cada empresa.
+
+
+Módulo Operaciones
+Controla procesos productivos, inventarios, existencias, costos operativos y flujos internos de trabajo. Gestiona pedidos, producción, consumo de materiales, control de stock, niveles de abastecimiento y planificación operativa.
+
+
+La IA optimiza procesos identificando cuellos de botella, proponiendo ajustes, anticipando roturas de stock y generando recomendaciones basadas en patrones históricos.
+
+
+Módulo Marketing
+Integra analítica digital, planificación de contenidos y optimización inteligente basada en métricas oficiales y datos públicos disponibles en la web. Funciona como un equivalente avanzado a la plataforma Metricool, permitiendo programar publicaciones, analizar engagement, rendimiento y crecimiento en las principales redes sociales, y proponer estrategias automáticas basadas en IA.
+
+
+El sistema sugiere horarios óptimos, formatos, mejoras de copywriting y planificación mensual, y genera reportes dinámicos que relacionan actividad digital con indicadores operativos y financieros del resto de módulos.
+
+
+5. Funcionamiento del Sistema e IA
+Su funcionamiento se basa en la interacción continua de cuatro elementos: los datos ingresados, la base de datos centralizada, el motor de IA y las automatizaciones que se ejecutan en tiempo real. Cada dato, documento o acción impacta automáticamente en el resto del sistema. (Las especificaciones finales del sistema serán hechas en conjunto con nuestro equipo de IT)
+
+
+Ingreso y captura de información
+El sistema recibe documentos, transacciones, formularios, métricas digitales, archivos mercantiles, datos operativos y cualquier información introducida por el usuario. La IA identifica automáticamente el tipo de documento o dato (factura, contrato, nómina, modelo fiscal, acta, etc.) y extrae la información relevante para procesarla.
+
+
+Toda la información se almacena en una base de datos compartida por todos los módulos. La estructura centralizada es lo que permite que todas las áreas estén plenamente conectadas: un cambio en un módulo se refleja instantáneamente en los demás.
+
+
+Motor de Inteligencia Artificial
+El motor de IA procesa la información aplicando normativa vigente, reglas contables, convenios colectivos, criterios mercantiles y datos operativos. También se alimenta de información pública disponible en la web, reportes oficiales, actualizaciones legislativas y bases de datos externas.
+Gracias a ello, la IA puede:
+* Autocompletar cualquier dato o proceso administrativo.
+* Aplicar automáticamente la normativa.
+* Detectar inconsistencias, duplicados y riesgos.
+* Ajustar cálculos en tiempo real cuando cambia la normativa.
+* Analizar patrones operativos y anticipar necesidades.
+* Emitir avisos y alertas de vencimientos, riesgos o cambios importantes.
+* Explicar cada acción mediante el asistente inteligente integrado.
+Las automatizaciones de CoreSuite permiten que la plataforma gestione la mayoría de los procesos empresariales sin intervención manual. Gracias a la integración entre módulos y al motor de inteligencia artificial, el sistema ejecuta acciones clave de manera autónoma, reduciendo significativamente el trabajo operativo.
+
+
+6. Experiencia del Usuario
+CoreSuite está diseñado con una interfaz moderna, clara e intuitiva que facilita el uso del sistema incluso en procesos complejos. La plataforma se organiza en: 
+* Dashboards dinámicos que muestran de forma visual el estado de cada empresa, permitiendo acceder rápidamente a información clave y tareas pendientes.
+* Menús organizados por módulos y flujos guiados que reducen la necesidad de conocimientos técnicos avanzados. 
+* Asistente inteligente también mejora la experiencia guiando, completando información y explicando acciones dentro del sistema.
+
+
+Las especificaciones finales del sistema serán hechas en conjunto con nuestro equipo de IT
+
+
+Seguridad, Legalidad y Cumplimiento
+La plataforma cumple completamente con el Reglamento General de Protección de Datos (RGPD) y aplica prácticas avanzadas de gestión de la información para asegurar la privacidad y trazabilidad de todos los procesos.
+
+
+La arquitectura cloud incorpora cifrado en tránsito y en reposo, copias de seguridad automáticas y sistemas de protección ante accesos no autorizados. Además, CoreSuite asegura que toda documentación y datos operativos se almacenen de forma segura, organizada y accesible únicamente para usuarios autorizados.
+
+
+7. RoadMap de CoreSuite
+Fase 1 — Investigación, análisis y diseño de soluciones
+
+
+Objetivo: establecer los cimientos técnicos del proyecto.
+* Benchmarking: A3, Holded, Sage, Metricool, ERPs avanzados
+* Análisis de integraciones (bancos, AEAT, SS, Registro Mercantil)
+* Identificanción de módulos críticos
+* Estandarización de los flujos Input → DB → IA → Automatizaciones.
+* Diseño técnico del motor de IA (framework, pipeline, conectores externos).
+	  
+
+Fase 2 — Decisión y planificación del producto
+Objetivo: construir el núcleo operativo de la plataforma.
+* Estimación de recursos y tiempos
+* Priorización de módulos (Contable → RRHH → Fiscal + Mercantil → Operaciones + Marketing)?
+* Decisión de tecnologías IA (NLP, clasificación documental, motores normativos…)
+	  
+
+Fase 3 — Implementación: primera experiencia funcional
+
+
+Objetivos principales:
+* Desarrollo de arquitectura base
+* Construcción del repositorio documental inteligente
+* Diseño UI general y primeros dashboards
+* Pruebas internas controladas
+* Validación de Polipus
+* Ajustes rápidos basados en feedback
+	  
+
+Fase 4 — Activación progresiva y ampliación de módulos
+
+
+* RRHH: Alta/baja empleados, contratos, convenios, nóminas + Conexión con SS/SILTRA
+* Fiscal: Modelos principales, reglas fiscales, previsiones
+* Mercantil: Actas, poderes, CCAA, D2
+* Operaciones: Inventarios, producción, procesos
+* Marketing: Métricas, programación inteligente
+
+
+Se valida cada módulo con casos reales antes de pasar al siguiente + comprobar integración.
+	  
+
+Fase 5 — Consolidación: uso diario, soporte y aprendizaje continuo
+
+
+* Integración con bancos y organismos oficiales (versión avanzada)
+* Estabilización del motor de IA
+* Reportes automáticos y paneles empresariales
+* Refinamiento de automatizaciones globales
+	  
+
+Fase 6 — Evolución: creación de valor añadido
+
+
+* IA explicativa (“por qué hizo cada acción”)
+* IA predictiva (cashflow, riesgos, cargas fiscales…)
+* Autocompletado inteligente de cualquier documento
+* Alertas inteligentes 360º
+* Mejoras UI/UX basadas en analítica de uso
+* Expansión de funcionalidades por país/normativa
+* Preparación para comercialización externa?
+	ANEXO 1
+Flujo de el módulo contable:
+
+
+Paso 1: Input 
+
+
+El sistema se alimenta exclusivamente de documentos reales que cumplan la normativa, aplicando una lógica de trazabilidad documental antes de la contabilización:
+
+
+* Fuentes: Facturas emitidas (Ventas), Facturas recibidas (Compras/Gastos), Tickets, Nóminas, Movimientos bancarios (vía API PSD2) e Inventario de Activos y Pasivos (bienes y deudas).
+   * Recibe, organiza y verifica estos documentos como punto de partida obligatorio.
+* Cada documento ingresa al sistema y automáticamente se analiza, clasifica y valida para saber qué tipo de operación representa y qué impacto contable tendrá.
+* Lógica de Trazabilidad (Ciclo Previo): los documentos previos que NO generan asiento contable serán registrados ya que son vitales para el control de gestión:
+   * Presupuesto/Oferta → Pedido → Albarán → Factura Final.
+
+
+Paso 2: La base – compras y ventas
+
+
+La contabilidad nace de procesos operativos. En este caso son dos: compras y ventas.
+
+
+En compras → para vender, producir y generar stock, funcionamiento interno. 
+
+
+El proceso de compra inicia aquí:
+* Compra de productos: Mercaderías, materias primas, componentes o repuestos, equipos y maquinaria, material de oficina, stock /inventario.
+
+
+* Compra de servicios: Servicios profesionales, servicios de marketing o consultoría, servicios tecnológicos, transporte y logística, limpieza, seguridad, mantenimiento general (suministros, seguros – que no tienen IVA), servicios financieros.
+
+
+1. Presupuesto / Oferta 
+Una vez seleccionado, la empresa recibirá un presupuesto/oferta que no será contabilizado, pero sí revisado por la empresa para ser aceptado y seguir.
+* la empresa lo revisa y lo acepta para avanzar.
+
+
+2. Orden de Compra
+Luego, una vez aceptado el presupuesto se generará una orden de compra, un documento interno generado antes de recibir la factura (esencial para el control interno). Este tendrá los siguientes datos: 
+* qué se va a comprar
+* a quién
+* a qué precio
+* en qué cantidades
+* bajo qué condiciones
+* con qué fecha estimada
+
+
+3. Albarán
+El albarán es un documento mercantil que acredita la entrega efectiva de bienes o la realización de un servicio entre un proveedor y un cliente.
+Siempre lo emite quien entrega y lo recibe quien recibe, actuando como prueba de que la operación se ha llevado a cabo realmente.
+
+
+Un albarán (o nota de entrega) es un documento logístico y operativo de control, cuya función principal es confirmar la realidad de la operación antes de su impacto contable y fiscal. En el sistema, el albarán conecta el pedido u orden previa con la factura posterior, garantizando coherencia entre lo acordado, lo entregado y lo facturado.
+
+
+Una vez entregado el producto o finalizado el servicio, la entrega se registra y se genera el albarán, que resulta esencial para el correcto funcionamiento del ERP. Sus objetivos principales son:
+* Confirmar que lo solicitado ha sido efectivamente entregado o ejecutado
+* Registrar la entrada o salida de inventario, cuando se trata de bienes
+* Servir como evidencia previa para la validación y contabilización correcta de la factura
+* Permitir al sistema detectar diferencias entre pedido, entrega y facturación
+Desde el punto de vista del sistema, el albarán no genera asiento contable, pero sí genera trazabilidad, control y contexto, elementos necesarios para que la IA pueda guiar al usuario y preparar correctamente la contabilización posterior.
+
+
+4. Factura
+La factura es el documento que formaliza una operación económica y es el momento en el que nace el gasto o el ingreso para la empresa. A partir de la factura, la operación pasa a tener impacto en las áreas contables y financieras.
+
+
+En el flujo del sistema, la factura se genera después de la entrega del producto o la prestación del servicio, y debe corresponderse con el pedido y el albarán previamente registrados. 
+
+
+Tipos de factura:
+
+
+* Ticket:  Es un comprobante de pago emitido por el vendedor y entregado al comprador. Sirve para justificar una compra, pero no es una factura válida a efectos fiscales, ya que normalmente no contiene todos los datos exigidos por la normativa.
+   * Permite registrar el gasto
+   * No permite deducir el IVA en forma directa
+
+
+Sí es posible deducir el IVA de una compra que inicialmente se documentó mediante un ticket, siempre que dicho ticket se sustituya o complete por un documento fiscal válido.
+1. Mediante la emisión de una factura completa, que sustituye al ticket y permite la deducción del IVA.
+2. Mediante la emisión de una factura simplificada válida, siempre que:
+   1. El importe sea inferior al límite legal establecido
+   2. Incluya los datos del emisor y del receptor
+   3. Contenga la base imponible y el IVA desglosado
+
+
+* Factura Simplificada: Es una versión reducida de la factura, utilizada en operaciones de importe reducido.
+   * Puede permitir la deducción del IVA solo si cumple los requisitos legales
+   * Debe incluir datos del emisor, receptor, base imponible, IVA desglosado, importe dentro del límite legal permitido.
+
+
+* Factura Completa: Es el documento fiscal completo y el formato estándar válido para la deducción del IVA.
+
+
+* Factura Rectificada → Es una factura que corrige una factura original ya emitida, debido a errores o cambios en las condiciones de la operación (importe, IVA, datos del receptor, devoluciones, etc.).
+
+
+Deducibilidad del IVA: La deducibilidad del IVA (Impuesto sobre el Valor Añadido) determina si una empresa puede recuperar el IVA soportado en una compra o si debe registrar el importe total de la operación como gasto. Este determina si la empresa puede recuperar el IVA soportado y cómo este gasto impacta en sus impuestos y estados financieros.
+
+
+Cuando un proveedor emite una factura, incluye en ella el IVA correspondiente. La empresa que recibe la factura paga el importe total al proveedor, pero ese IVA no siempre constituye un gasto definitivo. En los casos en los que el IVA es deducible, se considera un importe adelantado a la Agencia Tributaria (IVA soportado), que posteriormente se compensará con el IVA cobrado a los clientes (IVA repercutido).
+* Si la empresa ha pagado más IVA del que ha cobrado, la Agencia Tributaria devuelve la diferencia.
+* Si la empresa ha cobrado más IVA del que ha pagado, debe ingresar la diferencia a Hacienda.
+
+
+Cada vez que entra un documento de compra, el sistema analiza automáticamente su naturaleza y determina si el IVA puede deducirse o no, aplicando los siguientes criterios de deducibilidad:
+
+
+1. Tickets y facturas simplificadas no válidas: 
+Cuando el documento no cumple los requisitos exigidos por la normativa fiscal (Reglamento de Facturación), el sistema aplica el siguiente criterio:
+* El importe total se registra como gasto. Deberán cumplir los siguientes requisitos:
+   * Estar vinculados a la actividad económica de la empresa
+   * Constituir un documento justificativo válido
+   * Poder registrarse contablemente
+* No deducen el IVA
+
+
+2. Factura completa: 
+el sistema revisará si ¿Tiene fecha? ¿Tiene un número y serie únicos? ¿Aparecen claramente el vendedor y el comprador? ¿Describe lo que se ha comprado? ¿Incluye la base imponible, la cuota de IVA, el total? ¿Indica la forma de pago? 
+
+
+Si el documento cumple estos criterios, el sistema:
+* Registra el gasto o activo correspondiente
+* Desglosa el IVA
+* Permite la deducción del IVA
+* Prepara la información para su correcto impacto contable y fiscal
+
+
+El documento deberá ser transformado a un asiento contable. (Ver paso 3 - Estados Financieros)
+
+
+5. Contabilización de la factura
+Entonces, una vez registrada la factura se valida el documento, clasifica la compra, aplica deducibilidad, crea el asiento contable, y genera vencimiento de pago.
+
+
+Una vez la factura se valida con su deducibilidad:
+* El sistema clasifica la compra en la categoría contable adecuada
+* Determina si deduce IVA o no
+* Genera el asiento contable correspondiente
+* Crea automáticamente el vencimiento de pago para Tesorería
+
+
+En ventas → para cubrir costos, generar beneficios, crecimiento empresarial. 
+
+
+El proceso de ventas empieza por el producto:
+* Ventas de bienes o productos (movimiento de inventarios): Mercadería, productos terminados destinados a la reventa, productos manufacturados / producidos internamente (industria, manufactura, fábricas), materias primas o insumos revendidos (excedentes o materiales no utilizados), equipos, maquinaria o tecnología, productos digitales tangibles bajo normativa de bien (hardware), ventas de activos (ocasionales).
+
+
+* Venta de servicios: Servicios profesionales, servicios de marketing, servicios tecnológicos, servicios de transporte o logística, servicios de mantenimiento, limpieza, seguridad, formación y capacitación, servicios financieros o administrativos.
+* Ventas mixtas (paquete que incluye ambas cosas)
+   * el producto afecta inventario, el servicio no, pueden tener IVAs distintos.
+* Ventas recurrentes o por suscripción
+* Ventas internacionales
+* Ventas especiales (con descuento o promociones, ventas a crédito, devoluciones y abonos)
+
+
+1. Presupuesto / Oferta 
+Luego, la propia empresa generará el presupuesto/oferta que será enviado. Este contendrá:
+* Descripción del producto o servicio
+* Precio estimado
+* Condiciones de entrega o ejecución
+* Impuestos aplicables
+* Plazos y formas de pago
+* Vigencia de la oferta
+
+
+2. Orden de pedido
+Una vez el cliente haya aceptado el presupuesto, este se transformará en una orden de pedido, esto es la formalización interna del pedido: documento que confirma oficialmente qué productos o servicios ha solicitado el cliente, en qué cantidades, bajo qué condiciones y a qué precio.
+* Esencial para el proceso interno:  Se activará el proceso interno, reservara inventario/stock (si aplica), coordinar áreas como logística, producción o servicio al cliente.
+
+
+3. Albaran de entrega
+Luego, cuando la empresa entrega el producto al cliente o finaliza la prestación del servicio, se genera un albarán de entrega. El albarán es el documento que acredita que la entrega se ha realizado y conecta la operación comercial con el proceso logístico y contable.
+* Confirmar que el cliente ha recibido el producto o que el servicio ha sido prestado
+* Reflejar las cantidades entregadas y las condiciones acordadas
+* Actualizar el inventario en el ERP cuando se trata de ventas de bienes
+
+
+4. Factura
+Finalmente, se realizará la factura de venta para formalizar la operación, este es el proceso que sí impactará la contabilidad de la empresa. 
+
+
+Reconoce el ingreso generado por la operación, registra el IVA repercutido, que la empresa cobra al cliente en nombre de Hacienda, crea un derecho de cobro (el cliente pasa a deber el pago), permite gestionar el vencimiento de cobro en Tesorería, alimenta los estados financieros y los modelos fiscales
+
+
+Los tipos de ventas son:
+* Factura de bienes/productos: documento comercial y fiscal que deja constancia de una compraventa de bienes o una prestación de servicios.
+* Contenido: cantidad entregada, descripción del producto, precio unitario, base imponible, IVA repercutido, total a pagar.
+* Impacto: disminuye inventario y reconoce el ingreso
+
+
+* Factura de servicios: documento comercial que detalla los servicios prestados por un proveedor a un cliente, incluyendo un desglose de costos, fechas, y condiciones de pago.
+* Contenido: descripción del servicio, período de ejecución, importe, IVA repercutido, condiciones de pago.
+* Impacto: reconoce ingreso sin movimiento de inventario. 
+
+
+* Factura Rectificada → corrige una factura original ya emitida debido a errores o cambios en las condiciones de la operación.
+
+
+El documento deberá ser transformado a un asiento contable. (Ver paso 4 - Estados Financieros)
+
+
+Paso 3: Conexión con Tesorería
+
+
+La Tesorería actúa como el puente entre los registros contables (compras y ventas) y la realidad financiera (bancos). Su función es garantizar que toda obligación económica quede correctamente programada, seguida y conciliada.
+
+
+1. Generación automática de vencimientos. Cada vez que se contabiliza una factura:
+* Una factura recibida genera un vencimiento de pago. 
+Ejemplo: “La empresa deberá pagar al proveedor X el día 15/04.”
+
+
+* Una factura emitida genera un vencimiento de cobro.
+Ejemplo: “El cliente Y deberá pagarnos el día 30/04.”
+
+
+Estos vencimientos se envían automáticamente a Tesorería, donde forman el calendario financiero de la empresa.
+
+
+2. Previsión de Cashflow (flujo de caja). Con todos los vencimientos organizados, el sistema puede proyectar:
+* Entradas de dinero (cobros de clientes)
+* Salidas de dinero (pagos a proveedores)
+* Fechas precisas en las que estos movimientos ocurrirán
+
+
+3. Conciliación bancaria. Los movimientos de bancos llegan al módulo de Tesorería, que se encarga de compararlos con los vencimientos generados, así verificando:
+* si un pago coincide con el vencimiento de una factura recibida,
+* si un cobro corresponde a la factura emitida a un cliente,si existen diferencias, pagos duplicados o movimientos no reconocidos.
+
+
+El ciclo de proceso de compra y venta se completa cuando el cliente paga y Tesorería marca la factura como cobrada.
+
+
+Paso 4: Repercusión en Estados Financieros y Obligaciones Fiscales
+
+
+Luego de la los procesos de compra y venta el sistema contable registrará: el impacto en los estados financieros de la empresa (situación económica), y la generación de obligaciones fiscales (Administración Tributaria)
+
+1. Impacto en los Estados Financieros
+Aquí es donde se registran los asientos contables, estos se alimentarán automáticamente a los principales informes financieros de la empresa, siguiendo el criterio del Plan General Contable..
+
+
+Todos los asientos se basan en el Principio de Doble Partida (toda operación se registra simultáneamente en el Debe y en el Haber) 
+
+
+Los asientos pueden ser de varios tipos:
+* Factura Recibida (Compra o Gasto)
+* Se incrementa un gasto o un activo (Debe)
+* Se registra el IVA soportado si es deducible (Debe)
+* Se genera una deuda con el proveedor (Haber)
+* Factura Emitida (Venta)
+* Se reconoce un ingreso (Haber)
+* Se registra el IVA repercutido (Haber)
+* Se genera un derecho de cobro del cliente (Debe)
+* Bien de Inversión (Activo Fijo) → destinado a durar más de un ejercicio:
+* Se registra en el inmovilizado (Debe)
+* Se registra el IVA soportado deducible (Debe)
+* Se genera la obligación con el proveedor (Haber)
+* Ciclo de amortización, que se registrará periódicamente como gasto.
+* Movimiento Bancario: cobros, pagos, comisiones bancarias, intereses.
+* Facturas con Retención (Profesionales o Alquileres): desglosa la base imponible, registra la retención practicada, reconoce la obligación frente a la AEAT, y contabiliza el gasto o servicio recibido.
+* Asientos de nómina: Registro de salarios y obligaciones laborales.
+* De apertura y cierre de ejercicio.
+
+
+Los asientos registrados alimentan automáticamente los libros contables obligatorios, que deben presentarse y conservarse según la normativa vigente.
+* Libro Diario: Registro cronológico lineal de todos los asientos.
+* Libro Mayor: Agrupación de movimientos por cuenta contable (para ver el saldo vivo de un proveedor o banco específico).
+* Libro de Inventarios y Cuentas Anuales (ICAA): 
+
+
+Estos deberan ser exportados para auditorías, Registro Mercantil o revisión interna.
+
+
+Además, se generarán los reportes financieros internos esenciales para la toma de decisiones y el análisis empresarial. Estos serán:
+* Pérdidas y Ganancias (PyG) – si la empresa gana o pierde dinero durante un período determinado. Se construye sumando:
+* Todos los ingresos generados por ventas
+* Todos los gastos derivados de compras, nóminas, servicios, amortizaciones y costes financieros.
+* Balance – Activos, Pasivos y Patrimonio Neto. Fotografía financiera de la empresa en un momento específico. 
+* Activos (lo que tiene): caja y bancos, inventarios/existencias, clientes por cobrar, inmovilizados, inversiones financieras.
+* Pasivos (lo que debe): Proveedores/Acreedores, deudas a corto plazo, obligaciones fiscales, retenciones pendientes.
+* Patrimonio neto (lo que realmente pertenece a la empresa): capital, reservas, resultados acumulados.
+
+
+  
+
+
+
+2. Generación de Obligaciones Fiscales 
+
+
+Luego, se crearan las obligaciones fiscales, que se basan en esta misma información contable.
+* La Agencia Tributaria Española (AEAT), es el organismo encargado de gestionar y recaudar los impuestos en España.
+
+
+La empresa debe presentar una serie de modelos tributarios oficiales, cuya periodicidad varía según su tamaño, su actividad y su nivel de facturación o tipología empresa. Se dividen orientativamente en:
+* Declaraciones Trimestrales o Mensuales: La mayoría de las empresas presentan trimestralmente **pero, aquellas consideradas grandes empresas (facturación superior a 6 millones/anuales) o inscritas en el REDEME (Régimen de Devolución Mensual del IVA) están obligadas a presentar las declaraciones mensualmente.
+   * Modelo 303 (IVA y Cuotas deducibles)
+   * Modelos 111 y 115 (Retenciones)
+      * Profesionales autónomos (modelo 111)
+      * Alquileres de inmuebles (modelo 115)
+      * Proceso: identificar qué facturas llevan retención, calcular el importe retenido, registrar la obligación con la AEAT, y preparar la declaración trimestral o mensual.
+   * Modelos 349 (operaciones intracomunitarias de entregas y adquisiciones de bienes y servicios).
+   * Entre otros.
+
+
+* Declaraciones Anuales: consolidan toda la información enviada durante el ejercicio y deben coincidir exactamente con los modelos trimestrales o mensuales.
+   * Modelo 390 →(operaciones sujetas al IVA) relacionado con 303
+   * Modelo 190 →profesionales, trabajadores, autónomos (relacionado con el 111)
+   * Modelo 180 → arrendamientos (relacionado con el 115)
+   * Modelo 200 →(Impuesto sobre Sociedades)
+   * Modelo 347→operaciones con terceras personas superiores a 3..005 € 
+   * Entre otros.
+
+
+Paso 5: Conciliación bancaria
+
+
+La conciliación bancaria es el proceso mediante el cual el programa compara:
+1. Lo que dice el banco
+2. Lo que está registrado en contabilidad
+
+
+El objetivo es comprobar que todo coincide y que no faltan registros.
+
+
+Situaciones posibles:
+Escenario A (Conciliado): El apunte aparece en ambos lados (mismo importe, misma fecha aprox). → Acción: Se marca como conciliado (Validado).
+
+
+Escenario B (Falta Asiento): El apunte aparece en el Banco pero NO en Contabilidad. → Acción: El sistema alerta "Falta Documento/Asiento" y sugiere crearlo automáticamente (ej: comisiones bancarias)y/o reclamo de factura/gasto.
+
+
+Escenario C (Error Contable): El apunte aparece en Contabilidad pero NO en el Banco. → Acción: Alerta de posible error, duplicidad, asiento incorrecto, o reclamo deuda pendiente de cobro.
+
+
+Paso 6: Cierre del Ejercicio
+
+
+Al finalizar el año fiscal, el sistema ejecuta los procesos de cierre
+1. Ajustes Automáticos: Ejecuta las amortizaciones pendientes y periodificaciones.
+2. Cálculo del resultado del ejercicio: Determina beneficios o pérdidas y genera el asiento de regularización (Impuesto de sociedades).
+3. Libros Oficiales: Empaqueta y formatea el Diario, Mayor y Balances para su presentación legal ante el Registro Mercantil y la AEAT.
+
+
+Apertura: Deja el sistema listo para iniciar el nuevo ejercicio con los saldos iniciales correctos que afectan al Balance de Situación.

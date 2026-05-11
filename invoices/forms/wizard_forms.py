@@ -122,7 +122,7 @@ class WizardItemFormsetHelper(FormHelper):
 class WizardItemForm(forms.Form):
     description = forms.CharField(
         label=_("Description"), 
-        max_length=255, 
+        max_length=500, 
         widget=UnfoldAdminTextareaWidget(attrs={'rows': 2})
     )
     quantity = forms.DecimalField(label=_("Qty"), max_digits=10, decimal_places=3, initial=1, widget=UnfoldAdminDecimalFieldWidget)

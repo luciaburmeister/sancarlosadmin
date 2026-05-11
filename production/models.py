@@ -60,6 +60,14 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
         verbose_name=_("Project File")
     )
 
+    last_stage_label = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name=_("Last Stage")
+    )
+
 
     def __str__(self):
         return str(self.pk)
@@ -67,6 +75,7 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
     class Meta:
         indexes = [
             models.Index(fields=["content_type", "object_id"]),
+            models.Index(fields=["company", "last_stage_label"]),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -101,10 +110,63 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
 
     def recompute_status(self):
         new_status = self.compute_status_from_items()
+        new_label = self.compute_last_stage_label()
 
-        if new_status != self.status:
-            ProductionTicket.objects.filter(pk=self.pk).update(status=new_status)
+        if new_status != self.status or new_label != self.last_stage_label:
+            ProductionTicket.objects.filter(pk=self.pk).update(
+                status=new_status,
+                last_stage_label=new_label
+            )
             self.status = new_status
+            self.last_stage_label = new_label
+
+            if new_status == ProductionTicketStatus.DONE:
+                from configurator.models import Configuration, ConfigurationStatus
+                if isinstance(self.source_object, Configuration):
+                    self.source_object.status = ConfigurationStatus.PRODUCTION_DONE
+                    self.source_object.save(update_fields=["status"])
+
+    def compute_last_stage_label(self):
+        items = list(self.items.all())
+        if not items:
+            return None
+
+        # 1. Get global stage order from product template
+        product_stages = []
+        if self.source_object and hasattr(self.source_object, 'product'):
+             product_stages = list(getattr(self.source_object.product, "production_stages", []) or [])
+
+        candidates = [] # (stage_name, weight)
+        
+        for item in items:
+            ordered = item.get_ordered_planning()
+            if not ordered:
+                continue
+            
+            # Find the FIRST non-done stage for this item
+            for i, (sname, info) in enumerate(ordered):
+                status = (info or {}).get("status") or ProductionItemStatus.PENDING
+                if status != ProductionItemStatus.DONE:
+                    # Use global index as weight to compare across items
+                    try:
+                        weight = product_stages.index(sname)
+                    except ValueError:
+                        weight = 1000 + i # Extras at the end
+                        
+                    candidates.append((sname, weight))
+                    break
+        
+        if not candidates:
+            if any(item.planning for item in items):
+                from django.utils.translation import gettext as _
+                return _("Done")
+            return None
+
+        # Aggregate: Pick the stage that is most advanced (highest index in planning)
+        # across all items.
+        best_stage, _ = min(candidates, key=lambda x: x[1])
+        
+        return best_stage
 
 
 class ProductionItemStatus(models.TextChoices):
@@ -201,6 +263,9 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
             product = getattr(self.ticket.source_object, "product", None)
             if product:
                 stage_order = list(product.production_stages or [])
+        
+        if stage_order is None:
+            stage_order = []
 
         def sort_key(item):
             stage_name = item[0]

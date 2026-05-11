@@ -30,3 +30,8 @@ docs/
 
 media/*
 
+# Seed / fake data scripts
+company/management/__init__.py
+company/management/commands/__init__.py
+company/management/commands/setup_fislav.py
+

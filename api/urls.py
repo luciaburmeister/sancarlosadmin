@@ -41,6 +41,7 @@ urlpatterns = [
     path("me/tasks/", me_views.my_tasks_view, name="my_tasks"),
 
     path("sales/clients/", client_views.client_list_create_view, name="client_list_create"),
+    path("sales/clients/<int:client_id>/", client_views.client_detail_view, name="client_detail"),
 
     path("product-templates/", product_template_views.product_template_list_view, name="product_template_list"),
 

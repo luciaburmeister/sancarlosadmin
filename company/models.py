@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django_countries.fields import CountryField
 from django.contrib.postgres.fields import ArrayField
 from location_field.models.spatial import LocationField
+from django.core.exceptions import ValidationError
 from timestamps.models import Timestampable
 from simple_history.models import HistoricalRecords
 from datetime import timedelta
@@ -48,7 +49,6 @@ class Company(models.Model):
         verbose_name=_("Document Reminder Emails"),
         help_text=_("Emails that will receive document expiration reminders"),
     )
-
 
     def __str__(self):
         return self.name
@@ -276,6 +276,63 @@ class WorkingZone(CompanyOwnedModel):
     def __str__(self):
         return f"{self.name} ({self.company})"
 
+class WeekdayChoices(models.IntegerChoices):
+    MONDAY = 0, _("Monday")
+    TUESDAY = 1, _("Tuesday")
+    WEDNESDAY = 2, _("Wednesday")
+    THURSDAY = 3, _("Thursday")
+    FRIDAY = 4, _("Friday")
+    SATURDAY = 5, _("Saturday")
+    SUNDAY = 6, _("Sunday")
+
+class CompanyScheduleSlot(models.Model):
+    company = models.ForeignKey(
+        "Company",
+        on_delete=models.CASCADE,
+        related_name="schedule_slots",
+        verbose_name=_("Company"),
+    )
+    weekday = models.IntegerField(
+        choices=WeekdayChoices.choices,
+        verbose_name=_("Weekday"),
+    )
+    start_time = models.TimeField(verbose_name=_("Start time"))
+    end_time = models.TimeField(verbose_name=_("End time"))
+
+    class Meta:
+        verbose_name = _("Company schedule slot")
+        verbose_name_plural = _("Company schedule")
+        ordering = ["weekday", "start_time"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "weekday", "start_time", "end_time"],
+                name="unique_company_weekday_time_slot",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.get_weekday_display()} {self.start_time} - {self.end_time}"
+
+    def clean(self):
+        super().clean()
+
+        if self.end_time <= self.start_time:
+            raise ValidationError({
+                "end_time": _("End time must be after start time.")
+            })
+
+        # Prevent overlaps in the same company and weekday
+        qs = CompanyScheduleSlot.objects.filter(
+            company=self.company,
+            weekday=self.weekday,
+        ).exclude(pk=self.pk)
+
+        for slot in qs:
+            overlaps = self.start_time < slot.end_time and self.end_time > slot.start_time
+            if overlaps:
+                raise ValidationError(
+                    _("This time slot overlaps with another slot on the same day.")
+                )
 
 class BaseBankAccount(models.Model):
     bank_name = models.CharField(max_length=100, verbose_name=_("Bank Name"))

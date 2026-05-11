@@ -1,8 +1,16 @@
 from django.contrib.contenttypes.models import ContentType
+from configurator.models import Configuration, ConfigurationExportTemplate, ExportTemplateKind
+from configurator.services.export import ConfigurationExportService
 from production.models import ProductionTicket, ProductionItem
+from production.services.session_scheduler import ScheduleContext, SessionScheduler
 import os
 
+
 class ConfigurationToProductionService:
+    @classmethod
+    def create_ticket_by_id(cls, configuration_id):
+        configuration = Configuration.objects.get(pk=configuration_id)
+        return cls.create_ticket(configuration)
 
     @classmethod
     def create_ticket(cls, configuration, project_file=None):
@@ -19,7 +27,7 @@ class ConfigurationToProductionService:
                     "product": configuration.product.name,
                     "client": configuration.client_id,
                 }
-            }
+            },
         )
 
         if created:
@@ -64,9 +72,7 @@ class ConfigurationToProductionService:
 
     @staticmethod
     def _create_items(ticket, configuration):
-        from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
-        from configurator.services.export import ConfigurationExportService
-
+        schedule_ctx = ScheduleContext.from_company(configuration.company)
         product = configuration.product
 
         for item in configuration.items.select_related("component"):
@@ -79,7 +85,7 @@ class ConfigurationToProductionService:
                 for stage in item.production_stages
             }
 
-            prod_item = ProductionItem.objects.create(
+            production_item = ProductionItem.objects.create(
                 ticket=ticket,
                 company=ticket.company,
                 component=item.component,
@@ -96,12 +102,20 @@ class ConfigurationToProductionService:
                 planning=planning,
                 production_stages_order=list(item.production_stages or []),
             )
+
             ticket_template = ConfigurationExportTemplate.get_default_for_product(
                 product=product,
                 kind=ExportTemplateKind.PRODUCTION_TICKET,
                 company=ticket.company
             )
             if ticket_template:
-                prod_item.ticket_html = ConfigurationExportService.render_html(prod_item, ticket_template)
-            
-            prod_item.save(update_fields=["ticket_html"])
+                production_item.ticket_html = ConfigurationExportService.render_html(production_item, ticket_template)
+
+            production_item.save(update_fields=["ticket_html"])
+
+            # Delegate scheduling to the dedicated SessionScheduler
+            SessionScheduler.schedule_item(
+                production_item=production_item,
+                stage_resources=item.stage_resources,
+                schedule_ctx=schedule_ctx,
+            )

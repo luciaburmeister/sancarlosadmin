@@ -10,7 +10,7 @@ from django.utils import timezone
 from django.db.models import Q
 from django.core.exceptions import ValidationError
 from materials.models import Component
-import unicodedata
+from django.conf import settings
 
 
 class ProductionTicketStatus(models.TextChoices):
@@ -414,7 +414,8 @@ class ProductionResource(Timestampable,CompanyOwnedModel):
     object_id = models.PositiveBigIntegerField()
     target = GenericForeignKey("content_type", "object_id")
 
-    daily_capacity_minutes = models.PositiveIntegerField(default=0)
+    daily_capacity_minutes = models.PositiveIntegerField(default=1440)
+    parallel_capacity = models.PositiveSmallIntegerField(default=1)
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -527,3 +528,42 @@ class PlannedSessionResource(models.Model):
         indexes = [
             models.Index(fields=["resource"]),
         ]
+
+
+class SchedulingRun(models.Model):
+    STATUS_CHOICES = [
+        ("pending", "Pending"),
+        ("solved", "Solved"),
+        ("applied", "Applied"),
+        ("discarded", "Discarded"),
+        ("error", "Error"),
+    ]
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="scheduling_runs",
+    )
+
+    strategy = models.CharField(max_length=100)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    slot_minutes = models.PositiveIntegerField(default=10)
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+
+    input_payload = models.JSONField(default=dict, blank=True)
+    result_payload = models.JSONField(default=dict, blank=True)
+
+    solver_status = models.CharField(max_length=50, blank=True, default="")
+    objective_value = models.FloatField(null=True, blank=True)
+    total_margin = models.FloatField(null=True, blank=True)
+
+    applied_at = models.DateTimeField(null=True, blank=True)
+    discarded_at = models.DateTimeField(null=True, blank=True)
+
+    error_message = models.TextField(blank=True, default="")
+
+    def __str__(self):
+        return f"SchedulingRun #{self.pk} - {self.strategy} - {self.created_at:%Y-%m-%d %H:%M}"

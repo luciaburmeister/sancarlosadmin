@@ -115,7 +115,7 @@ class ConfigurationToProductionService:
 
             # Delegate scheduling to the dedicated SessionScheduler
             SessionScheduler.schedule_item(
-                production_item=production_item,
+                production_ticket=ticket,
                 stage_resources=item.stage_resources,
                 schedule_ctx=schedule_ctx,
             )

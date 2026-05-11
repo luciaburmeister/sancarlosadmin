@@ -467,10 +467,11 @@ class PlannedProductionSessionSource(models.TextChoices):
     MANUAL = "manual", _("Manual")
 
 class PlannedProductionSession(Timestampable):
-    production_item = models.ForeignKey(
-        ProductionItem,
+    production_ticket = models.ForeignKey(
+        ProductionTicket,
         on_delete=models.CASCADE,
         related_name="planned_sessions",
+        null=True,
     )
 
     production_stage = models.CharField(

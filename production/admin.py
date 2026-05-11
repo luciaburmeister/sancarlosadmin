@@ -483,7 +483,7 @@ class PlannedSessionResourceInline(TabularInline):
 class PlannedProductionSessionAdmin(ModelAdmin):
     list_display = (
         "id",
-        "production_item",
+        "production_ticket",
         "production_stage",
         "planned_start",
         "planned_end",
@@ -493,13 +493,13 @@ class PlannedProductionSessionAdmin(ModelAdmin):
     )
     list_filter = ("locked", "source")
     search_fields = ("production_stage",)
-    autocomplete_fields = ("production_item", "primary_resource")
+    autocomplete_fields = ("production_ticket", "primary_resource")
     inlines = (PlannedSessionResourceInline,)
 
     fieldsets = (
         (None, {
             "fields": (
-                "production_item",
+                "production_ticket",
                 "production_stage",
             )
         }),
@@ -657,10 +657,8 @@ class SchedulingRunAdmin(ModelAdmin):
         assignment_rows = [
             [
                 a.configuration_name,
-                a.item_name,
                 a.stage_name,
                 a.resource_name,
-                a.copy_index,
                 timezone.localtime(a.start) if timezone.is_aware(a.start) else a.start,
                 timezone.localtime(a.end) if timezone.is_aware(a.end) else a.end,
                 a.minutes,
@@ -692,10 +690,8 @@ class SchedulingRunAdmin(ModelAdmin):
             "assignments_table": {
                 "headers": [
                     _("Configuration"),
-                    _("Item"),
                     _("Stage"),
                     _("Resource"),
-                    _("Copy"),
                     _("Start"),
                     _("End"),
                     _("Minutes"),

@@ -9,36 +9,28 @@ class ScheduleProposalApplier:
     def apply(self, proposal):
         configuration_ids = proposal.selected_configuration_ids
 
-        # Create tickets + items ONLY for selected configurations
+        # Create tickets for selected configurations
         tickets = {
             c_id: ConfigurationToProductionService.create_ticket_by_id(c_id)
             for c_id in configuration_ids
         }
 
-        # Build mapping: configuration_item_id → production_item
-        production_items = {}
-        for ticket in tickets.values():
-            for pi in ticket.items.all():
-                config_item_id = pi.data.get("configuration_item_id")
-                if config_item_id:
-                    production_items[config_item_id] = pi
-
-        # Delete previous sessions for those items
+        # Delete previous planned sessions for those tickets
         PlannedProductionSession.objects.filter(
-            production_item__in=production_items.values()
+            production_ticket__in=tickets.values()
         ).delete()
 
         created = []
 
-        # Create sessions
+        # Create sessions — one per (configuration, stage) assignment
         for assignment in proposal.assignments:
-            production_item = production_items.get(assignment.configuration_item_id)
+            ticket = tickets.get(assignment.configuration_id)
 
-            if not production_item:
-                continue  # or raise error if you want strict mode
+            if not ticket:
+                continue
 
             session = PlannedProductionSession.objects.create(
-                production_item=production_item,
+                production_ticket=ticket,
                 production_stage=assignment.stage_name,
                 planned_start=assignment.start,
                 planned_end=assignment.end,

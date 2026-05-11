@@ -80,7 +80,7 @@ class PlannedSessionsScheduleDayView(UnfoldModelAdminViewMixin, TemplateView):
         # Resources
         sessions_qs = (
             PlannedProductionSession.objects
-            .select_related("production_item", "production_item__ticket", "primary_resource")
+            .select_related("production_ticket", "primary_resource")
             .filter(
                 primary_resource__company=company,
                 planned_start__lt=end_of_window,
@@ -117,7 +117,7 @@ class PlannedSessionsScheduleDayView(UnfoldModelAdminViewMixin, TemplateView):
             top_min = int((ds_local - window_start_local_naive).total_seconds() // 60)
             height_min = max(1, int((de_local - ds_local).total_seconds() // 60))
 
-            ticket = getattr(s.production_item, "ticket", None)
+            ticket = s.production_ticket
             ticket_label = f"T{ticket.id}" if ticket else "T?"
             label = f"{ticket_label} · {s.production_stage}"
 

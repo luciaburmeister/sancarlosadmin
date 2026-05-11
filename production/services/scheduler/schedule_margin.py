@@ -1002,7 +1002,13 @@ class MarginScheduler(ScheduleStrategy):
             self.ts,
         )
 
-        prob = self._solve_problem(objective, constraints, use_warm_start)
+        prob = self._solve_problem(
+            objective,
+            constraints,
+            use_warm_start,
+            time_limit=120,
+            gap_rel=0.01,
+        )
 
         print("Solver status:", pulp.LpStatus[prob.status])
         print("Objective:", pulp.value(prob.objective))

@@ -1,4 +1,3 @@
-import traceback
 
 from django.contrib import admin, messages
 from django.http import HttpRequest
@@ -9,7 +8,7 @@ from django.urls import path, reverse
 from django.shortcuts import get_object_or_404, redirect, render
 from unfold.decorators import display, action
 from django.utils import timezone
-
+from production.tasks import run_schedule_optimization
 from core.admin.company_admin import CompanyRestrictedAdmin
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter,
@@ -30,9 +29,7 @@ from production.models import (
     ProductionTicketStatus,
 )
 from production.services.scheduler.apply_schedule import ScheduleProposalApplier
-from production.services.scheduler.factory import build_scheduler_strategy
-from production.services.scheduler.scheduler import Scheduler
-from production.services.scheduler.serialization import proposal_from_dict, proposal_to_dict
+from production.services.scheduler.serialization import proposal_from_dict
 from production.views.configuration_autocomplete import ConfigurationAutocompleteView
 from production.views.planned_sessions_schedule_view import PlannedSessionsScheduleDayView
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
@@ -621,45 +618,13 @@ class SchedulingRunAdmin(ModelAdmin):
                     },
                 )
 
-                try:
-                    strategy = build_scheduler_strategy(
-                        strategy_code=strategy_code,
-                        optimization_params={"ts": ts},
-                    )
-                    scheduler = Scheduler(strategy)
-                    proposal = scheduler.schedule(
-                        start_date=start_date,
-                        end_date=end_date,
-                        configurations=configurations,
-                    )
+                run_schedule_optimization.delay(run.pk)
 
-                    run.result_payload = proposal_to_dict(proposal)
-                    run.solver_status = proposal.solver_status
-                    run.objective_value = proposal.objective_value
-                    run.total_margin = proposal.total_margin
-                    run.status = "solved"
-                    run.save(
-                        update_fields=[
-                            "result_payload",
-                            "solver_status",
-                            "objective_value",
-                            "total_margin",
-                            "status",
-                        ]
-                    )
-
-                    return redirect(
-                        "admin:production_schedulingrun_preview",
-                        run_id=run.pk,
-                    )
-
-                except Exception as exc:
-                    run.status = "error"
-                    run.error_message = str(exc)
-                    run.save(update_fields=["status", "error_message"])
-                    traceback.print_exc()
-                    messages.error(request, f"Optimization failed: {exc}")
-                    return redirect("admin:production_schedulingrun_change", run.pk)
+                messages.success(
+                    request,
+                    _("Optimization started in the background. Refresh this page to check progress."),
+                )
+                return redirect("admin:production_schedulingrun_change", run.pk)
         else:
             form = OptimizeScheduleForm(request=request)
 

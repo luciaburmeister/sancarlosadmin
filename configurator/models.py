@@ -927,12 +927,16 @@ class Configuration(Timestampable, CompanyOwnedModel):
             if qty is None:
                 continue
 
+            stages = rule.production_stages or []
+            stage_resources = self._get_item_stage_resources_snapshot(stages=stages)
+
             if rule.id in existing_items:
                 item = existing_items[rule.id]
                 item.quantity = qty
                 item.length = length
                 item.unit_price = rule.component.compute_unit_price(context)
-                item.production_stages = rule.production_stages or []
+                item.production_stages = stages
+                item.stage_resources = stage_resources
                 item.note = safe_eval(rule.note_expression, context) if rule.note_expression else ""
                 item.save()
             else:
@@ -942,9 +946,10 @@ class Configuration(Timestampable, CompanyOwnedModel):
                     component=rule.component,
                     quantity=qty,
                     length=length,
-                    unit_price= rule.component.compute_unit_price(context),
+                    unit_price=rule.component.compute_unit_price(context),
                     is_template_item=True,
-                    production_stages=rule.production_stages or [],
+                    production_stages=stages,
+                    stage_resources=stage_resources,
                     note=safe_eval(rule.note_expression, context) if rule.note_expression else "",
                 )
             

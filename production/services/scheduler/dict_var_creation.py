@@ -145,7 +145,7 @@ def optimization_dict_creation(
             for stage in ordered_production_stages:
                 stage_info = item_stage_resources.get(stage, {})
 
-                if not stage_info or "total_time_min" not in stage_info:
+                if not stage_info or not stage_info.get("total_time_min"):
                     continue
 
                 item_stages[item].append(stage)

@@ -72,7 +72,6 @@ class ConfigurationToProductionService:
 
     @staticmethod
     def _create_items(ticket, configuration):
-        schedule_ctx = ScheduleContext.from_company(configuration.company)
         product = configuration.product
 
         for item in configuration.items.select_related("component"):

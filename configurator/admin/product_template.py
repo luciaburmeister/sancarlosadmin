@@ -10,6 +10,7 @@ from django.utils.translation import gettext_lazy as _
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from configurator.views.product_template.product_template_resources_view import ProductTemplateResourcesView
+from production.views.product_stage_report_view import ProductStageReportView
 from invoices.models import AppliedTax
 from unfold.decorators import action
 from django.utils.html import format_html
@@ -176,7 +177,7 @@ class ProductTemplateComponentGroupInline(StackedInline):
 class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = ("id", "name", "flow_kind", "company", "planning_configured_badge", "planning_configure_link")
     search_fields = ("name",)
-    actions_row = ["duplicate_product"]
+    actions_row = ["duplicate_product", "stage_report_action"]
     list_select_related = ["company"]
     autocomplete_fields = ["company"]
 
@@ -239,12 +240,25 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
             )
         )
     
+    @action(
+        description=_("Stage report"),
+        url_path="producttemplate-admin-stage-report",
+        attrs={"target": "_blank"},
+    )
+    def stage_report_action(self, request, object_id: int):
+        url = reverse("admin:configurator_producttemplate_stage_report")
+        return redirect(f"{url}?product={object_id}")
+
     def get_urls(self):
         urls = super().get_urls()
-        custom_view = self.admin_site.admin_view(
+        planning_view = self.admin_site.admin_view(
             ProductTemplateResourcesView.as_view(model_admin=self)
+        )
+        stage_report_view = self.admin_site.admin_view(
+            ProductStageReportView.as_view(model_admin=self)
         )
 
         return [
-            path("<int:pk>/planning/", custom_view, name="configurator_producttemplate_planning"),
+            path("<int:pk>/planning/", planning_view, name="configurator_producttemplate_planning"),
+            path("stage-report/", stage_report_view, name="configurator_producttemplate_stage_report"),
         ] + urls

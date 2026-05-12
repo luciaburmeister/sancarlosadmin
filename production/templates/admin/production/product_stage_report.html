@@ -1,0 +1,188 @@
+{% extends "admin/base.html" %}
+{% load i18n unfold %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <style>
+        .report-filters {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            align-items: flex-end;
+        }
+        .report-filters .filter-field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        .report-filters label {
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+        .report-filters select,
+        .report-filters input[type="date"] {
+            padding: 0.45rem 0.6rem;
+            border: 1px solid var(--border-color, #d1d5db);
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            background: var(--bg-color, #fff);
+            min-width: 170px;
+        }
+        .report-total-row td {
+            font-weight: 700 !important;
+            background-color: rgba(0,0,0,0.03);
+        }
+        .dark .report-total-row td {
+            background-color: rgba(255,255,255,0.04);
+        }
+        .summary-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 1.25rem 1.5rem;
+            border-radius: 0.5rem;
+            border: 1px solid var(--border-color, #e5e7eb);
+            min-width: 160px;
+        }
+        .summary-card .metric {
+            font-size: 1.75rem;
+            font-weight: 700;
+            line-height: 1.2;
+        }
+        .summary-card .label {
+            font-size: 0.8rem;
+            margin-top: 0.25rem;
+            opacity: 0.7;
+        }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="px-6 py-8">
+    <div class="mb-8">
+        <h1 class="text-2xl font-bold">{% trans "Product stage time report" %}</h1>
+        <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            {% trans "Actual time spent on each production stage, aggregated by product." %}
+        </p>
+    </div>
+
+    {# ── Filters ── #}
+    <div class="mb-6">
+        <form method="get" class="border border-base-200 dark:border-base-800 rounded-default bg-white dark:bg-gray-900 p-4">
+            <div class="report-filters">
+                <div class="filter-field" style="min-width: 220px;">
+                    <label>{% trans "Product" %}</label>
+                    <select name="product" class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 rounded-md">
+                        <option value="">{% trans "All products" %}</option>
+                        {% for p in products %}
+                            <option value="{{ p.id }}" {% if selected_product == p.id|stringformat:"d" %}selected{% endif %}>
+                                {{ p.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="filter-field">
+                    <label>{% trans "Company" %}</label>
+                    <select name="company" class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 rounded-md">
+                        <option value="">{% trans "All companies" %}</option>
+                        {% for c in companies %}
+                            <option value="{{ c.id }}" {% if selected_company == c.id|stringformat:"d" %}selected{% endif %}>
+                                {{ c.name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="filter-field">
+                    <label>{% trans "From" %}</label>
+                    <input type="date" name="date_from" value="{{ date_from }}"
+                           class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 rounded-md">
+                </div>
+
+                <div class="filter-field">
+                    <label>{% trans "To" %}</label>
+                    <input type="date" name="date_to" value="{{ date_to }}"
+                           class="border border-gray-300 dark:border-gray-700 dark:bg-gray-800 rounded-md">
+                </div>
+
+                <div class="flex gap-2" style="margin-top: 0.2rem;">
+                    {% component "unfold/components/button.html" with type="submit" variant="primary" %}
+                        {% trans "Apply" %}
+                    {% endcomponent %}
+                    {% component "unfold/components/button.html" with href=request.path variant="default" %}
+                        {% trans "Reset" %}
+                    {% endcomponent %}
+                </div>
+            </div>
+        </form>
+    </div>
+
+    {# ── Summary cards ── #}
+    <div class="flex flex-wrap gap-4 mb-6">
+        <div class="summary-card">
+            <span class="metric">{{ total_orders }}</span>
+            <span class="label">{% trans "Orders" %}</span>
+        </div>
+        <div class="summary-card">
+            <span class="metric">{{ total_hours }}h</span>
+            <span class="label">{% trans "Total time" %}</span>
+        </div>
+    </div>
+
+    {# ── Export button ── #}
+    {% if rows %}
+    <div class="mb-4 flex justify-end">
+        <a href="?{{ request.GET.urlencode }}&export=xlsx"
+           class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md border border-gray-300 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            {% trans "Export Excel" %}
+        </a>
+    </div>
+    {% endif %}
+
+    {# ── Data table ── #}
+    {% component "unfold/components/card.html" %}
+        <div class="overflow-x-auto -mt-2">
+            <table class="w-full">
+                <thead>
+                    <tr class="border-b border-base-200 dark:border-base-800">
+                        <th class="px-4 py-2 text-left text-sm font-semibold">{% trans "Product" %}</th>
+                        <th class="px-4 py-2 text-left text-sm font-semibold">{% trans "Stage" %}</th>
+                        <th class="px-4 py-2 text-right text-sm font-semibold">{% trans "Total hours" %}</th>
+                        <th class="px-4 py-2 text-right text-sm font-semibold">{% trans "Total minutes" %}</th>
+                        <th class="px-4 py-2 text-right text-sm font-semibold">{% trans "Orders" %}</th>
+                        <th class="px-4 py-2 text-right text-sm font-semibold">{% trans "Avg min/order" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in rows %}
+                        <tr class="border-b border-base-200 dark:border-base-800 {% if not row.stage %}report-total-row{% endif %}">
+                            <td class="px-4 py-2.5 text-sm">{{ row.product_name }}</td>
+                            <td class="px-4 py-2.5 text-sm {% if not row.stage %}font-bold{% endif %}">
+                                {% if row.stage %}
+                                    {{ row.stage }}
+                                {% else %}
+                                    {% trans "TOTAL" %}
+                                {% endif %}
+                            </td>
+                            <td class="px-4 py-2.5 text-sm text-right tabular-nums">{{ row.total_hours }}</td>
+                            <td class="px-4 py-2.5 text-sm text-right tabular-nums">{{ row.total_minutes }}</td>
+                            <td class="px-4 py-2.5 text-sm text-right tabular-nums">{{ row.order_count }}</td>
+                            <td class="px-4 py-2.5 text-sm text-right tabular-nums">{{ row.avg_minutes }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="6" class="px-4 py-8 text-sm text-center text-gray-500 dark:text-gray-400">
+                                {% trans "No completed sessions found for the selected filters." %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endcomponent %}
+</div>
+{% endblock %}

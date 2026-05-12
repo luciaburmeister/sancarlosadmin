@@ -127,54 +127,35 @@ def optimization_dict_creation(
             configuration.total_price.amount - configuration.total_cost.amount
         )
 
-        # Aggregate stages across all items in this configuration
-        # Use the product's stage ordering as the canonical order
+        # Read stage data directly from the product template
         product_stage_order = configuration.product.production_stages or []
+        product_resources = configuration.product.production_planning_resources or {}
 
-        # Collect per-stage aggregated data
-        config_stage_durations = {}       # stage -> total minutes
-        config_stage_rt = {}              # stage -> {rt: max_qty}
-
-        for item in configuration.items.select_related("component").filter(is_template_item=True):
-            item_stage_resources = item.stage_resources or {}
-
-            for stage in (item.production_stages or []):
-                stage_info = item_stage_resources.get(stage, {})
-
-                if not stage_info or not stage_info.get("total_time_min"):
-                    continue
-
-                # Sum duration across items
-                config_stage_durations[stage] = (
-                    config_stage_durations.get(stage, 0) + stage_info["total_time_min"]
-                )
-
-                # Union resource types, take max quantity
-                if stage not in config_stage_rt:
-                    config_stage_rt[stage] = {}
-
-                for machine_type in stage_info.get("machine_types", []):
-                    rt = (machine_ct, machine_type["machine_type_id"])
-                    existing_qty = config_stage_rt[stage].get(rt, 0)
-                    config_stage_rt[stage][rt] = max(existing_qty, machine_type["quantity"])
-
-                for employee_type in stage_info.get("employee_types", []):
-                    rt = (employee_ct, employee_type["employee_type_id"])
-                    existing_qty = config_stage_rt[stage].get(rt, 0)
-                    config_stage_rt[stage][rt] = max(existing_qty, employee_type["quantity"])
-
-        # Build ordered stage list following product stage order
-        ordered_stages = [s for s in product_stage_order if s in config_stage_durations]
+        # Build ordered stage list — only stages that have resource data
+        ordered_stages = [
+            s for s in product_stage_order
+            if s in product_resources and product_resources[s].get("total_time_min")
+        ]
         configuration_stages[configuration] = ordered_stages
 
         for stage in ordered_stages:
-            stage_duration[(configuration, stage)] = config_stage_durations[stage]
-            stage_resource_types[(configuration, stage)] = list(config_stage_rt.get(stage, {}).keys())
+            stage_info = product_resources[stage]
+            stage_duration[(configuration, stage)] = stage_info["total_time_min"]
 
-            for rt, qty in config_stage_rt.get(stage, {}).items():
-                stage_resource_type_quantity[(configuration, stage, rt)] = qty
+            # Build resource type list from product-level definitions
+            rts = []
+            for machine_type in stage_info.get("machine_types", []):
+                rt = (machine_ct, machine_type["machine_type_id"])
+                rts.append(rt)
+                stage_resource_type_quantity[(configuration, stage, rt)] = machine_type["quantity"]
 
-            resource_types.update(stage_resource_types[(configuration, stage)])
+            for employee_type in stage_info.get("employee_types", []):
+                rt = (employee_ct, employee_type["employee_type_id"])
+                rts.append(rt)
+                stage_resource_type_quantity[(configuration, stage, rt)] = employee_type["quantity"]
+
+            stage_resource_types[(configuration, stage)] = rts
+            resource_types.update(rts)
 
     # Dictionary of active resources per resource type
     for content_type, resource_type in resource_types:

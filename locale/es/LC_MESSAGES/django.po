@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-06 12:27+0200\n"
+"POT-Creation-Date: 2026-05-12 07:47+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -231,6 +231,11 @@ msgstr "Tickets de Producción"
 msgid "Production Items"
 msgstr "Items de Producción"
 
+#, fuzzy
+#| msgid "Received Invoices"
+msgid "Schedule"
+msgstr "Facturas de compra"
+
 msgid "Purchasing"
 msgstr "Compras"
 
@@ -442,6 +447,14 @@ msgstr "Cuenta de banco"
 #| msgid "Asset Documents"
 msgid "Documents"
 msgstr "Documentos de Activos"
+
+#, fuzzy
+#| msgid "End date must be after start date."
+msgid "End time must be after start time."
+msgstr "La fecha de inicio debe ser antes de la fecha de fin."
+
+msgid "There are overlapping slots on the same weekday."
+msgstr ""
 
 #, fuzzy
 #| msgid "General Information"
@@ -723,6 +736,53 @@ msgstr "Zona de Trabajo"
 
 msgid "Working Zones"
 msgstr "Zonas de Trabajo"
+
+msgid "Monday"
+msgstr ""
+
+msgid "Tuesday"
+msgstr ""
+
+msgid "Wednesday"
+msgstr ""
+
+msgid "Thursday"
+msgstr ""
+
+msgid "Friday"
+msgstr ""
+
+msgid "Saturday"
+msgstr ""
+
+msgid "Sunday"
+msgstr ""
+
+msgid "Weekday"
+msgstr ""
+
+#, fuzzy
+#| msgid "Start Date"
+msgid "Start time"
+msgstr "Fecha de Inicio"
+
+#, fuzzy
+#| msgid "End Time"
+msgid "End time"
+msgstr "Hora de finalización"
+
+#, fuzzy
+#| msgid "Employee Document"
+msgid "Company schedule slot"
+msgstr "Documento del Empleado"
+
+#, fuzzy
+#| msgid "Employee Document"
+msgid "Company schedule"
+msgstr "Documento del Empleado"
+
+msgid "This time slot overlaps with another slot on the same day."
+msgstr ""
 
 #, fuzzy
 #| msgid "Last Name"
@@ -1423,6 +1483,14 @@ msgstr "Instantánea de cálculos fiscales en el momento de la fijación de prec
 msgid "Work Order PDF"
 msgstr "Orden de Trabajo"
 
+#, fuzzy
+#| msgid "Quote"
+msgid "Quote Group"
+msgstr "Presupuesto"
+
+msgid "Optional group for organising configurations within a quote."
+msgstr ""
+
 msgid "Configurations"
 msgstr "Configuraciones"
 
@@ -1456,6 +1524,14 @@ msgstr "Etapas de producción y progreso por artículo"
 #| msgid "Production Stages"
 msgid "Production stages"
 msgstr "Etapas de Producción"
+
+#, fuzzy
+#| msgid "Configure your product"
+msgid "Stage resources"
+msgstr "Configura tu producto"
+
+msgid "Snapshot of resources needed per stage for this item."
+msgstr ""
 
 #, fuzzy
 #| msgid "Internal label for this configuration"
@@ -2003,17 +2079,13 @@ msgid "Confirm Receipt"
 msgstr "Confirmado"
 
 msgid "Source"
-msgstr "¿Podrías proporcionar el texto que deseas traducir?"
+msgstr "Origén"
 
-#, fuzzy
-#| msgid "Quantity"
 msgid "Quantity & Notes"
-msgstr "Cantidad"
+msgstr "Cantidad & Notas"
 
-#, fuzzy
-#| msgid "Bank Transfer"
 msgid "Confirm Transfer"
-msgstr "Transferencia Bancaria"
+msgstr "Confirmar Transferencia"
 
 #, python-format
 msgid "%(qty)d unit(s) of %(item)s received into %(wh)s."
@@ -2447,17 +2519,16 @@ msgstr ""
 msgid "Total Invoiceable"
 msgstr "Total Facturable"
 
-
 msgid "Already Invoiced"
 msgstr "Ya facturado"
 
-msgid "No accepted quotes found for this project file."
+#, fuzzy
+#| msgid "No accepted quotes found for this project file."
+msgid "No accepted quotes found for thisproject file."
 msgstr "No se han encontrado presupuestos aceptados para este expediente."
-
 
 msgid "Create Invoice"
 msgstr "Crear factura"
-
 
 msgid "Add item"
 msgstr "Agregar línea"
@@ -2465,12 +2536,12 @@ msgstr "Agregar línea"
 msgid "Create Invoice from Project File"
 msgstr "Crear factura desde expediente"
 
+#, python-format
 msgid "Sales Invoice created successfully from %(ref)s."
 msgstr "Factura %(ref)s creada con éxito."
 
 msgid "Upload New Invoice"
 msgstr "Subir Nueva Factura"
-
 
 msgid "Create Sales Invoice"
 msgstr "Crear factura de venta"
@@ -2775,8 +2846,74 @@ msgstr "Vista Kanban"
 msgid "Assigned Employees"
 msgstr "Empleados Asignados"
 
+msgid "Preview Schedule"
+msgstr ""
+
+msgid "This run has not been solved yet."
+msgstr ""
+
+msgid "Optimization started in the background. Refresh this page to check progress."
+msgstr ""
+
+msgid "Scheduling runs"
+msgstr ""
+
+msgid "Optimize schedule"
+msgstr ""
+
+#, fuzzy
+#| msgid "Review"
+msgid "Preview"
+msgstr "Revisar"
+
+#, fuzzy
+#| msgid "Stage status"
+msgid "Solver status"
+msgstr "Estado de la etapa"
+
+msgid "Optimal"
+msgstr ""
+
+#, fuzzy
+#| msgid "Total price"
+msgid "Total margin"
+msgstr "Precio total"
+
+#, fuzzy
+#| msgid "Assigned"
+msgid "Assignments"
+msgstr "Asignado"
+
+#, fuzzy
+#| msgid "Configuration"
+msgid "Configuration ID"
+msgstr "Configuración"
+
+msgid "Margin"
+msgstr ""
+
+#, fuzzy
+#| msgid "Source"
+msgid "Resource"
+msgstr "Origén"
+
+msgid "Start"
+msgstr "Inicio"
+
+msgid "End"
+msgstr "Fin"
+
+msgid "Minutes"
+msgstr ""
+
 msgid "Stage status"
 msgstr "Estado de la etapa"
+
+msgid "Maximize margin"
+msgstr ""
+
+msgid "Maximize quantity"
+msgstr ""
 
 msgid "Search employee, stage, ticket or component"
 msgstr "Buscar empleado, etapa, ticket o componente"
@@ -2784,6 +2921,21 @@ msgstr "Buscar empleado, etapa, ticket o componente"
 #, fuzzy
 #| msgid "Stages"
 msgid "All stages"
+msgstr "Etapas"
+
+#, fuzzy
+#| msgid "Days"
+msgid "Day"
+msgstr "Días"
+
+#, fuzzy
+#| msgid "Production Item"
+msgid "Production resource"
+msgstr "Item de Producción"
+
+#, fuzzy
+#| msgid "Stages"
+msgid "All resources"
 msgstr "Etapas"
 
 msgid "In Progress"
@@ -2894,32 +3046,38 @@ msgstr "Automático"
 msgid "Manual"
 msgstr "Manual"
 
+msgid "Planned Start"
+msgstr "Inicio Planificado"
+
+
+msgid "Planned End"
+msgstr "Fin Planificado"
+
+msgid "Primary Resource"
+msgstr "Recurso Primario"
+
 msgid "Locked"
 msgstr "Bloqueado"
-
-#, fuzzy
-#| msgid "Production Tickets"
-msgid "Production control"
-msgstr "Tickets de Producción"
-
-msgid "Live view of active employees."
-msgstr "Vista en vivo de empleados activos."
 
 msgid "Search"
 msgstr "Buscar"
 
+msgid "Production control"
+msgstr "Control de Producción"
+
+msgid "Live view of active employees."
+msgstr "Vista en vivo de empleados activos."
+
 msgid "worker(s) currently active"
 msgstr "trabajador(es) actualmente activo(s)"
 
-#, fuzzy
-#| msgid "Invoice File"
-msgid "Toggle details"
-msgstr "Archivo de factura"
 
-#, fuzzy
-#| msgid "Ticket HTML"
+msgid "Toggle details"
+msgstr "Activar/desactivar detalles"
+
+
 msgid "Ticket"
-msgstr "Sure, please provide the HTML content related to the ticket, and I'll help you translate the relevant strings into neutral Latin American Spanish."
+msgstr "Ticket"
 
 msgid "Started"
 msgstr "Empezado"
@@ -2927,16 +3085,13 @@ msgstr "Empezado"
 msgid "Elapsed"
 msgstr "Transcurrido"
 
-#, fuzzy
-#| msgid "Sessions"
+
 msgid "Session"
-msgstr "Sesiones"
+msgstr "Sesión"
 
 msgid "There are no active employees right now."
 msgstr "No hay empleados activos en este momento."
 
-#, fuzzy
-#| msgid "Production Stages"
 msgid "Production Kanban"
 msgstr "Kaban de Producción"
 
@@ -2983,6 +3138,73 @@ msgstr "Este ticket aún no tiene ninguna etapa de producción asignada. Verific
 
 msgid "Work Order"
 msgstr "Orden de Trabajo"
+
+msgid "Choose the planning window, strategy, slot size, and configurations to include in the optimization run."
+msgstr ""
+
+#, fuzzy
+#| msgid "Back to list"
+msgid "Back to runs"
+msgstr "Volver a la lista"
+
+msgid "Optimization parameters"
+msgstr ""
+
+#, fuzzy
+#| msgid "Configuration"
+msgid "Run optimization"
+msgstr "Configuración"
+
+msgid "Review the proposed optimization result before applying it to planned production sessions."
+msgstr ""
+
+#, fuzzy
+#| msgid "Fiscal"
+msgid "Discard"
+msgstr "Fiscales"
+
+msgid "Apply schedule"
+msgstr ""
+
+#, fuzzy
+#| msgid "Planning"
+msgid "Warnings"
+msgstr "Planificación"
+
+msgid "Run summary"
+msgstr ""
+
+#, fuzzy
+#| msgid "Category"
+msgid "Strategy"
+msgstr "Categoría"
+
+msgid "Start date"
+msgstr "Fecha de inicio"
+
+msgid "End date"
+msgstr "Fecha de fin"
+
+msgid "Slot minutes"
+msgstr ""
+
+#, fuzzy
+#| msgid "Configurations"
+msgid "Selected configurations"
+msgstr "Configuraciones"
+
+msgid "No configurations were selected by the optimizer."
+msgstr ""
+
+#, fuzzy
+#| msgid "Pricing rule assignments"
+msgid "Planned assignments"
+msgstr "Asignaciones de reglas de precios"
+
+#, fuzzy
+#| msgid "No stages defined for this item"
+msgid "No assignments were generated."
+msgstr "No hay etapas definidas para este elemento"
 
 msgid "Permission denied"
 msgstr "Permiso denegado"
@@ -3195,6 +3417,11 @@ msgid "Financial & Insurance"
 msgstr "Finanzas y Seguro"
 
 #, fuzzy
+#| msgid "Configurations"
+msgid "Configuration Groups"
+msgstr "Configuraciones"
+
+#, fuzzy
 #| msgid "Configuration"
 msgid "Add Configuration"
 msgstr "Configuración"
@@ -3381,6 +3608,11 @@ msgstr "Almacena las bases imponibles y montos agregados."
 msgid "Can view quote dashboard"
 msgstr ""
 
+#, fuzzy
+#| msgid "Configuration"
+msgid "Configuration Group"
+msgstr "Configuración"
+
 msgid "Quote item"
 msgstr "artículo de Presupuesto"
 
@@ -3405,7 +3637,6 @@ msgstr "Total Presupuestado"
 msgid "quotes"
 msgstr "Presupuestos"
 
-
 msgid "Total Tax"
 msgstr "Total Impuestos"
 
@@ -3414,7 +3645,6 @@ msgstr "Valor Promedio del Presupuesto"
 
 msgid "Breakdown by Status"
 msgstr "Desglose por Estado"
-
 
 msgid "Tax"
 msgstr "Impuestos"
@@ -3600,12 +3830,6 @@ msgstr "Permiso sin sueldo"
 msgid "Wallet"
 msgstr "Saldo de vacaciones"
 
-msgid "Start date"
-msgstr "Fecha de inicio"
-
-msgid "End date"
-msgstr "Fecha de fin"
-
 msgid "Requested days"
 msgstr "Días solicitados"
 
@@ -3644,12 +3868,6 @@ msgstr "Solicitar ausencia"
 
 msgid "Upcoming / pending absences"
 msgstr "Ausencias próximas / pendientes"
-
-msgid "Start"
-msgstr "Inicio"
-
-msgid "End"
-msgstr "Fin"
 
 msgid "Days"
 msgstr "Días"

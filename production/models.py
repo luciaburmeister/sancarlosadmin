@@ -472,6 +472,7 @@ class PlannedProductionSession(Timestampable):
         on_delete=models.CASCADE,
         related_name="planned_sessions",
         null=True,
+        verbose_name=_("Production Ticket")
     )
 
     production_stage = models.CharField(
@@ -480,8 +481,8 @@ class PlannedProductionSession(Timestampable):
         verbose_name=_("Production Stage"),
     )
 
-    planned_start = models.DateTimeField(db_index=True)
-    planned_end = models.DateTimeField(db_index=True)
+    planned_start = models.DateTimeField(db_index=True,verbose_name=_("Planned Start"))
+    planned_end = models.DateTimeField(db_index=True,verbose_name=_("Planned End"))
 
     primary_resource = models.ForeignKey(
         "ProductionResource",
@@ -489,6 +490,7 @@ class PlannedProductionSession(Timestampable):
         related_name="planned_primary_sessions",
         null=True,
         blank=True,
+        verbose_name=_("Primary Resource")
     )
 
     locked = models.BooleanField(default=False,verbose_name=_("Locked"))
@@ -498,7 +500,7 @@ class PlannedProductionSession(Timestampable):
         default="auto",
         verbose_name=_("Source")
     )
-    notes = models.TextField(blank=True)
+    notes = models.TextField(blank=True,verbose_name=_("Notes"))
 
     class Meta:
         indexes = [

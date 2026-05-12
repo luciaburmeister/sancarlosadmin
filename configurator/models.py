@@ -115,6 +115,16 @@ class ProductTemplate(CompanyOwnedModel):
         default=ProductFlowKind.QUOTABLE,
         verbose_name=_("Flow Kind"),
     )
+    unit_price_variable = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name=_("Unit price variable"),
+        help_text=_(
+            "Name of a computed variable to use as divisor for unit price. "
+            "unit_price = subtotal / variable_value. Leave blank to disable."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Product template")
@@ -603,6 +613,15 @@ class Configuration(Timestampable, CompanyOwnedModel):
         verbose_name=_("Subtotal (before tax)"),
     )
 
+    unit_price = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Unit price"),
+        help_text=_("Subtotal divided by the product's unit price variable."),
+    )
+
     total_price = MoneyField(
         max_digits=12,
         decimal_places=2,
@@ -829,6 +848,17 @@ class Configuration(Timestampable, CompanyOwnedModel):
         self.total_cost = base_subtotal
         self.subtotal_price = subtotal
 
+        # Compute unit price if the product defines a divisor variable
+        unit_var_name = (self.product.unit_price_variable or "").strip()
+        if unit_var_name and unit_var_name in context:
+            divisor = Decimal(str(context[unit_var_name]))
+            if divisor:
+                self.unit_price = (subtotal / divisor).quantize(Decimal("0.01"))
+            else:
+                self.unit_price = Decimal("0")
+        else:
+            self.unit_price = Decimal("0")
+
         total, tax_breakdown = self.calculate_taxes_and_snapshot(subtotal)
 
         self.total_price = total
@@ -851,6 +881,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
             update_fields=[
                 "total_cost",
                 "subtotal_price",
+                "unit_price",
                 "total_price",
                 "pricing_breakdown",
                 "tax_breakdown",

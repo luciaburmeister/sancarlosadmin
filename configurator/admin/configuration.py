@@ -287,6 +287,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
             "fields": (
                 ("total_cost", "subtotal_price"),
                 ("price_override", "total_price"),
+                ("unit_price")
                 ),
         }),
     )

@@ -112,10 +112,3 @@ class ConfigurationToProductionService:
                 production_item.ticket_html = ConfigurationExportService.render_html(production_item, ticket_template)
 
             production_item.save(update_fields=["ticket_html"])
-
-            # Delegate scheduling to the dedicated SessionScheduler
-            SessionScheduler.schedule_item(
-                production_ticket=ticket,
-                stage_resources=item.stage_resources,
-                schedule_ctx=schedule_ctx,
-            )

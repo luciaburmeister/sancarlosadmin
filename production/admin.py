@@ -14,7 +14,7 @@ from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter,
     MultipleChoicesDropdownFilter
 )
-
+from django.contrib.contenttypes.prefetch import GenericPrefetch
 from production.forms.optimization_form import OptimizeScheduleForm
 from production.models import (
     ProductionTicket,
@@ -37,6 +37,8 @@ from production.views.production_ticket_stages_view import ProductionTicketStage
 from production.views.production_control_view import ProductionControlView
 from production.views import ProductionTicketHtmlRender
 from production.components.status_badge import StatusBadge
+
+from production.models import Employee, Machine
 
 
 class ProductionItemInline(TabularInline):
@@ -493,6 +495,10 @@ class PlannedProductionSessionAdmin(ModelAdmin):
     list_filter = ("locked", "source")
     search_fields = ("production_stage",)
     autocomplete_fields = ("production_ticket", "primary_resource")
+    list_select_related = (
+        "production_ticket",
+        "primary_resource__content_type"
+    )
     inlines = (PlannedSessionResourceInline,)
 
     fieldsets = (
@@ -516,6 +522,18 @@ class PlannedProductionSessionAdmin(ModelAdmin):
             )
         }),
     )
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .prefetch_related(
+                GenericPrefetch(
+                    "primary_resource__target",
+                    [Employee.objects.all(), Machine.objects.all()],
+                ),
+            )
+        )
+
     def get_urls(self):
         urls = super().get_urls()
 

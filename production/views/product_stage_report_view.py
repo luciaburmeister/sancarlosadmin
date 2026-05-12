@@ -114,15 +114,33 @@ class ProductStageReportView(UnfoldModelAdminViewMixin, View):
             else:
                 ticket_to_product[ticket.id] = _("Unknown product")
 
-        # Step 1: sum actual session durations per (ticket_id, stage)
-        # This avoids counting paused time between sessions
-        ticket_stage_totals = defaultdict(float)
+        # Step 1: collect time intervals per (ticket_id, stage)
+        # Items processed together will have overlapping intervals —
+        # we merge them so concurrent work is only counted once.
+        ticket_stage_intervals = defaultdict(list)
 
         for session in sessions_qs.iterator():
             ticket_id = session.production_item.ticket_id
             stage = session.production_stage
-            duration = (session.end_time - session.start_time).total_seconds()
-            ticket_stage_totals[(ticket_id, stage)] += duration
+            ticket_stage_intervals[(ticket_id, stage)].append(
+                (session.start_time, session.end_time)
+            )
+
+        # Merge overlapping intervals and sum actual working time
+        ticket_stage_totals = {}
+        for key, intervals in ticket_stage_intervals.items():
+            intervals.sort(key=lambda x: x[0])
+            merged = [intervals[0]]
+            for start, end in intervals[1:]:
+                prev_start, prev_end = merged[-1]
+                if start <= prev_end:
+                    # Overlapping or adjacent — extend
+                    merged[-1] = (prev_start, max(prev_end, end))
+                else:
+                    merged.append((start, end))
+            ticket_stage_totals[key] = sum(
+                (end - start).total_seconds() for start, end in merged
+            )
 
         # Step 2: roll up into product → stage → {total_seconds, count}
         # count = number of tickets (orders) that went through this stage

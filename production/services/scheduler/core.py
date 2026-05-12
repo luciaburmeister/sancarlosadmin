@@ -2,7 +2,7 @@ from datetime import date
 from abc import ABC, abstractmethod
 
 from configurator.models import Configuration
-from production.services.scheduler.schedule_proposal import ScheduleProposal
+from production.services.scheduler.proposal import ScheduleProposal
 
 
 class ScheduleStrategy(ABC):

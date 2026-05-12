@@ -28,8 +28,7 @@ from production.models import (
     SchedulingRun,
     ProductionTicketStatus,
 )
-from production.services.scheduler.apply_schedule import ScheduleProposalApplier
-from production.services.scheduler.serialization import proposal_from_dict
+from production.services.scheduler import ScheduleProposalApplier, proposal_from_dict
 from production.views.configuration_autocomplete import ConfigurationAutocompleteView
 from production.views.planned_sessions_schedule_view import PlannedSessionsScheduleDayView
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter

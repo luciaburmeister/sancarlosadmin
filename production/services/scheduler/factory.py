@@ -1,6 +1,6 @@
-from production.services.scheduler.schedule_margin import MarginScheduler
-from production.services.scheduler.schedule_quantity import QuantityScheduler
-from production.services.scheduler.scheduler import ScheduleStrategy
+from production.services.scheduler.strategies.margin import MarginScheduler
+from production.services.scheduler.strategies.quantity import QuantityScheduler
+from production.services.scheduler.core import ScheduleStrategy
 
 
 def build_scheduler_strategy(

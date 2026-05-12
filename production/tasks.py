@@ -1,8 +1,6 @@
 from celery import shared_task
 from production.models import SchedulingRun
-from production.services.scheduler.factory import build_scheduler_strategy
-from production.services.scheduler.scheduler import Scheduler
-from production.services.scheduler.serialization import proposal_to_dict
+from production.services.scheduler import build_scheduler_strategy, Scheduler, proposal_to_dict
 from configurator.models import Configuration
 
 

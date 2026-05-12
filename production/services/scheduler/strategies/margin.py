@@ -1,9 +1,9 @@
 import math
 
 from configurator.models import Configuration
-from production.services.scheduler.dict_var_creation import optimization_dict_creation
-from production.services.scheduler.schedule_proposal import ScheduleProposal, ScheduledAssignment
-from production.services.scheduler.scheduler import ScheduleStrategy
+from production.services.scheduler.data import optimization_dict_creation
+from production.services.scheduler.proposal import ScheduleProposal, ScheduledAssignment
+from production.services.scheduler.core import ScheduleStrategy
 from datetime import date
 import pulp
 from datetime import datetime, timedelta

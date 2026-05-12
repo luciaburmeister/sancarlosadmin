@@ -1,4 +1,4 @@
-from production.services.scheduler.schedule_proposal import ScheduleProposal, ScheduledAssignment
+from production.services.scheduler.proposal import ScheduleProposal, ScheduledAssignment
 from datetime import datetime
 
 

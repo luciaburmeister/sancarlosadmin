@@ -4,7 +4,8 @@ from unfold.admin import ModelAdmin
 from unfold.decorators import display
 from .models import (
     Client, Order, DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
-    Quote, QuoteItem, SaleZone, ClientAddress, ClientContact, ClientBankAccount, QuoteStatus
+    Quote, QuoteItem, SaleZone, ClientAddress, ClientContact, ClientBankAccount,
+    QuoteStatus, QuoteConfigurationGroup,
 )
 from unfold.admin import TabularInline, StackedInline
 from configurator.models import Configuration
@@ -202,18 +203,54 @@ class QuoteItemInline(TabularInline):
     autocomplete_fields = ["material"]
     readonly_fields = ["line_total"]
 
+class QuoteConfigurationGroupInline(StackedInline):
+    model = QuoteConfigurationGroup
+    extra = 1
+    tab = True
+    tab_title = _("Configuration Groups")
+    fields = ["name", "notes", "order"]
+    ordering = ["order"]
+
+
+@admin.register(QuoteConfigurationGroup)
+class QuoteConfigurationGroupAdmin(ModelAdmin):
+    list_display = ["name", "quote", "order"]
+    search_fields = ["name"]
+    autocomplete_fields = ["quote"]
+    list_filter = ["quote"]
+
+
 class ConfigurationReadOnlyInline(TabularInline):
     model = Configuration
     extra = 0
     tab = True
-    readonly_fields = ["name", "status", "subtotal_price", "total_price_display"]
-    fields = ["name", "status", "subtotal_price", "total_price_display"]
+    readonly_fields = ["config_link", "status", "subtotal_price", "total_price_display"]
+    fields = ["config_link", "status", "quote_group", "subtotal_price", "total_price_display"]
     can_delete = True
     max_num = 0
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "quote_group":
+            import re
+            match = re.search(r'/admin/sales/quote/(\d+)/change/', request.path)
+            if match:
+                kwargs["queryset"] = QuoteConfigurationGroup.objects.filter(
+                    quote_id=match.group(1)
+                ).order_by("order")
+            else:
+                kwargs["queryset"] = QuoteConfigurationGroup.objects.none()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    @display(description=_("Name"))
+    def config_link(self, obj):
+        from django.utils.html import format_html
+        url = reverse("admin:configurator_configuration_change", args=[obj.pk])
+        return format_html('<a href="{}" target="_blank">{}</a>', url, obj.name)
 
     @display(description=_("Total price"))
     def total_price_display(self, obj):
         return obj.total_price
+
 
 @admin.register(Quote)
 class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -224,7 +261,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
     readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown"]
     list_select_related = ["client", "project_file", "company"]
     
-    inlines = [ConfigurationReadOnlyInline, QuoteItemInline, AppliedTaxInline]
+    inlines = [ ConfigurationReadOnlyInline,QuoteConfigurationGroupInline, QuoteItemInline, AppliedTaxInline]
 
     actions_list = ["quote_dashboard_action"]
     actions_row = ["add_configuration_to_quote", "export_quote_action"]

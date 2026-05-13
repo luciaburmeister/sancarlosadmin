@@ -1,17 +1,21 @@
-from django.contrib import admin
+
+from django.contrib import admin, messages
 from django.http import HttpRequest
 from unfold.admin import ModelAdmin, TabularInline,StackedInline
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 from django.urls import path, reverse
+from django.shortcuts import get_object_or_404, redirect, render
+from unfold.decorators import display, action
+from django.utils import timezone
+from production.tasks import run_schedule_optimization
 from core.admin.company_admin import CompanyRestrictedAdmin
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter,
     MultipleChoicesDropdownFilter
 )
-from unfold.admin import ModelAdmin, TabularInline, StackedInline
-from unfold.decorators import display
-
+from django.contrib.contenttypes.prefetch import GenericPrefetch
+from production.forms.optimization_form import OptimizeScheduleForm
 from production.models import (
     ProductionTicket,
     ProductionItem,
@@ -21,18 +25,20 @@ from production.models import (
     PlannedSessionResource,
     ProductionResource,
     OperationRequirement,
+    SchedulingRun,
     ProductionTicketStatus,
 )
+from production.services.scheduler import ScheduleProposalApplier, proposal_from_dict
+from production.views.configuration_autocomplete import ConfigurationAutocompleteView
+from production.views.planned_sessions_schedule_view import PlannedSessionsScheduleDayView
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
 from production.views.production_item_stages_view import ProductionItemAdvanceStageView
 from production.views.production_ticket_stages_view import ProductionTicketStagesView
 from production.views.production_control_view import ProductionControlView
 from production.views import ProductionTicketHtmlRender
 from production.components.status_badge import StatusBadge
-from django.urls import path, reverse
-from django.shortcuts import  redirect
-from unfold.decorators import display, action
 
+from production.models import Employee, Machine
 
 
 class ProductionItemInline(TabularInline):
@@ -478,7 +484,7 @@ class PlannedSessionResourceInline(TabularInline):
 class PlannedProductionSessionAdmin(ModelAdmin):
     list_display = (
         "id",
-        "production_item",
+        "production_ticket",
         "production_stage",
         "planned_start",
         "planned_end",
@@ -488,13 +494,17 @@ class PlannedProductionSessionAdmin(ModelAdmin):
     )
     list_filter = ("locked", "source")
     search_fields = ("production_stage",)
-    autocomplete_fields = ("production_item", "primary_resource")
+    autocomplete_fields = ("production_ticket", "primary_resource")
+    list_select_related = (
+        "production_ticket",
+        "primary_resource__content_type"
+    )
     inlines = (PlannedSessionResourceInline,)
 
     fieldsets = (
         (None, {
             "fields": (
-                "production_item",
+                "production_ticket",
                 "production_stage",
             )
         }),
@@ -512,3 +522,251 @@ class PlannedProductionSessionAdmin(ModelAdmin):
             )
         }),
     )
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .prefetch_related(
+                GenericPrefetch(
+                    "primary_resource__target",
+                    [Employee.objects.all(), Machine.objects.all()],
+                ),
+            )
+        )
+
+    def get_urls(self):
+        urls = super().get_urls()
+
+        schedule_view = self.admin_site.admin_view(
+            PlannedSessionsScheduleDayView.as_view(model_admin=self)
+        )
+
+        custom = [
+            path(
+                "schedule/",
+                schedule_view,
+                name="production_plannedproductionsession_schedule",
+            ),
+        ]
+        return custom + urls
+    
+
+@admin.register(SchedulingRun)
+class SchedulingRunAdmin(ModelAdmin):
+    change_list_template = "admin/production/schedulingrun/change_list.html"
+    list_fullwidth = True
+
+    list_display = (
+        "id",
+        "created_at",
+        "created_by",
+        "strategy",
+        "start_date",
+        "end_date",
+        "slot_minutes",
+        "status",
+        "solver_status",
+        "total_margin",
+        "applied_at",
+    )
+    readonly_fields = (
+        "created_at",
+        "created_by",
+        "input_payload",
+        "result_payload",
+        "solver_status",
+        "objective_value",
+        "total_margin",
+        "applied_at",
+        "discarded_at",
+        "error_message",
+    )
+    actions_row = ["preview_schedule_action"]
+
+    @action(
+        description=_("Preview Schedule"),
+        url_path="preview-schedule",
+    )
+    def preview_schedule_action(self, request: HttpRequest, object_id: int):
+        run = get_object_or_404(SchedulingRun, pk=object_id)
+        if run.status != "solved":
+            messages.warning(request, _("This run has not been solved yet."))
+            return redirect(reverse("admin:production_schedulingrun_change", args=[object_id]))
+        return redirect(reverse("admin:production_schedulingrun_preview", args=[object_id]))
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "configuration-autocomplete/",
+                self.admin_site.admin_view(ConfigurationAutocompleteView.as_view(model_admin=self)),
+                name="production_configuration_autocomplete",
+            ),
+            path(
+                "optimize/",
+                self.admin_site.admin_view(self.optimize_view),
+                name="production_schedulingrun_optimize",
+            ),
+            path(
+                "<int:run_id>/preview/",
+                self.admin_site.admin_view(self.preview_view),
+                name="production_schedulingrun_preview",
+            ),
+            path(
+                "<int:run_id>/apply/",
+                self.admin_site.admin_view(self.apply_view),
+                name="production_schedulingrun_apply",
+            ),
+            path(
+                "<int:run_id>/discard/",
+                self.admin_site.admin_view(self.discard_view),
+                name="production_schedulingrun_discard",
+            ),
+        ]
+        return custom_urls + urls
+
+    def optimize_view(self, request):
+        if request.method == "POST":
+            form = OptimizeScheduleForm(request=request, data=request.POST)
+            if form.is_valid():
+                strategy_code = form.cleaned_data["strategy"]
+                start_date = form.cleaned_data["start_date"]
+                end_date = form.cleaned_data["end_date"]
+                ts = form.cleaned_data["ts"]
+                configurations = list(form.cleaned_data["configurations"])
+
+                run = SchedulingRun.objects.create(
+                    created_by=request.user,
+                    strategy=strategy_code,
+                    start_date=start_date,
+                    end_date=end_date,
+                    slot_minutes=ts,
+                    status="pending",
+                    input_payload={
+                        "configuration_ids": [c.pk for c in configurations],
+                    },
+                )
+
+                run_schedule_optimization.delay(run.pk)
+
+                messages.success(
+                    request,
+                    _("Optimization started in the background. Refresh this page to check progress."),
+                )
+                return redirect("admin:production_schedulingrun_change", run.pk)
+        else:
+            form = OptimizeScheduleForm(request=request)
+
+        context = {
+            **self.admin_site.each_context(request),
+            "opts": self.model._meta,
+            "title": "Optimize production schedule",
+            "form": form,
+            "form_media": form.media,
+            "cancel_url": reverse("admin:production_schedulingrun_changelist"),
+            "breadcrumbs": [
+                {"title": _("Scheduling runs"), "link": reverse("admin:production_schedulingrun_changelist")},
+                {"title": _("Optimize schedule")},
+            ],
+        }
+        return render(request, "admin/production/schedulingrun/optimize.html", context)
+
+    def preview_view(self, request, run_id: int):
+        run = get_object_or_404(SchedulingRun, pk=run_id)
+        proposal = proposal_from_dict(run.result_payload)
+
+        selected_rows = [
+            [
+                config_id,
+                proposal.configuration_margins.get(str(config_id), 0),
+            ]
+            for config_id in proposal.selected_configuration_ids
+        ]
+
+        assignment_rows = [
+            [
+                a.configuration_name,
+                a.stage_name,
+                a.resource_name,
+                timezone.localtime(a.start) if timezone.is_aware(a.start) else a.start,
+                timezone.localtime(a.end) if timezone.is_aware(a.end) else a.end,
+                a.minutes,
+            ]
+            for a in proposal.assignments
+        ]
+
+        context = {
+            **self.admin_site.each_context(request),
+            "opts": self.model._meta,
+            "title": f"Scheduling run #{run.pk} preview",
+            "run": run,
+            "cancel_url": reverse("admin:production_schedulingrun_changelist"),
+            "proposal": proposal,
+            "breadcrumbs": [
+                {"title": _("Scheduling runs"), "link": reverse("admin:production_schedulingrun_changelist")},
+                {"title": _("Preview")},
+            ],
+            "summary_cards": [
+                {"title": _("Solver status"), "metric": proposal.solver_status},
+                {"title": _("Optimal"), "metric": _("Yes") if proposal.is_optimal else _("No")},
+                {"title": _("Total margin"), "metric": proposal.total_margin},
+                {"title": _("Assignments"), "metric": len(proposal.assignments)},
+            ],
+            "selected_configs_table": {
+                "headers": [_("Configuration ID"), _("Margin")],
+                "rows": selected_rows,
+            },
+            "assignments_table": {
+                "headers": [
+                    _("Configuration"),
+                    _("Stage"),
+                    _("Resource"),
+                    _("Start"),
+                    _("End"),
+                    _("Minutes"),
+                ],
+                "rows": assignment_rows,
+            },
+        }
+        return render(request, "admin/production/schedulingrun/preview.html", context)
+
+    def apply_view(self, request, run_id: int):
+        run = get_object_or_404(SchedulingRun, pk=run_id)
+
+        if request.method != "POST":
+            return redirect("admin:production_schedulingrun_preview", run_id=run.pk)
+
+        if run.status != "solved":
+            messages.error(request, "Only solved runs can be applied.")
+            return redirect("admin:production_schedulingrun_preview", run_id=run.pk)
+
+        proposal = proposal_from_dict(run.result_payload)
+
+        applier = ScheduleProposalApplier()
+        created = applier.apply(proposal)
+
+        run.status = "applied"
+        run.applied_at = timezone.now()
+        run.save(update_fields=["status", "applied_at"])
+
+        messages.success(
+            request,
+            f"Applied schedule successfully. Created {len(created)} planned production sessions.",
+        )
+        return redirect("admin:production_plannedproductionsession_changelist")
+
+    def discard_view(self, request, run_id: int):
+        run = get_object_or_404(SchedulingRun, pk=run_id)
+
+        if request.method == "POST" and run.status in {"pending", "solved"}:
+            run.status = "discarded"
+            run.discarded_at = timezone.now()
+            run.save(update_fields=["status", "discarded_at"])
+            messages.success(request, "Scheduling proposal discarded.")
+
+        return redirect("admin:production_schedulingrun_changelist")
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["optimize_url"] = reverse("admin:production_schedulingrun_optimize")
+        return super().changelist_view(request, extra_context=extra_context)

@@ -1,0 +1,56 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <script src="{% url 'admin:jsi18n' %}"></script>
+    {{ form.media }}
+{% endblock %}
+
+{% block content %}
+    {% component "unfold/components/container.html" %}
+        <div class="flex flex-col gap-6">
+
+            <div class="flex items-center justify-between gap-4">
+                <div>
+                    {% component "unfold/components/title.html" %}
+                        {{ title }}
+                    {% endcomponent %}
+                    {% component "unfold/components/text.html" with class="mt-2 text-sm text-base-500" %}
+                        {% trans "Choose the planning window, strategy, slot size, and configurations to include in the optimization run." %}
+                    {% endcomponent %}
+                </div>
+
+                {% component "unfold/components/button.html" with href=cancel_url variant="secondary" %}
+                    {% trans "Back to runs" %}
+                {% endcomponent %}
+            </div>
+
+            {% if breadcrumbs %}
+                {% component "unfold/components/navigation.html" with items=breadcrumbs %}
+                {% endcomponent %}
+            {% endif %}
+
+            <form method="post" novalidate>
+                {% csrf_token %}
+
+                {% component "unfold/components/card.html" with title=_("Optimization parameters") %}
+                    <div class="aligned border border-base-200 rounded-default pt-3 px-3 shadow-sm dark:border-base-800">
+                        {% for field in form %}
+                            {% include "unfold/helpers/field.html" with field=field %}
+                        {% endfor %}
+                    </div>
+                {% endcomponent %}
+
+                <div class="flex justify-end gap-3 mt-6">
+                    {% component "unfold/components/button.html" with href=cancel_url variant="secondary" %}
+                        {% trans "Cancel" %}
+                    {% endcomponent %}
+                    {% component "unfold/components/button.html" with submit=1 variant="default" %}
+                        {% trans "Run optimization" %}
+                    {% endcomponent %}
+                </div>
+            </form>
+        </div>
+    {% endcomponent %}
+{% endblock %}

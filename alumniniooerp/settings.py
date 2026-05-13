@@ -246,7 +246,7 @@ AUTH_PASSWORD_VALIDATORS = [
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Europe/Madrid'
 
 USE_I18N = True
 
@@ -535,6 +535,16 @@ UNFOLD = {
                             "production.view_productionitem"
                         ),
                     },
+                    {
+                        "title": _("Schedule"),
+                        "icon": "calendar_month",
+                        "link": reverse_lazy(
+                            "admin:production_plannedproductionsession_schedule"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "production.view_plannedproductionsession"
+                        ),
+                    },
                 ],
             },
             {
@@ -587,6 +597,9 @@ UNFOLD = {
         ],
     },
 }
+
+GDAL_LIBRARY_PATH = os.getenv("GDAL_LIBRARY_PATH", "")
+GEOS_LIBRARY_PATH = os.getenv("GEOS_LIBRARY_PATH", "")
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (

@@ -115,6 +115,16 @@ class ProductTemplate(CompanyOwnedModel):
         default=ProductFlowKind.QUOTABLE,
         verbose_name=_("Flow Kind"),
     )
+    unit_price_variable = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name=_("Unit price variable"),
+        help_text=_(
+            "Name of a computed variable to use as divisor for unit price. "
+            "unit_price = subtotal / variable_value. Leave blank to disable."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Product template")
@@ -513,7 +523,6 @@ class PricingRule(CompanyOwnedModel):
     name = models.CharField(max_length=100, verbose_name=_("Name"))
 
     expression = models.TextField(
-        validators=[pricing_expression_validator],
         help_text=_(
             "Reusable expression.\n"
             "Allowed variables:\n"
@@ -603,6 +612,15 @@ class Configuration(Timestampable, CompanyOwnedModel):
         verbose_name=_("Subtotal (before tax)"),
     )
 
+    unit_price = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Unit price"),
+        help_text=_("Subtotal divided by the product's unit price variable."),
+    )
+
     total_price = MoneyField(
         max_digits=12,
         decimal_places=2,
@@ -665,6 +683,16 @@ class Configuration(Timestampable, CompanyOwnedModel):
         null=True,
         blank=True,
         verbose_name=_("Work Order PDF")
+    )
+
+    quote_group = models.ForeignKey(
+        "sales.QuoteConfigurationGroup",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="configurations",
+        verbose_name=_("Quote Group"),
+        help_text=_("Optional group for organising configurations within a quote."),
     )
 
     class Meta:
@@ -832,6 +860,17 @@ class Configuration(Timestampable, CompanyOwnedModel):
         self.total_cost = base_subtotal
         self.subtotal_price = subtotal
 
+        # Compute unit price if the product defines a divisor variable
+        unit_var_name = (self.product.unit_price_variable or "").strip()
+        if unit_var_name and unit_var_name in context:
+            divisor = Decimal(str(context[unit_var_name]))
+            if divisor:
+                self.unit_price = (subtotal / divisor).quantize(Decimal("0.01"))
+            else:
+                self.unit_price = Decimal("0")
+        else:
+            self.unit_price = Decimal("0")
+
         total, tax_breakdown = self.calculate_taxes_and_snapshot(subtotal)
 
         self.total_price = total
@@ -854,6 +893,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
             update_fields=[
                 "total_cost",
                 "subtotal_price",
+                "unit_price",
                 "total_price",
                 "pricing_breakdown",
                 "tax_breakdown",
@@ -881,6 +921,28 @@ class Configuration(Timestampable, CompanyOwnedModel):
 
         return Decimal(str(qty)), length
 
+    def _bom_item_key(self, component_id):
+        """
+        Defines identity of a BOM-derived ConfigurationItem.
+        Adjust here if you later support multiple BOM items per component.
+        """
+        return (component_id,)
+
+    def _get_existing_bom_items(self):
+        """
+        Returns a dict mapping BOM identity → ConfigurationItem
+        """
+        items = self.items.filter(is_template_item=True)
+        return {self._bom_item_key(item.component_id): item for item in items}
+    
+    def _get_item_stage_resources_snapshot(self, *, stages: list[str]) -> dict:
+        """
+        Returns the subset of product.production_planning_resources
+        relevant to the given stages.
+        """
+        product_resources = self.product.production_planning_resources or {}
+
+        return {stage: product_resources.get(stage, {}) for stage in (stages or [])}
 
     def generate_bom(self):
         if self.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE, ConfigurationStatus.SHOP]:
@@ -908,12 +970,16 @@ class Configuration(Timestampable, CompanyOwnedModel):
             if qty is None:
                 continue
 
+            stages = rule.production_stages or []
+            stage_resources = self._get_item_stage_resources_snapshot(stages=stages)
+
             if rule.id in existing_items:
                 item = existing_items[rule.id]
                 item.quantity = qty
                 item.length = length
                 item.unit_price = rule.component.compute_unit_price(context)
-                item.production_stages = rule.production_stages or []
+                item.production_stages = stages
+                item.stage_resources = stage_resources
                 item.note = safe_eval(rule.note_expression, context) if rule.note_expression else ""
                 item.save()
             else:
@@ -923,17 +989,17 @@ class Configuration(Timestampable, CompanyOwnedModel):
                     component=rule.component,
                     quantity=qty,
                     length=length,
-                    unit_price= rule.component.compute_unit_price(context),
+                    unit_price=rule.component.compute_unit_price(context),
                     is_template_item=True,
-                    production_stages=rule.production_stages or [],
+                    production_stages=stages,
+                    stage_resources=stage_resources,
                     note=safe_eval(rule.note_expression, context) if rule.note_expression else "",
                 )
             
             seen_item_ids.append(item.id)
 
-        # Cleanup: delete all template items that were not seen/updated in this run
-        # This includes stale items and items whose rules no longer evaluate to a quantity
         self.items.filter(is_template_item=True).exclude(id__in=seen_item_ids).delete()
+
 
     def evaluate_computed_variables(self, context):
         """
@@ -1202,6 +1268,13 @@ class ConfigurationItem(Timestampable):
         blank=True,
         help_text=_("Production stages inherited from BOM rule"),
         verbose_name=_("Production stages"),
+    )
+
+    stage_resources = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Stage resources"),
+        help_text=_("Snapshot of resources needed per stage for this item."),
     )
 
     label = models.CharField(

@@ -32,6 +32,7 @@ class InvoiceResource(resources.ModelResource):
             'total_amount_value',
             'currency',
             'confirmation_status',
+            'payment_status',
             'ocr_processed',
             'is_total_balanced',
         )
@@ -105,6 +106,7 @@ class SalesInvoiceResource(resources.ModelResource):
             'tax_amount_value',
             'total_amount_value',
             'currency',
+            'payment_status',
             'reference',
         )
         export_order = fields

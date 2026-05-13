@@ -10,10 +10,12 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django.core.validators import FileExtensionValidator
 from djmoney.models.fields import MoneyField
+from djmoney.money import Money
 from company.models import Company
 from django.utils import timezone
 import unicodedata
 import re
+from payments.models import PaymentAllocation
 
 class InvoiceGroup(models.Model):
     """Categories to classify invoices"""
@@ -36,6 +38,11 @@ class ConfirmationStatus(models.TextChoices):
     APPROVED = 'approved', _('Approved')
     PENDING = 'pending', _('Pending Review')
     DECLINED = 'declined', _('Declined')
+
+class InvoicePaymentStatus(models.TextChoices):
+    UNPAID = "unpaid", _("Unpaid")
+    PARTIAL = "partial", _("Partial")
+    PAID = "paid", _("Paid")
 
 def invoice_file_path(instance, filename):
     """
@@ -85,6 +92,13 @@ class Invoice(models.Model):
     )
 
     observations = models.TextField(blank=True, null=True)
+
+    payment_status = models.CharField(
+        max_length=10,
+        choices=InvoicePaymentStatus.choices,
+        default=InvoicePaymentStatus.UNPAID,
+        verbose_name=_("Payment Status"),
+    )
 
     # Stores the path to the file, actual file saved locally
     file = models.FileField(
@@ -271,6 +285,47 @@ class Invoice(models.Model):
         if self.pk and not kwargs.get('update_fields'):
             self.recalculate_totals(save=False)
         super().save(*args, **kwargs)
+
+    def recalculate_payment_status(self):
+        """
+        Recompute payment_status from PaymentAllocation entries pointing to this invoice.
+        """
+        
+
+        ct = ContentType.objects.get_for_model(self)
+        total_applied = (
+            PaymentAllocation.objects.filter(content_type=ct, object_id=self.pk)
+            .aggregate(total=Sum("amount_applied"))["total"]
+            or 0
+        )
+
+        if total_applied <= 0:
+            new_status = InvoicePaymentStatus.UNPAID
+        elif self.total_amount and total_applied >= self.total_amount.amount:
+            new_status = InvoicePaymentStatus.PAID
+        else:
+            new_status = InvoicePaymentStatus.PARTIAL
+
+        self.payment_status = new_status
+        self.save(update_fields=["payment_status"])
+
+    @property
+    def amount_paid(self):
+
+        ct = ContentType.objects.get_for_model(self)
+        total = (
+            PaymentAllocation.objects.filter(content_type=ct, object_id=self.pk)
+            .aggregate(total=Sum("amount_applied"))["total"]
+            or 0
+        )
+        currency = self.total_amount_currency if self.total_amount else 'EUR'
+        return Money(total, currency)
+
+    @property
+    def amount_remaining(self):
+        if self.total_amount:
+            return self.total_amount - self.amount_paid
+        return Money(0, 'EUR')
     
     def get_taxes(self):
         ct = ContentType.objects.get_for_model(self)
@@ -441,14 +496,43 @@ class AppliedTax(models.Model):
     content_object = GenericForeignKey("content_type", "object_id")
     order = models.PositiveIntegerField(default=0,db_index=True)
 
+    # Fields whose modification is blocked on a finalized invoice.
+    # Saves that only touch computed fields (base_amount, calculated_amount)
+    # are allowed through so that recalculate_totals() can still run.
+    _SENSITIVE_FIELDS = frozenset({"tax_type_id", "selected_percentage", "order"})
+
     def save(self, *args, **kwargs):
-        # Check if parent is a finalized SalesInvoice
-        if self.content_type.model == 'salesinvoice' and self.pk:
+        from django.core.exceptions import ValidationError
+
+        if self.content_type.model == 'salesinvoice':
             from invoices.models import SalesInvoiceStatus
             invoice = self.content_object
             if invoice and invoice.status == SalesInvoiceStatus.FINAL:
-                from django.core.exceptions import ValidationError
-                raise ValidationError(_("Cannot edit taxes in a finalized invoice."))
+                update_fields = kwargs.get("update_fields")
+
+                if not self.pk:
+                    # New tax being added to a finalized invoice — always block.
+                    raise ValidationError(_("Cannot edit taxes in a finalized invoice."))
+
+                if update_fields is not None:
+                    # Explicit partial save: only block if a sensitive field is included.
+                    if self._SENSITIVE_FIELDS.intersection(update_fields):
+                        raise ValidationError(_("Cannot edit taxes in a finalized invoice."))
+                    # e.g. only base_amount / calculated_amount — allow through.
+                else:
+                    # Full save triggered by Django's inline formset machinery.
+                    # Only block if a sensitive field has actually changed.
+                    db = (
+                        AppliedTax.objects.filter(pk=self.pk)
+                        .values(*self._SENSITIVE_FIELDS)
+                        .first()
+                    )
+                    if db and any(
+                        getattr(self, field) != db[field]
+                        for field in self._SENSITIVE_FIELDS
+                    ):
+                        raise ValidationError(_("Cannot edit taxes in a finalized invoice."))
+
         super().save(*args, **kwargs)
 
     class Meta:
@@ -568,6 +652,7 @@ class SalesInvoiceStatus(models.TextChoices):
     PROFORMA = "proforma", _("Pro Forma")
     FINAL = "final", _("Final")
 
+
 class SalesInvoice(CompanyOwnedModel):
     status = models.CharField(
         max_length=20, 
@@ -625,8 +710,15 @@ class SalesInvoice(CompanyOwnedModel):
     )
     
     reference = models.CharField(max_length=255, blank=True, null=True, verbose_name=_("Reference"))
-    
+
     notes = models.TextField(blank=True, null=True, verbose_name=_("Notes"))
+
+    payment_status = models.CharField(
+        max_length=10,
+        choices=InvoicePaymentStatus.choices,
+        default=InvoicePaymentStatus.UNPAID,
+        verbose_name=_("Payment Status"),
+    )
 
     class Meta:
         verbose_name = _("Sales Invoice")
@@ -695,6 +787,46 @@ class SalesInvoice(CompanyOwnedModel):
             'tax': self.tax_amount,
             'total': self.total_amount
         }
+
+    def recalculate_payment_status(self):
+        """
+        Recompute payment_status from PaymentAllocation entries pointing to this invoice.
+        Always call this inside a transaction.atomic() block.
+        """
+        from payments.models import PaymentAllocation
+
+        ct = ContentType.objects.get_for_model(self)
+        total_applied = (
+            PaymentAllocation.objects.filter(content_type=ct, object_id=self.pk)
+            .aggregate(total=Sum("amount_applied"))["total"]
+            or 0
+        )
+
+        if total_applied <= 0:
+            new_status = InvoicePaymentStatus.UNPAID
+        elif total_applied >= self.total_amount.amount:
+            new_status = InvoicePaymentStatus.PAID
+        else:
+            new_status = InvoicePaymentStatus.PARTIAL
+
+        self.payment_status = new_status
+        self.save(update_fields=["payment_status"])
+
+    @property
+    def amount_paid(self):
+        from payments.models import PaymentAllocation
+
+        ct = ContentType.objects.get_for_model(self)
+        total = (
+            PaymentAllocation.objects.filter(content_type=ct, object_id=self.pk)
+            .aggregate(total=Sum("amount_applied"))["total"]
+            or 0
+        )
+        return Money(total, self.total_amount_currency)
+
+    @property
+    def amount_remaining(self):
+        return self.total_amount - self.amount_paid
 
     def save(self, *args, **kwargs):
         # Automatic recalculation if already exists

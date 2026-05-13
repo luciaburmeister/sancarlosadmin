@@ -2267,6 +2267,29 @@ files = [
 ]
 
 [[package]]
+name = "pulp"
+version = "3.3.1"
+description = "PuLP is an LP modeler written in python. PuLP can generate MPS or LP files and call GLPK, COIN CLP/CBC, CPLEX, and GUROBI to solve linear problems."
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "pulp-3.3.1-py3-none-any.whl", hash = "sha256:45aa73db3368eb13b156564e092784c8fa0c1feefa64c2afb0410d9dc0bb5cd9"},
+    {file = "pulp-3.3.1.tar.gz", hash = "sha256:a9ec237a56981b11c2096e8ba6bb72006833410ba5b400aa257426f85df5e293"},
+]
+
+[package.extras]
+copt = ["coptpy"]
+cplex = ["cplex ; sys_platform != \"darwin\" or python_full_version < \"3.12.0\""]
+gurobi = ["gurobipy"]
+highs = ["highspy (==1.13)"]
+mosek = ["mosek"]
+open-py = ["highspy (==1.13)", "pyscipopt"]
+public-py = ["coptpy", "cplex ; sys_platform != \"darwin\" or python_full_version < \"3.12.0\"", "gurobipy", "xpress"]
+scip = ["pyscipopt"]
+xpress = ["xpress"]
+
+[[package]]
 name = "py-moneyed"
 version = "3.0"
 description = "Provides Currency and Money classes for use in your Python code."
@@ -3544,4 +3567,4 @@ cffi = ["cffi (>=1.17,<2.0) ; platform_python_implementation != \"PyPy\" and pyt
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<4.0"
-content-hash = "b634bed456443033eaf0024e95b27866161d3c79529b48fb5fe1d6cba3a8d6a1"
+content-hash = "e10df850b31ef9b5961072e60c0b1f0eb82e03e247e7e295be771dfe333407db"

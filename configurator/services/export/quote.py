@@ -14,26 +14,63 @@ class QuoteExportStrategy(BaseExportStrategy):
         super().__init__(quote)
         self.quote = quote
 
-    def get_context(self, include_rendered_templates: bool = True) -> Dict[str, Any]:
+    def _build_config_context(self, config, include_rendered_templates):
         from configurator.services.export import ConfigurationExportService
-        
-        configurations_data = []
-        for config in self.quote.configurations.all():
-            strategy = ConfigurationExportService.get_strategy(config)
-            config_context = strategy.get_context(include_rendered_templates=include_rendered_templates)
-            config_context["subtotal"] = float(config.subtotal_price.amount)
-            config_context["total"] = float(config.total_price.amount)
-            pb = config.pricing_breakdown or {}
-            config_context["discounts"] = [
-                l for l in pb.get("lines", []) if l.get("type") == "discount"
+        strategy = ConfigurationExportService.get_strategy(config)
+        config_context = strategy.get_context(include_rendered_templates=include_rendered_templates)
+        config_context["subtotal"] = float(config.subtotal_price.amount)
+        config_context["total"] = float(config.total_price.amount)
+        pb = config.pricing_breakdown or {}
+        config_context["discounts"] = [
+            l for l in pb.get("lines", []) if l.get("type") == "discount"
+        ]
+        return config_context
+
+    def get_context(self, include_rendered_templates: bool = True) -> Dict[str, Any]:
+        # Build a dict of config_id -> config_context for reuse
+        all_configs = list(self.quote.configurations.select_related("quote_group").all())
+        config_contexts = {
+            config.pk: self._build_config_context(config, include_rendered_templates)
+            for config in all_configs
+        }
+
+        # Flat list (backwards compatible)
+        configurations_data = list(config_contexts.values())
+
+        # Group-aware lists
+        groups_data = []
+        for group in self.quote.configuration_groups.prefetch_related("configurations").order_by("order"):
+            member_configs = [
+                config_contexts[c.pk]
+                for c in group.configurations.all()
+                if c.pk in config_contexts
             ]
-            
-            configurations_data.append(config_context)
+            groups_data.append({
+                "id": group.pk,
+                "name": group.name,
+                "notes": group.notes,
+                "order": group.order,
+                "subtotal": float(group.subtotal),
+                "total": float(group.total),
+                "unit_price": float(group.unit_price),
+                "configurations": member_configs,
+            })
+
+        ungrouped_configs = [
+            config_contexts[c.pk]
+            for c in all_configs
+            if c.quote_group_id is None
+        ]
 
         context = {
             "quote": self.quote,
             "client": self.quote.client,
+            # Backwards-compatible flat list
             "configurations": configurations_data,
+            # Group-aware access
+            "groups": groups_data,
+            "ungrouped_configurations": ungrouped_configs,
+            "has_groups": len(groups_data) > 0,
             "subtotal_price": float(self.quote.subtotal_price.amount),
             "tax_amount": float(self.quote.tax_amount.amount),
             "total_price": float(self.quote.total_price.amount),

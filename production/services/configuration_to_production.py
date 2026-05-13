@@ -1,8 +1,16 @@
 from django.contrib.contenttypes.models import ContentType
+from configurator.models import Configuration, ConfigurationExportTemplate, ExportTemplateKind
+from configurator.services.export import ConfigurationExportService
 from production.models import ProductionTicket, ProductionItem
+from production.services.session_scheduler import ScheduleContext, SessionScheduler
 import os
 
+
 class ConfigurationToProductionService:
+    @classmethod
+    def create_ticket_by_id(cls, configuration_id):
+        configuration = Configuration.objects.get(pk=configuration_id)
+        return cls.create_ticket(configuration)
 
     @classmethod
     def create_ticket(cls, configuration, project_file=None):
@@ -19,7 +27,7 @@ class ConfigurationToProductionService:
                     "product": configuration.product.name,
                     "client": configuration.client_id,
                 }
-            }
+            },
         )
 
         if created:
@@ -95,7 +103,7 @@ class ConfigurationToProductionService:
                 for stage in item.production_stages
             }
 
-            prod_item = ProductionItem.objects.create(
+            production_item = ProductionItem.objects.create(
                 ticket=ticket,
                 company=ticket.company,
                 component=item.component,
@@ -113,8 +121,8 @@ class ConfigurationToProductionService:
                 production_stages_order=list(item.production_stages or []),
             )
             if ticket_template:
-                prod_item.ticket_html = ConfigurationExportService.render_html(prod_item, ticket_template)
-                prod_item.save(update_fields=["ticket_html"])
+                production_item.ticket_html = ConfigurationExportService.render_html(production_item, ticket_template)
+                production_item.save(update_fields=["ticket_html"])
 
     @classmethod
     def _sync_items(cls, ticket, configuration):

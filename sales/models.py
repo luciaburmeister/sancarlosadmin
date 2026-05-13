@@ -600,6 +600,14 @@ class QuoteConfigurationGroup(Timestampable):
             Decimal("0.00"),
         )
 
+    @property
+    def unit_price(self):
+        """Sum of unit_price of all member configurations."""
+        return sum(
+            (c.unit_price.amount for c in self.configurations.all()),
+            Decimal("0.00"),
+        )
+
 
 class QuoteItem(Timestampable):
     quote = models.ForeignKey(

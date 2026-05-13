@@ -30,6 +30,7 @@ from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
 from invoices.views.sales_invoice_register_payment import RegisterPaymentView
 from invoices.views.invoice.review_invoice import InvoiceReviewAdminView
 from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
+from invoices.views.invoice.import_invoice import InvoiceImportAdminView
 from invoices.views.invoice_register_payment import InvoiceRegisterPaymentView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
@@ -273,7 +274,7 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
         PaymentAllocationInline,
     ]
 
-    actions = ["send_to_process", "classify_accounts", "journalize_selected", "export_a3_purchase_invoices"]
+    actions = ["send_to_process", "classify_accounts", "journalize_selected", "export_a3_purchase_invoices", "import_from_excel"]
     actions_row = ["review_invoice_row_action", "view_journal_entry_row_action"]
     actions_detail = ["view_journal_entry_detail_action", "register_payment_detail_action"]
     @action(description=_("Review"), icon="rate_review")
@@ -353,6 +354,13 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
                 ),
                 name="invoices_invoice_upload",
             ), 
+            path(
+                "import/",
+                self.admin_site.admin_view(
+                    InvoiceImportAdminView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_import",
+            ),
             path(
             "<int:object_id>/review/",
             self.admin_site.admin_view(
@@ -484,7 +492,11 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
                 end_date_str=end_date.isoformat()
             )
         self.message_user(request, f"Started A3 export for {len(company_ids)} companies. You will receive an email shortly.")
-        
+
+    @admin.action(description=_("Import invoices from Excel"))
+    def import_from_excel(self, request, queryset):
+        return redirect(reverse("admin:invoices_invoice_import"))
+
 class SalesInvoiceItemInline(StackedInline):
     model = SalesInvoiceItem
     extra = 0

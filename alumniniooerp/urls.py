@@ -4,6 +4,7 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.conf.urls.i18n import i18n_patterns
 from django.conf.urls.static import static
+from django.views.generic import RedirectView
 from general.password_reset import CustomPasswordResetView, CustomPasswordResetDoneView, CustomPasswordResetCompleteView, CustomPasswordResetConfirmView
 
 def health(request):
@@ -11,6 +12,7 @@ def health(request):
 
 
 urlpatterns = [
+    path("", RedirectView.as_view(url="/admin/", permanent=False)),
     path("health/", health, name="health"),
     path("i18n/", include("django.conf.urls.i18n")),
     path('hijack/', include('hijack.urls')),

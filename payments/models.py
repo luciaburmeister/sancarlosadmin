@@ -15,9 +15,9 @@ class PaymentDirection(models.TextChoices):
 
 
 class PaymentStatus(models.TextChoices):
-    DRAFT = "draft", _("Draft")
+    DRAFT = "draft", _("Draft") #payment has been created but not confirmed yet
     CONFIRMED = "confirmed", _("Confirmed")
-    RECONCILED = "reconciled", _("Reconciled")
+    RECONCILED = "reconciled", _("Reconciled") #payment has been fully matched/allocated
     CANCELLED = "cancelled", _("Cancelled")
 
 
@@ -133,15 +133,44 @@ class PaymentAllocation(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.amount_applied} → {self.invoice}"
+        return f"{self.amount_applied} allocated to {self.related_object}"
 
     def save(self, *args, **kwargs):
         with transaction.atomic():
             super().save(*args, **kwargs)
             self.payment.recalculate_pending_allocation()
+            _recalculate_invoice_payment_status(self.content_type, self.object_id)
 
     def delete(self, *args, **kwargs):
         payment = self.payment
+        content_type = self.content_type
+        object_id = self.object_id
         with transaction.atomic():
             super().delete(*args, **kwargs)
             payment.recalculate_pending_allocation()
+            _recalculate_invoice_payment_status(content_type, object_id)
+
+
+def _recalculate_invoice_payment_status(content_type, object_id):
+    """
+    If the allocated object is a SalesInvoice or Invoice, trigger recalculate_payment_status().
+    Uses apps.get_model to avoid circular imports.
+    """
+    from django.apps import apps
+
+    SalesInvoice = apps.get_model("invoices", "SalesInvoice")
+    Invoice = apps.get_model("invoices", "Invoice")
+    model_class = content_type.model_class()
+
+    if model_class is SalesInvoice:
+        try:
+            invoice = SalesInvoice.objects.get(pk=object_id)
+            invoice.recalculate_payment_status()
+        except SalesInvoice.DoesNotExist:
+            pass
+    elif model_class is Invoice:
+        try:
+            invoice = Invoice.objects.get(pk=object_id)
+            invoice.recalculate_payment_status()
+        except Invoice.DoesNotExist:
+            pass

@@ -16,17 +16,21 @@ from invoices.models import (
     TaxType,
     AppliedTax,
     IncomingInvoice,
+    InvoicePaymentStatus,
     SalesInvoice,
     SalesInvoiceItem,
     SalesInvoiceStatus,
     InvoiceItem
 )
+from payments.models import PaymentAllocation
 from django.utils import timezone
 from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
 from invoices.views.invoice.wizard_views import SalesInvoiceWizardView
 from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
+from invoices.views.sales_invoice_register_payment import RegisterPaymentView
 from invoices.views.invoice.review_invoice import InvoiceReviewAdminView
 from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
+from invoices.views.invoice_register_payment import InvoiceRegisterPaymentView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from accounting.tasks import classify_invoice_accounts, generate_journal_entries_task, export_a3_purchase_invoicing_task
@@ -151,6 +155,35 @@ class AppliedTaxInline(GenericTabularInline):
             return False
         return super().has_delete_permission(request, obj)
 
+class PaymentAllocationInline(GenericTabularInline):
+    model = PaymentAllocation
+    ct_field = "content_type"
+    fk_field = "object_id"
+    extra = 0
+    tab = True
+    verbose_name = _("Payment")
+    verbose_name_plural = _("Payments")
+    fields = ("get_payment_date", "get_method", "get_reference", "amount_applied", "get_status")
+    readonly_fields = ("get_payment_date", "get_method", "get_reference", "amount_applied", "get_status")
+    can_delete = False
+
+    def get_payment_date(self, obj):
+        return obj.payment.payment_date
+    get_payment_date.short_description = _("Payment Date")
+
+    def get_method(self, obj):
+        return obj.payment.get_method_display()
+    get_method.short_description = _("Method")
+
+    def get_reference(self, obj):
+        return obj.payment.reference or "—"
+    get_reference.short_description = _("Reference")
+
+    def get_status(self, obj):
+        return obj.payment.get_status_display()
+    get_status.short_description = _("Status")
+
+
 class InvoiceItemInline(StackedInline):
     model = InvoiceItem
     extra = 0
@@ -185,6 +218,7 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
         "due_date",
         "ocr_status",
         "balance_status",
+        "get_payment_status_label",
         "confirmation_badge",
     )
 
@@ -220,6 +254,9 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
         "total_amount",
         "gemini_account_response",
         "ocr_raw_response",
+        "payment_status",
+        "amount_paid",
+        "amount_remaining",
     )
 
     list_select_related = (
@@ -233,12 +270,13 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
 
     inlines = [
         AppliedTaxInline,
-        InvoiceItemInline
+        InvoiceItemInline,
+        PaymentAllocationInline,
     ]
 
     actions = ["send_to_process", "classify_accounts", "journalize_selected", "export_a3_purchase_invoices"]
     actions_row = ["review_invoice_row_action", "view_journal_entry_row_action"]
-    actions_detail = ["view_journal_entry_detail_action"]
+    actions_detail = ["view_journal_entry_detail_action", "register_payment_detail_action"]
     @action(description=_("Review"), icon="rate_review")
     def review_invoice_row_action(self, request, object_id):
         return redirect(reverse("admin:invoices_invoice_review", args=[object_id]))
@@ -282,6 +320,16 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
             },
         ),
         (
+            _("Payment Tracking"),
+            {
+                "fields": (
+                    "payment_status",
+                    "amount_paid",
+                    "amount_remaining",
+                ),
+            },
+        ),
+        (
             _("AI Classification"),
             {
                 "fields": (
@@ -312,6 +360,13 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
                 InvoiceReviewAdminView.as_view(model_admin=self)
             ),
             name="invoices_invoice_review",
+            ),
+            path(
+                "<int:object_id>/register-payment/",
+                self.admin_site.admin_view(
+                    InvoiceRegisterPaymentView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_register_payment",
             ),
         ]
         return custom + urls
@@ -368,6 +423,22 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
             ConfirmationStatus.DECLINED: "DECLINED",
         }
         return labels.get(obj.confirmation_status, "PENDING REVIEW")
+
+    @display(
+        description=_("Payment"),
+        ordering="payment_status",
+        label={
+            _("Unpaid"): "danger",
+            _("Partial"): "warning",
+            _("Paid"): "success",
+        },
+    )
+    def get_payment_status_label(self, obj):
+        return obj.get_payment_status_display()
+
+    @action(description=_("Register Payment"), icon="payments")
+    def register_payment_detail_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_invoice_register_payment", args=[object_id]))
 
     @action(description=_("Journal Entry"), icon="leaderboard")
     def view_journal_entry_row_action(self, request, object_id):
@@ -465,7 +536,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
             TaxTypeAutocompleteView.as_view(),
         ),
     )
-    list_display = ("invoice_number", "incremental_id", "get_status_label", "company", "client", "date_issued", "total_amount")
+    list_display = ("invoice_number", "incremental_id", "get_status_label", "get_payment_status_label", "company", "client", "date_issued", "total_amount")
     list_filter = (
         ("status",ChoicesDropdownFilter),
         ("company",AutocompleteSelectMultipleFilter),
@@ -473,10 +544,10 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
         ("date_issued",RangeDateFilter),)
     search_fields = ("invoice_number", "client__name")
     autocomplete_fields = ("company", "client", "configuration", "project_file")
-    inlines = [SalesInvoiceItemInline, AppliedTaxInline]
+    inlines = [SalesInvoiceItemInline, AppliedTaxInline, PaymentAllocationInline]
     list_filter_submit = True
     
-    readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount","status","invoice_number")
+    readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount", "status", "invoice_number", "payment_status", "amount_paid", "amount_remaining")
 
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = super().get_readonly_fields(request, obj)
@@ -521,6 +592,9 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
                     "subtotal_amount",
                     "tax_amount",
                     "total_amount",
+                    "payment_status",
+                    "amount_paid",
+                    "amount_remaining",
                 ),
             },
         ),
@@ -538,7 +612,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     
     actions = ["download_pdf", "finalize_invoice_action"]
     actions_row = ["view_pdf_row_action", "finalize_invoice_row_action", "view_journal_entry_row_action"]
-    actions_detail = ["view_pdf_detail_action", "finalize_invoice_detail_action", "view_journal_entry_detail_action"]
+    actions_detail = ["view_pdf_detail_action", "finalize_invoice_detail_action", "view_journal_entry_detail_action", "register_payment_detail_action"]
 
     @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
     def view_pdf_row_action(self, request, object_id):
@@ -579,6 +653,18 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     def get_status_label(self, obj):
         return obj.status
 
+    @display(
+        description=_("Payment"),
+        ordering="payment_status",
+        label={
+            _("Unpaid"): "danger",
+            _("Partial"): "warning",
+            _("Paid"): "success",
+        },
+    )
+    def get_payment_status_label(self, obj):
+        return obj.get_payment_status_display()
+
     @admin.action(description=_("Finalize selected pro forma invoices"))
     def finalize_invoice_action(self, request, queryset):
         count = 0
@@ -610,6 +696,11 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
                 self.admin_site.admin_view(SalesInvoicePdfView.as_view(model_admin=self)),
                 name="invoices_salesinvoice_pdf",
             ),
+            path(
+                "<int:object_id>/register-payment/",
+                self.admin_site.admin_view(RegisterPaymentView.as_view(model_admin=self)),
+                name="invoices_salesinvoice_register_payment",
+            ),
         ]
         return custom + urls
 
@@ -625,3 +716,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     def view_journal_entry_detail_action(self, request, object_id):
         url = reverse('admin:accounting_journalentry_changelist') + f"?sales_invoice__id={object_id}"
         return redirect(url)
+
+    @action(description=_("Register Payment"), icon="payments")
+    def register_payment_detail_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_salesinvoice_register_payment", args=[object_id]))

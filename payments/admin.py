@@ -24,7 +24,7 @@ class PaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "get_status_label",
         "method",
         "amount",
-        "amount_pending_allocation",
+        "is_allocated",
         "reference",
     )
     list_filter = ("company", "direction", "status", "method", "payment_date")
@@ -36,6 +36,10 @@ class PaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
     inlines = [PaymentAllocationInline]
     ordering = ("-payment_date", "-id")
+
+    @display(description=_("Allocated"), boolean=True)
+    def is_allocated(self, obj):
+        return obj.amount_pending_allocation.amount == 0
 
     @display(
         description=_("Status"),

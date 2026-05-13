@@ -254,7 +254,6 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
         "total_amount",
         "gemini_account_response",
         "ocr_raw_response",
-        "payment_status",
         "amount_paid",
         "amount_remaining",
     )
@@ -547,7 +546,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     inlines = [SalesInvoiceItemInline, AppliedTaxInline, PaymentAllocationInline]
     list_filter_submit = True
     
-    readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount", "status", "invoice_number", "payment_status", "amount_paid", "amount_remaining")
+    readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount", "status", "invoice_number", "amount_paid", "amount_remaining")
 
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = super().get_readonly_fields(request, obj)

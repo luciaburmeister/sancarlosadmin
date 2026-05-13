@@ -523,7 +523,6 @@ class PricingRule(CompanyOwnedModel):
     name = models.CharField(max_length=100, verbose_name=_("Name"))
 
     expression = models.TextField(
-        validators=[pricing_expression_validator],
         help_text=_(
             "Reusable expression.\n"
             "Allowed variables:\n"

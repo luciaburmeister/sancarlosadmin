@@ -147,6 +147,56 @@ class StagesToSessionsService:
 
 
     @classmethod
+    def revert_activity(
+        cls,
+        *,
+        stage_name: str,
+        items: list[ProductionItem],
+        target_status: str = ProductionItemStatus.IN_PROGRESS,
+    ) -> int:
+        """Revert a completed stage back to in_progress or pending.
+
+        target_status must be 'in_progress' or 'pending'.
+        Historical session records are preserved as an audit trail.
+        """
+        if target_status not in (ProductionItemStatus.IN_PROGRESS, ProductionItemStatus.PENDING):
+            raise ValidationError(
+                f"Invalid target_status '{target_status}'. Must be 'in_progress' or 'pending'."
+            )
+
+        stage_name = unicodedata.normalize("NFC", stage_name)
+        count = 0
+
+        # Which source statuses are valid depends on the target:
+        # → pending: accept in_progress or done (can always go back fully)
+        # → in_progress: only accept done (undo a finish)
+        valid_sources = (
+            {ProductionItemStatus.IN_PROGRESS, ProductionItemStatus.DONE}
+            if target_status == ProductionItemStatus.PENDING
+            else {ProductionItemStatus.DONE}
+        )
+
+        for item in items:
+            planning = {unicodedata.normalize("NFC", k): v for k, v in (item.planning or {}).items()}
+            if stage_name not in planning:
+                continue
+
+            stage_info = planning.get(stage_name) or {}
+            current_status = stage_info.get("status") or ProductionItemStatus.PENDING
+            if current_status not in valid_sources:
+                continue
+
+            stage_info["status"] = target_status
+            stage_info["completed_at"] = None
+            # Reverting to pending also clears the start timestamp
+            if target_status == ProductionItemStatus.PENDING:
+                stage_info["started_at"] = None
+            cls._save_planning(item, stage_name, stage_info)
+            count += 1
+
+        return count
+
+    @classmethod
     def _get_current_stage(cls, production_item: ProductionItem, requested_stage: str | None = None):
         if requested_stage:
             requested_stage = unicodedata.normalize("NFC", requested_stage)

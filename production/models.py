@@ -84,8 +84,12 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
             )
         ]
 
+    def _fresh_items(self):
+        """Return ticket items from DB, bypassing any prefetched cache."""
+        return list(ProductionItem.objects.filter(ticket_id=self.pk))
+
     def compute_status_from_items(self):
-        items = list(self.items.all())
+        items = self._fresh_items()
         if not items:
             return ProductionTicketStatus.PENDING
 
@@ -120,14 +124,25 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
             self.status = new_status
             self.last_stage_label = new_label
 
+        # Keep the linked Configuration in lock-step with the ticket status so
+        # the UI badge ("En Producción" ↔ "Producción Completada") reflects
+        # reality even after reverts or out-of-order saves. This runs on every
+        # recompute (not only inside the change branch) so any drift heals.
+        from configurator.models import Configuration, ConfigurationStatus
+        source = self.source_object
+        if isinstance(source, Configuration):
             if new_status == ProductionTicketStatus.DONE:
-                from configurator.models import Configuration, ConfigurationStatus
-                if isinstance(self.source_object, Configuration):
-                    self.source_object.status = ConfigurationStatus.PRODUCTION_DONE
-                    self.source_object.save(update_fields=["status"])
+                target_cfg_status = ConfigurationStatus.PRODUCTION_DONE
+            else:
+                target_cfg_status = ConfigurationStatus.CONVERTED
+            if source.status != target_cfg_status:
+                Configuration.objects.filter(pk=source.pk).update(
+                    status=target_cfg_status
+                )
+                source.status = target_cfg_status
 
     def compute_last_stage_label(self):
-        items = list(self.items.all())
+        items = self._fresh_items()
         if not items:
             return None
 

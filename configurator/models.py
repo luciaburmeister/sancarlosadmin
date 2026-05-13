@@ -710,13 +710,26 @@ class Configuration(Timestampable, CompanyOwnedModel):
         - BOM expressions
         """
 
-        # 1️⃣ Load user parameters
-        context = {
-            pv.parameter.name: pv.parameter.normalize_value(pv.value)
-            for pv in self.param_values.select_related("parameter")
-        }
+        # 1️⃣ Start with safe defaults for every declared template parameter so
+        # BOM/pricing expressions never crash on missing keys when the user
+        # leaves an optional field blank or before all values are submitted.
+        context = {}
+        if self.product_id:
+            for p in self.product.parameters.all():
+                if p.default_value not in (None, ""):
+                    context[p.name] = p.normalize_value(p.default_value)
+                elif p.type == ParameterType.NUMBER:
+                    context[p.name] = 0
+                elif p.type == ParameterType.BOOLEAN:
+                    context[p.name] = False
+                else:
+                    context[p.name] = ""
 
-        # 2️⃣ Basic aggregates (always needed)
+        # 2️⃣ Overlay the actual user-supplied parameter values.
+        for pv in self.param_values.select_related("parameter"):
+            context[pv.parameter.name] = pv.parameter.normalize_value(pv.value)
+
+        # 3️⃣ Basic aggregates (always needed)
         items = self.items.all()
 
         context.update(
@@ -731,7 +744,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
             }
         )
 
-        # 3️⃣ 🔥 Evaluate product's computed variables (constants + expressions)
+        # 4️⃣ Evaluate product's computed variables (constants + expressions)
         context = self.evaluate_computed_variables(context)
 
         return context
@@ -1169,7 +1182,14 @@ class ConfigurationFlow:
             ConfigurationToProductionService,
         )
 
-        return ConfigurationToProductionService.create_ticket(self.configuration)
+        project_file = (
+            self.configuration.quote.project_file
+            if self.configuration.quote_id and self.configuration.quote.project_file_id
+            else None
+        )
+        return ConfigurationToProductionService.create_ticket(
+            self.configuration, project_file=project_file
+        )
 
     @state.on_success()
     def _persist(self, descriptor, source, target):

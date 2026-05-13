@@ -39,7 +39,12 @@ class ComponentAdmin(CompanyRestrictedAdmin,ModelAdmin):
         "company"
     )
 
-    list_filter = ("materials", "component_type",)
+    list_filter = (
+        ("company", AutocompleteSelectMultipleFilter),
+        "materials",
+        "component_type",
+    )
+    list_filter_submit = True
 
     list_select_related = ["company"]
 

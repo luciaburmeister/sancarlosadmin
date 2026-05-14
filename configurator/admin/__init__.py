@@ -2,6 +2,7 @@ from .product_template import ProductTemplateAdmin
 from .product_parameter import ProductParameterAdmin
 from .configuration import ConfigurationAdmin
 from .configuration_parameter_value import ConfigurationParameterValueAdmin
+from .configuration_preset import ConfigurationPresetAdmin
 from .bom_rule import BOMRuleAdmin
 from .pricing_rule_template import PricingRuleAdmin
 from .pricing_rule_assignment import PricingRuleAssignmentAdmin

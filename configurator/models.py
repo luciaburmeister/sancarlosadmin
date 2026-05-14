@@ -1635,3 +1635,63 @@ class ReceivalSlipItem(models.Model):
 
     def __str__(self):
         return f"{self.description} ({self.quantity})"
+
+
+class ConfigurationPreset(CompanyOwnedModel):
+    """
+    A pre-made set of parameter values for a ProductTemplate.
+    Admins create presets; users click "Use Preset" to instantly
+    create a Configuration with these values pre-filled.
+    """
+
+    product = models.ForeignKey(
+        ProductTemplate,
+        on_delete=models.CASCADE,
+        related_name="presets",
+        verbose_name=_("Product"),
+    )
+    name = models.CharField(
+        max_length=200,
+        verbose_name=_("Name"),
+    )
+    description = models.TextField(
+        blank=True,
+        verbose_name=_("Description"),
+    )
+    parameter_values = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=_("Map of parameter name → default value"),
+        verbose_name=_("Parameter Values"),
+    )
+    image = models.ImageField(
+        upload_to="presets/",
+        blank=True,
+        null=True,
+        verbose_name=_("Image"),
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name=_("Is Active"),
+    )
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Order"),
+    )
+
+    class Meta:
+        ordering = ["order", "name"]
+        verbose_name = _("Configuration Preset")
+        verbose_name_plural = _("Configuration Presets")
+
+    def __str__(self):
+        return f"{self.name} ({self.product.name})"
+
+    def get_missing_parameters(self):
+        """
+        Returns required ProductParameter objects whose name
+        is NOT present in this preset's parameter_values dict.
+        """
+        all_params = self.product.parameters.filter(required=True)
+        filled = set(self.parameter_values.keys())
+        return [p for p in all_params if p.name not in filled]

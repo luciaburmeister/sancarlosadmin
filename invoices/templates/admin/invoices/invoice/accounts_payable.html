@@ -1,0 +1,677 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ap-bg: #f8fafc;
+    --ap-card: #ffffff;
+    --ap-border: #e2e8f0;
+    --ap-text: #0f172a;
+    --ap-text-sub: #64748b;
+    --ap-teal-500: #14b8a6;
+    --ap-teal-600: #0d9488;
+    --ap-teal-50: #f0fdfa;
+    --ap-red-500: #ef4444;
+    --ap-red-50: #fef2f2;
+    --ap-amber-500: #f59e0b;
+    --ap-amber-50: #fffbeb;
+    --ap-blue-500: #3b82f6;
+    --ap-blue-50: #eff6ff;
+    --ap-green-current: #22c55e;
+    --ap-yellow-30: #eab308;
+    --ap-orange-60: #f97316;
+    --ap-red-90: #dc2626;
+    --ap-gray-noduedate: #94a3b8;
+    --ap-shadow: 0 1px 3px rgba(0, 0, 0, .06), 0 1px 2px rgba(0, 0, 0, .04);
+    --ap-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, .07), 0 4px 6px -4px rgba(0, 0, 0, .05);
+  }
+
+  .dark {
+    --ap-bg: #0f172a;
+    --ap-card: #1e293b;
+    --ap-border: #334155;
+    --ap-text: #f1f5f9;
+    --ap-text-sub: #94a3b8;
+    --ap-teal-50: rgba(20, 184, 166, .1);
+    --ap-red-50: rgba(239, 68, 68, .1);
+    --ap-amber-50: rgba(245, 158, 11, .1);
+    --ap-blue-50: rgba(59, 130, 246, .1);
+    --ap-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+    --ap-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, .4);
+  }
+
+  .ap-wrap {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ap-text);
+    padding: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .ap-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .ap-title {
+    font-size: 1.75rem;
+    font-weight: 800;
+    letter-spacing: -.02em;
+  }
+
+  .ap-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .ap-select,
+  .ap-date {
+    font-family: inherit;
+    font-size: .875rem;
+    padding: 8px 14px;
+    border: 1px solid var(--ap-border);
+    border-radius: 10px;
+    background: var(--ap-card);
+    color: var(--ap-text);
+    outline: none;
+    transition: border .2s, box-shadow .2s;
+  }
+
+  .ap-select:focus,
+  .ap-date:focus {
+    border-color: var(--ap-teal-500);
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, .15);
+  }
+
+  .ap-btn {
+    font-family: inherit;
+    font-size: .875rem;
+    font-weight: 600;
+    padding: 8px 20px;
+    border: none;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--ap-teal-500), var(--ap-teal-600));
+    color: #fff;
+    cursor: pointer;
+    transition: transform .15s, box-shadow .15s;
+  }
+
+  .ap-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--ap-shadow-lg);
+  }
+
+  /* KPI Cards */
+  .ap-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .ap-kpi {
+    background: var(--ap-card);
+    border: 1px solid var(--ap-border);
+    border-radius: 14px;
+    padding: 20px 22px;
+    box-shadow: var(--ap-shadow);
+    transition: transform .2s, box-shadow .2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .ap-kpi:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--ap-shadow-lg);
+  }
+
+  .ap-kpi-icon {
+    width: 42px;
+    height: 42px;
+    border-radius: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    margin-bottom: 12px;
+  }
+
+  .ap-kpi-label {
+    font-size: .8rem;
+    font-weight: 500;
+    color: var(--ap-text-sub);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-bottom: 4px;
+  }
+
+  .ap-kpi-value {
+    font-size: 1.6rem;
+    font-weight: 800;
+    letter-spacing: -.01em;
+  }
+
+  .ap-kpi-accent {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 80px;
+    height: 80px;
+    border-radius: 0 14px 0 80px;
+    opacity: .08;
+  }
+
+  .ap-kpi--teal .ap-kpi-icon {
+    background: var(--ap-teal-50);
+    color: var(--ap-teal-500);
+  }
+
+  .ap-kpi--teal .ap-kpi-accent {
+    background: var(--ap-teal-500);
+  }
+
+  .ap-kpi--red .ap-kpi-icon {
+    background: var(--ap-red-50);
+    color: var(--ap-red-500);
+  }
+
+  .ap-kpi--red .ap-kpi-accent {
+    background: var(--ap-red-500);
+  }
+
+  .ap-kpi--red .ap-kpi-value {
+    color: var(--ap-red-500);
+  }
+
+  .ap-kpi--amber .ap-kpi-icon {
+    background: var(--ap-amber-50);
+    color: var(--ap-amber-500);
+  }
+
+  .ap-kpi--amber .ap-kpi-accent {
+    background: var(--ap-amber-500);
+  }
+
+  .ap-kpi--blue .ap-kpi-icon {
+    background: var(--ap-blue-50);
+    color: var(--ap-blue-500);
+  }
+
+  .ap-kpi--blue .ap-kpi-accent {
+    background: var(--ap-blue-500);
+  }
+
+  /* Charts row */
+  .ap-charts {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  @media(max-width:900px) {
+    .ap-charts {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .ap-panel {
+    background: var(--ap-card);
+    border: 1px solid var(--ap-border);
+    border-radius: 14px;
+    padding: 22px;
+    box-shadow: var(--ap-shadow);
+  }
+
+  .ap-panel-title {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 16px;
+  }
+
+  /* Aging bars */
+  .ap-aging-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .ap-aging-label {
+    width: 110px;
+    font-size: .8rem;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .ap-aging-bar-wrap {
+    flex: 1;
+    height: 26px;
+    background: var(--ap-bg);
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .ap-aging-bar {
+    height: 100%;
+    border-radius: 8px;
+    transition: width .6s ease;
+    display: flex;
+    align-items: center;
+    padding-left: 8px;
+  }
+
+  .ap-aging-bar span {
+    font-size: .72rem;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+  }
+
+  .ap-aging-amt {
+    width: 100px;
+    text-align: right;
+    font-size: .82rem;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  /* Table */
+  .ap-table-wrap {
+    background: var(--ap-card);
+    border: 1px solid var(--ap-border);
+    border-radius: 14px;
+    box-shadow: var(--ap-shadow);
+    overflow: hidden;
+  }
+
+  .ap-table-header {
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--ap-border);
+  }
+
+  .ap-table-header h3 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0;
+  }
+
+  .ap-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .85rem;
+  }
+
+  .ap-table thead th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--ap-text-sub);
+    border-bottom: 1px solid var(--ap-border);
+    background: var(--ap-bg);
+  }
+
+  .ap-table tbody tr {
+    transition: background .15s;
+  }
+
+  .ap-table tbody tr:hover {
+    background: var(--ap-teal-50);
+  }
+
+  .ap-table tbody td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--ap-border);
+    vertical-align: middle;
+  }
+
+  .ap-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .ap-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: .72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+  }
+
+  .ap-badge--unpaid {
+    background: var(--ap-red-50);
+    color: var(--ap-red-500);
+  }
+
+  .ap-badge--partial {
+    background: var(--ap-amber-50);
+    color: var(--ap-amber-500);
+  }
+
+  .ap-badge--overdue {
+    background: var(--ap-red-50);
+    color: var(--ap-red-500);
+  }
+
+  .ap-link {
+    color: var(--ap-teal-600);
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .ap-link:hover {
+    text-decoration: underline;
+  }
+
+  .ap-empty {
+    text-align: center;
+    padding: 48px 16px;
+    color: var(--ap-text-sub);
+  }
+
+  .ap-empty-icon {
+    font-size: 3rem;
+    margin-bottom: 8px;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ap-wrap">
+
+  <!-- Header -->
+  <div class="ap-header">
+    <h1 class="ap-title">📋 {% trans "Accounts Payable" %}</h1>
+    <form method="get" class="ap-filters" id="ap-filter-form">
+      <select name="company" class="ap-select" onchange="this.form.submit()">
+        {% for c in companies %}
+        <option value="{{ c.id }}" {% if selected_company.id == c.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+      <label style="font-size:.8rem;font-weight:600;color:var(--ap-text-sub)">{% trans "From" %}</label>
+      <input type="date" name="date_from" value="{{ cf_date_from }}" class="ap-date">
+      <label style="font-size:.8rem;font-weight:600;color:var(--ap-text-sub)">{% trans "To" %}</label>
+      <input type="date" name="date_to" value="{{ cf_date_to }}" class="ap-date">
+      <button type="submit" class="ap-btn">{% trans "Apply" %}</button>
+    </form>
+  </div>
+
+  <!-- KPI Cards -->
+  <div class="ap-kpi-grid">
+    <div class="ap-kpi ap-kpi--teal">
+      <div class="ap-kpi-accent"></div>
+      <div class="ap-kpi-icon">💰</div>
+      <div class="ap-kpi-label">{% trans "Total Payable" %}</div>
+      <div class="ap-kpi-value">€{{ kpis.total_payable|euro_format }}</div>
+    </div>
+    <div class="ap-kpi ap-kpi--red">
+      <div class="ap-kpi-accent"></div>
+      <div class="ap-kpi-icon">⚠️</div>
+      <div class="ap-kpi-label">{% trans "Overdue" %}</div>
+      <div class="ap-kpi-value">€{{ kpis.total_overdue|euro_format }}</div>
+    </div>
+    <div class="ap-kpi ap-kpi--amber">
+      <div class="ap-kpi-accent"></div>
+      <div class="ap-kpi-icon">✅</div>
+      <div class="ap-kpi-label">{% trans "Paid This Month" %}</div>
+      <div class="ap-kpi-value">€{{ kpis.paid_this_month|floatformat:2 }}</div>
+    </div>
+    <div class="ap-kpi ap-kpi--blue">
+      <div class="ap-kpi-accent"></div>
+      <div class="ap-kpi-icon">📄</div>
+      <div class="ap-kpi-label">{% trans "Pending Invoices" %}</div>
+      <div class="ap-kpi-value">{{ kpis.pending_count }}</div>
+    </div>
+  </div>
+
+  <!-- Charts Row -->
+  <div class="ap-charts">
+    <!-- Cash Flow Chart -->
+    <div class="ap-panel">
+      <div class="ap-panel-title">📊 {% trans "Cash Flow Projection" %}</div>
+      <div style="position:relative;height:320px;max-height:320px">
+        <canvas id="cashFlowChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Aging Analysis -->
+    <div class="ap-panel">
+      <div class="ap-panel-title">📅 {% trans "Aging Analysis" %}</div>
+
+      <div class="ap-aging-row">
+        <div class="ap-aging-label">{% trans "Current" %}</div>
+        <div class="ap-aging-bar-wrap">
+          <div class="ap-aging-bar" style="width:{{ aging.current.percentage }}%;background:var(--ap-green-current)">
+            <span>{{ aging.current.percentage }}%</span>
+          </div>
+        </div>
+        <div class="ap-aging-amt">€{{ aging.current.amount|floatformat:2 }}</div>
+      </div>
+
+      <div class="ap-aging-row">
+        <div class="ap-aging-label">1–30 {% trans "days" %}</div>
+        <div class="ap-aging-bar-wrap">
+          <div class="ap-aging-bar" style="width:{{ aging.days_1_30.percentage }}%;background:var(--ap-yellow-30)">
+            <span>{{ aging.days_1_30.percentage }}%</span>
+          </div>
+        </div>
+        <div class="ap-aging-amt">€{{ aging.days_1_30.amount|floatformat:2 }}</div>
+      </div>
+
+      <div class="ap-aging-row">
+        <div class="ap-aging-label">31–60 {% trans "days" %}</div>
+        <div class="ap-aging-bar-wrap">
+          <div class="ap-aging-bar" style="width:{{ aging.days_31_60.percentage }}%;background:var(--ap-orange-60)">
+            <span>{{ aging.days_31_60.percentage }}%</span>
+          </div>
+        </div>
+        <div class="ap-aging-amt">€{{ aging.days_31_60.amount|floatformat:2 }}</div>
+      </div>
+
+      <div class="ap-aging-row">
+        <div class="ap-aging-label">61–90 {% trans "days" %}</div>
+        <div class="ap-aging-bar-wrap">
+          <div class="ap-aging-bar" style="width:{{ aging.days_61_90.percentage }}%;background:var(--ap-orange-60)">
+            <span>{{ aging.days_61_90.percentage }}%</span>
+          </div>
+        </div>
+        <div class="ap-aging-amt">€{{ aging.days_61_90.amount|floatformat:2 }}</div>
+      </div>
+
+      <div class="ap-aging-row">
+        <div class="ap-aging-label">90+ {% trans "days" %}</div>
+        <div class="ap-aging-bar-wrap">
+          <div class="ap-aging-bar" style="width:{{ aging.days_90_plus.percentage }}%;background:var(--ap-red-90)">
+            <span>{{ aging.days_90_plus.percentage }}%</span>
+          </div>
+        </div>
+        <div class="ap-aging-amt">€{{ aging.days_90_plus.amount|floatformat:2 }}</div>
+      </div>
+
+      <div class="ap-aging-row">
+        <div class="ap-aging-label">{% trans "No Due Date" %}</div>
+        <div class="ap-aging-bar-wrap">
+          <div class="ap-aging-bar"
+            style="width:{{ aging.no_due_date.percentage }}%;background:var(--ap-gray-noduedate)"><span>
+              {{aging.no_due_date.percentage }}%</span></div>
+        </div>
+        <div class="ap-aging-amt">€{{ aging.no_due_date.amount|floatformat:2 }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Invoice Table -->
+  <div class="ap-table-wrap">
+    <div class="ap-table-header">
+      <h3>📑 {% trans "Pending Invoices" %}</h3>
+    </div>
+    {% if invoices %}
+    <table class="ap-table">
+      <thead>
+        <tr>
+          <th>{% trans "Invoice #" %}</th>
+          <th>{% trans "Provider" %}</th>
+          <th>{% trans "Date Issued" %}</th>
+          <th>{% trans "Due Date" %}</th>
+          <th style="text-align:right">{% trans "Total" %}</th>
+          <th style="text-align:right">{% trans "Paid" %}</th>
+          <th style="text-align:right">{% trans "Remaining" %}</th>
+          <th>{% trans "Status" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for inv in invoices %}
+        <tr>
+          <td>
+            <a href="{% url 'admin:invoices_invoice_change' inv.pk %}" class="ap-link">
+              {{ inv.invoice_number|default:"—" }}
+            </a>
+          </td>
+          <td>{{ inv.provider|default:"—" }}</td>
+          <td>{{ inv.date_issued|date:"d/m/Y"|default:"—" }}</td>
+          <td>
+            {% if inv.due_date %}
+              {% if inv.due_date < today %}
+                <span style="color:var(--ap-red-500);font-weight:600">{{ inv.due_date|date:"d/m/Y" }}</span>
+              {% else %}
+                {{ inv.due_date|date:"d/m/Y" }}
+              {% endif %}
+            {% else %}
+              <span style="color:var(--ap-gray-noduedate)">{% trans "No Due Date" %}</span>
+            {% endif %}
+          </td>
+          <td style="text-align:right;font-weight:600">{{ inv.total_amount }}</td>
+          <td style="text-align:right">{{ inv.amount_paid }}</td>
+          <td style="text-align:right;font-weight:700">{{ inv.amount_remaining }}</td>
+          <td>
+            {% if inv.payment_status == "unpaid" %}
+              <span class="ap-badge ap-badge--unpaid">{% trans "Unpaid" %}</span>
+            {% elif inv.payment_status == "partial" %}
+              <span class="ap-badge ap-badge--partial">{% trans "Partial" %}</span>
+            {% endif %}
+            {% if inv.due_date and inv.due_date < today %}
+              <span class="ap-badge ap-badge--overdue">{% trans "Overdue" %}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="ap-empty">
+      <div class="ap-empty-icon">🎉</div>
+      <p style="font-weight:600;font-size:1.1rem">{% trans "All invoices are paid!" %}</p>
+      <p>{% trans "No pending invoices for this company." %}</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+{{ cash_flow_json|json_script:"cash-flow-data" }}
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // Dark mode detection
+    const isDark = document.documentElement.classList.contains('dark') ||
+      document.body.classList.contains('dark') ||
+      window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    const gridColor = isDark ? 'rgba(148,163,184,.15)' : 'rgba(0,0,0,.06)';
+    const textColor = isDark ? '#94a3b8' : '#64748b';
+
+    // Cash flow data from Django (via json_script for safe serialization)
+    const cfData = JSON.parse(document.getElementById('cash-flow-data').textContent);
+    const cfWeeks = cfData.weeks;
+    const cfOverdue = cfData.overdue_total;
+
+  const labels = cfWeeks.map(w => w.label);
+  const amounts = cfWeeks.map(w => w.amount);
+
+  // Add overdue bar at the beginning if there is overdue amount
+  if (cfOverdue > 0) {
+    labels.unshift('Overdue');
+    amounts.unshift(cfOverdue);
+  }
+
+  const barColors = amounts.map((_, i) => {
+    if (cfOverdue > 0 && i === 0) return 'rgba(239,68,68,.75)';
+    return 'rgba(20,184,166,.7)';
+  });
+  const borderColors = amounts.map((_, i) => {
+    if (cfOverdue > 0 && i === 0) return '#ef4444';
+    return '#0d9488';
+  });
+
+  const ctx = document.getElementById('cashFlowChart');
+  if (ctx) {
+    new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Amount Due (€)',
+          data: amounts,
+          backgroundColor: barColors,
+          borderColor: borderColors,
+          borderWidth: 2,
+          borderRadius: 6,
+          borderSkipped: false,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: isDark ? '#1e293b' : '#fff',
+            titleColor: isDark ? '#f1f5f9' : '#0f172a',
+            bodyColor: isDark ? '#cbd5e1' : '#334155',
+            borderColor: isDark ? '#334155' : '#e2e8f0',
+            borderWidth: 1,
+            padding: 12,
+            cornerRadius: 8,
+            callbacks: {
+              label: function (ctx) {
+                return '€' + ctx.parsed.y.toLocaleString('es-ES', { minimumFractionDigits: 2 });
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: textColor, font: { size: 11, family: 'Inter' } }
+          },
+          y: {
+            grid: { color: gridColor },
+            ticks: {
+              color: textColor,
+              font: { size: 11, family: 'Inter' },
+              callback: function (v) { return '€' + v.toLocaleString('es-ES'); }
+            }
+          }
+        }
+      }
+    });
+  }
+});
+</script>
+{% endblock %}

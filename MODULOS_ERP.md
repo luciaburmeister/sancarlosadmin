@@ -41,8 +41,8 @@
 - Flujo de estados: Draft → Completed → Converted → Production Done
 - Generación de formulario dinamico simple
 
-**Plan — Lo que falta:**
 
+**Plan — Lo que falta:**
 
 ---
 
@@ -109,6 +109,10 @@
 - [?] Planificación comercial a través de capacidad de producción
 - [Fran] Modulo de feedback de presupuestos
 - [Fran] Implementación de agentes comerciales y comisiones
+- [José] Mandar presupuestos por sistema
+- [José] Si despues de 72 horas no se ha actualizado mandar alerta para feedback
+- [José] Flujo de feedback
+
 
 ---
 
@@ -131,6 +135,10 @@
 - [Maria] Dias libres por convenio
 - [Maria] Calendarios laborales
 - [Maria + Carmen] Reportes de horas por personas
+- [] Modulo bajas laborales (Enfermedad, Accidente de Trabajo, Maternidad, Paternidad) - Fecha de inicio y fin
+- [] Documentos a cada baja con sus tipos de documentos
+- [] Agregar dirección postal
+- [] Modulo puestos de trabajos
 
 ## Materiales
 
@@ -273,6 +281,7 @@ Tiene que ser una API robusta, escalable, segura y bien documentada. Tiene que t
 
 - [José] Generación de facturas automaticas dependiendo de hitos de producción
 - [Lucia + José] Ligar movimientos logisticos para facturas (Cubas, [Modulo reutilizable])
+- Prueba piloto con Rayo cubas
 
 ---
 
@@ -323,6 +332,10 @@ Tiene que ser una API robusta, escalable, segura y bien documentada. Tiene que t
 
 ---
 ---
+
+## Sistema de tickets
+- Implementación de sistema de tickets interno de gestión con su debida resolución interno.
+- Proceso de nueva configuración por empresa - Enrique y Aluares
 
 # 📋 Plan de Desarrollo
 

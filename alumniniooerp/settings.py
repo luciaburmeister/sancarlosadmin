@@ -365,6 +365,21 @@ UNFOLD = {
         "show_all_applications": True,  
         "navigation": [
             {
+                "title": _("Dashboards"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Accounts Payable"),
+                        "icon": "account_balance_wallet",
+                        "link": reverse_lazy("admin:invoices_invoice_accounts_payable"),
+                        "permission": lambda request: request.user.has_perm(
+                            "invoices.view_invoice"
+                        ),
+                    },
+                ],
+            },
+            {
                 "title": _("Management"),
                 "separator": True,
                 "collapsible": False,

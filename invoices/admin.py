@@ -32,6 +32,7 @@ from invoices.views.invoice.review_invoice import InvoiceReviewAdminView
 from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from invoices.views.invoice.import_invoice import InvoiceImportAdminView
 from invoices.views.invoice_register_payment import InvoiceRegisterPaymentView
+from invoices.views.accounts_payable_views import AccountsPayableDashboardView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from accounting.tasks import classify_invoice_accounts, generate_journal_entries_task, export_a3_purchase_invoicing_task
@@ -347,6 +348,13 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     def get_urls(self):
         urls = super().get_urls()
         custom = [
+            path(
+                "dashboard/accounts-payable/",
+                self.admin_site.admin_view(
+                    AccountsPayableDashboardView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_accounts_payable",
+            ),
             path(
                 "upload/",
                 self.admin_site.admin_view(

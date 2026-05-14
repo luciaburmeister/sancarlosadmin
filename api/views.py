@@ -481,7 +481,7 @@ def movements_view(request):
         return JsonResponse({"movements": []})
 
     transactions = AssetTransaction.objects.filter(
-        company=employee.company
+        performed_by=employee
     ).select_related("asset", "from_zone", "to_zone", "performed_by").order_by("-date")[:100]
 
     data = []

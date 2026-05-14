@@ -19,8 +19,8 @@ class AssetTransactionAdmin(ModelAdmin):
     )
     search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes")
     autocomplete_fields = ["asset", "from_zone", "to_zone"]
-    exclude = ["company", "firma", "performed_by"]
-    readonly_fields = ["firma_preview", "get_employee"]
+    exclude = ["company", "firma"]  # performed_by removed from exclude so it shows in the form
+    readonly_fields = ["firma_preview", "performed_by"]  # readonly so it can't be edited manually
 
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
@@ -33,7 +33,7 @@ class AssetTransactionAdmin(ModelAdmin):
                 "from_zone",
                 "to_zone",
                 "date",
-                "get_employee",
+                "performed_by",  # who made the movement
                 "data",
                 "notes",
             )

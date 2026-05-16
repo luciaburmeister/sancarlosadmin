@@ -120,6 +120,10 @@ class WizardItemFormsetHelper(FormHelper):
         self.template_pack = "unfold_crispy"
 
 class WizardItemForm(forms.Form):
+    source_id = forms.CharField(
+        widget=forms.HiddenInput(),
+        required=False,
+    )
     description = forms.CharField(
         label=_("Description"), 
         max_length=500, 
@@ -134,6 +138,7 @@ class WizardItemForm(forms.Form):
         self.helper = FormHelper()
         self.helper.form_tag = False
         self.helper.layout = Layout(
+            Field("source_id"),
             Row(
                 Column(Field("description"), css_class="col-span-12"),
                 css_class="mb-4"

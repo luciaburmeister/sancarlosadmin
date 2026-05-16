@@ -14,9 +14,7 @@ from invoices.models import SalesInvoice, SalesInvoiceItem, AppliedTax
 from django.contrib.contenttypes.models import ContentType
 from invoices.forms.wizard_forms import (
     WizardItemForm,
-    WizardTaxForm,
     WizardItemFormsetHelper,
-    WizardTaxFormsetHelper,
 )
 from invoices.forms.project_file_wizard_forms import (
     ProjectFileInvoiceSetupForm,
@@ -29,7 +27,6 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
     form_list = [
         ("setup", ProjectFileInvoiceSetupForm),
         ("items", formset_factory(WizardItemForm, extra=1, can_delete=True)),
-        ("taxes", formset_factory(WizardTaxForm, extra=0, can_delete=True)),
         ("notes", ProjectFileInvoiceNotesForm),
     ]
     template_name = "invoices/project_file_invoice_wizard.html"
@@ -54,8 +51,10 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
     def _build_items_initial(self):
         """
         Builds the initial items list from the accepted quotes' configurations
-        and loose items, scaled by the selected percentage/amount.
+        and direct configurations, scaled by the selected percentage/amount.
         Each configuration becomes a separate line item on the invoice.
+        Items use subtotal (pre-tax). Each item carries a unique source_id
+        and its per-config tax amount for reliable lookup.
         """
         setup_data = self.get_cleaned_data_for_step("setup")
         if not setup_data:
@@ -65,43 +64,62 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
         percentage = setup_data.get('percentage', Decimal("100"))
         calculated_subtotal = setup_data.get('_calculated_subtotal', Decimal("0.00"))
 
-        # Get all configurations + loose items from accepted quotes
         items_initial = []
         summary = self.invoicing_summary
 
         if mode == 'percentage':
             ratio = percentage / Decimal("100")
         else:
-            # Custom amount: calculate the effective ratio from remaining subtotal
             remaining = summary['remaining_subtotal']
             ratio = (calculated_subtotal / remaining) if remaining > 0 else Decimal("1")
 
         for quote_data in summary['quotes']:
             quote = quote_data['quote']
 
-            # Add configurations as individual items
             for config in quote.configurations.all():
-                item_price = (config.subtotal_price.amount * ratio).quantize(Decimal("0.01"))
+                sub = config.subtotal_price.amount
+                tot = config.total_price.amount
+                item_price = (sub * ratio).quantize(Decimal("0.01"))
+                item_tax = ((tot - sub) * ratio).quantize(Decimal("0.01"))
                 if item_price <= 0:
                     continue
                 items_initial.append({
+                    'source_id': f"config_{config.id}",
                     'description': f"{config.name} (Q#{quote.id})",
                     'quantity': Decimal("1"),
                     'unit_price': item_price,
                     'discount_percentage': Decimal("0.00"),
+                    '_tax_amount': item_tax,
                 })
 
-            # Add loose quote items (QuoteItems not tied to configurations)
             for item in quote.items.all():
                 item_price = (item.line_total.amount * ratio).quantize(Decimal("0.01"))
                 if item_price <= 0:
                     continue
                 items_initial.append({
+                    'source_id': f"quote_item_{item.id}",
                     'description': f"{item.material} x{item.quantity} (Q#{quote.id})",
                     'quantity': Decimal("1"),
                     'unit_price': item_price,
                     'discount_percentage': Decimal("0.00"),
+                    '_tax_amount': Decimal("0.00"),
                 })
+
+        for config_data in summary.get('direct_configurations', []):
+            sub = config_data['subtotal']
+            tot = config_data['total']
+            item_price = (sub * ratio).quantize(Decimal("0.01"))
+            item_tax = ((tot - sub) * ratio).quantize(Decimal("0.01"))
+            if item_price <= 0:
+                continue
+            items_initial.append({
+                'source_id': f"direct_{config_data['id']}",
+                'description': config_data['name'],
+                'quantity': Decimal("1"),
+                'unit_price': item_price,
+                'discount_percentage': Decimal("0.00"),
+                '_tax_amount': item_tax,
+            })
 
         return items_initial
 
@@ -111,18 +129,6 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
         if step == "items":
             return self._build_items_initial()
 
-        if step == "taxes":
-            # Pre-populate with taxes from accepted quotes
-            quote_taxes = ProjectFileInvoiceService.get_aggregated_quote_taxes(self.project_file)
-            initial = [
-                {
-                    'tax_type': t['tax_type'],
-                    'selected_percentage': t['selected_percentage'],
-                }
-                for t in quote_taxes
-            ]
-            return initial
-
         return initial
 
     def get_form(self, step=None, data=None, files=None):
@@ -131,24 +137,12 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
         if step == "items" and not data:
             items_initial = self._build_items_initial()
             if items_initial:
-                num_items = len(items_initial)
-                FormSet = formset_factory(WizardItemForm, extra=num_items, can_delete=True)
+                FormSet = formset_factory(WizardItemForm, extra=0, can_delete=True)
                 form = FormSet(
                     data=data,
                     files=files,
                     prefix=self.get_form_prefix(step, FormSet),
                     initial=items_initial,
-                )
-
-        if step == "taxes" and not data:
-            quote_taxes = ProjectFileInvoiceService.get_aggregated_quote_taxes(self.project_file)
-            if len(quote_taxes) > 0:
-                FormSet = formset_factory(WizardTaxForm, extra=len(quote_taxes), can_delete=True)
-                form = FormSet(
-                    data=data,
-                    files=files,
-                    prefix=self.get_form_prefix(step, FormSet),
-                    initial=self.get_form_initial(step),
                 )
 
         return form
@@ -167,12 +161,6 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
             context["formset_id"] = helper.formset_id
             context["form_id"] = helper.form_id
             context["form_add"] = helper.form_add
-        elif self.steps.current == "taxes":
-            helper = WizardTaxFormsetHelper()
-            context["helper"] = helper
-            context["formset_id"] = helper.formset_id
-            context["form_id"] = helper.form_id
-            context["form_add"] = helper.form_add
         elif self.steps.current == "notes":
             context["helper"] = context["form"].helper
 
@@ -182,29 +170,29 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
         all_forms = list(form_list)
         setup_form = all_forms[0]
         items_formset = all_forms[1]
-        taxes_formset = all_forms[2]
-        notes_form = all_forms[3]
+        notes_form = all_forms[2]
 
-        # Collect items data
+        # Build tax lookup keyed by source_id (unique per config/item)
+        items_initial = self._build_items_initial()
+        tax_lookup = {
+            item['source_id']: item.get('_tax_amount', Decimal("0.00"))
+            for item in items_initial
+        }
+
         items_data = []
+        total_tax = Decimal("0.00")
         for form in items_formset:
             if not form.cleaned_data or form.cleaned_data.get('DELETE'):
                 continue
+            source_id = form.cleaned_data.get('source_id', '')
+            item_tax = tax_lookup.get(source_id, Decimal("0.00"))
+            total_tax += item_tax
             items_data.append({
-                'description': form.cleaned_data.get('description'),
+                'source_id': source_id,
+                'description': form.cleaned_data.get('description', ''),
                 'quantity': form.cleaned_data.get('quantity', Decimal("1")),
                 'unit_price': form.cleaned_data.get('unit_price'),
                 'discount_percentage': form.cleaned_data.get('discount_percentage', Decimal("0.00")),
-            })
-
-        # Collect taxes data
-        taxes_data = []
-        for form in taxes_formset:
-            if not form.cleaned_data or form.cleaned_data.get('DELETE'):
-                continue
-            taxes_data.append({
-                'tax_type': form.cleaned_data.get('tax_type'),
-                'selected_percentage': form.cleaned_data.get('selected_percentage'),
             })
 
         try:
@@ -215,7 +203,7 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                 date_issued=setup_form.cleaned_data['date_issued'],
                 due_date=setup_form.cleaned_data.get('due_date'),
                 items_data=items_data,
-                taxes_data=taxes_data,
+                total_tax=total_tax,
                 notes=notes_form.cleaned_data.get('notes', ''),
             )
 
@@ -235,3 +223,5 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
             return redirect(
                 reverse("admin:management_projectfile_change", args=[self.project_file.id])
             )
+
+

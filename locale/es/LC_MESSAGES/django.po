@@ -2440,20 +2440,16 @@ msgstr ""
 "Año a usar para fechas sin un año (por ejemplo, formato DD/MM). Deja en "
 "blanco para usar el año actual."
 
-#, fuzzy
-#| msgid "Invoice File"
+
 msgid "Invoice Setup"
-msgstr "Archivo de factura"
+msgstr "Configuración de la factura"
 
-#, fuzzy
-#| msgid "Production Stage"
+
 msgid "By Percentage"
-msgstr "Etapas de Producción"
+msgstr "Por porcentaje"
 
-#, fuzzy
-#| msgid "Discount"
 msgid "Custom Amount"
-msgstr "Descuento"
+msgstr "Monto personalizado"
 
 msgid "Date Issued"
 msgstr "Fecha de emisión"
@@ -2461,15 +2457,12 @@ msgstr "Fecha de emisión"
 msgid "Due Date"
 msgstr "Fecha de vencimiento"
 
-#, fuzzy
-#| msgid "Invoice File"
-msgid "Invoice Mode"
-msgstr "Archivo de factura"
 
-#, fuzzy
-#| msgid "Production Stage"
+msgid "Invoice Mode"
+msgstr "Método de factura"
+
 msgid "Percentage (%)"
-msgstr "Etapas de Producción"
+msgstr "Porcentaje (%)"
 
 msgid "Percentage of the remaining invoiceable amount"
 msgstr "Porcentaje del monto facturable restante"
@@ -2572,10 +2565,8 @@ msgstr "Fecha de vencimiento"
 msgid "Project File"
 msgstr "Expediente"
 
-#, fuzzy
-#| msgid "Payment Method"
 msgid "Payment Status"
-msgstr "Método de Pago"
+msgstr "Estado de pago"
 
 msgid "IVA"
 msgstr "IVA"

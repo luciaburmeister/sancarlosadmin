@@ -72,6 +72,11 @@ class ShopConfigurationWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
         
         # 1. Update or Create Configuration
         config = config_form.save(client=client)
+
+        # Link configuration directly to the expediente for cost passthrough
+        if project_file and config.project_file_id != project_file.pk:
+            config.project_file = project_file
+            config.save(update_fields=['project_file'])
         
         # If we are NOT editing, do the automation stuff
         if not self.instance:

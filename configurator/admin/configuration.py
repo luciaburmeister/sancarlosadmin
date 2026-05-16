@@ -249,7 +249,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
                    "record_actual_values",
                    "create_receival_slip_action",
                    "view_receival_slips"]
-    autocomplete_fields = ["client","product","asset","quote"]
+    autocomplete_fields = ["client","product","asset","quote","project_file"]
     list_filter_submit = True
 
     inlines = [
@@ -280,7 +280,8 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
                 ("quote"),
                 ("name", "client"),
                 ("product", "status"),
-                ("company","asset")
+                ("company", "asset"),
+                ("project_file",),
             ),
         }),
         (_("Pricing"), {

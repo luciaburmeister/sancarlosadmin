@@ -678,6 +678,16 @@ class Configuration(Timestampable, CompanyOwnedModel):
         verbose_name=_("Asset"),
     )
 
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="direct_configurations",
+        verbose_name=_("Project File"),
+        help_text=_("Direct link to a project file for non-quotable configurations."),
+    )
+
     work_order_pdf = models.FileField(
         upload_to="configurations/work_orders/",
         null=True,
@@ -1182,11 +1192,12 @@ class ConfigurationFlow:
             ConfigurationToProductionService,
         )
 
-        project_file = (
-            self.configuration.quote.project_file
-            if self.configuration.quote_id and self.configuration.quote.project_file_id
-            else None
-        )
+        project_file = None
+        if self.configuration.quote_id and self.configuration.quote.project_file_id:
+            project_file = self.configuration.quote.project_file
+        elif self.configuration.project_file_id:
+            project_file = self.configuration.project_file
+
         return ConfigurationToProductionService.create_ticket(
             self.configuration, project_file=project_file
         )

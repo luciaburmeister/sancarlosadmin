@@ -117,8 +117,6 @@
             <div class="p-6">
                 {% if wizard.steps.current == 'items' %}
                 {% include "invoices/stacked_inline_formset.html" with formset=wizard.form formset_tag=False form_add=True form_id="item-formset" formset_id="item-formset" %}
-                {% elif wizard.steps.current == 'taxes' %}
-                {% include "invoices/stacked_inline_formset.html" with formset=wizard.form formset_tag=False form_add=True form_id="tax-formset" formset_id="tax-formset" %}
                 {% elif helper %}
                 {% crispy wizard.form helper "unfold_crispy" %}
                 {% else %}

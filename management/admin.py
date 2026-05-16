@@ -1,3 +1,8 @@
+from django.db.models import DecimalField, Q, Sum, Value, OuterRef, Subquery
+from django.db.models.functions import Coalesce
+
+from decimal import Decimal
+
 from django.contrib import admin
 from django.shortcuts import redirect
 from django.urls import path, reverse
@@ -12,6 +17,7 @@ from invoices.models import SalesInvoice, Invoice
 from invoices.views.invoice.project_file_wizard_views import ProjectFileInvoiceWizardView
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from core.admin.company_admin import CompanyRestrictedAdmin
+from configurator.models import Configuration, ConfigurationStatus
 
 class QuoteInline(TabularInline):
     model = Quote
@@ -58,6 +64,19 @@ class PurchaseInvoiceInline(TabularInline):
     readonly_fields = ["invoice_number", "provider", "total_amount", "date_issued"]
     show_change_link = True
 
+class DirectConfigurationInline(TabularInline):
+    model = Configuration
+    fk_name = "project_file"
+    extra = 0
+    tab = True
+    tab_title = _("Direct Work")
+    fields = ["name", "product", "status", "subtotal_price", "total_price"]
+    readonly_fields = ["name", "product", "status", "subtotal_price", "total_price"]
+    show_change_link = True
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).filter(quote__isnull=True)
+
 @admin.register(ProjectFile)
 class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ["reference", "name", "client", "status", "start_date", "company", "invoicing_status"]
@@ -69,6 +88,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     inlines = [
         QuoteInline,
+        DirectConfigurationInline,
         SalesInvoiceInline,
         ProductionTicketInline,
         DeliveryOrderInline,
@@ -105,6 +125,46 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
         }),
     )
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        zero = Value(Decimal("0.00"), output_field=DecimalField())
+
+        # Use Subquery for each aggregation to avoid multi-JOIN row duplication
+        quote_invoiceable = Quote.objects.filter(
+            project_file=OuterRef('pk'),
+            status=QuoteStatus.ACCEPTED,
+        ).values('project_file').annotate(s=Sum('total_price')).values('s')
+
+        direct_config_invoiceable = Configuration.objects.filter(
+            project_file=OuterRef('pk'),
+            quote__isnull=True,
+            status__in=[
+                ConfigurationStatus.SHOP,
+                ConfigurationStatus.COMPLETED,
+                ConfigurationStatus.CONVERTED,
+                ConfigurationStatus.PRODUCTION_DONE,
+            ],
+        ).values('project_file').annotate(s=Sum('total_price')).values('s')
+
+        total_invoiced = SalesInvoice.objects.filter(
+            project_file=OuterRef('pk'),
+        ).values('project_file').annotate(s=Sum('total_amount')).values('s')
+
+        return qs.annotate(
+            _quote_invoiceable=Coalesce(
+                Subquery(quote_invoiceable),
+                zero,
+            ),
+            _direct_config_invoiceable=Coalesce(
+                Subquery(direct_config_invoiceable),
+                zero,
+            ),
+            _total_invoiced=Coalesce(
+                Subquery(total_invoiced),
+                zero,
+            ),
+        )
+
     def get_urls(self):
         urls = super().get_urls()
         custom = [
@@ -132,16 +192,15 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     @display(description=_("Invoicing"))
     def invoicing_status(self, obj):
-        """List display column showing invoicing progress."""
-        has_accepted = Quote.objects.filter(
-            project_file=obj,
-            status=QuoteStatus.ACCEPTED,
-        ).exists()
-        if not has_accepted:
+        """List display column — reads from annotated queryset, zero extra queries."""
+        invoiceable = (getattr(obj, '_quote_invoiceable', None) or Decimal("0")) \
+                    + (getattr(obj, '_direct_config_invoiceable', None) or Decimal("0"))
+        if invoiceable <= 0:
             return "—"
 
-        summary = ProjectFileInvoiceService.get_invoiceable_summary(obj)
-        pct = summary['percentage_invoiced']
+        invoiced = getattr(obj, '_total_invoiced', None) or Decimal("0")
+        pct = (invoiced / invoiceable * Decimal("100")).quantize(Decimal("0.01"))
+
         if pct >= 100:
             return format_html(
                 '<span style="color: #16a34a; font-weight: 600;">✓ {}%</span>',
@@ -162,17 +221,12 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
         if not obj.pk:
             return "—"
 
-        has_accepted = Quote.objects.filter(
-            project_file=obj,
-            status=QuoteStatus.ACCEPTED,
-        ).exists()
-        if not has_accepted:
+        summary = ProjectFileInvoiceService.get_invoiceable_summary(obj)
+        if summary['total_invoiceable'] <= 0:
             return format_html(
                 '<span style="color: #6b7280;">{}</span>',
-                _("No accepted quotes yet.")
+                _("No accepted quotes or direct configurations yet.")
             )
-
-        summary = ProjectFileInvoiceService.get_invoiceable_summary(obj)
 
         html = f"""
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; max-width: 600px;">

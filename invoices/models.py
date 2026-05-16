@@ -876,6 +876,13 @@ class SalesInvoiceItem(models.Model):
         default_currency='EUR',
         verbose_name=_("Line Total")
     )
+    source_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name=_("Source"),
+        help_text=_("Origin reference (e.g. config_451, direct_468, quote_item_12)"),
+    )
 
     def save(self, *args, **kwargs):
         if self.invoice.status == SalesInvoiceStatus.FINAL and self.pk:

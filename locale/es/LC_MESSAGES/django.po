@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-13 12:33+0200\n"
+"POT-Creation-Date: 2026-05-16 11:33+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -177,8 +177,13 @@ msgstr "Español"
 
 msgid "English"
 msgstr ""
-"Please provide the English text that you would like to have translated into "
-"neutral Latin American Spanish."
+"Ingles"
+
+msgid "Dashboards"
+msgstr "Dashboards"
+
+msgid "Accounts Payable"
+msgstr "Cuentas por pagar"
 
 msgid "Management"
 msgstr "Gestión"
@@ -1114,6 +1119,26 @@ msgstr "Es default"
 msgid "Objeto de prueba"
 msgstr "Objeto de prueba"
 
+#, fuzzy
+#| msgid "General Information"
+msgid "Preset Information"
+msgstr "Información General"
+
+#, fuzzy
+#| msgid "Parameter values"
+msgid "Parameter Values"
+msgstr "Valores de parámetro"
+
+msgid ""
+"JSON map of parameter name → value. Parameters not listed here will be asked"
+" during usage."
+msgstr ""
+"Mapa JSON de nombre de parámetro → valor. Los parámetros que no se enumeran "
+"aquí se solicitarán durante el uso."
+
+msgid "Use Preset"
+msgstr "Usar preestablecido"
+
 msgid "Computed Variable"
 msgstr "Variable Computada"
 
@@ -1196,6 +1221,17 @@ msgstr "Aceptado"
 
 msgid "Select Asset (Optional)"
 msgstr "Seleccionar activo (opcional)"
+
+#, fuzzy
+#| msgid "Project Name"
+msgid "Preset Name"
+msgstr "Nombre del proyecto"
+
+msgid "— Leave empty —"
+msgstr "— Dejar vacío —"
+
+msgid "Leave fields empty to ask the user during usage."
+msgstr "Deja los campos vacíos para preguntar al usuario durante el uso."
 
 #, fuzzy
 #| msgid "Project File"
@@ -1683,6 +1719,22 @@ msgstr "Artículo del Recibo de Recepción"
 msgid "Receival Slip Items"
 msgstr "Artículos del Recibo de Entrega"
 
+msgid "Map of parameter name → default value"
+msgstr "Mapa del nombre del parámetro → valor por defecto"
+
+msgid "Order"
+msgstr "Orden"
+
+#, fuzzy
+#| msgid "Configurations"
+msgid "Configuration Preset"
+msgstr "Configuraciones"
+
+#, fuzzy
+#| msgid "Configuration items"
+msgid "Configuration Presets"
+msgstr "Elementos de configuración"
+
 msgid "Items Summary"
 msgstr "Resumen de artículos"
 
@@ -1742,6 +1794,21 @@ msgstr "Sí"
 
 msgid "No"
 msgstr "No"
+
+#, fuzzy
+#| msgid "Configurations"
+msgid "Create Configuration from Preset"
+msgstr "Configuraciones"
+
+#, fuzzy
+#| msgid "Select Product to Configure"
+msgid "Select Product for Preset"
+msgstr "Seleccionar Producto para Configurar"
+
+#, fuzzy
+#| msgid "Configuration items"
+msgid "Create Configuration Preset"
+msgstr "Elementos de configuración"
 
 #, fuzzy
 #| msgid "Configuration"
@@ -2274,10 +2341,9 @@ msgstr "Fuera de balance"
 msgid "Confirmation"
 msgstr "Configuración"
 
-#, fuzzy
-#| msgid "Unpaid leave"
+
 msgid "Unpaid"
-msgstr "Permiso sin sueldo"
+msgstr "Sin pagar"
 
 msgid "Partial"
 msgstr "Parcial"
@@ -2294,6 +2360,9 @@ msgstr "Método de Pago"
 #| msgid "Country"
 msgid "Journal Entry"
 msgstr "País"
+
+msgid "Import invoices from Excel"
+msgstr "Importar facturas desde Excel"
 
 #, fuzzy
 #| msgid "Line total"
@@ -2350,6 +2419,26 @@ msgstr "elementos faltantes en la cuenta"
 #| msgid "Entry is not balanced."
 msgid "total balanced"
 msgstr "La entrada no está equilibrada."
+
+#, fuzzy
+#| msgid "Source"
+msgid "Excel File"
+msgstr "Origén"
+
+msgid "Upload an Excel file with the generic import format."
+msgstr "Sube un archivo de Excel con el formato de importación genérico."
+
+#, fuzzy
+#| msgid "Is Default"
+msgid "Default Year"
+msgstr "Es default"
+
+msgid ""
+"Year to use for dates without a year (e.g., DD/MM format). Leave blank to "
+"use the current year."
+msgstr ""
+"Año a usar para fechas sin un año (por ejemplo, formato DD/MM). Deja en "
+"blanco para usar el año actual."
 
 #, fuzzy
 #| msgid "Invoice File"
@@ -2541,6 +2630,12 @@ msgstr "No se pueden editar los impuestos en una factura finalizada."
 msgid "Invoice File"
 msgstr "Archivo de factura"
 
+msgid "Original Filename"
+msgstr "Nombre de archivo original"
+
+msgid "Original attachment filename from the email"
+msgstr "Nombre de archivo del adjunto original del correo electrónico"
+
 #, fuzzy
 #| msgid "Email"
 msgid "Email Date"
@@ -2640,11 +2735,150 @@ msgstr ""
 "%(invoiceable)s, Ya facturado (incluyendo esto): %(invoiced)s, Exceso por: "
 "%(over)s"
 
+#, fuzzy
+#| msgid "From Zone"
+msgid "From"
+msgstr "Desde la zona"
+
+msgid "To"
+msgstr "A"
+
+msgid "Total Payable"
+msgstr "Total a pagar"
+
+msgid "Overdue"
+msgstr "Vencido"
+
+msgid "Paid This Month"
+msgstr "Pagado Este Mes"
+
+msgid "Pending Invoices"
+msgstr "Facturas pendientes"
+
+msgid "Cash Flow Projection"
+msgstr "Proyección de Flujo de Efectivo"
+
+msgid "Aging Analysis"
+msgstr "Análisis de envejecimiento"
+
+msgid "days"
+msgstr "días"
+
+#, fuzzy
+#| msgid "Due Date"
+msgid "No Due Date"
+msgstr "Fecha de vencimiento"
+
+#, fuzzy
+#| msgid "Invoice"
+msgid "Invoice #"
+msgstr "Factura"
+
 msgid "Total"
 msgstr "Total"
 
 msgid "Remaining"
 msgstr "Restante"
+
+msgid "All invoices are paid!"
+msgstr "¡Todas las facturas están pagadas!"
+
+msgid "No pending invoices for this company."
+msgstr "No hay facturas pendientes para esta empresa."
+
+#, fuzzy
+#| msgid "Create Invoice from Project File"
+msgid "Import Invoices from Excel"
+msgstr "Crear factura desde expediente"
+
+msgid ""
+"Upload an Excel file (.xlsx) with the generic import format to bulk-import "
+"purchase invoices."
+msgstr ""
+"Cargue un archivo de Excel (.xlsx) con el formato de importación genérico "
+"para importar en bloque facturas de compra."
+
+msgid "View expected column format"
+msgstr "Ver formato de columna esperado"
+
+msgid "Column"
+msgstr "Columna"
+
+msgid "Date issued (DD/MM/YYYY or DD/MM)"
+msgstr "Fecha de emisión (DD/MM/YYYY o DD/MM)"
+
+msgid "Provider CIF/NIF for matching"
+msgstr "Proveedor CIF/NIF para coincidencia"
+
+msgid "Provider name (used if auto-creating)"
+msgstr "Nombre del proveedor (utilizado si se crea automáticamente)"
+
+msgid "Line item description / concept"
+msgstr "Descripción del concepto del artículo"
+
+#, fuzzy
+#| msgid "Please enter a valid amount."
+msgid "Base taxable amount"
+msgstr "Por favor, ingrese una cantidad válida."
+
+#, fuzzy
+#| msgid "Production Stage"
+msgid "IVA percentage (e.g. 21)"
+msgstr "Etapas de Producción"
+
+msgid "IVA amount (calculated if missing)"
+msgstr "Monto del IVA (calculado si falta)"
+
+#, fuzzy
+#| msgid "IRPF Withholding Amount"
+msgid "IRPF retention amount"
+msgstr "Monto de retención del IRPF"
+
+#, fuzzy
+#| msgid "Total Invoiceable"
+msgid "Total invoice amount"
+msgstr "Total Facturable"
+
+msgid "Company name to assign invoice to"
+msgstr "Nombre de la empresa para asignar la factura a"
+
+#, fuzzy
+#| msgid "AI Import"
+msgid "Import"
+msgstr "Importación de IA"
+
+#, fuzzy
+#| msgid "Import Metadata"
+msgid "Import Results"
+msgstr "Importar metadatos"
+
+#, fuzzy
+#| msgid "Total cost"
+msgid "Total Rows"
+msgstr "Costo total"
+
+#, fuzzy
+#| msgid "Created at"
+msgid "Created"
+msgstr "Creado en"
+
+msgid "Skipped"
+msgstr "Omitido"
+
+msgid "Errors"
+msgstr "Errores"
+
+msgid "Row"
+msgstr "Fila"
+
+msgid "CIF"
+msgstr "CIF"
+
+msgid "Message"
+msgstr "Mensaje"
+
+msgid "Error"
+msgstr "Error"
 
 #, fuzzy
 #| msgid "Incoming Invoice"
@@ -2705,6 +2939,18 @@ msgstr "Crear factura"
 
 msgid "Add item"
 msgstr "Agregar línea"
+
+#, python-format
+msgid "Successfully imported %(count)d invoices."
+msgstr "Se importaron con éxito %(count)d facturas."
+
+#, python-format
+msgid "Skipped %(count)d rows (duplicates or empty)."
+msgstr "Se omitieron %(count)d filas (duplicados o vacías)."
+
+#, python-format
+msgid "%(count)d rows had errors."
+msgstr "Se encontraron %(count)d filas con errores."
 
 msgid "Create Invoice from Project File"
 msgstr "Crear factura desde expediente"
@@ -4032,14 +4278,6 @@ msgstr "Etapas"
 msgid "All companies"
 msgstr "Etapas"
 
-#, fuzzy
-#| msgid "From Zone"
-msgid "From"
-msgstr "Desde la zona"
-
-msgid "To"
-msgstr "A"
-
 msgid "Orders"
 msgstr "Pedidos"
 
@@ -4604,9 +4842,6 @@ msgstr "Costo de la máquina"
 
 msgid "Final price"
 msgstr "Precio final"
-
-msgid "Order"
-msgstr "Orden"
 
 msgid "Material used"
 msgstr "Material utilizado"

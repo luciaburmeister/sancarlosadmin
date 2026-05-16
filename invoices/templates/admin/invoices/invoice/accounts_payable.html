@@ -397,7 +397,7 @@
 
   <!-- Header -->
   <div class="ap-header">
-    <h1 class="ap-title">📋 {% trans "Accounts Payable" %}</h1>
+    <h1 class="ap-title">{% trans "Accounts Payable" %}</h1>
     <form method="get" class="ap-filters" id="ap-filter-form">
       <select name="company" class="ap-select" onchange="this.form.submit()">
         {% for c in companies %}
@@ -416,25 +416,21 @@
   <div class="ap-kpi-grid">
     <div class="ap-kpi ap-kpi--teal">
       <div class="ap-kpi-accent"></div>
-      <div class="ap-kpi-icon">💰</div>
       <div class="ap-kpi-label">{% trans "Total Payable" %}</div>
       <div class="ap-kpi-value">€{{ kpis.total_payable|euro_format }}</div>
     </div>
     <div class="ap-kpi ap-kpi--red">
       <div class="ap-kpi-accent"></div>
-      <div class="ap-kpi-icon">⚠️</div>
       <div class="ap-kpi-label">{% trans "Overdue" %}</div>
       <div class="ap-kpi-value">€{{ kpis.total_overdue|euro_format }}</div>
     </div>
     <div class="ap-kpi ap-kpi--amber">
       <div class="ap-kpi-accent"></div>
-      <div class="ap-kpi-icon">✅</div>
       <div class="ap-kpi-label">{% trans "Paid This Month" %}</div>
-      <div class="ap-kpi-value">€{{ kpis.paid_this_month|floatformat:2 }}</div>
+      <div class="ap-kpi-value">€{{ kpis.paid_this_month|euro_format }}</div>
     </div>
     <div class="ap-kpi ap-kpi--blue">
       <div class="ap-kpi-accent"></div>
-      <div class="ap-kpi-icon">📄</div>
       <div class="ap-kpi-label">{% trans "Pending Invoices" %}</div>
       <div class="ap-kpi-value">{{ kpis.pending_count }}</div>
     </div>
@@ -461,7 +457,7 @@
             <span>{{ aging.current.percentage }}%</span>
           </div>
         </div>
-        <div class="ap-aging-amt">€{{ aging.current.amount|floatformat:2 }}</div>
+        <div class="ap-aging-amt">€{{ aging.current.amount|euro_format }}</div>
       </div>
 
       <div class="ap-aging-row">
@@ -471,7 +467,7 @@
             <span>{{ aging.days_1_30.percentage }}%</span>
           </div>
         </div>
-        <div class="ap-aging-amt">€{{ aging.days_1_30.amount|floatformat:2 }}</div>
+        <div class="ap-aging-amt">€{{ aging.days_1_30.amount|euro_format }}</div>
       </div>
 
       <div class="ap-aging-row">
@@ -481,7 +477,7 @@
             <span>{{ aging.days_31_60.percentage }}%</span>
           </div>
         </div>
-        <div class="ap-aging-amt">€{{ aging.days_31_60.amount|floatformat:2 }}</div>
+        <div class="ap-aging-amt">€{{ aging.days_31_60.amount|euro_format }}</div>
       </div>
 
       <div class="ap-aging-row">
@@ -491,7 +487,7 @@
             <span>{{ aging.days_61_90.percentage }}%</span>
           </div>
         </div>
-        <div class="ap-aging-amt">€{{ aging.days_61_90.amount|floatformat:2 }}</div>
+        <div class="ap-aging-amt">€{{ aging.days_61_90.amount|euro_format }}</div>
       </div>
 
       <div class="ap-aging-row">
@@ -501,7 +497,7 @@
             <span>{{ aging.days_90_plus.percentage }}%</span>
           </div>
         </div>
-        <div class="ap-aging-amt">€{{ aging.days_90_plus.amount|floatformat:2 }}</div>
+        <div class="ap-aging-amt">€{{ aging.days_90_plus.amount|euro_format }}</div>
       </div>
 
       <div class="ap-aging-row">
@@ -511,7 +507,7 @@
             style="width:{{ aging.no_due_date.percentage }}%;background:var(--ap-gray-noduedate)"><span>
               {{aging.no_due_date.percentage }}%</span></div>
         </div>
-        <div class="ap-aging-amt">€{{ aging.no_due_date.amount|floatformat:2 }}</div>
+        <div class="ap-aging-amt">€{{ aging.no_due_date.amount|euro_format }}</div>
       </div>
     </div>
   </div>
@@ -557,8 +553,8 @@
             {% endif %}
           </td>
           <td style="text-align:right;font-weight:600">{{ inv.total_amount }}</td>
-          <td style="text-align:right">{{ inv.amount_paid }}</td>
-          <td style="text-align:right;font-weight:700">{{ inv.amount_remaining }}</td>
+          <td style="text-align:right">€{{ inv.db_amount_paid|euro_format }}</td>
+          <td style="text-align:right;font-weight:700">€{{ inv.db_amount_remaining|euro_format }}</td>
           <td>
             {% if inv.payment_status == "unpaid" %}
               <span class="ap-badge ap-badge--unpaid">{% trans "Unpaid" %}</span>

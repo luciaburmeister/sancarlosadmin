@@ -9,9 +9,14 @@ def backfill_project_file(apps, schema_editor):
     for existing shop configurations that are linked to a project file
     via their production ticket but lack the new direct FK.
     """
-    Configuration = apps.get_model("configurator", "Configuration")
-    ProductionTicket = apps.get_model("production", "ProductionTicket")
-    ContentType = apps.get_model("contenttypes", "ContentType")
+    try:
+        Configuration = apps.get_model("configurator", "Configuration")
+        ProductionTicket = apps.get_model("production", "ProductionTicket")
+        ContentType = apps.get_model("contenttypes", "ContentType")
+    except LookupError:
+        # On a fresh DB the production app tables may not exist yet;
+        # nothing to backfill in that case.
+        return
 
     config_ct = ContentType.objects.get_for_model(Configuration)
 
@@ -42,7 +47,6 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('configurator', '0072_add_project_file_to_configuration'),
-        ('production', '0030_alter_plannedproductionsession_notes_and_more'),
         ('contenttypes', '0002_remove_content_type_name'),
     ]
 

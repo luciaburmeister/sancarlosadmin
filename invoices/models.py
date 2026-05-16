@@ -15,7 +15,9 @@ from company.models import Company
 from django.utils import timezone
 import unicodedata
 import re
+import uuid
 from payments.models import PaymentAllocation
+import os
 
 class InvoiceGroup(models.Model):
     """Categories to classify invoices"""
@@ -626,13 +628,18 @@ class AppliedTax(models.Model):
         
         return result
 def incoming_invoice_upload_path(instance, filename):
-    """Path: incoming_invoices/year/month/day/filename"""
+    """Path: incoming_invoices/year/month/day/<uuid>.ext
+    Uses a UUID filename to avoid collisions and max_length issues."""
     date = instance.email_date or instance.created_at or timezone.now()
-    return f"incoming_invoices/{date.strftime('%Y/%m/%d')}/{filename}"
+    ext = os.path.splitext(filename)[1] or '.pdf'
+    uuid_name = f"{uuid.uuid4().hex}{ext}"
+    return f"incoming_invoices/{date.strftime('%Y/%m/%d')}/{uuid_name}"
 
 class IncomingInvoice(CompanyOwnedModel):
     email_config = models.ForeignKey(CompanyEmailConfig, on_delete=models.SET_NULL, null=True, related_name="downloaded_invoices")
     file = models.FileField(upload_to=incoming_invoice_upload_path, verbose_name=_("Invoice File"))
+    original_filename = models.CharField(max_length=500, blank=True, default="", verbose_name=_("Original Filename"),
+                                         help_text=_("Original attachment filename from the email"))
     email_date = models.DateTimeField(null=True, blank=True, verbose_name=_("Email Date"))
     file_hash = models.CharField(max_length=64, unique=True, verbose_name=_("File Hash (SHA-256)"))
     source_email_id = models.CharField(max_length=255, verbose_name=_("Source Email ID"))

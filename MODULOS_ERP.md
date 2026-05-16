@@ -111,7 +111,6 @@
 - [Fran] Implementación de agentes comerciales y comisiones
 - [José] Mandar presupuestos por sistema
 - [José] Si despues de 72 horas no se ha actualizado mandar alerta para feedback
-- [José] Flujo de feedback
 
 
 ---
@@ -264,7 +263,6 @@ Tiene que ser una API robusta, escalable, segura y bien documentada. Tiene que t
 **Plan — Lo que falta:**
 
 - [Andrea] Generación de gastos generales para ligar pagos
-- [Andrea] Cerebro de reconciliación automatica de pagos
 - [Andrea + José] Importación de transacciones de bancos configurables por compañia con periocidad especifica
 
 ---
@@ -309,7 +307,6 @@ Tiene que ser una API robusta, escalable, segura y bien documentada. Tiene que t
 
 **Plan — Lo que falta:**
 
-- [Maria] Cálculo automatico de nómina
 - [Maria] Cálculo de finiquitos 
 - [Maria] Base de datos de convenios colectivos
 - [Maria] Bot de descarga de convenios colectivos
@@ -323,12 +320,12 @@ Tiene que ser una API robusta, escalable, segura y bien documentada. Tiene que t
 
 **Plan — Lo que falta:**
 
-- [José] Pagos, Cuentas Corrientes y Tesoreria
-- [] Producción
-- [] Ventas
-- [] Comercial
-- [] Administrativo
-- [Fran] Almacén
+- [] Cuadro de mando global
+- [José] Cuadro de mando Tesoreria
+- [] Cuadro de mando Producción
+- [] Cuadro de mando Ventas
+- [] Cuadro de mando Comercial
+- [] Cuadro de mando Administrativo
 
 ---
 ---

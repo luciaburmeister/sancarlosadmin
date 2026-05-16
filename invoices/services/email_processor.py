@@ -90,9 +90,9 @@ class EmailInvoiceProcessor:
                             file_hash=file_hash,
                             source_email_id=self.decode_mime_header(msg.get('Message-ID', str(e_id))),
                             sender_email=sender_email,
-                            email_date=email_date
+                            email_date=email_date,
+                            original_filename=filename[:500],
                         )
-                        # The upload_path uses email_date if available
                         invoice.file.save(filename, ContentFile(content), save=True)
                         processed_count += 1
 

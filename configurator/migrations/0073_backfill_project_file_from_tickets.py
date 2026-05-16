@@ -42,8 +42,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('configurator', '0072_add_project_file_to_configuration'),
-        ('production', '__latest__'),
-        ('contenttypes', '__latest__'),
+        ('contenttypes', '0002_remove_content_type_name'),
     ]
 
     operations = [

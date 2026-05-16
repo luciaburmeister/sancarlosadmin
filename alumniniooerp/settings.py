@@ -94,6 +94,7 @@ INSTALLED_APPS = [
     'simple_history',
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_api_key',
     'hijack',    
     'hijack.contrib.admin',
     'company',

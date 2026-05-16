@@ -4,6 +4,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from . import (
     client_views,
     configuration_views,
+    cortizo_views,
     employee_views,
     invoice_views,
     me_views,
@@ -65,4 +66,7 @@ urlpatterns = [
     path("configurations/<int:config_id>/stages/<str:stage_name>/revert/", production_stage_views.stage_revert_view, name="stage_revert"),
 
     path("employees/eligible/", employee_views.eligible_employees_view, name="eligible_employees"),
+
+    # ── Machine-to-machine integrations ────────────────────────────────────────
+    path("cortizo/import/", cortizo_views.cortizo_import_view, name="cortizo_import"),
 ]

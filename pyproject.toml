@@ -47,6 +47,7 @@ dependencies = [
     "django-filter (>=25.2,<26.0)",
     "pulp (>=3.3.1,<4.0.0)",
     "djangorestframework-api-key (>=3.1.0,<4.0.0)",
+    "weasyprint (>=68.1,<69.0)",
 ]
 
 

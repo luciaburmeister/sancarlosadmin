@@ -18,6 +18,9 @@ from management.views import QuoteAcceptanceWizardView
 from .views.quote_export_view import QuoteExportView
 from .views.quote_dashboard_view import QuoteDashboardView
 from .components.quote_dashboard_charts import QuoteValueByStatusChart, QuoteCountByStatusChart  # noqa: F401
+from core.tasks import send_quote_email_task
+from company.models import EmailLog
+from unfold.admin import GenericTabularInline as _GenericTabularInline
 
 @admin.register(SaleZone)
 class SaleZoneAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -252,6 +255,20 @@ class ConfigurationReadOnlyInline(TabularInline):
         return obj.total_price
 
 
+
+class QuoteEmailLogInline(_GenericTabularInline):
+    model = EmailLog
+    extra = 0
+    tab = True
+    verbose_name = _("Email Sent")
+    verbose_name_plural = _("Emails Sent")
+    fields = ("to_email", "subject", "sent_at", "status", "error_message")
+    readonly_fields = ("to_email", "subject", "sent_at", "status", "error_message")
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
 @admin.register(Quote)
 class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ["id", "client", "project_name","project_file", "show_status_customized_color", "total_price_display", "company"]
@@ -261,10 +278,11 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
     readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown"]
     list_select_related = ["client", "project_file", "company"]
     
-    inlines = [ ConfigurationReadOnlyInline,QuoteConfigurationGroupInline, QuoteItemInline, AppliedTaxInline]
+    inlines = [ ConfigurationReadOnlyInline,QuoteConfigurationGroupInline, QuoteItemInline, AppliedTaxInline, QuoteEmailLogInline]
 
     actions_list = ["quote_dashboard_action"]
-    actions_row = ["add_configuration_to_quote", "export_quote_action"]
+    actions_row = ["add_configuration_to_quote", "export_quote_action", "send_email_row_action"]
+    actions_detail = ["send_email_detail_action"]
 
     fieldsets = (
         ("Quote Details", {
@@ -359,3 +377,23 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
         if obj.status == "accepted" and not obj.project_file:
             return redirect("admin:sales_quote_acceptance_wizard", quote_id=obj.pk)
         return super().response_add(request, obj, post_url_continue)
+
+    @action(description=_("Send Email"), icon="mail")
+    def send_email_row_action(self, request, object_id):
+        quote = Quote.objects.select_related("client").get(pk=object_id)
+        if not quote.client or not quote.client.email:
+            self.message_user(request, _("Client has no email address."), level="error")
+        else:
+            send_quote_email_task.delay(quote.id)
+            self.message_user(request, _("Quote email queued for %s.") % quote.client.email)
+        return redirect(reverse("admin:sales_quote_changelist"))
+
+    @action(description=_("Send Email"), icon="mail")
+    def send_email_detail_action(self, request, object_id):
+        quote = Quote.objects.select_related("client").get(pk=object_id)
+        if not quote.client or not quote.client.email:
+            self.message_user(request, _("Client has no email address."), level="error")
+        else:
+            send_quote_email_task.delay(quote.id)
+            self.message_user(request, _("Quote email queued for %s.") % quote.client.email)
+        return redirect(reverse("admin:sales_quote_change", args=[object_id]))

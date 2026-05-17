@@ -36,6 +36,8 @@ from invoices.views.accounts_payable_views import AccountsPayableDashboardView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from accounting.tasks import classify_invoice_accounts, generate_journal_entries_task, export_a3_purchase_invoicing_task
+from core.tasks import send_invoice_email_task
+from company.models import EmailLog
 from core.admin.company_admin import CompanyRestrictedAdmin
 from unfold.contrib.filters.admin import (
     RangeDateFilter,
@@ -543,6 +545,19 @@ class SalesInvoiceItemInline(StackedInline):
             return False
         return super().has_delete_permission(request, obj)
 
+class EmailLogInline(GenericTabularInline):
+    model = EmailLog
+    extra = 0
+    tab = True
+    verbose_name = _("Email Sent")
+    verbose_name_plural = _("Emails Sent")
+    fields = ("to_email", "subject", "sent_at", "status", "error_message")
+    readonly_fields = ("to_email", "subject", "sent_at", "status", "error_message")
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
 @admin.register(SalesInvoice)
 class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     resource_classes = [SalesInvoiceResource, SalesInvoiceItemResource]
@@ -563,7 +578,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
         ("date_issued",RangeDateFilter),)
     search_fields = ("invoice_number", "client__name")
     autocomplete_fields = ("company", "client", "configuration", "project_file")
-    inlines = [SalesInvoiceItemInline, AppliedTaxInline, PaymentAllocationInline]
+    inlines = [SalesInvoiceItemInline, AppliedTaxInline, PaymentAllocationInline, EmailLogInline]
     list_filter_submit = True
     
     readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount", "status", "invoice_number", "amount_paid", "amount_remaining")
@@ -630,8 +645,8 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
         form.instance.recalculate_totals(save=True)
     
     actions = ["download_pdf", "finalize_invoice_action"]
-    actions_row = ["view_pdf_row_action", "finalize_invoice_row_action", "view_journal_entry_row_action"]
-    actions_detail = ["view_pdf_detail_action", "finalize_invoice_detail_action", "view_journal_entry_detail_action", "register_payment_detail_action"]
+    actions_row = ["view_pdf_row_action", "send_email_row_action", "finalize_invoice_row_action", "view_journal_entry_row_action"]
+    actions_detail = ["view_pdf_detail_action", "send_email_detail_action", "finalize_invoice_detail_action", "view_journal_entry_detail_action", "register_payment_detail_action"]
 
     @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
     def view_pdf_row_action(self, request, object_id):
@@ -739,3 +754,23 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     @action(description=_("Register Payment"), icon="payments")
     def register_payment_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_salesinvoice_register_payment", args=[object_id]))
+
+    @action(description=_("Send Email"), icon="mail")
+    def send_email_row_action(self, request, object_id):
+        invoice = SalesInvoice.objects.select_related("client").get(pk=object_id)
+        if not invoice.client or not invoice.client.email:
+            self.message_user(request, _("Client has no email address."), level="error")
+        else:
+            send_invoice_email_task.delay(invoice.id)
+            self.message_user(request, _("Invoice email queued for %s.") % invoice.client.email)
+        return redirect(reverse("admin:invoices_salesinvoice_changelist"))
+
+    @action(description=_("Send Email"), icon="mail")
+    def send_email_detail_action(self, request, object_id):
+        invoice = SalesInvoice.objects.select_related("client").get(pk=object_id)
+        if not invoice.client or not invoice.client.email:
+            self.message_user(request, _("Client has no email address."), level="error")
+        else:
+            send_invoice_email_task.delay(invoice.id)
+            self.message_user(request, _("Invoice email queued for %s.") % invoice.client.email)
+        return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))

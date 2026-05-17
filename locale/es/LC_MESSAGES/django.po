@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-05-16 11:33+0200\n"
+"POT-Creation-Date: 2026-05-17 12:13+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -176,8 +176,7 @@ msgid "Español"
 msgstr "Español"
 
 msgid "English"
-msgstr ""
-"Ingles"
+msgstr "Ingles"
 
 msgid "Dashboards"
 msgstr "Dashboards"
@@ -976,6 +975,52 @@ msgstr "Documento del Empleado"
 msgid "Company Documents"
 msgstr "Documentos del empleado"
 
+msgid "Success"
+msgstr "Éxito"
+
+msgid "Failed"
+msgstr "Fallido"
+
+msgid "Content Type"
+msgstr "Tipo de contenido"
+
+msgid "Object ID"
+msgstr "ID del objeto"
+
+#, fuzzy
+#| msgid "Work Email"
+msgid "To Email"
+msgstr "Correo electrónico"
+
+msgid "Comma-separated list of recipient emails"
+msgstr ""
+"Lista de correos electrónicos de los destinatarios, separada por comas"
+
+#, fuzzy
+#| msgid "Object ID"
+msgid "Subject"
+msgstr "ID del objeto"
+
+#, fuzzy
+#| msgid "Sent"
+msgid "Sent At"
+msgstr "Enviado"
+
+#, fuzzy
+#| msgid "Message"
+msgid "Error Message"
+msgstr "Mensaje"
+
+#, fuzzy
+#| msgid "Email"
+msgid "Email Log"
+msgstr "Correo electrónico"
+
+#, fuzzy
+#| msgid "Email"
+msgid "Email Logs"
+msgstr "Correo electrónico"
+
 msgid "Employee sessions"
 msgstr "Sesiones de empleado"
 
@@ -1586,6 +1631,13 @@ msgstr ""
 "Instantánea de cálculos fiscales en el momento de la fijación de precios. "
 "Usado para exportaciones y auditorías."
 
+msgid "Project File"
+msgstr "Expediente"
+
+msgid "Direct link to a project file for non-quotable configurations."
+msgstr ""
+"Enlace directo a un archivo de proyecto para configuraciones no citables."
+
 #, fuzzy
 #| msgid "Work Order"
 msgid "Work Order PDF"
@@ -2070,12 +2122,6 @@ msgstr "Almacénes"
 msgid "Location Type"
 msgstr "Tipo de ubicación"
 
-msgid "Content Type"
-msgstr "Tipo de contenido"
-
-msgid "Object ID"
-msgstr "ID del objeto"
-
 msgid "Select both Content Type and Object ID, or leave both empty."
 msgstr ""
 "Selecciona tanto el Tipo de Contenido como el ID de Objeto, o deja ambos "
@@ -2275,43 +2321,30 @@ msgstr "Inventario ajustado en %(sign)s%(qty)d para %(item)s en %(wh)s."
 msgid "Adjust Stock — %s"
 msgstr "Ajustar Stock — %s"
 
-#, fuzzy
-#| msgid "Payment Method"
 msgid "Payment"
-msgstr "Método de Pago"
+msgstr "Pago"
 
-#, fuzzy
-#| msgid "Payment Method"
 msgid "Payments"
-msgstr "Método de Pago"
+msgstr "Pagos"
 
-#, fuzzy
-#| msgid "Payment Method"
 msgid "Payment Date"
-msgstr "Método de Pago"
+msgstr "Fecha de Pago"
 
-#, fuzzy
-#| msgid "Payment Method"
+
 msgid "Method"
-msgstr "Método de Pago"
+msgstr "Método"
 
 msgid "Review"
 msgstr "Revisar"
 
-#, fuzzy
-#| msgid "Invoice File"
 msgid "Invoice Info"
-msgstr "Archivo de factura"
+msgstr "Información de factura"
 
-#, fuzzy
-#| msgid "Hire Date"
 msgid "Dates"
-msgstr "Fecha de contratación"
+msgstr "Fechas"
 
-#, fuzzy
-#| msgid "Payment Method"
 msgid "Payment Tracking"
-msgstr "Método de Pago"
+msgstr "Seguimiento de pagos"
 
 msgid "AI Classification"
 msgstr "Clasificación de IA"
@@ -2341,7 +2374,6 @@ msgstr "Fuera de balance"
 msgid "Confirmation"
 msgstr "Configuración"
 
-
 msgid "Unpaid"
 msgstr "Sin pagar"
 
@@ -2351,10 +2383,8 @@ msgstr "Parcial"
 msgid "Paid"
 msgstr "Pagado"
 
-#, fuzzy
-#| msgid "Payment Method"
 msgid "Register Payment"
-msgstr "Método de Pago"
+msgstr "Registrar Pago"
 
 #, fuzzy
 #| msgid "Country"
@@ -2364,10 +2394,14 @@ msgstr "País"
 msgid "Import invoices from Excel"
 msgstr "Importar facturas desde Excel"
 
-#, fuzzy
-#| msgid "Line total"
 msgid "Line Item"
-msgstr "Total de la línea"
+msgstr "Item"
+
+msgid "Email Sent"
+msgstr "Correo electrónico enviado"
+
+msgid "Emails Sent"
+msgstr "Correos electrónicos enviados"
 
 msgid "General Information"
 msgstr "Información General"
@@ -2407,13 +2441,21 @@ msgstr "Por favor, selecciona solo una factura para descargar."
 msgid "Download PDF"
 msgstr "Descargar PDF"
 
-#, fuzzy
-#| msgid "Order items"
+msgid "Send Email"
+msgstr "Enviar correo electrónico"
+
+msgid "Client has no email address."
+msgstr "El cliente no tiene una dirección de correo electrónico."
+
+
+msgid "Invoice email queued for %s."
+msgstr "Correo electrónico de factura en cola para %s."
+
 msgid "has items"
-msgstr "Items del pedido"
+msgstr "tiene artículos"
 
 msgid "items missing account"
-msgstr "elementos faltantes en la cuenta"
+msgstr "artículos sin cuenta"
 
 #, fuzzy
 #| msgid "Entry is not balanced."
@@ -2440,10 +2482,8 @@ msgstr ""
 "Año a usar para fechas sin un año (por ejemplo, formato DD/MM). Deja en "
 "blanco para usar el año actual."
 
-
 msgid "Invoice Setup"
 msgstr "Configuración de la factura"
-
 
 msgid "By Percentage"
 msgstr "Por porcentaje"
@@ -2456,7 +2496,6 @@ msgstr "Fecha de emisión"
 
 msgid "Due Date"
 msgstr "Fecha de vencimiento"
-
 
 msgid "Invoice Mode"
 msgstr "Método de factura"
@@ -2513,20 +2552,15 @@ msgstr "Cantidad"
 msgid "Unit Price"
 msgstr "Precio Unitario"
 
-#, fuzzy
-#| msgid "Discount"
 msgid "Discount (%)"
-msgstr "Descuento"
+msgstr "Descuento (%)"
 
-#, fuzzy
-#| msgid "Type"
+
 msgid "Tax Type"
-msgstr "Tipo"
+msgstr "Tipo de Impuesto"
 
-#, fuzzy
-#| msgid "Production Stage"
 msgid "Percentage"
-msgstr "Etapas de Producción"
+msgstr "Porcentaje"
 
 msgid "Bank Transfer"
 msgstr "Transferencia Bancaria"
@@ -2561,9 +2595,6 @@ msgstr "Fecha de emisión"
 #| msgid "Due Date"
 msgid "Due date"
 msgstr "Fecha de vencimiento"
-
-msgid "Project File"
-msgstr "Expediente"
 
 msgid "Payment Status"
 msgstr "Estado de pago"
@@ -2695,6 +2726,10 @@ msgstr "Descuento"
 msgid "Line Total"
 msgstr "Total de la línea"
 
+msgid "Origin reference (e.g. config_451, direct_468, quote_item_12)"
+msgstr ""
+"Referencia de origen (por ejemplo, config_451, direct_468, quote_item_12)"
+
 msgid "Cannot edit items in a finalized invoice."
 msgstr "No se pueden editar elementos en una factura finalizada."
 
@@ -2706,12 +2741,16 @@ msgstr "Descuento"
 msgid "Gross Total"
 msgstr "Total Bruto"
 
-#, fuzzy
-#| msgid "Current Risk"
-msgid "Currency"
-msgstr "Riesgo Actual"
 
-msgid "This project file has no accepted quotes. Cannot create an invoice."
+msgid "Currency"
+msgstr "Moneda"
+
+#, fuzzy
+#| msgid ""
+#| "This project file has no accepted quotes. Cannot create an invoice."
+msgid ""
+"This project file has no accepted quotes or direct configurations. Cannot "
+"create an invoice."
 msgstr ""
 "Este archivo de proyecto no tiene cotizaciones aceptadas. No se puede crear "
 "una factura."
@@ -2956,10 +2995,8 @@ msgstr "Subir Nueva Factura"
 msgid "Create Sales Invoice"
 msgstr "Crear factura de venta"
 
-#, fuzzy
-#| msgid "Tax Amount"
 msgid "Amount"
-msgstr "Monto del impuesto"
+msgstr "Cantidad"
 
 #, fuzzy
 #| msgid "Purchase Order approved successfully."
@@ -2973,6 +3010,11 @@ msgstr "Logística"
 #| msgid "Expense"
 msgid "Expenses"
 msgstr "Gasto"
+
+#, fuzzy
+#| msgid "Configuration"
+msgid "Direct Work"
+msgstr "Configuración"
 
 #, fuzzy
 #| msgid "General Information"
@@ -2997,8 +3039,10 @@ msgstr "Datos Internos"
 msgid "Invoicing Summary"
 msgstr "Finanzas y Seguro"
 
-msgid "No accepted quotes yet."
-msgstr "No hay cotizaciones aceptadas aún."
+#, fuzzy
+#| msgid "No accepted quotes found for this project file."
+msgid "No accepted quotes or direct configurations yet."
+msgstr "No se han encontrado presupuestos aceptados para este expediente."
 
 #, fuzzy
 #| msgid "Invoice"
@@ -4697,6 +4741,10 @@ msgstr "Aceptado"
 msgid "Quote Dashboard"
 msgstr "Tablero de Cotizaciones"
 
+#, python-format
+msgid "Quote email queued for %s."
+msgstr "Correo electrónico de cotización en cola para %s."
+
 msgid "Sent"
 msgstr "Enviado"
 
@@ -5138,6 +5186,9 @@ msgstr "Ausencias pasadas"
 
 msgid "No past absences."
 msgstr "No hay ausencias pasadas"
+
+#~ msgid "No accepted quotes yet."
+#~ msgstr "No hay cotizaciones aceptadas aún."
 
 #~ msgid "Converted to Quote"
 #~ msgstr "Convertido a Cotización"

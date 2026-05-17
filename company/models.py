@@ -1,6 +1,7 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _  
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.fields import GenericForeignKey
 from django_countries.fields import CountryField
 from django.contrib.postgres.fields import ArrayField
 from location_field.models.spatial import LocationField
@@ -555,3 +556,49 @@ class CompanyDocument(BaseDocument):
 
     def __str__(self):
         return f"{self.document_type.name} - {self.company}"
+
+
+class EmailLog(CompanyOwnedModel):
+    """
+    Audit log for emails sent from the system (invoices, quotes, etc.).
+    Uses a GenericForeignKey to link to any document model.
+    """
+
+    class EmailStatus(models.TextChoices):
+        SUCCESS = "success", _("Success")
+        FAILED = "failed", _("Failed")
+
+    content_type = models.ForeignKey(
+        "contenttypes.ContentType",
+        on_delete=models.CASCADE,
+        verbose_name=_("Content Type"),
+    )
+    object_id = models.PositiveIntegerField(verbose_name=_("Object ID"))
+
+    content_object = GenericForeignKey("content_type", "object_id")
+
+    to_email = models.CharField(
+        max_length=500,
+        verbose_name=_("To Email"),
+        help_text=_("Comma-separated list of recipient emails"),
+    )
+    subject = models.CharField(max_length=500, verbose_name=_("Subject"))
+    sent_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Sent At"))
+    status = models.CharField(
+        max_length=10,
+        choices=EmailStatus.choices,
+        default=EmailStatus.SUCCESS,
+        verbose_name=_("Status"),
+    )
+    error_message = models.TextField(
+        blank=True,
+        verbose_name=_("Error Message"),
+    )
+
+    class Meta:
+        verbose_name = _("Email Log")
+        verbose_name_plural = _("Email Logs")
+        ordering = ["-sent_at"]
+
+    def __str__(self):
+        return f"{self.subject} → {self.to_email} ({self.get_status_display()})"

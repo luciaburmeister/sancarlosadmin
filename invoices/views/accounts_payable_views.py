@@ -17,6 +17,8 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
 
+from unfold.views import UnfoldModelAdminViewMixin
+
 from core.admin.company_access import get_user_companies
 from invoices.models import Invoice, InvoicePaymentStatus
 from payments.models import PaymentAllocation
@@ -26,7 +28,7 @@ from payments.models import PaymentAllocation
 _CACHE_TTL = 300
 
 
-class AccountsPayableDashboardView(TemplateView):
+class AccountsPayableDashboardView(UnfoldModelAdminViewMixin, TemplateView):
     """
     Dashboard view for Accounts Payable (Cuentas por Pagar).
     Shows outstanding purchase invoices with KPIs, aging analysis,
@@ -36,6 +38,8 @@ class AccountsPayableDashboardView(TemplateView):
     cached per company + date-range for 5 minutes.
     """
 
+    title = _("Accounts Payable")
+    permission_required = ("invoices.accounts_payable",)
     template_name = "admin/invoices/invoice/accounts_payable.html"
     model_admin = None
 
@@ -88,10 +92,6 @@ class AccountsPayableDashboardView(TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         request = self.request
-
-        # ── Admin site context ─────────────────────────────────────
-        if self.model_admin:
-            ctx.update(self.model_admin.admin_site.each_context(request))
 
         # ── Company filtering ──────────────────────────────────────
         user_companies = get_user_companies(request.user)

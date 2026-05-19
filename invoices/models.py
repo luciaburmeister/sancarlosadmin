@@ -199,6 +199,9 @@ class Invoice(models.Model):
         ordering = ['-date_issued']
         verbose_name = _("Invoice")
         verbose_name_plural = _("Invoices")
+        permissions = [
+            ("accounts_payable", _("Can view Accounts Payable dashboard")),
+        ]
 
     def __str__(self):
         return f"{self.invoice_number} - {self.provider}"

@@ -455,7 +455,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
     )
     def record_actual_values(self, request, object_id: int):
         config = Configuration.objects.get(pk=object_id)
-        if config.status != ConfigurationStatus.SHOP:
+        if config.status not in [ConfigurationStatus.SHOP,ConfigurationStatus.DRAFT]:
             self.message_user(
                 request,
                 _("Cannot record actual values. The configuration must be in production."),

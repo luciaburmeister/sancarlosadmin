@@ -1,5 +1,5 @@
 from django.shortcuts import redirect, get_object_or_404
-from configurator.models import ProductTemplate,ConfigurationItem
+from configurator.models import ProductTemplate, ConfigurationItem
 from unfold.views import UnfoldModelAdminViewMixin
 from configurator.forms import ConfigurationForm,AddonForm,BaseAddonFormSet,ConfigurationFormHelper,AddonFormsetHelper,ClientSelectionForm,ClientSelectionFormHelper
 from django.urls import reverse
@@ -79,8 +79,6 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
                     if quote:
                         initial['quote'] = quote
         elif step == 'addons' and self.instance:
-            # Pre-populate addons
-            from configurator.models import ConfigurationItem
             manual_items = self.instance.items.filter(is_template_item=False)
             initial = [
                 {'addons': item.component, 'quantity': item.quantity}
@@ -114,7 +112,6 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
                 quantity = form.cleaned_data.get("quantity", 1)
 
                 if component:
-                    from configurator.models import ConfigurationItem
                     ConfigurationItem.objects.create(
                         configuration=config,
                         component=component,
@@ -133,7 +130,19 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin,SessionWizardView):
             config.copy_default_taxes_from_product()
         
         config.recalculate_price()
-        
+
+        # If editing and a production ticket exists, regenerate its HTML
+        if self.instance:
+            from django.contrib.contenttypes.models import ContentType
+            from production.models import ProductionTicket
+            from production.services.configuration_to_production import ConfigurationToProductionService
+
+            config_ct = ContentType.objects.get_for_model(config)
+            ticket = ProductionTicket.objects.filter(
+                content_type=config_ct, object_id=config.id
+            ).first()
+            if ticket:
+                ConfigurationToProductionService._assign_default_templates(ticket, config)
         
         url = reverse(
                 "admin:configurator_configuration_change",

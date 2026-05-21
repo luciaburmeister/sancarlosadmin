@@ -133,6 +133,8 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
         if isinstance(source, Configuration):
             if new_status == ProductionTicketStatus.DONE:
                 target_cfg_status = ConfigurationStatus.PRODUCTION_DONE
+            elif source.status == ConfigurationStatus.SHOP:
+                target_cfg_status = ConfigurationStatus.SHOP
             else:
                 target_cfg_status = ConfigurationStatus.CONVERTED
             if source.status != target_cfg_status:

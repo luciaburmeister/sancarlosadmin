@@ -72,12 +72,13 @@ class SalesInvoiceService:
 
         company = sales_invoice.company
         sales_invoice.status = SalesInvoiceStatus.FINAL
+        sales_invoice.date_issued = timezone.now().date()
         
         # Invoices logic
         next_invoice = cls._generate_next_invoice_data(company)
         sales_invoice.invoice_number = next_invoice['number']
         sales_invoice.incremental_id = next_invoice['incremental_id']
-        sales_invoice.save(update_fields=['status', 'invoice_number', 'incremental_id'])
+        sales_invoice.save(update_fields=['status', 'date_issued', 'invoice_number', 'incremental_id'])
 
         return sales_invoice
 

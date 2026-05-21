@@ -54,8 +54,10 @@ def cortizo_import_view(request):
             len(data), len(quotes), company_name,
         )
 
+        skipped = len(data) - len(quotes)
         return Response({
             "imported": len(quotes),
+            "skipped": skipped,
             "documents_received": len(data),
             "company": company_name,
             "quotes": results,

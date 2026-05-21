@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from decimal import Decimal
 from django.db import transaction
@@ -14,6 +15,8 @@ from configurator.models import (
     ProductTemplateComponentGroup
 )
 from collections import defaultdict
+
+logger = logging.getLogger(__name__)
 
 class CortizoImportService:
     def __init__(self, company_name="Aluares"):
@@ -35,7 +38,8 @@ class CortizoImportService:
         results = []
         for doc_data in data:
             quote = self._process_document(doc_data)
-            results.append(quote)
+            if quote is not None:
+                results.append(quote)
         return results
 
     def _get_or_create_client(self, client_data):
@@ -57,6 +61,14 @@ class CortizoImportService:
 
     def _process_document(self, doc_data):
         client_data = doc_data.get("client", {})
+        nif = client_data.get("nif", "").strip()
+        if not nif:
+            doc_number = doc_data.get("document_number", doc_data.get("number", "unknown"))
+            logger.warning(
+                "Skipping Cortizo document %s: client has no tax identifier (NIF).",
+                doc_number,
+            )
+            return None
         client = self._get_or_create_client(client_data)
         
         doc_number = doc_data.get("document_number", doc_data.get("number", ""))

@@ -11,6 +11,12 @@ from django.contrib.postgres.fields import ArrayField
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter
 )
+from import_export.admin import ImportExportModelAdmin
+from unfold.contrib.import_export.forms import (
+    ImportForm,
+    SelectableFieldsExportForm,
+)
+from materials.resources import MaterialResource
 
 class ComponentPriceRuleInline(TabularInline):
     model = ComponentPriceRule
@@ -104,8 +110,15 @@ class CategoryAdmin(ModelAdmin):
     list_display = ["name"]
     search_fields = ["name"]
 
+
+
+
 @admin.register(Material)
-class MaterialAdmin(CompanyRestrictedAdmin,ModelAdmin):
+class MaterialAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
+    resource_classes = [MaterialResource]
+    import_form_class = ImportForm
+    export_form_class = SelectableFieldsExportForm
+
     list_display = [
         "reference_code", 
         "name", 
@@ -136,6 +149,9 @@ class MaterialAdmin(CompanyRestrictedAdmin,ModelAdmin):
             )
         }),
     )
+
+    def has_import_permission(self, request):
+        return request.user.has_perm("materials.can_import_materials")
 
 
 @admin.register(Provider)

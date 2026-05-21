@@ -97,6 +97,9 @@ class Material(Timestampable,CompanyOwnedModel):
         unique_together = (
             ("rule_key", "company"),
         )
+        permissions = [
+            ("can_import_materials", _("Can import materials")),
+        ]
 
     def __str__(self):
         return f"[{self.reference_code}] {self.name}"

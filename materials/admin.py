@@ -111,8 +111,6 @@ class CategoryAdmin(ModelAdmin):
     search_fields = ["name"]
 
 
-
-
 @admin.register(Material)
 class MaterialAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
     resource_classes = [MaterialResource]

@@ -1,8 +1,4 @@
 from django import forms
-from django.conf import settings
-from django.contrib import admin
-from unfold.widgets import UnfoldAdminRelatedFieldWrapperWidget
-from configurator.models import Configuration
 from management.models import ProjectFile
 from unfold.fields import UnfoldAdminAutocompleteModelChoiceField
 from django.utils.translation import gettext_lazy as _

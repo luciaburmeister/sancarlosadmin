@@ -22,12 +22,13 @@ class ReceivalSlipItemInline(StackedInline):
 
 @admin.register(ReceivalSlip)
 class ReceivalSlipAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ("reference", "configuration", "date", "company")
+    list_display = ("reference", "configuration","configuration__client__name", "date", "company")
     list_filter = ("company", "date")
     search_fields = ("reference", "configuration__name", "notes")
     autocomplete_fields = ["configuration"]
     inlines = [ReceivalSlipItemInline]
     readonly_fields = ("reference", "company")
+    list_select_related = ["configuration", "configuration__client"]
     
     actions_row = ["admin_export_receival_slip"]
 

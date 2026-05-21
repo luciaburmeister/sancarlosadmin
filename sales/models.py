@@ -89,7 +89,7 @@ class ClientContact(models.Model):
     name = models.CharField(max_length=100, verbose_name=_("Name"))
     position = models.CharField(max_length=100, blank=True, verbose_name=_("Position"))
     email = models.EmailField(blank=True, verbose_name=_("Email"))
-    phone = models.CharField(max_length=20, blank=True, verbose_name=_("Phone"))
+    phone = models.CharField(max_length=50, blank=True, verbose_name=_("Phone"))
 
     class Meta:
         verbose_name = _("Client Contact")
@@ -106,7 +106,7 @@ class Client(Timestampable, CompanyOwnedModel):
         verbose_name=_("Name"),
     )
     phone = models.CharField(
-        max_length=20,
+        max_length=50,
         blank=True,
         verbose_name=_("Phone"),
     )
@@ -355,6 +355,8 @@ class Quote(Timestampable, CompanyOwnedModel):
     client = models.ForeignKey(
         Client,
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         verbose_name=_("Client"),
     )
 
@@ -364,13 +366,19 @@ class Quote(Timestampable, CompanyOwnedModel):
         verbose_name=_("Project name"),
     )
 
+    date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Date"),
+    )
+
     project_file = models.ForeignKey(
         "management.ProjectFile",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="quotes",
-        verbose_name=_("Project File")
+        verbose_name=_("Project File"),
     )
 
     expires_at = models.DateField(
@@ -425,7 +433,7 @@ class Quote(Timestampable, CompanyOwnedModel):
         ]
 
     def __str__(self):
-        return f"{_('Quote')} #{self.id} – {self.client} - {self.project_name}"
+        return self.project_name or f"Quote #{self.id}"
 
     def recalc_totals(self):
         if not self.id:
@@ -623,6 +631,14 @@ class QuoteItem(Timestampable):
         verbose_name=_("Material"),
     )
 
+    category = models.ForeignKey(
+        "materials.MaterialFamily",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name=_("Category"),
+    )
+
     quantity = models.DecimalField(
         max_digits=10,
         decimal_places=3,
@@ -635,7 +651,14 @@ class QuoteItem(Timestampable):
         default_currency="EUR",
         verbose_name=_("Unit price"),
     )
-    
+
+    discount = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0"),
+        verbose_name=_("Discount (%)"),
+    )
+
     line_total = MoneyField(
         max_digits=12,
         decimal_places=2,
@@ -649,8 +672,12 @@ class QuoteItem(Timestampable):
         verbose_name = _("Quote item")
         verbose_name_plural = _("Quote items")
 
+    def __str__(self):
+        return self.material.name if self.material_id else f"QuoteItem #{self.pk}"
+
     def save(self, *args, **kwargs):
-        self.line_total = self.unit_price * self.quantity
+        discount_factor = (Decimal("100") - self.discount) / Decimal("100")
+        self.line_total = self.unit_price * self.quantity * discount_factor
         super().save(*args, **kwargs)
         self.quote.recalc_totals()
 
@@ -743,3 +770,102 @@ class DeliveryOrderItem(Timestampable):
 
     def __str__(self):
         return f"{self.description} ({self.quantity})"
+
+
+class ConversionThresholds(models.Model):
+    """
+    Per-company configuration for the conversion diagnosis thresholds.
+
+    Each field is an absolute conversion % boundary (0–100).
+    The diagnosis logic applied in analysis.py is:
+
+        conv == 0                              → Sin ventas
+        0 < conv <= critical_pct              → Crítico
+        critical_pct < conv <= very_low_pct   → Muy bajo
+        very_low_pct < conv <= low_pct        → Bajo
+        low_pct < conv <= improve_pct         → Por mejorar
+        improve_pct < conv <= acceptable_pct  → Aceptable
+        acceptable_pct < conv <= good_pct     → Bueno
+        conv > good_pct                       → Excelente
+
+    Default values mirror the original relative-to-average thresholds
+    but expressed as concrete percentages for a 60 % average:
+        critical  ≈ avg × 0.15  →  9 %
+        very_low  ≈ avg × 0.45  → 27 %
+        low       ≈ avg × 0.75  → 45 %
+        improve   ≈ avg × 1.00  → 60 %  (anything below average)
+        acceptable≈ avg × 1.25  → 75 %
+        good      ≈ avg × 1.75  → 100 % (anything above → Excelente)
+    """
+
+    company = models.OneToOneField(
+        "company.Company",
+        on_delete=models.CASCADE,
+        related_name="conversion_thresholds",
+        verbose_name=_("Company"),
+    )
+
+    critical_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("9.00"),
+        verbose_name=_("Crítico (hasta %)"),
+        help_text=_(
+            "Conversiones iguales o por debajo de este % se clasifican como Crítico. "
+            "Por ejemplo: 9 significa que una conversión del 0–9 % es Crítico."
+        ),
+    )
+    very_low_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("27.00"),
+        verbose_name=_("Muy bajo (hasta %)"),
+        help_text=_(
+            "Conversiones hasta este % se clasifican como Muy bajo."
+        ),
+    )
+    low_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("45.00"),
+        verbose_name=_("Bajo (hasta %)"),
+        help_text=_(
+            "Conversiones hasta este % se clasifican como Bajo."
+        ),
+    )
+    improve_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("60.00"),
+        verbose_name=_("Por mejorar (hasta %)"),
+        help_text=_(
+            "Conversiones hasta este % se clasifican como Por mejorar. "
+            "Normalmente debería coincidir con vuestra tasa de conversión media objetivo."
+        ),
+    )
+    acceptable_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("75.00"),
+        verbose_name=_("Aceptable (hasta %)"),
+        help_text=_(
+            "Conversiones hasta este % se clasifican como Aceptable."
+        ),
+    )
+    good_pct = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("100.00"),
+        verbose_name=_("Bueno (hasta %)"),
+        help_text=_(
+            "Conversiones hasta este % se clasifican como Bueno. "
+            "Por encima de este valor → Excelente."
+        ),
+    )
+
+    class Meta:
+        verbose_name = _("Umbrales de Conversión")
+        verbose_name_plural = _("Umbrales de Conversión")
+
+    def __str__(self):
+        return f"Umbrales de conversión — {self.company}"

@@ -1,4 +1,7 @@
+from decimal import Decimal
+
 from django.contrib import admin
+from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
 from unfold.decorators import display
@@ -8,12 +11,21 @@ from .models import (
     QuoteStatus, QuoteConfigurationGroup,
 )
 from unfold.admin import TabularInline, StackedInline
+from import_export.admin import ImportExportModelAdmin
+from .forms import (
+    ClientImportForm, ClientExportForm,
+    QuoteImportForm, ClientConfirmImportForm, QuoteConfirmImportForm,
+    QuoteItemImportForm, QuoteItemConfirmImportForm,
+)
 from configurator.models import Configuration
 from configurator.admin.configuration import AppliedTaxInline
 from django.shortcuts import redirect, render
 from django.urls import reverse, path
 from unfold.decorators import action
 from core.admin.company_admin import CompanyRestrictedAdmin
+from core.admin.company_access import get_user_companies
+from .resources import ClientResource, QuoteImportResource, QuoteItemImportResource
+from .views_analysis import ConversionAnalysisView
 from management.views import QuoteAcceptanceWizardView
 from .views.quote_export_view import QuoteExportView
 from .views.quote_dashboard_view import QuoteDashboardView
@@ -21,6 +33,50 @@ from .components.quote_dashboard_charts import QuoteValueByStatusChart, QuoteCou
 from core.tasks import send_quote_email_task
 from company.models import EmailLog
 from unfold.admin import GenericTabularInline as _GenericTabularInline
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mixin — shared company-passthrough logic for all import admins
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _CompanyImportMixin:
+
+    def get_import_form_kwargs(self, request):
+        kwargs = super().get_import_form_kwargs(request)
+        kwargs["companies"] = get_user_companies(request.user)
+        kwargs["request"] = request
+        return kwargs
+
+    def get_confirm_form_initial(self, request, import_form):
+        initial = super().get_confirm_form_initial(request, import_form)
+        if import_form and hasattr(import_form, "cleaned_data"):
+            company = import_form.cleaned_data.get("company")
+            if company:
+                initial["company"] = str(company.pk)
+        return initial
+
+    def get_import_resource_kwargs(self, request, **kwargs):
+        from company.models import Company as CompanyModel
+        result = super().get_import_resource_kwargs(request, **kwargs)
+        form = kwargs.get("form")
+        company = None
+        if form and hasattr(form, "cleaned_data"):
+            raw = form.cleaned_data.get("company")
+            if raw:
+                if hasattr(raw, "pk"):
+                    company = raw
+                else:
+                    try:
+                        company = CompanyModel.objects.get(pk=raw)
+                    except CompanyModel.DoesNotExist:
+                        pass
+        if company:
+            result["default_company"] = company
+        else:
+            companies = get_user_companies(request.user)
+            if companies.count() == 1:
+                result["default_company"] = companies.first()
+        return result
 
 @admin.register(SaleZone)
 class SaleZoneAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -89,17 +145,33 @@ class ClientBankAccountInline(StackedInline):
     )
 
 @admin.register(Client)
-class ClientAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["name", "tax_identifier", "phone", "email", "sale_zone", "agent"]
+class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
+    resource_classes = [ClientResource]
+    import_form_class = ClientImportForm
+    export_form_class = ClientExportForm
+
+    list_display = ["name", "tax_identifier", "phone", "address_truncated", "company"]
     search_fields = ["name", "tax_identifier", "email", "phone", "address"]
-    list_filter = ["sale_zone", "agent", "is_insured"]
+    list_filter = ["sale_zone", "is_insured", "company"]
+
+    def get_list_filter(self, request):
+        return self.list_filter
+
+    def get_confirm_form_class(self, request):
+        return ClientConfirmImportForm
+
+    @display(description=_("Address"))
+    def address_truncated(self, obj):
+        if not obj.address or obj.address == "-":
+            return "-"
+        return obj.address if len(obj.address) <= 40 else obj.address[:40] + "…"
+
     autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account"]
-    
+
     inlines = [ClientAddressInline, ClientContactInline, ClientBankAccountInline]
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "default_client_bank_account":
-            # Get the object ID from the URL if we are editing an existing client
             import re
             match = re.search(r'/admin/sales/client/(\d+)/change/', request.path)
             if match:
@@ -108,7 +180,7 @@ class ClientAdmin(CompanyRestrictedAdmin, ModelAdmin):
             else:
                 kwargs["queryset"] = ClientBankAccount.objects.none()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
-    
+
     fieldsets = (
         (_("Basic Information"), {
             "classes": ["tab"],
@@ -138,10 +210,10 @@ class ClientAdmin(CompanyRestrictedAdmin, ModelAdmin):
 @admin.register(Order)
 class OrderAdmin(ModelAdmin):
     list_display = [
-        "project_name", 
-        "client", 
-        "status", 
-        "deadline_date", 
+        "project_name",
+        "client",
+        "status",
+        "deadline_date",
         "final_price_display"
     ]
     list_filter = ["status", "date_created", "deadline_date"]
@@ -157,7 +229,7 @@ class OrderAdmin(ModelAdmin):
             )
         }),
         ("Financial Summary", {
-            "classes": ("collapse",), 
+            "classes": ("collapse",),
             "description": "Calculated costs based on the manufacturing items associated with this order.",
             "fields": (
                 ("total_cost_material", "total_cost_labor"),
@@ -190,21 +262,48 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         description=_("Status"),
         ordering="status",
         label={
-            _(DeliveryOrderStatus.DRAFT): "warning",  
-            _(DeliveryOrderStatus.DELIVERED): "success",  
-            _(DeliveryOrderStatus.SENT): "info",  
-            _(DeliveryOrderStatus.CANCELLED): "danger",  
+            _(DeliveryOrderStatus.DRAFT): "warning",
+            _(DeliveryOrderStatus.DELIVERED): "success",
+            _(DeliveryOrderStatus.SENT): "info",
+            _(DeliveryOrderStatus.CANCELLED): "danger",
         },
     )
     def get_status_label(self, obj):
         return obj.status
+
 
 class QuoteItemInline(TabularInline):
     model = QuoteItem
     extra = 1
     tab = True
     autocomplete_fields = ["material"]
-    readonly_fields = ["line_total"]
+    readonly_fields = ["line_total", "cost_display", "margin_display"]
+    fields = ["material", "quantity", "unit_price", "discount", "line_total", "cost_display", "margin_display"]
+
+    @display(description=_("Coste"))
+    def cost_display(self, obj):
+        if not obj.pk or not obj.material_id:
+            return "—"
+        cost = obj.material.cost_per_unit
+        if not cost or cost.amount == 0:
+            return "—"
+        return cost
+
+    @display(description=_("Margen"))
+    def margin_display(self, obj):
+        if not obj.pk or not obj.material_id:
+            return "—"
+        cost = obj.material.cost_per_unit
+        if not cost or cost.amount == 0 or not obj.unit_price or obj.unit_price.amount == 0:
+            return "—"
+        disc = (Decimal("100") - obj.discount) / Decimal("100")
+        sale = obj.unit_price.amount * disc
+        if sale == 0:
+            return "—"
+        margin = (sale - cost.amount) / sale * 100
+        color = "#22c55e" if margin >= 0 else "#ef4444"
+        margin_str = f"{float(margin):.1f}%"
+        return format_html('<span style="color:{};font-weight:600;">{}</span>', color, margin_str)
 
 class QuoteConfigurationGroupInline(StackedInline):
     model = QuoteConfigurationGroup
@@ -270,17 +369,20 @@ class QuoteEmailLogInline(_GenericTabularInline):
         return False
 
 @admin.register(Quote)
-class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["id", "client", "project_name","project_file", "show_status_customized_color", "total_price_display", "company"]
+class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
+    resource_classes = [QuoteImportResource]
+    import_form_class = QuoteImportForm
+    export_form_class = ClientExportForm
+    list_display = ["id", "project_name", "client", "date", "project_file", "show_status_customized_color", "total_price_display", "company"]
     list_filter = ["status", "company", "created_at"]
     search_fields = ["project_name", "client__name", "id"]
-    autocomplete_fields = ["client", "project_file","company"]
-    readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown"]
+    autocomplete_fields = ["client", "project_file", "company"]
+    readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown", "company"]
     list_select_related = ["client", "project_file", "company"]
-    
-    inlines = [ ConfigurationReadOnlyInline,QuoteConfigurationGroupInline, QuoteItemInline, AppliedTaxInline, QuoteEmailLogInline]
 
-    actions_list = ["quote_dashboard_action"]
+    inlines = [ConfigurationReadOnlyInline, QuoteConfigurationGroupInline, QuoteItemInline, AppliedTaxInline, QuoteEmailLogInline]
+
+    actions_list = ["go_to_conversion_analysis", "quote_dashboard_action"]
     actions_row = ["add_configuration_to_quote", "export_quote_action", "send_email_row_action"]
     actions_detail = ["send_email_detail_action"]
 
@@ -289,8 +391,8 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
             "fields": (
                 ("client", "status"),
                 ("project_name", "company"),
+                ("date", "expires_at"),
                 "project_file",
-                "expires_at"
             )
         }),
         ("Financials", {
@@ -301,6 +403,9 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
             )
         }),
     )
+
+    def get_confirm_form_class(self, request):
+        return QuoteConfirmImportForm
 
     @display(description=_("Total price"))
     def total_price_display(self, obj):
@@ -325,6 +430,41 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
         url = reverse("admin:configurator_configuration_wizard_select")
         return redirect(f"{url}?quote_id={object_id}")
 
+    @action(description=_("Análisis de Conversión"))
+    def go_to_conversion_analysis(self, _request):
+        url = reverse("admin:sales_quote_conversion_analysis")
+        return redirect(url)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "conversion-analysis/",
+                self.admin_site.admin_view(
+                    ConversionAnalysisView.as_view(model_admin=self)
+                ),
+                name="sales_quote_conversion_analysis",
+            ),
+            path(
+                "dashboard/",
+                self.admin_site.admin_view(
+                    QuoteDashboardView.as_view(model_admin=self)
+                ),
+                name="sales_quote_dashboard",
+            ),
+            path(
+                "<int:quote_id>/accept-wizard/",
+                self.admin_site.admin_view(QuoteAcceptanceWizardView.as_view(model_admin=self)),
+                name="sales_quote_acceptance_wizard",
+            ),
+            path(
+                "<int:quote_id>/export/",
+                self.admin_site.admin_view(QuoteExportView.as_view(model_admin=self)),
+                name="sales_quote_export",
+            ),
+        ]
+        return custom + urls
+
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         form.instance.recalc_totals()
@@ -344,29 +484,6 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     def has_quote_dashboard_permission(self, request):
         return request.user.has_perm("sales.can_view_quote_dashboard")
-
-    def get_urls(self):
-        urls = super().get_urls()
-        custom_urls = [
-            path(
-                "dashboard/",
-                self.admin_site.admin_view(
-                    QuoteDashboardView.as_view(model_admin=self)
-                ),
-                name="sales_quote_dashboard",
-            ),
-            path(
-                "<int:quote_id>/accept-wizard/",
-                self.admin_site.admin_view(QuoteAcceptanceWizardView.as_view(model_admin=self)),
-                name="sales_quote_acceptance_wizard",
-            ),
-            path(
-                "<int:quote_id>/export/",
-                self.admin_site.admin_view(QuoteExportView.as_view(model_admin=self)),
-                name="sales_quote_export",
-            ),
-        ]
-        return custom_urls + urls
 
     def response_change(self, request, obj):
         if obj.status == "accepted" and not obj.project_file:
@@ -397,3 +514,51 @@ class QuoteAdmin(CompanyRestrictedAdmin, ModelAdmin):
             send_quote_email_task.delay(quote.id)
             self.message_user(request, _("Quote email queued for %s.") % quote.client.email)
         return redirect(reverse("admin:sales_quote_change", args=[object_id]))
+
+
+@admin.register(QuoteItem)
+class QuoteItemAdmin(_CompanyImportMixin, ImportExportModelAdmin, ModelAdmin):
+    resource_classes = [QuoteItemImportResource]
+    import_form_class = QuoteItemImportForm
+
+    list_display = ["quote_name", "material_name", "unit_price", "discount", "line_total", "cost_display", "margin_display"]
+    search_fields = ["quote__project_name", "material__reference_code", "material__name"]
+    autocomplete_fields = ["quote", "material", "category"]
+    readonly_fields = ["line_total", "cost_display"]
+    list_select_related = ["quote", "material"]
+
+    def get_confirm_form_class(self, request):
+        return QuoteItemConfirmImportForm
+
+    @display(description=_("Quote"))
+    def quote_name(self, obj):
+        return obj.quote.project_name if obj.quote_id else "-"
+
+    @display(description=_("Material"))
+    def material_name(self, obj):
+        return obj.material.name if obj.material_id else "-"
+
+    @display(description=_("Coste"))
+    def cost_display(self, obj):
+        if not obj.material_id:
+            return "—"
+        cost = obj.material.cost_per_unit
+        if not cost or cost.amount == 0:
+            return "—"
+        return cost
+
+    @display(description=_("Margen"))
+    def margin_display(self, obj):
+        if not obj.material_id:
+            return "—"
+        cost = obj.material.cost_per_unit
+        if not cost or cost.amount == 0 or not obj.unit_price or obj.unit_price.amount == 0:
+            return "—"
+        disc = (Decimal("100") - obj.discount) / Decimal("100")
+        sale = obj.unit_price.amount * disc
+        if sale == 0:
+            return "—"
+        margin = (sale - cost.amount) / sale * 100
+        color = "#22c55e" if margin >= 0 else "#ef4444"
+        margin_str = f"{float(margin):.1f}%"
+        return format_html('<span style="color:{};font-weight:600;">{}</span>', color, margin_str)

@@ -63,7 +63,7 @@ class Warehouse(Timestampable, CompanyOwnedModel):
         ]
 
     def __str__(self):
-        return f"{self.code} — {self.name}"
+        return f"{self.code} | {self.name}"
 
 
 class StockLocation(Timestampable):
@@ -139,7 +139,7 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
     )
     default_warehouse = models.ForeignKey(
         "inventory.Warehouse",
-        verbose_name=_("Default Warehouse"),
+        verbose_name=_("Warehouse"),
         null=True,
         blank=True,
         on_delete=models.PROTECT,
@@ -174,6 +174,13 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
 
     image = models.ImageField(_("Image"), upload_to="inventory/items/images/", null=True, blank=True)
 
+    min_stock = models.PositiveIntegerField(
+        _("Minimum Stock"),
+        null=True,
+        blank=True,
+        help_text=_("Alert threshold: an order reminder will be shown when stock falls below this level."),
+    )
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -188,7 +195,7 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         verbose_name_plural = _("Items")
 
     def __str__(self):
-        return f"{self.code or '—'} — {self.name}"
+        return f"{self.code} | {self.name}"
 
     def clean(self):
         super().clean()
@@ -217,6 +224,11 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
     @property
     def stock_on_hand(self) -> int:
         return self.transactions.aggregate(total=models.Sum("quantity_change")).get("total") or 0
+
+    @property
+    def is_low_stock(self) -> bool:
+        """True when min_stock is set and current stock is at or below it."""
+        return self.min_stock is not None and self.stock_on_hand <= self.min_stock
 
 
 class ItemTransaction(Timestampable):

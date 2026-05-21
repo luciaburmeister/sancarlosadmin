@@ -8,13 +8,14 @@ from core.admin.company_admin import CompanyRestrictedAdmin
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action
 from unfold.enums import ActionVariant
-from unfold.widgets import UnfoldAdminSelectWidget
+from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminSelect2Widget
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from django.urls import path, reverse
 from django.shortcuts import redirect
 
 from .views import AdjustStockView, ReceiveStockView, TransferStockView
+from .qr_views import item_qr_view
 from .choices import MovementType
 from .models import (
     Warehouse,
@@ -25,7 +26,7 @@ from .models import (
     ItemTransaction,
 )
 
-from inventory.views import InvoiceInfoView 
+from inventory.views import InvoiceInfoView
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ContentType (utility)
@@ -161,7 +162,7 @@ class ItemTransactionInline(TabularInline):
             '<span style="color:{};font-weight:600;">{}{}</span>',
             colour, sign, obj.quantity_change,
         )
-    quantity_change_display.short_description = _("Qty Δ")
+    quantity_change_display.short_description = _("Quantity")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -174,12 +175,18 @@ class InventoryItemForm(forms.ModelForm):
         required=False,
         label=_("Product object"),
         help_text=_("Select a Product content type first, then choose the linked object here."),
-        widget=UnfoldAdminSelectWidget,
+        # UnfoldAdminSelect2Widget renders a searchable Select2 dropdown from local
+        # <option> elements — no AJAX endpoint needed, matches the Unfold autocomplete style.
+        widget=UnfoldAdminSelect2Widget(),
     )
 
     class Meta:
         model = InventoryItem
         exclude = ("product_object",)
+        # Same widget for item_type so it gets the searchable Select2 treatment too
+        widgets = {
+            "item_type": UnfoldAdminSelect2Widget(),
+        }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -231,6 +238,36 @@ class InventoryItemForm(forms.ModelForm):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Low-stock list filter
+# ─────────────────────────────────────────────────────────────────────────────
+
+class LowStockFilter(admin.SimpleListFilter):
+    title = _("Stock level")
+    parameter_name = "stock_level"
+
+    def lookups(self, request, model_admin):
+        return [
+            ("low", _("Low stock (at or below minimum)")),
+            ("ok",  _("Stock OK")),
+        ]
+
+    def queryset(self, request, queryset):
+        from django.db.models import Sum, F
+        from django.db.models.functions import Coalesce
+
+        qs = queryset.annotate(
+            _stock=Coalesce(
+                Sum("transactions__quantity_change"), 0
+            )
+        )
+        if self.value() == "low":
+            return qs.filter(min_stock__isnull=False, _stock__lte=F("min_stock"))
+        if self.value() == "ok":
+            return qs.exclude(min_stock__isnull=False, _stock__lte=F("min_stock"))
+        return queryset
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # InventoryItem admin
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -249,9 +286,12 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "default_warehouse_display",
         "preferred_supplier_display",
         "stock_on_hand_display",
+        "min_stock_display",
+        "reorder_action_display",
     )
     list_filter = (
         "item_type",
+        LowStockFilter,
         ["default_warehouse", AutocompleteSelectFilter],
         ["preferred_supplier", AutocompleteSelectFilter],
     )
@@ -263,7 +303,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "default_warehouse__name",
     )
     ordering = ("-created_at",)
-    autocomplete_fields = ("default_warehouse", "preferred_supplier", "product_content_type", "invoice","company")
+    autocomplete_fields = ("default_warehouse", "preferred_supplier", "product_content_type", "invoice", "company")
     change_form_outer_before_template = "admin/inventory/item_stock_actions.html"
     readonly_fields = (
         "code",
@@ -280,8 +320,8 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ("company"),
                 ("code", "item_type"),
                 ("name", "stock_on_hand_display"),
-                "description",
-                "image",
+                ("min_stock",),
+                ("description", "image"),
                 ("product_content_type", "product_object_selector"),
             ),
             "classes": ("tab",),
@@ -306,13 +346,63 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     def stock_on_hand_display(self, obj):
         qty = int(obj.stock_on_hand)
-        colour = "green" if qty > 0 else ("red" if qty < 0 else "gray")
         sign = "+" if qty > 0 else ""
+
+        # Red — at or below minimum
+        if obj.is_low_stock:
+            return format_html(
+                '<span style="display:inline-flex;align-items:center;gap:4px;">'
+                '<span style="color:#dc2626;font-weight:600;">{}{}</span>'
+                '<span class="material-symbols-outlined" style="font-size:17px;color:#dc2626;" '
+                'title="{}">warning</span>'
+                '</span>',
+                sign, qty,
+                _("Stock is at or below the minimum threshold"),
+            )
+
+        # Amber — above minimum but within 50% of it (getting low)
+        if obj.min_stock and obj.min_stock > 0 and qty <= obj.min_stock * 1.5:
+            return format_html(
+                '<span style="color:#d97706;font-weight:600;" title="{}">{}{}</span>',
+                _("Stock is within 50% of the minimum threshold"),
+                sign, qty,
+            )
+
+        # Green — well above minimum or no minimum set
         return format_html(
-            '<span style="color:{};font-weight:700;font-size:15px;">{}{}</span>',
-            colour, sign, qty,
+            '<span style="color:#16a34a;font-weight:600;">{}{}</span>',
+            sign, qty,
         )
     stock_on_hand_display.short_description = _("Stock on Hand")
+
+    def min_stock_display(self, obj):
+        if obj.min_stock is None:
+            return format_html('<span style="color:#9ca3af;">—</span>')
+        return format_html(
+            '<span style="font-weight:600;color:#6b7280;">{}</span>',
+            obj.min_stock,
+        )
+    min_stock_display.short_description = _("Min Stock")
+    min_stock_display.admin_order_field = "min_stock"
+
+    def reorder_action_display(self, obj):
+        if not obj.is_low_stock:
+            return format_html('<span style="color:#9ca3af;">—</span>')
+        url = reverse("admin:inventory_item_receive", args=[obj.pk])
+        return format_html(
+            '<a href="{}" title="{}" '
+            'style="display:inline-flex;align-items:center;gap:5px;'
+            'padding:4px 10px;border-radius:6px;font-size:12px;font-weight:600;'
+            'background:var(--color-primary-600,#0d9488);color:#fff;text-decoration:none;'
+            'border:1px solid var(--color-primary-700,#0f766e);white-space:nowrap;">'
+            '{}'
+            '</a>',
+            url,
+            _("Stock is at or below minimum — click to receive stock"),
+            _("Reorder Now"),
+        )
+    reorder_action_display.short_description = _("Reorder")
+    reorder_action_display.allow_tags = True
 
     def product_object_repr(self, obj):
         return str(obj.product_object) if obj.product_object else "—"
@@ -363,7 +453,31 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return " / ".join(p for p in parts if p)
     warehouse_address.short_description = _("Address")
 
-    # ── Custom URLs ───────────────────────────────────────────────────────
+    # ── QR code list-column ───────────────────────────────────────────────
+
+    def qr_code_link(self, obj):
+        if not obj.pk:
+            return "—"
+
+        icons = []
+        actions = [
+            ("receive",  _("Receive QR")),
+            ("transfer", _("Transfer QR")),
+            ("adjust",   _("Adjust QR")),
+        ]
+        for movement, label in actions:
+            url = reverse(f"admin:inventory_item_qr_{movement}", args=[obj.pk])
+            icons.append(format_html(
+                '<a href="{}" target="_blank" title="{}" '
+                'style="display:inline-flex;align-items:center;color:var(--color-primary-600,#0d9488);">'
+                '<span class="material-symbols-outlined" style="font-size:18px;">'
+                'qr_code_2</span></a>',
+                url, label,
+            ))
+        return format_html('<span style="display:inline-flex;gap:4px;">{}</span>',
+                           format_html("".join(str(i) for i in icons)))
+    qr_code_link.short_description = _("QR")
+    qr_code_link.allow_tags = True
 
     # ── Row actions ───────────────────────────────────────────────────────
 
@@ -410,6 +524,27 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
         urls = super().get_urls()
         custom_urls = [
             path(
+                "<int:object_id>/qr/receive/",
+                self.admin_site.admin_view(
+                    lambda req, object_id: item_qr_view(req, object_id, "receive")
+                ),
+                name="inventory_item_qr_receive",
+            ),
+            path(
+                "<int:object_id>/qr/transfer/",
+                self.admin_site.admin_view(
+                    lambda req, object_id: item_qr_view(req, object_id, "transfer")
+                ),
+                name="inventory_item_qr_transfer",
+            ),
+            path(
+                "<int:object_id>/qr/adjust/",
+                self.admin_site.admin_view(
+                    lambda req, object_id: item_qr_view(req, object_id, "adjust")
+                ),
+                name="inventory_item_qr_adjust",
+            ),
+            path(
                 "<int:object_id>/invoice-info/",
                 self.admin_site.admin_view(InvoiceInfoView.as_view(model_admin=self)),
                 name="inventory_item_invoice_info",
@@ -437,6 +572,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
             ),
         ]
         return custom_urls + urls
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # ItemTransaction — audit log only, no add/change/delete
@@ -518,7 +654,7 @@ class ItemTransactionAdmin(ModelAdmin):
             '<span style="color:{};font-weight:600;">{}{}</span>',
             colour, sign, obj.quantity_change,
         )
-    quantity_change_display.short_description = _("Qty Δ")
+    quantity_change_display.short_description = _("Quantity")
 
     def reference_repr(self, obj):
         if obj and obj.reference_object:

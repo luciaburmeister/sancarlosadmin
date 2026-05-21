@@ -1,0 +1,1240 @@
+{% extends "admin/base.html" %}
+{% load i18n unfold %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <script src="{% url 'admin:jsi18n' %}"></script>
+  {{ form.media }}
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <style>
+    /* ── Layout ─────────────────────────────────────────────────────────────── */
+    .ca-wrap { padding: 1.5rem 2rem 4rem; }
+
+    /* ── Page header ─────────────────────────────────────────────────────────  */
+    .ca-page-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      margin-bottom: 1.75rem;
+    }
+    .ca-page-title {
+      font-size: 1.375rem;
+      font-weight: 700;
+      color: var(--color-font-important, #111);
+      margin: 0 0 .2rem;
+    }
+    .ca-page-subtitle {
+      font-size: .8125rem;
+      color: var(--color-font-secondary, #6b7280);
+      margin: 0;
+    }
+
+    /* ── Cards ───────────────────────────────────────────────────────────────  */
+    .ca-card {
+      background: var(--color-bg, #fff);
+      border: 1px solid var(--color-border, #e5e7eb);
+      border-radius: .875rem;
+      overflow: hidden;
+      margin-bottom: 1.25rem;
+    }
+    .ca-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .75rem;
+      padding: .875rem 1.25rem;
+      border-bottom: 1px solid var(--color-border, #e5e7eb);
+      background: var(--color-bg-secondary, #f9fafb);
+    }
+    .ca-card-title {
+      font-size: .875rem;
+      font-weight: 600;
+      color: var(--color-font-important, #111827);
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .ca-card-title .material-symbols-outlined {
+      font-size: 1.125rem;
+      vertical-align: middle;
+      color: var(--color-font-secondary, #6b7280);
+    }
+
+    /* ── Filter form ─────────────────────────────────────────────────────────  */
+    .ca-filter-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: .875rem;
+      padding: 1.125rem 1.25rem 0;
+    }
+    .ca-filter-actions {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .875rem 1.25rem 1.125rem;
+      border-top: 1px solid var(--color-border, #f3f4f6);
+      margin-top: .875rem;
+    }
+
+    /* ── Dashboard panel ─────────────────────────────────────────────────────  */
+    .ca-dashboard {
+      background: var(--color-bg, #fff);
+      border: 1px solid var(--color-border, #e5e7eb);
+      border-radius: 1rem;
+      overflow: hidden;
+      margin-bottom: 1.5rem;
+    }
+    .ca-dashboard-header {
+      padding: 1.125rem 1.5rem;
+      border-bottom: 1px solid var(--color-border, #e5e7eb);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      background: var(--color-bg-secondary, #f9fafb);
+    }
+    .ca-dashboard-title {
+      font-size: .9375rem;
+      font-weight: 600;
+      color: var(--color-font-important, #111827);
+    }
+    .ca-dashboard-toggle {
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: .375rem;
+      font-size: .8125rem;
+      color: var(--color-font-secondary, #6b7280);
+      user-select: none;
+      background: none;
+      border: none;
+      padding: 0;
+      font-family: inherit;
+    }
+    .ca-dashboard-toggle .material-symbols-outlined {
+      font-size: 1.125rem;
+      transition: transform .2s;
+    }
+    .ca-dashboard-toggle.collapsed .material-symbols-outlined {
+      transform: rotate(-90deg);
+    }
+
+    /* ── KPI grid — 4 per row ─────────────────────────────────────────────────  */
+    .ca-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-bottom: 1px solid var(--color-border, #e5e7eb);
+    }
+    @media (max-width: 900px) {
+      .ca-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    .ca-kpi {
+      background: var(--color-bg, #fff);
+      padding: 1.75rem 1.75rem 1.5rem;
+      position: relative;
+      border-right: 1px solid var(--color-border, #e5e7eb);
+    }
+    .ca-kpi:nth-child(4n) { border-right: none; }
+    @media (max-width: 900px) {
+      .ca-kpi:nth-child(4n) { border-right: 1px solid var(--color-border, #e5e7eb); }
+      .ca-kpi:nth-child(2n) { border-right: none; }
+    }
+    /* subtle top accent */
+    .ca-kpi::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: var(--color-primary, #0d9488);
+      opacity: .35;
+    }
+    .ca-kpi-label {
+      font-size: .8125rem;
+      font-weight: 400;
+      color: var(--color-font-secondary, #6b7280);
+      margin: 0 0 .875rem;
+      display: block;
+    }
+    .ca-kpi-value {
+      font-size: 2.5rem;
+      font-weight: 700;
+      line-height: 1;
+      margin: 0;
+      font-family: inherit;
+      letter-spacing: -.03em;
+      color: var(--color-primary, #0d9488);
+    }
+    /* remove the old per-variant colour rules — all use primary now */
+    .kpi-primary::before,
+    .kpi-gray::before,
+    .kpi-green::before,
+    .kpi-teal::before,
+    .kpi-red::before,
+    .kpi-violet::before,
+    .kpi-orange::before { background: var(--color-primary, #0d9488); }
+    .kpi-primary .ca-kpi-value,
+    .kpi-gray    .ca-kpi-value,
+    .kpi-green   .ca-kpi-value,
+    .kpi-teal    .ca-kpi-value,
+    .kpi-red     .ca-kpi-value,
+    .kpi-violet  .ca-kpi-value,
+    .kpi-orange  .ca-kpi-value { color: var(--color-primary, #0d9488); }
+
+    /* ── Charts inside the dashboard panel ───────────────────────────────────  */
+    .ca-charts-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0;
+      border-top: 1px solid var(--color-border, #e5e7eb);
+    }
+    .ca-chart-box {
+      background: var(--color-bg, #fff);
+      border-right: 1px solid var(--color-border, #e5e7eb);
+    }
+    .ca-chart-box:last-child { border-right: none; }
+    @media (max-width: 1100px) {
+      .ca-charts-grid { grid-template-columns: 1fr 1fr; }
+      .ca-chart-box:nth-child(2) { border-right: none; }
+      .ca-chart-box:nth-child(3) { border-top: 1px solid var(--color-border, #e5e7eb); border-right: none; grid-column: 1 / -1; }
+    }
+    @media (max-width: 700px) {
+      .ca-charts-grid { grid-template-columns: 1fr; }
+      .ca-chart-box { border-right: none; border-top: 1px solid var(--color-border, #e5e7eb); }
+      .ca-chart-box:first-child { border-top: none; }
+    }
+    .ca-chart-body {
+      padding: 1.25rem 1.5rem 1.5rem;
+      position: relative;
+    }
+    .ca-chart-canvas { display: block; }
+
+    .ca-chart-box .ca-card-header {
+      border-bottom: 1px solid var(--color-border, #e5e7eb);
+      background: var(--color-bg-secondary, #f9fafb);
+      padding: .875rem 1.5rem;
+    }
+
+    /* Diagnosis distribution */
+    .ca-diag-list { display: flex; flex-direction: column; gap: .4rem; margin-top: .5rem; }
+    .ca-diag-row { display: flex; align-items: center; gap: .625rem; }
+    .ca-diag-bar-wrap { flex: 1; height: .4rem; background: var(--color-bg-secondary, #f3f4f6); border-radius: 999px; overflow: hidden; }
+    .ca-diag-bar-fill { height: 100%; border-radius: 999px; }
+    .ca-diag-label { font-size: .6875rem; color: var(--color-font-secondary, #6b7280); min-width: 5.5rem; }
+    .ca-diag-count { font-size: .6875rem; font-weight: 700; color: var(--color-font-important, #374151); min-width: 1.75rem; text-align: right; }
+
+    /* ── Table toolbar ───────────────────────────────────────────────────────  */
+    .ca-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: .75rem;
+      padding: .875rem 1.25rem;
+      border-bottom: 1px solid var(--color-border, #e5e7eb);
+    }
+    .ca-toolbar-left {
+      display: flex;
+      align-items: center;
+      gap: .625rem;
+    }
+    .ca-toolbar-title {
+      font-size: .9375rem;
+      font-weight: 600;
+      color: var(--color-font-important, #111827);
+    }
+    .ca-count-pill {
+      background: var(--color-bg-secondary, #f3f4f6);
+      color: var(--color-font-secondary, #6b7280);
+      font-size: .75rem;
+      font-weight: 600;
+      padding: .2rem .625rem;
+      border-radius: 999px;
+    }
+    .ca-sort-group {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .ca-sort-label {
+      font-size: .8125rem;
+      color: var(--color-font-secondary, #9ca3af);
+      white-space: nowrap;
+    }
+
+    /* ── Thresholds info banner ───────────────────────────────────────────────  */
+    .ca-thresholds-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: .75rem;
+      background: var(--color-bg, #fff);
+      border: 1px solid var(--color-border, #e5e7eb);
+      border-radius: .875rem;
+      padding: .875rem 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    .ca-thresholds-left {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .ca-thresholds-title {
+      font-size: .875rem;
+      font-weight: 600;
+      color: var(--color-font-important, #111827);
+      white-space: nowrap;
+    }
+    .ca-thresholds-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .375rem;
+      align-items: center;
+    }
+    .ca-thr-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+      font-size: .75rem;
+      font-weight: 500;
+      padding: .2rem .625rem;
+      border-radius: .375rem;
+      white-space: nowrap;
+    }
+    .ca-thr-pill .ca-thr-val {
+      font-weight: 700;
+    }
+    .thr-danger  { background: #fee2e2; color: #b91c1c; }
+    .thr-warning { background: #fef3c7; color: #92400e; }
+    .thr-info    { background: color-mix(in srgb, var(--color-primary, #2563eb) 12%, transparent); color: var(--color-primary, #2563eb); }
+    .thr-success { background: #dcfce7; color: #166534; }
+    .ca-thresholds-default {
+      font-size: .75rem;
+      color: var(--color-font-secondary, #9ca3af);
+      font-style: italic;
+    }
+
+    /* ── Main table ──────────────────────────────────────────────────────────  */
+    .ca-table { width: 100%; border-collapse: collapse; font-size: .8125rem; }
+    .ca-table thead { background: var(--color-bg-secondary, #f9fafb); }
+    .ca-table thead th {
+      padding: .625rem .875rem;
+      text-align: left;
+      font-size: .8125rem;
+      font-weight: 600;
+      color: var(--color-font-secondary, #6b7280);
+      white-space: nowrap;
+      border-bottom: 1px solid var(--color-border, #e5e7eb);
+    }
+    .ca-table thead th.right { text-align: right; }
+    .ca-table thead th.center { text-align: center; }
+    .ca-table tbody .item-row td {
+      padding: .625rem .875rem;
+      border-top: 1px solid var(--color-border, #e5e7eb);
+      vertical-align: middle;
+      cursor: pointer;
+    }
+    .ca-table tbody .item-row:hover td {
+      background: var(--color-bg-secondary, #f9fafb);
+    }
+    .ca-table tbody .detail-row td { padding: 0; border-top: none; }
+    td.right { text-align: right; }
+    td.center { text-align: center; }
+    .mono { font-family: ui-monospace, monospace; }
+
+    /* Article cell */
+    .ca-item-name {
+      font-weight: 600;
+      color: var(--color-font-important, #111827);
+      line-height: 1.3;
+      font-size: .8125rem;
+    }
+    .ca-item-ref {
+      font-family: ui-monospace, monospace;
+      font-size: .625rem;
+      color: var(--color-font-secondary, #9ca3af);
+      margin-top: .1rem;
+    }
+    .ca-item-tag {
+      display: inline-block;
+      margin-top: .2rem;
+      font-size: .5625rem;
+      background: var(--color-bg-secondary, #f3f4f6);
+      color: var(--color-font-secondary, #9ca3af);
+      padding: .1rem .325rem;
+      border-radius: .25rem;
+    }
+    .ca-item-tag-family {
+      display: inline-block;
+      margin-top: .2rem;
+      margin-left: .2rem;
+      font-size: .5625rem;
+      background: color-mix(in srgb, var(--color-primary, #2563eb) 10%, transparent);
+      color: var(--color-primary, #2563eb);
+      padding: .1rem .325rem;
+      border-radius: .25rem;
+    }
+    .ca-chevron {
+      display: inline-flex;
+      align-items: center;
+      font-size: 1.125rem;
+      line-height: 1;
+      color: var(--color-font-secondary, #9ca3af);
+      transition: transform .2s;
+      user-select: none;
+    }
+
+    /* Conversion colours */
+    .conv-zero  { color: #ef4444; font-weight: 700; }
+    .conv-low   { color: #f59e0b; font-weight: 700; }
+    .conv-good  { color: #22c55e; font-weight: 700; }
+    .diff-pos   { color: #22c55e; font-weight: 600; }
+    .diff-neg   { color: #ef4444; font-weight: 600; }
+    .margin-pos { font-weight: 600; color: #059669; }
+    .margin-neg { font-weight: 600; color: #ef4444; }
+
+    /* Inline mini-bar for conversion % in table */
+    .ca-conv-cell { display: flex; flex-direction: column; align-items: flex-end; gap: .2rem; }
+    .ca-conv-mini-bar { width: 3.5rem; height: .25rem; background: var(--color-bg-secondary, #e5e7eb); border-radius: 999px; overflow: hidden; }
+    .ca-conv-mini-fill { height: 100%; border-radius: 999px; background: #22c55e; }
+    .ca-conv-mini-fill.low { background: #f59e0b; }
+    .ca-conv-mini-fill.zero { background: #ef4444; }
+
+    /* Diagnosis badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: .2rem .55rem;
+      border-radius: .35rem;
+      font-size: .6875rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge-danger   { background: #fee2e2; color: #b91c1c; }
+    .badge-warning  { background: #fef3c7; color: #92400e; }
+    .badge-info     { background: color-mix(in srgb, var(--color-primary, #2563eb) 12%, transparent); color: var(--color-primary, #2563eb); }
+    .badge-success  { background: #dcfce7; color: #166534; }
+
+    /* ── Detail panel ────────────────────────────────────────────────────────  */
+    .ca-detail-inner {
+      margin: 0 .875rem .875rem;
+      border: 1px solid var(--color-border, #e5e7eb);
+      border-left: 3px solid var(--color-primary, #2563eb);
+      border-radius: .75rem;
+      overflow: hidden;
+      background: var(--color-bg-secondary, #f9fafb);
+    }
+    .ca-detail-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+    }
+    @media (max-width: 900px) {
+      .ca-detail-grid { grid-template-columns: 1fr; }
+    }
+    .ca-detail-col {
+      padding: 1rem 1.125rem;
+      border-right: 1px solid var(--color-border, #e5e7eb);
+    }
+    .ca-detail-col:last-child { border-right: none; }
+    .ca-detail-heading {
+      font-size: .8125rem;
+      font-weight: 600;
+      color: var(--color-font-important, #111827);
+      margin: 0 0 .75rem;
+      display: flex;
+      align-items: center;
+      gap: .375rem;
+    }
+    .ca-dl { display: flex; flex-direction: column; gap: .375rem; }
+    .ca-dl-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: .5rem;
+      font-size: .8125rem;
+    }
+    .ca-dl-dt { color: var(--color-font-secondary, #6b7280); }
+    .ca-dl-dd { font-weight: 600; color: var(--color-font-important, #111); }
+    .ca-divider {
+      border: none;
+      border-top: 1px solid var(--color-border, #e5e7eb);
+      margin: .625rem 0;
+    }
+    .ca-no-data {
+      font-size: .75rem;
+      font-style: italic;
+      color: var(--color-font-secondary, #9ca3af);
+    }
+
+    /* Pills */
+    .pill-blue { display:inline-block; background:color-mix(in srgb, var(--color-primary, #2563eb) 12%, transparent); color:var(--color-primary, #2563eb); font-size:.75rem; font-weight:500; padding:.2rem .625rem; border-radius:999px; margin:.125rem; }
+    .pill-gray { display:inline-block; background:var(--color-bg-secondary, #e5e7eb); color:var(--color-font, #374151); font-size:.75rem; font-weight:500; padding:.2rem .625rem; border-radius:999px; margin:.125rem; }
+
+    /* Quote list links */
+    .ca-quote-link {
+      text-decoration: none;
+      color: inherit;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: .5rem;
+      padding: .375rem .5rem;
+      margin: 0 -.5rem;
+      border-radius: .375rem;
+      border-bottom: 1px solid var(--color-border, #f3f4f6);
+      transition: background .12s;
+    }
+    .ca-quote-link:last-child { border-bottom: none; }
+    .ca-quote-link:hover {
+      background: color-mix(in srgb, var(--color-primary, #2563eb) 6%, transparent);
+    }
+    .ca-quote-link:hover .ca-quote-name {
+      color: var(--color-primary, #2563eb);
+    }
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: .5rem;
+      padding: .375rem 0;
+      border-bottom: 1px solid var(--color-border, #f3f4f6);
+      font-size: .75rem;
+    }
+    .ca-quote-row:last-child { border-bottom: none; }
+    .ca-quote-name { font-weight: 600; color: var(--color-font-important, #111827); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 14rem; }
+    .ca-quote-client { color: var(--color-font-secondary, #9ca3af); font-size: .6875rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 14rem; }
+    .ca-quote-meta { display: flex; align-items: center; gap: .375rem; flex-shrink: 0; }
+    .ca-qty { font-family: ui-monospace, monospace; font-size: .6875rem; color: var(--color-font-secondary, #6b7280); }
+    .status-dot { width: 1.375rem; height: 1.375rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: .625rem; font-weight: 700; flex-shrink: 0; }
+    .status-accepted { background: #dcfce7; color: #166534; }
+    .status-sent     { background: color-mix(in srgb, var(--color-primary, #2563eb) 12%, transparent); color: var(--color-primary, #2563eb); }
+    .status-rejected { background: #fee2e2; color: #b91c1c; }
+    .status-draft    { background: var(--color-bg-secondary, #f3f4f6); color: var(--color-font-secondary, #9ca3af); }
+
+    /* Select2 */
+    .ca-filter-grid .select2-container { width: 100% !important; }
+
+    /* Empty states */
+    .ca-empty { padding: 4rem 2rem; text-align: center; color: var(--color-font-secondary, #9ca3af); font-size: .875rem; }
+    .ca-empty strong { display: block; font-size: 1rem; color: var(--color-font, #6b7280); margin-bottom: .5rem; }
+    .ca-empty .material-symbols-outlined { font-size: 2.5rem; display: block; margin-bottom: .75rem; opacity: .4; }
+
+    /* Section toggle for charts */
+    .ca-section-toggle { cursor: pointer; user-select: none; }
+    .ca-section-toggle .toggle-icon { transition: transform .2s; display: inline-block; }
+    .ca-section-toggle.collapsed .toggle-icon { transform: rotate(-90deg); }
+    .ca-collapsible { transition: none; }
+    .ca-collapsible.hidden { display: none; }
+  </style>
+{% endblock %}
+
+{% block content %}
+<div class="ca-wrap">
+
+  {# ── Page header ───────────────────────────────────────────────────────── #}
+  <div class="ca-page-header">
+    <div>
+      <h1 class="ca-page-title">{% trans "Análisis de Conversión de Ventas" %}</h1>
+    </div>
+    {% url "admin:sales_quote_changelist" as back_url %}
+    {% component "unfold/components/button.html" with href=back_url variant="default" %}
+      ← {% trans "Presupuestos" %}
+    {% endcomponent %}
+  </div>
+
+  {# ── Filter form ───────────────────────────────────────────────────────── #}
+  <div class="ca-card">
+    <div class="ca-card-header">
+      <span class="ca-card-title">Filtros</span>
+    </div>
+    <form method="get" id="filter-form">
+      <div class="ca-filter-grid">
+
+        {% if companies.count > 1 %}
+        <div>{% include "unfold/helpers/field.html" with field=form.company %}</div>
+        {% endif %}
+
+        <div>{% include "unfold/helpers/field.html" with field=form.q %}</div>
+        <div>{% include "unfold/helpers/field.html" with field=form.min_quoted %}</div>
+        <div>{% include "unfold/helpers/field.html" with field=form.diagnosis %}</div>
+        <div>{% include "unfold/helpers/field.html" with field=form.date_from %}</div>
+        <div>{% include "unfold/helpers/field.html" with field=form.date_to %}</div>
+
+      </div>
+      <div class="ca-filter-actions">
+        {% component "unfold/components/button.html" with submit=True %}
+          {% trans "Aplicar filtros" %}
+        {% endcomponent %}
+        {% component "unfold/components/button.html" with href="?" variant="default" %}
+          {% trans "Limpiar" %}
+        {% endcomponent %}
+      </div>
+    </form>
+  </div>
+
+  {% if summary %}
+
+  {# ── Unified dashboard panel ───────────────────────────────────────────── #}
+  <div class="ca-dashboard">
+
+    <div class="ca-dashboard-header">
+      <span class="ca-dashboard-title">Resumen del análisis</span>
+      {% if rows %}
+      <button class="ca-dashboard-toggle" id="dash-toggle" onclick="toggleDashboard(this)">
+        <span class="material-symbols-outlined">expand_less</span>
+        Ocultar visualizaciones
+      </button>
+      {% endif %}
+    </div>
+
+    {# ── Row 1 of KPIs (4 cards) ── #}
+    <div class="ca-kpi-grid">
+      <div class="ca-kpi kpi-primary">
+        <span class="ca-kpi-label">Artículos únicos</span>
+        <p class="ca-kpi-value">{{ summary.total_materials }}</p>
+      </div>
+      <div class="ca-kpi kpi-gray">
+        <span class="ca-kpi-label">Proyectos cotizados</span>
+        <p class="ca-kpi-value">{{ summary.canonical_count }}</p>
+      </div>
+      <div class="ca-kpi kpi-green">
+        <span class="ca-kpi-label">Unidades vendidas</span>
+        <p class="ca-kpi-value">{{ summary.total_sold_qty|floatformat:0 }}</p>
+      </div>
+      <div class="ca-kpi kpi-teal">
+        <span class="ca-kpi-label">Conversión media</span>
+        <p class="ca-kpi-value">{{ summary.avg_conversion }}<span style="font-size:1.5rem; font-weight:500; letter-spacing:0;">%</span></p>
+      </div>
+    </div>
+
+    {# ── Row 2 of KPIs (4 cards) ── #}
+    <div class="ca-kpi-grid" style="border-bottom:{% if rows %}1px solid var(--color-border,#e5e7eb){% else %}none{% endif %};">
+      <div class="ca-kpi kpi-red">
+        <span class="ca-kpi-label">Sin ninguna venta</span>
+        <p class="ca-kpi-value">{{ summary.no_sales_count }}</p>
+      </div>
+      <div class="ca-kpi kpi-violet">
+        <span class="ca-kpi-label">Con ventas</span>
+        <p class="ca-kpi-value">{{ summary.with_sales_count }}</p>
+      </div>
+      {% if summary.avg_margin %}
+      <div class="ca-kpi kpi-orange">
+        <span class="ca-kpi-label">Margen medio</span>
+        <p class="ca-kpi-value">{{ summary.avg_margin }}<span style="font-size:1.5rem; font-weight:500; letter-spacing:0;">%</span></p>
+      </div>
+      {% else %}
+      <div class="ca-kpi kpi-gray" style="opacity:.4;">
+        <span class="ca-kpi-label">Margen medio</span>
+        <p class="ca-kpi-value" style="font-size:1.25rem;">Sin datos</p>
+      </div>
+      {% endif %}
+      <div class="ca-kpi kpi-primary" style="border-left: 2px dashed var(--color-border,#e5e7eb);">
+        <span class="ca-kpi-label" style="display:flex; align-items:center; gap:.375rem;">
+          Conversión media de la empresa
+          <span title="Calculado sobre todos los presupuestos de la empresa, sin aplicar ningún filtro. Es el punto de referencia usado en la columna &quot;vs. Media empresa&quot;."
+                style="cursor:help; font-size:.875rem; color:var(--color-font-secondary,#9ca3af); line-height:1;">ⓘ</span>
+        </span>
+        <p class="ca-kpi-value">{{ company_wide_avg }}<span style="font-size:1.5rem; font-weight:500; letter-spacing:0;">%</span></p>
+      </div>
+    </div>
+
+    {# ── Charts (collapsible) ── #}
+    {% if rows %}
+    <div id="dashboard-charts">
+      <div class="ca-charts-grid">
+
+        {# Chart 1 — Rendimiento por familia #}
+        <div class="ca-chart-box">
+          <div class="ca-card-header">
+            <span class="ca-card-title">Conversión por familia de producto</span>
+          </div>
+          <div class="ca-chart-body">
+            <p style="font-size:.75rem;color:var(--color-font-secondary,#9ca3af);margin:0 0 .75rem;">Media de conversión % por familia, ordenada de mejor a peor</p>
+            <canvas id="familyChart" class="ca-chart-canvas" height="220"></canvas>
+          </div>
+        </div>
+
+        {# Chart 2 — Diagnosis doughnut #}
+        <div class="ca-chart-box">
+          <div class="ca-card-header">
+            <span class="ca-card-title">Distribución por diagnóstico</span>
+          </div>
+          <div class="ca-chart-body">
+            <canvas id="diagChart" class="ca-chart-canvas" height="180"></canvas>
+            <div class="ca-diag-list" id="diag-legend"></div>
+          </div>
+        </div>
+
+        {# Chart 3 — Artículos más cotizados sin venta #}
+        <div class="ca-chart-box">
+          <div class="ca-card-header">
+            <span class="ca-card-title">Artículos más cotizados sin ninguna venta</span>
+          </div>
+          <div class="ca-chart-body">
+            <p style="font-size:.75rem;color:var(--color-font-secondary,#9ca3af);margin:0 0 .75rem;">Artículos con 0% de conversión, ordenados por veces cotizados — máxima oportunidad de mejora</p>
+            <canvas id="noSalesChart" class="ca-chart-canvas" height="220"></canvas>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    {% endif %}
+
+  </div>{# /ca-dashboard #}
+
+  {# ── Thresholds info banner ────────────────────────────────────────────── #}
+  {% if summary.thresholds %}
+  {% with t=summary.thresholds %}
+  <div class="ca-thresholds-bar">
+    <div class="ca-thresholds-left">
+      <span class="ca-thresholds-title">Umbrales de diagnóstico</span>
+      <div class="ca-thresholds-pills">
+        <span class="ca-thr-pill thr-danger">Crítico <span class="ca-thr-val">≤ {{ t.critical_pct }}%</span></span>
+        <span class="ca-thr-pill thr-warning">Muy bajo <span class="ca-thr-val">≤ {{ t.very_low_pct }}%</span></span>
+        <span class="ca-thr-pill thr-warning">Bajo <span class="ca-thr-val">≤ {{ t.low_pct }}%</span></span>
+        <span class="ca-thr-pill thr-info">Por mejorar <span class="ca-thr-val">≤ {{ t.improve_pct }}%</span></span>
+        <span class="ca-thr-pill thr-success">Aceptable <span class="ca-thr-val">≤ {{ t.acceptable_pct }}%</span></span>
+        <span class="ca-thr-pill thr-success">Bueno <span class="ca-thr-val">≤ {{ t.good_pct }}%</span></span>
+        <span class="ca-thr-pill thr-success">Excelente <span class="ca-thr-val">&gt; {{ t.good_pct }}%</span></span>
+      </div>
+    </div>
+    {% url "admin:sales_conversionthresholds_change" t.pk as thresholds_url %}
+    {% component "unfold/components/button.html" with href=thresholds_url variant="default" %}
+      Configurar umbrales
+    {% endcomponent %}
+  </div>
+  {% endwith %}
+  {% else %}
+  <div class="ca-thresholds-bar">
+    <div class="ca-thresholds-left">
+      <span class="ca-thresholds-title">Umbrales de diagnóstico</span>
+      <span class="ca-thresholds-default">Usando umbrales por defecto relativos a la media de conversión</span>
+    </div>
+    {% url "admin:sales_conversionthresholds_add" as thresholds_add_url %}
+    {% component "unfold/components/button.html" with href=thresholds_add_url variant="default" %}
+      Configurar umbrales
+    {% endcomponent %}
+  </div>
+  {% endif %}
+
+  {% if rows %}
+  {# ── Results table ─────────────────────────────────────────────────────── #}
+  <div class="ca-card">
+
+    {# Toolbar #}
+    <div class="ca-toolbar">
+      <div class="ca-toolbar-left">
+        <span class="ca-toolbar-title">Detalle por artículo</span>
+        <span class="ca-count-pill">{{ rows|length }}</span>
+      </div>
+      <div class="ca-sort-group">
+        <span class="ca-sort-label">Ordenar por</span>
+        <form method="get" id="sort-form" style="margin:0;">
+          {# Preserve all existing GET params except sort #}
+          {% for key, value in request.GET.items %}
+            {% if key != "sort" %}
+            <input type="hidden" name="{{ key }}" value="{{ value }}">
+            {% endif %}
+          {% endfor %}
+          <select name="sort"
+                  class="unfold-admin-autocomplete"
+                  data-theme="admin-autocomplete"
+                  style="min-width:13rem;"
+                  onchange="document.getElementById('sort-form').submit()">
+            {% for value, label in sort_options %}
+            <option value="{{ value }}" {% if value == current_sort %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </form>
+      </div>
+    </div>
+
+    {# Table #}
+    <div style="overflow-x:auto;">
+      <table class="ca-table" id="items-table">
+        <thead>
+          <tr>
+            <th style="width:2rem;"></th>
+            <th>Artículo</th>
+            <th class="right">Unidades cotizadas</th>
+            <th class="right">Unidades vendidas</th>
+            <th class="right">% Conversión</th>
+            <th class="right">vs. Media empresa</th>
+            <th class="right">Margen</th>
+            <th class="center">Diagnóstico</th>
+          </tr>
+        </thead>
+        <tbody id="items-tbody">
+
+          {% for row in rows %}
+          {% with rid=forloop.counter %}
+
+          <tr class="item-row"
+              data-row-id="{{ rid }}"
+              data-conversion_pct="{{ row.conversion_pct }}"
+              data-quoted_qty="{{ row.quoted_qty }}"
+              data-sold_qty="{{ row.sold_qty }}"
+              data-avg_margin_pct="{{ row.avg_margin_pct|default:'-9999' }}"
+              onclick="toggleDetail({{ rid }})">
+
+            <td style="width:2rem; text-align:center;">
+              <span id="chevron-{{ rid }}" class="ca-chevron material-symbols-outlined">chevron_right</span>
+            </td>
+
+            <td>
+              <div class="ca-item-name">{{ row.material_name }}</div>
+              <div class="ca-item-ref" style="font-size:.8125rem; font-family:inherit; color:var(--color-font-secondary,#6b7280); margin-top:.1rem;">{{ row.reference_code }}</div>
+              {% if row.category and row.category != "Importado" %}<span class="ca-item-tag">{{ row.category }}</span>{% endif %}
+            </td>
+
+            <td class="right">{{ row.quoted_qty|floatformat:0 }}</td>
+            <td class="right">{{ row.sold_qty|floatformat:0 }}</td>
+
+            <td class="right">
+              <span class="{% if row.conversion_pct == 0 %}conv-zero{% elif row.diff_vs_avg < 0 %}conv-low{% else %}conv-good{% endif %}">
+                {{ row.conversion_pct }}%
+              </span>
+            </td>
+
+            <td class="right">
+              <span class="{% if row.diff_vs_avg >= 0 %}diff-pos{% else %}diff-neg{% endif %}">
+                {% if row.diff_vs_avg >= 0 %}+{% endif %}{{ row.diff_vs_avg }}%
+              </span>
+            </td>
+
+            <td class="right">
+              {% if row.avg_margin_pct is not None %}
+              <span class="{% if row.avg_margin_pct >= 0 %}margin-pos{% else %}margin-neg{% endif %}">
+                {{ row.avg_margin_pct }}%
+              </span>
+              {% else %}
+              <span class="ca-no-data">—</span>
+              {% endif %}
+            </td>
+
+            <td class="center">
+              <span class="badge badge-{{ row.diagnosis_css }}">{{ row.diagnosis }}</span>
+            </td>
+
+          </tr>
+
+          {# Detail panel #}
+          <tr id="detail-{{ rid }}" class="detail-row" style="display:none;">
+            <td></td>
+            <td colspan="7">
+              <div class="ca-detail-inner">
+                <div style="display:grid; grid-template-columns:1fr 1fr; border-top:none;">
+
+                  {# Col 1 — Contexto comercial #}
+                  <div class="ca-detail-col" style="border-right:1px solid var(--color-border,#e5e7eb);">
+                    <h4 class="ca-detail-heading">Contexto comercial</h4>
+                    <div class="ca-dl">
+
+                      <div class="ca-dl-row">
+                        <span class="ca-dl-dt">Presupuestos en los que aparece</span>
+                        <span class="ca-dl-dd" style="color:var(--color-primary,#2563eb);">{{ row.quote_count }}</span>
+                      </div>
+
+                      {% if row.avg_sale_price %}
+                      <div class="ca-dl-row">
+                        <span class="ca-dl-dt">Precio de venta medio</span>
+                        <span class="ca-dl-dd">{{ row.avg_sale_price }} €</span>
+                      </div>
+                      {% endif %}
+
+                      {% if row.avg_margin_pct is not None %}
+                      <div class="ca-dl-row">
+                        <span class="ca-dl-dt">Margen vs. media empresa</span>
+                        <span class="ca-dl-dd {% if row.margin_vs_avg == 'Por encima' %}margin-pos{% elif row.margin_vs_avg == 'Por debajo' %}margin-neg{% endif %}">{{ row.margin_vs_avg }}</span>
+                      </div>
+                      {% else %}
+                      <div class="ca-dl-row">
+                        <span class="ca-dl-dt">Margen</span>
+                        <span class="ca-no-data">Sin datos de coste</span>
+                      </div>
+                      {% endif %}
+
+                      {% if row.agents %}
+                      <hr class="ca-divider">
+                      <div class="ca-dl-row">
+                        <span class="ca-dl-dt">Agente(s)</span>
+                        <span class="ca-dl-dd" style="display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.25rem;">
+                          {% for agent in row.agents %}<span class="pill-blue">{{ agent }}</span>{% endfor %}
+                        </span>
+                      </div>
+                      {% endif %}
+
+                      {% if row.zones %}
+                      <div class="ca-dl-row">
+                        <span class="ca-dl-dt">Zona de venta</span>
+                        <span class="ca-dl-dd" style="display:flex;flex-wrap:wrap;justify-content:flex-end;gap:.25rem;">
+                          {% for zone in row.zones %}<span class="pill-gray">{{ zone }}</span>{% endfor %}
+                        </span>
+                      </div>
+                      {% endif %}
+
+                      {% if row.family or row.category %}
+                      <hr class="ca-divider">
+                      {% if row.family %}
+                      <div class="ca-dl-row">
+                        <span class="ca-dl-dt">Familia</span>
+                        <span class="ca-dl-dd">{{ row.family }}</span>
+                      </div>
+                      {% endif %}
+                      {% if row.category and row.category != "Importado" %}
+                      <div class="ca-dl-row">
+                        <span class="ca-dl-dt">Categoría</span>
+                        <span class="ca-dl-dd">{{ row.category }}</span>
+                      </div>
+                      {% endif %}
+                      {% endif %}
+
+                    </div>
+                  </div>
+
+                  {# Col 2 — Presupuestos con link #}
+                  <div class="ca-detail-col">
+                    <h4 class="ca-detail-heading">
+                      Presupuestos que incluyen este artículo
+                      {% if row.quotes_detail %}<span class="ca-count-pill" style="margin-left:.375rem;">{{ row.quotes_detail|length }}</span>{% endif %}
+                    </h4>
+                    {% if row.quotes_detail %}
+                    <div class="ca-quote-list">
+                      {% for qd in row.quotes_detail %}
+                      <a href="{% url 'admin:sales_quote_change' qd.pk %}"
+                         class="ca-quote-row ca-quote-link"
+                         title="Abrir presupuesto {{ qd.name }}">
+                        <div style="min-width:0; flex:1;">
+                          <div class="ca-quote-name">{{ qd.name }}</div>
+                          <div class="ca-quote-client">{{ qd.client }}{% if qd.date %} · {{ qd.date|date:"d/m/Y" }}{% endif %}</div>
+                        </div>
+                        <div class="ca-quote-meta">
+                          <span class="ca-qty">{{ qd.qty|floatformat:0 }} uds.</span>
+                          {% if qd.status == "accepted" %}
+                          <span class="status-dot status-accepted" title="Aceptado">✓</span>
+                          {% elif qd.status == "sent" %}
+                          <span class="status-dot status-sent" title="Enviado">→</span>
+                          {% elif qd.status == "rejected" %}
+                          <span class="status-dot status-rejected" title="Rechazado">✕</span>
+                          {% else %}
+                          <span class="status-dot status-draft" title="Borrador">○</span>
+                          {% endif %}
+                        </div>
+                      </a>
+                      {% endfor %}
+                    </div>
+                    {% else %}
+                    <p class="ca-no-data">Sin presupuestos en el rango seleccionado.</p>
+                    {% endif %}
+                  </div>
+
+                </div>
+              </div>
+            </td>
+          </tr>
+
+          {% endwith %}
+          {% endfor %}
+
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="ca-card">
+    <div class="ca-empty">
+      <span class="material-symbols-outlined">search_off</span>
+      <strong>{% trans "Sin resultados" %}</strong>
+      {% trans "No se encontraron artículos con los filtros aplicados." %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="ca-card">
+    <div class="ca-empty">
+      <span class="material-symbols-outlined">business</span>
+      <strong>{% trans "Sin datos" %}</strong>
+      {% trans "Selecciona una empresa para ver el análisis." %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+/* ── Toggle detail rows ─────────────────────────────────────────────────── */
+function toggleDetail(rid) {
+  var row     = document.getElementById('detail-' + rid);
+  var chevron = document.getElementById('chevron-' + rid);
+  if (!row) return;
+  var opening = row.style.display === 'none' || row.style.display === '';
+  row.style.display = opening ? 'table-row' : 'none';
+  chevron.style.transform = opening ? 'rotate(90deg)' : '';
+}
+
+/* ── Toggle dashboard charts ─────────────────────────────────────────────── */
+function toggleDashboard(btn) {
+  var charts = document.getElementById('dashboard-charts');
+  if (!charts) return;
+  var hidden = charts.style.display === 'none';
+  charts.style.display = hidden ? '' : 'none';
+  var icon = btn.querySelector('.material-symbols-outlined');
+  if (icon) icon.textContent = hidden ? 'expand_less' : 'expand_more';
+  btn.lastChild.textContent = hidden ? ' Ocultar visualizaciones' : ' Mostrar visualizaciones';
+  btn.classList.toggle('collapsed', !hidden);
+}
+
+/* ── Charts ──────────────────────────────────────────────────────────────── */
+document.addEventListener('DOMContentLoaded', function() {
+
+  var style   = getComputedStyle(document.documentElement);
+  var primary = style.getPropertyValue('--color-primary').trim() || '#0d9488';
+  var fontSec = style.getPropertyValue('--color-font-secondary').trim() || '#6b7280';
+  var bgSec   = style.getPropertyValue('--color-bg-secondary').trim() || '#f9fafb';
+  var bgColor = style.getPropertyValue('--color-bg').trim() || '#ffffff';
+
+  Chart.defaults.color           = fontSec;
+  Chart.defaults.font.family     = 'inherit';
+  Chart.defaults.font.size       = 11;
+  Chart.defaults.borderColor     = bgSec;
+  Chart.defaults.backgroundColor = 'rgba(0,0,0,0)';
+
+  /* Diagnosis colour map */
+  var diagBarColors = {
+    'Sin ventas':  '#ef4444',
+    'Crítico':     '#dc2626',
+    'Muy bajo':    '#f97316',
+    'Bajo':        '#f59e0b',
+    'Por mejorar': primary,
+    'Aceptable':   '#10b981',
+    'Bueno':       '#22c55e',
+    'Excelente':   '#059669'
+  };
+
+  /* ── Row data from Django ────────────────────────────────────────────────── */
+  var rowData = [
+    {% for row in rows %}
+    {
+      name:      "{{ row.material_name|escapejs }}",
+      ref:       "{{ row.reference_code|escapejs }}",
+      family:    "{{ row.family|escapejs }}",
+      conv:      {{ row.conversion_pct }},
+      sold:      {{ row.sold_qty|floatformat:0 }},
+      quoted:    {{ row.quoted_qty|floatformat:0 }},
+      diagnosis: "{{ row.diagnosis|escapejs }}"
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+  ];
+
+  /* ── Chart 1: Conversión por familia ─────────────────────────────────────
+     Group articles by family, compute weighted avg conversion per family,
+     sort best → worst, show as horizontal bar.                             */
+  var familyCtx = document.getElementById('familyChart');
+  if (familyCtx) {
+    var familyMap = {};
+    rowData.forEach(function(r) {
+      var fam = r.family || 'Sin familia';
+      if (!familyMap[fam]) familyMap[fam] = { totalConv: 0, count: 0, totalQuoted: 0, totalSold: 0 };
+      familyMap[fam].totalQuoted += r.quoted;
+      familyMap[fam].totalSold   += r.sold;
+      familyMap[fam].count++;
+    });
+
+    /* Weighted avg conversion per family (sold/quoted × 100) */
+    var famEntries = Object.keys(familyMap).map(function(fam) {
+      var d   = familyMap[fam];
+      var avg = d.totalQuoted > 0 ? Math.round(d.totalSold / d.totalQuoted * 100) : 0;
+      return { fam: fam, avg: avg, count: d.count };
+    });
+    /* Keep top 10 families by article count, sort best conversion first */
+    famEntries.sort(function(a, b) { return b.avg - a.avg; });
+    famEntries = famEntries.slice(0, 10);
+
+    var famLabels = famEntries.map(function(e) {
+      return e.fam.length > 28 ? e.fam.substring(0, 26) + '…' : e.fam;
+    });
+    var famValues = famEntries.map(function(e) { return e.avg; });
+    var famColors = famValues.map(function(v) {
+      if (v === 0)  return '#fca5a5';
+      if (v < 40)   return '#fde68a';
+      if (v < 65)   return primary + 'cc';
+      return '#22c55e';
+    });
+
+    new Chart(familyCtx, {
+      type: 'bar',
+      data: {
+        labels: famLabels,
+        datasets: [{
+          data: famValues,
+          backgroundColor: famColors,
+          borderRadius: 4,
+          borderSkipped: false
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: function(items) { return famEntries[items[0].dataIndex].fam; },
+              label: function(item) {
+                var e = famEntries[item.dataIndex];
+                return 'Conversión: ' + e.avg + '%  (' + e.count + ' artículos)';
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            min: 0, max: 100,
+            grid: { color: bgSec },
+            ticks: {
+              color: fontSec,
+              callback: function(v) { return v + '%'; }
+            }
+          },
+          y: { grid: { display: false }, ticks: { color: fontSec, font: { size: 10 } } }
+        }
+      }
+    });
+  }
+
+  /* ── Chart 2: Distribución por diagnóstico (doughnut) ───────────────────── */
+  var diagLabels   = [];
+  var diagCounts   = {};
+  rowData.forEach(function(r) {
+    if (!diagCounts[r.diagnosis]) { diagCounts[r.diagnosis] = 0; diagLabels.push(r.diagnosis); }
+    diagCounts[r.diagnosis]++;
+  });
+  var diagValues   = diagLabels.map(function(l) { return diagCounts[l]; });
+  var diagBgColors = diagLabels.map(function(l) { return diagBarColors[l] || primary; });
+
+  var diagCtx = document.getElementById('diagChart');
+  if (diagCtx && diagValues.length > 0) {
+    new Chart(diagCtx, {
+      type: 'doughnut',
+      data: {
+        labels: diagLabels,
+        datasets: [{
+          data: diagValues,
+          backgroundColor: diagBgColors,
+          borderWidth: 2,
+          borderColor: bgColor,
+          hoverOffset: 6
+        }]
+      },
+      options: {
+        cutout: '62%',
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                var total = ctx.dataset.data.reduce(function(a,b){return a+b;},0);
+                var pct   = ((ctx.parsed / total) * 100).toFixed(1);
+                return ctx.label + ': ' + ctx.parsed + ' (' + pct + '%)';
+              }
+            }
+          }
+        }
+      }
+    });
+
+    var legendEl = document.getElementById('diag-legend');
+    if (legendEl) {
+      var total = diagValues.reduce(function(a,b){return a+b;},0);
+      diagLabels.forEach(function(label, i) {
+        var count = diagValues[i];
+        var pct   = ((count / total) * 100).toFixed(0);
+        var color = diagBgColors[i];
+        var el = document.createElement('div');
+        el.className = 'ca-diag-row';
+        el.innerHTML =
+          '<span class="ca-diag-label">' + label + '</span>' +
+          '<div class="ca-diag-bar-wrap"><div class="ca-diag-bar-fill" style="width:' + pct + '%;background:' + color + ';"></div></div>' +
+          '<span class="ca-diag-count">' + count + '</span>';
+        legendEl.appendChild(el);
+      });
+    }
+  }
+
+  /* ── Chart 3: Artículos más cotizados sin ninguna venta ─────────────────
+     Filter to conv === 0, sort by quoted qty desc, take top 10.
+     Bar colour = red gradient (most quoted = darkest, showing urgency).   */
+  var noSalesCtx = document.getElementById('noSalesChart');
+  if (noSalesCtx) {
+    var noSales = rowData
+      .filter(function(r) { return r.conv === 0; })
+      .sort(function(a, b) { return b.quoted - a.quoted; })
+      .slice(0, 10);
+
+    if (noSales.length === 0) {
+      /* No zero-conversion articles — show a success message */
+      var wrap = noSalesCtx.parentNode;
+      noSalesCtx.style.display = 'none';
+      var msg = document.createElement('div');
+      msg.style.cssText = 'text-align:center;padding:2rem 1rem;color:' + fontSec + ';font-size:.875rem;';
+      msg.innerHTML = '<span style="font-size:2rem;display:block;margin-bottom:.5rem;">✓</span>Todos los artículos tienen al menos una venta';
+      wrap.appendChild(msg);
+    } else {
+      var nsLabels = noSales.map(function(r) {
+        var label = r.ref || r.name;
+        return label.length > 22 ? label.substring(0, 20) + '…' : label;
+      });
+      var nsValues = noSales.map(function(r) { return r.quoted; });
+      /* Opacity gradient: most quoted = full red, least = lighter */
+      var maxQ = nsValues[0] || 1;
+      var nsColors = nsValues.map(function(v) {
+        var opacity = 0.45 + 0.55 * (v / maxQ);
+        return 'rgba(220,38,38,' + opacity.toFixed(2) + ')';
+      });
+
+      new Chart(noSalesCtx, {
+        type: 'bar',
+        data: {
+          labels: nsLabels,
+          datasets: [{
+            data: nsValues,
+            backgroundColor: nsColors,
+            borderRadius: 4,
+            borderSkipped: false
+          }]
+        },
+        options: {
+          indexAxis: 'y',
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title: function(items) { return noSales[items[0].dataIndex].name; },
+                label: function(item) {
+                  return 'Cotizado ' + item.parsed + ' veces — 0 ventas';
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: bgSec },
+              ticks: {
+                color: fontSec,
+                callback: function(v) { return v + ' veces'; }
+              }
+            },
+            y: { grid: { display: false }, ticks: { color: fontSec, font: { size: 10 } } }
+          }
+        }
+      });
+    }
+  }
+
+});
+</script>
+{% endblock %}

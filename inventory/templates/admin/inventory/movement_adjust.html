@@ -79,29 +79,26 @@
       </div>
       {% endif %}
       <div class="grid lg:grid-cols-2 gap-6">
-        <div class="flex flex-col gap-6">
-          <div>{% include "unfold/helpers/field.html" with field=form.quantity_change %}</div>
-          <div class="border-t border-dashed border-base-200 dark:border-base-800 pt-6">
-            {% include "unfold/helpers/field.html" with field=form.note %}
-
-          </div>
+        <div class="flex flex-col gap-4">
+          {% include "unfold/helpers/field.html" with field=form.quantity_change %}
+          {% include "unfold/helpers/field.html" with field=form.note %}
         </div>
         <div>
-          <label class="block font-semibold mb-2 text-font-important-light dark:text-font-important-dark text-sm">{% trans "Stock after adjustment" %}</label>
-          <div class="border border-base-200 dark:border-base-800 rounded-default bg-base-50 dark:bg-base-800 px-4 py-3 shadow-xs">
+          <label class="block text-sm font-semibold text-font-important-light dark:text-font-important-dark mb-2">{% trans "Stock after adjustment" %}</label>
+          <div class="border border-base-200 dark:border-base-800 rounded-default bg-base-50 dark:bg-base-800 px-4 py-4 shadow-xs">
             <div class="flex items-center justify-between gap-2">
               <div class="text-center flex-1">
-                <p class="text-xs text-font-subtle-light dark:text-font-subtle-dark uppercase tracking-wider mb-1">{% trans "Current" %}</p>
+                <p class="text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark mb-1">{% trans "Current" %}</p>
                 <p class="text-2xl font-bold font-mono {% if stock_on_hand > 0 %}text-green-600 dark:text-green-400{% elif stock_on_hand < 0 %}text-red-600 dark:text-red-400{% else %}text-font-subtle-light dark:text-font-subtle-dark{% endif %}">{{ stock_on_hand }}</p>
               </div>
               <span class="material-symbols-outlined text-xl text-font-subtle-light dark:text-font-subtle-dark shrink-0" id="adj-sign-icon">add</span>
               <div class="text-center flex-1">
-                <p class="text-xs text-font-subtle-light dark:text-font-subtle-dark uppercase tracking-wider mb-1">{% trans "Change" %}</p>
+                <p class="text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark mb-1">{% trans "Change" %}</p>
                 <p class="text-2xl font-bold font-mono text-font-subtle-light dark:text-font-subtle-dark" id="adj-change-preview">—</p>
               </div>
               <span class="material-symbols-outlined text-xl text-font-subtle-light dark:text-font-subtle-dark shrink-0">arrow_forward</span>
               <div class="text-center flex-1">
-                <p class="text-xs text-font-subtle-light dark:text-font-subtle-dark uppercase tracking-wider mb-1">{% trans "After" %}</p>
+                <p class="text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark mb-1">{% trans "After" %}</p>
                 <p class="text-2xl font-bold font-mono text-font-important-light dark:text-font-important-dark" id="adj-after-preview">—</p>
               </div>
             </div>

@@ -74,7 +74,7 @@ INSTALLED_APPS = [
     'import_export',
     "storages",
     'inventory',
-    'invoices',
+    'management',
     'production',
     'sales',
     'materials',
@@ -98,11 +98,12 @@ INSTALLED_APPS = [
     'hijack',    
     'hijack.contrib.admin',
     'company',
-    'management',
     'vacations',
     'django_filters',
     'purchasing',
-    "payments"
+    "payments",
+    'invoices',
+
 ]
 
 MIDDLEWARE = [
@@ -282,6 +283,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+IMPORT_EXPORT_TMP_STORAGE_CLASS = "import_export.tmp_storages.MediaStorage"
 
 
 CRISPY_TEMPLATE_PACK = "unfold_crispy"

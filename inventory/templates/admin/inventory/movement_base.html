@@ -7,6 +7,13 @@
   {{ block.super }}
   <script src="{% url 'admin:jsi18n' %}"></script>
   {{ media }}
+  {# ── Select2 assets — required for UnfoldAdminSelect2Widget on movement forms ── #}
+  <link rel="stylesheet" href="/static/admin/css/vendor/select2/select2.css">
+  <link rel="stylesheet" href="/static/admin/css/autocomplete.css">
+  <script src="/static/admin/js/vendor/jquery/jquery.js"></script>
+  <script src="/static/admin/js/vendor/select2/select2.full.js"></script>
+  <script src="/static/admin/js/jquery.init.js"></script>
+  <script src="/static/unfold/js/select2.init.js"></script>
 {% endblock %}
 
 {% block content %}
@@ -36,23 +43,38 @@
   </div>
 
   {# Stats row #}
-  <div class="grid grid-cols-3 divide-x divide-base-200 dark:divide-base-800">
+  <div class="grid grid-cols-4 divide-x divide-base-200 dark:divide-base-800">
     <div class="px-6 py-4">
-      <p class="text-xs font-semibold uppercase tracking-wider text-font-subtle-light dark:text-font-subtle-dark mb-1.5">{% trans "Item Code" %}</p>
+      <p class="text-xs font-semibold text-font-subtle-light dark:text-font-subtle-dark mb-1.5">{% trans "Item Code" %}</p>
       <p class="text-sm font-bold font-mono text-font-important-light dark:text-font-important-dark m-0">{{ item.code }}</p>
     </div>
     <div class="px-6 py-4">
-      <p class="text-xs font-semibold uppercase tracking-wider text-font-subtle-light dark:text-font-subtle-dark mb-1.5">{% trans "Item Name" %}</p>
+      <p class="text-xs font-semibold text-font-subtle-light dark:text-font-subtle-dark mb-1.5">{% trans "Item Name" %}</p>
       <p class="text-sm font-bold text-font-important-light dark:text-font-important-dark m-0 truncate">{{ item.name }}</p>
     </div>
     <div class="px-6 py-4">
-      <p class="text-xs font-semibold uppercase tracking-wider text-font-subtle-light dark:text-font-subtle-dark mb-1.5">{% trans "Current Stock" %}</p>
+      <p class="text-xs font-semibold text-font-subtle-light dark:text-font-subtle-dark mb-1.5">{% trans "Current Stock" %}</p>
       {% if stock_on_hand > 0 %}
         <p class="text-sm font-bold text-green-600 dark:text-green-400 m-0">+{{ stock_on_hand }}</p>
       {% elif stock_on_hand < 0 %}
         <p class="text-sm font-bold text-red-600 dark:text-red-400 m-0">{{ stock_on_hand }}</p>
       {% else %}
         <p class="text-sm font-bold text-font-subtle-light dark:text-font-subtle-dark m-0">0</p>
+      {% endif %}
+    </div>
+    <div class="px-6 py-4">
+      <p class="text-xs font-semibold text-font-subtle-light dark:text-font-subtle-dark mb-1.5">{% trans "Minimum Stock" %}</p>
+      {% if item.min_stock is not None %}
+        {% if item.is_low_stock %}
+          <p class="text-sm font-bold text-red-600 dark:text-red-400 m-0 flex items-center gap-1">
+            {{ item.min_stock }}
+            <span class="material-symbols-outlined text-[14px] leading-none">warning</span>
+          </p>
+        {% else %}
+          <p class="text-sm font-bold text-font-important-light dark:text-font-important-dark m-0">{{ item.min_stock }}</p>
+        {% endif %}
+      {% else %}
+        <p class="text-sm font-bold text-font-subtle-light dark:text-font-subtle-dark m-0">—</p>
       {% endif %}
     </div>
   </div>

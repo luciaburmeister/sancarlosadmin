@@ -49,9 +49,26 @@ class Category(Timestampable,CompanyOwnedModel):
     E.g., 'Aluminum Profiles', 'Hardware', 'Paint', 'Labor'
     """
     name = models.CharField(max_length=100, verbose_name=_("Name"))
-    
+
     class Meta:
         verbose_name_plural = "Categories"
+
+    def __str__(self):
+        return self.name
+
+
+class MaterialFamily(CompanyOwnedModel):
+    """
+    Product category / family grouping for a material.
+    E.g., 'Perfilería', 'Herrajes', 'Vidrio'.
+    """
+    name = models.CharField(max_length=200, verbose_name=_("Name"))
+
+    class Meta:
+        verbose_name = _("Category")
+        verbose_name_plural = _("Categories")
+        unique_together = [("company", "name")]
+        ordering = ["name"]
 
     def __str__(self):
         return self.name
@@ -88,6 +105,13 @@ class Material(Timestampable,CompanyOwnedModel):
     )
     name = models.CharField(max_length=200, help_text="e.g., CERCO 50 mm, LAMA 200",db_index=True, verbose_name=_("Name"))
     category = models.ForeignKey(Category, on_delete=models.PROTECT, verbose_name=_("Category"))
+    family = models.ForeignKey(
+        MaterialFamily,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name=_("Category"),
+    )
     unit_type = models.CharField(max_length=2, choices=UnitChoices.choices, default='m', verbose_name=_("Unit type"))
     cost_per_unit = MoneyField(max_digits=10, decimal_places=4, help_text="Base cost from supplier", default_currency="EUR", verbose_name=_("Cost per unit"))
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT, null=True, blank=False,verbose_name=_("Provider"))

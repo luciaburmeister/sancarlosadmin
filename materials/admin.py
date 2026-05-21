@@ -1,6 +1,6 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from materials.models import Category, Material, Provider,Component,ComponentPriceRule
+from materials.models import Category, MaterialFamily, Material, Provider, Component, ComponentPriceRule
 from unfold.admin import TabularInline
 from django_json_widget.widgets import JSONEditorWidget
 from django.db import models
@@ -111,6 +111,12 @@ class CategoryAdmin(ModelAdmin):
     search_fields = ["name"]
 
 
+@admin.register(MaterialFamily)
+class MaterialFamilyAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ["name", "company"]
+    search_fields = ["name"]
+    autocomplete_fields = ["company"]
+
 @admin.register(Material)
 class MaterialAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
     resource_classes = [MaterialResource]
@@ -118,32 +124,32 @@ class MaterialAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
     export_form_class = SelectableFieldsExportForm
 
     list_display = [
-        "reference_code", 
-        "name", 
-        "category", 
-        "cost_per_unit", 
+        "reference_code",
+        "name",
+        "family",
+        "cost_per_unit",
         "unit_type",
-        "company"
+        "company",
     ]
-    list_filter = ["category",  "unit_type"]
+    list_filter = ["family", "provider"]
     search_fields = ["reference_code", "name"]
     ordering = ["reference_code"]
     list_filter = [
-        ("provider",AutocompleteSelectMultipleFilter),
-        ("category",AutocompleteSelectMultipleFilter)
-        ]
+        ("provider", AutocompleteSelectMultipleFilter),
+        ("category", AutocompleteSelectMultipleFilter),
+    ]
     list_filter_submit = True
-    autocomplete_fields = ["provider","company"]
-    list_select_related = ["company"]
+    autocomplete_fields = ["provider", "company", "family"]
+    list_select_related = ["company", "family"]
 
     fieldsets = (
         ("Product Details", {
             "fields": (
                 ("name"),
                 ("reference_code", "rule_key"),
-                ("category", "cost_per_unit"),
-                ("unit_type","provider"),
-                "company"
+                ("family",),
+                ("cost_per_unit", "unit_type"),
+                ("provider", "company"),
             )
         }),
     )

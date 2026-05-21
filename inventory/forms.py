@@ -4,7 +4,7 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 
 from unfold.widgets import (
-    UnfoldAdminSelectWidget,
+    UnfoldAdminSelect2Widget,
     UnfoldAdminDateWidget,
     UnfoldAdminTextareaWidget,
     UnfoldAdminIntegerFieldWidget,
@@ -32,14 +32,14 @@ class TransferMovementForm(_BaseMovementForm):
     source_warehouse = forms.ModelChoiceField(
         label=_("Source Warehouse"),
         queryset=Warehouse.objects.filter(is_active=True),
-        widget=UnfoldAdminSelectWidget(),
-        empty_label=_("— Select warehouse —"),
+        widget=UnfoldAdminSelect2Widget(),
+        empty_label=_(" Select warehouse "),
     )
     destination_warehouse = forms.ModelChoiceField(
         label=_("Destination Warehouse"),
         queryset=Warehouse.objects.filter(is_active=True),
-        widget=UnfoldAdminSelectWidget(),
-        empty_label=_("— Select warehouse —"),
+        widget=UnfoldAdminSelect2Widget(),
+        empty_label=_(" Select warehouse "),
     )
     quantity = forms.IntegerField(
         label=_("Quantity"),
@@ -66,8 +66,8 @@ class AdjustmentMovementForm(_BaseMovementForm):
     warehouse = forms.ModelChoiceField(
         label=_("Warehouse"),
         queryset=Warehouse.objects.filter(is_active=True),
-        widget=UnfoldAdminSelectWidget(),
-        empty_label=_("— Select warehouse —"),
+        widget=UnfoldAdminSelect2Widget(),
+        empty_label=_(" Select warehouse "),
     )
     quantity_change = forms.IntegerField(
         label=_("Quantity Change"),
@@ -91,8 +91,8 @@ class ReceiptMovementForm(_BaseMovementForm):
         label=_("Invoice"),
         queryset=Invoice.objects.select_related("provider").order_by("-date_issued"),
         required=False,
-        widget=UnfoldAdminSelectWidget(),
-        empty_label=_("— Select invoice —"),
+        widget=UnfoldAdminSelect2Widget(),
+        empty_label=_(" Select invoice "),
     )
 
     # ── 2. Supplier — pre-filled from invoice but always editable ────────────
@@ -100,8 +100,8 @@ class ReceiptMovementForm(_BaseMovementForm):
         label=_("Supplier"),
         queryset=Provider.objects.all(),
         required=False,
-        widget=UnfoldAdminSelectWidget(),
-        empty_label=_("— Select supplier —"),
+        widget=UnfoldAdminSelect2Widget(),
+        empty_label=_(" Select supplier "),
     )
 
     # ── 3. Received date ──────────────────────────────────────────────────────
@@ -114,8 +114,8 @@ class ReceiptMovementForm(_BaseMovementForm):
     warehouse = forms.ModelChoiceField(
         label=_("Receiving Warehouse"),
         queryset=Warehouse.objects.filter(is_active=True),
-        widget=UnfoldAdminSelectWidget(),
-        empty_label=_("— Select warehouse —"),
+        widget=UnfoldAdminSelect2Widget(),
+        empty_label=_(" Select warehouse "),
     )
 
     # ── 5. Quantity ───────────────────────────────────────────────────────────

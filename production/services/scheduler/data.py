@@ -47,9 +47,23 @@ def _coerce_to_non_negative(value, field_name: str) -> int:
 def _resolve_stage_info(stage_info: dict, context: dict, *, stage: str, configuration) -> dict:
     """
     Turns a saved stage resource dict into plain integers.
+
+    Resource quantities are derived from the machine_types / employee_types
+    arrays stored in the JSON (e.g. [{"quantity": 1, "machine_type_id": 1}]).
     """
     resolved = {}
     local_context = dict(context)
+
+    # Derive flat machine_qty / employee_qty from the nested arrays
+    enriched = dict(stage_info)
+    enriched.setdefault(
+        "machine_qty",
+        sum(mt.get("quantity", 0) for mt in stage_info.get("machine_types", [])),
+    )
+    enriched.setdefault(
+        "employee_qty",
+        sum(et.get("quantity", 0) for et in stage_info.get("employee_types", [])),
+    )
 
     for field_name in (
         "machine_qty",
@@ -58,7 +72,7 @@ def _resolve_stage_info(stage_info: dict, context: dict, *, stage: str, configur
         "work_time_min",
         "post_time_min",
     ):
-        raw_value = stage_info.get(field_name, 0)
+        raw_value = enriched.get(field_name, 0)
 
         try:
             if isinstance(raw_value, (int, float, Decimal)):
@@ -227,22 +241,31 @@ def optimization_dict_creation(
                 if not stage_info["total_time_min"]:
                     continue
 
-                # Sum duration across items
-                config_stage_durations[stage] = (
-                    config_stage_durations.get(stage, 0) + stage_info["total_time_min"]
+                # Stage duration is per-stage (not per-item), take max across items
+                config_stage_durations[stage] = max(
+                    config_stage_durations.get(stage, 0), stage_info["total_time_min"]
                 )
 
                 # Union resource types, take max quantity
                 if stage not in config_stage_rt:
                     config_stage_rt[stage] = {}
 
-                machine_qty = stage_info.get("machine_qty", 0)
+                # Resource quantities are stored as arrays of dicts:
+                #   machine_types: [{"quantity": N, "machine_type_id": X}, ...]
+                #   employee_types: [{"quantity": N, "employee_type_id": X}, ...]
+                machine_qty = sum(
+                    mt.get("quantity", 0)
+                    for mt in raw_stage_info.get("machine_types", [])
+                )
                 if machine_qty > 0:
                     rt = (machine_ct, stage)
                     existing_qty = config_stage_rt[stage].get(rt, 0)
                     config_stage_rt[stage][rt] = max(existing_qty, machine_qty)
 
-                employee_qty = stage_info.get("employee_qty", 0)
+                employee_qty = sum(
+                    et.get("quantity", 0)
+                    for et in raw_stage_info.get("employee_types", [])
+                )
                 if employee_qty > 0:
                     rt = (employee_ct, stage)
                     existing_qty = config_stage_rt[stage].get(rt, 0)

@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 from django.db.models import Q
 from django.urls import reverse
 from django.utils import timezone
@@ -25,6 +27,30 @@ class ProductionControlView(UnfoldModelAdminViewMixin, TemplateView):
         minutes, _seconds = divmod(remainder, 60)
         return f"{hours:02d}:{minutes:02d}"
 
+    def _get_first_unfinished_stage(self, ticket):
+        if not ticket:
+            return "—"
+
+        completed_statuses = {
+            getattr(ProductionItemSessionStatus, "DONE", None),
+            getattr(ProductionItemSessionStatus, "COMPLETED", None),
+            getattr(ProductionItemSessionStatus, "FINISHED", None),
+        }
+        completed_statuses.discard(None)
+
+        sessions = (
+            ProductionItemSession.objects.filter(
+                production_item__ticket=ticket,
+            )
+            .order_by("start_time", "pk")
+        )
+
+        for session in sessions:
+            if session.status not in completed_statuses:
+                return session.production_stage or "—"
+
+        return "Completed"
+
     def get_queryset(self):
         qs = ProductionItemSession.objects.select_related(
             "company",
@@ -32,13 +58,18 @@ class ProductionControlView(UnfoldModelAdminViewMixin, TemplateView):
             "production_item",
             "production_item__ticket",
             "production_item__component",
+            "production_item__ticket__content_type",
         ).filter(status=ProductionItemSessionStatus.IN_PROGRESS)
 
         user = self.request.user
 
         if not user.is_superuser:
             employee = (
-                Employee.objects.filter(user=user, is_active=True,)
+                Employee.objects.filter(
+                    user=user,
+                    is_active=True,
+                    company__isnull=False,
+                )
                 .select_related("company")
                 .first()
             )
@@ -54,6 +85,7 @@ class ProductionControlView(UnfoldModelAdminViewMixin, TemplateView):
         if form.is_valid():
             q = form.cleaned_data.get("q")
             stage = form.cleaned_data.get("stage")
+            company = form.cleaned_data.get("company")
 
             if q:
                 qs = qs.filter(
@@ -69,7 +101,17 @@ class ProductionControlView(UnfoldModelAdminViewMixin, TemplateView):
             if stage:
                 qs = qs.filter(production_stage=stage)
 
-        return qs.order_by("company__name", "production_stage", "start_time")
+            if company:
+                qs = qs.filter(company=company)
+
+        return qs.order_by(
+            "company__name",
+            "created_by__first_name",
+            "created_by__last_name",
+            "production_item__ticket_id",
+            "production_stage",
+            "start_time",
+        )
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
@@ -81,42 +123,73 @@ class ProductionControlView(UnfoldModelAdminViewMixin, TemplateView):
             ProductionControlFilterForm(self.request.GET or None),
         )
 
-        rows = []
+        grouped = OrderedDict()
+
         for s in sessions:
             employee = s.created_by
             company = s.company
             item = s.production_item
             ticket = item.ticket if item else None
+            stage = s.production_stage or "—"
 
-            ticket_display = "—"
-            if ticket:
-                ticket_name = getattr(ticket.source_object, "name", None) or str(ticket.source_object)
-                ticket_display = f"#{ticket.pk} - {ticket_name}"
+            key = (
+                employee.pk if employee else None,
+                ticket.pk if ticket else None,
+                stage,
+            )
 
-            component = item.component if item else None
-            component_name = str(component) if component else "—"
-            item_summary = f"#{item.pk} - {component_name}" if item else "—"
+            if key not in grouped:
+                ticket_display = "—"
+                ticket_url = ""
+                if ticket:
+                    ticket_name = getattr(ticket.source_object, "name", None) or str(ticket.source_object)
+                    ticket_display = f"#{ticket.pk} - {ticket_name}"
+                    ticket_url = reverse("admin:production_productionticket_change", args=[ticket.pk])
 
-            rows.append(
-                {
-                    "id": s.pk,
+                grouped[key] = {
                     "employee_name": str(employee) if employee else "—",
                     "employee_url": reverse("admin:company_employee_change", args=[employee.pk]) if employee else "",
                     "company_name": str(company) if company else "—",
-                    "stage": s.production_stage or "—",
+                    "stage": stage,
                     "ticket_display": ticket_display,
-                    "ticket_url": reverse("admin:production_productionticket_change", args=[ticket.pk]) if ticket else "",
-                    "item_id": item.pk if item else None,
-                    "item_url": reverse("admin:production_productionitem_change", args=[item.pk]) if item else "",
-                    "item_summary": item_summary,
-                    "component_name": component_name,
+                    "ticket_url": ticket_url,
+                    "first_unfinished_stage": self._get_first_unfinished_stage(ticket),
+                    "items_count": 0,
+                    "items": [],
                     "started_at": s.start_time,
                     "started_at_display": s.start_time.strftime("%b %d, %Y, %H:%M") if s.start_time else "—",
                     "elapsed": self._format_elapsed(s.start_time),
                     "session_status": s.get_status_display(),
-                    "session_url": reverse("admin:production_productionitemsession_change", args=[s.pk]),
+                    "session_ids": [],
                 }
-            )
+
+            row = grouped[key]
+
+            if s.start_time and (row["started_at"] is None or s.start_time < row["started_at"]):
+                row["started_at"] = s.start_time
+                row["started_at_display"] = s.start_time.strftime("%b %d, %Y, %H:%M")
+
+            row["session_ids"].append(s.pk)
+
+            if item:
+                component = item.component
+                component_name = str(component) if component else "—"
+
+                row["items"].append(
+                    {
+                        "id": item.pk,
+                        "url": reverse("admin:production_productionitem_change", args=[item.pk]),
+                        "summary": f"#{item.pk} - {component_name}",
+                        "component_name": component_name,
+                        "session_url": reverse("admin:production_productionitemsession_change", args=[s.pk]),
+                    }
+                )
+                row["items_count"] += 1
+
+        rows = list(grouped.values())
+
+        for row in rows:
+            row["elapsed"] = self._format_elapsed(row["started_at"])
 
         ctx["rows"] = rows
         ctx["active_count"] = len(rows)

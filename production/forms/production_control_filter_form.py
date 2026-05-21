@@ -1,8 +1,9 @@
 from django import forms
 from django.utils.translation import gettext_lazy as _
 
+from company.models import Company
+from unfold.widgets import UnfoldAdminSelect2Widget, UnfoldAdminTextInputWidget
 from production.models import ProductionItemSession
-from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminTextInputWidget
 
 
 class ProductionControlFilterForm(forms.Form):
@@ -16,23 +17,30 @@ class ProductionControlFilterForm(forms.Form):
         ),
     )
 
+    company = forms.ModelChoiceField(
+        required=False,
+        label=_("Company"),
+        queryset=Company.objects.filter(is_active=True).order_by("name"),
+        empty_label=_("All companies"),
+        widget=UnfoldAdminSelect2Widget(),
+    )
+
     stage = forms.ChoiceField(
         required=False,
-        label="Stage",
+        label=_("Stage"),
         choices=[],
-        widget=UnfoldAdminSelectWidget(),
+        widget=UnfoldAdminSelect2Widget(),
     )
 
     def __init__(self, *args, **kwargs):
-        kwargs.pop("admin_site", None)
         super().__init__(*args, **kwargs)
 
-        stage_choices = list(
-            ProductionItemSession.objects.exclude(production_stage__isnull=True)
-            .exclude(production_stage="")
+        stages = (
+            ProductionItemSession.objects.order_by()
             .values_list("production_stage", flat=True)
             .distinct()
-            .order_by("production_stage")
         )
 
-        self.fields["stage"].choices = [("", _("All stages"))] + [(s, s) for s in stage_choices]
+        self.fields["stage"].choices = [("", _("All stages"))] + [
+            (stage, stage) for stage in stages if stage
+        ]

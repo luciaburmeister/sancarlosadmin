@@ -49,7 +49,34 @@ class TicketStageFilter(admin.SimpleListFilter):
         if not stage:
             return queryset
         return queryset.filter(items__planning__has_key=stage).distinct()
+    
+class TicketIncompleteStageFilter(admin.SimpleListFilter):
+    title = _("Incomplete stage")
+    parameter_name = "incomplete_stage"
 
+    def lookups(self, request, model_admin):
+        stages = set()
+
+        queryset = model_admin.get_queryset(request).prefetch_related("items")
+        for ticket in queryset:
+            for stage in ticket.get_stage_order():
+                stages.add(stage)
+
+        return [(stage, stage) for stage in sorted(stages)]
+
+    def queryset(self, request, queryset):
+        value = self.value()
+        if not value:
+            return queryset
+
+        matching_ids = []
+        queryset = queryset.prefetch_related("items")
+
+        for ticket in queryset:
+            if ticket.has_incomplete_stage(value):
+                matching_ids.append(ticket.pk)
+
+        return queryset.filter(pk__in=matching_ids)
 
 class TicketStageStatusFilter(admin.SimpleListFilter):
     title = _("Stage status")

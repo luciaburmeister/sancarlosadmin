@@ -4,12 +4,13 @@ from django.views import View
 from django.http import HttpRequest
 from django.contrib import messages
 from django.utils.translation import gettext as _
-from django.utils.text import slugify
+from django.core.exceptions import ValidationError
 from unfold.views import UnfoldModelAdminViewMixin
 from django.core.exceptions import ValidationError
 from production.models import ProductionTicket, ProductionItem
 from production.services.stages_to_sessions import StagesToSessionsService
 from production.constants import ProductionActions
+from django.utils.text import slugify
 
 
 class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):

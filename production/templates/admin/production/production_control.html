@@ -39,6 +39,11 @@
                 </div>
 
                 <div class="w-44">
+                    <label class="block text-sm font-medium mb-1">{% trans "Company" %}</label>
+                    {{ filter_form.company }}
+                </div>
+
+                <div class="w-44">
                     <label class="block text-sm font-medium mb-1">{% trans "Stage" %}</label>
                     {{ filter_form.stage }}
                 </div>
@@ -56,8 +61,8 @@
     </div>
 
     <div class="mb-4">
-        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
-            {{ active_count }} {% trans "worker(s) currently active" %}
+        <span class="inline-flex items-center rounded-full border border-base-200 bg-base-50 px-3 py-1 text-sm font-medium text-base-700 dark:border-base-700 dark:bg-base-900 dark:text-base-200">
+            {{ active_count }} {% trans "active workers" %}
         </span>
     </div>
 
@@ -67,9 +72,10 @@
                 <thead>
                     <tr class="border-b border-base-200 dark:border-base-800">
                         <th class="px-3 py-1.5 text-left text-sm font-semibold w-10"></th>
-                        <th class="px-4 py-2 text-left text-sm font-semibold w-[32%]">{% trans "Employee" %}</th>
-                        <th class="px-4 py-2 text-left text-sm font-semibold w-[26%]">{% trans "Stage" %}</th>
-                        <th class="px-4 py-2 text-left text-sm font-semibold w-[42%]">{% trans "Item" %}</th>
+                        <th class="px-4 py-2 text-left text-sm font-semibold w-[24%]">{% trans "Employee" %}</th>
+                        <th class="px-4 py-2 text-left text-sm font-semibold w-[20%]">{% trans "Stage" %}</th>
+                        <th class="px-4 py-2 text-left text-sm font-semibold w-[36%]">{% trans "Ticket" %}</th>
+                        <th class="px-4 py-2 text-left text-sm font-semibold w-[20%]">{% trans "Items" %}</th>
                     </tr>
                 </thead>
 
@@ -79,11 +85,11 @@
                             <td class="px-3 py-3 align-top">
                                 <button
                                     type="button"
-                                    onclick="toggleProductionRow('{{ row.id }}')"
+                                    onclick="toggleProductionRow('{{ forloop.counter0 }}')"
                                     class="inline-flex items-center justify-center text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                                     aria-label="{% trans 'Toggle details' %}"
                                 >
-                                    <svg id="icon-{{ row.id }}" class="w-4 h-4 transition-transform" viewBox="0 0 20 20" fill="currentColor">
+                                    <svg id="icon-{{ forloop.counter0 }}" class="w-4 h-4 transition-transform" viewBox="0 0 20 20" fill="currentColor">
                                         <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 111.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
                                     </svg>
                                 </button>
@@ -104,60 +110,83 @@
                             </td>
 
                             <td class="px-4 py-3 align-top">
-                                {% if row.item_url %}
-                                    <a href="{{ row.item_url }}" class="text-primary-600 hover:underline dark:text-primary-400">
-                                        {{ row.item_summary }}
+                                {% if row.ticket_url %}
+                                    <a href="{{ row.ticket_url }}" class="text-primary-600 hover:underline dark:text-primary-400">
+                                        {{ row.ticket_display }}
                                     </a>
                                 {% else %}
-                                    {{ row.item_summary }}
+                                    {{ row.ticket_display }}
                                 {% endif %}
+                            </td>
+
+                            <td class="px-4 py-3 align-top">
+                                {{ row.items_count }} {% trans "item(s)" %}
                             </td>
                         </tr>
 
-                        <tr id="details-{{ row.id }}" class="hidden border-b border-base-200 dark:border-base-800 bg-base-50 dark:bg-base-900/40">
+                        <tr id="details-{{ forloop.counter0 }}" class="hidden border-b border-base-200 dark:border-base-800 bg-base-50 dark:bg-base-900/40">
                             <td class="px-3 py-0"></td>
-                            <td colspan="3" class="px-5 py-5">
-                                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-x-10 gap-y-12 text-sm w-full leading-relaxed">
+                            <td colspan="4" class="px-5 py-5">
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-x-10 gap-y-6 text-sm w-full leading-relaxed">
 
                                     <div class="min-w-0">
-                                        <span class="font-semibold">{% trans "Ticket" %}:</span>
-                                        {% if row.ticket_url %}
-                                            <a href="{{ row.ticket_url }}" class="text-primary-600 hover:underline dark:text-primary-400">
-                                                {{ row.ticket_display }}
-                                            </a>
+                                        <div>
+                                            <span class="font-semibold">{% trans "Started" %}:</span>
+                                            {{ row.started_at_display }}
+                                        </div>
+
+                                        <div class="mt-2">
+                                            <span class="font-semibold">{% trans "Elapsed" %}:</span>
+                                            {{ row.elapsed }}
+                                        </div>
+                                    </div>
+
+                                    <div class="min-w-0">
+                                        <div>
+                                            <span class="font-semibold">{% trans "Company" %}:</span>
+                                            {{ row.company_name }}
+                                        </div>
+
+                                        <div class="mt-2">
+                                            <span class="font-semibold">{% trans "Session" %}:</span>
+                                            {{ row.session_status }}
+                                        </div>
+
+                                        <div class="mt-2">
+                                            <span class="font-semibold">{% trans "First unfinished stage" %}:</span>
+                                            {{ row.first_unfinished_stage }}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div class="font-semibold">
+                                            {% trans "Items in this group" %}:
+                                        </div>
+
+                                        {% if row.items %}
+                                            <div class="mt-2 space-y-1">
+                                                {% for item in row.items %}
+                                                    <div>
+                                                        <a href="{{ item.url }}" class="text-primary-600 hover:underline dark:text-primary-400">
+                                                            {{ item.summary }}
+                                                        </a>
+                                                    </div>
+                                                {% endfor %}
+                                            </div>
                                         {% else %}
-                                            —
+                                            <div class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                                                —
+                                            </div>
                                         {% endif %}
                                     </div>
 
-                                    <div class="min-w-0">
-                                        <span class="font-semibold">{% trans "Started" %}:</span>
-                                        {{ row.started_at_display }}
-                                    </div>
-
-                                    <div class="min-w-0">
-                                        <span class="font-semibold">{% trans "Elapsed" %}:</span>
-                                        {{ row.elapsed }}
-                                    </div>
-
-                                    <div class="min-w-0">
-                                        <span class="font-semibold">{% trans "Component" %}:</span>
-                                        {{ row.component_name }}
-                                    </div>
-
-                                    <div class="min-w-0">
-                                        <span class="font-semibold">{% trans "Session" %}:</span>
-                                        <a href="{{ row.session_url }}" class="text-primary-600 hover:underline dark:text-primary-400">
-                                            {{ row.session_status }}
-                                        </a>
-                                    </div>
                                 </div>
                             </td>
                         </tr>
                     {% empty %}
                         <tr>
-                            <td colspan="4" class="px-4 py-6 text-sm text-gray-500 dark:text-gray-400">
-                                {% trans "There are no active employees right now." %}
+                            <td colspan="5" class="px-4 py-6 text-sm text-gray-500 dark:text-gray-400">
+                                {% trans "There are no active workers right now." %}
                             </td>
                         </tr>
                     {% endfor %}

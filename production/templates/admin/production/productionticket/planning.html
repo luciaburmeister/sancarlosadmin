@@ -119,9 +119,36 @@
 
             <div
               class="flex flex-col lg:w-[28rem] xl:w-[32rem] shrink-0 pt-8 lg:pt-2 lg:pl-10 lg:border-l border-gray-100 dark:border-gray-800/60 lg:justify-between space-y-8">
-              <div class="flex flex-col items-center lg:items-end gap-6 w-full">
+              <div class="flex flex-col items-center lg:items-end gap-3 w-full">
                 {% include "admin/production/components/status_badge.html" with color=unit.status_color label=unit.status_label %}
 
+                {% if unit.blocked_by_other_employee %}
+                <div class="flex items-center gap-4 px-5 py-4 rounded-2xl border shadow-sm w-full"
+                  style="background-color: #ffedd5; border-color: #fdba74; color: #c2410c;">
+
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border"
+                    style="background-color: #fed7aa; border-color: #fdba74;">
+                  
+                  <svg class="w-5 h-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M5.121 17.804A9 9 0 1118.88 6.196M15 11a3 3 0 11-6 0 3 3 0 016 0zm6 10l-5.197-5.197" />
+                  </svg>
+
+                </div>
+
+                <div class="flex-1 min-w-0">
+                  <p class="text-[10px] font-black uppercase tracking-widest mb-0.5"
+                    style="color: #9a3412;">
+                    {% trans "Stage occupied by" %}
+                  </p>
+                  <p class="text-sm font-extrabold truncate"
+                    style="color: #c2410c;">
+                    {{ unit.blocking_employee_name }}
+                  </p>
+                </div>
+
+              </div>
+                {% endif %}
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4 w-full">
                   <div
                     class="flex items-center gap-4 px-4 py-4 bg-gray-50 dark:bg-gray-800/40 rounded-2xl border border-gray-100 dark:border-gray-800/60 transition-all hover:bg-white dark:hover:bg-gray-800 shadow-sm">
@@ -163,58 +190,62 @@
               {% if unit.is_current and unit.status != "done" and unit.status != "cancelled" %}
               <div class="w-full">
                 {% if unit.status == "pending" %}
-                <form method="post" action="{{ stage.action_url }}" class="w-full">
-                  {% csrf_token %}
-                  <input type="hidden" name="anchor"
-                    value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
-                  <input type="hidden" name="item_ids" value="{{ unit.item_ids }}">
-                  <input type="hidden" name="action" value="start_activity">
-                  <button
-                    class="w-full px-6 py-4 rounded-xl bg-primary-600 text-white text-base font-bold shadow-sm hover:bg-primary-700 transition-all flex items-center justify-center">
-                    {% trans "Start activity" %}
-                  </button>
-                </form>
-
-                {% elif unit.status == "in_progress" %}
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
-                  {% if unit.has_active_session %}
+                  {% if not unit.blocked_by_other_employee %}
                   <form method="post" action="{{ stage.action_url }}" class="w-full">
                     {% csrf_token %}
                     <input type="hidden" name="anchor"
                       value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
                     <input type="hidden" name="item_ids" value="{{ unit.item_ids }}">
-                    <input type="hidden" name="action" value="end_session">
+                    <input type="hidden" name="action" value="start_activity">
                     <button
-                      class="w-full px-4 py-3 rounded-xl bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-700 shadow-sm text-sm font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-all flex items-center justify-center">
-                      {% trans "Pause" %}
-                    </button>
-                  </form>
-                  {% else %}
-                  <form method="post" action="{{ stage.action_url }}" class="w-full">
-                    {% csrf_token %}
-                    <input type="hidden" name="anchor"
-                      value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
-                    <input type="hidden" name="item_ids" value="{{ unit.item_ids }}">
-                    <input type="hidden" name="action" value="start_session">
-                    <button
-                      class="w-full px-4 py-3 rounded-xl bg-primary-600 text-white text-sm font-bold shadow-sm hover:bg-primary-700 transition-all flex items-center justify-center">
-                      {% trans "Resume" %}
+                      class="w-full px-6 py-4 rounded-xl bg-primary-600 text-white text-base font-bold shadow-sm hover:bg-primary-700 transition-all flex items-center justify-center">
+                      {% trans "Start activity" %}
                     </button>
                   </form>
                   {% endif %}
 
-                  <form method="post" action="{{ stage.action_url }}" class="w-full">
-                    {% csrf_token %}
-                    <input type="hidden" name="anchor"
-                      value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
-                    <input type="hidden" name="item_ids" value="{{ unit.item_ids }}">
-                    <input type="hidden" name="action" value="finish_activity">
-                    <button
-                      class="w-full px-4 py-3 rounded-xl bg-primary-600 text-white text-sm font-bold shadow-sm hover:bg-primary-700 transition-all flex items-center justify-center">
-                      {% trans "Finish" %}
-                    </button>
-                  </form>
-                </div>
+                {% elif unit.status == "in_progress" %}
+                  {% if not unit.blocked_by_other_employee %}
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+                    {% if unit.has_active_session %}
+                    <form method="post" action="{{ stage.action_url }}" class="w-full">
+                      {% csrf_token %}
+                      <input type="hidden" name="anchor"
+                        value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
+                      <input type="hidden" name="item_ids" value="{{ unit.item_ids }}">
+                      <input type="hidden" name="action" value="end_session">
+                      <button
+                        class="w-full px-4 py-3 rounded-xl bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-700 shadow-sm text-sm font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-all flex items-center justify-center">
+                        {% trans "Pause" %}
+                      </button>
+                    </form>
+                    {% else %}
+                    <form method="post" action="{{ stage.action_url }}" class="w-full">
+                      {% csrf_token %}
+                      <input type="hidden" name="anchor"
+                        value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
+                      <input type="hidden" name="item_ids" value="{{ unit.item_ids }}">
+                      <input type="hidden" name="action" value="start_session">
+                      <button
+                        class="w-full px-4 py-3 rounded-xl bg-primary-600 text-white text-sm font-bold shadow-sm hover:bg-primary-700 transition-all flex items-center justify-center">
+                        {% trans "Resume" %}
+                      </button>
+                    </form>
+                    {% endif %}
+
+                    <form method="post" action="{{ stage.action_url }}" class="w-full">
+                      {% csrf_token %}
+                      <input type="hidden" name="anchor"
+                        value="unit-{{ unit.item_ids|slugify }}-{{ stage.stage_name|slugify }}">
+                      <input type="hidden" name="item_ids" value="{{ unit.item_ids }}">
+                      <input type="hidden" name="action" value="finish_activity">
+                      <button
+                        class="w-full px-4 py-3 rounded-xl bg-primary-600 text-white text-sm font-bold shadow-sm hover:bg-primary-700 transition-all flex items-center justify-center">
+                        {% trans "Finish" %}
+                      </button>
+                    </form>
+                  </div>
+                  {% endif %}
                 {% endif %}
               </div>
               {% endif %}
@@ -275,4 +306,14 @@
   </svg>
   {% trans "Work Order" %}
 </a>
+<script>
+  if (window.location.hash) {
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+
+  {% if messages %}
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  {% endif %}
+</script>
 {% endblock %}

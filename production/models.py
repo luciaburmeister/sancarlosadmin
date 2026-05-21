@@ -71,7 +71,7 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
 
     def __str__(self):
         return str(self.pk)
-    
+
     class Meta:
         indexes = [
             models.Index(fields=["content_type", "object_id"]),
@@ -84,6 +84,62 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
             )
         ]
 
+    def get_stage_order(self):
+        source = self.source_object
+        product = getattr(source, "product", None) if source else None
+        return list(getattr(product, "production_stages", []) or [])
+
+
+    def get_first_incomplete_stage(self):
+        items = list(self.items.all())
+        if not items:
+            return None
+
+        stage_order = self.get_stage_order()
+        if not stage_order:
+            return None
+
+        for stage_name in stage_order:
+            stage_statuses = []
+
+            for item in items:
+                planning = item.planning or {}
+                if stage_name not in planning:
+                    continue
+
+                info = planning.get(stage_name) or {}
+                status = info.get("status") or ProductionItemStatus.PENDING
+                stage_statuses.append(status)
+
+            if not stage_statuses:
+                continue
+
+            if not all(status == ProductionItemStatus.DONE for status in stage_statuses):
+                return stage_name
+
+        return None
+
+
+    def has_incomplete_stage(self, stage_name):
+        items = list(self.items.all())
+        if not items:
+            return False
+
+        stage_statuses = []
+
+        for item in items:
+            planning = item.planning or {}
+            if stage_name not in planning:
+                continue
+
+            info = planning.get(stage_name) or {}
+            status = info.get("status") or ProductionItemStatus.PENDING
+            stage_statuses.append(status)
+
+        if not stage_statuses:
+            return False
+
+        return not all(status == ProductionItemStatus.DONE for status in stage_statuses)
     def _fresh_items(self):
         """Return ticket items from DB, bypassing any prefetched cache."""
         return list(ProductionItem.objects.filter(ticket_id=self.pk))
@@ -110,7 +166,6 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
             return ProductionTicketStatus.IN_PROGRESS
 
         return ProductionTicketStatus.PENDING
-
 
     def recompute_status(self):
         new_status = self.compute_status_from_items()
@@ -267,15 +322,13 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
 
     def get_ordered_planning(self):
         """
-        Returns the planning dictionary items (stage_name, info) sorted by 
+        Returns the planning dictionary items (stage_name, info) sorted by
         the production_stages_order if present, otherwise fallback to product template order.
         """
         planning = self.planning or {}
-        
-        # 1. Use internal order if available
-        stage_order = None
-        
-        # 2. Fallback to product template order
+
+        stage_order = list(self.production_stages_order or [])
+
         if not stage_order and self.ticket and self.ticket.source_object:
             product = getattr(self.ticket.source_object, "product", None)
             if product:
@@ -287,14 +340,12 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
         def sort_key(item):
             stage_name = item[0]
             try:
-                # Priority 0: Stages in the defined order
                 return (0, stage_order.index(stage_name))
             except ValueError:
-                # Priority 1: Other stages sorted alphabetically
                 return (1, stage_name)
 
         return sorted(planning.items(), key=sort_key)
-    
+        
     def save(self, *args, **kwargs):
         if not self.company_id and self.ticket_id:
             self.company = self.ticket.company

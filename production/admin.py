@@ -28,10 +28,10 @@ from production.models import (
     SchedulingRun,
     ProductionTicketStatus,
 )
+from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter, TicketIncompleteStageFilter
 from production.services.scheduler import ScheduleProposalApplier, proposal_from_dict
 from production.views.configuration_autocomplete import ConfigurationAutocompleteView
 from production.views.planned_sessions_schedule_view import PlannedSessionsScheduleDayView
-from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter
 from production.views.production_item_stages_view import ProductionItemAdvanceStageView
 from production.views.production_ticket_stages_view import ProductionTicketStagesView
 from production.views.production_control_view import ProductionControlView
@@ -125,6 +125,8 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ("id", "company", "source_object", "show_status_customized_color", "last_stage_label", "created_at", "go_to_stages_display")
 
     list_filter = (
+        ("company", AutocompleteSelectMultipleFilter),
+        TicketIncompleteStageFilter,
         ("company",AutocompleteSelectMultipleFilter),
         ("status",MultipleChoicesDropdownFilter),
         TicketStageFilter,
@@ -188,6 +190,10 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
             url,
             _("Go to Stages")
         )
+
+    @display(description=_("First incomplete stage"))
+    def first_incomplete_stage(self, obj):
+        return obj.get_first_incomplete_stage() or "—"
 
     @action(
         description=_("See Work Order"),

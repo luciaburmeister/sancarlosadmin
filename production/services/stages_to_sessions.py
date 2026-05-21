@@ -6,14 +6,36 @@ from production.models import (
     ProductionItemStatus,
     ProductionItemSession,
     ProductionItemSessionStatus,
-    ProductionItemSessionKind, 
+    ProductionItemSessionKind,
 )
 from company.models import Employee
+from django.utils.translation import gettext_lazy as _
+from django.contrib import messages
+from django.shortcuts import redirect
+from django.urls import reverse
+
 
 
 import unicodedata
 
 class StagesToSessionsService:
+    @classmethod
+    def _worker_has_open_session(cls, employee: Employee) -> bool:
+        """A worker can only have one active session at a time globally."""
+        return ProductionItemSession.objects.filter(
+            created_by=employee,
+            status=ProductionItemSessionStatus.IN_PROGRESS,
+            end_time__isnull=True,
+        ).exists()
+
+    @classmethod
+    def _stage_has_open_session(cls, item: ProductionItem, stage_name: str) -> bool:
+        """Only one worker can have an active session per item+stage at a time."""
+        return ProductionItemSession.objects.filter(
+            production_item=item,
+            production_stage=stage_name,
+            end_time__isnull=True,
+        ).exists()
 
     @classmethod
     def start_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
@@ -21,16 +43,24 @@ class StagesToSessionsService:
         if employee is None:
             raise ValidationError("No employee provided to start activity.")
 
+        # Rule: worker cannot already be active on something else
+        if cls._worker_has_open_session(employee):
+            raise ValidationError("This worker already has an active session elsewhere.")
+
         now = timezone.now()
         count = 0
 
         for item in items:
             current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
             if current_stage != stage_name:
-                continue 
+                continue
 
             status = (stage_info.get("status") or ProductionItemStatus.PENDING)
             if status != ProductionItemStatus.PENDING:
+                continue
+
+            # Rule: no other worker can be active on this stage right now
+            if cls._stage_has_open_session(item, stage_name):
                 continue
 
             stage_info["status"] = ProductionItemStatus.IN_PROGRESS
@@ -64,7 +94,7 @@ class StagesToSessionsService:
             if status != ProductionItemStatus.IN_PROGRESS:
                 continue
 
-            session = (
+            open_session = (
                 ProductionItemSession.objects.filter(
                     production_item=item,
                     production_stage=stage_name,
@@ -74,9 +104,9 @@ class StagesToSessionsService:
                 .order_by("-start_time")
                 .first()
             )
-            if session:
-                session.kind = ProductionItemSessionKind.ACTIVITY_FINISHED
-                session.finish(completed_by=employee)
+            if open_session:
+                open_session.kind = ProductionItemSessionKind.ACTIVITY_FINISHED
+                open_session.finish(completed_by=employee)
 
             stage_info["status"] = ProductionItemStatus.DONE
             stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
@@ -91,6 +121,9 @@ class StagesToSessionsService:
         now = timezone.now()
         count = 0
 
+        if cls._worker_has_open_session(employee):
+            raise ValidationError(_("You already have an active session elsewhere. End it before starting a new one."))
+
         for item in items:
             current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
             if current_stage != stage_name:
@@ -98,7 +131,7 @@ class StagesToSessionsService:
 
             status = (stage_info.get("status") or ProductionItemStatus.PENDING)
             if status != ProductionItemStatus.IN_PROGRESS:
-                raise ValidationError("Start the activity before starting a session.")
+                continue
 
             already_active = ProductionItemSession.objects.filter(
                 production_item=item,
@@ -109,6 +142,9 @@ class StagesToSessionsService:
             ).exists()
             if already_active:
                 continue
+
+            if cls._stage_has_open_session(item, stage_name):
+                raise ValidationError(_("Another worker already has an active session on this stage. Wait for them to pause first."))
 
             ProductionItemSession.objects.create(
                 production_item=item,
@@ -138,13 +174,14 @@ class StagesToSessionsService:
                 .first()
             )
             if not session:
-                continue
+                raise ValidationError(
+                    _("No active session found to end. It may have already been closed.")
+                )
 
             session.kind = ProductionItemSessionKind.SESSION_FINISHED
             session.finish(completed_by=employee)
             count += 1
         return count
-
 
     @classmethod
     def revert_activity(
@@ -217,11 +254,9 @@ class StagesToSessionsService:
 
         if requested_stage in stage_names and requested_stage in planning:
             info = planning.get(requested_stage) or {}
-            # Allow the requested stage if it's not DONE
             if (info.get("status") or ProductionItemStatus.PENDING) != ProductionItemStatus.DONE:
                 return requested_stage, info
 
-        # Fallback to existing logic if no requested stage or requested stage is DONE
         for name in stage_names:
             if name not in planning:
                 continue

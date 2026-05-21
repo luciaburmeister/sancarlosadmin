@@ -30,6 +30,28 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
         color = StatusBadge.STATUS_COLORS.get(status_val, "#6b7280")
         label = _(status_val.replace("_", " ")) if status_val else "—"
         return color, label
+    
+    def _employee_display_name(self, employee):
+        if not employee:
+            return "—"
+
+        full_name = " ".join(
+            part for part in [getattr(employee, "first_name", ""), getattr(employee, "last_name", "")]
+            if part
+        ).strip()
+
+        if full_name:
+            return full_name
+
+        user = getattr(employee, "user", None)
+        if user:
+            user_full_name = user.get_full_name().strip()
+            if user_full_name:
+                return user_full_name
+            if user.username:
+                return user.username
+
+        return str(employee)
 
     def _get_dt(self, info, key):
         val = info.get(key)
@@ -87,21 +109,30 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             for s in (getattr(product, "production_stages", []) or [])
         ]
 
-        employee = None
-        authorized_stages = stage_order
+        employee = (
+            Employee.objects.filter(
+                user=self.request.user,
+                company=ticket.company,
+                is_active=True,
+            )
+            .only("id", "production_stages", "can_work_on_production", "company")
+            .first()
+        )
 
-        if not self.request.user.is_superuser:
+        if employee is None:
             employee = (
                 Employee.objects.filter(
                     user=self.request.user,
-                    company=ticket.company,
                     is_active=True,
                 )
-                .only("id", "production_stages", "can_work_on_production")
+                .only("id", "production_stages", "can_work_on_production", "company")
                 .first()
             )
 
-            if not employee or not employee.can_work_on_production:
+        authorized_stages = stage_order
+
+        if not self.request.user.is_superuser:
+            if not employee or employee.company_id != ticket.company_id or not employee.can_work_on_production:
                 authorized_stages = []
             else:
                 allowed = set(employee.production_stages or [])
@@ -196,14 +227,16 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             if not units:
                 continue
 
-            stages_ui.append({
-                "stage_name": stage_name,
-                "units": units,
-                "action_url": reverse(
-                    "admin:production_productionticket_stage_action",
-                    args=[ticket.pk, stage_name],
-                ),
-            })
+            stages_ui.append(
+                {
+                    "stage_name": stage_name,
+                    "units": units,
+                    "action_url": reverse(
+                        "admin:production_productionticket_stage_action",
+                        args=[ticket.pk, stage_name],
+                    ),
+                }
+            )
 
         ctx["stages_ui"] = stages_ui
         return ctx
@@ -243,15 +276,51 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             default=None,
         )
 
-        has_active_session = False
+        current_employee_active_session = None
+        other_employee_active_session = None
+
         if employee is not None:
-            has_active_session = ProductionItemSession.objects.filter(
-                production_item__in=[item for item, _, _ in infos],
-                production_stage=stage_name,
-                created_by=employee,
-                status=ProductionItemSessionStatus.IN_PROGRESS,
-                end_time__isnull=True,
-            ).exists()
+            current_employee_active_session = (
+                ProductionItemSession.objects.filter(
+                    production_item__in=[item for item, _, _ in infos],
+                    production_stage=stage_name,
+                    created_by=employee,
+                    status=ProductionItemSessionStatus.IN_PROGRESS,
+                    end_time__isnull=True,
+                )
+                .select_related("created_by", "created_by__user")
+                .first()
+            )
+
+            other_employee_active_session = (
+                ProductionItemSession.objects.filter(
+                    production_item__in=[item for item, _, _ in infos],
+                    production_stage=stage_name,
+                    status=ProductionItemSessionStatus.IN_PROGRESS,
+                    end_time__isnull=True,
+                )
+                .exclude(created_by=employee)
+                .select_related("created_by", "created_by__user")
+                .first()
+            )
+        else:
+            other_employee_active_session = (
+                ProductionItemSession.objects.filter(
+                    production_item__in=[item for item, _, _ in infos],
+                    production_stage=stage_name,
+                    status=ProductionItemSessionStatus.IN_PROGRESS,
+                    end_time__isnull=True,
+                )
+                .select_related("created_by", "created_by__user")
+                .first()
+            )
+
+        has_active_session = current_employee_active_session is not None
+        blocked_by_other_employee = other_employee_active_session is not None
+        blocking_employee = (
+            other_employee_active_session.created_by if other_employee_active_session else None
+        )
+        blocking_employee_name = self._employee_display_name(blocking_employee)
 
         relevant = any(status != ProductionItemStatus.DONE for status in statuses)
 
@@ -273,6 +342,12 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             "started_at": started_at,
             "completed_at": completed_at,
             "has_active_session": has_active_session,
-            "is_current": all(item_current_stages.get(item.id) == stage_name for item, _, _ in infos),
+            "blocked_by_other_employee": blocked_by_other_employee,
+            "blocking_employee": blocking_employee,
+            "blocking_employee_name": blocking_employee_name,
+            "is_current": all(
+                item_current_stages.get(item.id) == stage_name
+                for item, _, _ in infos
+            ),
             "relevant": relevant,
         }

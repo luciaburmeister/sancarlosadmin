@@ -196,6 +196,20 @@ class Employee(CompanyOwnedModel):
     def full_name(self):
         return f"{self.first_name} {self.last_name}"
     
+    def clean(self):
+        super().clean()
+
+        if self.company_id and self.production_stages:
+            allowed = set(self.company.production_stages or [])
+            invalid = [stage for stage in self.production_stages if stage not in allowed]
+
+            if invalid:
+                raise ValidationError({
+                    "production_stages": _(
+                        "These stages are not allowed for the selected company: %(stages)s"
+                    ) % {"stages": ", ".join(invalid)}
+                })
+    
 class MachineType(CompanyOwnedModel):
     type = models.CharField(max_length=50, verbose_name=_("Machine Type"))
 
@@ -212,6 +226,14 @@ class Machine(CompanyOwnedModel):
     )
     
     type = models.ForeignKey(MachineType, on_delete=models.SET_NULL, null=True, blank=True, verbose_name=_("Type"))
+
+    production_stages = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        verbose_name=_("Assigned Production Stages"),
+        help_text=_("Stages this machine can work on"),
+    )
 
     is_active = models.BooleanField(default=True, verbose_name=_("Is active"))
 
@@ -232,6 +254,20 @@ class Machine(CompanyOwnedModel):
 
     def __str__(self):
         return self.name
+    
+    def clean(self):
+        super().clean()
+
+        if self.company_id and self.production_stages:
+            allowed = set(self.company.production_stages or [])
+            invalid = [stage for stage in self.production_stages if stage not in allowed]
+
+            if invalid:
+                raise ValidationError({
+                    "production_stages": _(
+                        "These stages are not allowed for the selected company: %(stages)s"
+                    ) % {"stages": ", ".join(invalid)}
+                })
 
 class CompanyEmailConfig(CompanyOwnedModel):
     email_address = models.EmailField(verbose_name=_("Email Address"))

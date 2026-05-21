@@ -20,6 +20,7 @@ from unfold.contrib.import_export.forms import (
     SelectableFieldsExportForm,
 )
 
+from core.admin.company_access import get_user_companies
 from core.admin.company_admin import CompanyRestrictedAdmin
 from company.models import Employee, EmployeeType
 from company.views.employeesessions import EmployeeSessionsView
@@ -178,14 +179,21 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
 
     def get_form(self, request, obj=None, change=False, **kwargs):
         form = super().get_form(request, obj, change, **kwargs)
-        if obj and obj.company:
-            stages = obj.company.production_stages
-            if stages:
-                form.base_fields["production_stages"].widget = ArrayWidget(
-                    choices=[(s, s) for s in stages]
-                )
-        return form
 
+        if obj and obj.company:
+            stages = obj.company.production_stages or []
+        else:
+            stages = []
+            for company in get_user_companies(request.user):
+                stages.extend(company.production_stages or [])
+
+            # remove duplicates while preserving order
+            stages = list(dict.fromkeys(stages))
+
+        form.base_fields["production_stages"].widget = ArrayWidget(
+            choices=[(s, s) for s in stages]
+        )
+        return form
     readonly_fields = ()
 
     @display(description=_("Name"))

@@ -15,36 +15,51 @@
 
   <div class="flex flex-col gap-6">
 
-    {% for stage_form, block in stage_blocks %}
-      {% with emp_tuple=block.employees mac_tuple=block.machines %}
-        {% with emp_fs=emp_tuple.0 emp_helper=emp_tuple.1 mac_fs=mac_tuple.0 mac_helper=mac_tuple.1 %}
+    {% for stage_form in stage_blocks %}
+      <div class="rounded-2xl shadow-sm border border-base-200 bg-white p-6">
+        {{ stage_form.non_field_errors }}
+        {{ stage_form.stage_key }}
 
-          <div class="rounded-2xl shadow-sm border border-base-200 bg-white p-6">
-            <div class="flex items-center justify-between mb-4">
-              <div class="text-base font-semibold">
-                {% trans "Stage" %}: {{ stage_form.initial.stage_key }}
-              </div>
-            </div>
+        <div class="flex items-center justify-between mb-4">
+          <div class="text-base font-semibold">
+            {% with stage_name=stage_form.initial.stage_key %}
+              {% trans "Stage" %}: {{ stage_name|default:"-" }}
+            {% endwith %}
+          </div>
+        </div>
 
-            <div class="mb-6">
-              <div class="text-sm font-semibold mb-2">{% trans "Employees" %}</div>
-              {% crispy emp_fs emp_helper "unfold_crispy" %}
-            </div>
-
-            <div class="mb-6">
-              <div class="text-sm font-semibold mb-2">{% trans "Machines" %}</div>
-              {% crispy mac_fs mac_helper "unfold_crispy" %}
-            </div>
-
-            <div>
-              <div class="text-sm font-semibold mb-2">{% trans "Time" %}</div>
-              {% crispy stage_form %}
-            </div>
-
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label class="block text-sm font-semibold mb-2">{{ stage_form.employee_qty.label }}</label>
+            {{ stage_form.employee_qty }}
+            {{ stage_form.employee_qty.errors }}
           </div>
 
-        {% endwith %}
-      {% endwith %}
+          <div>
+            <label class="block text-sm font-semibold mb-2">{{ stage_form.machine_qty.label }}</label>
+            {{ stage_form.machine_qty }}
+            {{ stage_form.machine_qty.errors }}
+          </div>
+
+          <div>
+            <label class="block text-sm font-semibold mb-2">{{ stage_form.prep_time_min.label }}</label>
+            {{ stage_form.prep_time_min }}
+            {{ stage_form.prep_time_min.errors }}
+          </div>
+
+          <div>
+            <label class="block text-sm font-semibold mb-2">{{ stage_form.work_time_min.label }}</label>
+            {{ stage_form.work_time_min }}
+            {{ stage_form.work_time_min.errors }}
+          </div>
+
+          <div>
+            <label class="block text-sm font-semibold mb-2">{{ stage_form.post_time_min.label }}</label>
+            {{ stage_form.post_time_min }}
+            {{ stage_form.post_time_min.errors }}
+          </div>
+        </div>
+      </div>
     {% endfor %}
 
     <div class="flex items-center justify-end gap-3 mt-3">

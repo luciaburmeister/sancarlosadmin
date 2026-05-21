@@ -2,10 +2,13 @@ from unfold.admin import StackedInline, TabularInline
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 from django.db import models
+from unfold.contrib.forms.widgets import ArrayWidget
+from django.contrib.postgres.fields import ArrayField
 from django.utils.translation import gettext_lazy as _
 from core.admin.company_admin import CompanyRestrictedAdmin
 from company.models import Machine, MachineType, MachineDocument, MachineDocumentType
 from company.forms import BaseDocumentForm
+from core.admin.company_access import get_user_companies
 
 
 class MachineDocumentForm(BaseDocumentForm):
@@ -34,13 +37,19 @@ class MachineDocumentInline(StackedInline):
     )
 
 @admin.register(MachineDocumentType)
-class MachineDocumentTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
+class MachineDocumentTypeAdmin(ModelAdmin, CompanyRestrictedAdmin):
     list_display = ("name", "company")
     search_fields = ("name",)
     autocomplete_fields = ["company"]
 
 @admin.register(Machine)
-class MachineAdmin(CompanyRestrictedAdmin, ModelAdmin):
+class MachineAdmin(ModelAdmin, CompanyRestrictedAdmin):
+    formfield_overrides = {
+        ArrayField: {
+            "widget": ArrayWidget,
+        }
+    }
+
     list_display = (
         "name",
         "company",
@@ -71,6 +80,24 @@ class MachineAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "name",
         "code",
     )
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form = super().get_form(request, obj, change, **kwargs)
+
+        if obj and obj.company:
+            stages = obj.company.production_stages or []
+        else:
+            stages = []
+            for company in get_user_companies(request.user):
+                stages.extend(company.production_stages or [])
+
+            # remove duplicates while preserving order
+            stages = list(dict.fromkeys(stages))
+
+        form.base_fields["production_stages"].widget = ArrayWidget(
+            choices=[(s, s) for s in stages]
+        )
+        return form
 
 @admin.register(MachineType)
 class MachineTypeAdmin(ModelAdmin):

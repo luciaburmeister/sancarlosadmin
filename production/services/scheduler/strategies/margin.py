@@ -7,7 +7,6 @@ from production.services.scheduler.core import ScheduleStrategy
 from datetime import date
 import pulp
 from datetime import datetime, timedelta
-from typing import Any
 
 class MarginScheduler(ScheduleStrategy):
     def __init__(self, optimization_params):
@@ -17,18 +16,7 @@ class MarginScheduler(ScheduleStrategy):
     def _var_value_is_one(var: pulp.LpVariable, tol: float = 1e-5) -> bool:
         value = pulp.value(var)
         return value is not None and value >= 1 - tol
-    
-    @staticmethod
-    def _slot_indexed_company_slots(possible_days_weekday, company_times_by_weekday, companies):
-        return {
-            company: [
-                (d, t)
-                for d, wd in sorted(possible_days_weekday.items())
-                for t in company_times_by_weekday[company].get(wd, [])
-            ]
-            for company in companies
-        }
-    
+        
     @staticmethod
     def _stage_required_slots(stage_duration, ts):
         return {
@@ -98,7 +86,7 @@ class MarginScheduler(ScheduleStrategy):
                     resource_daily_capacity_minutes[r],
                 )
                 groups.setdefault(key, []).append(r)
-        return [sorted(resources, key=lambda r: r.pk) for resources in groups.values() if len(resources) > 1]
+        return [(key[0], sorted(resources, key=lambda r: r.pk)) for key, resources in groups.items() if len(resources) > 1]
     
     def _should_use_warm_start(
         self, configurations, configuration_company, company_ordered_slots,
@@ -263,13 +251,10 @@ class MarginScheduler(ScheduleStrategy):
         stage_resource_type_quantity, stage_required_slots,
         valid_start_positions, covering_start_positions,
         resource_type_active_resources, resource_parallel_capacity,
-        resource_daily_capacity_minutes, ts,
+        resource_daily_capacity_minutes, ts, resource_slot_load, 
+        resource_day_load
     ):
         constraints = {}
-        resource_to_type = {
-            r: rt for rt, resources in resource_type_active_resources.items()
-            for r in resources
-        }
 
         # Each stage starts exactly once if selected
         constraints.update({
@@ -323,7 +308,7 @@ class MarginScheduler(ScheduleStrategy):
         constraints.update({
             f"Use_only_chosen_{c.pk}_{s}_{pos}_{r.pk}_{q}": (
                 variable_set["x"][(c, s, pos, r, q)]
-                <= variable_set["z"][(c, s, resource_to_type[r], r, q)],
+                <= variable_set["z"][(c, s, rt, r, q)],
                 f"Use_only_chosen_{c.pk}_{s}_{pos}_{r.pk}_{q}",
             )
             for c in configurations
@@ -361,9 +346,10 @@ class MarginScheduler(ScheduleStrategy):
                     variable_set["x"].get((c, s, pos, r, q), 0)
                     for c in configurations
                     for s in configuration_stages[c]
-                    if resource_to_type[r] in stage_resource_types[(c, s)]
-                    for q in range(stage_resource_type_quantity[(c, s, resource_to_type[r])])
-                ) <= parallel_capacity,
+                    for rt in stage_resource_types[(c, s)]
+                    if r in resource_type_active_resources[rt]
+                    for q in range(stage_resource_type_quantity[(c, s, rt)])
+                ) <= parallel_capacity - resource_slot_load.get((r, pos), 0),
                 f"Parallel_capacity_{r.pk}_{pos}",
             )
             for r, parallel_capacity in resource_parallel_capacity.items()
@@ -377,11 +363,12 @@ class MarginScheduler(ScheduleStrategy):
                     variable_set["x"].get((c, s, pos, r, q), 0)
                     for c in configurations
                     for s in configuration_stages[c]
-                    if resource_to_type[r] in stage_resource_types[(c, s)]
-                    for q in range(stage_resource_type_quantity[(c, s, resource_to_type[r])])
+                    for rt in stage_resource_types[(c, s)]
+                    if r in resource_type_active_resources[rt]
+                    for q in range(stage_resource_type_quantity[(c, s, rt)])
                     for pos, (slot_day, _) in enumerate(company_ordered_slots[r.company])
                     if slot_day == d
-                ) * ts <= daily_cap,
+                ) * ts <= daily_cap - resource_day_load.get((r, d), 0),
                 f"Daily_capacity_{r.pk}_{d}",
             )
             for r, daily_cap in resource_daily_capacity_minutes.items()
@@ -416,27 +403,22 @@ class MarginScheduler(ScheduleStrategy):
             resource_type_active_resources, resource_parallel_capacity,
             resource_daily_capacity_minutes,
         )
-        resource_to_type = {
-            r: rt for rt, resources in resource_type_active_resources.items()
-            for r in resources
-        }
-        for group_idx, group in enumerate(groups):
+        for group_idx, (rt, group) in enumerate(groups):
             for left, right in zip(group, group[1:]):
-                left_rt = resource_to_type[left]
                 left_load = pulp.lpSum(
                     variable_set["x"].get((c, s, pos, left, q), 0)
                     for c in configurations
                     for s in configuration_stages[c]
-                    if left_rt in stage_resource_types[(c, s)]
-                    for q in range(stage_resource_type_quantity[(c, s, left_rt)])
+                    if rt in stage_resource_types[(c, s)]
+                    for q in range(stage_resource_type_quantity[(c, s, rt)])
                     for pos in range(len(company_ordered_slots[configuration_company[c]]))
                 )
                 right_load = pulp.lpSum(
                     variable_set["x"].get((c, s, pos, right, q), 0)
                     for c in configurations
                     for s in configuration_stages[c]
-                    if left_rt in stage_resource_types[(c, s)]
-                    for q in range(stage_resource_type_quantity[(c, s, left_rt)])
+                    if rt in stage_resource_types[(c, s)]
+                    for q in range(stage_resource_type_quantity[(c, s, rt)])
                     for pos in range(len(company_ordered_slots[configuration_company[c]]))
                 )
                 constraints[f"Symmetry_{group_idx}_{left.pk}_{right.pk}"] = (
@@ -585,17 +567,14 @@ class MarginScheduler(ScheduleStrategy):
     
     def schedule(self, start_date: date, end_date: date, configurations: list[Configuration]) -> ScheduleProposal:
         (
-            possible_days_weekday, configuration_company, company_times_by_weekday,
+            company_ordered_slots, configuration_company,
             configuration_margin, configuration_stages,
             stage_resource_types, stage_resource_type_quantity, stage_duration,
             resource_type_active_resources, resource_parallel_capacity,
-            resource_daily_capacity_minutes,
+            resource_daily_capacity_minutes, resource_slot_load, 
+            resource_day_load
         ) = optimization_dict_creation(start_date, end_date, configurations, self.ts)
 
-        company_ordered_slots = self._slot_indexed_company_slots(
-            possible_days_weekday, company_times_by_weekday,
-            {configuration_company[c] for c in configurations},
-        )
         stage_required_slots = self._stage_required_slots(stage_duration, self.ts)
         stage_suffix_slots = self._config_stage_suffix_slots(
             configuration_stages, stage_required_slots,
@@ -637,6 +616,7 @@ class MarginScheduler(ScheduleStrategy):
             stage_required_slots, valid_start_positions,
             covering_start_positions, resource_type_active_resources,
             resource_parallel_capacity, resource_daily_capacity_minutes, self.ts,
+            resource_slot_load, resource_day_load
         )
         prob = self._solve_problem(
             objective, constraints, use_warm_start,

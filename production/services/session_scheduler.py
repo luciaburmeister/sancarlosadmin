@@ -7,7 +7,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db.models import DurationField, ExpressionWrapper, F, Sum
 from django.utils import timezone
 
-from company.models import Employee, EmployeeType, Machine, MachineType
+from company.models import Employee, Machine
 from production.models import (
     PlannedProductionSession,
     PlannedProductionSessionSource,
@@ -54,22 +54,48 @@ def get_or_create_resource_for_target(target) -> ProductionResource | None:
     resource, _ = ProductionResource.objects.get_or_create(
         content_type=ct,
         object_id=target.pk,
-        defaults={"is_active": True},
+        defaults={"is_active": True, "company": target.company},
         company=target.company,
     )
     return resource
 
 
-def get_resources(resource_type: MachineType | EmployeeType) -> list[ProductionResource]:
-    """Return ProductionResource wrappers for every Machine/Employee of the given type."""
-    resource_class = Machine if isinstance(resource_type, MachineType) else Employee
+def get_resources_for_stage(stage: str, stage_info: dict) -> dict[str, list[ProductionResource]]:
+    """
+    Return ProductionResource wrappers for all active machines/employees
+    that can work on this stage.
+    """
+    machine_qty = int(stage_info.get("machine_qty", 0) or 0)
+    employee_qty = int(stage_info.get("employee_qty", 0) or 0)
 
-    original_resources = list(resource_class.objects.filter(type=resource_type))
+    machine_resources: list[ProductionResource] = []
+    employee_resources: list[ProductionResource] = []
 
-    return [
-        get_or_create_resource_for_target(res)
-        for res in original_resources
-    ]
+    if machine_qty > 0:
+        machine_resources = [
+            get_or_create_resource_for_target(machine)
+            for machine in Machine.objects.filter(
+                is_active=True,
+                production_stages__contains=[stage],
+            )
+        ]
+        machine_resources = [r for r in machine_resources if r is not None]
+
+    if employee_qty > 0:
+        employee_resources = [
+            get_or_create_resource_for_target(employee)
+            for employee in Employee.objects.filter(
+                is_active=True,
+                can_work_on_production=True,
+                production_stages__contains=[stage],
+            )
+        ]
+        employee_resources = [r for r in employee_resources if r is not None]
+
+    return {
+        "machines": machine_resources,
+        "employees": employee_resources,
+    }
 
 
 def possible_resources_for_stage(
@@ -117,12 +143,7 @@ def possible_resources_for_stage(
 class SessionScheduler:
     """
     Creates PlannedProductionSessions for a ProductionTicket.
-
-    Public API:
-        schedule_item(production_ticket, stage_resources, schedule_ctx, search_start)
     """
-
-    # -- public entry point -------------------------------------------------
 
     @classmethod
     def schedule_item(
@@ -139,15 +160,12 @@ class SessionScheduler:
                 datetime.combine(tomorrow, schedule_ctx.day_start)
             )
 
-        last_session = None
+        last_end = None
 
         for stage, stage_info in (stage_resources or {}).items():
-            start = (
-                last_session.planned_end
-                if last_session
-                else search_start
-            )
-            last_session = cls._schedule_stage(
+            start = last_end if last_end else search_start
+
+            result = cls._schedule_stage(
                 production_ticket=production_ticket,
                 stage=stage,
                 stage_info=stage_info,
@@ -155,7 +173,10 @@ class SessionScheduler:
                 search_start=start,
             )
 
-    # -- per-stage scheduling -----------------------------------------------
+            if result is None:
+                continue
+
+            last_end = result
 
     @classmethod
     def _schedule_stage(
@@ -165,17 +186,31 @@ class SessionScheduler:
         stage_info: dict,
         schedule_ctx: ScheduleContext,
         search_start: datetime,
-    ) -> PlannedProductionSession | None:
-        """Find a slot and create a session for one stage, or return None."""
-        duration = timedelta(minutes=int(stage_info["total_time_min"]))
+    ) -> datetime | None:
+        """
+        Find a slot and create sessions for one stage.
 
-        resources, resource_type = cls._resolve_resources(stage_info)
-        if not resources or resource_type is None:
+        Returns the stage end datetime if scheduled, else None.
+        """
+        duration = timedelta(minutes=int(stage_info["total_time_min"]))
+        machine_qty = int(stage_info.get("machine_qty", 0) or 0)
+        employee_qty = int(stage_info.get("employee_qty", 0) or 0)
+
+        if machine_qty <= 0 and employee_qty <= 0:
+            return None
+
+        pools = get_resources_for_stage(stage, stage_info)
+        machine_resources = pools["machines"]
+        employee_resources = pools["employees"]
+
+        if machine_qty > len(machine_resources) or employee_qty > len(employee_resources):
             return None
 
         result = cls._find_slot(
-            resources=resources,
-            resource_type=resource_type,
+            machine_resources=machine_resources,
+            employee_resources=employee_resources,
+            machine_qty=machine_qty,
+            employee_qty=employee_qty,
             duration=duration,
             schedule_ctx=schedule_ctx,
             search_start=search_start,
@@ -184,60 +219,39 @@ class SessionScheduler:
         if result is None:
             return None
 
-        slot_start, resource_id = result
+        slot_start, selected_machine_ids, selected_employee_ids = result
+        slot_end = slot_start + duration
 
-        return PlannedProductionSession.objects.create(
-            production_ticket=production_ticket,
-            production_stage=stage,
-            planned_start=slot_start,
-            planned_end=slot_start + duration,
-            locked=False,
-            source=PlannedProductionSessionSource.AUTOMATIC,
-            primary_resource_id=resource_id,
-        )
+        for resource_id in selected_machine_ids + selected_employee_ids:
+            PlannedProductionSession.objects.create(
+                production_ticket=production_ticket,
+                production_stage=stage,
+                planned_start=slot_start,
+                planned_end=slot_end,
+                locked=False,
+                source=PlannedProductionSessionSource.AUTOMATIC,
+                primary_resource_id=resource_id,
+            )
 
-    # -- resource resolution ------------------------------------------------
-
-    @staticmethod
-    def _resolve_resources(
-        stage_info: dict,
-    ) -> tuple[list[ProductionResource], MachineType | EmployeeType | None]:
-        """Look up the resource type and its concrete resources for a stage."""
-        machines = stage_info.get("machine_types", [])
-        employees = stage_info.get("employee_types", [])
-
-        if machines:
-            resource_type = MachineType.objects.filter(
-                pk=machines[0]["machine_type_id"]
-            ).first()
-        elif employees:
-            resource_type = EmployeeType.objects.filter(
-                pk=employees[0]["employee_type_id"]
-            ).first()
-        else:
-            return [], None
-
-        if not resource_type:
-            return [], None
-
-        return get_resources(resource_type), resource_type
-
-    # -- slot finder --------------------------------------------------------
+        return slot_end
 
     @classmethod
     def _find_slot(
         cls,
-        resources: list[ProductionResource],
-        resource_type: MachineType | EmployeeType,
+        machine_resources: list[ProductionResource],
+        employee_resources: list[ProductionResource],
+        machine_qty: int,
+        employee_qty: int,
         duration: timedelta,
         schedule_ctx: ScheduleContext,
         search_start: datetime,
-    ) -> tuple[datetime, int] | None:
+    ) -> tuple[datetime, list[int], list[int]] | None:
         """
-        Walk forward in time until an available (start_time, resource_pk) pair
-        is found, or give up after *max_days_ahead* days.
+        Walk forward in time until enough machines and employees are simultaneously
+        available.
 
-        Returns None if no slot could be found.
+        Returns:
+            (slot_start, machine_resource_ids, employee_resource_ids)
         """
         cursor = search_start
         days_ahead = 0
@@ -247,16 +261,12 @@ class SessionScheduler:
                 datetime.combine(cursor.date(), schedule_ctx.day_end)
             )
 
-            # 1. Check daily capacity
-            capacity_available = cls._resources_with_capacity(
-                resources, resource_type, cursor.date(), duration,
-            )
-
-            # 2. Check if the slot fits within the working day
-            if cursor + duration > end_of_day or not capacity_available:
+            # First check if the slot fits within the workday
+            if cursor + duration > end_of_day:
                 days_ahead += 1
                 if days_ahead > schedule_ctx.max_days_ahead:
                     return None
+
                 cursor = timezone.make_aware(
                     datetime.combine(
                         cursor.date() + timedelta(days=1),
@@ -265,42 +275,65 @@ class SessionScheduler:
                 )
                 continue
 
-            # 3. Check for time-overlap conflicts
+            # Machine availability
+            available_machine_ids = possible_resources_for_stage(
+                machine_resources,
+                cursor.date(),
+                duration,
+            )
+
+            # Employee availability: no daily capacity cap, only overlap checks
+            available_employee_ids = {res.pk for res in employee_resources}
+
+            if len(available_machine_ids) < machine_qty or len(available_employee_ids) < employee_qty:
+                days_ahead += 1
+                if days_ahead > schedule_ctx.max_days_ahead:
+                    return None
+
+                cursor = timezone.make_aware(
+                    datetime.combine(
+                        cursor.date() + timedelta(days=1),
+                        schedule_ctx.day_start,
+                    )
+                )
+                continue
+
+            # Remove resources already busy in the time window
             conflicts = (
-                PlannedProductionSession.objects
-                .filter(
+                PlannedProductionSession.objects.filter(
                     planned_start__lt=cursor + duration,
                     planned_end__gt=cursor,
-                    primary_resource__in=resources,
+                    primary_resource__in=machine_resources + employee_resources,
                 )
                 .order_by("-planned_end")
             )
+
             used_resource_ids = set(
                 conflicts.values_list("primary_resource_id", flat=True).distinct()
             )
 
-            available = capacity_available - used_resource_ids
+            free_machine_ids = sorted(available_machine_ids - used_resource_ids)
+            free_employee_ids = sorted(available_employee_ids - used_resource_ids)
 
-            if not available:
-                # Jump past the latest conflicting session
-                cursor = conflicts.first().planned_end
+            if len(free_machine_ids) < machine_qty or len(free_employee_ids) < employee_qty:
+                if conflicts.exists():
+                    cursor = conflicts.first().planned_end
+                    continue
+
+                days_ahead += 1
+                if days_ahead > schedule_ctx.max_days_ahead:
+                    return None
+
+                cursor = timezone.make_aware(
+                    datetime.combine(
+                        cursor.date() + timedelta(days=1),
+                        schedule_ctx.day_start,
+                    )
+                )
                 continue
 
-            return cursor, next(iter(available))
-
-    # -- capacity check -----------------------------------------------------
-
-    @staticmethod
-    def _resources_with_capacity(
-        resources: list[ProductionResource],
-        resource_type: MachineType | EmployeeType,
-        day,
-        duration: timedelta,
-    ) -> set:
-        """
-        Return the set of resource PKs that still have room for *duration*
-        on the given day. For employees, all are returned (no daily cap).
-        """
-        if isinstance(resource_type, MachineType):
-            return possible_resources_for_stage(resources, day, duration)
-        return {res.pk for res in resources}
+            return (
+                cursor,
+                free_machine_ids[:machine_qty],
+                free_employee_ids[:employee_qty],
+            )

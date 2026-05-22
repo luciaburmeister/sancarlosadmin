@@ -126,21 +126,23 @@ class MaterialAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
     list_display = [
         "reference_code",
         "name",
+        "category",
         "family",
         "cost_per_unit",
         "unit_type",
         "company",
     ]
-    list_filter = ["family", "provider"]
+    list_filter = ["category", "provider"]
     search_fields = ["reference_code", "name"]
     ordering = ["reference_code"]
     list_filter = [
         ("provider", AutocompleteSelectMultipleFilter),
         ("category", AutocompleteSelectMultipleFilter),
+        ("family", AutocompleteSelectMultipleFilter),
     ]
     list_filter_submit = True
-    autocomplete_fields = ["provider", "company", "family"]
-    list_select_related = ["company", "family"]
+    autocomplete_fields = ["provider", "company", "category"]
+    list_select_related = ["company", "category"]
 
     fieldsets = (
         ("Product Details", {

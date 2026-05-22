@@ -377,7 +377,7 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
     list_filter = ["status", "company", "created_at"]
     search_fields = ["project_name", "client__name", "id"]
     autocomplete_fields = ["client", "project_file", "company"]
-    readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown", "company"]
+    readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown"]
     list_select_related = ["client", "project_file", "company"]
 
     inlines = [ConfigurationReadOnlyInline, QuoteConfigurationGroupInline, QuoteItemInline, AppliedTaxInline, QuoteEmailLogInline]

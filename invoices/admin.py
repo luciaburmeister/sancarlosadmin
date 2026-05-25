@@ -595,7 +595,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
         return readonly_fields
 
     def has_delete_permission(self, request, obj=None):
-        if obj and obj.status == SalesInvoiceStatus.FINAL:
+        if obj and obj.status == SalesInvoiceStatus.FINAL and not request.user.is_superuser:
             return False
         return super().has_delete_permission(request, obj)
 

@@ -238,18 +238,16 @@ def import_sales_invoices_from_excel(
     """
     Import sales invoices from an Excel file.
 
+    Automatically handles multi-IVA invoices: when the same invoice_number +
+    client_cif appears on multiple rows (each with a different IVA rate),
+    they are grouped into a single SalesInvoice with multiple AppliedTax entries.
+
     Expected columns (first row = headers):
         invoice_number, date_issued, due_date, description,
         company, client_cif, client_name, base_amount,
         iva_percentage, iva_amount, retention, total
 
-    Args:
-        file_obj: The uploaded Excel file.
-        default_year: Year to use for dates without year (e.g., DD/MM format).
-        sheet_name: Name of the Excel sheet to import. If None, uses the active sheet.
-
-    Returns:
-        ImportResult with summary and per-row details.
+    Also accepts provider_cif/provider_name as aliases for backward compat.
     """
     result = ImportResult()
 
@@ -291,13 +289,30 @@ def import_sales_invoices_from_excel(
         wb.close()
         return result
 
-    # Cache tax types
-    iva_tax_type = _get_iva_tax_type()
-    irpf_tax_type = _get_irpf_tax_type()
+    # ---- Phase 1: Read all rows and group by (invoice_number, client_cif) ----
+    from collections import OrderedDict
 
-    # Cache companies and clients for efficiency
-    company_cache: dict[str, Company | None] = {}
-    client_cache: dict[tuple[str, int], Client | None] = {}
+    @dataclass
+    class _IvaLine:
+        base_amount: Decimal
+        iva_percentage: Decimal
+        iva_amount: Decimal | None
+        retention: Decimal
+        total: Decimal | None
+
+    @dataclass
+    class _InvoiceGroup:
+        invoice_number: str
+        company_name: str
+        cif: str
+        client_name: str
+        date_issued: object  # date or None
+        due_date: object  # date or None
+        description: str
+        first_row: int
+        iva_lines: list = field(default_factory=list)
+
+    groups: OrderedDict[tuple[str, str], _InvoiceGroup] = OrderedDict()
 
     for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
         result.total_rows += 1
@@ -315,11 +330,66 @@ def import_sales_invoices_from_excel(
             ))
             continue
 
+        cif = _clean_cif(_get_cell(row, col_map, "client_cif"))
+        group_key = (invoice_number, cif)
+
+        base_amount = _parse_decimal(_get_cell(row, col_map, "base_amount")) or Decimal("0.00")
+        iva_pct = _parse_decimal(_get_cell(row, col_map, "iva_percentage")) or Decimal("0")
+        iva_amount = _parse_decimal(_get_cell(row, col_map, "iva_amount"))
+        retention = _parse_decimal(_get_cell(row, col_map, "retention")) or Decimal("0")
+        total = _parse_decimal(_get_cell(row, col_map, "total"))
+
+        iva_line = _IvaLine(
+            base_amount=base_amount,
+            iva_percentage=iva_pct,
+            iva_amount=iva_amount,
+            retention=retention,
+            total=total,
+        )
+
+        if group_key not in groups:
+            company_name = str(_get_cell(row, col_map, "company") or "").strip()
+            client_name_val = str(_get_cell(row, col_map, "client_name") or "").strip()
+            date_issued = _parse_date(
+                _get_cell(row, col_map, "date_issued"), default_year=default_year
+            )
+            due_date = _parse_date(
+                _get_cell(row, col_map, "due_date"), default_year=default_year
+            )
+            description = str(_get_cell(row, col_map, "description") or "").strip()
+
+            groups[group_key] = _InvoiceGroup(
+                invoice_number=invoice_number,
+                company_name=company_name,
+                cif=cif,
+                client_name=client_name_val,
+                date_issued=date_issued,
+                due_date=due_date,
+                description=description,
+                first_row=row_num,
+                iva_lines=[iva_line],
+            )
+        else:
+            groups[group_key].iva_lines.append(iva_line)
+
+    wb.close()
+
+    # ---- Phase 2: Create invoices from groups ----
+    iva_tax_type = _get_iva_tax_type()
+    irpf_tax_type = _get_irpf_tax_type()
+    company_cache: dict[str, Company | None] = {}
+    client_cache: dict[tuple[str, int], Client | None] = {}
+
+    for group_key, group in groups.items():
+        row_num = group.first_row
+        invoice_number = group.invoice_number
+        cif = group.cif
+        num_iva_lines = len(group.iva_lines)
+
         # --- Company ---
-        company_name = str(_get_cell(row, col_map, "company") or "").strip()
-        if company_name not in company_cache:
-            company_cache[company_name] = _find_company(company_name)
-        company = company_cache[company_name]
+        if group.company_name not in company_cache:
+            company_cache[group.company_name] = _find_company(group.company_name)
+        company = company_cache[group.company_name]
 
         if not company:
             result.errors += 1
@@ -327,17 +397,16 @@ def import_sales_invoices_from_excel(
                 row_number=row_num,
                 invoice_number=invoice_number,
                 status="error",
-                message=f"Company '{company_name}' not found",
+                message=f"Company '{group.company_name}' not found",
             ))
             continue
 
         # --- Client ---
-        cif = _clean_cif(_get_cell(row, col_map, "client_cif"))
-        client_name = str(_get_cell(row, col_map, "client_name") or "").strip()
-
         cache_key = (cif, company.pk)
         if cache_key not in client_cache:
-            client_cache[cache_key] = _find_or_create_client(cif, client_name, company)
+            client_cache[cache_key] = _find_or_create_client(
+                cif, group.client_name, company
+            )
         client = client_cache[cache_key]
 
         if not client:
@@ -351,28 +420,20 @@ def import_sales_invoices_from_excel(
             ))
             continue
 
-        # --- Dates ---
-        date_issued = _parse_date(_get_cell(row, col_map, "date_issued"), default_year=default_year)
-        due_date = _parse_date(_get_cell(row, col_map, "due_date"), default_year=default_year)
+        # --- Aggregate amounts across all IVA lines ---
+        total_base = sum(line.base_amount for line in group.iva_lines)
+        total_iva = sum(
+            line.iva_amount if line.iva_amount is not None
+            else (line.base_amount * line.iva_percentage / Decimal("100")).quantize(Decimal("0.01"))
+            for line in group.iva_lines
+        )
+        total_retention = sum(line.retention for line in group.iva_lines)
+        total_amount = sum(
+            line.total if line.total is not None else line.base_amount
+            for line in group.iva_lines
+        )
 
-        # --- Amounts ---
-        base_amount = _parse_decimal(_get_cell(row, col_map, "base_amount")) or Decimal("0.00")
-        iva_pct = _parse_decimal(_get_cell(row, col_map, "iva_percentage")) or Decimal("0")
-        iva_amount = _parse_decimal(_get_cell(row, col_map, "iva_amount"))
-        retention = _parse_decimal(_get_cell(row, col_map, "retention")) or Decimal("0")
-        total = _parse_decimal(_get_cell(row, col_map, "total"))
-        description = str(_get_cell(row, col_map, "description") or "").strip()
-
-        # Calculate tax and total if not provided
-        if iva_amount is None and iva_pct > 0:
-            iva_amount = (base_amount * iva_pct / Decimal("100")).quantize(Decimal("0.01"))
-
-        computed_total = base_amount
-        if iva_amount:
-            computed_total += iva_amount
-        if retention:
-            computed_total -= retention
-        final_total = total if total is not None else computed_total
+        tax_total = total_iva - total_retention
 
         # --- Create SalesInvoice ---
         try:
@@ -388,85 +449,97 @@ def import_sales_invoices_from_excel(
                         invoice_number=invoice_number,
                         client_cif=cif,
                         status="skipped",
-                        message="Duplicate (already exists)",
+                        message=f"Duplicate (already exists)"
+                               + (f" — {num_iva_lines} IVA lines" if num_iva_lines > 1 else ""),
                     ))
                     continue
 
-                # Compute tax_amount for the invoice header
-                tax_total = Decimal("0.00")
-                if iva_amount:
-                    tax_total += iva_amount
-                if retention:
-                    tax_total -= retention
-
-                # Create as PROFORMA first so items and taxes can be added
-                # (AppliedTax.save() blocks new taxes on FINAL invoices)
+                # Create as PROFORMA first (AppliedTax.save() blocks new taxes on FINAL)
                 sales_invoice = SalesInvoice(
                     company=company,
                     status=SalesInvoiceStatus.PROFORMA,
                     is_external=True,
                     invoice_number=invoice_number,
-                    date_issued=date_issued,
-                    due_date=due_date,
+                    date_issued=group.date_issued,
+                    due_date=group.due_date,
                     client=client,
-                    subtotal_amount=base_amount,
+                    subtotal_amount=total_base,
                     tax_amount=tax_total,
-                    total_amount=final_total,
+                    total_amount=total_amount,
                     payment_status=InvoicePaymentStatus.UNPAID,
                     notes="Imported from Excel",
                 )
                 sales_invoice.save()
 
-                # Create a single line item
-                if base_amount:
-                    SalesInvoiceItem.objects.create(
-                        invoice=sales_invoice,
-                        description=description or "Imported line item",
-                        quantity=Decimal("1"),
-                        unit_price=base_amount,
-                    )
-
-                # Apply IVA tax
                 invoice_ct = ContentType.objects.get_for_model(SalesInvoice)
 
-                if iva_tax_type and iva_pct > 0:
-                    AppliedTax.objects.create(
-                        tax_type=iva_tax_type,
-                        selected_percentage=iva_pct,
-                        base_amount=base_amount,
-                        calculated_amount=iva_amount,
-                        content_type=invoice_ct,
-                        object_id=sales_invoice.pk,
-                        order=0,
-                    )
+                # Create one line item + tax per IVA line
+                for order, line in enumerate(group.iva_lines):
+                    # Line item
+                    if line.base_amount:
+                        desc = group.description or "Imported line item"
+                        if num_iva_lines > 1:
+                            iva_label = str(line.iva_percentage).rstrip('0').rstrip('.')
+                            desc = f"{desc} (IVA {iva_label}%)"
 
-                # Apply IRPF retention
-                if irpf_tax_type and retention and retention > 0:
+                        SalesInvoiceItem.objects.create(
+                            invoice=sales_invoice,
+                            description=desc,
+                            quantity=Decimal("1"),
+                            unit_price=line.base_amount,
+                        )
+
+                    # IVA tax
+                    if iva_tax_type and line.iva_percentage > 0:
+                        computed_iva = line.iva_amount
+                        if computed_iva is None:
+                            computed_iva = (
+                                line.base_amount * line.iva_percentage / Decimal("100")
+                            ).quantize(Decimal("0.01"))
+
+                        AppliedTax.objects.create(
+                            tax_type=iva_tax_type,
+                            selected_percentage=line.iva_percentage,
+                            base_amount=line.base_amount,
+                            calculated_amount=computed_iva,
+                            content_type=invoice_ct,
+                            object_id=sales_invoice.pk,
+                            order=order,
+                        )
+
+                # Apply IRPF retention (aggregate across all lines)
+                if irpf_tax_type and total_retention and total_retention > 0:
                     irpf_pct = Decimal("0")
-                    if base_amount > 0:
-                        irpf_pct = (retention / base_amount * Decimal("100")).quantize(Decimal("0.01"))
+                    if total_base > 0:
+                        irpf_pct = (
+                            total_retention / total_base * Decimal("100")
+                        ).quantize(Decimal("0.01"))
 
                     AppliedTax.objects.create(
                         tax_type=irpf_tax_type,
                         selected_percentage=irpf_pct,
-                        base_amount=base_amount,
-                        calculated_amount=retention,
+                        base_amount=total_base,
+                        calculated_amount=total_retention,
                         content_type=invoice_ct,
                         object_id=sales_invoice.pk,
-                        order=1,
+                        order=len(group.iva_lines),
                     )
 
-                # Recalculate totals while still PROFORMA (FINAL skips recalc)
+                # Recalculate totals while still PROFORMA
                 sales_invoice.recalculate_totals(save=True)
 
-                # Now finalize: set to FINAL with the original amounts
+                # Finalize with the original amounts from the Excel
                 sales_invoice.status = SalesInvoiceStatus.FINAL
-                sales_invoice.subtotal_amount = base_amount
+                sales_invoice.subtotal_amount = total_base
                 sales_invoice.tax_amount = tax_total
-                sales_invoice.total_amount = final_total
+                sales_invoice.total_amount = total_amount
                 sales_invoice.save(update_fields=[
                     'status', 'subtotal_amount', 'tax_amount', 'total_amount'
                 ])
+
+                msg = "OK"
+                if num_iva_lines > 1:
+                    msg = f"OK — {num_iva_lines} IVA lines"
 
                 result.created += 1
                 result.rows.append(ImportRowResult(
@@ -474,7 +547,7 @@ def import_sales_invoices_from_excel(
                     invoice_number=invoice_number,
                     client_cif=cif,
                     status="created",
-                    message="OK",
+                    message=msg,
                 ))
 
         except IntegrityError as e:
@@ -496,5 +569,5 @@ def import_sales_invoices_from_excel(
                 message=str(e),
             ))
 
-    wb.close()
     return result
+

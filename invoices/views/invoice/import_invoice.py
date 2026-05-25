@@ -17,10 +17,14 @@ class InvoiceImportAdminView(UnfoldModelAdminViewMixin, FormView):
     def form_valid(self, form):
         file_obj = form.cleaned_data["file"]
         default_year = form.cleaned_data.get("default_year")
+        sheet_name = form.cleaned_data.get("sheet_name") or None
+        multi_iva_mode = form.cleaned_data.get("multi_iva_mode", False)
 
         result = import_invoices_from_excel(
             file_obj=file_obj,
             default_year=default_year,
+            sheet_name=sheet_name,
+            multi_iva_mode=multi_iva_mode,
         )
 
         if result.created > 0:

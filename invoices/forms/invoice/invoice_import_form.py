@@ -1,7 +1,12 @@
 from django import forms
 from django.core.validators import FileExtensionValidator
 from django.utils.translation import gettext_lazy as _
-from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminIntegerFieldWidget
+from unfold.widgets import (
+    UnfoldAdminFileFieldWidget,
+    UnfoldAdminIntegerFieldWidget,
+    UnfoldAdminTextInputWidget,
+    UnfoldBooleanSwitchWidget,
+)
 
 
 class InvoiceImportForm(forms.Form):
@@ -18,6 +23,25 @@ class InvoiceImportForm(forms.Form):
         help_text=_(
             "Year to use for dates without a year (e.g., DD/MM format). "
             "Leave blank to use the current year."
+        ),
+    )
+    sheet_name = forms.CharField(
+        label=_("Sheet Name"),
+        required=False,
+        widget=UnfoldAdminTextInputWidget(),
+        help_text=_(
+            "Name of the Excel sheet to import (e.g. '2 TIPO IVA EXP'). "
+            "Leave blank to use the active/first sheet."
+        ),
+    )
+    multi_iva_mode = forms.BooleanField(
+        label=_("Multi-IVA Mode"),
+        required=False,
+        widget=UnfoldBooleanSwitchWidget(),
+        help_text=_(
+            "Enable this for sheets where a single invoice has multiple rows "
+            "with different IVA rates (e.g. '2 TIPO IVA EXP', '3 TIPO IVA EXP'). "
+            "Rows will be grouped by invoice number + provider CIF."
         ),
     )
 

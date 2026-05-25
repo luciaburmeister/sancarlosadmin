@@ -103,6 +103,7 @@ INSTALLED_APPS = [
     'purchasing',
     "payments",
     'invoices',
+    'chatbot',
 
 ]
 
@@ -192,8 +193,13 @@ EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
 BACKEND_URL = os.getenv("BACKEND_URL", "https://erp.polipusolutions.com")
 
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-POPPLER_PATH = "/opt/homebrew/bin"  # adjust for your system
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_KEY")
+
+
+POPPLER_PATH = os.getenv("POPPLER_PATH", "/opt/homebrew/bin")  
 
 
 # Database
@@ -271,8 +277,7 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Europe/Madrid'  
 
-# GEMINI API CONFIGURATION
-GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
+
 
 
 
@@ -379,6 +384,14 @@ UNFOLD = {
                         "link": reverse_lazy("admin:invoices_invoice_accounts_payable"),
                         "permission": lambda request: request.user.has_perm(
                             "invoices.view_invoice"
+                        ),
+                    },
+                    {
+                        "title": _("ERP Chatbot"),
+                        "icon": "chat",
+                        "link": reverse_lazy("admin:chatbot_chat"),
+                        "permission": lambda request: request.user.has_perm(
+                            "chatbot.use_chatbot"
                         ),
                     },
                 ],

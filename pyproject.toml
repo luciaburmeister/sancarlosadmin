@@ -51,6 +51,7 @@ dependencies = [
     "pulp (>=3.3.1,<4.0.0)",
     "djangorestframework-api-key (>=3.1.0,<4.0.0)",
     "weasyprint (>=68.1,<69.0)",
+    "anthropic (>=0.104.1,<0.105.0)",
 ]
 
 

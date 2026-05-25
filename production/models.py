@@ -168,6 +168,9 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
         return ProductionTicketStatus.PENDING
 
     def recompute_status(self):
+        if self.status == ProductionTicketStatus.CANCELLED:
+            return
+
         new_status = self.compute_status_from_items()
         new_label = self.compute_last_stage_label()
 
@@ -415,7 +418,7 @@ class ProductionItemSession(Timestampable, CompanyOwnedModel):
             models.Index(fields=["production_item", "production_stage"]),
         ]
         constraints = [models.UniqueConstraint(
-                fields=["production_item", "production_stage"],
+                fields=["production_item", "production_stage", "created_by"],
                 condition=Q(end_time__isnull=True),
                 name="unique_open_session_per_employee_item_stage",
             )]

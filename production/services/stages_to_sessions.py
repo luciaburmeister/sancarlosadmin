@@ -18,6 +18,7 @@ from django.urls import reverse
 
 import unicodedata
 
+
 class StagesToSessionsService:
     @classmethod
     def _worker_has_open_session(cls, employee: Employee) -> bool:
@@ -38,7 +39,46 @@ class StagesToSessionsService:
         ).exists()
 
     @classmethod
+    def _close_open_sessions_for_stage(cls, item: ProductionItem, stage_name: str) -> None:
+        """Close rows that still have end_time=NULL for this item+stage.
+
+        Required by UniqueConstraint unique_open_session_per_employee_item_stage.
+        Reverting planning to pending does not remove the session created on start;
+        without this, the next start_activity would try to insert a second open row.
+        """
+        now = timezone.now()
+        qs = ProductionItemSession.objects.filter(
+            production_item=item,
+            production_stage=stage_name,
+            end_time__isnull=True,
+        )
+        for sess in qs:
+            sess.end_time = now
+            sess.status = ProductionItemSessionStatus.CANCELLED
+            sess.save(update_fields=["end_time", "status", "updated_at"])
+
+    @classmethod
+    def _uses_shared_stage_activities(cls, items: list[ProductionItem]) -> bool:
+        """Shared vs exclusive stage rules follow the production item's company."""
+        if not items or not items[0].company_id:
+            return True
+        return items[0].company.allow_shared_production_stage_activities
+
+    @classmethod
     def start_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
+        if cls._uses_shared_stage_activities(items):
+            return cls.start_group_activity(
+                stage_name=stage_name, items=items, employee=employee
+            )
+        return cls._start_exclusive_activity(
+            stage_name=stage_name, items=items, employee=employee
+        )
+
+    @classmethod
+    def start_group_activity(
+        cls, *, stage_name: str, items: list[ProductionItem], employee: Employee
+    ) -> int:
+        """Multiple workers may join the same stage while it is in progress."""
         stage_name = unicodedata.normalize("NFC", stage_name)
         if employee is None:
             raise ValidationError("No employee provided to start activity.")
@@ -56,13 +96,67 @@ class StagesToSessionsService:
                 continue
 
             status = (stage_info.get("status") or ProductionItemStatus.PENDING)
+            if status not in (ProductionItemStatus.PENDING, ProductionItemStatus.IN_PROGRESS):
+                continue
+
+            already_active = ProductionItemSession.objects.filter(
+                production_item=item,
+                production_stage=stage_name,
+                created_by=employee,
+                end_time__isnull=True,
+            ).exists()
+            if already_active:
+                continue
+
+            if status == ProductionItemStatus.PENDING:
+                cls._close_open_sessions_for_stage(item, stage_name)
+                stage_info["status"] = ProductionItemStatus.IN_PROGRESS
+                stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
+                stage_info["completed_at"] = None
+                cls._save_planning(item, stage_name, stage_info)
+
+            ProductionItemSession.objects.create(
+                production_item=item,
+                production_stage=stage_name,
+                status=ProductionItemSessionStatus.IN_PROGRESS,
+                start_time=now,
+                created_by=employee,
+                kind=ProductionItemSessionKind.ACTIVITY_STARTED,
+            )
+            count += 1
+        return count
+
+    @classmethod
+    def _start_exclusive_activity(
+        cls, *, stage_name: str, items: list[ProductionItem], employee: Employee
+    ) -> int:
+        """Only one worker per stage; no joining an activity already in progress."""
+        stage_name = unicodedata.normalize("NFC", stage_name)
+        if employee is None:
+            raise ValidationError("No employee provided to start activity.")
+
+        now = timezone.now()
+        count = 0
+
+        for item in items:
+            current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
+            if current_stage != stage_name:
+                continue
+
+            status = (stage_info.get("status") or ProductionItemStatus.PENDING)
             if status != ProductionItemStatus.PENDING:
                 continue
 
-            # Rule: no other worker can be active on this stage right now
-            if cls._stage_has_open_session(item, stage_name):
+            already_active = ProductionItemSession.objects.filter(
+                production_item=item,
+                production_stage=stage_name,
+                created_by=employee,
+                end_time__isnull=True,
+            ).exists()
+            if already_active:
                 continue
 
+            cls._close_open_sessions_for_stage(item, stage_name)
             stage_info["status"] = ProductionItemStatus.IN_PROGRESS
             stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
             stage_info["completed_at"] = None
@@ -194,7 +288,9 @@ class StagesToSessionsService:
         """Revert a completed stage back to in_progress or pending.
 
         target_status must be 'in_progress' or 'pending'.
-        Historical session records are preserved as an audit trail.
+        Open ProductionItemSession rows for this stage are closed (cancelled) so
+        planning and sessions stay aligned and a new start_activity can run.
+        Finished sessions from prior completions remain in the audit trail.
         """
         if target_status not in (ProductionItemStatus.IN_PROGRESS, ProductionItemStatus.PENDING):
             raise ValidationError(
@@ -222,6 +318,8 @@ class StagesToSessionsService:
             current_status = stage_info.get("status") or ProductionItemStatus.PENDING
             if current_status not in valid_sources:
                 continue
+
+            cls._close_open_sessions_for_stage(item, stage_name)
 
             stage_info["status"] = target_status
             stage_info["completed_at"] = None

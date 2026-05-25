@@ -50,6 +50,19 @@ class Company(models.Model):
         verbose_name=_("Document Reminder Emails"),
         help_text=_("Emails that will receive document expiration reminders"),
     )
+    terms_text = models.TextField(
+        blank=True,
+        verbose_name=_("Términos y Condiciones"),
+        help_text=_("Texto que el cliente debe leer y firmar al registrarse. Déjalo vacío para no requerir firma."),
+    )
+    allow_shared_production_stage_activities = models.BooleanField(
+        default=True,
+        verbose_name=_("Shared production stage activities"),
+        help_text=_(
+            "When enabled, multiple workers can join the same stage while it is in progress. "
+            "Disable for companies where only one worker may run a stage at a time (e.g. Aluares)."
+        ),
+    )
 
     def __str__(self):
         return self.name

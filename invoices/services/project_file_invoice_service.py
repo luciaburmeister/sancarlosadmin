@@ -8,6 +8,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import gettext_lazy as _
 
 from invoices.models import SalesInvoice, SalesInvoiceItem, SalesInvoiceStatus, AppliedTax
+from invoices.services.sales_invoice_payment import resolve_sales_invoice_payment_method
 from management.models import ProjectFile
 from sales.models import Quote, QuoteStatus
 
@@ -128,6 +129,36 @@ class ProjectFileInvoiceService:
         }
 
     @classmethod
+    def compute_invoice_line_ratio(cls, summary, invoice_mode, percentage, custom_amount=None):
+        """
+        Uniform ratio applied to each configuration subtotal when building invoice lines.
+
+        Percentage mode bills a fraction of the *remaining* subtotal (not the full expediente),
+        matching the mobile/admin UX ("100% del pendiente").
+        Custom mode bills a fixed subtotal amount spread proportionally across line items.
+        """
+        total_sub = summary["total_invoiceable_subtotal"]
+        remaining_sub = summary["remaining_subtotal"]
+
+        if total_sub <= 0:
+            return Decimal("0")
+
+        if invoice_mode == "percentage":
+            pct = Decimal(str(percentage)) / Decimal("100")
+            if remaining_sub <= 0:
+                return Decimal("0")
+            target_sub = remaining_sub * pct
+            return target_sub / total_sub
+
+        custom = Decimal(str(custom_amount))
+        if custom <= 0 or remaining_sub <= 0:
+            return Decimal("0")
+        # Spread [custom] across all line items proportionally (same as percentage).
+        # Must divide by total_sub, not remaining_sub — otherwise invoicing the full
+        # pending amount yields ratio=1 and re-bills the entire expediente.
+        return min(custom, remaining_sub) / total_sub
+
+    @classmethod
     def get_aggregated_quote_taxes(cls, project_file):
         """
         Retrieves a deduplicated list of AppliedTax entries from all accepted quotes'
@@ -230,6 +261,7 @@ class ProjectFileInvoiceService:
         items_data,
         total_tax=Decimal("0.00"),
         notes="",
+        payment_method=None,
     ):
         """
         Creates a SalesInvoice from a ProjectFile with validation.
@@ -243,6 +275,7 @@ class ProjectFileInvoiceService:
             items_data: List of dicts with description, quantity, unit_price, discount_percentage
             total_tax: Pre-computed total tax from per-config taxes (scaled by invoicing %)
             notes: Optional notes
+            payment_method: Expected payment method (defaults to client.payment_method)
 
         Returns:
             SalesInvoice instance
@@ -257,6 +290,11 @@ class ProjectFileInvoiceService:
                 _("This project file has no accepted quotes or direct configurations. Cannot create an invoice.")
             )
 
+        resolved_payment_method = resolve_sales_invoice_payment_method(
+            client=client,
+            explicit=payment_method,
+        )
+
         # Create the invoice
         invoice = SalesInvoice.objects.create(
             company=company,
@@ -267,6 +305,7 @@ class ProjectFileInvoiceService:
             client=client,
             project_file=project_file,
             notes=notes,
+            payment_method=resolved_payment_method,
         )
 
         # Create line items (pre-tax subtotals)

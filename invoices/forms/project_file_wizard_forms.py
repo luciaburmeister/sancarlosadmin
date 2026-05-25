@@ -5,7 +5,7 @@ from crispy_forms.layout import Layout, Row, Column, Field, HTML, Div
 from django.conf import settings
 from decimal import Decimal
 
-from invoices.models import SalesInvoice, TaxType
+from invoices.models import PaymentMethod, SalesInvoice, TaxType
 from management.models import ProjectFile
 from sales.models import Client
 from company.models import Company
@@ -39,6 +39,10 @@ class ProjectFileInvoiceSetupFormHelper(FormHelper):
             Row(
                 Column(Field('percentage'), css_class="col-span-12 md:col-span-6"),
                 Column(Field('custom_amount'), css_class="col-span-12 md:col-span-6"),
+                css_class="gap-4 mb-4"
+            ),
+            Row(
+                Column(Field('payment_method'), css_class="col-span-12 md:col-span-6"),
                 css_class="gap-4 mb-4"
             ),
             HTML("</div>")
@@ -90,6 +94,13 @@ class ProjectFileInvoiceSetupForm(forms.Form):
         required=False,
         help_text=_("Custom subtotal amount for this invoice"),
     )
+    payment_method = forms.ChoiceField(
+        choices=PaymentMethod.choices,
+        initial=PaymentMethod.TRANSFER,
+        widget=UnfoldAdminSelectWidget,
+        label=_("Payment Method"),
+        required=True,
+    )
 
     def __init__(self, *args, **kwargs):
         self.request = kwargs.pop("request", None)
@@ -100,6 +111,11 @@ class ProjectFileInvoiceSetupForm(forms.Form):
 
         if self.project_file and self.project_file.company:
             self.fields['company'].initial = self.project_file.company
+
+        if self.project_file and self.project_file.client:
+            self.fields['payment_method'].initial = (
+                self.project_file.client.payment_method or PaymentMethod.TRANSFER
+            )
 
         from core.admin.company_access import get_user_companies
         if self.request and self.request.user and not self.request.user.is_superuser:

@@ -37,3 +37,26 @@ def send_quote_email_task(quote_id: int, to_email: str | None = None):
         return False
 
     return QuoteEmailService.send_quote_email(quote, to_email=to_email)
+
+
+@shared_task(name="core.tasks.send_client_terms_email_task")
+def send_client_terms_email_task(client_id: int, to_email: str | None = None):
+    """
+    Celery task to email signed T&C acceptance to the client.
+    """
+    from sales.models import Client
+    from sales.services.client_terms_email_service import ClientTermsEmailService
+
+    try:
+        client = Client.objects.select_related(
+            "company", "accepted_terms_company"
+        ).get(pk=client_id)
+    except Client.DoesNotExist:
+        logger.error(
+            "send_client_terms_email_task: Client %s not found", client_id
+        )
+        return False
+
+    return ClientTermsEmailService.send_terms_acceptance_email(
+        client, to_email=to_email
+    )

@@ -729,6 +729,13 @@ class SalesInvoice(CompanyOwnedModel):
         default=InvoicePaymentStatus.UNPAID,
         verbose_name=_("Payment Status"),
     )
+    payment_method = models.CharField(
+        max_length=20,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.TRANSFER,
+        verbose_name=_("Payment Method"),
+        help_text=_("Expected payment method for this invoice (snapshot at issuance)."),
+    )
 
     class Meta:
         verbose_name = _("Sales Invoice")

@@ -3,7 +3,7 @@ from crispy_forms.helper import FormHelper
 from django.utils.translation import gettext_lazy as _
 from crispy_forms.layout import Layout, Row, Column, Field, HTML
 from django.conf import settings
-from invoices.models import SalesInvoice, SalesInvoiceStatus, TaxType
+from invoices.models import PaymentMethod, SalesInvoice, SalesInvoiceStatus, TaxType
 from django.contrib import admin
 from core.admin.company_access import get_user_companies
 from sales.models import Client
@@ -41,6 +41,10 @@ class SalesInvoiceBasicFormHelper(FormHelper):
                 Column(Field('due_date'), css_class="col-span-12 md:col-span-6"),
                 css_class="gap-4 mb-4"
             ),
+            Row(
+                Column(Field('payment_method'), css_class="col-span-12 md:col-span-6"),
+                css_class="gap-4 mb-4"
+            ),
             HTML("</div>")
         )
 
@@ -76,11 +80,12 @@ class SalesInvoiceBasicForm(forms.ModelForm):
 
     class Meta:
         model = SalesInvoice
-        fields = ['company', 'status', 'client', 'date_issued', 'due_date']
+        fields = ['company', 'status', 'client', 'date_issued', 'due_date', 'payment_method']
         widgets = {
             'status': UnfoldAdminSelectWidget,
             'date_issued': UnfoldAdminDateWidget,
             'due_date': UnfoldAdminDateWidget,
+            'payment_method': UnfoldAdminSelectWidget,
         }
 
     def __init__(self, *args, **kwargs):
@@ -107,6 +112,13 @@ class SalesInvoiceBasicForm(forms.ModelForm):
                 admin.site,
                 can_add_related=True
             )
+
+    def clean(self):
+        cleaned = super().clean()
+        client = cleaned.get("client")
+        if client and not cleaned.get("payment_method"):
+            cleaned["payment_method"] = client.payment_method or PaymentMethod.TRANSFER
+        return cleaned
 
 
 class WizardItemFormsetHelper(FormHelper):

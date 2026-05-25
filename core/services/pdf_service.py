@@ -1,5 +1,4 @@
 import logging
-from weasyprint import HTML
 
 from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
 from configurator.services.export.service import ConfigurationExportService
@@ -18,6 +17,16 @@ class PDFService:
         """
         Converts an HTML string to PDF bytes.
         """
+        try:
+            from weasyprint import HTML
+        except OSError as exc:
+            logger.exception(
+                "WeasyPrint native libraries are missing. "
+                "Install Pango/Cairo (Linux: system packages; macOS: brew install pango cairo gdk-pixbuf glib)."
+            )
+            raise RuntimeError(
+                "PDF generation is unavailable: WeasyPrint system libraries are not installed."
+            ) from exc
         return HTML(string=html_string).write_pdf()
 
     @staticmethod

@@ -3,18 +3,11 @@
 from datetime import date, datetime
 
 from django.http import JsonResponse
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
 
-
-def company_or_error(request):
-    """Return (company, None) for the authenticated user, or (None, error_response)."""
-    try:
-        employee_profile = request.user.employee_profile
-    except Exception:
-        return None, JsonResponse({"error": "User has no employee profile linked."}, status=403)
-    company = getattr(employee_profile, "company", None)
-    if company is None:
-        return None, JsonResponse({"error": "Employee profile has no company linked."}, status=403)
-    return company, None
+from company.utils import get_current_employee
 
 
 def parse_date_or_error(value):
@@ -29,3 +22,21 @@ def parse_date_or_error(value):
         except ValueError:
             return None, JsonResponse({"error": "Invalid date format. Use YYYY-MM-DD."}, status=400)
     return None, JsonResponse({"error": "Invalid date value."}, status=400)
+
+
+class CompanyAPIView(APIView):
+    """Resolves ``request.user``'s company after JWT/session authentication."""
+
+    permission_classes = [IsAuthenticated]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        employee = get_current_employee(request.user)
+        if employee is None:
+            raise PermissionDenied(detail={"error": "User has no employee profile linked."})
+        request.employee = employee
+        company = employee.company
+        if company is None:
+            raise PermissionDenied(detail={"error": "Employee profile has no company linked."})
+        self.company = company
+        self.employee = employee

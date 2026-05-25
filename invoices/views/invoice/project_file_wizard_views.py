@@ -67,11 +67,11 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
         items_initial = []
         summary = self.invoicing_summary
 
-        if mode == 'percentage':
-            ratio = percentage / Decimal("100")
+        total_sub = summary['total_invoiceable_subtotal']
+        if total_sub > 0:
+            ratio = calculated_subtotal / total_sub
         else:
-            remaining = summary['remaining_subtotal']
-            ratio = (calculated_subtotal / remaining) if remaining > 0 else Decimal("1")
+            ratio = Decimal("0")
 
         for quote_data in summary['quotes']:
             quote = quote_data['quote']
@@ -205,6 +205,7 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                 items_data=items_data,
                 total_tax=total_tax,
                 notes=notes_form.cleaned_data.get('notes', ''),
+                payment_method=setup_form.cleaned_data.get('payment_method'),
             )
 
             messages.success(

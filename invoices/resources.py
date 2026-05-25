@@ -107,6 +107,7 @@ class SalesInvoiceResource(resources.ModelResource):
             'total_amount_value',
             'currency',
             'payment_status',
+            'payment_method',
             'reference',
         )
         export_order = fields

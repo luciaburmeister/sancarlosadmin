@@ -7,6 +7,8 @@ from invoices.models import SalesInvoice, SalesInvoiceItem, AppliedTax, SalesInv
 from sales.models import DeliveryOrder, DeliveryOrderItem
 from configurator.models import ExportTemplateKind, ConfigurationExportTemplate
 from configurator.services.export.service import ConfigurationExportService
+from invoices.constants import GENERIC_PRODUCT_TEMPLATE_LABEL
+from invoices.services.sales_invoice_payment import resolve_sales_invoice_payment_method
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,11 @@ class SalesInvoiceService:
         if pre_discount_subtotal > 0:
             discount_percentage = (discount_total / pre_discount_subtotal) * Decimal("100")
         
+        client = configuration.client if hasattr(configuration, "client") else None
+        if client is None and client_id:
+            from sales.models import Client
+            client = Client.objects.filter(pk=client_id).first()
+
         sales_invoice = SalesInvoice.objects.create(
             company=company,
             status=SalesInvoiceStatus.PROFORMA,
@@ -41,7 +48,8 @@ class SalesInvoiceService:
             notes=f"Generated from Configuration #{configuration.id}",
             subtotal_amount=configuration.subtotal_price,
             total_amount=configuration.total_price,
-            tax_amount=configuration.total_price - configuration.subtotal_price
+            tax_amount=configuration.total_price - configuration.subtotal_price,
+            payment_method=resolve_sales_invoice_payment_method(client=client),
         )
 
         SalesInvoiceItem.objects.create(
@@ -66,21 +74,67 @@ class SalesInvoiceService:
     def finalize_invoice(cls, sales_invoice):
         """
         Converts Pro Forma to Final, assigns invoice number.
+        Queues a client email with PDF (Celery) when the client has an email.
         """
         if sales_invoice.status == SalesInvoiceStatus.FINAL:
+            sales_invoice._finalize_email_status = cls._email_queue_status(
+                queued=False, reason="already_final"
+            )
             return sales_invoice
 
         company = sales_invoice.company
         sales_invoice.status = SalesInvoiceStatus.FINAL
         sales_invoice.date_issued = timezone.now().date()
-        
         # Invoices logic
         next_invoice = cls._generate_next_invoice_data(company)
         sales_invoice.invoice_number = next_invoice['number']
         sales_invoice.incremental_id = next_invoice['incremental_id']
         sales_invoice.save(update_fields=['status', 'date_issued', 'invoice_number', 'incremental_id'])
 
+        sales_invoice._finalize_email_status = cls.queue_client_email(sales_invoice)
         return sales_invoice
+
+    @classmethod
+    def _email_queue_status(cls, *, queued, client_email=None, reason=None):
+        return {
+            "email_queued": queued,
+            "client_email": client_email,
+            "email_skip_reason": reason,
+        }
+
+    @classmethod
+    def queue_client_email(cls, sales_invoice):
+        """
+        Enqueue invoice PDF email to the client (async via Celery).
+
+        Returns metadata for API/UI: email_queued, client_email, email_skip_reason.
+        """
+        client = sales_invoice.client
+        email = (client.email or "").strip() if client else ""
+        if not email:
+            return cls._email_queue_status(queued=False, reason="no_client_email")
+
+        from core.tasks import send_invoice_email_task
+
+        try:
+            send_invoice_email_task.delay(sales_invoice.id)
+        except Exception:
+            logger.exception(
+                "Failed to queue invoice email for SalesInvoice %s", sales_invoice.pk
+            )
+            return cls._email_queue_status(
+                queued=False, client_email=email, reason="queue_failed"
+            )
+
+        return cls._email_queue_status(queued=True, client_email=email)
+
+    @classmethod
+    def get_finalize_email_status(cls, sales_invoice):
+        return getattr(
+            sales_invoice,
+            "_finalize_email_status",
+            cls._email_queue_status(queued=False, reason=None),
+        )
 
     @classmethod
     @transaction.atomic
@@ -104,6 +158,7 @@ class SalesInvoiceService:
             subtotal_amount=sales_invoice.subtotal_amount,
             tax_amount=sales_invoice.tax_amount,
             total_amount=sales_invoice.total_amount,
+            payment_method=sales_invoice.payment_method,
             notes=f"Copy of {sales_invoice.invoice_number or f'Pro Forma #{sales_invoice.id}'}"
         )
         
@@ -229,7 +284,12 @@ class SalesInvoiceService:
         )
         
         if not template:
-            logger.warning(f"No Sales Invoice template found for product {sales_invoice.configuration.product}")
+            product_label = (
+                sales_invoice.configuration.product
+                if sales_invoice.configuration
+                else GENERIC_PRODUCT_TEMPLATE_LABEL
+            )
+            logger.warning("No Sales Invoice template found for product %s", product_label)
             return None
 
         return ConfigurationExportService.render_html(sales_invoice, template)

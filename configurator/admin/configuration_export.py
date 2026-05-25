@@ -1,8 +1,8 @@
+from django import forms
 from django.contrib import admin
-from unfold.admin import ModelAdmin
 from django.db import models
+from unfold.admin import ModelAdmin
 from configurator.models import ConfigurationExportTemplate
-from unfold.contrib.forms.widgets import WysiwygWidget
 from core.admin.company_admin import CompanyRestrictedAdmin
 from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 from django.urls import path
@@ -19,6 +19,17 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
     readonly_fields = ("visualizar", "contexto_json", "test_object_selector")
     autocomplete_fields = ["product","company"]
     list_select_related = ["company"]
+
+    formfield_overrides = {
+        models.TextField: {
+            "widget": forms.Textarea(
+                attrs={
+                    "rows": 28,
+                    "style": "font-family: ui-monospace, monospace; font-size: 12px; width: 100%; max-width: 100%; box-sizing: border-box;",
+                }
+            )
+        },
+    }
 
     fieldsets = (
         ("Template Info", {

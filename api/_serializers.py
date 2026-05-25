@@ -6,7 +6,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.http import JsonResponse
 
 from configurator.models import Configuration
-from production.models import ProductionTicket
+from production.models import ProductionItemSession, ProductionItemSessionStatus, ProductionTicket
 
 
 # ─── Project files (a.k.a. expedientes) ───────────────────────────────────────
@@ -36,7 +36,36 @@ def serialize_project_file(project_file, include_total=False):
 # ─── Presupuestos (quotes) ────────────────────────────────────────────────────
 
 
-def serialize_product_config(config):
+def _batch_stage_summaries(config_ids):
+    """Return {config_id: {total, completed, in_progress}} in a single DB round-trip."""
+    if not config_ids:
+        return {}
+    from production.models import ProductionItemStatus
+    ct = ContentType.objects.get_for_model(Configuration)
+    tickets = list(
+        ProductionTicket.objects
+        .filter(content_type=ct, object_id__in=config_ids)
+        .prefetch_related("items")
+    )
+    ticket_by_config = {t.object_id: t for t in tickets}
+    result = {}
+    for config_id in config_ids:
+        ticket = ticket_by_config.get(config_id)
+        total = completed = in_progress = 0
+        if ticket:
+            for item in ticket.items.all():
+                for info in (item.planning or {}).values():
+                    status = (info or {}).get("status") or "pending"
+                    total += 1
+                    if status == ProductionItemStatus.DONE:
+                        completed += 1
+                    elif status == ProductionItemStatus.IN_PROGRESS:
+                        in_progress += 1
+        result[config_id] = {"total": total, "completed": completed, "in_progress": in_progress}
+    return result
+
+
+def serialize_product_config(config, stage_summary=None):
     """Client-facing configuration: shows price to client, hides internal costs."""
     needs_assignment = _config_needs_assignment(config)
     pricing_breakdown = [
@@ -63,6 +92,7 @@ def serialize_product_config(config):
         "needs_assignment": needs_assignment,
         "pricing_breakdown": pricing_breakdown,
         "created_at": config.created_at.strftime("%Y-%m-%d") if config.created_at else None,
+        "stage_summary": stage_summary or {"total": 0, "completed": 0, "in_progress": 0},
     }
 
 
@@ -94,8 +124,12 @@ def serialize_presupuesto(quote, include_products=True):
             .all()
         )
         data["product_count"] = len(configs)
-        data["products"] = [serialize_product_config(c) for c in configs]
         config_ids = [c.id for c in configs]
+        stage_summaries = _batch_stage_summaries(config_ids)
+        data["products"] = [
+            serialize_product_config(c, stage_summary=stage_summaries.get(c.id))
+            for c in configs
+        ]
         invoiced_count = SalesInvoice.objects.filter(
             configuration_id__in=config_ids
         ).values("configuration_id").distinct().count()
@@ -107,6 +141,27 @@ def serialize_presupuesto(quote, include_products=True):
 
 
 # ─── Configurations ───────────────────────────────────────────────────────────
+
+
+def serialize_configuration_stages_context(config: Configuration) -> dict:
+    """Summary for mobile production-stages (matrícula, modelo, nombre de la configuración)."""
+    matricula = ""
+    modelo = ""
+    for pv in config.param_values.all():
+        pname = getattr(pv.parameter, "name", None) or ""
+        if pname == "matricula":
+            matricula = str(pv.value or "").strip()
+        elif pname == "modelo":
+            modelo = str(pv.value or "").strip()
+    quote = getattr(config, "quote", None)
+    quote_name = (quote.project_name or "").strip() if quote else ""
+    return {
+        "matricula": matricula,
+        "modelo": modelo,
+        "configuration_name": (config.name or "").strip(),
+        "template_name": config.product.name if getattr(config, "product_id", None) else None,
+        "quote_name": quote_name or None,
+    }
 
 
 def serialize_configuration(config):
@@ -145,6 +200,34 @@ def serialize_configuration(config):
     }
 
 
+# ─── Quote photos ─────────────────────────────────────────────────────────────
+
+
+def serialize_photo_category(cat):
+    return {
+        "id": cat.id,
+        "name": cat.name,
+        "order": cat.order,
+        "is_active": cat.is_active,
+    }
+
+
+def serialize_quote_photo(photo, request=None):
+    if request:
+        image_url = request.build_absolute_uri(photo.image.url)
+    else:
+        image_url = photo.image.url if photo.image else None
+    return {
+        "id": photo.id,
+        "quote_id": photo.quote_id,
+        "category_id": photo.category_id,
+        "category_name": photo.category.name if photo.category else None,
+        "image_url": image_url,
+        "caption": photo.caption,
+        "uploaded_at": photo.uploaded_at.strftime("%Y-%m-%d %H:%M"),
+    }
+
+
 # ─── Clients ──────────────────────────────────────────────────────────────────
 
 
@@ -155,6 +238,9 @@ def serialize_client(c):
         "phone": c.phone or "",
         "email": c.email or "",
         "payment_method": c.payment_method or "transfer",
+        "terms_accepted_at": c.terms_accepted_at.isoformat() if c.terms_accepted_at else None,
+        "has_signature": bool(c.terms_signature),
+        "terms_version": c.terms_version or "",
     }
 
 
@@ -164,7 +250,7 @@ def serialize_client(c):
 def _config_needs_assignment(config):
     """
     Returns True when a production config has at least one pending/in-progress
-    stage without any employee assigned to its item.
+    stage without any employee assigned to its item (line-level M2M).
     """
     if config.status not in {"converted", "shop"}:
         return False
@@ -191,7 +277,11 @@ def _config_needs_assignment(config):
 def get_ticket_for_config(config_id, company):
     """Return (config, ticket, error_response). ticket may be None if not yet converted."""
     try:
-        config = Configuration.objects.get(id=config_id, company=company)
+        config = (
+            Configuration.objects.select_related("product", "quote")
+            .prefetch_related("param_values__parameter")
+            .get(id=config_id, company=company)
+        )
     except Configuration.DoesNotExist:
         return None, None, JsonResponse({"error": "Not found"}, status=404)
 
@@ -206,16 +296,35 @@ def get_ticket_for_config(config_id, company):
     return config, ticket, None
 
 
+def _sort_production_items_stable(items):
+    """Stable API order: BOM line (configuration_item_id), then ProductionItem pk.
+
+    Avoids non-deterministic DB row order so mobile lists do not jump after updates.
+    """
+    def sort_key(item):
+        data = item.data or {}
+        raw = data.get("configuration_item_id")
+        try:
+            cid = int(raw)
+        except (TypeError, ValueError):
+            return (1, item.id)  # lines without BOM id: preserve id order among them
+        return (0, cid, item.id)
+
+    return sorted(items, key=sort_key)
+
+
 def active_ticket_items(ticket):
     """Return ProductionItems that still belong to the current configuration BOM.
 
     If the ticket source is not a Configuration (or cannot be resolved), return all
     ticket items to preserve backward-compatible behavior.
     """
-    items = list(ticket.items.prefetch_related("assigned_employees").all())
+    items = list(
+        ticket.items.prefetch_related("assigned_employees").order_by("id")
+    )
     source = getattr(ticket, "source_object", None)
     if source is None or not hasattr(source, "items"):
-        return items
+        return _sort_production_items_stable(items)
 
     current_config_item_ids = set(source.items.values_list("id", flat=True))
     if not current_config_item_ids:
@@ -230,48 +339,97 @@ def active_ticket_items(ticket):
             cfg_item_id = None
         if cfg_item_id in current_config_item_ids:
             filtered.append(item)
-    return filtered
+    return _sort_production_items_stable(filtered)
 
 
-def serialize_stages(ticket, items=None):
-    """Aggregate planning stages across ProductionItems for a ticket."""
-    if items is None:
-        items = list(ticket.items.prefetch_related("assigned_employees").all())
-
-    product = getattr(ticket.source_object, "product", None)
-    stage_order = list(getattr(product, "production_stages", []) or [])
-
-    stage_data = {}
-    for item in items:
-        for stage_name, info in (item.planning or {}).items():
-            if stage_name not in stage_data:
-                stage_data[stage_name] = {"statuses": [], "assigned_employees": {}}
-            status = (info or {}).get("status") or "pending"
-            stage_data[stage_name]["statuses"].append(status)
-            for emp in item.assigned_employees.all():
-                stage_data[stage_name]["assigned_employees"][emp.id] = emp.full_name
-
-    def _agg_status(statuses):
-        if all(s == "done" for s in statuses):
-            return "done"
-        if any(s == "in_progress" for s in statuses):
-            return "in_progress"
-        return "pending"
-
-    def _sort_key(name):
-        try:
-            return stage_order.index(name)
-        except ValueError:
-            return 1000
-
-    return [
-        {
-            "name": name,
-            "status": _agg_status(stage_data[name]["statuses"]),
-            "assigned_employees": [
-                {"id": emp_id, "full_name": emp_name}
-                for emp_id, emp_name in stage_data[name]["assigned_employees"].items()
-            ],
-        }
-        for name in sorted(stage_data.keys(), key=_sort_key)
+def _ordered_stage_names(item) -> list[str]:
+    order = [
+        unicodedata.normalize("NFC", s)
+        for s in (getattr(item, "production_stages_order", None) or [])
     ]
+    planning = item.planning or {}
+    names = {unicodedata.normalize("NFC", k) for k in planning.keys()}
+
+    def sort_key(name: str):
+        try:
+            return (0, order.index(name))
+        except ValueError:
+            return (1, name)
+
+    return sorted(names, key=sort_key)
+
+
+def serialize_production_items_with_stages(ticket, items=None) -> list[dict]:
+    """One entry per ProductionItem with nested stages (BOM line, not aggregated)."""
+    if items is None:
+        items = list(
+            ticket.items.prefetch_related("assigned_employees").order_by("id")
+        )
+    items = _sort_production_items_stable(items)
+
+    # Fetch all open sessions for this ticket's items in one query.
+    item_ids = [it.id for it in items]
+    open_sessions = (
+        ProductionItemSession.objects.filter(
+            production_item_id__in=item_ids,
+            end_time__isnull=True,
+            status=ProductionItemSessionStatus.IN_PROGRESS,
+        )
+        .select_related("created_by")
+    )
+    # Index by (item_id, stage_name) -> list of employee dicts
+    active_workers: dict[tuple, list] = {}
+    for sess in open_sessions:
+        key = (sess.production_item_id, unicodedata.normalize("NFC", sess.production_stage))
+        emp = sess.created_by
+        if emp:
+            active_workers.setdefault(key, []).append(
+                {"id": emp.id, "full_name": emp.full_name}
+            )
+
+    out = []
+    for item in items:
+        data = item.data or {}
+        cfg_item_id = data.get("configuration_item_id")
+        try:
+            cfg_id_int = int(cfg_item_id) if cfg_item_id is not None else None
+        except (TypeError, ValueError):
+            cfg_id_int = None
+
+        line_assignees = [
+            {"id": e.id, "full_name": e.full_name}
+            for e in item.assigned_employees.all()
+        ]
+
+        stages_out = []
+        for stage_name in _ordered_stage_names(item):
+            raw_info = {}
+            for k, v in (item.planning or {}).items():
+                if unicodedata.normalize("NFC", k) == stage_name:
+                    raw_info = v if isinstance(v, dict) else {}
+                    break
+            status = (raw_info.get("status") or "pending") if isinstance(raw_info, dict) else "pending"
+            workers = active_workers.get((item.id, stage_name), [])
+            stages_out.append(
+                {
+                    "name": stage_name,
+                    "status": status,
+                    "assigned_employees": line_assignees,
+                    "active_workers": workers,
+                }
+            )
+
+        out.append(
+            {
+                "production_item_id": item.id,
+                "configuration_item_id": cfg_id_int,
+                "component_label": (
+                    data.get("component")
+                    or (str(item.component) if getattr(item, "component_id", None) else "—")
+                ),
+                "quantity": float(item.quantity) if item.quantity is not None else None,
+                "length": float(item.length) if item.length is not None else None,
+                "stages": stages_out,
+            }
+        )
+    return out

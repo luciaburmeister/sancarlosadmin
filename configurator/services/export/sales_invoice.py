@@ -3,6 +3,7 @@ from .base import BaseExportStrategy
 from invoices.models import AppliedTax
 from django.contrib.contenttypes.models import ContentType
 from .context_helpers import get_company_context
+from invoices.services.sales_invoice_payment import effective_payment_method_display
 if TYPE_CHECKING:
     from invoices.models import SalesInvoice
 
@@ -30,18 +31,24 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
 
 
         client = self.sales_invoice.client
+        payment_method_display = effective_payment_method_display(
+            sales_invoice=self.sales_invoice,
+            client=client,
+        )
         client_data = {
             "name": client.name,
             "tax_identifier": client.tax_identifier,
             "phone": client.phone,
             "email": client.email,
             "address": client.address,
+            "payment_method_display": payment_method_display,
         }
 
         context = {
             "invoice": self.sales_invoice,
             "client": client,
             "client_data": client_data,
+            "payment_method_display": payment_method_display,
             "items": items_data,
             "invoice_number": self.sales_invoice.invoice_number,
             "date_issued": self.sales_invoice.date_issued,

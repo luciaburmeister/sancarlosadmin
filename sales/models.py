@@ -1,3 +1,5 @@
+import hashlib
+
 from django.db import models
 from django.db.models import Sum
 from django.utils import timezone
@@ -9,7 +11,7 @@ from company.models import CompanyOwnedModel
 from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
 from invoices.models import AppliedTax, PaymentMethod
-from company.models import CompanyOwnedModel, BaseBankAccount, BankAccount
+from company.models import Company, CompanyOwnedModel, BaseBankAccount, BankAccount
 from django_countries.fields import CountryField
 
 class SaleZone(CompanyOwnedModel):
@@ -189,12 +191,47 @@ class Client(Timestampable, CompanyOwnedModel):
         verbose_name=_("Default Client Bank Account")
     )
 
+    # Términos y condiciones
+    terms_accepted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("T&C Accepted At"),
+    )
+    terms_signature = models.ImageField(
+        upload_to="client_terms_signatures/",
+        blank=True,
+        null=True,
+        verbose_name=_("Firma T&C"),
+    )
+    accepted_terms_company = models.ForeignKey(
+        Company,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="client_terms_acceptances",
+        verbose_name=_("T&C company reference"),
+        help_text=_("Company whose terms were accepted; immutable once set."),
+    )
+    accepted_terms_text = models.TextField(
+        blank=True,
+        editable=False,
+        verbose_name=_("T&C text snapshot"),
+        help_text=_("Copy of the company terms at acceptance time."),
+    )
+
     class Meta:
         verbose_name = _("Client")
         verbose_name_plural = _("Clients")
 
     def __str__(self):
         return self.name
+
+    @property
+    def terms_version(self) -> str:
+        text = (self.accepted_terms_text or "").strip()
+        if not text:
+            return ""
+        return hashlib.sha256(text.encode()).hexdigest()[:8]
 
     
 class OrderStatus(models.TextChoices):
@@ -697,6 +734,55 @@ class OrderManager(Timestampable):
             )
         order.recalc_totals()
         return order
+
+def _quote_photo_path(instance, filename):
+    from django.utils import timezone
+    ts = int(timezone.now().timestamp())
+    return f"quotes/photos/{instance.quote.company_id}/{instance.quote_id}/{ts}_{filename}"
+
+
+class QuotePhotoCategory(CompanyOwnedModel):
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+    order = models.PositiveIntegerField(default=0, verbose_name=_("Order"), db_index=True)
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Quote Photo Category")
+        verbose_name_plural = _("Quote Photo Categories")
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return self.name
+
+
+class QuotePhoto(models.Model):
+    quote = models.ForeignKey(
+        Quote,
+        on_delete=models.CASCADE,
+        related_name="photos",
+        verbose_name=_("Quote"),
+    )
+    category = models.ForeignKey(
+        QuotePhotoCategory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="photos",
+        verbose_name=_("Category"),
+    )
+    image = models.ImageField(upload_to=_quote_photo_path, verbose_name=_("Image"))
+    caption = models.TextField(blank=True, verbose_name=_("Caption"))
+    uploaded_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Uploaded at"))
+
+    class Meta:
+        verbose_name = _("Quote Photo")
+        verbose_name_plural = _("Quote Photos")
+        ordering = ["uploaded_at"]
+
+    def __str__(self):
+        cat = self.category.name if self.category else "—"
+        return f"Photo [{cat}] – Quote #{self.quote_id}"
+
 
 class DeliveryOrderStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")

@@ -9,6 +9,19 @@ django-admin compilemessages
 python manage.py runserver
 ```
 
+### PDF generation (WeasyPrint)
+
+Django starts without loading WeasyPrint; PDFs are generated on demand. The server still needs native libraries:
+
+- **Linux (production / Docker)**: install Pango, Cairo, GDK-Pixbuf (e.g. Debian: `libpango-1.0-0`, `libcairo2`, `libgdk-pixbuf-2.0-0`).
+- **macOS (development)**:
+  ```bash
+  brew install pango cairo gdk-pixbuf glib
+  export DYLD_FALLBACK_LIBRARY_PATH="/opt/homebrew/lib:${DYLD_FALLBACK_LIBRARY_PATH:-}"
+  python manage.py runserver
+  ```
+  Prefer `python manage.py` over `./manage.py` so the shell can pass `DYLD_*` to Python. If PDF export fails with `libgobject`, use `python manage.py` or set `DYLD_FALLBACK_LIBRARY_PATH` in `~/.zshrc`.
+
 ### Celery Background Tasks
 The project uses Celery for background tasks and Redis as the message broker.
 

@@ -626,6 +626,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
                     "subtotal_amount",
                     "tax_amount",
                     "total_amount",
+                    "payment_method",
                     "payment_status",
                     "amount_paid",
                     "amount_remaining",

@@ -8,7 +8,7 @@ from unfold.decorators import display
 from .models import (
     Client, Order, DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
     Quote, QuoteItem, SaleZone, ClientAddress, ClientContact, ClientBankAccount,
-    QuoteStatus, QuoteConfigurationGroup,
+    QuoteStatus, QuoteConfigurationGroup, QuotePhoto, QuotePhotoCategory,
 )
 from unfold.admin import TabularInline, StackedInline
 from import_export.admin import ImportExportModelAdmin
@@ -150,7 +150,7 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
     import_form_class = ClientImportForm
     export_form_class = ClientExportForm
 
-    list_display = ["name", "tax_identifier", "phone", "address_truncated", "company"]
+    list_display = ["name", "tax_identifier", "phone", "address_truncated", "company",  "has_signed_terms"]
     search_fields = ["name", "tax_identifier", "email", "phone", "address"]
     list_filter = ["sale_zone", "is_insured", "company"]
 
@@ -181,6 +181,25 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
                 kwargs["queryset"] = ClientBankAccount.objects.none()
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
+    @display(
+        description=_("T&C firmados"),
+        label={
+            _("Sí"): "success",
+            _("No"): "danger",
+        },
+    )
+    def has_signed_terms(self, obj):
+        return _("Sí") if obj.terms_signature else _("No")
+
+    @display(description=_("Firma"))
+    def terms_signature_preview(self, obj):
+        if obj.terms_signature:
+            return format_html(
+                '<img src="{}" style="width:400px;height:150px;object-fit:contain;border:1px solid #ccc;background:white;" />',
+                obj.terms_signature.url,
+            )
+        return _("Sin firma")
+
     fieldsets = (
         (_("Basic Information"), {
             "classes": ["tab"],
@@ -205,7 +224,28 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
                 "default_client_bank_account",
             )
         }),
+        (_("Términos y Condiciones"), {
+            "classes": ["tab"],
+            "fields": (
+                "has_signed_terms",
+                "terms_accepted_at",
+                "accepted_terms_company",
+                "terms_version_display",
+                "terms_signature_preview",
+            )
+        }),
     )
+    readonly_fields = [
+        "has_signed_terms",
+        "terms_accepted_at",
+        "accepted_terms_company",
+        "terms_version_display",
+        "terms_signature_preview",
+    ]
+
+    @display(description=_("Versión T&C"))
+    def terms_version_display(self, obj):
+        return obj.terms_version or "—"
 
 @admin.register(Order)
 class OrderAdmin(ModelAdmin):
@@ -270,6 +310,36 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
     def get_status_label(self, obj):
         return obj.status
+
+class QuotePhotoInline(TabularInline):
+    model = QuotePhoto
+    extra = 0
+    tab = True
+    tab_title = _("Photos")
+    fields = ["image", "category", "caption", "uploaded_at"]
+    readonly_fields = ["uploaded_at"]
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "category":
+            import re
+            match = re.search(r'/admin/sales/quote/(\d+)/change/', request.path)
+            if match:
+                quote = Quote.objects.select_related("company").get(pk=match.group(1))
+                kwargs["queryset"] = QuotePhotoCategory.objects.filter(
+                    company=quote.company, is_active=True
+                ).order_by("order")
+            else:
+                kwargs["queryset"] = QuotePhotoCategory.objects.none()
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+
+@admin.register(QuotePhotoCategory)
+class QuotePhotoCategoryAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ["name", "order", "is_active", "company"]
+    list_filter = ["company", "is_active"]
+    search_fields = ["name"]
+    autocomplete_fields = ["company"]
+    list_editable = ["order", "is_active"]
 
 
 class QuoteItemInline(TabularInline):
@@ -379,8 +449,9 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
     autocomplete_fields = ["client", "project_file", "company"]
     readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown"]
     list_select_related = ["client", "project_file", "company"]
+    
+    inlines = [ConfigurationReadOnlyInline, QuoteConfigurationGroupInline, QuoteItemInline, QuotePhotoInline, AppliedTaxInline, QuoteEmailLogInline]
 
-    inlines = [ConfigurationReadOnlyInline, QuoteConfigurationGroupInline, QuoteItemInline, AppliedTaxInline, QuoteEmailLogInline]
 
     actions_list = ["go_to_conversion_analysis", "quote_dashboard_action"]
     actions_row = ["add_configuration_to_quote", "export_quote_action", "send_email_row_action"]

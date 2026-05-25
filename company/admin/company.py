@@ -15,7 +15,7 @@ from unfold.admin import ModelAdmin, StackedInline
 from core.admin.company_admin import CompanyRestrictedAdmin
 from company.forms import CompanyDocumentForm
 
-from unfold.contrib.forms.widgets import ArrayWidget
+from unfold.contrib.forms.widgets import ArrayWidget, WysiwygWidget
 from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminTimeWidget
 from django.contrib.postgres.fields import ArrayField
 
@@ -143,6 +143,7 @@ class CompanyAdmin(ModelAdmin):
 
                 ("production_stages",
                 "asset_identifier_labels"),
+                "allow_shared_production_stage_activities",
                 ("document_reminder_emails"),
             ),
             "classes": ["tab"]
@@ -153,8 +154,12 @@ class CompanyAdmin(ModelAdmin):
                 "business_activity_description"
             ),
             "classes": ["tab"]
-        })
-        
+        }),
+        (_("Términos y Condiciones"), {
+            "fields": ("terms_text",),
+            "classes": ["tab"],
+            "description": "Texto que el cliente firmará digitalmente al registrarse en la app. Déjalo vacío para no requerir firma.",
+        }),
     )
 
     formfield_overrides = {
@@ -162,7 +167,12 @@ class CompanyAdmin(ModelAdmin):
             "widget": ArrayWidget,
         }
     }
-    
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        if db_field.name == "terms_text":
+            kwargs["widget"] = WysiwygWidget
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
+
     actions_row = ["install_chart_action"]
 
     def get_queryset(self, request):

@@ -1,8 +1,13 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from django.db import models
+from django.urls import path, reverse
+from django.shortcuts import redirect
+from django.http import HttpRequest
 from assets.models import AssetTransaction
+from assets.views import AssetTransactionExportView
 from unfold.admin import ModelAdmin
+from unfold.decorators import action
 from django_json_widget.widgets import JSONEditorWidget
 from django.utils.translation import gettext_lazy as _
 
@@ -25,6 +30,8 @@ class AssetTransactionAdmin(ModelAdmin):
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
     }
+
+    actions_row = ["export_transaction_action"]
 
     fieldsets = (
         (_("Asset Transaction"), {
@@ -61,3 +68,25 @@ class AssetTransactionAdmin(ModelAdmin):
                 obj.firma
             )
         return "Sin firma"
+
+    @action(
+        description=_("Export"),
+        url_path="assettransaction-export-action",
+        attrs={"target": "_blank"},
+    )
+    def export_transaction_action(self, request: HttpRequest, object_id: int):
+        url = reverse("admin:assets_assettransaction_export", args=[object_id])
+        return redirect(url)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:transaction_id>/export/",
+                self.admin_site.admin_view(
+                    AssetTransactionExportView.as_view(model_admin=self)
+                ),
+                name="assets_assettransaction_export",
+            ),
+        ]
+        return custom_urls + urls

@@ -1467,6 +1467,7 @@ class ExportTemplateKind(models.TextChoices):
     SALES_INVOICE = "sales_invoice", _("Sales Invoice")
     CONSOLIDATED_QUOTATION = "consolidated_quotation", _("Consolidated Quotation")
     RECEIVAL_SLIP = "receival_slip", _("Receival Slip")
+    ASSET_TRANSACTION = "asset_transaction", _("Asset Transaction")
 
 
 class ConfigurationExportTemplate(CompanyOwnedModel):

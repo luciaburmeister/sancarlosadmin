@@ -10,6 +10,7 @@ from django.utils.safestring import mark_safe
 from django.urls import reverse
 from configurator.views import ExportTemplatePreviewView
 from django.utils.translation import gettext_lazy as _
+from configurator.services.export.kind_registry import get_queryset_for_kind
 
 @admin.register(ConfigurationExportTemplate)
 class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
@@ -67,36 +68,9 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
     def test_object_selector(self, obj):
         if not obj.pk:
             return _("Save the template first.")
-            
-        from configurator.models import Configuration, ExportTemplateKind
-        from sales.models import Quote
-        from production.models import ProductionItem
-        from invoices.models import SalesInvoice
 
-        qs = []
-        if obj.kind == ExportTemplateKind.QUOTATION:
-            qs = Configuration.objects.all()
-            if obj.product:
-                qs = qs.filter(product=obj.product)
-        elif obj.kind == ExportTemplateKind.PRODUCTION_ORDER:
-            qs = Configuration.objects.all()
-            if obj.product:
-                qs = qs.filter(product=obj.product)
-        elif obj.kind == ExportTemplateKind.PRODUCTION_TICKET:
-            qs = ProductionItem.objects.all()
-        elif obj.kind == ExportTemplateKind.SALES_INVOICE:
-            qs = SalesInvoice.objects.all()
-        elif obj.kind == ExportTemplateKind.CONSOLIDATED_QUOTATION:
-            qs = Quote.objects.all()
-        elif obj.kind == ExportTemplateKind.RECEIVAL_SLIP:
-            from configurator.models import ReceivalSlip
-            qs = ReceivalSlip.objects.all()
-            if obj.product:
-                qs = qs.filter(configuration__product=obj.product)
 
-        if hasattr(qs, 'filter') and obj.company:
-            qs = qs.filter(company=obj.company)
-            
+        qs = get_queryset_for_kind(obj.kind, product=obj.product, company=obj.company)
         latest_objects = qs.order_by('-id')[:10] if hasattr(qs, 'order_by') else []
 
         html = [f'<select id="test-object-selector" style="margin-bottom: 1rem; width: 100%; border-radius: 0.375rem; border: 1px solid #d1d5db; padding: 0.5rem;" class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500">']

@@ -20,74 +20,13 @@ class ExportTemplatePreviewView(UnfoldModelAdminViewMixin, View):
     """
 
     def _get_preview_object(self, kind, product_id, company_id, object_id=None):
-        filters = {}
-        if company_id:
-            filters["company_id"] = company_id
-            
-        if kind == "quotation":
-            from configurator.models import Configuration
-            if object_id:
-                return Configuration.objects.filter(id=object_id).first()
-            
-            qs = Configuration.objects.filter(**filters)
-            if product_id:
-                qs = qs.filter(product_id=product_id)
-            return qs.order_by("-id").first() or Configuration.objects.order_by("-id").first()
-            
-        elif kind == "production_order":
-            from configurator.models import Configuration
-            if object_id:
-                return Configuration.objects.filter(id=object_id).first()
-            
-            qs = Configuration.objects.filter(**filters)
-            if product_id:
-                qs = qs.filter(product_id=product_id)
-            return qs.order_by("-id").first() or Configuration.objects.order_by("-id").first()
-            
-        elif kind == "production_ticket":
-            from production.models import ProductionItem
-            if object_id:
-                return ProductionItem.objects.filter(id=object_id).first()
-                
-            qs = ProductionItem.objects.all()
-            if company_id:
-                qs = qs.filter(company_id=company_id)
-            if product_id:
-                for item in qs.order_by("-id")[:50]:
-                    product = getattr(item.ticket.source_object, "product", None) if getattr(item, 'ticket', None) else None
-                    if product and str(product.id) == str(product_id):
-                        return item
-            return qs.order_by("-id").first()
-            
-        elif kind == "sales_invoice":
-            from invoices.models import SalesInvoice
-            if object_id:
-                return SalesInvoice.objects.filter(id=object_id).first()
-                
-            qs = SalesInvoice.objects.filter(**filters)
-            if product_id:
-                qs = qs.filter(configuration__product_id=product_id)
-            return qs.order_by("-id").first() or SalesInvoice.objects.order_by("-id").first()
-        
-        elif kind == "consolidated_quotation":
-            from sales.models import Quote
-            if object_id:
-                return Quote.objects.filter(id=object_id).first()
-                
-            qs = Quote.objects.filter(**filters)
-            return qs.order_by("-id").first() or Quote.objects.order_by("-id").first()
-            
-        elif kind == "receival_slip":
-            from configurator.models import ReceivalSlip
-            if object_id:
-                return ReceivalSlip.objects.filter(id=object_id).first()
-                
-            qs = ReceivalSlip.objects.filter(**filters)
-            if product_id:
-                qs = qs.filter(configuration__product_id=product_id)
-            return qs.order_by("-id").first() or ReceivalSlip.objects.order_by("-id").first()
-            
-        return None
+        from configurator.services.export.kind_registry import get_preview_object
+        return get_preview_object(
+            kind,
+            product_id=product_id,
+            company_id=company_id,
+            object_id=object_id,
+        )
 
     def post(self, request, *args, **kwargs):
         html_content = request.POST.get("html", "")

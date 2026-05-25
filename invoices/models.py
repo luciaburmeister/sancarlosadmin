@@ -737,6 +737,12 @@ class SalesInvoice(CompanyOwnedModel):
         help_text=_("Expected payment method for this invoice (snapshot at issuance)."),
     )
 
+    is_external = models.BooleanField(
+        default=False,
+        verbose_name=_("External Invoice"),
+        help_text=_("Indicates this invoice was created outside the ERP system (e.g. imported from Excel)."),
+    )
+
     class Meta:
         verbose_name = _("Sales Invoice")
         verbose_name_plural = _("Sales Invoices")

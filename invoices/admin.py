@@ -26,6 +26,7 @@ from payments.models import PaymentAllocation
 from django.utils import timezone
 from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
 from invoices.views.invoice.wizard_views import SalesInvoiceWizardView
+from invoices.views.invoice.import_sales_invoice import SalesInvoiceImportAdminView
 from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
 from invoices.views.sales_invoice_register_payment import RegisterPaymentView
 from invoices.views.invoice.review_invoice import InvoiceReviewAdminView
@@ -570,7 +571,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
             TaxTypeAutocompleteView.as_view(),
         ),
     )
-    list_display = ("invoice_number", "incremental_id", "get_status_label", "get_payment_status_label", "company", "client", "date_issued", "total_amount")
+    list_display = ("invoice_number", "get_status_label", "get_payment_status_label", "get_external_label", "company", "client", "date_issued", "total_amount")
     list_filter = (
         ("status",ChoicesDropdownFilter),
         ("company",AutocompleteSelectMultipleFilter),
@@ -581,7 +582,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     inlines = [SalesInvoiceItemInline, AppliedTaxInline, PaymentAllocationInline, EmailLogInline]
     list_filter_submit = True
     
-    readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount", "status", "invoice_number", "amount_paid", "amount_remaining")
+    readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount", "status", "invoice_number", "amount_paid", "amount_remaining", "is_external")
 
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = super().get_readonly_fields(request, obj)
@@ -608,6 +609,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
                     ("date_issued", "due_date"),
                     "project_file",
                     ("reference"),
+                    "is_external",
                 )
             },
         ),
@@ -645,7 +647,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
         super().save_related(request, form, formsets, change)
         form.instance.recalculate_totals(save=True)
     
-    actions = ["download_pdf", "finalize_invoice_action"]
+    actions = ["download_pdf", "finalize_invoice_action", "import_from_excel"]
     actions_row = ["view_pdf_row_action", "send_email_row_action", "finalize_invoice_row_action", "view_journal_entry_row_action"]
     actions_detail = ["view_pdf_detail_action", "send_email_detail_action", "finalize_invoice_detail_action", "view_journal_entry_detail_action", "register_payment_detail_action"]
 
@@ -727,6 +729,13 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
                 name="invoices_salesinvoice_wizard",
             ),
             path(
+                "import/",
+                self.admin_site.admin_view(
+                    SalesInvoiceImportAdminView.as_view(model_admin=self)
+                ),
+                name="invoices_salesinvoice_import",
+            ),
+            path(
                 "<int:object_id>/pdf/",
                 self.admin_site.admin_view(SalesInvoicePdfView.as_view(model_admin=self)),
                 name="invoices_salesinvoice_pdf",
@@ -775,3 +784,19 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
             send_invoice_email_task.delay(invoice.id)
             self.message_user(request, _("Invoice email queued for %s.") % invoice.client.email)
         return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
+
+    @admin.action(description=_("Import sales invoices from Excel"))
+    def import_from_excel(self, request, queryset):
+        return redirect(reverse("admin:invoices_salesinvoice_import"))
+
+    @display(
+        description=_("External"),
+        label={
+            _("External"): "info",
+            _("Internal"): "default",
+        },
+    )
+    def get_external_label(self, obj):
+        if obj.is_external:
+            return _("External")
+        return _("Internal")

@@ -90,7 +90,7 @@ class ChatService:
         for _round in range(MAX_TOOL_ROUNDS):
             # Call Claude
             response = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-haiku-4-5-20251001",
                 max_tokens=4096,
                 system=system_prompt,
                 tools=tools if tools else anthropic.NOT_GIVEN,

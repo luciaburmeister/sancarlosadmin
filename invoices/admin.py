@@ -576,6 +576,9 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
         ("status",ChoicesDropdownFilter),
         ("company",AutocompleteSelectMultipleFilter),
         ("client",AutocompleteSelectMultipleFilter),
+        ('is_external'),
+        ('status'),
+        ('payment_status'),
         ("date_issued",RangeDateFilter),)
     search_fields = ("invoice_number", "client__name")
     autocomplete_fields = ("company", "client", "configuration", "project_file")

@@ -149,7 +149,7 @@ class MaterialAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
             "fields": (
                 ("name"),
                 ("reference_code", "rule_key"),
-                ("family",),
+                ("category", "family"),
                 ("cost_per_unit", "unit_type"),
                 ("provider", "company"),
             )

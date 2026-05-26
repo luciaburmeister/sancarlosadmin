@@ -388,7 +388,7 @@ class ProductionItemSession(Timestampable, CompanyOwnedModel):
     start_time = models.DateTimeField(verbose_name=("Start Time"),null=True,blank=True)
     end_time = models.DateTimeField(verbose_name=_("End Time"),null=True,blank=True)
     comments = models.TextField(max_length=200,verbose_name=_("Comments"),null=True,blank=True)
-    production_stage = models.CharField(max_length=25,db_index=True,verbose_name=_("Production Stage"))
+    production_stage = models.CharField(max_length=50,db_index=True,verbose_name=_("Production Stage"))
     status = models.CharField(
         max_length=20,
         choices=ProductionItemSessionStatus.choices,
@@ -515,7 +515,7 @@ class OperationRequirement(models.Model):
         related_name="operation_requirements",
     )
 
-    production_stage = models.CharField(max_length=25, db_index=True)
+    production_stage = models.CharField(max_length=50, db_index=True)
 
     required_content_type = models.ForeignKey(
         ContentType,

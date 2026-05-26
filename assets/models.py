@@ -23,6 +23,10 @@ class AssetType(CompanyOwnedModel):
     class Meta:
         verbose_name = _("Asset type")
         verbose_name_plural = _("Asset types")
+        ordering = ["name"]
+        indexes = [
+            models.Index(fields=["name","company"]),
+        ]
 
     def __str__(self):
         return self.name

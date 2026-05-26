@@ -1010,6 +1010,32 @@ class Configuration(Timestampable, CompanyOwnedModel):
 
         self.items.filter(is_template_item=True).exclude(id__in=seen_item_ids).delete()
 
+    def resync_planning_from_template(self):
+        """
+        Re-snapshots stage_resources on every ConfigurationItem from
+        the product template's current production_planning_resources.
+
+        Call this when the template's planning config has changed and
+        existing configurations need to pick up the new resource
+        definitions.
+        """
+        if not self.product_id:
+            return 0
+
+        product_resources = self.product.production_planning_resources or {}
+        updated = 0
+
+        for item in self.items.all():
+            new_stage_resources = {
+                stage: product_resources.get(stage, {})
+                for stage in (item.production_stages or [])
+            }
+            if item.stage_resources != new_stage_resources:
+                item.stage_resources = new_stage_resources
+                item.save(update_fields=["stage_resources"])
+                updated += 1
+
+        return updated
 
     def evaluate_computed_variables(self, context):
         """

@@ -247,6 +247,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
     actions_row = ["export_configuration_to_template", 
                    "convert_to_production",
                    "record_actual_values",
+                   "resync_planning_from_template",
                    "create_receival_slip_action",
                    "view_receival_slips"]
     autocomplete_fields = ["client","product","asset","quote","project_file"]
@@ -465,3 +466,36 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
              
         url = reverse("admin:configurator_configuration_wizard_edit", args=[config.product_id,object_id])
         return redirect(url)
+
+    @action(
+        description=_("Resync Planning"),
+        permissions=["resync_planning"],
+        url_path="resync-planning",
+    )
+    def resync_planning_from_template(self, request: HttpRequest, object_id: int):
+        config = Configuration.objects.select_related("product").get(pk=object_id)
+        updated = config.resync_planning_from_template()
+
+        if updated:
+            self.message_user(
+                request,
+                _("Planning configuration resynced from template. %(count)d item(s) updated.")
+                % {"count": updated},
+                messages.SUCCESS,
+            )
+        else:
+            self.message_user(
+                request,
+                _("Planning configuration is already up to date."),
+                messages.INFO,
+            )
+
+        return redirect(
+            request.META.get(
+                "HTTP_REFERER",
+                reverse("admin:configurator_configuration_change", args=[object_id]),
+            )
+        )
+
+    def has_resync_planning_permission(self, request: HttpRequest):
+        return request.user.is_superuser

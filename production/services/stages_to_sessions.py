@@ -131,7 +131,7 @@ class StagesToSessionsService:
     def _start_exclusive_activity(
         cls, *, stage_name: str, items: list[ProductionItem], employee: Employee
     ) -> int:
-        """Only one worker per stage; no joining an activity already in progress."""
+        """Only one worker per stage; resuming a paused (in_progress, no active session) stage is allowed."""
         stage_name = unicodedata.normalize("NFC", stage_name)
         if employee is None:
             raise ValidationError("No employee provided to start activity.")
@@ -145,7 +145,11 @@ class StagesToSessionsService:
                 continue
 
             status = (stage_info.get("status") or ProductionItemStatus.PENDING)
-            if status != ProductionItemStatus.PENDING:
+            if status == ProductionItemStatus.IN_PROGRESS:
+                # Allow resuming a paused stage only if no other worker has an open session.
+                if cls._stage_has_open_session(item, stage_name):
+                    continue
+            elif status != ProductionItemStatus.PENDING:
                 continue
 
             already_active = ProductionItemSession.objects.filter(

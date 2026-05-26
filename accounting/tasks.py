@@ -7,9 +7,8 @@ from .services.accounting.gemini_account_classifier import GeminiAccountClassifi
 from .services.journal_generator import JournalGeneratorService
 from .services.a3_exporter import A3PurchaseExportService
 from company.models import Company
-from datetime import date, timedelta
+from datetime import date
 from django.core.mail import EmailMessage
-import io
 
 
 logger = logging.getLogger(__name__)

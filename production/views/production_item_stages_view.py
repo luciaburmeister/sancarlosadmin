@@ -11,7 +11,9 @@ from production.models import ProductionTicket, ProductionItem
 from production.services.stages_to_sessions import StagesToSessionsService
 from production.constants import ProductionActions
 from django.utils.text import slugify
+import logging
 
+logger = logging.getLogger(__name__)
 
 class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
     permission_required = ("production.change_productionitem",)
@@ -60,7 +62,8 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
                     _("No items were processed for stage '{}'. Check if they are already in the correct status.").format(stage_name)
                 )
         except ValidationError as e:
-            messages.error(request, e.message)
+            logger.error(str(e))
+            messages.error(request, _("Validation error: {}").format(str(e)))
 
         if action == ProductionActions.FINISH_ACTIVITY and items:
             # After finishing, try to find the next active stage to scroll there focus

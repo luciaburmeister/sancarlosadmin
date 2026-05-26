@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 from unfold.views import UnfoldModelAdminViewMixin
 from django.core.exceptions import ValidationError
 from production.models import ProductionTicket, ProductionItem
+from production.exceptions import StageHasActiveWorkersError
 from production.services.stages_to_sessions import StagesToSessionsService
 from production.constants import ProductionActions
 from django.utils.text import slugify
@@ -61,6 +62,13 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
                     request, 
                     _("No items were processed for stage '{}'. Check if they are already in the correct status.").format(stage_name)
                 )
+        except StageHasActiveWorkersError as e:
+            names = ", ".join(w["full_name"] for w in e.active_workers)
+            messages.error(
+                request,
+                _("Cannot finish: other workers are still active on this stage: %(names)s")
+                % {"names": names},
+            )
         except ValidationError as e:
             logger.error(str(e))
             messages.error(request, _("Validation error: {}").format(str(e)))

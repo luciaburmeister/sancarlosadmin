@@ -15,6 +15,7 @@ from api._utils import CompanyAPIView
 from company.models import Employee
 from management.models import ProjectFileStatus
 from production.models import ProductionTicket, ProductionTicketStatus
+from production.exceptions import StageHasActiveWorkersError
 from production.services.stages_to_sessions import StagesToSessionsService
 from production.services.ticket_cancel import cancel_production_ticket
 
@@ -246,6 +247,52 @@ class StageRevertItemView(CompanyAPIView):
         )
 
 
+class StageLeaveItemView(CompanyAPIView):
+    def post(self, request, config_id, item_id, stage_name):
+        employee = self.employee
+        config, ticket, err = get_ticket_for_config(config_id, self.company)
+        if err:
+            return err
+
+        if ticket is None:
+            return JsonResponse({"error": "No production ticket. Convert first."}, status=404)
+
+        blocked = _ticket_mutation_blocked(ticket)
+        if blocked:
+            return blocked
+
+        stage_name_n = _uc.normalize("NFC", stage_name)
+
+        items = active_ticket_items(ticket)
+        item = _item_or_error(items, item_id)
+        if item is None:
+            return JsonResponse({"error": "Production item not found for this ticket."}, status=404)
+
+        if stage_name_n not in _planning_stage_keys(item):
+            return JsonResponse({"error": "Stage not defined for this production item."}, status=404)
+
+        try:
+            count = StagesToSessionsService.leave_activity(
+                stage_name=stage_name_n,
+                items=[item],
+                employee=employee,
+            )
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=400)
+
+        ticket = ProductionTicket.objects.prefetch_related(
+            "items__assigned_employees"
+        ).get(pk=ticket.pk)
+        items = active_ticket_items(ticket)
+        return JsonResponse(
+            {
+                "left": count,
+                "ticket_status": ticket.status,
+                **_payload(ticket, items, config),
+            }
+        )
+
+
 class StageFinishItemView(CompanyAPIView):
     def post(self, request, config_id, item_id, stage_name):
         employee = self.employee
@@ -275,6 +322,15 @@ class StageFinishItemView(CompanyAPIView):
                 stage_name=stage_name_n,
                 items=[item],
                 employee=employee,
+            )
+        except StageHasActiveWorkersError as e:
+            return JsonResponse(
+                {
+                    "error": e.message,
+                    "code": StageHasActiveWorkersError.code,
+                    "active_workers": e.active_workers,
+                },
+                status=409,
             )
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=400)

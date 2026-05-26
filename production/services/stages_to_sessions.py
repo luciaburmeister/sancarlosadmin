@@ -9,6 +9,7 @@ from production.models import (
     ProductionItemSessionKind,
 )
 from company.models import Employee
+from production.exceptions import StageHasActiveWorkersError
 from django.utils.translation import gettext_lazy as _
 from django.contrib import messages
 from django.shortcuts import redirect
@@ -174,6 +175,32 @@ class StagesToSessionsService:
         return count
 
     @classmethod
+    def _open_sessions_for_stage(cls, item: ProductionItem, stage_name: str):
+        return list(
+            ProductionItemSession.objects.filter(
+                production_item=item,
+                production_stage=stage_name,
+                status=ProductionItemSessionStatus.IN_PROGRESS,
+                end_time__isnull=True,
+            ).select_related("created_by")
+        )
+
+    @classmethod
+    def _other_active_workers_on_stage(
+        cls, item: ProductionItem, stage_name: str, employee: Employee
+    ) -> list[dict]:
+        """Employees (other than *employee*) with an open session on this item+stage."""
+        seen: set[int] = set()
+        workers: list[dict] = []
+        for sess in cls._open_sessions_for_stage(item, stage_name):
+            emp = sess.created_by
+            if emp is None or emp.id == employee.id or emp.id in seen:
+                continue
+            seen.add(emp.id)
+            workers.append({"id": emp.id, "full_name": emp.full_name})
+        return workers
+
+    @classmethod
     def finish_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
         stage_name = unicodedata.normalize("NFC", stage_name)
         now = timezone.now()
@@ -188,19 +215,15 @@ class StagesToSessionsService:
             if status != ProductionItemStatus.IN_PROGRESS:
                 continue
 
-            open_session = (
-                ProductionItemSession.objects.filter(
-                    production_item=item,
-                    production_stage=stage_name,
-                    status=ProductionItemSessionStatus.IN_PROGRESS,
-                    end_time__isnull=True,
-                )
-                .order_by("-start_time")
-                .first()
-            )
-            if open_session:
-                open_session.kind = ProductionItemSessionKind.ACTIVITY_FINISHED
-                open_session.finish(completed_by=employee)
+            others = cls._other_active_workers_on_stage(item, stage_name, employee)
+            if others:
+                raise StageHasActiveWorkersError(others)
+
+            for sess in cls._open_sessions_for_stage(item, stage_name):
+                if sess.created_by_id != employee.id:
+                    continue
+                sess.kind = ProductionItemSessionKind.ACTIVITY_FINISHED
+                sess.finish(completed_by=employee)
 
             stage_info["status"] = ProductionItemStatus.DONE
             stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
@@ -249,6 +272,37 @@ class StagesToSessionsService:
                 kind=ProductionItemSessionKind.SESSION_STARTED,
             )
             count += 1
+        return count
+
+    @classmethod
+    def leave_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
+        """Close this worker's open session without completing the stage for everyone."""
+        stage_name = unicodedata.normalize("NFC", stage_name)
+        count = 0
+        for item in items:
+            session = (
+                ProductionItemSession.objects.filter(
+                    production_item=item,
+                    production_stage=stage_name,
+                    created_by=employee,
+                    status=ProductionItemSessionStatus.IN_PROGRESS,
+                    end_time__isnull=True,
+                )
+                .order_by("-start_time")
+                .first()
+            )
+            if not session:
+                continue
+
+            if session.kind == ProductionItemSessionKind.ACTIVITY_STARTED:
+                session.kind = ProductionItemSessionKind.ACTIVITY_FINISHED
+            elif session.kind == ProductionItemSessionKind.SESSION_STARTED:
+                session.kind = ProductionItemSessionKind.SESSION_FINISHED
+            session.finish(completed_by=employee)
+            count += 1
+
+        if count == 0:
+            raise ValidationError(_("No tienes una sesión activa en esta etapa."))
         return count
 
     @classmethod

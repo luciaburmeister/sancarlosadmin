@@ -24,6 +24,11 @@ urlpatterns = [
         name="stage_start_item",
     ),
     path(
+        "configurations/<int:config_id>/items/<int:item_id>/stages/<str:stage_name>/leave/",
+        stages.StageLeaveItemView.as_view(),
+        name="stage_leave_item",
+    ),
+    path(
         "configurations/<int:config_id>/items/<int:item_id>/stages/<str:stage_name>/finish/",
         stages.StageFinishItemView.as_view(),
         name="stage_finish_item",

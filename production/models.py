@@ -547,7 +547,7 @@ class PlannedProductionSession(Timestampable):
     )
 
     production_stage = models.CharField(
-        max_length=25,
+        max_length=50,
         db_index=True,
         verbose_name=_("Production Stage"),
     )

@@ -226,6 +226,7 @@ class AssetDeliverView(APIView):
             transaction_type=TransactionTypeChoices.DELIVERY,
             date=timezone.now(),
             performed_by=employee,
+            project_file=destination_zone.project_file if destination_zone else None,
             notes=(
                 f"Entregado por {user.username} en {destination_zone}. "
                 f"GPS: {latitude}, {longitude}. Distancia: {int(distance)}m"

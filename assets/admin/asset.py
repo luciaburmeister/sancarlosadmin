@@ -80,7 +80,7 @@ class AssetTransactionInline(StackedInline):
     tab = True
     readonly_fields = ("created_at",)
     ordering = ("-date",)
-    autocomplete_fields = ["from_zone", "to_zone"]
+    autocomplete_fields = ["from_zone", "to_zone", "project_file"]
     fieldsets = (
         (
             _("Transaction"),
@@ -88,6 +88,7 @@ class AssetTransactionInline(StackedInline):
                 "fields": (
                     ("transaction_type", "date"),
                     ("from_zone", "to_zone"),
+                    "project_file",
                     "data",
                     "notes",
                 )

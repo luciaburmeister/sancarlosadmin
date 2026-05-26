@@ -12,15 +12,15 @@ class AssetTransactionInline(TabularInline):
     fk_name = "to_zone" 
     extra = 0
     tab = True
-    fields = ("asset", "transaction_type", "from_zone", "date", "notes")
+    fields = ("asset", "transaction_type", "from_zone", "project_file", "date", "notes")
     readonly_fields = ("created_at",)
     ordering = ("-date",)
 
 @admin.register(WorkingZone)
 class WorkingZoneAdmin(ModelAdmin):
-    list_display = ("name", "company", "city", "province", "is_active")
+    list_display = ("name", "company", "project_file", "city", "province", "is_active")
     search_fields = ("name", "street_address", "city", "company__name")
     list_filter = ("company", "is_active")
-    autocomplete_fields = ["company"]
+    autocomplete_fields = ["company", "project_file"]
     inlines = [AssetTransactionInline]
 

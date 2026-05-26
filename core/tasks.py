@@ -60,3 +60,26 @@ def send_client_terms_email_task(client_id: int, to_email: str | None = None):
     return ClientTermsEmailService.send_terms_acceptance_email(
         client, to_email=to_email
     )
+
+
+@shared_task(name="core.tasks.send_asset_transaction_email_task")
+def send_asset_transaction_email_task(transaction_id: int, to_email: str | None = None):
+    """
+    Celery task to send an AssetTransaction email with PDF attachment.
+    Runs asynchronously so the admin UI doesn't block.
+    """
+    from assets.models import AssetTransaction
+    from assets.services.asset_transaction_email_service import AssetTransactionEmailService
+
+    try:
+        transaction = AssetTransaction.objects.select_related(
+            "asset", "asset__client", "asset__asset_type",
+            "company", "from_zone", "to_zone",
+            "project_file", "project_file__client",
+            "performed_by",
+        ).get(pk=transaction_id)
+    except AssetTransaction.DoesNotExist:
+        logger.error("send_asset_transaction_email_task: AssetTransaction %s not found", transaction_id)
+        return False
+
+    return AssetTransactionEmailService.send_transaction_email(transaction, to_email=to_email)

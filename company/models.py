@@ -318,6 +318,14 @@ class WorkingZone(CompanyOwnedModel):
     country = CountryField(verbose_name=_("Country"), default="ES")
     location = LocationField(based_fields=['street_address', 'city', 'postal_code', 'province', 'country'], zoom=18, default='POINT(36.7178 4.4256)')
     is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="working_zones",
+        verbose_name=_("Expediente"),
+    )
 
     class Meta:
         verbose_name = _("Working Zone")

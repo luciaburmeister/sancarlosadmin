@@ -45,6 +45,20 @@ class AssetTransactionExportStrategy(BaseExportStrategy):
             "performed_by": str(self.transaction.performed_by) if self.transaction.performed_by else None,
             "client": asset.client,
             "client_name": str(asset.client) if asset.client else None,
+            "project_file": self.transaction.project_file,
+            "project_file_reference": (
+                self.transaction.project_file.reference
+                if self.transaction.project_file else None
+            ),
+            "project_file_name": (
+                self.transaction.project_file.name
+                if self.transaction.project_file else None
+            ),
+            "project_file_client": (
+                str(self.transaction.project_file.client)
+                if self.transaction.project_file and self.transaction.project_file.client
+                else None
+            ),
         }
 
         company_ctx = get_company_context(self.transaction.company)

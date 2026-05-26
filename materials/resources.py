@@ -7,6 +7,22 @@ from djmoney.money import Money
 from decimal import Decimal, InvalidOperation
 
 
+class MoneyAmountWidget(DecimalWidget):
+    """Widget that handles Money objects for the amount portion of a MoneyField."""
+
+    def render(self, value, obj=None):
+        if isinstance(value, Money):
+            return super().render(value.amount, obj)
+        return super().render(value, obj)
+
+    def clean(self, value, row=None, **kwargs):
+        if isinstance(value, Money):
+            return value.amount
+        if value is None or str(value).strip() == "":
+            return None
+        return super().clean(value, row, **kwargs)
+
+
 class MaterialResource(resources.ModelResource):
     category = fields.Field(
         column_name="category",
@@ -27,7 +43,7 @@ class MaterialResource(resources.ModelResource):
     cost_per_unit = fields.Field(
         column_name="cost_per_unit",
         attribute="cost_per_unit",
-        widget=DecimalWidget(),
+        widget=MoneyAmountWidget(),
     )
     cost_per_unit_currency = fields.Field(
         column_name="cost_per_unit_currency",

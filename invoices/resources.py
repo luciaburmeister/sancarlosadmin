@@ -5,6 +5,11 @@ from materials.models import Provider
 from company.models import Company
 from sales.models import Client
 from django.utils.translation import gettext_lazy as _
+from django.db.models import Sum, DecimalField, Value
+from django.db.models.functions import Coalesce
+from django.db import models as models
+from django.contrib.contenttypes.models import ContentType
+from decimal import Decimal
 
 class InvoiceResource(resources.ModelResource):
     provider = fields.Field(
@@ -18,6 +23,8 @@ class InvoiceResource(resources.ModelResource):
         widget=ForeignKeyWidget(Company, 'name')
     )
     total_amount_value = fields.Field(column_name=_('Total Amount'))
+    amount_paid_value = fields.Field(column_name=_('Amount Paid'))
+    amount_remaining_value = fields.Field(column_name=_('Amount Remaining'))
     currency = fields.Field(column_name=_('Currency'))
 
     class Meta:
@@ -30,6 +37,8 @@ class InvoiceResource(resources.ModelResource):
             'company',
             'payment_method',
             'total_amount_value',
+            'amount_paid_value',
+            'amount_remaining_value',
             'currency',
             'confirmation_status',
             'payment_status',
@@ -38,8 +47,45 @@ class InvoiceResource(resources.ModelResource):
         )
         export_order = fields
 
+    def _annotate_queryset(self, queryset):
+        from payments.models import PaymentAllocation
+
+        ct = ContentType.objects.get_for_model(Invoice)
+        paid_subquery = (
+            PaymentAllocation.objects.filter(
+                content_type=ct,
+                object_id=models.OuterRef("pk"),
+            )
+            .values("object_id")
+            .annotate(total=Sum("amount_applied"))
+            .values("total")
+        )
+        return queryset.select_related("provider", "company").annotate(
+            _amount_paid=Coalesce(
+                models.Subquery(paid_subquery),
+                Value(Decimal("0.00")),
+                output_field=DecimalField(),
+            ),
+        )
+
+    def get_queryset(self):
+        return self._annotate_queryset(Invoice.objects.all())
+
+    def export(self, queryset=None, *args, **kwargs):
+        if queryset is not None:
+            queryset = self._annotate_queryset(queryset)
+        return super().export(queryset, *args, **kwargs)
+
     def dehydrate_total_amount_value(self, invoice):
         return invoice.total_amount.amount if invoice.total_amount else 0
+
+    def dehydrate_amount_paid_value(self, invoice):
+        return getattr(invoice, '_amount_paid', None) or 0
+
+    def dehydrate_amount_remaining_value(self, invoice):
+        total = invoice.total_amount.amount if invoice.total_amount else Decimal("0.00")
+        paid = getattr(invoice, '_amount_paid', None) or Decimal("0.00")
+        return total - paid
 
     def dehydrate_currency(self, invoice):
         return str(invoice.total_amount.currency) if invoice.total_amount else "EUR"

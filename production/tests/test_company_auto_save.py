@@ -4,6 +4,7 @@ from company.models import Company
 from configurator.models import ProductTemplate, Configuration
 from production.models import ProductionTicket, ProductionItem, ProductionItemSession, ProductionItemSessionKind
 
+
 class CompanyAutoSaveTest(TestCase):
     def setUp(self):
         self.company = Company.objects.create(name="Test Company")
@@ -34,7 +35,7 @@ class CompanyAutoSaveTest(TestCase):
             ticket=self.ticket,
             data={"test": "data"}
         )
-        
+
         # Create ProductionItemSession without company
         session = ProductionItemSession.objects.create(
             production_item=item,
@@ -42,6 +43,6 @@ class CompanyAutoSaveTest(TestCase):
             kind=ProductionItemSessionKind.ACTIVITY_STARTED
             # company is NOT set here
         )
-        
+
         # Verify company is auto-populated from production_item
         self.assertEqual(session.company, self.company)

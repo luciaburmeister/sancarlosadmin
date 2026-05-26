@@ -298,6 +298,13 @@ CRISPY_ALLOWED_TEMPLATE_PACKS = ["unfold_crispy"]
 
 LANGUAGE_CODE = "es"
 
+DATE_INPUT_FORMATS = [
+    "%d/%m/%Y",   # 26/05/2026 — Spanish / European (primary)
+    "%Y-%m-%d",   # 2026-05-26 — ISO
+    "%d-%m-%Y",   # 26-05-2026
+    "%d/%m/%y",   # 26/05/26
+]
+
 LOCATION_FIELD = {
     'map.provider': 'openstreetmap',
     'search.provider': 'nominatim',

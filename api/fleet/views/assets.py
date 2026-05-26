@@ -3,6 +3,7 @@ import json
 
 import qrcode
 from assets.models import Asset, AssetTransaction, TransactionTypeChoices
+from core.tasks import send_asset_transaction_email_task
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
@@ -175,7 +176,7 @@ class AssetPickupView(APIView):
         if employee is None:
             return JsonResponse({"error": "No employee profile found"}, status=400)
 
-        AssetTransaction.objects.create(
+        transaction = AssetTransaction.objects.create(
             asset=asset,
             company=asset.company,
             from_zone=asset.current_working_zone,
@@ -183,10 +184,13 @@ class AssetPickupView(APIView):
             transaction_type=TransactionTypeChoices.MOVEMENT,
             date=timezone.now(),
             performed_by=employee,
+            project_file=asset.current_working_zone.project_file if asset.current_working_zone else None,
             notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
             firma=firma,
             data=form_data,
         )
+
+        send_asset_transaction_email_task.delay(transaction.id)
 
         return JsonResponse({"success": True, "message": "Recogida registrada"})
 
@@ -218,7 +222,7 @@ class AssetDeliverView(APIView):
         if employee is None:
             return JsonResponse({"error": "No employee profile found"}, status=400)
 
-        AssetTransaction.objects.create(
+        transaction = AssetTransaction.objects.create(
             asset=asset,
             company=asset.company,
             from_zone=asset.current_working_zone,
@@ -237,6 +241,8 @@ class AssetDeliverView(APIView):
 
         asset.current_working_zone = destination_zone
         asset.save()
+
+        send_asset_transaction_email_task.delay(transaction.id)
 
         return JsonResponse({"success": True, "message": f"Entrega registrada en {destination_zone}"})
 

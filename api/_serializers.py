@@ -359,13 +359,20 @@ def _ordered_stage_names(item) -> list[str]:
     return sorted(names, key=sort_key)
 
 
-def serialize_production_items_with_stages(ticket, items=None) -> list[dict]:
+def serialize_production_items_with_stages(ticket, items=None, employee=None) -> list[dict]:
     """One entry per ProductionItem with nested stages (BOM line, not aggregated)."""
     if items is None:
         items = list(
             ticket.items.prefetch_related("assigned_employees").order_by("id")
         )
     items = _sort_production_items_stable(items)
+
+    employee_stages = set()
+    if employee is not None:
+        employee_stages = {
+            unicodedata.normalize("NFC", s)
+            for s in (employee.production_stages or [])
+        }
 
     # Fetch all open sessions for this ticket's items in one query.
     item_ids = [it.id for it in items]
@@ -410,12 +417,22 @@ def serialize_production_items_with_stages(ticket, items=None) -> list[dict]:
                     break
             status = (raw_info.get("status") or "pending") if isinstance(raw_info, dict) else "pending"
             workers = active_workers.get((item.id, stage_name), [])
+            employee_already_active = employee is not None and any(
+                w["id"] == employee.id for w in workers
+            )
+            can_start_session = (
+                employee is not None
+                and status != "done"
+                and stage_name in employee_stages
+                and not employee_already_active
+            )
             stages_out.append(
                 {
                     "name": stage_name,
                     "status": status,
                     "assigned_employees": line_assignees,
                     "active_workers": workers,
+                    "can_start_session": can_start_session,
                 }
             )
 

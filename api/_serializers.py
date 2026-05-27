@@ -373,9 +373,12 @@ def serialize_production_items_with_stages(ticket, items=None, employee=None) ->
             unicodedata.normalize("NFC", s)
             for s in (employee.production_stages or [])
         }
+    # Empty set means no restrictions (employee can work any stage).
+    employee_unrestricted = not employee_stages
 
-    # Fetch all open sessions for this ticket's items in one query.
     item_ids = [it.id for it in items]
+
+    # Open sessions → active_workers index.
     open_sessions = (
         ProductionItemSession.objects.filter(
             production_item_id__in=item_ids,
@@ -384,7 +387,6 @@ def serialize_production_items_with_stages(ticket, items=None, employee=None) ->
         )
         .select_related("created_by")
     )
-    # Index by (item_id, stage_name) -> list of employee dicts
     active_workers: dict[tuple, list] = {}
     for sess in open_sessions:
         key = (sess.production_item_id, unicodedata.normalize("NFC", sess.production_stage))
@@ -393,6 +395,23 @@ def serialize_production_items_with_stages(ticket, items=None, employee=None) ->
             active_workers.setdefault(key, []).append(
                 {"id": emp.id, "full_name": emp.full_name}
             )
+
+    # Closed sessions → paused_workers index (was here but no longer active).
+    closed_sessions = (
+        ProductionItemSession.objects.filter(
+            production_item_id__in=item_ids,
+            end_time__isnull=False,
+        )
+        .select_related("created_by")
+    )
+    # (item_id, stage_name) -> {employee_id: employee_dict}
+    had_session: dict[tuple, dict] = {}
+    for sess in closed_sessions:
+        emp = sess.created_by
+        if emp is None:
+            continue
+        key = (sess.production_item_id, unicodedata.normalize("NFC", sess.production_stage))
+        had_session.setdefault(key, {})[emp.id] = {"id": emp.id, "full_name": emp.full_name}
 
     out = []
     for item in items:
@@ -417,13 +436,19 @@ def serialize_production_items_with_stages(ticket, items=None, employee=None) ->
                     break
             status = (raw_info.get("status") or "pending") if isinstance(raw_info, dict) else "pending"
             workers = active_workers.get((item.id, stage_name), [])
-            employee_already_active = employee is not None and any(
-                w["id"] == employee.id for w in workers
-            )
+            active_ids = {w["id"] for w in workers}
+
+            # Employees who worked this stage previously but are not active now.
+            paused_workers = [
+                w for eid, w in had_session.get((item.id, stage_name), {}).items()
+                if eid not in active_ids
+            ]
+
+            employee_already_active = employee is not None and employee.id in active_ids
             can_start_session = (
                 employee is not None
                 and status != "done"
-                and stage_name in employee_stages
+                and (employee_unrestricted or stage_name in employee_stages)
                 and not employee_already_active
             )
             stages_out.append(
@@ -432,6 +457,7 @@ def serialize_production_items_with_stages(ticket, items=None, employee=None) ->
                     "status": status,
                     "assigned_employees": line_assignees,
                     "active_workers": workers,
+                    "paused_workers": paused_workers,
                     "can_start_session": can_start_session,
                 }
             )

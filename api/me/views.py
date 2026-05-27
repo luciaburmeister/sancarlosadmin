@@ -12,11 +12,12 @@ from api._utils import CompanyAPIView
 from company.models import Employee
 from configurator.models import Configuration, ConfigurationStatus
 from management.models import ProjectFileStatus
-from production.models import ProductionTicket, ProductionTicketStatus
-
-
-def _line_assignee_ids(item) -> list[int]:
-    return [e.id for e in item.assigned_employees.all()]
+from production.models import (
+    ProductionItemSession,
+    ProductionItemSessionStatus,
+    ProductionTicket,
+    ProductionTicketStatus,
+)
 
 
 def _employee_can_work_stage(employee, stage_name_nfc: str) -> bool:
@@ -44,18 +45,6 @@ def _task_pairs_capability_model(employee, active_items):
                     break
             info = raw if isinstance(raw, dict) else {}
             status = info.get("status") or "pending"
-            ids = _line_assignee_ids(item)
-            has_assignees = bool(ids)
-
-            if status == "pending":
-                if has_assignees and employee.id not in ids:
-                    continue
-            elif status == "in_progress":
-                if has_assignees and employee.id not in ids:
-                    continue
-            elif status == "done":
-                if employee.id not in ids:
-                    continue
 
             pairs.append(
                 {
@@ -68,6 +57,35 @@ def _task_pairs_capability_model(employee, active_items):
             )
     pairs.sort(key=lambda p: p["sort"])
     return pairs
+
+
+def _active_workers_index(active_items) -> dict[tuple, list[dict]]:
+    """Map (production_item_id, stage_name_nfc) -> open session workers."""
+    item_ids = [it.id for it in active_items]
+    if not item_ids:
+        return {}
+
+    open_sessions = ProductionItemSession.objects.filter(
+        production_item_id__in=item_ids,
+        end_time__isnull=True,
+        status=ProductionItemSessionStatus.IN_PROGRESS,
+    ).select_related("created_by")
+
+    index: dict[tuple, list[dict]] = {}
+    for sess in open_sessions:
+        emp = sess.created_by
+        if emp is None:
+            continue
+        key = (sess.production_item_id, _uc.normalize("NFC", sess.production_stage))
+        index.setdefault(key, []).append({"id": emp.id, "full_name": emp.full_name})
+    return index
+
+
+def _stage_started_by_others(employee, status: str, workers: list[dict]) -> bool:
+    """True when the stage is in progress with active workers, none of them the requester."""
+    if status != "in_progress" or not workers:
+        return False
+    return not any(w["id"] == employee.id for w in workers)
 
 
 class MeView(APIView):
@@ -149,19 +167,13 @@ class MyTasksView(CompanyAPIView):
                     continue
 
             my_pairs = _task_pairs_capability_model(employee, active_items)
-            if not my_pairs:
+            open_pairs = [p for p in my_pairs if p["status"] != "done"]
+            if not open_pairs:
                 continue
 
             my_stages_total = len(my_pairs)
             my_stages_done = sum(1 for p in my_pairs if p["status"] == "done")
-
-            if my_stages_done == my_stages_total:
-                continue
-
-            next_p = next(
-                (p for p in my_pairs if p["status"] != "done"),
-                my_pairs[0],
-            )
+            workers_index = _active_workers_index(active_items)
 
             expediente_data = None
             if project_file:
@@ -185,21 +197,37 @@ class MyTasksView(CompanyAPIView):
                 else (getattr(config, "name", None) or "")
             )
 
-            results.append({
+            base = {
                 "config_id": config.id,
                 "config_name": getattr(config, "name", None) or "",
                 "quote_name": quote_name,
                 "template_name": config.product.name if getattr(config, "product", None) else None,
                 "ticket_status": ticket.status,
                 "expediente": expediente_data,
-                "next_stage": {
-                    "name": next_p["stage_name"],
-                    "status": next_p["status"],
-                    "production_item_id": next_p["production_item_id"],
-                    "component_label": next_p["component_label"],
-                },
                 "my_stages_total": my_stages_total,
                 "my_stages_done": my_stages_done,
-            })
+            }
+
+            for stage_p in open_pairs:
+                stage_name_n = _uc.normalize("NFC", stage_p["stage_name"])
+                workers = workers_index.get(
+                    (stage_p["production_item_id"], stage_name_n),
+                    [],
+                )
+                my_open_session = any(w["id"] == employee.id for w in workers)
+                results.append({
+                    **base,
+                    "next_stage": {
+                        "name": stage_p["stage_name"],
+                        "status": stage_p["status"],
+                        "production_item_id": stage_p["production_item_id"],
+                        "component_label": stage_p["component_label"],
+                        "active_workers": workers,
+                        "has_my_open_session": my_open_session,
+                        "started_by_others": _stage_started_by_others(
+                            employee, stage_p["status"], workers
+                        ),
+                    },
+                })
 
         return JsonResponse({"results": results, "count": len(results)})

@@ -705,6 +705,13 @@ class Configuration(Timestampable, CompanyOwnedModel):
         help_text=_("Optional group for organising configurations within a quote."),
     )
 
+    notes = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name=_("Notes"),
+        help_text=_("Free-form notes for this configuration."),
+    )
+
     class Meta:
         verbose_name = _("Configuration")
         verbose_name_plural = _("Configurations")

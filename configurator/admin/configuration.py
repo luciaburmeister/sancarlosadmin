@@ -292,6 +292,11 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
                 ("unit_price")
                 ),
         }),
+        (_("Notes"), {
+            "fields": (
+                ("notes",),
+            ),
+        }),
     )
 
     def get_readonly_fields(self, request, obj=None):
@@ -309,9 +314,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
             all_fields = [f for f in all_fields if f not in excluded_from_readonly]
             
             if obj.status == ConfigurationStatus.PRODUCTION_DONE:
-                 return list(readonly) # Allow editing everything? 
-                 # Wait, the user wants them to go to the wizard. 
-                 # But if they are in the admin form, we should probably allow some edits too.
+                 return list(readonly)
             
             return list(set(list(readonly) + all_fields))
         return readonly

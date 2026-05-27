@@ -241,15 +241,10 @@ def optimization_dict_creation(
                 if not stage_info["total_time_min"]:
                     continue
 
-                # Stage duration is per-stage (not per-item), take max across items
                 config_stage_durations[stage] = max(
                     config_stage_durations.get(stage, 0), stage_info["total_time_min"]
                 )
 
-                # Resource quantities: use the resolved flat values which
-                # _resolve_stage_info already derived from either the nested
-                # machine_types / employee_types arrays or the flat
-                # machine_qty / employee_qty keys.
                 if stage not in config_stage_rt:
                     config_stage_rt[stage] = {}
 

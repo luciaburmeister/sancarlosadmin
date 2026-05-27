@@ -1,15 +1,16 @@
 from unfold.admin import StackedInline
-from django.contrib import admin
+from django.contrib import admin, messages
 from unfold.admin import ModelAdmin
 from django.db import models
 
 from django.urls import path, reverse
+from django.shortcuts import get_object_or_404, redirect
 from company.models import Employee, EmployeeType, EmployeeDocument, EmployeeDocumentType
 from django.utils.translation import gettext_lazy as _
 from datetime import date
 
 from unfold.admin import ModelAdmin, TabularInline
-from unfold.decorators import display
+from unfold.decorators import display, action
 
 from import_export.admin import ImportExportModelAdmin
 from unfold.contrib.forms.widgets import ArrayWidget
@@ -93,6 +94,8 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
             "widget": ArrayWidget,
         }
     }
+
+    actions = ["create_production_resources_action"]
 
     change_form_template = "admin/company/employee/change_form.html"
 
@@ -265,6 +268,48 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         return super().change_view(
             request, object_id, form_url, extra_context=extra_context
         )
+
+    @action(
+        description=_("Create Production Resources"),
+        icon="engineering",
+    )
+    def create_production_resources_action(self, request, queryset):
+        from django.contrib.contenttypes.models import ContentType
+        from production.models import ProductionResource
+
+        employee_ct = ContentType.objects.get_for_model(Employee)
+
+        existing_ids = set(
+            ProductionResource.objects.filter(
+                content_type=employee_ct,
+                object_id__in=queryset.values_list("pk", flat=True),
+            ).values_list("object_id", flat=True)
+        )
+
+        to_create = [
+            ProductionResource(
+                content_type=employee_ct,
+                object_id=emp.pk,
+                company=emp.company,
+                is_active=True,
+            )
+            for emp in queryset
+            if emp.pk not in existing_ids
+        ]
+
+        created_count = len(ProductionResource.objects.bulk_create(to_create))
+        skipped_count = queryset.count() - created_count
+
+        if created_count:
+            messages.success(
+                request,
+                _("Created %(count)d production resource(s).") % {"count": created_count},
+            )
+        if skipped_count:
+            messages.info(
+                request,
+                _("Skipped %(count)d employee(s) that already had a resource.") % {"count": skipped_count},
+            )
 
     def get_urls(self):
         return [

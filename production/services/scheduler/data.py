@@ -246,26 +246,20 @@ def optimization_dict_creation(
                     config_stage_durations.get(stage, 0), stage_info["total_time_min"]
                 )
 
-                # Union resource types, take max quantity
+                # Resource quantities: use the resolved flat values which
+                # _resolve_stage_info already derived from either the nested
+                # machine_types / employee_types arrays or the flat
+                # machine_qty / employee_qty keys.
                 if stage not in config_stage_rt:
                     config_stage_rt[stage] = {}
 
-                # Resource quantities are stored as arrays of dicts:
-                #   machine_types: [{"quantity": N, "machine_type_id": X}, ...]
-                #   employee_types: [{"quantity": N, "employee_type_id": X}, ...]
-                machine_qty = sum(
-                    mt.get("quantity", 0)
-                    for mt in raw_stage_info.get("machine_types", [])
-                )
+                machine_qty = stage_info["machine_qty"]
                 if machine_qty > 0:
                     rt = (machine_ct, stage)
                     existing_qty = config_stage_rt[stage].get(rt, 0)
                     config_stage_rt[stage][rt] = max(existing_qty, machine_qty)
 
-                employee_qty = sum(
-                    et.get("quantity", 0)
-                    for et in raw_stage_info.get("employee_types", [])
-                )
+                employee_qty = stage_info["employee_qty"]
                 if employee_qty > 0:
                     rt = (employee_ct, stage)
                     existing_qty = config_stage_rt[stage].get(rt, 0)

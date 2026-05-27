@@ -239,6 +239,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
 
     list_filter = (("status",MultipleChoicesDropdownFilter), 
                    ("client",AutocompleteSelectMultipleFilter), 
+                   ("product",AutocompleteSelectMultipleFilter),
                    ("created_at",RangeDateTimeFilter))
     search_fields = ("name", "client__name")
     list_select_related = ["client","company","product"]

@@ -1,9 +1,13 @@
 from django.contrib import admin
 from django.forms.models import BaseInlineFormSet
 from django.forms import ModelForm
+from django import forms
 from django.core.exceptions import ValidationError
+from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 from unfold.decorators import action # Added import
+import html
+import re
 
 
 from company.models import Company, CompanyScheduleSlot, CompanyUser, CompanyEmailConfig, BankAccount, CompanyDocument, CompanyDocumentType
@@ -16,7 +20,11 @@ from core.admin.company_admin import CompanyRestrictedAdmin
 from company.forms import CompanyDocumentForm
 
 from unfold.contrib.forms.widgets import ArrayWidget, WysiwygWidget
-from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminTimeWidget
+from unfold.widgets import (
+    UnfoldAdminFileFieldWidget,
+    UnfoldAdminSelectWidget,
+    UnfoldAdminTimeWidget,
+)
 from django.contrib.postgres.fields import ArrayField
 
 @admin.register(BankAccount)
@@ -113,8 +121,103 @@ class CompanyScheduleSlotInline(admin.TabularInline):
     fields = ("weekday", "start_time", "end_time")
     ordering = ("weekday", "start_time")
 
+
+class CompanyAdminForm(ModelForm):
+    terms_md_file = forms.FileField(
+        required=False,
+        widget=UnfoldAdminFileFieldWidget(attrs={"accept": ".md,.markdown"}),
+        label=_("Importar archivo Markdown (.md)"),
+        help_text=_(
+            "Si seleccionas un archivo .md, su contenido reemplazará el texto "
+            "actual al guardar."
+        ),
+    )
+
+    class Meta:
+        model = Company
+        fields = "__all__"
+
+    def _markdown_to_html(self, markdown_text: str) -> str:
+        text = (markdown_text or "").replace("\r\n", "\n").replace("\r", "\n")
+        lines = text.split("\n")
+        out: list[str] = []
+        in_ul = False
+
+        def inline(value: str) -> str:
+            escaped = html.escape(value)
+            escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
+            escaped = re.sub(r"\*(.+?)\*", r"<em>\1</em>", escaped)
+            return escaped
+
+        for raw in lines:
+            line = raw.strip()
+            if not line:
+                if in_ul:
+                    out.append("</ul>")
+                    in_ul = False
+                continue
+
+            if line.startswith("### "):
+                if in_ul:
+                    out.append("</ul>")
+                    in_ul = False
+                out.append(f"<h3>{inline(line[4:])}</h3>")
+                continue
+            if line.startswith("## "):
+                if in_ul:
+                    out.append("</ul>")
+                    in_ul = False
+                out.append(f"<h2>{inline(line[3:])}</h2>")
+                continue
+            if line.startswith("# "):
+                if in_ul:
+                    out.append("</ul>")
+                    in_ul = False
+                out.append(f"<h1>{inline(line[2:])}</h1>")
+                continue
+
+            if line.startswith("- ") or line.startswith("* "):
+                if not in_ul:
+                    out.append("<ul>")
+                    in_ul = True
+                out.append(f"<li>{inline(line[2:])}</li>")
+                continue
+
+            if in_ul:
+                out.append("</ul>")
+                in_ul = False
+            out.append(f"<p>{inline(line)}</p>")
+
+        if in_ul:
+            out.append("</ul>")
+
+        return "\n".join(out)
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        uploaded = self.cleaned_data.get("terms_md_file")
+        if uploaded:
+            name = (uploaded.name or "").lower()
+            if not (name.endswith(".md") or name.endswith(".markdown")):
+                raise ValidationError(
+                    {"terms_md_file": _("Solo se permiten archivos .md o .markdown")}
+                )
+            try:
+                markdown_text = uploaded.read().decode("utf-8")
+                instance.terms_text = self._markdown_to_html(markdown_text)
+            except UnicodeDecodeError as exc:
+                raise ValidationError(
+                    {"terms_md_file": _("El archivo debe estar codificado en UTF-8.")}
+                ) from exc
+        if commit:
+            instance.save()
+            self.save_m2m()
+        return instance
+
 @admin.register(Company)
 class CompanyAdmin(ModelAdmin):
+    form = CompanyAdminForm
+    readonly_fields = ("terms_import_hint",)
     inlines = [BankAccountInline, CompanyDocumentInline]
     list_display = ("name", "is_active")
     list_filter = ("is_active",)
@@ -156,7 +259,7 @@ class CompanyAdmin(ModelAdmin):
             "classes": ["tab"]
         }),
         (_("Términos y Condiciones"), {
-            "fields": ("terms_text",),
+            "fields": ("terms_import_hint", "terms_md_file", "terms_text"),
             "classes": ["tab"],
             "description": "Texto que el cliente firmará digitalmente al registrarse en la app. Déjalo vacío para no requerir firma.",
         }),
@@ -172,6 +275,20 @@ class CompanyAdmin(ModelAdmin):
         if db_field.name == "terms_text":
             kwargs["widget"] = WysiwygWidget
         return super().formfield_for_dbfield(db_field, request, **kwargs)
+
+    @admin.display(description=_("Importación de términos"))
+    def terms_import_hint(self, obj):
+        return format_html(
+            """
+            <div style="padding:12px 14px;border-radius:10px;border:1px solid #99F6E4;background:#F0FDFA;">
+              <div style="font-weight:700;margin-bottom:4px;color:#115E59;">Carga rápida desde Markdown</div>
+              <div style="font-size:12px;color:#134E4A;">
+                Sube un archivo <code>.md</code> o <code>.markdown</code> para reemplazar automáticamente
+                el texto de términos al guardar la compañía.
+              </div>
+            </div>
+            """
+        )
 
     actions_row = ["install_chart_action"]
 

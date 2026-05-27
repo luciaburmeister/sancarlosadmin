@@ -310,7 +310,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
                     else:
                         all_fields.append(field)
             
-            excluded_from_readonly = {"quote", "client", "notes"}
+            excluded_from_readonly = {"quote", "client", "notes","name"}
             all_fields = [f for f in all_fields if f not in excluded_from_readonly]
             
             if obj.status == ConfigurationStatus.PRODUCTION_DONE:

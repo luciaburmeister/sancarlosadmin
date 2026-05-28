@@ -1604,6 +1604,16 @@ class ConfigurationComponentGroup(models.Model):
     def __str__(self):
         return self.label
 
+    @property
+    def price_total(self):
+        """Sum of (unit_price × quantity) for every item in this group."""
+        total = Decimal("0")
+        for item in self.items.all():
+            qty = item.quantity or Decimal("0")
+            price = item.unit_price.amount if item.unit_price else Decimal("0")
+            total += price * qty
+        return total
+
 
 class ReceivalSlip(Timestampable, CompanyOwnedModel):
     """

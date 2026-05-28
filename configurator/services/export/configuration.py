@@ -41,7 +41,7 @@ class ConfigurationExportStrategy(BaseExportStrategy):
             "client": self.configuration.client,
             "items": items_data,
             "parameters": self.configuration.param_values.select_related("parameter"),
-            "component_groups": self.configuration.component_groups.order_by("order"),
+            "component_groups": self.configuration.component_groups.prefetch_related("items").order_by("order"),
             "computed": pricing_context,
             "parameter_pricing_dictionary": pricing_context,
         }

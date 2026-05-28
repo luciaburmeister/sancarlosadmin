@@ -590,11 +590,13 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = super().get_readonly_fields(request, obj)
         if obj and obj.status == SalesInvoiceStatus.FINAL:
-            return list(set(
+            all_fields = list(set(
                 [f.name for f in self.model._meta.fields] +
                 [f.name for f in self.model._meta.many_to_many] +
                 list(readonly_fields)
             ))
+            excluded_from_readonly = {"payment_status"}
+            return [f for f in all_fields if f not in excluded_from_readonly]
         return readonly_fields
 
     def has_delete_permission(self, request, obj=None):

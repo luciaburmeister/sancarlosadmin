@@ -653,6 +653,15 @@ class QuoteConfigurationGroup(Timestampable):
             Decimal("0.00"),
         )
 
+    @property
+    def price_total(self):
+        """Sum of component-group price_total across all member configurations."""
+        total = Decimal("0.00")
+        for config in self.configurations.prefetch_related("component_groups__items").all():
+            for cg in config.component_groups.all():
+                total += cg.price_total
+        return total
+
 
 class QuoteItem(Timestampable):
     quote = models.ForeignKey(

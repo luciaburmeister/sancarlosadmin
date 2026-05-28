@@ -53,6 +53,7 @@ class QuoteExportStrategy(BaseExportStrategy):
                 "subtotal": float(group.subtotal),
                 "total": float(group.total),
                 "unit_price": float(group.unit_price),
+                "price_total": float(group.price_total),
                 "configurations": member_configs,
             })
 

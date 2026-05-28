@@ -312,6 +312,8 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
                         all_fields.append(field)
             
             excluded_from_readonly = {"quote", "client", "notes","name"}
+            if obj.status == ConfigurationStatus.SHOP:
+                excluded_from_readonly.add("price_override")
             all_fields = [f for f in all_fields if f not in excluded_from_readonly]
             
             if obj.status == ConfigurationStatus.PRODUCTION_DONE:

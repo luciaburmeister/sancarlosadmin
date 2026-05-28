@@ -2,9 +2,10 @@
 
 import json
 from datetime import date
+from decimal import Decimal
 
 from django.db import transaction
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from djmoney.money import Money
 
 from api._serializers import serialize_presupuesto, serialize_product_config
@@ -17,7 +18,10 @@ from configurator.models import (
     ConfigurationStatus,
     ProductTemplate,
 )
+from configurator.models import ExportTemplateKind
+from core.services.pdf_service import PDFService
 from management.models import ProjectFile, ProjectFileStatus
+from invoices.models import AppliedTax, SalesInvoice, SalesInvoiceItem
 from sales.models import Quote
 
 _ALLOWED_QUOTE_STATUSES = {"draft", "sent", "accepted", "rejected"}
@@ -94,11 +98,31 @@ class PresupuestoDetailView(CompanyAPIView):
             new_status = body["status"]
             if new_status not in _ALLOWED_QUOTE_STATUSES:
                 return JsonResponse({"error": f"Invalid status: {new_status}"}, status=400)
+            if new_status == "draft" and quote.status != "draft":
+                config_ids = list(quote.configurations.values_list("id", flat=True))
+                if config_ids:
+                    has_invoice = SalesInvoice.objects.filter(
+                        configuration_id__in=config_ids
+                    ).exists()
+                    if not has_invoice:
+                        source_ids = [f"config_{cid}" for cid in config_ids]
+                        has_invoice = SalesInvoiceItem.objects.filter(
+                            source_id__in=source_ids,
+                            invoice__project_file=quote.project_file,
+                        ).exists()
+                    if has_invoice:
+                        return JsonResponse(
+                            {"error": "No se puede revertir a borrador un presupuesto con facturas emitidas."},
+                            status=400,
+                        )
             quote.status = new_status
             update_fields.append("status")
         if "name" in body:
             quote.project_name = (body["name"] or "").strip()
             update_fields.append("project_name")
+        if "observations" in body:
+            quote.observations = (body["observations"] or "").strip() or None
+            update_fields.append("observations")
         if update_fields:
             quote.save(update_fields=update_fields)
 
@@ -138,6 +162,7 @@ class ProductoListCreateView(CompanyAPIView):
         template_id = body.get("template_id")
         param_values = body.get("param_values", {})
         price = body.get("price")
+        final_price = body.get("final_price")
         config_name = (body.get("name") or "").strip()
 
         try:
@@ -164,6 +189,15 @@ class ProductoListCreateView(CompanyAPIView):
             )
             config.copy_default_pricing_rules_from_product()
             config.copy_default_taxes_from_product()
+
+            # If caller supplied a VAT-inclusive final price, back-calculate the subtotal
+            # so that after taxes are applied, total_price == final_price.
+            if final_price is not None:
+                factor = AppliedTax.compound_factor(config.get_taxes())
+                subtotal = Decimal(str(final_price)) / (factor if factor else Decimal("1"))
+                config.price_override = Money(subtotal.quantize(Decimal("0.01")), "EUR")
+                config.save(update_fields=["price_override", "price_override_currency"])
+
             params_by_name = {p.name: p for p in template.parameters.all()}
             ConfigurationParameterValue.objects.bulk_create([
                 ConfigurationParameterValue(
@@ -201,6 +235,12 @@ class ProductoDetailView(CompanyAPIView):
         except Configuration.DoesNotExist:
             return JsonResponse({"error": "Not found"}, status=404)
 
+        if config.quote and config.quote.status != "draft":
+            return JsonResponse(
+                {"error": "Solo se pueden editar configuraciones de presupuestos en estado borrador."},
+                status=400,
+            )
+
         body = json.loads(request.body)
         param_values = body.get("param_values", {})
 
@@ -218,6 +258,16 @@ class ProductoDetailView(CompanyAPIView):
             if "price" in body:
                 price = body["price"]
                 config.price_override = Money(price, "EUR") if price is not None else None
+                update_fields += ["price_override", "price_override_currency"]
+                price_changed = True
+            elif "final_price" in body:
+                final_price = body["final_price"]
+                if final_price is None:
+                    config.price_override = None
+                else:
+                    factor = AppliedTax.compound_factor(config.get_taxes())
+                    subtotal = Decimal(str(final_price)) / (factor if factor else Decimal("1"))
+                    config.price_override = Money(subtotal.quantize(Decimal("0.01")), "EUR")
                 update_fields += ["price_override", "price_override_currency"]
                 price_changed = True
 
@@ -263,3 +313,87 @@ class ProductoDetailView(CompanyAPIView):
         if quote:
             quote.recalc_totals()
         return JsonResponse({"success": True})
+
+
+class ConfigurationFinalPriceView(CompanyAPIView):
+    """Set the VAT-inclusive final price on a configuration.
+
+    Accepts ``{ "final_price": 121.00 }`` and back-calculates the subtotal
+    (price_override) so that after the configuration's taxes are applied the
+    resulting total_price equals the supplied final_price.  Passing
+    ``null`` clears the override and reverts to the rule-calculated price.
+    """
+
+    def patch(self, request, quote_id, config_id):
+        try:
+            config = Configuration.objects.select_related("product", "quote").get(
+                id=config_id,
+                quote_id=quote_id,
+                company=self.company,
+            )
+        except Configuration.DoesNotExist:
+            return JsonResponse({"error": "Not found"}, status=404)
+
+        body = json.loads(request.body)
+        if "final_price" not in body:
+            return JsonResponse({"error": "final_price is required"}, status=400)
+
+        final_price = body["final_price"]
+
+        with transaction.atomic():
+            if final_price is None:
+                config.price_override = None
+            else:
+                try:
+                    final_price = Decimal(str(final_price))
+                except Exception:
+                    return JsonResponse({"error": "Invalid final_price"}, status=400)
+                factor = AppliedTax.compound_factor(config.get_taxes())
+                subtotal = final_price / (factor if factor else Decimal("1"))
+                config.price_override = Money(subtotal.quantize(Decimal("0.01")), "EUR")
+
+            config.save(update_fields=["price_override", "price_override_currency"])
+            config.recalculate_price()
+            config.refresh_from_db()
+            if config.quote:
+                config.quote.recalc_totals()
+
+        return JsonResponse(serialize_product_config(config))
+
+
+class QuotePdfView(CompanyAPIView):
+    """GET quotes/<id>/pdf/ — renders the consolidated quotation PDF via the ERP template."""
+
+    def perform_content_negotiation(self, request, force=False):
+        from rest_framework.renderers import JSONRenderer
+        return (JSONRenderer(), "application/json")
+
+    def get(self, request, quote_id):
+        try:
+            quote = Quote.objects.select_related("client", "company").get(
+                id=quote_id, company=self.company
+            )
+        except Quote.DoesNotExist:
+            return JsonResponse({"error": "Presupuesto no encontrado."}, status=404)
+
+        show_vehicle = request.GET.get('show_vehicle', 'true').lower() != 'false'
+        pdf_bytes = PDFService.render_object_pdf(
+            quote,
+            ExportTemplateKind.CONSOLIDATED_QUOTATION,
+            company=quote.company,
+            extra_context={'show_vehicle': show_vehicle},
+        )
+        if not pdf_bytes:
+            return JsonResponse(
+                {"error": "No se encontró plantilla de presupuesto para este documento."},
+                status=404,
+            )
+
+        safe_name = "".join(
+            c if c.isalnum() or c in "-_" else "_"
+            for c in (quote.project_name or str(quote.id))
+        )
+        filename = f"presupuesto_{safe_name}.pdf"
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
+        return response

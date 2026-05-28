@@ -1,6 +1,7 @@
 """CRUD + preview + convert endpoints for Configuration."""
 
 import json
+from decimal import Decimal
 
 from django.db import transaction
 from django.http import JsonResponse
@@ -15,6 +16,7 @@ from api._serializers import (
 )
 from api._utils import CompanyAPIView
 from api.projects.helpers import default_config_name, missing_required_params
+from invoices.models import AppliedTax
 from configurator.models import (
     Configuration,
     ConfigurationFlow,
@@ -32,6 +34,7 @@ class ConfigurationPreviewView(CompanyAPIView):
         template_id = body.get("template_id")
         param_values = body.get("param_values", {})
         price = body.get("price")
+        final_price = body.get("final_price")
 
         try:
             template = ProductTemplate.objects.get(id=template_id, company=self.company)
@@ -47,6 +50,16 @@ class ConfigurationPreviewView(CompanyAPIView):
                     status=ConfigurationStatus.DRAFT,
                     price_override=Money(price, "EUR") if price is not None else None,
                 )
+                # Copy taxes so that total_price in the preview reflects the real
+                # VAT-inclusive amount (same taxes the saved config would apply).
+                config.copy_default_taxes_from_product()
+
+                if final_price is not None:
+                    factor = AppliedTax.compound_factor(config.get_taxes())
+                    subtotal = Decimal(str(final_price)) / (factor if factor else Decimal("1"))
+                    config.price_override = Money(subtotal.quantize(Decimal("0.01")), "EUR")
+                    config.save(update_fields=["price_override", "price_override_currency"])
+
                 params_by_name = {p.name: p for p in template.parameters.all()}
                 ConfigurationParameterValue.objects.bulk_create([
                     ConfigurationParameterValue(
@@ -205,6 +218,120 @@ class ConfigurationManageView(CompanyAPIView):
 
         config.delete()
         return JsonResponse({"success": True})
+
+
+class ConfigurationCancelView(CompanyAPIView):
+    """POST /configurations/<id>/cancel/ — cancels a configuration and detaches it from its quote."""
+
+    def post(self, request, config_id):
+        try:
+            config = Configuration.objects.select_related("quote").get(
+                id=config_id, company=self.company
+            )
+        except Configuration.DoesNotExist:
+            return JsonResponse({"error": "Not found"}, status=404)
+
+        if config.status == ConfigurationStatus.CANCELLED:
+            return JsonResponse({"error": "La configuración ya está cancelada."}, status=400)
+
+        with transaction.atomic():
+            quote = config.quote
+            config.status = ConfigurationStatus.CANCELLED
+            config.quote = None
+            config.project_file = None
+            config.save(update_fields=["status", "quote", "project_file"])
+            if quote:
+                quote.recalc_totals()
+
+        return JsonResponse({"success": True, "cancelled_id": config_id})
+
+
+class ConfigurationReplaceView(CompanyAPIView):
+    """POST /quotes/<quote_id>/configurations/<config_id>/replace/
+
+    Cancels the existing configuration and creates a new one with the supplied
+    param_values (and optionally final_price), going through the full creation
+    flow (generate_bom → recalculate_price → convert).  Returns the new config.
+    """
+
+    def post(self, request, quote_id, config_id):
+        try:
+            old_config = Configuration.objects.select_related("product", "quote").get(
+                id=config_id, quote_id=quote_id, company=self.company
+            )
+        except Configuration.DoesNotExist:
+            return JsonResponse({"error": "Not found"}, status=404)
+
+        body = json.loads(request.body)
+        param_values = body.get("param_values", {})
+
+        missing = missing_required_params(old_config.product, param_values)
+        if missing:
+            return JsonResponse({"error": "Missing required parameters", "fields": missing}, status=400)
+
+        with transaction.atomic():
+            quote = old_config.quote
+
+            new_config = Configuration.objects.create(
+                company=self.company,
+                client=old_config.client,
+                quote=quote,
+                product=old_config.product,
+                name=old_config.name,
+                status=ConfigurationStatus.DRAFT,
+            )
+            new_config.copy_default_pricing_rules_from_product()
+            new_config.copy_default_taxes_from_product()
+
+            if "final_price" in body:
+                # Key present: explicit override (value) or explicit clear (null)
+                final_price_val = body["final_price"]
+                if final_price_val is not None:
+                    try:
+                        final_price_val = Decimal(str(final_price_val))
+                    except Exception:
+                        return JsonResponse({"error": "Invalid final_price"}, status=400)
+                    factor = AppliedTax.compound_factor(new_config.get_taxes())
+                    subtotal = final_price_val / (factor if factor else Decimal("1"))
+                    new_config.price_override = Money(subtotal.quantize(Decimal("0.01")), "EUR")
+                    new_config.save(update_fields=["price_override", "price_override_currency"])
+                # if null: no override, let recalculate_price use rules
+            elif old_config.price_override:
+                # Key absent: inherit old config's price_override
+                new_config.price_override = old_config.price_override
+                new_config.save(update_fields=["price_override", "price_override_currency"])
+
+            params_by_name = {p.name: p for p in old_config.product.parameters.all()}
+            ConfigurationParameterValue.objects.bulk_create([
+                ConfigurationParameterValue(
+                    configuration=new_config,
+                    parameter=param,
+                    value=str(param.normalize_value(value)),
+                    order=param.order,
+                )
+                for param_name, value in param_values.items()
+                if (param := params_by_name.get(param_name))
+            ])
+            new_config.generate_bom()
+            new_config.recalculate_price()
+
+            try:
+                flow = ConfigurationFlow(new_config)
+                flow.convert()
+            except Exception:
+                pass
+
+            new_config.refresh_from_db()
+
+            old_config.status = ConfigurationStatus.CANCELLED
+            old_config.quote = None
+            old_config.project_file = None
+            old_config.save(update_fields=["status", "quote", "project_file"])
+
+            if quote:
+                quote.recalc_totals()
+
+        return JsonResponse(serialize_product_config(new_config), status=201)
 
 
 class ConfigurationConvertView(CompanyAPIView):

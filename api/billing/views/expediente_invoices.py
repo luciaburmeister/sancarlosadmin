@@ -50,6 +50,7 @@ def _serialize_invoice_detail(invoice):
         {
             "id": item.id,
             "description": item.description,
+            "quote_name": item.quote_name,
             "quantity": float(item.quantity),
             "unit_price": float(item.unit_price.amount) if item.unit_price else 0.0,
             "discount_percentage": float(item.discount_percentage),
@@ -79,8 +80,60 @@ def _serialize_invoice_detail(invoice):
     }
 
 
-def _build_items_from_summary(summary, invoice_mode, percentage, custom_amount):
-    """Build invoice line items scaled to the pending amount (partial invoicing)."""
+def _get_config_component_lines(config) -> list:
+    """Return per-component label/amount lines for a configuration.
+
+    Priority: stored pricing_breakdown non-override lines → BOM items → single fallback.
+    Amounts sum to config.subtotal_price (before any invoicing ratio is applied).
+    """
+    override_subtotal = Decimal(str(config.subtotal_price.amount))
+
+    pb = config.pricing_breakdown or {}
+    lines = pb.get("lines", [])
+    is_override_only = (
+        len(lines) == 1 and lines[0].get("type") == "override"
+    ) or (not lines and config.price_override and config.price_override.amount > 0)
+
+    if not is_override_only and lines:
+        return [
+            {"label": line.get("label", ""), "amount": Decimal(str(line.get("amount", 0)))}
+            for line in lines
+            if Decimal(str(line.get("amount", 0))) != 0
+        ]
+
+    bom_lines = []
+    bom_total = Decimal("0")
+    for item in config.items.all():  # prefetched via items__component
+        lt = Decimal(str(item.line_total.amount)) if item.line_total else Decimal("0")
+        if lt <= 0:
+            continue
+        label = item.label or (item.component.name if item.component else "")
+        if " × " in label:
+            label = label.rsplit(" × ", 1)[0].strip()
+        bom_lines.append({"label": label, "amount": lt})
+        bom_total += lt
+
+    if bom_lines:
+        scale = override_subtotal / bom_total if bom_total else Decimal("1")
+        return [
+            {"label": bl["label"], "amount": (bl["amount"] * scale).quantize(Decimal("0.01"))}
+            for bl in bom_lines
+        ]
+
+    return [{"label": config.name, "amount": override_subtotal}]
+
+
+def _build_items_from_summary(summary, invoice_mode, percentage, custom_amount, show_vehicle_name=True):
+    """Build invoice line items scaled to the pending amount (partial invoicing).
+
+    Each configuration is expanded into one item per component so the stored
+    invoice items already carry the breakdown — no reverse lookup needed at
+    export time.  All component items for the same config share source_id
+    "config_<id>" so the export strategy can group them back by config.
+
+    When show_vehicle_name is True the quote's project_name is appended to each
+    component description so the PDF template can show it without a DB lookup.
+    """
     ratio = ProjectFileInvoiceService.compute_invoice_line_ratio(
         summary, invoice_mode, percentage, custom_amount
     )
@@ -90,21 +143,28 @@ def _build_items_from_summary(summary, invoice_mode, percentage, custom_amount):
 
     for quote_data in summary["quotes"]:
         quote = quote_data["quote"]
-        for config in quote.configurations.all():
-            sub = config.subtotal_price.amount
-            tot = config.total_price.amount
-            item_price = (sub * ratio).quantize(Decimal("0.01"))
-            item_tax = ((tot - sub) * ratio).quantize(Decimal("0.01"))
-            if item_price <= 0:
+        quote_name = quote.project_name if show_vehicle_name else "."
+        for config in quote.configurations.prefetch_related("items__component").all():
+            sub = Decimal(str(config.subtotal_price.amount))
+            tot = Decimal(str(config.total_price.amount))
+            if sub <= 0:
                 continue
+            item_tax = ((tot - sub) * ratio).quantize(Decimal("0.01"))
             total_tax += item_tax
-            items.append({
-                "source_id": f"config_{config.id}",
-                "description": f"{config.name} (P#{quote.id})",
-                "quantity": Decimal("1"),
-                "unit_price": item_price,
-                "discount_percentage": Decimal("0.00"),
-            })
+
+            for comp in _get_config_component_lines(config):
+                comp_price = (comp["amount"] * ratio).quantize(Decimal("0.01"))
+                if comp_price <= 0:
+                    continue
+                items.append({
+                    "source_id": f"config_{config.id}",
+                    "description": comp["label"],
+                    "quote_name": quote_name,
+                    "quantity": Decimal("1"),
+                    "unit_price": comp_price,
+                    "discount_percentage": Decimal("0.00"),
+                })
+
         for item in quote.items.all():
             item_price = (item.line_total.amount * ratio).quantize(Decimal("0.01"))
             if item_price <= 0:
@@ -112,6 +172,7 @@ def _build_items_from_summary(summary, invoice_mode, percentage, custom_amount):
             items.append({
                 "source_id": f"quote_item_{item.id}",
                 "description": f"{item.material} x{item.quantity} (P#{quote.id})",
+                "quote_name": quote_name,
                 "quantity": Decimal("1"),
                 "unit_price": item_price,
                 "discount_percentage": Decimal("0.00"),
@@ -171,6 +232,7 @@ class ProjectFileInvoiceCreateView(CompanyAPIView):
                 return JsonResponse({"error": "custom_amount debe ser un número positivo."}, status=400)
 
         notes = body.get("notes", "")
+        show_vehicle_name = bool(body.get("show_vehicle_name", True))
         payment_method = (body.get("payment_method") or "").strip()
         if payment_method and payment_method not in ALLOWED_SALES_INVOICE_PAYMENT_METHODS:
             return JsonResponse(
@@ -210,8 +272,16 @@ class ProjectFileInvoiceCreateView(CompanyAPIView):
                     status=400,
                 )
 
+            if not show_vehicle_name:
+                from sales.models import Quote
+                Quote.objects.filter(
+                    project_file=project_file,
+                    status="accepted",
+                ).exclude(project_name=".").update(project_name=".")
+
             items_data, total_tax = _build_items_from_summary(
-                summary, invoice_mode, percentage, custom_amount
+                summary, invoice_mode, percentage, custom_amount,
+                show_vehicle_name=show_vehicle_name,
             )
             if not items_data:
                 return JsonResponse(
@@ -268,10 +338,12 @@ class SalesInvoicePdfView(CompanyAPIView):
         except SalesInvoice.DoesNotExist:
             return JsonResponse({"error": "Factura no encontrada."}, status=404)
 
+        show_vehicle = request.GET.get('show_vehicle', 'true').lower() != 'false'
         pdf_bytes = PDFService.render_object_pdf(
             invoice,
             ExportTemplateKind.SALES_INVOICE,
             company=invoice.company,
+            extra_context={'show_vehicle': show_vehicle},
         )
         if not pdf_bytes:
             return JsonResponse(

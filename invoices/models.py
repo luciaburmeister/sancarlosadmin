@@ -32,9 +32,12 @@ class InvoiceGroup(models.Model):
         return self.name
 
 class PaymentMethod(models.TextChoices):
-    TRANSFER = 'transfer', _('Bank Transfer')  
+    TRANSFER = 'transfer', _('Bank Transfer')
     CASH = 'cash', _('Cash')
     CARD = 'card', _('Credit/Debit Card')
+    CHEQUE = 'cheque', _('Cheque')
+    SEPA_DIRECT_DEBIT = 'sepa_direct_debit', _('SEPA - Direct debit')
+    CONFIRMING = 'confirming', _('Confirming')
 
 class ConfirmationStatus(models.TextChoices):
     APPROVED = 'approved', _('Approved')
@@ -555,6 +558,18 @@ class AppliedTax(models.Model):
             models.Index(fields=["content_type", "object_id","order"]),
         ]
 
+    @classmethod
+    def compound_factor(cls, taxes_qs) -> Decimal:
+        """Cumulative tax multiplier for a sequentially-applied tax chain.
+
+        E.g. 21% IVA → 1.21. Use to reverse-calculate subtotal from a
+        VAT-inclusive price: subtotal = final_price / compound_factor(taxes).
+        """
+        factor = Decimal("1")
+        for tax in taxes_qs:
+            factor *= 1 + Decimal(str(tax.selected_percentage)) / 100
+        return factor
+
     def __str__(self):
         return f"{self.content_object} – {self.tax_type} ({self.selected_percentage}%)"
 
@@ -898,6 +913,13 @@ class SalesInvoiceItem(models.Model):
         default="",
         verbose_name=_("Source"),
         help_text=_("Origin reference (e.g. config_451, direct_468, quote_item_12)"),
+    )
+    quote_name = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name=_("Quote name"),
+        help_text=_("project_name of the originating quote at invoice creation time; '.' when vehicle is hidden."),
     )
 
     def save(self, *args, **kwargs):

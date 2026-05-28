@@ -8,11 +8,12 @@ from django.http import JsonResponse
 
 from api._serializers import serialize_client
 from api._utils import CompanyAPIView
+from invoices.models import PaymentMethod
 from sales.models import Client
 from sales.services.client_terms import apply_terms_acceptance
 from sales.services.client_terms_email_service import ClientTermsEmailService
 
-_ALLOWED_PAYMENT_METHODS = {"transfer", "cash", "card"}
+_ALLOWED_PAYMENT_METHODS = {m.value for m in PaymentMethod}
 _OPEN_PROJECT_STATUSES = {"new", "active", "on_hold"}
 
 
@@ -68,6 +69,9 @@ class ClientListCreateView(CompanyAPIView):
         name = body.get("name", "").strip()
         if not name:
             return JsonResponse({"error": "Name is required"}, status=400)
+        tax_identifier = (body.get("tax_identifier") or "").strip()
+        if not tax_identifier:
+            return JsonResponse({"error": "Tax identifier is required"}, status=400)
         payment_method = (body.get("payment_method") or "transfer").strip()
         if payment_method not in _ALLOWED_PAYMENT_METHODS:
             return JsonResponse(
@@ -75,13 +79,18 @@ class ClientListCreateView(CompanyAPIView):
                 status=400,
             )
 
+        address = (body.get("address") or "").strip()
+        if not address:
+            return JsonResponse({"error": "Address is required"}, status=400)
         terms_signature = (body.get("terms_signature") or "").strip()
 
         client = Client.objects.create(
             company=company,
             name=name,
+            tax_identifier=tax_identifier,
             phone=body.get("phone", ""),
             email=body.get("email", ""),
+            address=address,
             payment_method=payment_method,
         )
         if terms_signature:
@@ -122,6 +131,11 @@ class ClientDetailView(CompanyAPIView):
             client.name = name
         if "phone" in body:
             client.phone = (body.get("phone") or "") or ""
+        if "tax_identifier" in body:
+            tax_identifier = (body.get("tax_identifier") or "").strip()
+            if not tax_identifier:
+                return JsonResponse({"error": "Tax identifier is required"}, status=400)
+            client.tax_identifier = tax_identifier
         if "email" in body:
             client.email = (body.get("email") or "") or ""
         if "payment_method" in body:
@@ -132,6 +146,8 @@ class ClientDetailView(CompanyAPIView):
                     status=400,
                 )
             client.payment_method = payment_method
+        if "address" in body:
+            client.address = (body.get("address") or "").strip()
 
         client.save()
         return JsonResponse(serialize_client(client))

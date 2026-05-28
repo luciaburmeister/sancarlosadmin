@@ -314,6 +314,7 @@ class ProjectFileInvoiceService:
             item = SalesInvoiceItem.objects.create(
                 invoice=invoice,
                 description=item_data['description'],
+                quote_name=item_data.get('quote_name', ''),
                 quantity=item_data.get('quantity', Decimal("1")),
                 unit_price=item_data['unit_price'],
                 discount_percentage=item_data.get('discount_percentage', Decimal("0.00")),

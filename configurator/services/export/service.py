@@ -146,7 +146,7 @@ class ConfigurationExportService:
         return json_str.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
     @staticmethod
-    def render_parts(obj: Any, template: "ConfigurationExportTemplate"):
+    def render_parts(obj: Any, template: "ConfigurationExportTemplate", extra_context=None):
         """
         Renders the template and returns the rendered body, clean CSS, and serialized context.
         """
@@ -156,6 +156,8 @@ class ConfigurationExportService:
 
         strategy = ConfigurationExportService.get_strategy(obj)
         context = strategy.get_context()
+        if extra_context:
+            context.update(extra_context)
 
         django_engine = engines["django"]
 
@@ -169,8 +171,8 @@ class ConfigurationExportService:
         return rendered_body, clean_css, serialized_context
 
     @staticmethod
-    def render_html(obj: Any, template: "ConfigurationExportTemplate"):
-        rendered_body, clean_css, serialized_context = ConfigurationExportService.render_parts(obj, template)
+    def render_html(obj: Any, template: "ConfigurationExportTemplate", extra_context=None):
+        rendered_body, clean_css, serialized_context = ConfigurationExportService.render_parts(obj, template, extra_context=extra_context)
 
         wrapper_tpl = get_template("exports/base_export.html")
 

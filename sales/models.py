@@ -462,12 +462,30 @@ class Quote(Timestampable, CompanyOwnedModel):
         help_text=_("Stores the aggregated tax bases and amounts"),
     )
 
+    observations = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name=_("Observations"),
+    )
+
+    internal_name = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name=_("Internal name"),
+        help_text=_("Stable name shown in the Fislav app; not affected by PDF renaming."),
+    )
+
     class Meta:
         verbose_name = _("Quote")
         verbose_name_plural = _("Quotes")
         permissions = [
             ("can_view_quote_dashboard", _("Can view quote dashboard")),
         ]
+
+    def save(self, *args, **kwargs):
+        if not self.internal_name and self.project_name:
+            self.internal_name = self.project_name
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.project_name or f"Quote #{self.id}"

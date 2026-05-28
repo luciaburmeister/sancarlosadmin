@@ -30,7 +30,7 @@ class PDFService:
         return HTML(string=html_string).write_pdf()
 
     @staticmethod
-    def render_object_pdf(obj, template_kind: str, company=None) -> bytes | None:
+    def render_object_pdf(obj, template_kind: str, company=None, extra_context=None) -> bytes | None:
         """
         Full pipeline: find the best export template → render HTML → convert to PDF.
 
@@ -62,5 +62,5 @@ class PDFService:
             )
             return None
 
-        html = ConfigurationExportService.render_html(obj, template)
+        html = ConfigurationExportService.render_html(obj, template, extra_context=extra_context)
         return PDFService.html_to_pdf(html)

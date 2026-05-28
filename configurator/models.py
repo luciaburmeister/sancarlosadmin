@@ -29,6 +29,7 @@ class ConfigurationStatus(models.TextChoices):
     CONVERTED = "converted", _("Converted to Production")
     SHOP = "shop", _("Direct to Shop")
     PRODUCTION_DONE = "production_done", _("Production Done")
+    CANCELLED = "cancelled", _("Cancelled")
 
 
 class IncompatibilityRule(CompanyOwnedModel):

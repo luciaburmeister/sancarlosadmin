@@ -26,6 +26,8 @@ class PaymentMethod(models.TextChoices):
     CASH = "cash", _("Cash")
     CARD = "card", _("Credit/Debit Card")
     CHEQUE = "cheque", _("Cheque")
+    SEPA_DIRECT_DEBIT = "sepa_direct_debit", _("SEPA - Direct debit")
+    CONFIRMING = "confirming", _("Confirming")
 
 
 class Payment(CompanyOwnedModel):

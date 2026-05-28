@@ -1,6 +1,8 @@
 from django.urls import path
 
 from .views import configurations, project_files, quote_photos, quotes
+from .views.configurations import ConfigurationCancelView, ConfigurationReplaceView
+from .views.quotes import ConfigurationFinalPriceView, QuotePdfView
 
 urlpatterns = [
     path("project-files/", project_files.ProjectFileListCreateView.as_view(), name="project_file_list_create"),
@@ -25,6 +27,7 @@ urlpatterns = [
         name="presupuesto_list_create",
     ),
     path("quotes/<int:quote_id>/", quotes.PresupuestoDetailView.as_view(), name="presupuesto_detail"),
+    path("quotes/<int:quote_id>/pdf/", QuotePdfView.as_view(), name="presupuesto_pdf"),
     path(
         "quotes/<int:quote_id>/configurations/",
         quotes.ProductoListCreateView.as_view(),
@@ -34,6 +37,11 @@ urlpatterns = [
         "quotes/<int:quote_id>/configurations/<int:config_id>/",
         quotes.ProductoDetailView.as_view(),
         name="producto_detail",
+    ),
+    path(
+        "quotes/<int:quote_id>/configurations/<int:config_id>/final-price/",
+        ConfigurationFinalPriceView.as_view(),
+        name="configuration_final_price",
     ),
     path(
         "quotes/<int:quote_id>/photos/",
@@ -64,5 +72,15 @@ urlpatterns = [
         "configurations/<int:config_id>/convert/",
         configurations.ConfigurationConvertView.as_view(),
         name="configuration_convert",
+    ),
+    path(
+        "configurations/<int:config_id>/cancel/",
+        ConfigurationCancelView.as_view(),
+        name="configuration_cancel",
+    ),
+    path(
+        "quotes/<int:quote_id>/configurations/<int:config_id>/replace/",
+        ConfigurationReplaceView.as_view(),
+        name="configuration_replace",
     ),
 ]

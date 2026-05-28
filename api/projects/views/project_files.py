@@ -128,6 +128,11 @@ class ProjectFileDetailView(CompanyAPIView):
             block_reason = "Expediente completamente facturado"
 
         client = pf.client
+        accepted_observations = [
+            q.observations.strip()
+            for q in pf.quotes.filter(status="accepted")
+            if q.observations and q.observations.strip()
+        ]
         data["invoicing"] = {
             "total_invoiceable": float(invoicing_summary["total_invoiceable"]),
             "total_invoiced": float(invoicing_summary["total_invoiced"]),
@@ -139,6 +144,7 @@ class ProjectFileDetailView(CompanyAPIView):
             "client_payment_method": (
                 client.payment_method if client else "transfer"
             ),
+            "quote_observations": accepted_observations,
         }
         data["sales_invoices"] = [
             {

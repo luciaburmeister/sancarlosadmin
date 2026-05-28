@@ -110,11 +110,13 @@ def serialize_presupuesto(quote, include_products=True):
     data = {
         "id": quote.id,
         "name": quote.project_name,
+        "internal_name": quote.internal_name or quote.project_name,
         "status": quote.status,
         "created_at": quote.created_at.strftime("%Y-%m-%d %H:%M"),
         "expires_at": quote.expires_at.strftime("%Y-%m-%d") if quote.expires_at else None,
         "total_price": float(quote.total_price.amount) if quote.total_price else 0.0,
         "client_name": client_name,
+        "observations": quote.observations or "",
     }
     if include_products:
         configs = list(
@@ -235,6 +237,7 @@ def serialize_client(c):
     return {
         "id": c.id,
         "name": c.name,
+        "tax_identifier": c.tax_identifier or "",
         "phone": c.phone or "",
         "email": c.email or "",
         "payment_method": c.payment_method or "transfer",

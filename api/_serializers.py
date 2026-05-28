@@ -240,6 +240,7 @@ def serialize_client(c):
         "tax_identifier": c.tax_identifier or "",
         "phone": c.phone or "",
         "email": c.email or "",
+        "address": c.address or "",
         "payment_method": c.payment_method or "transfer",
         "terms_accepted_at": c.terms_accepted_at.isoformat() if c.terms_accepted_at else None,
         "has_signature": bool(c.terms_signature),

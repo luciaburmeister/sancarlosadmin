@@ -79,6 +79,9 @@ class ClientListCreateView(CompanyAPIView):
                 status=400,
             )
 
+        address = (body.get("address") or "").strip()
+        if not address:
+            return JsonResponse({"error": "Address is required"}, status=400)
         terms_signature = (body.get("terms_signature") or "").strip()
 
         client = Client.objects.create(
@@ -87,6 +90,7 @@ class ClientListCreateView(CompanyAPIView):
             tax_identifier=tax_identifier,
             phone=body.get("phone", ""),
             email=body.get("email", ""),
+            address=address,
             payment_method=payment_method,
         )
         if terms_signature:
@@ -142,6 +146,8 @@ class ClientDetailView(CompanyAPIView):
                     status=400,
                 )
             client.payment_method = payment_method
+        if "address" in body:
+            client.address = (body.get("address") or "").strip()
 
         client.save()
         return JsonResponse(serialize_client(client))

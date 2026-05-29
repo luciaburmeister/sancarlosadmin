@@ -104,11 +104,13 @@ INSTALLED_APPS = [
     "payments",
     'invoices',
     'chatbot',
+    'corsheaders',
 
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     "django.middleware.locale.LocaleMiddleware",
     'django.middleware.common.CommonMiddleware',
@@ -304,6 +306,15 @@ DATE_INPUT_FORMATS = [
     "%d-%m-%Y",   # 26-05-2026
     "%d/%m/%y",   # 26/05/26
 ]
+
+# CORS — allow Flutter web (localhost) to call the local API
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:8080",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8080",
+]
+CORS_ALLOW_CREDENTIALS = True
 
 LOCATION_FIELD = {
     'map.provider': 'openstreetmap',

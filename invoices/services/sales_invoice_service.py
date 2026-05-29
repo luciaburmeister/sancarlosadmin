@@ -71,10 +71,9 @@ class SalesInvoiceService:
 
     @classmethod
     @transaction.atomic
-    def finalize_invoice(cls, sales_invoice):
+    def finalize_invoice(cls, sales_invoice, send_email=True):
         """
         Converts Pro Forma to Final, assigns invoice number.
-        Queues a client email with PDF (Celery) when the client has an email.
         """
         if sales_invoice.status == SalesInvoiceStatus.FINAL:
             sales_invoice._finalize_email_status = cls._email_queue_status(
@@ -91,33 +90,47 @@ class SalesInvoiceService:
         sales_invoice.incremental_id = next_invoice['incremental_id']
         sales_invoice.save(update_fields=['status', 'date_issued', 'invoice_number', 'incremental_id'])
 
-        sales_invoice._finalize_email_status = cls.queue_client_email(sales_invoice)
+        if send_email:
+            sales_invoice._finalize_email_status = cls.queue_client_email(sales_invoice)
+        else:
+            sales_invoice._finalize_email_status = cls._email_queue_status(
+                queued=False, reason="disabled"
+            )
+
         return sales_invoice
 
     @classmethod
     def _email_queue_status(cls, *, queued, client_email=None, reason=None):
-        return {
+        status = {
             "email_queued": queued,
-            "client_email": client_email,
             "email_skip_reason": reason,
         }
+        # Do not emit client_email when unknown — finalize payload merges this dict
+        # and would overwrite the invoice's real client email with null.
+        if client_email:
+            status["client_email"] = client_email
+        return status
 
     @classmethod
-    def queue_client_email(cls, sales_invoice):
+    def queue_client_email(cls, sales_invoice, to_email=None):
         """
         Enqueue invoice PDF email to the client (async via Celery).
 
         Returns metadata for API/UI: email_queued, client_email, email_skip_reason.
         """
-        client = sales_invoice.client
-        email = (client.email or "").strip() if client else ""
+        requested_email = (to_email or "").strip()
+        if requested_email:
+            email = requested_email
+        else:
+            client = sales_invoice.client
+            email = (client.email or "").strip() if client else ""
         if not email:
             return cls._email_queue_status(queued=False, reason="no_client_email")
 
         from core.tasks import send_invoice_email_task
 
         try:
-            send_invoice_email_task.delay(sales_invoice.id)
+            send_invoice_email_task.delay(sales_invoice.id, to_email=email)
         except Exception:
             logger.exception(
                 "Failed to queue invoice email for SalesInvoice %s", sales_invoice.pk

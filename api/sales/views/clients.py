@@ -10,7 +10,7 @@ from api._serializers import serialize_client
 from api._utils import CompanyAPIView
 from invoices.models import PaymentMethod
 from sales.models import Client
-from sales.services.client_terms import apply_terms_acceptance
+from sales.services.client_terms import apply_terms_acceptance, client_terms_status
 from sales.services.client_terms_email_service import ClientTermsEmailService
 
 _ALLOWED_PAYMENT_METHODS = {m.value for m in PaymentMethod}
@@ -23,7 +23,7 @@ class ClientListCreateView(CompanyAPIView):
         search = request.GET.get("search", "").strip()
         payment_method = request.GET.get("payment_method", "").strip()
         has_active_project = request.GET.get("has_active_project", "").strip().lower()
-        clients = Client.objects.filter(company=company).order_by("name")
+        clients = Client.objects.filter(company=company).select_related("company").order_by("name")
 
         if payment_method:
             if payment_method not in _ALLOWED_PAYMENT_METHODS:
@@ -148,6 +148,35 @@ class ClientDetailView(CompanyAPIView):
             client.payment_method = payment_method
         if "address" in body:
             client.address = (body.get("address") or "").strip()
+
+        terms_signature = (body.get("terms_signature") or "").strip()
+        if "terms_signature" in body:
+            if not terms_signature:
+                return JsonResponse(
+                    {"error": "terms_signature is required"},
+                    status=400,
+                )
+            if client.terms_signature:
+                status = client_terms_status(client=client, company=company)
+                if not status["needs_terms_signature"]:
+                    return JsonResponse(
+                        {"error": "Client has already accepted the current terms"},
+                        status=400,
+                    )
+            apply_terms_acceptance(
+                client=client,
+                company=company,
+                signature_payload=terms_signature,
+            )
+            client.save(
+                update_fields=[
+                    "terms_signature",
+                    "accepted_terms_company",
+                    "accepted_terms_text",
+                    "terms_accepted_at",
+                ]
+            )
+            ClientTermsEmailService.queue_terms_acceptance_email(client)
 
         client.save()
         return JsonResponse(serialize_client(client))

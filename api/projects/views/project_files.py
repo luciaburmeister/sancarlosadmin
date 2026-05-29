@@ -13,6 +13,7 @@ from invoices.services.project_file_invoice_service import ProjectFileInvoiceSer
 from management.models import ProjectFile, ProjectFileStatus
 from production.services.ticket_cancel import cancel_tickets_for_project_file
 from sales.models import Client
+from sales.services.client_terms import client_terms_status
 
 _MONTHS_ES = [
     "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -32,7 +33,7 @@ class ProjectFileListCreateView(CompanyAPIView):
 
         _PAGE_SIZE = 20
 
-        base_qs = ProjectFile.objects.filter(company=company)
+        base_qs = ProjectFile.objects.filter(company=company).select_related("client")
         client_id = request.GET.get("client_id")
         if client_id:
             try:
@@ -128,6 +129,13 @@ class ProjectFileDetailView(CompanyAPIView):
             block_reason = "Expediente completamente facturado"
 
         client = pf.client
+        if client:
+            terms = client_terms_status(client=client, company=self.company)
+            data["client_needs_terms_signature"] = terms["needs_terms_signature"]
+            data["client_terms_outdated"] = terms["terms_outdated"]
+        else:
+            data["client_needs_terms_signature"] = False
+            data["client_terms_outdated"] = False
         accepted_observations = [
             q.observations.strip()
             for q in pf.quotes.filter(status="accepted")

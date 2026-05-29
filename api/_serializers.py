@@ -234,6 +234,9 @@ def serialize_quote_photo(photo, request=None):
 
 
 def serialize_client(c):
+    from sales.services.client_terms import client_terms_status
+
+    terms = client_terms_status(client=c, company=c.company)
     return {
         "id": c.id,
         "name": c.name,
@@ -243,8 +246,11 @@ def serialize_client(c):
         "address": c.address or "",
         "payment_method": c.payment_method or "transfer",
         "terms_accepted_at": c.terms_accepted_at.isoformat() if c.terms_accepted_at else None,
-        "has_signature": bool(c.terms_signature),
-        "terms_version": c.terms_version or "",
+        "has_signature": terms["has_signature"],
+        "terms_version": terms["terms_version"],
+        "current_terms_version": terms["current_terms_version"],
+        "needs_terms_signature": terms["needs_terms_signature"],
+        "terms_outdated": terms["terms_outdated"],
     }
 
 

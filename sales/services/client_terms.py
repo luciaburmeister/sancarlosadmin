@@ -14,6 +14,29 @@ def terms_version_for_text(text: str) -> str:
     return hashlib.sha256(normalized.encode()).hexdigest()[:8]
 
 
+def client_terms_status(*, client, company: Company) -> dict:
+    """
+    - needs_terms_signature: no T&C configured → False; never signed → True;
+      signed but company terms changed → True.
+    """
+    current_v = terms_version_for_text((company.terms_text or "").strip())
+    accepted_v = client.terms_version or ""
+    has_sig = bool(client.terms_signature)
+    if not current_v:
+        needs = False
+    elif not has_sig:
+        needs = True
+    else:
+        needs = accepted_v != current_v
+    return {
+        "has_signature": has_sig,
+        "terms_version": accepted_v,
+        "current_terms_version": current_v,
+        "needs_terms_signature": needs,
+        "terms_outdated": has_sig and bool(current_v) and accepted_v != current_v,
+    }
+
+
 def apply_terms_acceptance(*, client, company: Company, signature_payload: str) -> None:
     """Persist signature file and immutable T&C reference for a client."""
     payload = (signature_payload or "").strip()

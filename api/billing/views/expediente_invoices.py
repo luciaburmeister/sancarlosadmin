@@ -75,6 +75,7 @@ def _serialize_invoice_detail(invoice):
         "notes": invoice.notes or "",
         "client_name": invoice.client.name if invoice.client else None,
         "client_email": (invoice.client.email or "").strip() or None if invoice.client else None,
+        "project_file_id": invoice.project_file_id,
         "items": items,
         "payments": payments,
     }
@@ -247,6 +248,17 @@ class ProjectFileInvoiceCreateView(CompanyAPIView):
 
         date_issued = timezone.now().date()
 
+        due_date = None
+        if body.get("due_date"):
+            due_date, err = parse_date_or_error(body.get("due_date"))
+            if err:
+                return err
+            if due_date < date_issued:
+                return JsonResponse(
+                    {"error": "La fecha de vencimiento no puede ser anterior a la fecha de emisión."},
+                    status=400,
+                )
+
         try:
             summary = ProjectFileInvoiceService.get_invoiceable_summary(project_file)
 
@@ -294,7 +306,7 @@ class ProjectFileInvoiceCreateView(CompanyAPIView):
                 company=self.company,
                 client=project_file.client,
                 date_issued=date_issued,
-                due_date=None,
+                due_date=due_date,
                 items_data=items_data,
                 total_tax=total_tax,
                 notes=notes,
@@ -377,7 +389,16 @@ class SalesInvoiceSendEmailView(CompanyAPIView):
                 status=400,
             )
 
-        email_meta = SalesInvoiceService.queue_client_email(invoice)
+        try:
+            body = json.loads(request.body or "{}")
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({"error": "JSON inválido."}, status=400)
+
+        raw_email = (body.get("email") or "").strip()
+        email_meta = SalesInvoiceService.queue_client_email(
+            invoice,
+            to_email=raw_email or None,
+        )
         if email_meta.get("email_skip_reason") == "no_client_email":
             return JsonResponse(
                 {
@@ -404,7 +425,16 @@ class SalesInvoiceFinalizeView(CompanyAPIView):
         if invoice.status == SalesInvoiceStatus.FINAL:
             return JsonResponse({"error": "La factura ya está finalizada."}, status=400)
 
-        invoice = SalesInvoiceService.finalize_invoice(invoice)
+        try:
+            body = json.loads(request.body or "{}")
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({"error": "JSON inválido."}, status=400)
+
+        send_email = body.get("send_email", True)
+        if not isinstance(send_email, bool):
+            return JsonResponse({"error": "send_email debe ser booleano."}, status=400)
+
+        invoice = SalesInvoiceService.finalize_invoice(invoice, send_email=send_email)
         payload = _serialize_invoice_detail(invoice)
         payload.update(SalesInvoiceService.get_finalize_email_status(invoice))
         return JsonResponse(payload)

@@ -309,6 +309,7 @@ DATE_INPUT_FORMATS = [
 
 # CORS — allow Flutter web (localhost) to call the local API
 CORS_ALLOWED_ORIGINS = [
+    "https://fislav.netlify.app",
     "http://localhost:3000",
     "http://localhost:8080",
     "http://127.0.0.1:3000",

@@ -5,8 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
 from django.db.models import Sum
-
-from company.models import CompanyOwnedModel
+from company.models import CompanyOwnedModel, BankAccount
 
 
 class PaymentDirection(models.TextChoices):
@@ -27,6 +26,9 @@ class PaymentMethod(models.TextChoices):
     CARD = "card", _("Credit/Debit Card")
     CHEQUE = "cheque", _("Cheque")
 
+class PaymentCreatedBy(models.TextChoices):
+    MANUAL = "manual", _("Manual")
+    AUTO = "auto", _("Automatic")
 
 class Payment(CompanyOwnedModel):
     payment_date = models.DateField(verbose_name=_("Payment Date"))
@@ -74,6 +76,22 @@ class Payment(CompanyOwnedModel):
             "Stored field. Updated inside a transaction on every allocation change."
         ),
     )
+    bank_account = models.ForeignKey(
+    BankAccount,
+    on_delete=models.PROTECT,
+    null=True,
+    blank=True,
+    related_name="payments",
+    verbose_name=_("Bank Account"),
+    help_text=_("The company bank account this payment went through. Required for bank transfers.")
+    )
+    created_by = models.CharField(
+        max_length=10,
+        choices=PaymentCreatedBy.choices,
+        default=PaymentCreatedBy.MANUAL,
+        verbose_name=_("Created By"),
+        help_text=_("Whether this payment was created manually by a user or automatically from a bank transaction.")
+    )
 
     class Meta:
         verbose_name = _("Payment")
@@ -82,6 +100,12 @@ class Payment(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.get_direction_display()} {self.amount} — {self.payment_date}"
+    
+    def clean(self):
+        if self.method == PaymentMethod.TRANSFER and not self.bank_account_id:
+            raise ValidationError({
+                "bank_account": _("A bank account is required for bank transfers.")
+            })
 
     def recalculate_pending_allocation(self):
         """

@@ -84,7 +84,7 @@ class SalesInvoiceService:
 
         company = sales_invoice.company
         sales_invoice.status = SalesInvoiceStatus.FINAL
-        sales_invoice.date_issued = timezone.now().date()
+        sales_invoice.date_issued = timezone.now().date() if sales_invoice.date_issued is None else sales_invoice.date_issued
         # Invoices logic
         next_invoice = cls._generate_next_invoice_data(company)
         sales_invoice.invoice_number = next_invoice['number']

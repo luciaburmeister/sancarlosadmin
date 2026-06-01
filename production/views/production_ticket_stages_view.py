@@ -17,6 +17,8 @@ from production.models import (
 from configurator.models import ProductTemplateComponentGroup
 from production.components.status_badge import StatusBadge
 from company.models import Employee
+from production.models import AssemblyLine, AssemblyLineStatus
+from production.services.assembly_line_service import AssemblyLineService
 
 
 
@@ -239,6 +241,37 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             )
 
         ctx["stages_ui"] = stages_ui
+
+        # Assembly lines this ticket belongs to
+
+        assembly_lines = (
+            AssemblyLine.objects
+            .filter(tickets=ticket)
+            .exclude(status=AssemblyLineStatus.DONE)
+            .order_by("-created_at")
+        )
+        assembly_line_data = []
+        redirect_url = reverse(
+            "admin:production_productionticket_stages",
+            args=[ticket.pk],
+        )
+        for al in assembly_lines:
+            current_stage = AssemblyLineService.get_current_stage(al)
+            assembly_line_data.append({
+                "id": al.pk,
+                "stages": al.stages or [],
+                "stages_str": ", ".join(al.stages) if al.stages else "—",
+                "status": al.status,
+                "status_display": al.get_status_display(),
+                "current_stage": current_stage,
+                "action_url": reverse(
+                    "admin:production_assemblyline_action",
+                    args=[al.pk],
+                ),
+                "redirect_url": redirect_url,
+            })
+        ctx["assembly_lines"] = assembly_line_data
+
         return ctx
 
     def _build_unit(self, stage_name, items, employee, item_current_stages, stage_component_map):

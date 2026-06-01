@@ -13,3 +13,8 @@ class ProductionActions:
     UPDATE_STATUS = "update_status"
     ASSIGN_EMPLOYEE = "assign_employee"
     UNASSIGN_EMPLOYEE = "unassign_employee"
+
+    # Assembly Line Actions
+    START_LINE = "start_line"
+    PAUSE_LINE = "pause_line"
+    FINISH_LINE = "finish_line"

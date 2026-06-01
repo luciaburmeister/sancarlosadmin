@@ -105,8 +105,7 @@ class SalesInvoiceService:
             "email_queued": queued,
             "email_skip_reason": reason,
         }
-        # Do not emit client_email when unknown — finalize payload merges this dict
-        # and would overwrite the invoice's real client email with null.
+        
         if client_email:
             status["client_email"] = client_email
         return status

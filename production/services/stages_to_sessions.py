@@ -66,10 +66,10 @@ class StagesToSessionsService:
         return items[0].company.allow_shared_production_stage_activities
 
     @classmethod
-    def start_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
+    def start_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee, skip_worker_check: bool = False) -> int:
         if cls._uses_shared_stage_activities(items):
             return cls.start_group_activity(
-                stage_name=stage_name, items=items, employee=employee
+                stage_name=stage_name, items=items, employee=employee, skip_worker_check=skip_worker_check
             )
         return cls._start_exclusive_activity(
             stage_name=stage_name, items=items, employee=employee
@@ -77,7 +77,7 @@ class StagesToSessionsService:
 
     @classmethod
     def start_group_activity(
-        cls, *, stage_name: str, items: list[ProductionItem], employee: Employee
+        cls, *, stage_name: str, items: list[ProductionItem], employee: Employee, skip_worker_check: bool = False
     ) -> int:
         """Multiple workers may join the same stage while it is in progress."""
         stage_name = unicodedata.normalize("NFC", stage_name)
@@ -85,7 +85,7 @@ class StagesToSessionsService:
             raise ValidationError("No employee provided to start activity.")
 
         # Rule: worker cannot already be active on something else
-        if cls._worker_has_open_session(employee):
+        if not skip_worker_check and cls._worker_has_open_session(employee):
             raise ValidationError("This worker already has an active session elsewhere.")
 
         now = timezone.now()

@@ -27,6 +27,8 @@ from production.models import (
     OperationRequirement,
     SchedulingRun,
     ProductionTicketStatus,
+    AssemblyLine,
+    AssemblyLineStatus,
 )
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter, TicketIncompleteStageFilter
 from production.services.scheduler import ScheduleProposalApplier, proposal_from_dict
@@ -35,11 +37,13 @@ from production.views.planned_sessions_schedule_view import PlannedSessionsSched
 from production.views.production_item_stages_view import ProductionItemAdvanceStageView
 from production.views.production_ticket_stages_view import ProductionTicketStagesView
 from production.views.production_control_view import ProductionControlView
+from production.views.assembly_line_view import AssemblyLineActionView
 from production.views import ProductionTicketHtmlRender
 from production.components.status_badge import StatusBadge
 
 from production.models import Employee, Machine
-
+from unfold.contrib.forms.widgets import ArrayWidget
+from core.admin.company_access import get_user_companies
 
 class ProductionItemInline(TabularInline):
     model = ProductionItem
@@ -776,3 +780,106 @@ class SchedulingRunAdmin(ModelAdmin):
         extra_context = extra_context or {}
         extra_context["optimize_url"] = reverse("admin:production_schedulingrun_optimize")
         return super().changelist_view(request, extra_context=extra_context)
+
+
+@admin.register(AssemblyLine)
+class AssemblyLineAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = (
+        "id",
+        "company",
+        "show_stages_display",
+        "show_status_colored",
+        "ticket_count_display",
+        "started_by",
+        "started_at",
+        "finished_at",
+    )
+
+    list_filter = (
+        ("company", AutocompleteSelectMultipleFilter),
+        ("status", MultipleChoicesDropdownFilter),
+    )
+
+    search_fields = ("stages",)
+    list_select_related = ["company", "started_by"]
+    autocomplete_fields = ("company", "started_by")
+    filter_horizontal = ("tickets",)
+    list_filter_submit = True
+
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "company",
+                    "stages",
+                    "status",
+                    "tickets",
+                )
+            },
+        ),
+        (
+            _("Execution"),
+            {
+                "fields": (
+                    "started_by",
+                    "started_at",
+                    "finished_at",
+                ),
+            },
+        ),
+    )
+
+    readonly_fields = ("started_at", "finished_at")
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        form = super().get_form(request, obj, change, **kwargs)
+
+        if obj and obj.company:
+            stages = obj.company.production_stages or []
+        else:
+            stages = []
+            for company in get_user_companies(request.user):
+                stages.extend(company.production_stages or [])
+            stages = list(dict.fromkeys(stages))
+
+        form.base_fields["stages"].widget = ArrayWidget(
+            choices=[(s, s) for s in stages]
+        )
+        return form
+
+    @display(description=_("Stages"))
+    def show_stages_display(self, obj):
+        return ", ".join(obj.stages) if obj.stages else "—"
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            _(AssemblyLineStatus.DRAFT.label): "info",
+            _(AssemblyLineStatus.READY.label): "info",
+            _(AssemblyLineStatus.IN_PROGRESS.label): "warning",
+            _(AssemblyLineStatus.PAUSED.label): "warning",
+            _(AssemblyLineStatus.DONE.label): "success",
+        },
+    )
+    def show_status_colored(self, obj):
+        return _(obj.get_status_display())
+
+    @display(description=_("Tickets"))
+    def ticket_count_display(self, obj):
+        return obj.tickets.count()
+
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "<int:assembly_line_id>/action/",
+                self.admin_site.admin_view(
+                    AssemblyLineActionView.as_view(model_admin=self)
+                ),
+                name="production_assemblyline_action",
+            ),
+        ]
+        return custom + urls

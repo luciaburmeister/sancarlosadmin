@@ -641,3 +641,67 @@ class SchedulingRun(models.Model):
 
     def __str__(self):
         return f"SchedulingRun #{self.pk} - {self.strategy} - {self.created_at:%Y-%m-%d %H:%M}"
+
+
+class AssemblyLineStatus(models.TextChoices):
+    DRAFT = "draft", _("Draft")
+    READY = "ready", _("Ready")
+    IN_PROGRESS = "in_progress", _("In Progress")
+    PAUSED = "paused", _("Paused")
+    DONE = "done", _("Done")
+
+
+class AssemblyLine(Timestampable, CompanyOwnedModel):
+    stages = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        verbose_name=_("Production Stages"),
+        help_text=_("The stages this assembly line operates on"),
+    )
+
+    tickets = models.ManyToManyField(
+        ProductionTicket,
+        blank=True,
+        related_name="assembly_lines",
+        verbose_name=_("Production Tickets"),
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=AssemblyLineStatus.choices,
+        default=AssemblyLineStatus.DRAFT,
+        db_index=True,
+        verbose_name=_("Status"),
+    )
+
+    started_by = models.ForeignKey(
+        Employee,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="started_assembly_lines",
+        verbose_name=_("Started by"),
+    )
+
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Started at"),
+    )
+    finished_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Finished at"),
+    )
+
+    class Meta:
+        verbose_name = _("Assembly Line")
+        verbose_name_plural = _("Assembly Lines")
+        indexes = [
+            models.Index(fields=["company", "status"]),
+        ]
+
+    def __str__(self):
+        stages_str = ", ".join(self.stages) if self.stages else "—"
+        return f"Assembly Line #{self.pk} — {stages_str}"

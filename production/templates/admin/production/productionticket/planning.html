@@ -45,6 +45,103 @@
       </a>
     </div>
 
+    {# ── Assembly Line Banner ── #}
+    {% if assembly_lines %}
+    {% for al in assembly_lines %}
+    <div style="background: linear-gradient(135deg, #eef2ff, #f5f3ff); border: 1px solid #c7d2fe; border-radius: 16px; padding: 20px; margin-bottom: 16px;">
+      <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
+        <div style="width: 44px; height: 44px; border-radius: 12px; background: #e0e7ff; border: 1px solid #c7d2fe; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+          <svg style="width: 22px; height: 22px; color: #4f46e5;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+        </div>
+        <div>
+          <p style="font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.1em; color: #6366f1; margin: 0 0 4px 0;">
+            {% trans "Assembly Line" %} #{{ al.id }}
+          </p>
+          <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 4px;">
+            {% with found_current=False %}
+            {% for s in al.stages %}
+              {% if s == al.current_stage %}
+              <span style="padding: 2px 10px; border-radius: 6px; font-family: monospace; font-size: 13px; font-weight: 700; background: #4f46e5; color: #fff; border: 1px solid #4338ca;">
+                ▸ {{ s }}
+              </span>
+              {% elif al.current_stage and forloop.first or s != al.current_stage and forloop.counter < al.stages|length %}
+                {% for check_s in al.stages %}
+                  {% if check_s == al.current_stage %}
+                    {% if forloop.parentloop.counter < forloop.counter %}
+                    <span style="padding: 2px 10px; border-radius: 6px; font-family: monospace; font-size: 13px; font-weight: 700; background: #f3f4f6; color: #9ca3af; border: 1px solid #e5e7eb;">
+                      {{ s }}
+                    </span>
+                    {% else %}
+                    <span style="padding: 2px 10px; border-radius: 6px; font-family: monospace; font-size: 13px; font-weight: 700; background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; text-decoration: line-through;">
+                      ✓ {{ s }}
+                    </span>
+                    {% endif %}
+                  {% endif %}
+                {% endfor %}
+              {% endif %}
+            {% endfor %}
+            {% endwith %}
+          </div>
+        </div>
+      </div>
+
+      {% if al.current_stage %}
+      <p style="font-size: 12px; color: #6b7280; margin: 0 0 12px 0;">
+        {% trans "Current stage" %}: <strong style="color: #4338ca;">{{ al.current_stage }}</strong>
+      </p>
+
+      {# ── Action Buttons ── #}
+      <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+        {% if al.status == 'draft' or al.status == 'ready' or al.status == 'paused' %}
+        <form method="post" action="{{ al.action_url }}" style="flex: 1; min-width: 120px;">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="start_line">
+          <input type="hidden" name="redirect_url" value="{{ al.redirect_url }}">
+          <button type="submit"
+            style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px 16px; border-radius: 12px; background: #059669; color: #fff; font-size: 14px; font-weight: 700; border: none; cursor: pointer; box-shadow: 0 4px 14px rgba(5, 150, 105, 0.3);">
+            <svg style="width: 18px; height: 18px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+            </svg>
+            {% if al.status == 'paused' %}{% trans "Resume" %}{% else %}{% trans "Start" %}{% endif %} · {{ al.current_stage }}
+          </button>
+        </form>
+        {% endif %}
+
+        {% if al.status == 'in_progress' %}
+        <form method="post" action="{{ al.action_url }}" style="flex: 1; min-width: 120px;">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="pause_line">
+          <input type="hidden" name="redirect_url" value="{{ al.redirect_url }}">
+          <button type="submit"
+            style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px 16px; border-radius: 12px; background: #fff; color: #374151; font-size: 14px; font-weight: 700; border: 1px solid #d1d5db; cursor: pointer;">
+            <svg style="width: 18px; height: 18px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M10 9v6m4-6v6" />
+            </svg>
+            {% trans "Pause" %} · {{ al.current_stage }}
+          </button>
+        </form>
+
+        <form method="post" action="{{ al.action_url }}" style="flex: 1; min-width: 120px;">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="finish_line">
+          <input type="hidden" name="redirect_url" value="{{ al.redirect_url }}">
+          <button type="submit"
+            style="display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 12px 16px; border-radius: 12px; background: #4f46e5; color: #fff; font-size: 14px; font-weight: 700; border: none; cursor: pointer; box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3);">
+            <svg style="width: 18px; height: 18px;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M9 12l2 2 4-4" />
+            </svg>
+            {% trans "Finish" %} · {{ al.current_stage }}
+          </button>
+        </form>
+        {% endif %}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
+
     {% for stage in stages_ui %}
     <div id="stage-{{ stage.stage_name|slugify }}"
       class="bg-white dark:bg-gray-900 rounded-[2rem] shadow-sm border border-gray-200 dark:border-gray-800 p-8 mb-10 overflow-hidden">

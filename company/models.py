@@ -398,6 +398,12 @@ class BaseBankAccount(models.Model):
         abstract = True
 
 class BankAccount(CompanyOwnedModel, BaseBankAccount):
+    nuek_account_id = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Nuek Account ID"),
+        help_text=_("External account identifier assigned by Nuek. Used to match imported bank transactions to this account."),
+    )
     is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
 
     class Meta:

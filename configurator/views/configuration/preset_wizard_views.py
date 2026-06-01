@@ -1,4 +1,5 @@
 from django.shortcuts import redirect, get_object_or_404
+from django.db.models import Q
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import ListView
@@ -24,14 +25,19 @@ class PresetProductSelectionView(
     permission_required = ("configurator.add_configurationpreset",)
     template_name = "configurator/product_selection.html"
     model = ProductTemplate
-    paginate_by = 12
+    paginate_by = 20
     context_object_name = "products"
 
     def get_queryset(self):
-        return super().get_queryset().filter(show_in_configurator=True).order_by("name")
+        qs = super().get_queryset().filter(show_in_configurator=True)
+        q = self.request.GET.get('q', '').strip()
+        if q:
+            qs = qs.filter(Q(name__icontains=q) | Q(description__icontains=q))
+        return qs.order_by("name")
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context['search_query'] = self.request.GET.get('q', '')
         # Override the URL target so product cards link to the preset wizard
         context["wizard_url_name"] = (
             "admin:configurator_configurationpreset_wizard_form"

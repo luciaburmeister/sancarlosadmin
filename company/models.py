@@ -168,6 +168,15 @@ class Employee(CompanyOwnedModel):
         verbose_name=_("Active Employee")
     )
 
+    work_calendar = models.ForeignKey(
+    "vacations.WorkCalendar",
+    on_delete=models.SET_NULL,
+    null=True,
+    blank=True,
+    related_name="employees",
+    verbose_name=_("Work Calendar"),
+    )
+
     identification_number = models.CharField(max_length=20,verbose_name=_("Identification Number"),null=True)
 
     birth_date = models.DateField(verbose_name=_("Birth Date"), null=True)
@@ -194,6 +203,39 @@ class Employee(CompanyOwnedModel):
         related_name="employees",
         verbose_name=_("Assigned Sale Zones")
     )
+
+    # ── Personal home address ──────────────────────────────────────────────
+    home_street_address = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name=_("Street Address"),
+    )
+    home_city = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name=_("City"),
+    )
+    home_postal_code = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        verbose_name=_("Postal Code"),
+    )
+    home_province = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        verbose_name=_("Province"),
+    )
+    home_country = CountryField(
+        blank=True,
+        null=True,
+        default="ES",
+        verbose_name=_("Country"),
+    )
+    # ──────────────────────────────────────────────────────────────────────
 
     class Meta:
         verbose_name = _("Employee")
@@ -222,6 +264,19 @@ class Employee(CompanyOwnedModel):
                         "These stages are not allowed for the selected company: %(stages)s"
                     ) % {"stages": ", ".join(invalid)}
                 })
+    def save(self, *args, **kwargs):
+        if self.home_city and not self.work_calendar_id:
+            from vacations.models import WorkCalendar
+            city_lower = self.home_city.strip().lower()
+            if "madrid" in city_lower:
+                calendar = WorkCalendar.objects.filter(city="madrid", is_active=True).first()
+            elif "malaga" in city_lower or "málaga" in city_lower:
+                calendar = WorkCalendar.objects.filter(city="malaga", is_active=True).first()
+            else:
+                calendar = None
+            if calendar:
+                self.work_calendar = calendar
+        super().save(*args, **kwargs)
     
 class MachineType(CompanyOwnedModel):
     type = models.CharField(max_length=50, verbose_name=_("Machine Type"))
@@ -325,6 +380,15 @@ class WorkingZone(CompanyOwnedModel):
         blank=True,
         related_name="working_zones",
         verbose_name=_("Expediente"),
+    )
+
+    client = models.ForeignKey(
+    'sales.Client',
+    on_delete=models.SET_NULL,
+    null=True,
+    blank=True,
+    related_name="working_zones",
+    verbose_name=_("Client")
     )
 
     class Meta:

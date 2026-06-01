@@ -19,7 +19,9 @@ from vacations.models import (
     VacationMovement,
     VacationRequest,
     VacationRequestStatus,
-    PolicyAbsenceType
+    PolicyAbsenceType,
+    WorkCalendar,
+    PublicHoliday,
 )
 
 from vacations.permissions import has_vacations_privileged_access
@@ -273,28 +275,32 @@ class VacationRequestAdmin(ModelAdmin):
     change_form_template = "admin/vacations/vacationrequest/change_form.html"
 
     list_display = (
-        "id",
-        "employee",
-        "policy",
-        "start_date",
-        "end_date",
-        "requested_days",
-        "status_badge",
-        "approved_by",
-        "approved_at",
-        "created_at",
+    "id",
+    "employee",
+    "policy",
+    "start_date",
+    "end_date",
+    "requested_days",
+    "reason",
+    "is_paid",
+    "status_badge",
+    "approved_by",
+    "approved_at",
+    "created_at",
     )
-    list_filter = ("status", "start_date", "end_date", "wallet__year", "wallet__policy")
+
+    list_filter = ("status", "is_paid", "reason", "start_date", "end_date", "wallet__year", "wallet__policy")
     search_fields = ("employee__full_name", "employee__email", "notes")
     autocomplete_fields = ("employee", "wallet", "approved_by") 
     ordering = ("-created_at",)
 
-    readonly_fields = ("requested_days", "approved_by", "approved_at")
+    readonly_fields = ("requested_days", "approved_by", "approved_at", "is_paid")
+
 
     fieldsets = (
         (None, {"fields": ("employee", "wallet", "reason", "notes")}),
         (_("Dates"), {"fields": ("start_date", "end_date")}),
-        (_("Status"), {"fields": ("status", "requested_days", "approved_by", "approved_at")}),
+        (_("Status"), {"fields": ("status", "requested_days", "is_paid", "approved_by", "approved_at")}),
     )
 
     @display(description=_("Policy"))
@@ -642,3 +648,23 @@ class VacationRequestAdmin(ModelAdmin):
             today=today,
         )
         return render(request, "admin/vacations/my_vacations.html", ctx)
+    
+class PublicHolidayInline(TabularInline):
+    model = PublicHoliday
+    extra = 1
+    tab = True
+    fields = ("date", "name", "is_national")
+    ordering = ("date",)
+
+
+@admin.register(WorkCalendar)
+class WorkCalendarAdmin(ModelAdmin):
+    list_display = ("name", "city", "country", "is_active")
+    list_filter = ("city", "is_active")
+    search_fields = ("name",)
+    inlines = (PublicHolidayInline,)
+
+    fieldsets = (
+        (None, {"fields": ("name", "city", "country", "is_active")}),
+    )
+

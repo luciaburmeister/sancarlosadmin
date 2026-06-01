@@ -131,53 +131,55 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
     )
 
     fieldsets = (
-        (
-            _("Employee"),
-            {
-                "classes": ["tab"],
-                "fields": (
-                    ("first_name", "last_name"),
-                    ("email", "phone"),
-                    ("type"),
-                    "user",
-                )
-            },
-        ),
-        (
-            _("Personal Information"),
-            {
-                "classes": ["tab"],
-                "fields": (
-                    "identification_number",
-                    "birth_date",
-                    ("sex", "civil_status"),
-                    "birth_country",
-                )
-            },
-        ),
-        (
-            _("Employment"),
-            {
-                "classes": ["tab"],
-                "fields": (
-                    "company",
-                    ("hired_at", "terminated_at"),
-                    "is_active",
-                    "sale_zones",
-                )
-            },
-        ),
-        (
-            _("Production"),
-            {
-                "classes": ["tab"],
-                "fields": (
-                    ("can_work_on_production", "production_stages"),
-                )
-            },
-        ),
-    )
-
+    (
+        _("Employee"),
+        {
+            "classes": ["tab"],
+            "fields": (
+                ("first_name", "last_name"),
+                ("email", "phone"),
+                ("type"),
+                "user",
+            )
+        },
+    ),
+    (
+    _("Personal Information"),
+    {
+        "classes": ["tab"],
+        "fields": (
+            "identification_number",
+            "birth_date",
+            ("sex", "civil_status"),
+            "birth_country",
+            "home_street_address",
+            ("home_city", "home_postal_code"),
+            ("home_province", "home_country"),
+        )
+    },
+    ),
+    (
+        _("Employment"),
+        {
+            "classes": ["tab"],
+            "fields": (
+                "company",
+                ("hired_at", "terminated_at"),
+                "is_active",
+                "sale_zones",
+            )
+        },
+    ),
+    (
+        _("Production"),
+        {
+            "classes": ["tab"],
+            "fields": (
+                ("can_work_on_production", "production_stages"),
+            )
+        },
+    ),
+)
     inlines = (EmployeeDocumentInline, VacationRequestInline, VacationWalletInline)
 
     def get_form(self, request, obj=None, change=False, **kwargs):

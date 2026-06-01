@@ -318,6 +318,12 @@ class VacationRequest(Timestampable):
         related_name="requests",
     )
 
+    is_paid = models.BooleanField(
+    default=False,
+    verbose_name=_("Paid"),
+    help_text=_("Automatically set based on whether the dates fall on a public holiday."),
+    )
+
     class Meta:
         ordering = ("-created_at",)
         permissions = [
@@ -410,4 +416,64 @@ class VacationRequest(Timestampable):
         if self.start_date and self.end_date:
             self.requested_days = self.compute_working_days()
 
+        if self.start_date and self.employee_id:
+            calendar = getattr(self.employee, "work_calendar", None)
+            if calendar:
+                self.is_paid = not calendar.is_working_day(self.start_date)
+            else:
+                self.is_paid = False
+
         super().save(*args, **kwargs)
+
+class WorkCalendar(models.Model):
+    class CityChoices(models.TextChoices):
+        MADRID = "madrid", _("Madrid")
+        MALAGA = "malaga", _("Málaga")
+
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+    city = models.CharField(
+        max_length=50,
+        choices=CityChoices.choices,
+        verbose_name=_("City"),
+    )
+    country = CountryField(default="ES", verbose_name=_("Country"))
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Work calendar")
+        verbose_name_plural = _("Work calendars")
+        ordering = ("city", "name")
+
+    def __str__(self):
+        return f"{self.name} ({self.get_city_display()})"
+
+    def is_working_day(self, d: date) -> bool:
+        """Returns True if the given date is a working day in this calendar."""
+        if d.weekday() >= 5:  # Saturday or Sunday
+            return False
+        return not self.holidays.filter(date=d).exists()
+
+
+class PublicHoliday(models.Model):
+    calendar = models.ForeignKey(
+        WorkCalendar,
+        on_delete=models.CASCADE,
+        related_name="holidays",
+        verbose_name=_("Calendar"),
+    )
+    date = models.DateField(verbose_name=_("Date"))
+    name = models.CharField(max_length=150, verbose_name=_("Name"))
+    is_national = models.BooleanField(
+        default=False,
+        verbose_name=_("National holiday"),
+        help_text=_("If true, this is a Spanish national holiday. If false, it is regional."),
+    )
+
+    class Meta:
+        verbose_name = _("Public holiday")
+        verbose_name_plural = _("Public holidays")
+        ordering = ("date",)
+        unique_together = ("calendar", "date")
+
+    def __str__(self):
+        return f"{self.name} — {self.date}"

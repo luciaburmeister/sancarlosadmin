@@ -104,6 +104,7 @@ INSTALLED_APPS = [
     "payments",
     'invoices',
     'chatbot',
+    'banking',
 
 ]
 

@@ -24,4 +24,5 @@ urlpatterns = [
     path("clients/", zones.ClientsListView.as_view(), name="clients"),
     path("plannings/", attendance.PlanningsListView.as_view(), name="plannings"),
     path("movements/", attendance.MovementsListView.as_view(), name="movements"),
+    path("identifiers/", zones.AssetIdentifiersView.as_view(), name="identifiers"),
 ]

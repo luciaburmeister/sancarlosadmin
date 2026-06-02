@@ -120,6 +120,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
                     ("assigned_to", "provider"),
                     ("current_working_zone"),
                     "description",
+                    "data"
                 )
             },
         ),

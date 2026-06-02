@@ -1,6 +1,6 @@
 from import_export import resources, fields
 from import_export.widgets import ForeignKeyWidget
-from .models import Invoice, SalesInvoice, InvoiceItem, SalesInvoiceItem
+from .models import Invoice, SalesInvoice, InvoiceItem, SalesInvoiceItem, AppliedTax
 from materials.models import Provider
 from company.models import Company
 from sales.models import Client
@@ -10,6 +10,87 @@ from django.db.models.functions import Coalesce
 from django.db import models as models
 from django.contrib.contenttypes.models import ContentType
 from decimal import Decimal
+
+
+# ── Shared tax-column helpers ─────────────────────────────────────────────────
+
+MAX_IVA_SLOTS = 3  # columns: BASE IVA 1..3, IVA 1..3
+
+
+def _bucket_taxes(tax_rows):
+    """
+    Given an iterable of AppliedTax objects (already with tax_type loaded),
+    bucket them into (iva_list, retention_total).
+    """
+    iva_list = []
+    retention_total = Decimal("0.00")
+
+    for tax in tax_rows:
+        base = tax.base_amount.amount if tax.base_amount else Decimal("0.00")
+        amount = tax.calculated_amount.amount if tax.calculated_amount else Decimal("0.00")
+        pct = tax.selected_percentage
+        group = tax.tax_type.a3_tax_group  # IVA, IRPF, RE, NONE
+
+        if group == "IVA":
+            iva_list.append({"base": base, "amount": amount, "pct": pct})
+        elif group == "IRPF" or tax.tax_type.behavior == "subtract":
+            retention_total += abs(amount)
+
+    return iva_list, retention_total
+
+
+def _prefetch_tax_data(model_class, queryset):
+    """
+    Single bulk query: fetch ALL AppliedTax rows for every object in the
+    queryset, then return a dict  {object_id: (iva_list, retention_total)}.
+
+    This replaces N per-instance queries with exactly 1 query.
+    """
+    from collections import defaultdict
+
+    ct = ContentType.objects.get_for_model(model_class)
+    object_ids = list(queryset.values_list("pk", flat=True))
+
+    if not object_ids:
+        return {}
+
+    all_taxes = (
+        AppliedTax.objects
+        .filter(content_type=ct, object_id__in=object_ids)
+        .select_related("tax_type")
+        .order_by("object_id", "order", "id")
+    )
+
+    # Group taxes by object_id
+    taxes_by_obj = defaultdict(list)
+    for tax in all_taxes:
+        taxes_by_obj[tax.object_id].append(tax)
+
+    # Bucket each group
+    result = {}
+    for obj_id in object_ids:
+        result[obj_id] = _bucket_taxes(taxes_by_obj.get(obj_id, []))
+
+    return result
+
+
+def _build_tax_fields():
+    """Generate the Field instances for tax columns."""
+    tax_fields = {}
+    for i in range(1, MAX_IVA_SLOTS + 1):
+        tax_fields[f"base_iva_{i}"] = fields.Field(
+            column_name=f"BASE IVA {i}", readonly=True
+        )
+        tax_fields[f"iva_{i}"] = fields.Field(
+            column_name=f"IVA {i}", readonly=True
+        )
+    tax_fields["retencion"] = fields.Field(
+        column_name="RETENCION", readonly=True
+    )
+    return tax_fields
+
+
+# ── Invoice (Received / Purchase) ────────────────────────────────────────────
 
 class InvoiceResource(resources.ModelResource):
     provider = fields.Field(
@@ -27,6 +108,15 @@ class InvoiceResource(resources.ModelResource):
     amount_remaining_value = fields.Field(column_name=_('Amount Remaining'))
     currency = fields.Field(column_name=_('Currency'))
 
+    # Tax columns
+    base_iva_1 = fields.Field(column_name="BASE IVA 1")
+    iva_1 = fields.Field(column_name="IVA 1")
+    base_iva_2 = fields.Field(column_name="BASE IVA 2")
+    iva_2 = fields.Field(column_name="IVA 2")
+    base_iva_3 = fields.Field(column_name="BASE IVA 3")
+    iva_3 = fields.Field(column_name="IVA 3")
+    retencion = fields.Field(column_name="RETENCION")
+
     class Meta:
         model = Invoice
         fields = (
@@ -40,6 +130,13 @@ class InvoiceResource(resources.ModelResource):
             'amount_paid_value',
             'amount_remaining_value',
             'currency',
+            'base_iva_1',
+            'iva_1',
+            'base_iva_2',
+            'iva_2',
+            'base_iva_3',
+            'iva_3',
+            'retencion',
             'confirmation_status',
             'payment_status',
             'ocr_processed',
@@ -74,7 +171,16 @@ class InvoiceResource(resources.ModelResource):
     def export(self, queryset=None, *args, **kwargs):
         if queryset is not None:
             queryset = self._annotate_queryset(queryset)
-        return super().export(queryset, *args, **kwargs)
+        else:
+            queryset = self.get_queryset()
+
+        # Bulk-prefetch all taxes in 1 query → attach to each instance
+        tax_lookup = _prefetch_tax_data(Invoice, queryset)
+        instances = list(queryset)
+        for inst in instances:
+            inst._tax_cache = tax_lookup.get(inst.pk, ([], Decimal("0.00")))
+
+        return super().export(queryset=instances, *args, **kwargs)
 
     def dehydrate_total_amount_value(self, invoice):
         return invoice.total_amount.amount if invoice.total_amount else 0
@@ -89,6 +195,41 @@ class InvoiceResource(resources.ModelResource):
 
     def dehydrate_currency(self, invoice):
         return str(invoice.total_amount.currency) if invoice.total_amount else "EUR"
+
+    # ── Tax dehydrators ───────────────────────────────────────────────────
+
+    def _get_tax_data(self, invoice):
+        """Read from pre-attached _tax_cache (set in export())."""
+        return getattr(invoice, '_tax_cache', ([], Decimal("0.00")))
+
+    def dehydrate_base_iva_1(self, invoice):
+        iva_list, _ = self._get_tax_data(invoice)
+        return iva_list[0]["base"] if len(iva_list) > 0 else ""
+
+    def dehydrate_iva_1(self, invoice):
+        iva_list, _ = self._get_tax_data(invoice)
+        return iva_list[0]["amount"] if len(iva_list) > 0 else ""
+
+    def dehydrate_base_iva_2(self, invoice):
+        iva_list, _ = self._get_tax_data(invoice)
+        return iva_list[1]["base"] if len(iva_list) > 1 else ""
+
+    def dehydrate_iva_2(self, invoice):
+        iva_list, _ = self._get_tax_data(invoice)
+        return iva_list[1]["amount"] if len(iva_list) > 1 else ""
+
+    def dehydrate_base_iva_3(self, invoice):
+        iva_list, _ = self._get_tax_data(invoice)
+        return iva_list[2]["base"] if len(iva_list) > 2 else ""
+
+    def dehydrate_iva_3(self, invoice):
+        iva_list, _ = self._get_tax_data(invoice)
+        return iva_list[2]["amount"] if len(iva_list) > 2 else ""
+
+    def dehydrate_retencion(self, invoice):
+        _, retention = self._get_tax_data(invoice)
+        return retention if retention else ""
+
 
 class InvoiceItemResource(resources.ModelResource):
     invoice_number = fields.Field(attribute='invoice__invoice_number', column_name=_('Invoice Number'))
@@ -122,6 +263,9 @@ class InvoiceItemResource(resources.ModelResource):
     def dehydrate_currency(self, item):
         return str(item.unit_price.currency) if item.unit_price else "EUR"
 
+
+# ── Sales Invoice ─────────────────────────────────────────────────────────────
+
 class SalesInvoiceResource(resources.ModelResource):
     client = fields.Field(
         column_name=_('Client'),
@@ -138,6 +282,15 @@ class SalesInvoiceResource(resources.ModelResource):
     total_amount_value = fields.Field(column_name=_('Total Amount'))
     currency = fields.Field(column_name=_('Currency'))
 
+    # Tax columns
+    base_iva_1 = fields.Field(column_name="BASE IVA 1")
+    iva_1 = fields.Field(column_name="IVA 1")
+    base_iva_2 = fields.Field(column_name="BASE IVA 2")
+    iva_2 = fields.Field(column_name="IVA 2")
+    base_iva_3 = fields.Field(column_name="BASE IVA 3")
+    iva_3 = fields.Field(column_name="IVA 3")
+    retencion = fields.Field(column_name="RETENCION")
+
     class Meta:
         model = SalesInvoice
         fields = (
@@ -152,11 +305,32 @@ class SalesInvoiceResource(resources.ModelResource):
             'tax_amount_value',
             'total_amount_value',
             'currency',
+            'base_iva_1',
+            'iva_1',
+            'base_iva_2',
+            'iva_2',
+            'base_iva_3',
+            'iva_3',
+            'retencion',
             'payment_status',
             'payment_method',
             'reference',
         )
         export_order = fields
+
+    def export(self, queryset=None, *args, **kwargs):
+        if queryset is None:
+            queryset = SalesInvoice.objects.all()
+
+        queryset = queryset.select_related("client", "company")
+
+        # Bulk-prefetch all taxes in 1 query → attach to each instance
+        tax_lookup = _prefetch_tax_data(SalesInvoice, queryset)
+        instances = list(queryset)
+        for inst in instances:
+            inst._tax_cache = tax_lookup.get(inst.pk, ([], Decimal("0.00")))
+
+        return super().export(queryset=instances, *args, **kwargs)
 
     def dehydrate_subtotal_amount_value(self, invoice):
         return invoice.subtotal_amount.amount if invoice.subtotal_amount else 0
@@ -169,6 +343,41 @@ class SalesInvoiceResource(resources.ModelResource):
 
     def dehydrate_currency(self, invoice):
         return str(invoice.total_amount.currency) if invoice.total_amount else "EUR"
+
+    # ── Tax dehydrators ───────────────────────────────────────────────────
+
+    def _get_tax_data(self, invoice):
+        """Read from pre-attached _tax_cache (set in export())."""
+        return getattr(invoice, '_tax_cache', ([], Decimal("0.00")))
+
+    def dehydrate_base_iva_1(self, invoice):
+        iva_list, _ = self._get_tax_data(invoice)
+        return iva_list[0]["base"] if len(iva_list) > 0 else ""
+
+    def dehydrate_iva_1(self, invoice):
+        iva_list, _ = self._get_tax_data(invoice)
+        return iva_list[0]["amount"] if len(iva_list) > 0 else ""
+
+    def dehydrate_base_iva_2(self, invoice):
+        iva_list, _ = self._get_tax_data(invoice)
+        return iva_list[1]["base"] if len(iva_list) > 1 else ""
+
+    def dehydrate_iva_2(self, invoice):
+        iva_list, _ = self._get_tax_data(invoice)
+        return iva_list[1]["amount"] if len(iva_list) > 1 else ""
+
+    def dehydrate_base_iva_3(self, invoice):
+        iva_list, _ = self._get_tax_data(invoice)
+        return iva_list[2]["base"] if len(iva_list) > 2 else ""
+
+    def dehydrate_iva_3(self, invoice):
+        iva_list, _ = self._get_tax_data(invoice)
+        return iva_list[2]["amount"] if len(iva_list) > 2 else ""
+
+    def dehydrate_retencion(self, invoice):
+        _, retention = self._get_tax_data(invoice)
+        return retention if retention else ""
+
 
 class SalesInvoiceItemResource(resources.ModelResource):
     invoice_number = fields.Field(attribute='invoice__invoice_number', column_name=_('Invoice Number'))

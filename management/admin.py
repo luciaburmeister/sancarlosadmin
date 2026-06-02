@@ -83,6 +83,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_filter = ["status", "company", "created_at"]
     search_fields = ["reference", "name", "client__name"]
     autocomplete_fields = ["client", "company"]
+    list_select_related = ["client","company"]
     
     readonly_fields = ["reference", "incremental_id", "invoicing_summary_display"]
 

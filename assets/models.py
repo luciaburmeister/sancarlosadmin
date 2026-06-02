@@ -48,6 +48,7 @@ class Asset(CompanyOwnedModel):
         verbose_name=_("Owner/Client")
     )
     name = models.CharField(max_length=200, verbose_name=_("Name/Label"))
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
     data = models.JSONField(
         default=dict,
         blank=True,
@@ -90,6 +91,11 @@ class Asset(CompanyOwnedModel):
         if self.pk:
             if self.current_working_zone != self._original_working_zone:
                 self.create_transaction_on_change()
+        if self.data:
+            self.data = {
+                k.strip().lower().replace(" ", "_"): v
+                for k, v in self.data.items()
+            }
         super().save(*args, **kwargs)
         self._original_working_zone = self.current_working_zone
 

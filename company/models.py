@@ -358,6 +358,7 @@ class WorkingZone(CompanyOwnedModel):
     class ZoneType(models.TextChoices):
         OBRA = "obra", _("Obra")
         VERTEDERO = "vertedero", _("Vertedero")
+        CEDE_FISTEX = "cede_fistex", _("Cede Fistex")
 
     name = models.CharField(max_length=100, verbose_name=_("Name"))
     zone_type = models.CharField(

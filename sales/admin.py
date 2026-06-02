@@ -455,7 +455,7 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
     inlines = [ConfigurationReadOnlyInline, QuoteConfigurationGroupInline, QuoteItemInline, QuotePhotoInline, AppliedTaxInline, QuoteEmailLogInline,QuoteCommissionInline]
 
 
-    actions_list = ["go_to_conversion_analysis", "quote_dashboard_action"]
+    actions_list = [ "quote_dashboard_action"]
     actions_row = ["add_configuration_to_quote", "export_quote_action", "send_email_row_action"]
     actions_detail = ["send_email_detail_action"]
 

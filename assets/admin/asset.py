@@ -7,9 +7,9 @@ from django.utils.translation import gettext_lazy as _
 from django_json_widget.widgets import JSONEditorWidget
 from assets.models import Asset, AssetIdentifier, AssetTransaction, AssetDocument, AssetDocumentType
 from unfold.widgets import UnfoldAdminSelectWidget
-from django.urls import resolve
+from django.urls import resolve, path, reverse
 from django.utils.html import format_html
-from django.http import HttpResponse
+from django.http import HttpResponse, HttpResponseRedirect
 from assets.utils import generate_asset_qr_grid
 from company.forms import BaseDocumentForm
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
@@ -100,14 +100,15 @@ class AssetTransactionInline(StackedInline):
 
 @admin.register(Asset)
 class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
-    list_display = ("name", "asset_type", "client", "provider", "assigned_to", "qr_link", "get_identifiers")
-    list_filter = ("asset_type", ("client",AutocompleteSelectFilter), ("provider",AutocompleteSelectFilter), "assigned_to",("company",AutocompleteSelectFilter))
+    list_display = ("name", "asset_type", "client", "provider", "assigned_to", "qr_link", "get_identifiers","is_active")
+    list_filter = ("asset_type", ("client",AutocompleteSelectFilter), ("provider",AutocompleteSelectFilter), "assigned_to",("company",AutocompleteSelectFilter),"is_active")
     search_fields = ("name", "identifiers__value")
     inlines = [AssetIdentifierInline, AssetTransactionInline, AssetDocumentInline]
     actions = ["download_qr_grid"]
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
     }
+    list_editable = ("is_active",)
     autocomplete_fields = ["asset_type", "client", "company", "current_working_zone", "assigned_to", "provider"]
     readonly_fields = ("qr_code_preview",)
     fieldsets = (
@@ -118,9 +119,9 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
                     ("name", "asset_type"),
                     ("client", "company"),
                     ("assigned_to", "provider"),
-                    ("current_working_zone"),
+                    ("current_working_zone", "is_active"),
                     "description",
-                    "data"
+                    "data",
                 )
             },
         ),

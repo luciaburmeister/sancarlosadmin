@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from timestamps.models import Timestampable
 from company.models import CompanyOwnedModel
@@ -103,7 +104,7 @@ class FeedbackResponse(CompanyOwnedModel, Timestampable):
         on_delete=models.PROTECT,
         related_name="feedback_responses",
         verbose_name=_("Presupuesto"),
-        limit_choices_to={"status": "rejected"},
+        limit_choices_to=Q(status="rejected") | Q(status="sent"),
     )
     client = models.ForeignKey(
         "sales.Client",

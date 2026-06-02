@@ -238,13 +238,12 @@ class FeedbackResponseAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_filter         = ("company", "call_date", "agent", "questionnaire")
     search_fields       = ("client__name", "quote__project_name",
                            "agent__first_name", "agent__last_name")
-    autocomplete_fields = ("questionnaire", "agent", "quote")
+    autocomplete_fields = ("questionnaire", "agent", "quote","company")
     date_hierarchy      = "call_date"
     readonly_fields     = ("display_client", "fill_answers_link")
     actions_row         = ["go_to_fill"]
     inlines             = [FeedbackAnswerInline]
 
-    # Remove add/delete/change icons from FK fields — keep only view
     def get_form(self, request, obj=None, change=False, **kwargs):
         form = super().get_form(request, obj, change, **kwargs)
         companies = get_user_companies(request.user)
@@ -261,20 +260,6 @@ class FeedbackResponseAdmin(CompanyRestrictedAdmin, ModelAdmin):
             ).order_by("last_name", "first_name")
         return form
 
-    # Disable add/delete shortcuts on FK widgets
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
-        if db_field.name in ("questionnaire", "quote", "agent"):
-            if hasattr(field, "widget"):
-                field.widget.can_add_related    = False
-                field.widget.can_change_related = False
-                field.widget.can_delete_related = False
-        if db_field.name == "company":
-            field.widget = UnfoldAdminSelect2Widget()
-            field.widget.can_add_related    = False
-            field.widget.can_change_related = False
-            field.widget.can_delete_related = False
-        return field
 
     fieldsets = (
         (_("Identificación"), {

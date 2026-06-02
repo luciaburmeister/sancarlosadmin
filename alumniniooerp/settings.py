@@ -463,7 +463,27 @@ UNFOLD = {
                         "permission": lambda request: request.user.has_perm(
                             "configurator.view_producttemplate"
                         ),
-                    }
+                    },
+                    {
+                        "title": _("Feedback Questionnaires"),
+                        "icon": "quiz",
+                        "link": reverse_lazy(
+                            "admin:feedback_feedbackquestionnaire_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "feedback.view_feedbackquestionnaire"
+                        ),
+                    },
+                    {
+                        "title": _("Feedback Responses"),
+                        "icon": "rate_review",
+                        "link": reverse_lazy(
+                            "admin:feedback_feedbackresponse_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "feedback.view_feedbackresponse"
+                        ),
+                    },
                 ],
             },
 

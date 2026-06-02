@@ -9,8 +9,11 @@ from django.contrib.postgres.fields import ArrayField
 from django.utils.translation import gettext_lazy as _
 from django.shortcuts import redirect
 from django.urls import path, reverse
+from django.http import HttpResponse
 from configurator.views.product_template.product_template_resources_view import ProductTemplateResourcesView
+from configurator.views.product_template.import_planning_view import ImportPlanningView
 from production.views.product_stage_report_view import ProductStageReportView
+from configurator.resources.planning_export import export_planning_xlsx
 from invoices.models import AppliedTax
 from unfold.decorators import action
 from django.utils.html import format_html
@@ -179,6 +182,7 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = ("id", "name", "flow_kind", "company", "planning_configured_badge", "planning_configure_link")
     search_fields = ("name",)
     actions_row = ["duplicate_product", "stage_report_action"]
+    actions = ["export_planning_config"]
     list_select_related = ["company"]
     autocomplete_fields = ["company"]
 
@@ -251,6 +255,27 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
         url = reverse("admin:configurator_producttemplate_stage_report")
         return redirect(f"{url}?product={object_id}")
 
+    @action(
+        description=_("Export planning config"),
+    )
+    def export_planning_config(self, request, queryset):
+        xlsx_bytes = export_planning_xlsx(queryset)
+        response = HttpResponse(
+            xlsx_bytes,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        response["Content-Disposition"] = 'attachment; filename="planning_config.xlsx"'
+        return response
+
+    @admin.display(description=_("Import planning"))
+    def import_planning_link(self, obj=None):
+        url = reverse("admin:configurator_producttemplate_import_planning")
+        return format_html(
+            '<a class="button" href="{}">{}</a>',
+            url,
+            _("Import Planning"),
+        )
+
     def get_urls(self):
         urls = super().get_urls()
         planning_view = self.admin_site.admin_view(
@@ -259,8 +284,12 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
         stage_report_view = self.admin_site.admin_view(
             ProductStageReportView.as_view(model_admin=self)
         )
+        import_planning_view = self.admin_site.admin_view(
+            ImportPlanningView.as_view(model_admin=self)
+        )
 
         return [
             path("<int:pk>/planning/", planning_view, name="configurator_producttemplate_planning"),
             path("stage-report/", stage_report_view, name="configurator_producttemplate_stage_report"),
+            path("import-planning/", import_planning_view, name="configurator_producttemplate_import_planning"),
         ] + urls

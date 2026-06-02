@@ -27,7 +27,7 @@
         </div>
     </div>
 
-    <form method="post" id="wizard-form" novalidate class="space-y-6">
+    <form method="post" action="." id="wizard-form" enctype="multipart/form-data" novalidate class="space-y-6">
         {% csrf_token %}
         {{ wizard.management_form }}
 
@@ -56,8 +56,8 @@
                 {% endif %}
             </div>
 
-            <button type="submit"
-                class="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 shadow-md transition-all text-sm font-medium focus:ring-4 focus:ring-primary-100">
+            <button type="submit" id="wizard-submit-btn"
+                class="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 shadow-md transition-all text-sm font-medium focus:ring-4 focus:ring-primary-100 relative z-10">
                 {% if wizard.steps.next %}
                 {% trans "Next Step" %}
                 {% else %}
@@ -94,6 +94,16 @@
             }
         });
     });
+
+    /* Fallback: ensure the submit button always triggers the form */
+    var btn = document.getElementById('wizard-submit-btn');
+    var form = document.getElementById('wizard-form');
+    if (btn && form) {
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+            form.requestSubmit(btn);
+        });
+    }
 })();
 </script>
 {% endblock %}

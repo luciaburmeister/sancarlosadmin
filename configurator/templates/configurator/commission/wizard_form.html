@@ -27,7 +27,7 @@
         </div>
     </div>
 
-    <form method="post" id="wizard-form" novalidate class="space-y-6">
+    <form method="post" action="." id="wizard-form" enctype="multipart/form-data" novalidate class="space-y-6">
         {% csrf_token %}
         {{ wizard.management_form }}
 
@@ -56,7 +56,7 @@
                 {% endif %}
             </div>
 
-            <button type="submit"
+            <button type="submit" id="wizard-submit-btn"
                 class="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 shadow-md transition-all text-sm font-medium focus:ring-4 focus:ring-primary-100">
                 {% if wizard.steps.next %}
                 {% trans "Next Step" %}
@@ -67,4 +67,20 @@
         </div>
     </form>
 </div>
+
+<script>
+(function () {
+    var btn = document.getElementById('wizard-submit-btn');
+    if (btn) {
+        btn.addEventListener('click', function (e) {
+            var form = document.getElementById('wizard-form');
+            if (form && !form.contains(btn)) {
+                /* Button somehow ended up outside the form – force submit */
+                e.preventDefault();
+                form.requestSubmit();
+            }
+        });
+    }
+})();
+</script>
 {% endblock %}

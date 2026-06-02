@@ -1,0 +1,70 @@
+{% extends "admin/base_site.html" %}
+
+{% load admin_urls crispy_forms_tags i18n unfold %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="{% url 'admin:jsi18n' %}"></script>
+{{ wizard.form.media }}
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto p-6">
+    <div class="flex items-center justify-between mb-8 pb-4 border-b border-gray-100 dark:border-gray-800">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100">{{ title }}</h1>
+            <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                {% blocktrans with current=wizard.steps.step1 total=wizard.steps.count %}
+                Step {{ current }} of {{ total }}
+                {% endblocktrans %}
+            </p>
+        </div>
+        <div class="flex gap-2">
+            {% for step in wizard.steps.all %}
+            <div class="h-1.5 w-8 rounded-full {% if forloop.counter <= wizard.steps.step1 %}bg-primary-600{% else %}bg-gray-200 dark:bg-gray-700{% endif %}">
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <form method="post" id="wizard-form" novalidate class="space-y-6">
+        {% csrf_token %}
+        {{ wizard.management_form }}
+
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
+            <div class="p-6">
+                {% if helper %}
+                {% crispy wizard.form helper "unfold_crispy" %}
+                {% else %}
+                {% crispy wizard.form %}
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="flex justify-between items-center py-6 border-t border-gray-100 dark:border-gray-800">
+            <div>
+                {% if wizard.steps.prev %}
+                <button name="wizard_goto_step" type="submit" value="{{ wizard.steps.prev }}"
+                    class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:text-gray-900 shadow-sm transition-all text-sm font-medium dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300">
+                    {% trans "Previous" %}
+                </button>
+                {% else %}
+                <a href="{% url 'admin:configurator_agentcommissionrule_changelist' %}"
+                    class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:text-gray-900 shadow-sm transition-all text-sm font-medium dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300">
+                    {% trans "Cancel" %}
+                </a>
+                {% endif %}
+            </div>
+
+            <button type="submit"
+                class="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 shadow-md transition-all text-sm font-medium focus:ring-4 focus:ring-primary-100">
+                {% if wizard.steps.next %}
+                {% trans "Next Step" %}
+                {% else %}
+                {% trans "Review & Confirm" %}
+                {% endif %}
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

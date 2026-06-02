@@ -33,6 +33,9 @@ from .components.quote_dashboard_charts import QuoteValueByStatusChart, QuoteCou
 from core.tasks import send_quote_email_task
 from company.models import EmailLog
 from unfold.admin import GenericTabularInline as _GenericTabularInline
+from configurator.commission.admin import QuoteCommissionInline
+from configurator.commission.services import CommissionService
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -424,7 +427,6 @@ class ConfigurationReadOnlyInline(TabularInline):
         return obj.total_price
 
 
-
 class QuoteEmailLogInline(_GenericTabularInline):
     model = EmailLog
     extra = 0
@@ -450,7 +452,7 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
     readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown"]
     list_select_related = ["client", "project_file", "company"]
     
-    inlines = [ConfigurationReadOnlyInline, QuoteConfigurationGroupInline, QuoteItemInline, QuotePhotoInline, AppliedTaxInline, QuoteEmailLogInline]
+    inlines = [ConfigurationReadOnlyInline, QuoteConfigurationGroupInline, QuoteItemInline, QuotePhotoInline, AppliedTaxInline, QuoteEmailLogInline,QuoteCommissionInline]
 
 
     actions_list = ["go_to_conversion_analysis", "quote_dashboard_action"]
@@ -486,11 +488,10 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
         description=_("Status"),
         ordering="status",
         label={
-            _(QuoteStatus.ACCEPTED.label): "success",  # green
-            _(QuoteStatus.SENT.label): "info",  # blue
-            _(QuoteStatus.REJECTED.label): "warning",  # orange
-            _(QuoteStatus.DRAFT.label): "primary",  # orange
-            
+            _(QuoteStatus.ACCEPTED.label): "success",
+            _(QuoteStatus.SENT.label): "info",
+            _(QuoteStatus.REJECTED.label): "warning",
+            _(QuoteStatus.DRAFT.label): "primary",
         },
     )
     def show_status_customized_color(self, obj):
@@ -501,10 +502,28 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
         url = reverse("admin:configurator_configuration_wizard_select")
         return redirect(f"{url}?quote_id={object_id}")
 
-    @action(description=_("Análisis de Conversión"))
-    def go_to_conversion_analysis(self, _request):
-        url = reverse("admin:sales_quote_conversion_analysis")
-        return redirect(url)
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        form.instance.recalc_totals()
+        # Pre-populate and recalculate only on save
+        CommissionService.prepopulate_for_quote(form.instance)
+        CommissionService.recalculate(form.instance)
+
+    @action(description=_("Export Quote"), attrs={"target": "_blank"})
+    def export_quote_action(self, request, object_id: int):
+        return redirect(reverse("admin:sales_quote_export", args=[object_id]))
+
+    @action(
+        description=_("Quote Dashboard"),
+        url_path="quote-dashboard-action",
+        permissions=["quote_dashboard"],
+        icon="bar_chart",
+    )
+    def quote_dashboard_action(self, request):
+        return redirect(reverse("admin:sales_quote_dashboard"))
+
+    def has_quote_dashboard_permission(self, request):
+        return request.user.has_perm("sales.can_view_quote_dashboard")
 
     def get_urls(self):
         urls = super().get_urls()

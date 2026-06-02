@@ -10,3 +10,4 @@ from .user_admin import UserAdmin
 from .configuration_export import ConfigurationExportTemplateAdmin
 from .configuration_item import ConfigurationItem
 from .receival_slip import ReceivalSlipAdmin
+from configurator.commission import admin as _commission_admin  

@@ -21,8 +21,7 @@
         </div>
         <div class="flex gap-2">
             {% for step in wizard.steps.all %}
-            <div
-                class="h-1.5 w-8 rounded-full {% if forloop.counter <= wizard.steps.step1 %}bg-primary-600{% else %}bg-gray-200 dark:bg-gray-700{% endif %}">
+            <div class="h-1.5 w-8 rounded-full {% if forloop.counter <= wizard.steps.step1 %}bg-primary-600{% else %}bg-gray-200 dark:bg-gray-700{% endif %}">
             </div>
             {% endfor %}
         </div>
@@ -32,14 +31,9 @@
         {% csrf_token %}
         {{ wizard.management_form }}
 
-        <div
-            class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
             <div class="p-6">
-                {% if wizard.steps.current == 'addons' %}
-                {# Manually include the formset template to force correct context #}
-                {% include "unfold_crispy/layout/table_inline_formset.html" with formset=wizard.form formset_tag=False form_add=True form_id="addon-formset" formset_id="addon-formset" %}
-
-                {% elif helper %}
+                {% if helper %}
                 {% crispy wizard.form helper "unfold_crispy" %}
                 {% else %}
                 {% crispy wizard.form %}
@@ -55,7 +49,7 @@
                     {% trans "Previous" %}
                 </button>
                 {% else %}
-                <a href="../"
+                <a href="{% url 'admin:configurator_agentcommissionrule_changelist' %}"
                     class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:text-gray-900 shadow-sm transition-all text-sm font-medium dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300">
                     {% trans "Cancel" %}
                 </a>
@@ -67,7 +61,7 @@
                 {% if wizard.steps.next %}
                 {% trans "Next Step" %}
                 {% else %}
-                {% trans "Finish" %}
+                {% trans "Review & Confirm" %}
                 {% endif %}
             </button>
         </div>
@@ -75,50 +69,31 @@
 </div>
 
 <script>
-    (function () {
-        // Wait for jQuery and Select2 to be ready
-        const onReady = function (fn) {
-            if (typeof window.django !== 'undefined' && typeof window.django.jQuery !== 'undefined') {
-                const $ = window.django.jQuery;
-                if ($.isReady) { fn(); } else { $(document).ready(fn); }
-            } else {
-                setTimeout(() => onReady(fn), 50);
-            }
-        };
-
-        const initAutocomplete = function () {
+(function () {
+    const onReady = function (fn) {
+        if (typeof window.django !== 'undefined' && typeof window.django.jQuery !== 'undefined') {
             const $ = window.django.jQuery;
-            if (typeof $.fn.select2 === 'undefined') {
-                setTimeout(initAutocomplete, 50);
-                return;
-            }
+            if ($.isReady) { fn(); } else { $(document).ready(fn); }
+        } else {
+            setTimeout(() => onReady(fn), 50);
+        }
+    };
 
-            $('.unfold-admin-autocomplete:not(.empty-form .unfold-admin-autocomplete)').each(function () {
-                if (!$(this).hasClass("select2-hidden-accessible")) {
-                    $(this).select2({
-                        width: '100%',
-                        dropdownParent: $(this).parent()
-                    });
-                }
-            });
-        };
+    onReady(function () {
+        const $ = window.django.jQuery;
 
-        onReady(initAutocomplete);
-
-        document.addEventListener("formset:added", function (event) {
-            onReady(() => {
-                const $ = window.django.jQuery;
-                const row = event.target;
-                $(row).find('.unfold-admin-autocomplete').each(function () {
-                    if (!$(this).hasClass("select2-hidden-accessible")) {
-                        $(this).select2({
-                            width: '100%',
-                            dropdownParent: $(this).parent()
-                        });
-                    }
+        // Initialise Select2 on both multi-select fields
+        $('select[multiple]').each(function () {
+            if (!$(this).hasClass('select2-hidden-accessible')) {
+                $(this).select2({
+                    width: '100%',
+                    placeholder: '{% trans "Search..." %}',
+                    allowClear: true,
+                    dropdownParent: $(this).parent(),
                 });
-            });
+            }
         });
-    })();
+    });
+})();
 </script>
 {% endblock %}

@@ -1,0 +1,173 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block after_related_objects %}
+{{ block.super }}
+
+<script>
+(function () {
+    const PERCENTAGE = "percentage";
+    const FIXED      = "fixed";
+    const CUSTOM     = "custom";
+
+    // ── Field element getters ──────────────────────────────────────────────────
+    const get = id => document.getElementById(id);
+
+    function getWrapper(el) {
+        if (!el) return null;
+        let node = el.parentElement;
+        while (node) {
+            const parent = node.parentElement;
+            if (parent && (
+                parent.classList.contains("form-row") ||
+                parent.tagName === "FIELDSET" ||
+                parent.classList.contains("module")
+            )) return node;
+            node = parent;
+        }
+        return el.closest(".form-row") || el.parentElement;
+    }
+
+    function setVisible(el, visible) {
+        if (!el) return;
+        el.style.display  = visible ? "" : "none";
+        el.style.opacity  = visible ? "1" : "0";
+        el.style.transition = "opacity 0.15s";
+    }
+
+    // ── Toggle fields based on rule type ──────────────────────────────────────
+    function updateFields() {
+        const ruleTypeEl = get("id_rule_type");
+        if (!ruleTypeEl) return;
+
+        const ruleType = ruleTypeEl.value;
+        const isCustom = ruleType === CUSTOM;
+
+        // value row
+        const valueEl = get("id_value");
+        setVisible(getWrapper(valueEl), !isCustom);
+
+        // expression_name row
+        const nameEl = get("id_expression_name");
+        setVisible(getWrapper(nameEl), isCustom);
+
+        // expression row
+        const exprEl = get("id_expression");
+        setVisible(getWrapper(exprEl), isCustom);
+
+        // Update value label
+        const valueWrapper = getWrapper(valueEl);
+        if (valueWrapper) {
+            const label = valueWrapper.querySelector("label");
+            if (label) {
+                if (ruleType === PERCENTAGE)      label.textContent = "{% trans 'Value (%)' %}";
+                else if (ruleType === FIXED)      label.textContent = "{% trans 'Value (€)' %}";
+            }
+        }
+
+        updatePreview();
+    }
+
+    // ── Live preview ──────────────────────────────────────────────────────────
+    function selectedText(selectEl) {
+        if (!selectEl) return "—";
+        const opt = selectEl.options[selectEl.selectedIndex];
+        if (!opt || !opt.value || opt.text === "---------") return "—";
+        return opt.text;
+    }
+
+    function updatePreview() {
+        const box = document.getElementById("commission-rule-preview");
+        if (!box) return;
+
+        const ruleTypeEl = get("id_rule_type");
+        const ruleType   = ruleTypeEl ? ruleTypeEl.value : "";
+        const valueEl    = get("id_value");
+        const exprEl     = get("id_expression");
+        const employeeEl = get("id_employee");
+        const productEl  = get("id_product_template");
+
+        const employee = selectedText(employeeEl);
+        const product  = selectedText(productEl);
+
+        let ruleStr = "—";
+        if (ruleType === PERCENTAGE && valueEl?.value)
+            ruleStr = `${valueEl.value}%`;
+        else if (ruleType === FIXED && valueEl?.value)
+            ruleStr = `€${parseFloat(valueEl.value).toFixed(2)}`;
+        else if (ruleType === CUSTOM && exprEl?.value.trim())
+            ruleStr = `<code class="text-xs bg-gray-100 dark:bg-gray-800 px-1 rounded">${exprEl.value.trim()}</code>`;
+
+        box.innerHTML = `
+            <span class="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wide font-semibold mr-2">
+                {% trans "Preview" %}
+            </span>
+            <span class="font-medium text-gray-800 dark:text-gray-100">${employee}</span>
+            <span class="mx-2 text-gray-400">→</span>
+            <span class="font-medium text-gray-800 dark:text-gray-100">${product}</span>
+            <span class="mx-2 text-gray-400">@</span>
+            <span class="font-semibold text-primary-600 dark:text-primary-400">${ruleStr}</span>
+        `;
+    }
+
+    // ── Inject preview box ────────────────────────────────────────────────────
+    function injectPreviewBox() {
+        if (document.getElementById("commission-rule-preview")) return;
+
+        const box = document.createElement("div");
+        box.id = "commission-rule-preview";
+        box.className = [
+            "mt-4 px-4 py-3 rounded-lg",
+            "border border-primary-200 bg-primary-50",
+            "dark:border-primary-800 dark:bg-primary-950",
+            "flex items-center gap-1 flex-wrap text-sm",
+        ].join(" ");
+        box.innerHTML = `<span class="text-gray-400 text-xs">{% trans "Fill in the fields above to see a preview." %}</span>`;
+
+        const modules = document.querySelectorAll(".module");
+        const last = modules[modules.length - 1];
+        if (last && last.parentElement) {
+            last.parentElement.insertBefore(box, last.nextSibling);
+        }
+    }
+
+    // ── Attach listeners ──────────────────────────────────────────────────────
+    function attachListeners() {
+        const watchIds = [
+            "id_rule_type",
+            "id_value",
+            "id_expression",
+            "id_expression_name",
+            "id_employee",
+            "id_product_template",
+        ];
+        watchIds.forEach(id => {
+            const el = get(id);
+            if (el) el.addEventListener("input", updateFields);
+            if (el) el.addEventListener("change", updateFields);
+        });
+
+        // Select2 events (fired by django jQuery)
+        if (typeof window.django !== "undefined" && window.django.jQuery) {
+            window.django.jQuery(document).on(
+                "select2:select select2:unselect",
+                updateFields
+            );
+        }
+    }
+
+    // ── Boot ──────────────────────────────────────────────────────────────────
+    function init() {
+        injectPreviewBox();
+        attachListeners();
+        updateFields(); // Set initial state
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+    } else {
+        init();
+    }
+})();
+</script>
+{% endblock %}

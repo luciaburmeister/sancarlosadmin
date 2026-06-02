@@ -475,6 +475,24 @@ class Quote(Timestampable, CompanyOwnedModel):
         help_text=_("Stable name shown in the Fislav app; not affected by PDF renaming."),
     )
 
+    date_sent = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Date sent"),
+    )
+
+    date_accepted = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Date accepted"),
+    )
+
+    date_rejected = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Date rejected"),
+    )
+
     class Meta:
         verbose_name = _("Quote")
         verbose_name_plural = _("Quotes")
@@ -482,10 +500,28 @@ class Quote(Timestampable, CompanyOwnedModel):
             ("can_view_quote_dashboard", _("Can view quote dashboard")),
         ]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._original_status = self.status
+
     def save(self, *args, **kwargs):
         if not self.internal_name and self.project_name:
             self.internal_name = self.project_name
+
+        # Auto-set date fields on status transitions
+        if self.status != self._original_status:
+            from django.utils import timezone
+            now = timezone.now()
+
+            if self.status == QuoteStatus.SENT and not self.date_sent:
+                self.date_sent = now
+            elif self.status == QuoteStatus.ACCEPTED and not self.date_accepted:
+                self.date_accepted = now
+            elif self.status == QuoteStatus.REJECTED and not self.date_rejected:
+                self.date_rejected = now
+
         super().save(*args, **kwargs)
+        self._original_status = self.status
 
     def __str__(self):
         return self.project_name or f"Quote #{self.id}"

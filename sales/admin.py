@@ -449,7 +449,7 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
     list_filter = ["status", "company", "created_at"]
     search_fields = ["project_name", "client__name", "id"]
     autocomplete_fields = ["client", "project_file", "company"]
-    readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown"]
+    readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown", "date_sent", "date_accepted", "date_rejected"]
     list_select_related = ["client", "project_file__client", "company"]
     
     inlines = [ConfigurationReadOnlyInline, QuoteConfigurationGroupInline, QuoteItemInline, QuotePhotoInline, AppliedTaxInline, QuoteEmailLogInline,QuoteCommissionInline]
@@ -467,6 +467,12 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
                 ("date", "expires_at"),
                 "project_file",
             )
+        }),
+        (_("Status Dates"), {
+            "fields": (
+                ("date_sent", "date_accepted", "date_rejected"),
+            ),
+            "classes": ("collapse",),
         }),
         ("Financials", {
             "fields": (

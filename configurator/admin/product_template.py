@@ -17,6 +17,9 @@ from django.utils.html import format_html
 from django import forms
 from core.admin.company_admin import CompanyRestrictedAdmin
 from materials.models import Component
+# ↓ NEW import
+from configurator.commission.admin import AgentCommissionRuleInline
+
 
 class AppliedTaxInline(GenericTabularInline):
     ordering_field = "order"
@@ -109,8 +112,6 @@ class BOMRuleInline(StackedInline):
 
         return formset
 
-    
-
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         return qs.select_related("component","product")
@@ -187,8 +188,9 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
         ProductComputedTemplateInline,
         BOMRuleInline,
         ProductPricingRuleAssignmentInline,
-        AppliedTaxInline, 
-        ProductTemplateComponentGroupInline
+        AppliedTaxInline,
+        ProductTemplateComponentGroupInline,
+        AgentCommissionRuleInline,  # ← NEW
     ]
 
     fieldsets = (

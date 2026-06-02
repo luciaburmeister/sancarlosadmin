@@ -1,0 +1,287 @@
+{% extends "admin/base.html" %}
+{% load i18n unfold crispy_forms_tags %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="{% url 'admin:jsi18n' %}"></script>
+<style>
+  .fb-wrap   { padding: 1.5rem 2rem 4rem; max-width: 860px; }
+
+  /* ── Page header ── */
+  .fb-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.75rem;
+  }
+  .fb-header h1 {
+    font-size: 1.375rem;
+    font-weight: 700;
+    color: var(--color-font-important, #111827);
+    margin: 0 0 .2rem;
+  }
+  .fb-header p {
+    font-size: .8125rem;
+    color: var(--color-font-secondary, #6b7280);
+    margin: 0;
+  }
+
+  /* ── Summary card ── */
+  .fb-summary {
+    border: 1px solid var(--color-border, #e5e7eb);
+    border-radius: .875rem;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+  }
+  .fb-summary-header {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .75rem 1.25rem;
+    background: var(--color-bg-secondary, #f9fafb);
+    border-bottom: 1px solid var(--color-border, #e5e7eb);
+    font-size: .875rem;
+    font-weight: 600;
+    color: var(--color-font-important, #111827);
+  }
+  .fb-summary-header .material-symbols-outlined { font-size: 1.1rem; opacity: .6; }
+  .fb-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  }
+  .fb-summary-item {
+    padding: .875rem 1.25rem;
+    border-right: 1px solid var(--color-border, #e5e7eb);
+  }
+  .fb-summary-item:last-child { border-right: none; }
+  .fb-summary-label { font-size: .75rem; color: var(--color-font-secondary, #6b7280); margin-bottom: .2rem; }
+  .fb-summary-value { font-size: .9rem; font-weight: 600; color: var(--color-font-important, #111827); }
+
+  /* ── Progress ── */
+  .fb-progress-wrap { margin-bottom: 1.5rem; }
+  .fb-progress-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: .8125rem;
+    color: var(--color-font-secondary, #6b7280);
+    margin-bottom: .375rem;
+  }
+  .fb-progress-track {
+    height: .375rem;
+    background: var(--color-border, #e5e7eb);
+    border-radius: 9999px;
+    overflow: hidden;
+  }
+  .fb-progress-fill {
+    height: 100%;
+    background: var(--color-primary, #0d9488);
+    border-radius: 9999px;
+    transition: width .3s ease;
+  }
+
+  /* ── Question card ── */
+  .fb-question {
+    border: 1px solid var(--color-border, #e5e7eb);
+    border-radius: .875rem;
+    overflow: hidden;
+    margin-bottom: 1rem;
+  }
+  .fb-question-header {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    padding: .75rem 1.25rem;
+    background: var(--color-bg-secondary, #f9fafb);
+    border-bottom: 1px solid var(--color-border, #e5e7eb);
+  }
+  .fb-q-num {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 50%;
+    background: var(--color-primary, #0d9488);
+    color: #fff;
+    font-size: .75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+  .fb-q-text {
+    flex: 1;
+    font-size: .9375rem;
+    font-weight: 600;
+    color: var(--color-font-important, #111827);
+  }
+  .fb-q-required { color: #ef4444; margin-left: .15rem; }
+  .fb-type-badge {
+    font-size: .6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    padding: .175rem .5rem;
+    border-radius: 9999px;
+    flex-shrink: 0;
+  }
+  .fb-type-choice   { background:#dbeafe;color:#1d4ed8; }
+  .fb-type-dropdown { background:#ede9fe;color:#6d28d9; }
+  .fb-type-yes_no   { background:#dcfce7;color:#15803d; }
+  .fb-type-scale    { background:#fef9c3;color:#a16207; }
+  .fb-type-text     { background:#f3f4f6;color:#4b5563; }
+
+  /* ── Answer body — hosts the crispy-rendered Unfold widget ── */
+  .fb-answer-body { padding: 1.125rem 1.375rem; }
+
+  /* Hide the crispy label since we show our own in the card header */
+  .fb-answer-body label.requiredField,
+  .fb-answer-body label { display: none !important; }
+
+  /* ── Actions ── */
+  .fb-actions {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--color-border, #e5e7eb);
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="fb-wrap">
+
+  {# ── Header ── #}
+  <div class="fb-header">
+    <div>
+      <h1>{% trans "Completar respuestas" %}</h1>
+      <p>{{ response_obj.questionnaire.name }}</p>
+    </div>
+  </div>
+
+  {# ── Summary card ── #}
+  <div class="fb-summary">
+    <div class="fb-summary-header">
+      <span class="material-symbols-outlined">info</span>
+      {% trans "Datos de la llamada" %}
+    </div>
+    <div class="fb-summary-grid">
+      <div class="fb-summary-item">
+        <div class="fb-summary-label">{% trans "Cliente" %}</div>
+        <div class="fb-summary-value">
+          {{ response_obj.quote.client.name|default:"—" }}
+        </div>
+      </div>
+      <div class="fb-summary-item">
+        <div class="fb-summary-label">{% trans "Presupuesto" %}</div>
+        <div class="fb-summary-value">{{ response_obj.quote }}</div>
+      </div>
+      <div class="fb-summary-item">
+        <div class="fb-summary-label">{% trans "Agente" %}</div>
+        <div class="fb-summary-value">{{ response_obj.agent|default:"—" }}</div>
+      </div>
+      <div class="fb-summary-item">
+        <div class="fb-summary-label">{% trans "Fecha" %}</div>
+        <div class="fb-summary-value">{{ response_obj.call_date }}</div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Progress bar ── #}
+  {% if total > 0 %}
+  <div class="fb-progress-wrap">
+    <div class="fb-progress-label">
+      <span id="progress-text">{{ answered }} / {{ total }} {% trans "respondidas" %}</span>
+      <span id="progress-pct">{% widthratio answered total 100 %}%</span>
+    </div>
+    <div class="fb-progress-track">
+      <div class="fb-progress-fill" id="progress-fill"
+           style="width: {% widthratio answered total 100 %}%"></div>
+    </div>
+  </div>
+  {% endif %}
+
+  {# ── Form ── #}
+  <form method="post" id="fb-form">
+    {% csrf_token %}
+
+    {% for item in answer_data %}
+    {% with q=item.question answer=item.answer %}
+    <div class="fb-question" data-answer-id="{{ answer.pk }}">
+
+      {# Card header #}
+      <div class="fb-question-header">
+        <span class="fb-q-num">{{ forloop.counter }}</span>
+        <span class="fb-q-text">
+          {{ q.text }}
+          {% if q.is_required %}<span class="fb-q-required">*</span>{% endif %}
+        </span>
+        <span class="fb-type-badge fb-type-{{ q.question_type }}">
+          {{ q.get_question_type_display }}
+        </span>
+      </div>
+
+      {# Unfold widget rendered via crispy — label hidden via CSS #}
+      <div class="fb-answer-body">
+        {% crispy item.form item.helper "unfold_crispy" %}
+      </div>
+
+    </div>
+    {% endwith %}
+    {% endfor %}
+
+    {# ── Actions ── #}
+    <div class="fb-actions">
+      {% component "unfold/components/button.html" with submit=True variant="primary" icon="save" %}
+        {% trans "Guardar respuestas" %}
+      {% endcomponent %}
+      {% component "unfold/components/button.html" with href=back_url variant="default" %}
+        {% trans "Cancelar" %}
+      {% endcomponent %}
+    </div>
+
+  </form>
+</div>
+
+<script>
+(function () {
+  /* Update progress bar as user fills answers */
+  var total = {{ total }};
+  var fill  = document.getElementById("progress-fill");
+  var text  = document.getElementById("progress-text");
+  var pct   = document.getElementById("progress-pct");
+
+  function countAnswered() {
+    var n = 0;
+    document.querySelectorAll(".fb-question").forEach(function (card) {
+      var answered = false;
+      card.querySelectorAll("input[type=radio], input[type=checkbox]").forEach(function (i) {
+        if (i.checked) answered = true;
+      });
+      card.querySelectorAll("select").forEach(function (s) {
+        if (s.value) answered = true;
+      });
+      card.querySelectorAll("textarea, input[type=text]").forEach(function (t) {
+        if (t.value.trim()) answered = true;
+      });
+      if (answered) n++;
+    });
+    return n;
+  }
+
+  function update() {
+    var n = countAnswered();
+    var p = total > 0 ? Math.round(n / total * 100) : 0;
+    if (fill)  fill.style.width = p + "%";
+    if (text)  text.textContent = n + " / " + total + " {% trans 'respondidas' %}";
+    if (pct)   pct.textContent  = p + "%";
+  }
+
+  document.getElementById("fb-form").addEventListener("change", update);
+  document.getElementById("fb-form").addEventListener("input",  update);
+  update();
+})();
+</script>
+{% endblock %}

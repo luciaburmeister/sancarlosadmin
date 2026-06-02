@@ -88,6 +88,8 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
     import_form_class = ImportForm
     export_form_class = ExportForm
     export_form_class = SelectableFieldsExportForm
+    search_fields = ["last_name", "first_name", "email"]  # add this line
+
 
     formfield_overrides = {
         ArrayField: {

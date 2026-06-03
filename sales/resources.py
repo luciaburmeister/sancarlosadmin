@@ -12,6 +12,11 @@ COL_NAME    = "nombre comercial"
 COL_TAX     = "nif/cif"
 COL_ADDRESS = "direccion completa"
 COL_PHONE   = "telefono"
+COL_EMAIL   = "email"
+# Extra address columns that can be combined into a full address
+COL_CITY    = "poblacion"
+COL_POSTAL  = "codigo postal"
+COL_PROVINCE = "provincia"
 
 EMPTY_PLACEHOLDER = "-"
 
@@ -51,17 +56,46 @@ _PHONE_ALIASES = frozenset([
     "tel",
     "tel.",
     "phone",
-    "movil",
-    "mobile",
+])
+
+_EMAIL_ALIASES = frozenset([
+    "email",
+    "e-mail",
+    "correo",
+    "correo electronico",
+    "mail",
+])
+
+_CITY_ALIASES = frozenset([
+    "poblacion",
+    "ciudad",
+    "city",
+    "localidad",
+])
+
+_POSTAL_ALIASES = frozenset([
+    "codigo postal",
+    "cp",
+    "c.p.",
+    "postal code",
+    "zip",
+])
+
+_PROVINCE_ALIASES = frozenset([
+    "provincia",
+    "province",
+    "estado",
 ])
 
 
 class ClientResource(resources.ModelResource):
     """
-    Imports Client records from a file with exactly these columns:
-        "Nombre comercial", "Nif/Cif", "Dirección completa", "Teléfono"
+    Imports Client records from a file whose columns can be:
+      - Spanish: "Nombre comercial", "Nif/Cif", "Dirección completa", "Teléfono", "Email"
+      - English: "name", "tax_identifier", "address", "phone", "Email"
 
     - Column matching is case-insensitive, diacritic-tolerant, and alias-aware.
+    - If separate city/postal/province columns exist, they are merged into address.
     - Empty cells are stored as "-".
     - The company is set from the form selection (passed as default_company).
     - Existing records are matched by tax_identifier, then name + company.
@@ -76,6 +110,7 @@ class ClientResource(resources.ModelResource):
             "tax_identifier",
             "address",
             "phone",
+            "email",
         )
 
     def __init__(self, *args, **kwargs):
@@ -99,6 +134,14 @@ class ClientResource(resources.ModelResource):
                     return COL_ADDRESS
                 if n in _PHONE_ALIASES:
                     return COL_PHONE
+                if n in _EMAIL_ALIASES:
+                    return COL_EMAIL
+                if n in _CITY_ALIASES:
+                    return COL_CITY
+                if n in _POSTAL_ALIASES:
+                    return COL_POSTAL
+                if n in _PROVINCE_ALIASES:
+                    return COL_PROVINCE
                 return n
             dataset.headers = [_canonical(h) for h in dataset.headers]
         super().before_import(dataset, **kwargs)
@@ -121,18 +164,49 @@ class ClientResource(resources.ModelResource):
             row[key] = val if val else EMPTY_PLACEHOLDER
 
     # ------------------------------------------------------------------
+    # Build a composite address from separate columns if the main
+    # address column alone doesn't contain the full information.
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_address(row):
+        """Combine street, city, postal code and province into one address."""
+        street   = row.get(COL_ADDRESS, EMPTY_PLACEHOLDER)
+        city     = row.get(COL_CITY, EMPTY_PLACEHOLDER)
+        postal   = row.get(COL_POSTAL, EMPTY_PLACEHOLDER)
+        province = row.get(COL_PROVINCE, EMPTY_PLACEHOLDER)
+
+        parts = []
+        if street and street != EMPTY_PLACEHOLDER:
+            parts.append(street)
+        extras = []
+        if postal and postal != EMPTY_PLACEHOLDER:
+            extras.append(postal)
+        if city and city != EMPTY_PLACEHOLDER:
+            extras.append(city)
+        if province and province != EMPTY_PLACEHOLDER:
+            extras.append(f"({province})")
+        if extras:
+            parts.append(" ".join(extras))
+        return ", ".join(parts) if parts else EMPTY_PLACEHOLDER
+
+    # ------------------------------------------------------------------
     # Map file columns → Client fields, set company
     # ------------------------------------------------------------------
 
     def import_instance(self, instance, row, **kwargs):
         """
-        Read only the four expected columns.  Everything else is ignored.
+        Read the expected columns.  Everything else is ignored.
         Company is always taken from self._default_company (form selection).
         """
         instance.name           = row.get(COL_NAME,    EMPTY_PLACEHOLDER)
         instance.tax_identifier = row.get(COL_TAX,     EMPTY_PLACEHOLDER)
-        instance.address        = row.get(COL_ADDRESS,  EMPTY_PLACEHOLDER)
+        instance.address        = self._build_address(row)
         instance.phone          = row.get(COL_PHONE,    EMPTY_PLACEHOLDER)
+
+        email_val = row.get(COL_EMAIL, EMPTY_PLACEHOLDER)
+        if email_val and email_val != EMPTY_PLACEHOLDER:
+            instance.email = email_val
 
         if self._default_company:
             instance.company = self._default_company
@@ -145,9 +219,21 @@ class ClientResource(resources.ModelResource):
         tax_id = row.get(COL_TAX, EMPTY_PLACEHOLDER)
         if tax_id and tax_id != EMPTY_PLACEHOLDER:
             try:
-                return Client.objects.get(tax_identifier=tax_id), False
+                return Client.objects.get(
+                    tax_identifier=tax_id,
+                    company=self._default_company,
+                ) if self._default_company else Client.objects.get(
+                    tax_identifier=tax_id,
+                ), False
             except Client.DoesNotExist:
                 pass
+            except Client.MultipleObjectsReturned:
+                return Client.objects.filter(
+                    tax_identifier=tax_id,
+                    company=self._default_company,
+                ).first() if self._default_company else Client.objects.filter(
+                    tax_identifier=tax_id,
+                ).first(), False
 
         name = row.get(COL_NAME, EMPTY_PLACEHOLDER)
         if name and name != EMPTY_PLACEHOLDER and self._default_company:

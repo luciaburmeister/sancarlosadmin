@@ -360,11 +360,7 @@ class WorkingZone(CompanyOwnedModel):
 
         OBRA = "obra", _("Obra")
         VERTEDERO = "vertedero", _("Vertedero")
-<<<<<<< HEAD
         ALMACEN = "almacen", _("Almacén")
-=======
-        CEDE_FISTEX = "cede_fistex", _("Cede Fistex")
->>>>>>> main
 
     name = models.CharField(max_length=100, verbose_name=_("Name"))
     zone_type = models.CharField(

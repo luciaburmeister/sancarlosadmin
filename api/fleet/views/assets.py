@@ -153,26 +153,27 @@ class AssetPickupView(APIView):
         except Asset.DoesNotExist:
             return JsonResponse({"error": "Asset not found"}, status=404)
 
-        zone_lat, zone_lon = get_zone_coordinates(asset.current_working_zone)
-        if zone_lat is None:
-            return JsonResponse({"error": "La zona de recogida no tiene coordenadas configuradas."}, status=400)
+        distance = None
+        if asset.current_working_zone is not None:
+            zone_lat, zone_lon = get_zone_coordinates(asset.current_working_zone)
+            if zone_lat is not None:
+                distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
+                print(
+                    f"PICKUP: your GPS={latitude},{longitude}, zone={zone_lat},{zone_lon}, "
+                    f"distance={int(distance)}m, max={MAX_ZONE_RADIUS_M}m"
+                )
 
-        distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
-        print(
-            f"PICKUP: your GPS={latitude},{longitude}, zone={zone_lat},{zone_lon}, "
-            f"distance={int(distance)}m, max={MAX_ZONE_RADIUS_M}m"
-        )
-
-        if distance > MAX_ZONE_RADIUS_M:
-            return JsonResponse({
-                "error": f"Estás demasiado lejos de {asset.current_working_zone}. "
-                         f"Estás a {int(distance)}m. Debes estar a menos de {MAX_ZONE_RADIUS_M}m."
-            }, status=400)
+                if distance > MAX_ZONE_RADIUS_M:
+                    return JsonResponse({
+                        "error": f"Estás demasiado lejos de {asset.current_working_zone}. "
+                                 f"Estás a {int(distance)}m. Debes estar a menos de {MAX_ZONE_RADIUS_M}m."
+                    }, status=400)
 
         employee = get_current_employee(user)
         if employee is None:
             return JsonResponse({"error": "No employee profile found"}, status=400)
 
+        distance_note = f"Distancia: {int(distance)}m" if distance is not None else "Sin zona asignada"
         transaction = AssetTransaction.objects.create(
             asset=asset,
             company=asset.company,
@@ -182,7 +183,7 @@ class AssetPickupView(APIView):
             date=timezone.now(),
             performed_by=employee,
             project_file=asset.current_working_zone.project_file if asset.current_working_zone else None,
-            notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
+            notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. {distance_note}",
             firma=firma,
             data=form_data,
         )

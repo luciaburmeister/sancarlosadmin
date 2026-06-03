@@ -242,22 +242,20 @@ def pickup_view(request, asset_id):
     except Asset.DoesNotExist:
         return JsonResponse({"error": "Asset not found"}, status=404)
 
-    if asset.current_working_zone is None:
-        return JsonResponse({"error": "Este cubo no tiene ubicación de recogida asignada."}, status=400)
+    distance = None
+    if asset.current_working_zone is not None:
+        zone_lat, zone_lon = get_zone_coordinates(asset.current_working_zone)
+        if zone_lat is not None:
+            distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
+            print(f"PICKUP: your GPS={latitude},{longitude}, zone={zone_lat},{zone_lon}, distance={int(distance)}m, max={MAX_ZONE_RADIUS_M}m")
 
-    zone_lat, zone_lon = get_zone_coordinates(asset.current_working_zone)
-    if zone_lat is None:
-        return JsonResponse({"error": "La zona de recogida no tiene coordenadas configuradas."}, status=400)
+            if distance > MAX_ZONE_RADIUS_M:
+                return JsonResponse({
+                    "error": f"Estás demasiado lejos de {asset.current_working_zone}. "
+                             f"Estás a {int(distance)}m. Debes estar a menos de {MAX_ZONE_RADIUS_M}m."
+                }, status=400)
 
-    distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
-    print(f"PICKUP: your GPS={latitude},{longitude}, zone={zone_lat},{zone_lon}, distance={int(distance)}m, max={MAX_ZONE_RADIUS_M}m")
-
-    if distance > MAX_ZONE_RADIUS_M:
-        return JsonResponse({
-            "error": f"Estás demasiado lejos de {asset.current_working_zone}. "
-                     f"Estás a {int(distance)}m. Debes estar a menos de {MAX_ZONE_RADIUS_M}m."
-        }, status=400)
-
+    distance_note = f"Distancia: {int(distance)}m" if distance is not None else "Sin zona asignada"
     AssetTransaction.objects.create(
         asset=asset,
         company=asset.company,
@@ -266,7 +264,7 @@ def pickup_view(request, asset_id):
         transaction_type=TransactionTypeChoices.MOVEMENT,
         date=timezone.now(),
         performed_by=user.employee_profile,
-        notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
+        notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. {distance_note}",
         firma=firma,
         data=form_data,
     )

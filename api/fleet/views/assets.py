@@ -153,9 +153,6 @@ class AssetPickupView(APIView):
         except Asset.DoesNotExist:
             return JsonResponse({"error": "Asset not found"}, status=404)
 
-        if asset.current_working_zone is None:
-            return JsonResponse({"error": "Este cubo no tiene ubicación de recogida asignada."}, status=400)
-
         zone_lat, zone_lon = get_zone_coordinates(asset.current_working_zone)
         if zone_lat is None:
             return JsonResponse({"error": "La zona de recogida no tiene coordenadas configuradas."}, status=400)

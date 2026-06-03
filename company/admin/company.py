@@ -5,12 +5,12 @@ from django import forms
 from django.core.exceptions import ValidationError
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
-from unfold.decorators import action # Added import
+from unfold.decorators import action
 import html
 import re
 
 
-from company.models import Company, CompanyScheduleSlot, CompanyUser, CompanyEmailConfig, BankAccount, CompanyDocument, CompanyDocumentType
+from company.models import Company, CompanyScheduleSlot, CompanyUser, CompanyEmailConfig, BankAccount, CompanyDocument, CompanyDocumentType, ConfigurationList
 from django.utils.translation import gettext_lazy as _
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
@@ -313,7 +313,6 @@ class CompanyAdmin(ModelAdmin):
             return redirect(request.META.get("HTTP_REFERER"))
             
         try:
-            # We assume company.chart.template exists if company.chart exists
             count = install_chart_standard(company, company.chart.template)
             messages.success(request, _(f"Successfully installed {count} accounts from template."))
         except Exception as e:
@@ -358,3 +357,31 @@ class CompanyEmailConfigAdmin(ModelAdmin):
             messages.error(request, _(f"Error triggering task: {str(e)}"))
             
         return redirect(request.META.get("HTTP_REFERER"))
+
+
+@admin.register(ConfigurationList)
+class ConfigurationListAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ("key", "get_values_preview", "company")
+    search_fields = ("key",)
+    list_filter = ("company",)
+    autocomplete_fields = ("company",)
+    fieldsets = (
+        (None, {
+            "fields": ("key", "company", "values")
+        }),
+    )
+
+    formfield_overrides = {
+        ArrayField: {
+            "widget": ArrayWidget,
+        }
+    }
+
+    @admin.display(description=_("Values"))
+    def get_values_preview(self, obj):
+        if obj.values:
+            preview = ", ".join(obj.values[:5])
+            if len(obj.values) > 5:
+                preview += f" ... (+{len(obj.values) - 5} more)"
+            return preview
+        return "—"

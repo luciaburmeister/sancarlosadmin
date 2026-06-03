@@ -1,6 +1,6 @@
 from assets.models import Asset, Client
 from assets.serializers import AssetWithIdentifiersSerializer, ClientSerializer, WorkingZoneSerializer
-from company.models import WorkingZone
+from company.models import WorkingZone, ConfigurationList
 from company.utils import get_current_employee
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, generics
@@ -74,3 +74,36 @@ class AssetIdentifiersView(APIView):
 
         serializer = AssetWithIdentifiersSerializer(assets, many=True)
         return Response({"assets": serializer.data})
+
+
+class ConfigListView(APIView):
+    """
+    Generic endpoint to fetch a configuration list by key.
+
+    Query parameters:
+      - key (required): the configuration key, e.g. cuba_material_types
+
+    Example:
+      GET /api/config/?key=cuba_material_types
+      GET /api/config/?key=implementos
+      GET /api/config/?key=tipos_camion
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        employee = get_current_employee(request.user)
+        if employee is None or employee.company_id is None:
+            return Response({"values": []})
+
+        key = request.query_params.get("key", "").strip()
+        if not key:
+            return Response({"error": "key query parameter is required"}, status=400)
+
+        try:
+            config = ConfigurationList.objects.get(
+                company=employee.company,
+                key=key
+            )
+            return Response({"key": key, "values": config.values})
+        except ConfigurationList.DoesNotExist:
+            return Response({"key": key, "values": []})

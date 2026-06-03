@@ -726,3 +726,35 @@ class EmailLog(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.subject} → {self.to_email} ({self.get_status_display()})"
+
+class ConfigurationList(CompanyOwnedModel):
+    """
+    Generic key-value list for company-specific configuration.
+    Used to store dynamic option lists that can be managed from the admin
+    without touching code.
+ 
+    Examples:
+      key="cuba_material_types"  values=["Agua", "Pladur", "RCD Limpio", ...]
+      
+    """
+    key = models.CharField(
+        max_length=100,
+        verbose_name=_("Key"),
+        help_text=_("Identifier used by the app to fetch this list, e.g. cuba_material_types")
+    )
+    values = ArrayField(
+        base_field=models.CharField(max_length=200),
+        default=list,
+        blank=True,
+        verbose_name=_("Values"),
+        help_text=_("List of options")
+    )
+ 
+    class Meta:
+        verbose_name = _("Configuration List")
+        verbose_name_plural = _("Configuration Lists")
+        unique_together = ("company", "key")
+        ordering = ["key"]
+ 
+    def __str__(self):
+        return f"{self.key} ({self.company})"

@@ -7,13 +7,53 @@ from import_export import resources
 from .models import Client, SaleZone, Quote, QuoteItem
 from configurator.models import Configuration, ConfigurationItem, ConfigurationStatus
 
-# Exact column names expected in the import file
+# Exact column names expected in the import file (after diacritic-stripping)
 COL_NAME    = "nombre comercial"
 COL_TAX     = "nif/cif"
-COL_ADDRESS = "dirección completa"
-COL_PHONE   = "teléfono"
+COL_ADDRESS = "direccion completa"
+COL_PHONE   = "telefono"
 
 EMPTY_PLACEHOLDER = "-"
+
+# All known header variants for each Client column.
+_NAME_ALIASES = frozenset([
+    "nombre comercial",
+    "nombre",
+    "name",
+    "razon social",
+    "cliente",
+    "client",
+])
+
+_TAX_ALIASES = frozenset([
+    "nif/cif",
+    "nif",
+    "cif",
+    "nif / cif",
+    "tax",
+    "tax id",
+    "tax_identifier",
+    "fiscal",
+    "identificador fiscal",
+])
+
+_ADDRESS_ALIASES = frozenset([
+    "direccion completa",
+    "direccion",
+    "domicilio",
+    "address",
+    "dir",
+    "dir.",
+])
+
+_PHONE_ALIASES = frozenset([
+    "telefono",
+    "tel",
+    "tel.",
+    "phone",
+    "movil",
+    "mobile",
+])
 
 
 class ClientResource(resources.ModelResource):
@@ -21,7 +61,7 @@ class ClientResource(resources.ModelResource):
     Imports Client records from a file with exactly these columns:
         "Nombre comercial", "Nif/Cif", "Dirección completa", "Teléfono"
 
-    - Column matching is case-insensitive and whitespace-tolerant.
+    - Column matching is case-insensitive, diacritic-tolerant, and alias-aware.
     - Empty cells are stored as "-".
     - The company is set from the form selection (passed as default_company).
     - Existing records are matched by tax_identifier, then name + company.
@@ -37,23 +77,30 @@ class ClientResource(resources.ModelResource):
             "address",
             "phone",
         )
-        skip_unchanged = False
-        report_skipped = True
 
     def __init__(self, *args, **kwargs):
         self._default_company = kwargs.pop("default_company", None)
         super().__init__(*args, **kwargs)
 
     # ------------------------------------------------------------------
-    # Normalise headers so they match the expected constants
+    # Normalise headers — strip diacritics + invisible chars, then
+    # collapse aliases to canonical column names
     # ------------------------------------------------------------------
 
     def before_import(self, dataset, **kwargs):
         if dataset.headers:
-            dataset.headers = [
-                str(h).strip().lower() if h is not None else ""
-                for h in dataset.headers
-            ]
+            def _canonical(h):
+                n = _norm_header(h)
+                if n in _NAME_ALIASES:
+                    return COL_NAME
+                if n in _TAX_ALIASES:
+                    return COL_TAX
+                if n in _ADDRESS_ALIASES:
+                    return COL_ADDRESS
+                if n in _PHONE_ALIASES:
+                    return COL_PHONE
+                return n
+            dataset.headers = [_canonical(h) for h in dataset.headers]
         super().before_import(dataset, **kwargs)
 
     # ------------------------------------------------------------------
@@ -82,10 +129,10 @@ class ClientResource(resources.ModelResource):
         Read only the four expected columns.  Everything else is ignored.
         Company is always taken from self._default_company (form selection).
         """
-        instance.name         = row.get(COL_NAME,    EMPTY_PLACEHOLDER)
-        instance.tax_identifier = row.get(COL_TAX,   EMPTY_PLACEHOLDER)
-        instance.address      = row.get(COL_ADDRESS,  EMPTY_PLACEHOLDER)
-        instance.phone        = row.get(COL_PHONE,    EMPTY_PLACEHOLDER)
+        instance.name           = row.get(COL_NAME,    EMPTY_PLACEHOLDER)
+        instance.tax_identifier = row.get(COL_TAX,     EMPTY_PLACEHOLDER)
+        instance.address        = row.get(COL_ADDRESS,  EMPTY_PLACEHOLDER)
+        instance.phone          = row.get(COL_PHONE,    EMPTY_PLACEHOLDER)
 
         if self._default_company:
             instance.company = self._default_company

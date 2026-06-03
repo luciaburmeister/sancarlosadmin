@@ -27,7 +27,7 @@ class ReceivalSlipAdmin(CompanyRestrictedAdmin, ModelAdmin):
     search_fields = ("reference", "configuration__name", "notes")
     autocomplete_fields = ["configuration"]
     inlines = [ReceivalSlipItemInline]
-    readonly_fields = ("reference", "company")
+    readonly_fields = ("reference")
     list_select_related = ["configuration", "configuration__client"]
     
     actions_row = ["admin_export_receival_slip"]

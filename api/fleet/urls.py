@@ -25,4 +25,6 @@ urlpatterns = [
     path("plannings/", attendance.PlanningsListView.as_view(), name="plannings"),
     path("movements/", attendance.MovementsListView.as_view(), name="movements"),
     path("identifiers/", zones.AssetIdentifiersView.as_view(), name="identifiers"),
+    path("config/", zones.ConfigListView.as_view(), name="config"),
+
 ]

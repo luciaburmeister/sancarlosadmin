@@ -196,6 +196,7 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
     data = models.JSONField(default=dict, blank=True, verbose_name=_("Flexible Data"))
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
     firma = models.TextField(blank=True, null=True, verbose_name=_("Firma"))
+    imagen = models.TextField(blank=True, null=True, verbose_name=_("Imagen"))
     project_file = models.ForeignKey(
         "management.ProjectFile",
         on_delete=models.SET_NULL,
@@ -204,15 +205,13 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
         related_name="asset_transactions",
         verbose_name=_("Expediente"),
     )
-
     performed_by = models.ForeignKey(
-    "company.Employee",
-    on_delete=models.SET_NULL,
-    null=True,
-    blank=True,
-    related_name="performed_transactions"
+        "company.Employee",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="performed_transactions"
     )
-
 
     class Meta:
         verbose_name = _("Asset transaction")

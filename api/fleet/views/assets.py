@@ -144,7 +144,8 @@ class AssetPickupView(APIView):
             latitude = raw.get("latitude", 0)
             longitude = raw.get("longitude", 0)
             firma = raw.get("firma", "")
-            form_data = {k: v for k, v in raw.items() if k not in ("latitude", "longitude", "firma")}
+            imagen = raw.get("imagen", "")
+            form_data = {k: v for k, v in raw.items() if k not in ("latitude", "longitude", "firma", "imagen")}
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
 
@@ -185,6 +186,7 @@ class AssetPickupView(APIView):
             project_file=asset.current_working_zone.project_file if asset.current_working_zone else None,
             notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. {distance_note}",
             firma=firma,
+            imagen= imagen or None,
             data=form_data,
         )
 
@@ -203,7 +205,8 @@ class AssetDeliverView(APIView):
             latitude = raw.get("latitude", 0)
             longitude = raw.get("longitude", 0)
             firma = raw.get("firma", "")
-            form_data = {k: v for k, v in raw.items() if k not in ("latitude", "longitude", "firma")}
+            imagen = raw.get("imagen", "")
+            form_data = {k: v for k, v in raw.items() if k not in ("latitude", "longitude", "firma", "imagen")}
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
 
@@ -234,6 +237,7 @@ class AssetDeliverView(APIView):
                 f"GPS: {latitude}, {longitude}. Distancia: {int(distance)}m"
             ),
             firma=firma,
+            imagen=imagen or None,
             data=form_data,
         )
 

@@ -42,8 +42,8 @@ class AssetTransactionAdmin(ModelAdmin):
     )
     search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes")
     autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file"]
-    exclude = ["company", "firma"]  # performed_by removed from exclude so it shows in the form
-    readonly_fields = ["firma_preview", "performed_by"]  # readonly so it can't be edited manually
+    exclude = ["company", "firma"]
+    readonly_fields = ["firma_preview", "performed_by"]
 
     inlines = [AssetTransactionEmailLogInline]
 
@@ -62,7 +62,7 @@ class AssetTransactionAdmin(ModelAdmin):
                 "to_zone",
                 "project_file",
                 "date",
-                "performed_by",  # who made the movement
+                "performed_by",
                 "data",
                 "notes",
             )
@@ -106,7 +106,6 @@ class AssetTransactionAdmin(ModelAdmin):
             "project_file__client", "asset__client"
         ).get(pk=object_id)
 
-        # Resolve recipient: prefer expediente's client, fallback to asset's client
         client = None
         if transaction.project_file and transaction.project_file.client:
             client = transaction.project_file.client

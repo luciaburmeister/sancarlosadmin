@@ -1,13 +1,15 @@
 from assets.models import Asset, Client
 from assets.serializers import AssetWithIdentifiersSerializer, ClientSerializer, WorkingZoneSerializer
-from company.models import WorkingZone, ConfigurationList 
+from company.models import WorkingZone, ConfigurationList
 from company.utils import get_current_employee
+from django.core.cache import cache
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+CACHE_TIMEOUT = 60 * 30  # 30 minutes
 
 
 class ZonesListView(generics.ListAPIView):
@@ -21,7 +23,16 @@ class ZonesListView(generics.ListAPIView):
         employee = get_current_employee(self.request.user)
         if employee is None or employee.company_id is None:
             return WorkingZone.objects.none()
-        return WorkingZone.objects.filter(company=employee.company, is_active=True)
+
+        zone_type = self.request.query_params.get("zone_type", "all")
+        cache_key = f"zones_{employee.company_id}_{zone_type}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        queryset = WorkingZone.objects.filter(company=employee.company, is_active=True)
+        cache.set(cache_key, queryset, timeout=CACHE_TIMEOUT)
+        return queryset
 
 
 class ClientsListView(generics.ListAPIView):
@@ -34,7 +45,15 @@ class ClientsListView(generics.ListAPIView):
         employee = get_current_employee(self.request.user)
         if employee is None or employee.company_id is None:
             return Client.objects.none()
-        return Client.objects.filter(company=employee.company)
+
+        cache_key = f"clients_{employee.company_id}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        queryset = Client.objects.filter(company=employee.company)
+        cache.set(cache_key, queryset, timeout=CACHE_TIMEOUT)
+        return queryset
 
 
 class AssetIdentifiersView(APIView):
@@ -65,8 +84,12 @@ class AssetIdentifiersView(APIView):
                 status=400
             )
 
-        asset_types = [t.strip() for t in asset_type_param.split(",")]
+        cache_key = f"identifiers_{employee.company_id}_{label}_{asset_type_param}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response({"assets": cached})
 
+        asset_types = [t.strip() for t in asset_type_param.split(",")]
         assets = Asset.objects.prefetch_related("identifiers").filter(
             asset_type__name__in=asset_types,
             company=employee.company,
@@ -74,6 +97,7 @@ class AssetIdentifiersView(APIView):
         ).distinct()
 
         serializer = AssetWithIdentifiersSerializer(assets, many=True)
+        cache.set(cache_key, serializer.data, timeout=CACHE_TIMEOUT)
         return Response({"assets": serializer.data})
 
 
@@ -100,11 +124,17 @@ class ConfigListView(APIView):
         if not key:
             return Response({"error": "key query parameter is required"}, status=400)
 
+        cache_key = f"config_{employee.company_id}_{key}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response({"key": key, "values": cached})
+
         try:
             config = ConfigurationList.objects.get(
                 company=employee.company,
                 key=key
             )
+            cache.set(cache_key, config.values, timeout=CACHE_TIMEOUT)
             return Response({"key": key, "values": config.values})
         except ConfigurationList.DoesNotExist:
             return Response({"key": key, "values": []})

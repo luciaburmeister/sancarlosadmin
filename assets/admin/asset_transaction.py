@@ -43,7 +43,7 @@ class AssetTransactionAdmin(ModelAdmin):
     search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes")
     autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file"]
     exclude = ["company", "firma"]
-    readonly_fields = ["firma_preview", "performed_by"]
+    readonly_fields = ["firma_preview", "imagen_link", "performed_by"]
 
     inlines = [AssetTransactionEmailLogInline]
 
@@ -66,6 +66,9 @@ class AssetTransactionAdmin(ModelAdmin):
                 "data",
                 "notes",
             )
+        }),
+        (_("Imagen"), {
+            "fields": ("imagen_link",)
         }),
         (_("Firma"), {
             "fields": ("firma_preview",)
@@ -90,6 +93,15 @@ class AssetTransactionAdmin(ModelAdmin):
                 obj.firma
             )
         return "Sin firma"
+
+    @admin.display(description="Imagen")
+    def imagen_link(self, obj):
+        if obj.imagen:
+            return format_html(
+                '<a href="data:image/jpeg;base64,{}" target="_blank">Ver imagen</a>',
+                obj.imagen
+            )
+        return "Sin imagen"
 
     @action(
         description=_("Export"),

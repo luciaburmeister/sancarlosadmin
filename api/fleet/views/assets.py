@@ -169,6 +169,13 @@ class AssetPickupView(APIView):
                         "error": f"Estás demasiado lejos de {asset.current_working_zone}. "
                                  f"Estás a {int(distance)}m. Debes estar a menos de {MAX_ZONE_RADIUS_M}m."
                     }, status=400)
+        else:
+            # No current working zone — auto-detect from GPS and assign it
+            detected_zone, detected_distance = find_zone_within_radius(latitude, longitude, asset.company)
+            if detected_zone is not None:
+                asset.current_working_zone = detected_zone
+                asset.save(update_fields=["current_working_zone"])
+                distance = detected_distance
 
         employee = get_current_employee(user)
         if employee is None:

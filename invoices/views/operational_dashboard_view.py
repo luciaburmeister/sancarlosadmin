@@ -190,6 +190,28 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
 
         pending_to_collect = final_total_with_tax - total_paid
 
+        # Cumulative debt: all FINAL invoices issued up to date_to that
+        # still have outstanding balance (regardless of date_from)
+        all_final_qs = SalesInvoice.objects.filter(
+            company=company,
+            status=SalesInvoiceStatus.FINAL,
+            date_issued__lte=date_to,
+        ).exclude(payment_status=InvoicePaymentStatus.PAID)
+
+        cumulative_total = all_final_qs.aggregate(
+            total=Coalesce(Sum("total_amount"), zero, output_field=field),
+        )["total"]
+
+        cumulative_ids = list(all_final_qs.values_list("pk", flat=True))
+        cumulative_paid = PaymentAllocation.objects.filter(
+            content_type=sales_ct,
+            object_id__in=cumulative_ids,
+        ).aggregate(
+            total=Coalesce(Sum("amount_applied"), zero, output_field=field),
+        )["total"]
+
+        cumulative_debt = cumulative_total - cumulative_paid
+
         return {
             "final_total": final_agg["total"],
             "final_count": final_agg["count"],
@@ -202,6 +224,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "final_total_with_tax": final_total_with_tax,
             "total_paid": total_paid,
             "pending_to_collect": pending_to_collect,
+            "cumulative_debt": cumulative_debt,
         }
 
     # ── Production cost helpers ─────────────────────────────────────
@@ -470,12 +493,35 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             .order_by("month")
         )
 
-        # Top providers
+        # Top providers (by total amount due in period)
         top_providers = list(
             base_qs
             .values("provider__name")
             .annotate(total=Coalesce(Sum("total_amount"), zero, output_field=field))
             .order_by("-total")[:10]
+        )
+
+        # Outstanding providers: who we still owe money to (up to date_to)
+        # All unpaid/partial invoices with due_date <= date_to
+        outstanding_qs = Invoice.objects.filter(
+            company=company,
+            due_date__lte=date_to,
+        ).exclude(payment_status=InvoicePaymentStatus.PAID)
+
+        outstanding_providers = list(
+            outstanding_qs
+            .values("provider__id", "provider__name")
+            .annotate(
+                total_owed=Coalesce(Sum("total_amount"), zero, output_field=field),
+                invoice_count=Count("id"),
+            )
+            .order_by("-total_owed")[:15]
+        )
+
+        # Cumulative purchase debt: total owed across all unpaid invoices up to date_to
+        cumulative_purchase_debt = outstanding_qs.aggregate(
+            total=Coalesce(Sum("total_amount"), zero, output_field=field),
+            count=Count("id"),
         )
 
         return {
@@ -487,4 +533,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "unpaid_count": unpaid_agg["count"],
             "monthly": monthly,
             "top_providers": top_providers,
+            "outstanding_providers": outstanding_providers,
+            "cumulative_debt": cumulative_purchase_debt["total"],
+            "cumulative_debt_count": cumulative_purchase_debt["count"],
         }

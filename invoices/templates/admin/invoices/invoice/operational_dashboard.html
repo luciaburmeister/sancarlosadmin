@@ -357,6 +357,18 @@
     border-bottom: none;
   }
 
+  .od-clickable-row {
+    cursor: pointer;
+  }
+
+  .od-clickable-row:hover {
+    background: var(--od-indigo-50, rgba(99,102,241,.06)) !important;
+  }
+
+  .od-clickable-row:hover td:first-child svg {
+    opacity: 1 !important;
+  }
+
   .od-badge {
     display: inline-block;
     padding: 3px 10px;
@@ -571,7 +583,7 @@
 
     <!-- Collection KPIs -->
     <div class="od-subsection-label">💰 {% trans "Collection Status" %}</div>
-    <div class="od-kpi-grid od-kpi-grid--3">
+    <div class="od-kpi-grid od-kpi-grid--4">
       <div class="od-kpi od-kpi--indigo">
         <div class="od-kpi-accent"></div>
         <div class="od-kpi-label">{% trans "Invoiced (With Taxes)" %}</div>
@@ -584,8 +596,13 @@
       </div>
       <div class="od-kpi od-kpi--rose">
         <div class="od-kpi-accent"></div>
-        <div class="od-kpi-label">{% trans "Pending to Collect" %}</div>
+        <div class="od-kpi-label">{% trans "Pending (Period)" %}</div>
         <div class="od-kpi-value">€{{ invoicing.pending_to_collect|euro_format }}</div>
+      </div>
+      <div class="od-kpi od-kpi--amber">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Cumulative Receivables" %}</div>
+        <div class="od-kpi-value">€{{ invoicing.cumulative_debt|euro_format }}</div>
       </div>
     </div>
 
@@ -637,7 +654,8 @@
     <div class="od-section-title"><span class="icon">📥</span> {% trans "Purchase Invoicing (Due in Period)" %}</div>
 
     <!-- KPIs -->
-    <div class="od-kpi-grid">
+    <div class="od-subsection-label">📋 {% trans "Period Summary" %}</div>
+    <div class="od-kpi-grid od-kpi-grid--4">
       <div class="od-kpi od-kpi--indigo">
         <div class="od-kpi-accent"></div>
         <div class="od-kpi-label">{% trans "Total Due" %}</div>
@@ -663,6 +681,26 @@
           <span style="color:var(--od-rose-500)">{{ payment.unpaid_count }}</span>
           <span style="font-size:.8rem;color:var(--od-text-sub);font-weight:500">{% trans "pending" %}</span>
         </div>
+      </div>
+    </div>
+
+    <!-- Cumulative Debt KPI -->
+    <div class="od-subsection-label">⚠️ {% trans "Cumulative Payables" %}</div>
+    <div class="od-kpi-grid od-kpi-grid--3">
+      <div class="od-kpi od-kpi--amber">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Total Owed (Cumulative)" %}</div>
+        <div class="od-kpi-value">€{{ payment.cumulative_debt|euro_format }}</div>
+      </div>
+      <div class="od-kpi od-kpi--violet">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Unpaid Invoices" %}</div>
+        <div class="od-kpi-value">{{ payment.cumulative_debt_count }}</div>
+      </div>
+      <div class="od-kpi od-kpi--rose">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Providers with Debt" %}</div>
+        <div class="od-kpi-value">{{ payment.outstanding_providers|length }}</div>
       </div>
     </div>
 
@@ -701,6 +739,55 @@
         </div>
         {% endif %}
       </div>
+    </div>
+
+    <!-- Outstanding Providers Table -->
+    <div class="od-table-wrap" style="margin-top:16px">
+      <div class="od-table-header">
+        <h3>🔴 {% trans "Outstanding Debt by Provider" %}</h3>
+      </div>
+      {% if payment.outstanding_providers %}
+      <table class="od-table">
+        <thead>
+          <tr>
+            <th>{% trans "Provider" %}</th>
+            <th style="text-align:center">{% trans "Unpaid Invoices" %}</th>
+            <th style="text-align:right">{% trans "Total Owed" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for prov in payment.outstanding_providers %}
+          <tr class="od-clickable-row" onclick="window.open('/{{ LANGUAGE_CODE }}/admin/invoices/invoice/?provider__id__exact={{ prov.provider__id }}&payment_status__exact=unpaid', '_blank')" title="{% trans 'View unpaid invoices' %}">
+            <td style="font-weight:600">
+              <span style="display:inline-flex;align-items:center;gap:6px">
+                {{ prov.provider__name|default:"—" }}
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:.4"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              </span>
+            </td>
+            <td style="text-align:center">
+              <span style="display:inline-block;background:var(--od-rose-500);color:#fff;padding:2px 10px;border-radius:20px;font-size:.8rem;font-weight:700">
+                {{ prov.invoice_count }}
+              </span>
+            </td>
+            <td style="text-align:right;font-weight:800;color:var(--od-rose-500)">€{{ prov.total_owed|euro_format }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr style="border-top:2px solid var(--od-border)">
+            <td colspan="2" style="font-weight:700;padding:12px 16px">{% trans "Total Outstanding" %}</td>
+            <td style="text-align:right;font-weight:800;padding:12px 16px;font-size:1rem;color:var(--od-rose-500)">
+              €{{ payment.cumulative_debt|euro_format }}
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+      {% else %}
+      <div class="od-empty">
+        <div class="od-empty-icon">✅</div>
+        <p>{% trans "No outstanding debt — all invoices are paid!" %}</p>
+      </div>
+      {% endif %}
     </div>
 
   </div>

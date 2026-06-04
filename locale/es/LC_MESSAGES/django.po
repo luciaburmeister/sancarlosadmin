@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 17:01+0200\n"
+"POT-Creation-Date: 2026-06-04 17:24+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -3934,10 +3934,8 @@ msgstr "¡Todas las facturas están pagadas!"
 msgid "No pending invoices for this company."
 msgstr "No hay facturas pendientes para esta empresa."
 
-
 msgid "Sales Invoicing"
 msgstr "Factura de venta"
-
 
 msgid "Invoicing Summary"
 msgstr "Resumen Facturas de ventas"
@@ -3950,7 +3948,6 @@ msgstr "Finalizadas (Subtotal)"
 msgid "Pro Forma (Subtotal)"
 msgstr "Monto Personalizado (Subtotal)"
 
-
 msgid "Grand Total (Subtotal)"
 msgstr "Gran Total (Subtotal)"
 
@@ -3958,7 +3955,6 @@ msgstr "Gran Total (Subtotal)"
 #| msgid "Final price"
 msgid "final"
 msgstr "Precio final"
-
 
 msgid "proforma"
 msgstr "Pro Forma"
@@ -3973,13 +3969,18 @@ msgstr "Etapas de Producción"
 msgid "Invoiced (With Taxes)"
 msgstr "Archivo de factura"
 
-
 msgid "Collected"
 msgstr "Cobrado"
 
+#, fuzzy
+#| msgid "Pending"
+msgid "Pending (Period)"
+msgstr "Pendiente"
 
-msgid "Pending to Collect"
-msgstr "Pendiente de cobro"
+#, fuzzy
+#| msgid "Create Receival Slip"
+msgid "Cumulative Receivables"
+msgstr "Crear Nota de Recepción"
 
 msgid "Monthly Sales Invoicing (Without Taxes)"
 msgstr "Facturación Mensual de Ventas (Sin Impuestos)"
@@ -3997,6 +3998,10 @@ msgstr "No hay facturas pendientes para esta empresa."
 msgid "Purchase Invoicing (Due in Period)"
 msgstr "Factura de venta"
 
+#, fuzzy
+#| msgid "Planned Start"
+msgid "Period Summary"
+msgstr "Inicio Planificado"
 
 msgid "Total Due"
 msgstr "Total Debido"
@@ -4004,13 +4009,27 @@ msgstr "Total Debido"
 msgid "Unpaid / Partial"
 msgstr "Pendiente de Pago / Parcial"
 
-
 msgid "paid"
 msgstr "Pagado"
 
-
 msgid "pending"
 msgstr "Pendiente"
+
+#, fuzzy
+#| msgid "Computed Variables"
+msgid "Cumulative Payables"
+msgstr "Variables Computadas"
+
+msgid "Total Owed (Cumulative)"
+msgstr "Total Adeudado (Acumulado)"
+
+#, fuzzy
+#| msgid "Incoming Invoice"
+msgid "Unpaid Invoices"
+msgstr "Factura Entrante"
+
+msgid "Providers with Debt"
+msgstr "Proveedores con Deuda"
 
 #, fuzzy
 #| msgid "Payment Date"
@@ -4023,6 +4042,24 @@ msgstr "Principales Proveedores (por Monto Adeudado)"
 msgid "No purchase invoices due in this period."
 msgstr "No hay facturas de compra pendientes en este período."
 
+msgid "Outstanding Debt by Provider"
+msgstr "Deuda Pendiente por Proveedor"
+
+#, fuzzy
+#| msgid "Total Due"
+msgid "Total Owed"
+msgstr "Total Debido"
+
+#, fuzzy
+#| msgid "Total price"
+msgid "Total Outstanding"
+msgstr "Precio total"
+
+#, fuzzy
+#| msgid "All invoices are paid!"
+msgid "No outstanding debt — all invoices are paid!"
+msgstr "¡Todas las facturas están pagadas!"
+
 msgid "Tax Balance per Type"
 msgstr "Saldo de Impuestos por Tipo"
 
@@ -4034,7 +4071,6 @@ msgstr "Facturado (Base)"
 
 msgid "Billed (Tax)"
 msgstr "Facturado (Impuesto)"
-
 
 msgid "Paid (Base)"
 msgstr "Pagado (Base)"
@@ -7073,6 +7109,9 @@ msgstr "Ausencias pasadas"
 
 msgid "No past absences."
 msgstr "No hay ausencias pasadas"
+
+#~ msgid "Pending to Collect"
+#~ msgstr "Pendiente de cobro"
 
 #~ msgid "Pause All"
 #~ msgstr "Pausar todos"

@@ -246,6 +246,7 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     list_filter = (
         ItemsMissingAccountFilter,
         BalanceStatusFilter,
+        ("payment_status", ChoicesDropdownFilter),
         ("payment_method",ChoicesDropdownFilter),
         ("confirmation_status", ChoicesDropdownFilter),
         ("company",AutocompleteSelectMultipleFilter),

@@ -213,6 +213,21 @@
           {% endif %}
 
           {% if assembly_line.status == "in_progress" %}
+
+          {# ── Join Button ── #}
+          <form method="post" action="{{ action_url }}">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="join_line">
+            <button type="submit"
+              class="inline-flex items-center gap-2 px-6 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-base font-bold shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-200 active:scale-95">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              </svg>
+              {% trans "Join" %}
+            </button>
+          </form>
+
+          {# ── Leave Button ── #}
           <form method="post" action="{{ action_url }}">
             {% csrf_token %}
             <input type="hidden" name="action" value="pause_line">
@@ -221,10 +236,11 @@
               <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              {% trans "Pause All" %}
+              {% trans "Leave" %}
             </button>
           </form>
 
+          {# ── Finish Button ── #}
           <form method="post" action="{{ action_url }}">
             {% csrf_token %}
             <input type="hidden" name="action" value="finish_line">

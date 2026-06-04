@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-02 11:17+0200\n"
+"POT-Creation-Date: 2026-06-04 11:08+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -372,6 +372,11 @@ msgstr "Cliente"
 msgid "Name/Label"
 msgstr "Etiqueta"
 
+#, fuzzy
+#| msgid "Activo"
+msgid "Active"
+msgstr "Activo"
+
 msgid "Flexible Data"
 msgstr "Datos Flexibles"
 
@@ -442,6 +447,11 @@ msgstr "Fecha de contratación"
 #| msgid "Quotes"
 msgid "Notes"
 msgstr "Presupuestos"
+
+#, fuzzy
+#| msgid "Image"
+msgid "Imagen"
+msgstr "Imagen"
 
 #, fuzzy
 #| msgid "Expedientes"
@@ -628,6 +638,11 @@ msgid "Email fetching task has been triggered in the background."
 msgstr ""
 "La tarea de obtención de correos electrónicos ha sido activada en segundo "
 "plano."
+
+#, fuzzy
+#| msgid "Value"
+msgid "Values"
+msgstr "Valor"
 
 msgid "Employee"
 msgstr "Empleado"
@@ -929,15 +944,13 @@ msgstr "Obra"
 msgid "Vertedero"
 msgstr "Vertedero"
 
+msgid "Almacén"
+msgstr "Almacén"
+
 #, fuzzy
 #| msgid "Content Type"
 msgid "Zone Type"
 msgstr "Tipo de contenido"
-
-#, fuzzy
-#| msgid "Activo"
-msgid "Active"
-msgstr "Activo"
 
 msgid "Client"
 msgstr "Cliente"
@@ -1211,6 +1224,30 @@ msgstr "Correo electrónico"
 #| msgid "Email"
 msgid "Email Logs"
 msgstr "Correo electrónico"
+
+msgid "Key"
+msgstr "Clave"
+
+msgid ""
+"Identifier used by the app to fetch this list, e.g. cuba_material_types"
+msgstr ""
+"Identificador utilizado por la aplicación para obtener esta lista, por "
+"ejemplo, cuba_material_types"
+
+#, fuzzy
+#| msgid "Stock In"
+msgid "List of options"
+msgstr "Stock Entrante"
+
+#, fuzzy
+#| msgid "Configuration item"
+msgid "Configuration List"
+msgstr "Elemento de configuración"
+
+#, fuzzy
+#| msgid "Configuration items"
+msgid "Configuration Lists"
+msgstr "Elementos de configuración"
 
 msgid "Employee sessions"
 msgstr "Sesiones de empleado"
@@ -2624,7 +2661,7 @@ msgid "Orden"
 msgstr "Orden"
 
 msgid "Sí"
-msgstr "Claro, ¿en qué puedo ayudarte con la traducción?"
+msgstr "Sí"
 
 msgid "Escribe aquí la respuesta del cliente…"
 msgstr "Escribe aquí la respuesta del cliente…"
@@ -3021,6 +3058,11 @@ msgstr ""
 #| msgid "Product Templates"
 msgid "Product Object ID"
 msgstr "Plantillas de Producto"
+
+#, fuzzy
+#| msgid "Unit Price"
+msgid "Selling Price"
+msgstr "Precio Unitario"
 
 msgid "Minimum Stock"
 msgstr "Stock Mínimo"
@@ -5433,6 +5475,18 @@ msgid "The stages this assembly line operates on"
 msgstr "Las etapas en las que opera esta línea de ensamblaje"
 
 #, fuzzy
+#| msgid "Stages"
+msgid "Parallel Stages"
+msgstr "Etapas"
+
+msgid ""
+"When enabled, all incomplete stages can be started simultaneously instead of"
+" sequentially."
+msgstr ""
+"Cuando está habilitado, todas las etapas incompletas se pueden iniciar "
+"simultáneamente en lugar de secuencialmente."
+
+#, fuzzy
 #| msgid "Started"
 msgid "Started by"
 msgstr "Empezado"
@@ -5519,10 +5573,11 @@ msgstr "Resumir"
 msgid "Start All"
 msgstr "Inicio"
 
-#, fuzzy
-#| msgid "Pause"
-msgid "Pause All"
-msgstr "Pausa"
+msgid "Join"
+msgstr "Unirse"
+
+msgid "Leave"
+msgstr "Dejar"
 
 #, fuzzy
 #| msgid "Finish"
@@ -5653,21 +5708,31 @@ msgid "Back to ticket"
 msgstr "Volver al ticket"
 
 #, fuzzy
-#| msgid "Current Risk"
-msgid "Current stage"
-msgstr "Riesgo Actual"
+#| msgid "Line Item"
+msgid "Line"
+msgstr "Item"
 
 msgid "Resume"
 msgstr "Resumir"
 
-msgid "Pause"
-msgstr "Pausa"
+msgid "Current stage"
+msgstr "Etapa Actual"
 
 msgid "Stage occupied by"
 msgstr "Escenario ocupado por"
 
+
+msgid "Switch to this activity"
+msgstr "Cambiar a esta actividad"
+
 msgid "Start activity"
 msgstr "Iniciar actividad"
+
+msgid "Pause"
+msgstr "Pausa"
+
+msgid "Switch here"
+msgstr "Cambiar aquí"
 
 #, fuzzy
 #| msgid "Production Stages"
@@ -5769,9 +5834,27 @@ msgstr "Se empezaron %(count)d elementos en todos los tickets."
 msgid "No items were eligible to start."
 msgstr "No hay elementos elegibles para comenzar."
 
+#, fuzzy, python-format
+#| msgid "Finished %(count)d items across all tickets."
+msgid "Joined %(count)d items across all tickets."
+msgstr "Se completaron %(count)d elementos en todos los tickets."
+
+msgid "No active items to join."
+msgstr "No hay elementos activos para unirte."
+
 #, python-format
-msgid "Paused %(count)d items across all tickets."
-msgstr "Pausados %(count)d elementos en todos los tickets."
+msgid "Left %(count)d items. No other workers active — line paused."
+msgstr ""
+"Quedan %(count)d artículos. No hay otros trabajadores activos — línea en "
+"pausa."
+
+#, fuzzy, python-format
+#| msgid ""
+#| "Cannot finish: other workers are still active on this stage: %(names)s"
+msgid "Left %(count)d items. Other workers still active on the line."
+msgstr ""
+"No se puede finalizar: otros trabajadores aún están activos en esta etapa: "
+"%(names)s"
 
 #, fuzzy
 #| msgid "Only active sessions can be finished"
@@ -5784,6 +5867,19 @@ msgstr "Se completaron %(count)d elementos en todos los tickets."
 
 msgid "No in-progress items were found to finish."
 msgstr "No se encontraron elementos en progreso para finalizar."
+
+msgid "No stage specified."
+msgstr "No se ha especificado ninguna etapa."
+
+#, fuzzy, python-format
+#| msgid "Started %(count)d items across all tickets."
+msgid "Started %(count)d items for stage '%(stage)s'."
+msgstr "Se empezaron %(count)d elementos en todos los tickets."
+
+#, fuzzy, python-format
+#| msgid "No items were eligible to start."
+msgid "No items were eligible to start for stage '%(stage)s'."
+msgstr "No hay elementos elegibles para comenzar."
 
 #, fuzzy
 #| msgid "Component"
@@ -5801,15 +5897,12 @@ msgstr "Estado"
 msgid "Invalid action"
 msgstr "Acción inválida"
 
-#, fuzzy
-#| msgid "Component"
-msgid "Unknown product"
-msgstr "Componente"
 
-#, fuzzy
-#| msgid "Production Stages"
+msgid "Unknown product"
+msgstr "Producto desconocido"
+
 msgid "Product Stage Report"
-msgstr "Etapas de Producción"
+msgstr "Reporte de Etapas de Producción"
 
 msgid "Avg minutes/order"
 msgstr "Promedio de minutos/pedido"
@@ -5945,8 +6038,6 @@ msgstr "Las facturas solo se pueden crear para Órdenes de Compra APROBADAS."
 msgid "Receipt Item"
 msgstr "Item recibido"
 
-#, fuzzy
-#| msgid "Receival Slip Items"
 msgid "Receipt Items"
 msgstr "Artículos del Recibo de Entrega"
 
@@ -5963,20 +6054,15 @@ msgstr ""
 msgid "Received via PO Receipt %s"
 msgstr "Facturas de compra"
 
-#, fuzzy
-#| msgid "Receival Slip Items"
 msgid "Receive Items"
-msgstr "Artículos del Recibo de Entrega"
+msgstr "Recibir articulos"
 
-#, fuzzy
-#| msgid "Receival Slip Items"
 msgid "Receive Items for PO"
-msgstr "Artículos del Recibo de Entrega"
+msgstr "Recibir articulos para OC"
 
-#, fuzzy
-#| msgid "Order"
+
 msgid "Ordered"
-msgstr "Orden"
+msgstr "Pedido"
 
 #, fuzzy
 #| msgid "Receiving"
@@ -6044,10 +6130,23 @@ msgstr "Hora de publicación"
 msgid "Margen"
 msgstr "Margen"
 
+msgid "Sale item"
+msgstr "Articulo de venta"
+
+#, fuzzy
+#| msgid "has items"
+msgid "Sale items"
+msgstr "Articulos de venta"
+
 #, fuzzy
 #| msgid "Configurations"
 msgid "Configuration Groups"
 msgstr "Configuraciones"
+
+#, fuzzy
+#| msgid "Start Date"
+msgid "Status Dates"
+msgstr "Fecha de Inicio"
 
 #, fuzzy
 #| msgid "Configuration"
@@ -6065,6 +6164,11 @@ msgstr "Tablero de Cotizaciones"
 #, python-format
 msgid "Quote email queued for %s."
 msgstr "Correo electrónico de cotización en cola para %s."
+
+#, fuzzy
+#| msgid "Inventory Category"
+msgid "Inventory Item"
+msgstr "Categoría de Inventario"
 
 msgid "Sent"
 msgstr "Enviado"
@@ -6181,20 +6285,14 @@ msgstr "Riesgo Máximo"
 msgid "Current Risk"
 msgstr "Riesgo Actual"
 
-#, fuzzy
-#| msgid "Bank Accounts"
 msgid "Our Bank Account (for deposit)"
-msgstr "Cuenta de banco"
+msgstr "Nuestra Cuenta de banco"
 
-#, fuzzy
-#| msgid "Bank Account"
 msgid "Default Client Bank Account"
-msgstr "Cuenta de Banco"
+msgstr "Cuenta de Banco default del cliente"
 
-#, fuzzy
-#| msgid "Accepted"
 msgid "T&C Accepted At"
-msgstr "Aceptado"
+msgstr "T&C Acceptado en"
 
 #, fuzzy
 #| msgid "Firma"
@@ -6287,6 +6385,21 @@ msgstr ""
 "Nombre estable que se muestra en la aplicación Fislav; no se ve afectado por"
 " el cambio de nombre del PDF."
 
+#, fuzzy
+#| msgid "Dates"
+msgid "Date sent"
+msgstr "Fechas"
+
+#, fuzzy
+#| msgid "Accepted"
+msgid "Date accepted"
+msgstr "Aceptado"
+
+#, fuzzy
+#| msgid "Date Ordered"
+msgid "Date rejected"
+msgstr "Fecha de Orden"
+
 msgid "Can view quote dashboard"
 msgstr "Puede ver el panel de cotizaciones."
 
@@ -6299,6 +6412,21 @@ msgid "Quote item"
 msgstr "artículo de Presupuesto"
 
 msgid "Quote items"
+msgstr "articulos de Presupuesto"
+
+#, fuzzy
+#| msgid "Total Tax"
+msgid "Total with tax"
+msgstr "Total Impuestos"
+
+#, fuzzy
+#| msgid "Quote item"
+msgid "Quote inventory item"
+msgstr "artículo de Presupuesto"
+
+#, fuzzy
+#| msgid "Quote items"
+msgid "Quote inventory items"
 msgstr "articulos de Presupuesto"
 
 #, fuzzy
@@ -6718,6 +6846,13 @@ msgstr "Ausencias pasadas"
 
 msgid "No past absences."
 msgstr "No hay ausencias pasadas"
+
+#~ msgid "Pause All"
+#~ msgstr "Pausar todos"
+
+#, python-format
+#~ msgid "Paused %(count)d items across all tickets."
+#~ msgstr "Pausados %(count)d elementos en todos los tickets."
 
 #~ msgid "Análisis de Conversión"
 #~ msgstr "Análisis de Conversión"

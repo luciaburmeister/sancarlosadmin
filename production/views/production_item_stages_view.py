@@ -7,17 +7,46 @@ from django.utils.translation import gettext as _
 from django.core.exceptions import ValidationError
 from unfold.views import UnfoldModelAdminViewMixin
 from django.core.exceptions import ValidationError
-from production.models import ProductionTicket, ProductionItem
+from production.models import ProductionTicket, ProductionItem, ProductionItemSession, ProductionItemSessionStatus
 from production.exceptions import StageHasActiveWorkersError
 from production.services.stages_to_sessions import StagesToSessionsService
 from production.constants import ProductionActions
 from django.utils.text import slugify
 import logging
-
+from django.utils import timezone
+from production.models import ProductionItemSessionKind
 logger = logging.getLogger(__name__)
 
 class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
     permission_required = ("production.change_productionitem",)
+
+    def _auto_leave_other_stages(self, employee, ticket, target_stage):
+        """Close the employee's active sessions on OTHER stages of this ticket.
+
+        This implements the 'switch activity' behavior: a worker can only
+        be on one stage at a time, so starting a new stage automatically
+        leaves any previous one.
+        """
+        active_sessions = ProductionItemSession.objects.filter(
+            production_item__ticket=ticket,
+            created_by=employee,
+            status=ProductionItemSessionStatus.IN_PROGRESS,
+            end_time__isnull=True,
+        ).exclude(
+            production_stage=target_stage,
+        )
+
+        
+        now = timezone.now()
+        count = 0
+        for session in active_sessions:
+            if session.kind == ProductionItemSessionKind.ACTIVITY_STARTED:
+                session.kind = ProductionItemSessionKind.ACTIVITY_FINISHED
+            elif session.kind == ProductionItemSessionKind.SESSION_STARTED:
+                session.kind = ProductionItemSessionKind.SESSION_FINISHED
+            session.finish(completed_by=employee)
+            count += 1
+        return count
 
     def post(self, request: HttpRequest, ticket_id: int, stage_name: str):
         ticket = get_object_or_404(ProductionTicket, pk=ticket_id)
@@ -42,6 +71,15 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
 
         count = 0
         try:
+            # Auto-leave other stages when starting/resuming (switch behavior)
+            if action in (ProductionActions.START_ACTIVITY, ProductionActions.START_SESSION):
+                left = self._auto_leave_other_stages(employee, ticket, stage_name)
+                if left > 0:
+                    logger.info(
+                        "Auto-left %d sessions on other stages for employee %s switching to %s",
+                        left, employee.pk, stage_name,
+                    )
+
             if action == ProductionActions.START_ACTIVITY:
                 messages.success(request, _("Activity arrived to start successfully."))
                 count = StagesToSessionsService.start_activity(stage_name=stage_name, items=items, employee=employee)

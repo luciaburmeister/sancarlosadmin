@@ -667,6 +667,12 @@ class AssemblyLine(Timestampable, CompanyOwnedModel):
         verbose_name=_("Production Tickets"),
     )
 
+    parallel_stages = models.BooleanField(
+        default=False,
+        verbose_name=_("Parallel Stages"),
+        help_text=_("When enabled, all incomplete stages can be started simultaneously instead of sequentially."),
+    )
+
     status = models.CharField(
         max_length=20,
         choices=AssemblyLineStatus.choices,

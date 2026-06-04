@@ -18,3 +18,5 @@ class ProductionActions:
     START_LINE = "start_line"
     PAUSE_LINE = "pause_line"
     FINISH_LINE = "finish_line"
+    JOIN_LINE = "join_line"
+    START_STAGE = "start_stage"

@@ -142,6 +142,14 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
         stage_component_map = self._build_stage_component_map(product, stage_order)
 
+        # Detect if this ticket belongs to a parallel assembly line
+        is_parallel_line = AssemblyLine.objects.filter(
+            tickets=ticket,
+            parallel_stages=True,
+        ).exclude(
+            status__in=[AssemblyLineStatus.DONE]
+        ).exists()
+
         item_current_stages = {}
         for it in items:
             planning = {unicodedata.normalize("NFC", k): v for k, v in (it.planning or {}).items()}
@@ -208,6 +216,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
                         employee,
                         item_current_stages,
                         stage_component_map,
+                        is_parallel_line=is_parallel_line,
                     )
                     if unit["relevant"]:
                         units.append(unit)
@@ -222,6 +231,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
                     employee,
                     item_current_stages,
                     stage_component_map,
+                    is_parallel_line=is_parallel_line,
                 )
                 if unit["relevant"]:
                     units.append(unit)
@@ -241,6 +251,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             )
 
         ctx["stages_ui"] = stages_ui
+        ctx["is_parallel_line"] = is_parallel_line
 
         # Assembly lines this ticket belongs to
 
@@ -256,7 +267,36 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             args=[ticket.pk],
         )
         for al in assembly_lines:
-            current_stage = AssemblyLineService.get_current_stage(al)
+            tickets_list = list(AssemblyLineService._active_tickets(al))
+            current_stage = AssemblyLineService.get_current_stage(al, tickets=tickets_list)
+            active_stages = AssemblyLineService.get_active_stages(al, tickets=tickets_list)
+            available_stages = AssemblyLineService.get_available_stages(al, tickets=tickets_list)
+
+            # Check if the current employee already has sessions on this line
+            employee_on_line = False
+            if employee:
+                employee_on_line = ProductionItemSession.objects.filter(
+                    production_item__ticket__in=al.tickets.all(),
+                    created_by=employee,
+                    status=ProductionItemSessionStatus.IN_PROGRESS,
+                    end_time__isnull=True,
+                ).exists()
+
+            # Per-stage: which stages have any active sessions (any worker)?
+            stages_with_sessions = set()
+            if al.parallel_stages and active_stages:
+                sessions_qs = (
+                    ProductionItemSession.objects.filter(
+                        production_item__ticket__in=al.tickets.all(),
+                        production_stage__in=active_stages,
+                        status=ProductionItemSessionStatus.IN_PROGRESS,
+                        end_time__isnull=True,
+                    )
+                    .values_list("production_stage", flat=True)
+                    .distinct()
+                )
+                stages_with_sessions = set(sessions_qs)
+
             assembly_line_data.append({
                 "id": al.pk,
                 "stages": al.stages or [],
@@ -264,6 +304,11 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
                 "status": al.status,
                 "status_display": al.get_status_display(),
                 "current_stage": current_stage,
+                "active_stages": active_stages,
+                "available_stages": available_stages,
+                "parallel_stages": al.parallel_stages,
+                "employee_on_line": employee_on_line,
+                "stages_with_sessions": stages_with_sessions,
                 "action_url": reverse(
                     "admin:production_assemblyline_action",
                     args=[al.pk],
@@ -274,7 +319,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
         return ctx
 
-    def _build_unit(self, stage_name, items, employee, item_current_stages, stage_component_map):
+    def _build_unit(self, stage_name, items, employee, item_current_stages, stage_component_map, is_parallel_line=False):
         infos = []
 
         for item in items:
@@ -349,13 +394,28 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             )
 
         has_active_session = current_employee_active_session is not None
-        blocked_by_other_employee = other_employee_active_session is not None
+        # In parallel mode, other workers are co-workers, not blockers
+        blocked_by_other_employee = (
+            other_employee_active_session is not None and not is_parallel_line
+        )
         blocking_employee = (
-            other_employee_active_session.created_by if other_employee_active_session else None
+            other_employee_active_session.created_by
+            if blocked_by_other_employee else None
         )
         blocking_employee_name = self._employee_display_name(blocking_employee)
 
         relevant = any(status != ProductionItemStatus.DONE for status in statuses)
+
+        # In parallel mode, all non-done stages are actionable
+        if is_parallel_line:
+            is_current = any(
+                status != ProductionItemStatus.DONE for status in statuses
+            )
+        else:
+            is_current = all(
+                item_current_stages.get(item.id) == stage_name
+                for item, _, _ in infos
+            )
 
         return {
             "items": [
@@ -378,9 +438,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             "blocked_by_other_employee": blocked_by_other_employee,
             "blocking_employee": blocking_employee,
             "blocking_employee_name": blocking_employee_name,
-            "is_current": all(
-                item_current_stages.get(item.id) == stage_name
-                for item, _, _ in infos
-            ),
+            "is_current": is_current,
+            "is_parallel_line": is_parallel_line,
             "relevant": relevant,
         }

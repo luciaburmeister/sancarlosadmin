@@ -813,7 +813,7 @@ class AssemblyLineAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 "fields": (
                     "company",
                     "stages",
-                    "status",
+                    ("status", "parallel_stages"),
                     "tickets",
                 )
             },

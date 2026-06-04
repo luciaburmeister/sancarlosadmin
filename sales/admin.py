@@ -395,6 +395,8 @@ class QuoteConfigurationGroupInline(StackedInline):
     model = QuoteConfigurationGroup
     extra = 1
     tab = True
+    ordering_field= "order"
+    hide_ordering_field=True
     tab_title = _("Configuration Groups")
     fields = ["name", "notes", "order"]
     ordering = ["order"]

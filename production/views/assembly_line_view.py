@@ -66,15 +66,38 @@ class AssemblyLineActionView(UnfoldModelAdminViewMixin, View):
                         _("No items were eligible to start."),
                     )
 
-            elif action == ProductionActions.PAUSE_LINE:
-                result = AssemblyLineService.pause_line(assembly_line, employee)
-                count = result["paused"]
+            elif action == ProductionActions.JOIN_LINE:
+                result = AssemblyLineService.join_line(assembly_line, employee)
+                count = result["joined"]
                 if count > 0:
                     messages.success(
                         request,
-                        _("Paused %(count)d items across all tickets.")
+                        _("Joined %(count)d items across all tickets.")
                         % {"count": count},
                     )
+                else:
+                    messages.warning(
+                        request,
+                        _("No active items to join."),
+                    )
+
+            elif action == ProductionActions.PAUSE_LINE:
+                result = AssemblyLineService.pause_line(assembly_line, employee)
+                count = result["paused"]
+                line_paused = result.get("line_paused", False)
+                if count > 0:
+                    if line_paused:
+                        messages.success(
+                            request,
+                            _("Left %(count)d items. No other workers active — line paused.")
+                            % {"count": count},
+                        )
+                    else:
+                        messages.success(
+                            request,
+                            _("Left %(count)d items. Other workers still active on the line.")
+                            % {"count": count},
+                        )
                 else:
                     messages.warning(
                         request,
@@ -94,6 +117,26 @@ class AssemblyLineActionView(UnfoldModelAdminViewMixin, View):
                     messages.warning(
                         request,
                         _("No in-progress items were found to finish."),
+                    )
+
+            elif action == ProductionActions.START_STAGE:
+                stage_name = request.POST.get("stage_name", "")
+                if not stage_name:
+                    messages.error(request, _("No stage specified."))
+                    return redirect(redirect_url)
+                result = AssemblyLineService.start_stage(assembly_line, employee, stage_name)
+                count = result["started"]
+                if count > 0:
+                    messages.success(
+                        request,
+                        _("Started %(count)d items for stage '%(stage)s'.")
+                        % {"count": count, "stage": stage_name},
+                    )
+                else:
+                    messages.warning(
+                        request,
+                        _("No items were eligible to start for stage '%(stage)s'.")
+                        % {"stage": stage_name},
                     )
 
             else:

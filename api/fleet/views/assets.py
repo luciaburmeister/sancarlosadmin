@@ -1,7 +1,10 @@
+import base64
 import io
 import json
+import uuid
 
 import qrcode
+from django.core.files.base import ContentFile
 from assets.models import Asset, AssetTransaction, TransactionTypeChoices
 from core.tasks import send_asset_transaction_email_task
 from django.http import HttpResponse, JsonResponse
@@ -12,6 +15,18 @@ from rest_framework.views import APIView
 from api.constants import MAX_ZONE_RADIUS_M
 from api.fleet.utils import find_zone_within_radius, get_zone_coordinates, haversine_distance
 from company.utils import get_current_employee
+
+
+def _base64_to_image_file(b64_string):
+    if not b64_string:
+        return None
+    try:
+        if "," in b64_string:
+            b64_string = b64_string.split(",", 1)[1]
+        image_data = base64.b64decode(b64_string)
+        return ContentFile(image_data, name=f"{uuid.uuid4()}.jpg")
+    except Exception:
+        return None
 
 
 def get_asset_status(last_transaction):
@@ -38,6 +53,19 @@ def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
         "cliente": asset.client.name if asset.client else "",
         "obra": str(zone) if zone else "",
     }
+
+
+def asset_transaction_imagen_view(request, transaction_id):
+    try:
+        transaction = AssetTransaction.objects.get(id=transaction_id)
+    except AssetTransaction.DoesNotExist:
+        return HttpResponse("Not found", status=404)
+
+    if not transaction.imagen:
+        return HttpResponse("No image", status=404)
+
+    image_data = base64.b64decode(transaction.imagen)
+    return HttpResponse(image_data, content_type="image/jpeg")
 
 
 class AssetsListView(APIView):
@@ -182,7 +210,7 @@ class AssetPickupView(APIView):
             return JsonResponse({"error": "No employee profile found"}, status=400)
 
         distance_note = f"Distancia: {int(distance)}m" if distance is not None else "Sin zona asignada"
-        transaction = AssetTransaction.objects.create(
+        transaction = AssetTransaction(
             asset=asset,
             company=asset.company,
             from_zone=asset.current_working_zone,
@@ -193,9 +221,12 @@ class AssetPickupView(APIView):
             project_file=asset.current_working_zone.project_file if asset.current_working_zone else None,
             notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. {distance_note}",
             firma=firma,
-            imagen= imagen or None,
             data=form_data,
         )
+        image_file = _base64_to_image_file(imagen)
+        if image_file:
+            transaction.imagen.save(image_file.name, image_file, save=False)
+        transaction.save()
 
         send_asset_transaction_email_task.delay(transaction.id)
 
@@ -230,7 +261,7 @@ class AssetDeliverView(APIView):
         if employee is None:
             return JsonResponse({"error": "No employee profile found"}, status=400)
 
-        transaction = AssetTransaction.objects.create(
+        transaction = AssetTransaction(
             asset=asset,
             company=asset.company,
             from_zone=asset.current_working_zone,
@@ -244,9 +275,12 @@ class AssetDeliverView(APIView):
                 f"GPS: {latitude}, {longitude}. Distancia: {int(distance)}m"
             ),
             firma=firma,
-            imagen=imagen or None,
             data=form_data,
         )
+        image_file = _base64_to_image_file(imagen)
+        if image_file:
+            transaction.imagen.save(image_file.name, image_file, save=False)
+        transaction.save()
 
         asset.current_working_zone = destination_zone
         asset.save()

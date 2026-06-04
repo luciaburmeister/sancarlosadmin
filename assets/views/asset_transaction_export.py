@@ -6,6 +6,7 @@ from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
 from assets.models import AssetTransaction
 from unfold.views import UnfoldModelAdminViewMixin
 from django.utils.translation import gettext_lazy as _
+import base64
 
 
 class AssetTransactionExportView(UnfoldModelAdminViewMixin, FormView):
@@ -53,3 +54,15 @@ class AssetTransactionExportView(UnfoldModelAdminViewMixin, FormView):
             rendered_html,
             content_type="text/html; charset=utf-8",
         )
+
+def asset_transaction_imagen_view(request, transaction_id):
+    try:
+        transaction = AssetTransaction.objects.get(id=transaction_id)
+    except AssetTransaction.DoesNotExist:
+        return HttpResponse("Not found", status=404)
+
+    if not transaction.imagen:
+        return HttpResponse("No image", status=404)
+
+    image_data = base64.b64decode(transaction.imagen)
+    return HttpResponse(image_data, content_type="image/jpeg")

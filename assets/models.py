@@ -196,7 +196,7 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
     data = models.JSONField(default=dict, blank=True, verbose_name=_("Flexible Data"))
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
     firma = models.TextField(blank=True, null=True, verbose_name=_("Firma"))
-    imagen = models.TextField(blank=True, null=True, verbose_name=_("Imagen"))
+    imagen = models.ImageField(upload_to="asset_transactions/images/", blank=True, null=True, verbose_name=_("Imagen"))
     project_file = models.ForeignKey(
         "management.ProjectFile",
         on_delete=models.SET_NULL,

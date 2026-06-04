@@ -1,6 +1,7 @@
 from django.urls import path
 
 from company.views.views import LocationRecordCreateView
+from assets.views import asset_transaction_imagen_view
 
 from .views import assets, attendance, zones
 
@@ -16,6 +17,7 @@ urlpatterns = [
         assets.AssetCheckDeliveryLocationView.as_view(),
         name="check_delivery_location",
     ),
+    path("assets/transaction/<int:transaction_id>/imagen/", asset_transaction_imagen_view, name="transaction_imagen"),
     path("attendance/clock-in/", attendance.AttendanceClockInView.as_view(), name="clock_in"),
     path("attendance/clock-out/", attendance.AttendanceClockOutView.as_view(), name="clock_out"),
     path("attendance/status/", attendance.AttendanceStatusView.as_view(), name="attendance_status"),

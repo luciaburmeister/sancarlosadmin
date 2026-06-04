@@ -31,7 +31,7 @@ class AssetTransactionEmailLogInline(_GenericTabularInline):
 
 @admin.register(AssetTransaction)
 class AssetTransactionAdmin(ModelAdmin):
-    list_display = ("asset", "transaction_type", "from_zone", "to_zone", "project_file", "date", "get_employee", "has_firma", "company")
+    list_display = ("asset", "transaction_type", "from_zone", "to_zone", "project_file", "date", "get_employee", "has_firma", "company","imagen")
     list_filter = (
         "company",
         "transaction_type",
@@ -68,7 +68,7 @@ class AssetTransactionAdmin(ModelAdmin):
             )
         }),
         (_("Imagen"), {
-            "fields": ("imagen_link",)
+            "fields": ("imagen",)
         }),
         (_("Firma"), {
             "fields": ("firma_preview",)
@@ -98,10 +98,10 @@ class AssetTransactionAdmin(ModelAdmin):
     def imagen_link(self, obj):
         if obj.imagen:
             return format_html(
-                '<a href="data:image/jpeg;base64,{}" target="_blank">Ver imagen</a>',
-                obj.imagen
+                '<a href="/en/api/assets/transaction/{}/imagen/" target="_blank">Ver imagen</a>',
+                obj.pk
             )
-        return "Sin imagen"
+        return "no image"
 
     @action(
         description=_("Export"),

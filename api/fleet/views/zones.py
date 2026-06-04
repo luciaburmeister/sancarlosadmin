@@ -1,12 +1,13 @@
 from assets.models import Asset, Client
 from assets.serializers import AssetWithIdentifiersSerializer, ClientSerializer, WorkingZoneSerializer
-from company.models import WorkingZone, ConfigurationList
+from company.models import WorkingZone, ConfigurationList 
 from company.utils import get_current_employee
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters, generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 
 
 class ZonesListView(generics.ListAPIView):

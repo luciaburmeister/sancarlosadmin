@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-04 11:08+0200\n"
+"POT-Creation-Date: 2026-06-04 17:01+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -184,6 +184,9 @@ msgstr "Dashboards"
 msgid "Accounts Payable"
 msgstr "Cuentas por pagar"
 
+msgid "Operational Dashboard"
+msgstr "Dashboard Operativo"
+
 msgid "ERP Chatbot"
 msgstr "Chatbot ERP"
 
@@ -323,6 +326,11 @@ msgstr "Correos electrónicos enviados"
 msgid "Asset Transaction"
 msgstr "Transacción de activos"
 
+#, fuzzy
+#| msgid "Image"
+msgid "Imagen"
+msgstr "Imagen"
+
 msgid "Firma"
 msgstr "Firma"
 
@@ -447,11 +455,6 @@ msgstr "Fecha de contratación"
 #| msgid "Quotes"
 msgid "Notes"
 msgstr "Presupuestos"
-
-#, fuzzy
-#| msgid "Image"
-msgid "Imagen"
-msgstr "Imagen"
 
 #, fuzzy
 #| msgid "Expedientes"
@@ -3671,6 +3674,11 @@ msgstr "Estado de pago"
 msgid "Can view Accounts Payable dashboard"
 msgstr "Puede ver el panel de cotizaciones."
 
+#, fuzzy
+#| msgid "Can view quote dashboard"
+msgid "Can view Operational Dashboard"
+msgstr "Puede ver el panel de cotizaciones."
+
 msgid "IVA"
 msgstr "IVA"
 
@@ -3926,6 +3934,173 @@ msgstr "¡Todas las facturas están pagadas!"
 msgid "No pending invoices for this company."
 msgstr "No hay facturas pendientes para esta empresa."
 
+
+msgid "Sales Invoicing"
+msgstr "Factura de venta"
+
+
+msgid "Invoicing Summary"
+msgstr "Resumen Facturas de ventas"
+
+msgid "Finalized (Subtotal)"
+msgstr "Finalizadas (Subtotal)"
+
+#, fuzzy
+#| msgid "Custom Amount (Subtotal)"
+msgid "Pro Forma (Subtotal)"
+msgstr "Monto Personalizado (Subtotal)"
+
+
+msgid "Grand Total (Subtotal)"
+msgstr "Gran Total (Subtotal)"
+
+#, fuzzy
+#| msgid "Final price"
+msgid "final"
+msgstr "Precio final"
+
+
+msgid "proforma"
+msgstr "Pro Forma"
+
+#, fuzzy
+#| msgid "Production Stages"
+msgid "Collection Status"
+msgstr "Etapas de Producción"
+
+#, fuzzy
+#| msgid "Invoice File"
+msgid "Invoiced (With Taxes)"
+msgstr "Archivo de factura"
+
+
+msgid "Collected"
+msgstr "Cobrado"
+
+
+msgid "Pending to Collect"
+msgstr "Pendiente de cobro"
+
+msgid "Monthly Sales Invoicing (Without Taxes)"
+msgstr "Facturación Mensual de Ventas (Sin Impuestos)"
+
+msgid "Top Clients (Without Taxes)"
+msgstr "Principales Clientes (Sin Impuestos)"
+
+#, fuzzy
+#| msgid "No pending invoices for this company."
+msgid "No invoices in this period."
+msgstr "No hay facturas pendientes para esta empresa."
+
+#, fuzzy
+#| msgid "Purchase Invoice"
+msgid "Purchase Invoicing (Due in Period)"
+msgstr "Factura de venta"
+
+
+msgid "Total Due"
+msgstr "Total Debido"
+
+msgid "Unpaid / Partial"
+msgstr "Pendiente de Pago / Parcial"
+
+
+msgid "paid"
+msgstr "Pagado"
+
+
+msgid "pending"
+msgstr "Pendiente"
+
+#, fuzzy
+#| msgid "Payment Date"
+msgid "Monthly Payments Due"
+msgstr "Fecha de Pago"
+
+msgid "Top Providers (by Due Amount)"
+msgstr "Principales Proveedores (por Monto Adeudado)"
+
+msgid "No purchase invoices due in this period."
+msgstr "No hay facturas de compra pendientes en este período."
+
+msgid "Tax Balance per Type"
+msgstr "Saldo de Impuestos por Tipo"
+
+msgid "Tax"
+msgstr "Impuestos"
+
+msgid "Billed (Base)"
+msgstr "Facturado (Base)"
+
+msgid "Billed (Tax)"
+msgstr "Facturado (Impuesto)"
+
+
+msgid "Paid (Base)"
+msgstr "Pagado (Base)"
+
+msgid "Paid (Tax)"
+msgstr "Pagado (Impuesto)"
+
+msgid "Net (Billed − Paid)"
+msgstr "Neto (Facturado − Pagado)"
+
+#, fuzzy
+#| msgid "Total cost"
+msgid "Total Net"
+msgstr "Costo total"
+
+#, fuzzy
+#| msgid "Internal label for this configuration"
+msgid "No tax data available for this period."
+msgstr "Etiqueta interna para esta configuración"
+
+#, fuzzy
+#| msgid "Production Stages"
+msgid "Production Costs"
+msgstr "Etapas de Producción"
+
+msgid "Total Production Cost"
+msgstr "Costo Total de Producción"
+
+msgid "Tickets Worked"
+msgstr "Tickets Trabajados"
+
+#, fuzzy
+#| msgid "Production Stages"
+msgid "Monthly Production Cost"
+msgstr "Etapas de Producción"
+
+#, fuzzy
+#| msgid "Items Summary"
+msgid "Summary"
+msgstr "Resumen de artículos"
+
+#, fuzzy
+#| msgid "Price per unit"
+msgid "Avg Cost per Ticket"
+msgstr "Precio por unidad"
+
+#, fuzzy
+#| msgid "Total price"
+msgid "Total Tickets"
+msgstr "Precio total"
+
+#, fuzzy
+#| msgid "Final price"
+msgid "Finalized"
+msgstr "Precio final"
+
+#, fuzzy
+#| msgid "Amount"
+msgid "Due Amount"
+msgstr "Cantidad"
+
+#, fuzzy
+#| msgid "Production Stages"
+msgid "Production Cost"
+msgstr "Etapas de Producción"
+
 #, fuzzy
 #| msgid "Create Invoice from Project File"
 msgid "Import Invoices from Excel"
@@ -4076,21 +4251,59 @@ msgid "Merge Tax Types"
 msgstr "Tipo"
 
 msgid ""
-"Select which tax type to keep. The other will be deleted and all its records"
-" re-pointed to the one you keep."
+"Select the tax type you want to KEEP. All AppliedTax records from the other "
+"selected tax types will be reassigned to it, and the duplicates will be "
+"deleted."
 msgstr ""
-"Seleccione qué tipo de impuesto desea conservar. El otro será eliminado y "
-"todos sus registros recalibrados al que conserve."
+"Seleccione el tipo de impuesto que desea MANTENER. Todos los registros "
+"AppliedTax de los otros tipos de impuesto seleccionados serán reasignados a "
+"este, y los duplicados serán eliminados."
+
+msgid ""
+"This action is irreversible. All AppliedTax records referencing the "
+"discarded tax types will be updated to point to the one you keep. Duplicates"
+" that would violate the unique constraint will be deleted."
+msgstr ""
+"Esta acción es irreversible. Todos los registros de AppliedTax que hacen "
+"referencia a los tipos de impuestos descartados se actualizarán para señalar"
+" el que mantienes. Los duplicados que violarían la restricción de unicidad "
+"serán eliminados."
+
+#, fuzzy
+#| msgid "Type"
+msgid "Selected Tax Types"
+msgstr "Tipo"
+
+msgid "Keep"
+msgstr "Mantener"
 
 #, fuzzy
 #| msgid "Last Name"
 msgid "Tax Name"
 msgstr "Apellido"
 
+msgid "Behavior"
+msgstr "Comportamiento"
+
 #, fuzzy, python-format
 #| msgid "Is Default"
 msgid "Default %%"
 msgstr "Es default"
+
+#, fuzzy
+#| msgid "Applied taxes"
+msgid "Applied Tax Records"
+msgstr "Impuestos aplicados"
+
+msgid "Merge & Delete Duplicates"
+msgstr "Combinar y Eliminar Duplicados"
+
+msgid ""
+"Select which tax type to keep. The other will be deleted and all its records"
+" re-pointed to the one you keep."
+msgstr ""
+"Seleccione qué tipo de impuesto desea conservar. El otro será eliminado y "
+"todos sus registros recalibrados al que conserve."
 
 #, fuzzy
 #| msgid "Confirmed"
@@ -4160,6 +4373,31 @@ msgstr "Cantidad"
 msgid "Payment registered successfully."
 msgstr "Orden de Compra generada con éxito."
 
+#, fuzzy
+#| msgid "Please select an existing expediente."
+msgid "Please select at least 2 tax types to merge."
+msgstr "Por favor, selecciona un expediente existente."
+
+msgid "Some selected tax types no longer exist."
+msgstr "Algunos tipos de impuestos seleccionados ya no existen."
+
+#, fuzzy
+#| msgid "Please select an existing expediente."
+msgid "Please select a target tax type."
+msgstr "Por favor, selecciona un expediente existente."
+
+msgid "Invalid target tax type."
+msgstr "Tipo de impuesto objetivo inválido."
+
+#, python-format
+msgid ""
+"Merged into \"%(target)s\": %(updated)d records reassigned, %(deleted)d "
+"duplicates removed, %(sources)d tax types deleted (%(names)s)."
+msgstr ""
+"Fusionado en \"%(target)s\": se reasignaron %(updated)d registros, se "
+"eliminaron %(deleted)d duplicados, se eliminaron %(sources)d tipos de "
+"impuestos (%(names)s)."
+
 msgid "Logistics"
 msgstr "Logística"
 
@@ -4190,11 +4428,6 @@ msgstr "Hora de finalización"
 
 msgid "Internal Data"
 msgstr "Datos Internos"
-
-#, fuzzy
-#| msgid "Financial & Insurance"
-msgid "Invoicing Summary"
-msgstr "Finanzas y Seguro"
 
 #, fuzzy
 #| msgid "No accepted quotes found for this project file."
@@ -5721,7 +5954,6 @@ msgstr "Etapa Actual"
 msgid "Stage occupied by"
 msgstr "Escenario ocupado por"
 
-
 msgid "Switch to this activity"
 msgstr "Cambiar a esta actividad"
 
@@ -5897,7 +6129,6 @@ msgstr "Estado"
 msgid "Invalid action"
 msgstr "Acción inválida"
 
-
 msgid "Unknown product"
 msgstr "Producto desconocido"
 
@@ -6059,7 +6290,6 @@ msgstr "Recibir articulos"
 
 msgid "Receive Items for PO"
 msgstr "Recibir articulos para OC"
-
 
 msgid "Ordered"
 msgstr "Pedido"
@@ -6536,9 +6766,6 @@ msgstr "Valor Promedio del Presupuesto"
 
 msgid "Breakdown by Status"
 msgstr "Desglose por Estado"
-
-msgid "Tax"
-msgstr "Impuestos"
 
 #, fuzzy
 #| msgid "Configuration item"

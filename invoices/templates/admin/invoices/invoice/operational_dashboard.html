@@ -143,6 +143,38 @@
     margin-bottom: 24px;
   }
 
+  .od-kpi-grid--4 {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .od-kpi-grid--3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  @media(max-width:900px) {
+    .od-kpi-grid--4,
+    .od-kpi-grid--3 {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media(max-width:600px) {
+    .od-kpi-grid--4,
+    .od-kpi-grid--3 {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .od-subsection-label {
+    font-size: .75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    color: var(--od-text-sub);
+    margin-bottom: 10px;
+    padding-left: 2px;
+  }
+
   .od-kpi {
     background: var(--od-card);
     border: 1px solid var(--od-border);
@@ -504,10 +536,11 @@
   <!-- SALES INVOICING (WITHOUT TAXES)                              -->
   <!-- ═════════════════════════════════════════════════════════════ -->
   <div class="od-section">
-    <div class="od-section-title"><span class="icon">🧾</span> {% trans "Sales Invoicing (Without Taxes)" %}</div>
+    <div class="od-section-title"><span class="icon">🧾</span> {% trans "Sales Invoicing" %}</div>
 
-    <!-- KPIs -->
-    <div class="od-kpi-grid">
+    <!-- Invoicing KPIs -->
+    <div class="od-subsection-label">📋 {% trans "Invoicing Summary" %}</div>
+    <div class="od-kpi-grid od-kpi-grid--4">
       <div class="od-kpi od-kpi--emerald">
         <div class="od-kpi-accent"></div>
         <div class="od-kpi-label">{% trans "Finalized (Subtotal)" %}</div>
@@ -533,6 +566,26 @@
           <span style="color:var(--od-amber-500)">{{ invoicing.proforma_count }}</span>
           <span style="font-size:.8rem;color:var(--od-text-sub);font-weight:500">{% trans "proforma" %}</span>
         </div>
+      </div>
+    </div>
+
+    <!-- Collection KPIs -->
+    <div class="od-subsection-label">💰 {% trans "Collection Status" %}</div>
+    <div class="od-kpi-grid od-kpi-grid--3">
+      <div class="od-kpi od-kpi--indigo">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Invoiced (With Taxes)" %}</div>
+        <div class="od-kpi-value">€{{ invoicing.final_total_with_tax|euro_format }}</div>
+      </div>
+      <div class="od-kpi od-kpi--emerald">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Collected" %}</div>
+        <div class="od-kpi-value">€{{ invoicing.total_paid|euro_format }}</div>
+      </div>
+      <div class="od-kpi od-kpi--rose">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Pending to Collect" %}</div>
+        <div class="od-kpi-value">€{{ invoicing.pending_to_collect|euro_format }}</div>
       </div>
     </div>
 
@@ -578,10 +631,10 @@
   <hr class="od-divider">
 
   <!-- ═════════════════════════════════════════════════════════════ -->
-  <!-- PAYMENT INVOICING (Purchase Invoices by Due Date)            -->
+  <!-- PURCHASE INVOICING (by Due Date)                             -->
   <!-- ═════════════════════════════════════════════════════════════ -->
   <div class="od-section">
-    <div class="od-section-title"><span class="icon">💳</span> {% trans "Payment Invoicing (Due in Period)" %}</div>
+    <div class="od-section-title"><span class="icon">📥</span> {% trans "Purchase Invoicing (Due in Period)" %}</div>
 
     <!-- KPIs -->
     <div class="od-kpi-grid">

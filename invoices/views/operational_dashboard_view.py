@@ -170,6 +170,26 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             .order_by("-total")[:10]
         )
 
+        # Pending to collect: total_amount (with taxes) for FINAL invoices
+        # minus total payments allocated to those invoices
+        final_qs = base_qs.filter(status=SalesInvoiceStatus.FINAL)
+        final_total_with_tax = final_qs.aggregate(
+            total=Coalesce(Sum("total_amount"), zero, output_field=field),
+        )["total"]
+
+        sales_ct = ContentType.objects.get_for_model(SalesInvoice)
+        final_ids = list(final_qs.values_list("pk", flat=True))
+
+        from payments.models import PaymentAllocation
+        total_paid = PaymentAllocation.objects.filter(
+            content_type=sales_ct,
+            object_id__in=final_ids,
+        ).aggregate(
+            total=Coalesce(Sum("amount_applied"), zero, output_field=field),
+        )["total"]
+
+        pending_to_collect = final_total_with_tax - total_paid
+
         return {
             "final_total": final_agg["total"],
             "final_count": final_agg["count"],
@@ -179,6 +199,9 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "monthly_final": monthly_final,
             "monthly_proforma": monthly_proforma,
             "top_clients": top_clients,
+            "final_total_with_tax": final_total_with_tax,
+            "total_paid": total_paid,
+            "pending_to_collect": pending_to_collect,
         }
 
     # ── Production cost helpers ─────────────────────────────────────

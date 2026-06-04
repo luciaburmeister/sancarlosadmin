@@ -5,10 +5,10 @@ from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from core.admin.company_admin import CompanyRestrictedAdmin
 
-from unfold.admin import ModelAdmin, TabularInline
+from unfold.admin import ModelAdmin, TabularInline, GenericTabularInline
 from unfold.decorators import action
 from unfold.enums import ActionVariant
-from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminSelect2Widget
+from unfold.widgets import UnfoldAdminSelect2Widget
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
 
 from django.urls import path, reverse
@@ -16,15 +16,14 @@ from django.shortcuts import redirect
 
 from .views import AdjustStockView, ReceiveStockView, TransferStockView
 from .qr_views import item_qr_view
-from .choices import MovementType
 from .models import (
     Warehouse,
     StockLocation,
     InventoryCategory,
     InventoryItem,
-    InventoryMovement,
     ItemTransaction,
 )
+from invoices.models import AppliedTax
 
 from inventory.views import InvoiceInfoView
 
@@ -267,20 +266,29 @@ class LowStockFilter(admin.SimpleListFilter):
         return queryset
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# InventoryItem admin
-# ─────────────────────────────────────────────────────────────────────────────
+class ItemAppliedTaxInline(GenericTabularInline):
+    model = AppliedTax
+    extra = 0
+    autocomplete_fields = ("tax_type",)
+    ordering = ("order",)
+    verbose_name = _("Applied tax")
+    verbose_name_plural = _("Applied taxes")
+    tab = True
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("tax_type")
 
 @admin.register(InventoryItem)
 class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
     form = InventoryItemForm
-    inlines = [ItemTransactionInline]
+    inlines = [ItemTransactionInline, ItemAppliedTaxInline]
     actions_row = ["row_receive_stock", "row_transfer_stock", "row_adjust_stock"]
 
     list_display = (
         "code",
         "name",
         "item_type_display",
+        "selling_price",
         "product_object_repr",
         "product_content_type_display",
         "default_warehouse_display",
@@ -320,6 +328,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ("company"),
                 ("code", "item_type"),
                 ("name", "stock_on_hand_display"),
+                ("selling_price",),
                 ("min_stock",),
                 ("description", "image"),
                 ("product_content_type", "product_object_selector"),

@@ -3,6 +3,7 @@ from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
 from django_countries.fields import CountryField
+from djmoney.models.fields import MoneyField
 from timestamps.models import Timestampable
 from django.db import transaction
 from django.core.exceptions import ValidationError
@@ -174,6 +175,16 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
 
     image = models.ImageField(_("Image"), upload_to="inventory/items/images/", null=True, blank=True)
 
+    selling_price = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Selling Price"),
+        null=True,
+        blank=True,
+    )
+
     min_stock = models.PositiveIntegerField(
         _("Minimum Stock"),
         null=True,
@@ -229,6 +240,14 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
     def is_low_stock(self) -> bool:
         """True when min_stock is set and current stock is at or below it."""
         return self.min_stock is not None and self.stock_on_hand <= self.min_stock
+
+    def get_taxes(self):
+        """Return AppliedTax records attached to this item via GenericFK."""
+        from invoices.models import AppliedTax
+        ct = ContentType.objects.get_for_model(self)
+        return AppliedTax.objects.filter(
+            content_type=ct, object_id=self.pk
+        ).select_related("tax_type").order_by("order")
 
 
 class ItemTransaction(Timestampable):

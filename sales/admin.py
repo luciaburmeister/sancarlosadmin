@@ -7,7 +7,7 @@ from unfold.admin import ModelAdmin
 from unfold.decorators import display
 from .models import (
     Client, Order, DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
-    Quote, QuoteItem, SaleZone, ClientAddress, ClientContact, ClientBankAccount,
+    Quote, QuoteItem, QuoteInventoryItem, SaleZone, ClientAddress, ClientContact, ClientBankAccount,
     QuoteStatus, QuoteConfigurationGroup, QuotePhoto, QuotePhotoCategory,
 )
 from unfold.admin import TabularInline, StackedInline
@@ -17,6 +17,8 @@ from .forms import (
     QuoteImportForm, ClientConfirmImportForm, QuoteConfirmImportForm,
     QuoteItemImportForm, QuoteItemConfirmImportForm,
 )
+from invoices.models import AppliedTax
+
 from configurator.models import Configuration
 from configurator.admin.configuration import AppliedTaxInline
 from django.shortcuts import redirect, render
@@ -378,6 +380,17 @@ class QuoteItemInline(TabularInline):
         margin_str = f"{float(margin):.1f}%"
         return format_html('<span style="color:{};font-weight:600;">{}</span>', color, margin_str)
 
+
+class QuoteInventoryItemInline(TabularInline):
+    model = QuoteInventoryItem
+    extra = 1
+    tab = True
+    autocomplete_fields = ["inventory_item"]
+    readonly_fields = ["line_total", "total_with_tax"]
+    fields = ["inventory_item", "quantity", "unit_price", "discount", "line_total", "total_with_tax"]
+    verbose_name = _("Sale item")
+    verbose_name_plural = _("Sale items")
+
 class QuoteConfigurationGroupInline(StackedInline):
     model = QuoteConfigurationGroup
     extra = 1
@@ -452,7 +465,13 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
     readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown", "date_sent", "date_accepted", "date_rejected"]
     list_select_related = ["client", "project_file__client", "company"]
     
-    inlines = [ConfigurationReadOnlyInline, QuoteConfigurationGroupInline, QuoteItemInline, QuotePhotoInline, AppliedTaxInline, QuoteEmailLogInline,QuoteCommissionInline]
+    inlines = [ConfigurationReadOnlyInline, 
+    QuoteConfigurationGroupInline, 
+    QuoteInventoryItemInline, 
+    QuotePhotoInline, 
+    AppliedTaxInline, 
+    QuoteEmailLogInline,
+    QuoteCommissionInline]
 
 
     actions_list = [ "quote_dashboard_action"]
@@ -658,3 +677,34 @@ class QuoteItemAdmin(_CompanyImportMixin, ImportExportModelAdmin, ModelAdmin):
         color = "#22c55e" if margin >= 0 else "#ef4444"
         margin_str = f"{float(margin):.1f}%"
         return format_html('<span style="color:{};font-weight:600;">{}</span>', color, margin_str)
+
+
+class QuoteInventoryItemAppliedTaxInline(_GenericTabularInline):
+    model = AppliedTax
+    extra = 0
+    autocomplete_fields = ("tax_type",)
+    ordering = ("order",)
+    verbose_name = _("Applied tax")
+    verbose_name_plural = _("Applied taxes")
+    tab = True
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("tax_type")
+
+
+@admin.register(QuoteInventoryItem)
+class QuoteInventoryItemAdmin(ModelAdmin):
+    list_display = ["quote_name", "inventory_item_name", "unit_price", "discount", "line_total"]
+    search_fields = ["quote__project_name", "inventory_item__code", "inventory_item__name"]
+    autocomplete_fields = ["quote", "inventory_item"]
+    readonly_fields = ["line_total"]
+    list_select_related = ["quote", "inventory_item"]
+    inlines = [QuoteInventoryItemAppliedTaxInline]
+
+    @display(description=_("Quote"))
+    def quote_name(self, obj):
+        return obj.quote.project_name if obj.quote_id else "-"
+
+    @display(description=_("Inventory Item"))
+    def inventory_item_name(self, obj):
+        return str(obj.inventory_item) if obj.inventory_item_id else "-"

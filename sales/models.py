@@ -547,16 +547,21 @@ class Quote(Timestampable, CompanyOwnedModel):
             (item.line_total.amount for item in self.items.all()),
             Decimal("0.00"),
         )
+        # Include inventory-item lines
+        inv_item_total = sum(
+            (item.line_total.amount for item in self.inventory_items.all()),
+            Decimal("0.00"),
+        )
         config_subtotal = sum(
             (c.subtotal_price.amount for c in self.configurations.all()),
             Decimal("0.00"),
         )
-        return item_total, config_subtotal
+        return item_total + inv_item_total, config_subtotal
 
     def _sync_applied_taxes(self):
         """
         Aggregates AppliedTax records from all linked configurations
-        and syncs them as Quote-level AppliedTax records.
+        and inventory-item lines, then syncs them as Quote-level AppliedTax records.
         """
         ct = ContentType.objects.get_for_model(self)
 
@@ -590,6 +595,25 @@ class Quote(Timestampable, CompanyOwnedModel):
                 aggregation[key]["base_amount"] += base
                 aggregation[key]["calculated_amount"] += calc
 
+        # Aggregate taxes from inventory-item lines
+        for inv_item in self.inventory_items.all():
+            for tax in inv_item.get_taxes():
+                key = (tax.tax_type_id, tax.selected_percentage)
+                line_base = inv_item.line_total.amount if inv_item.line_total else Decimal("0.00")
+                rate = tax.selected_percentage / Decimal("100")
+                line_calc = (line_base * rate).quantize(Decimal("0.01"))
+
+                if key not in aggregation:
+                    aggregation[key] = {
+                        "tax_type": tax.tax_type,
+                        "selected_percentage": tax.selected_percentage,
+                        "base_amount": Decimal("0.00"),
+                        "calculated_amount": Decimal("0.00"),
+                        "order": tax.order,
+                    }
+                aggregation[key]["base_amount"] += line_base
+                aggregation[key]["calculated_amount"] += line_calc
+
         # Upsert Quote-level AppliedTax records
         seen_ids = []
         for (_, _), agg in aggregation.items():
@@ -606,7 +630,7 @@ class Quote(Timestampable, CompanyOwnedModel):
             )
             seen_ids.append(applied.pk)
 
-        # Remove stale taxes no longer present in any configuration
+        # Remove stale taxes no longer present in any configuration or inventory item
         AppliedTax.objects.filter(
             content_type=ct,
             object_id=self.pk,
@@ -639,13 +663,22 @@ class Quote(Timestampable, CompanyOwnedModel):
 
     def _calculate_total(self, item_total):
         """
-        Total = sum of config totals (already include taxes) + loose item total.
+        Total = sum of config totals (already include taxes)
+              + loose item total (QuoteItem + QuoteInventoryItem line_totals, no tax)
+              + inventory item tax amounts only (line_total already in item_total).
         """
         config_total = sum(
             (c.total_price.amount for c in self.configurations.all()),
             Decimal("0.00"),
         )
-        return config_total + item_total
+        # Only add the tax delta — line_total is already included in item_total
+        inv_item_tax_only = sum(
+            (inv.total_with_tax.amount - inv.line_total.amount
+             for inv in self.inventory_items.all()
+             if inv.total_with_tax and inv.line_total),
+            Decimal("0.00"),
+        )
+        return config_total + item_total + inv_item_tax_only
 
 class QuoteConfigurationGroup(Timestampable):
     """
@@ -780,6 +813,117 @@ class QuoteItem(Timestampable):
         self.line_total = self.unit_price * self.quantity * discount_factor
         super().save(*args, **kwargs)
         self.quote.recalc_totals()
+
+
+class QuoteInventoryItem(Timestampable):
+    """A line item inside a Quote that references an InventoryItem."""
+
+    quote = models.ForeignKey(
+        Quote,
+        related_name="inventory_items",
+        on_delete=models.CASCADE,
+        verbose_name=_("Quote"),
+    )
+
+    inventory_item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        verbose_name=_("Inventory Item"),
+    )
+
+    quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        verbose_name=_("Quantity"),
+    )
+
+    unit_price = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency="EUR",
+        verbose_name=_("Unit price"),
+    )
+
+    discount = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0"),
+        verbose_name=_("Discount (%)"),
+    )
+
+    line_total = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency="EUR",
+        editable=False,
+        default=0,
+        verbose_name=_("Line total"),
+    )
+
+    total_with_tax = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency="EUR",
+        editable=False,
+        default=0,
+        verbose_name=_("Total with tax"),
+    )
+
+    class Meta:
+        verbose_name = _("Quote inventory item")
+        verbose_name_plural = _("Quote inventory items")
+
+    def __str__(self):
+        if self.inventory_item_id:
+            return f"{self.inventory_item.name} × {self.quantity}"
+        return f"QuoteInventoryItem #{self.pk}"
+
+    def save(self, *args, **kwargs):
+        discount_factor = (Decimal("100") - self.discount) / Decimal("100")
+        self.line_total = self.unit_price * self.quantity * discount_factor
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+
+        if is_new and self.inventory_item_id:
+            self._copy_taxes_from_item()
+
+        # Recalculate stored total_with_tax from per-line taxes
+        self._recalc_total_with_tax()
+        self.quote.recalc_totals()
+
+    def _recalc_total_with_tax(self):
+        """Recompute total_with_tax from line_total + per-line applied taxes."""
+        line = self.line_total.amount if self.line_total else Decimal("0.00")
+        line_tax = Decimal("0.00")
+        for tax in self.get_taxes():
+            rate = tax.selected_percentage / Decimal("100")
+            if tax.tax_type.behavior == "add":
+                line_tax += (line * rate).quantize(Decimal("0.01"))
+            else:
+                line_tax -= (line * rate).quantize(Decimal("0.01"))
+        self.total_with_tax = line + line_tax
+        super().save(update_fields=["total_with_tax", "total_with_tax_currency"])
+
+    def _copy_taxes_from_item(self):
+        """Copy AppliedTax rows from the source InventoryItem to this line."""
+        from invoices.models import AppliedTax
+        ct = ContentType.objects.get_for_model(self)
+        for src_tax in self.inventory_item.get_taxes():
+            AppliedTax.objects.get_or_create(
+                content_type=ct,
+                object_id=self.pk,
+                tax_type=src_tax.tax_type,
+                selected_percentage=src_tax.selected_percentage,
+                defaults={"order": src_tax.order},
+            )
+
+    def get_taxes(self):
+        """Return AppliedTax records attached to this line via GenericFK."""
+        from invoices.models import AppliedTax
+        ct = ContentType.objects.get_for_model(self)
+        return AppliedTax.objects.filter(
+            content_type=ct, object_id=self.pk
+        ).select_related("tax_type").order_by("order")
 
 
 class OrderManager(Timestampable):

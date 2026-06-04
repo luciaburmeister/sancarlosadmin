@@ -34,6 +34,7 @@ from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from invoices.views.invoice.import_invoice import InvoiceImportAdminView
 from invoices.views.invoice_register_payment import InvoiceRegisterPaymentView
 from invoices.views.accounts_payable_views import AccountsPayableDashboardView
+from invoices.views.operational_dashboard_view import OperationalDashboardView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from accounting.tasks import classify_invoice_accounts, generate_journal_entries_task, export_a3_purchase_invoicing_task
@@ -102,12 +103,27 @@ class TaxTypeAdmin(ModelAdmin):
         if queryset.count() < 2:
             self.message_user(
                 request,
-                "Please select exactly 2 tax types to merge.",
+                "Please select at least 2 tax types to merge.",
                 level="error"
             )
             return
         ids = ",".join(str(i) for i in queryset.values_list("id", flat=True))
         return redirect(reverse("admin:invoices_taxtype_merge") + f"?ids={ids}")
+
+    def get_urls(self):
+        from invoices.views.merge_tax_types_view import MergeTaxTypesView
+
+        urls = super().get_urls()
+        custom = [
+            path(
+                "merge/",
+                self.admin_site.admin_view(
+                    MergeTaxTypesView.as_view(model_admin=self)
+                ),
+                name="invoices_taxtype_merge",
+            ),
+        ]
+        return custom + urls
 
 @admin.register(IncomingInvoice)
 class IncomingInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
@@ -357,6 +373,13 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
                     AccountsPayableDashboardView.as_view(model_admin=self)
                 ),
                 name="invoices_invoice_accounts_payable",
+            ),
+            path(
+                "dashboard/operational/",
+                self.admin_site.admin_view(
+                    OperationalDashboardView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_operational_dashboard",
             ),
             path(
                 "upload/",

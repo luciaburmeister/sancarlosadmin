@@ -409,6 +409,14 @@ UNFOLD = {
                         ),
                     },
                     {
+                        "title": _("Operational Dashboard"),
+                        "icon": "monitoring",
+                        "link": reverse_lazy("admin:invoices_invoice_operational_dashboard"),
+                        "permission": lambda request: request.user.has_perm(
+                            "invoices.operational_dashboard"
+                        ),
+                    },
+                    {
                         "title": _("ERP Chatbot"),
                         "icon": "chat",
                         "link": reverse_lazy("admin:chatbot_chat"),

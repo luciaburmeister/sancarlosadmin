@@ -204,6 +204,7 @@ class Invoice(models.Model):
         verbose_name_plural = _("Invoices")
         permissions = [
             ("accounts_payable", _("Can view Accounts Payable dashboard")),
+            ("operational_dashboard", _("Can view Operational Dashboard")),
         ]
 
     def __str__(self):

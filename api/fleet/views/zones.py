@@ -23,16 +23,20 @@ class ZonesListView(generics.ListAPIView):
         employee = get_current_employee(self.request.user)
         if employee is None or employee.company_id is None:
             return WorkingZone.objects.none()
+        return WorkingZone.objects.filter(company=employee.company, is_active=True)
 
-        zone_type = self.request.query_params.get("zone_type", "all")
+    def list(self, request, *args, **kwargs):
+        employee = get_current_employee(request.user)
+        if employee is None:
+            return Response([])
+        zone_type = request.query_params.get("zone_type", "all")
         cache_key = f"zones_{employee.company_id}_{zone_type}"
         cached = cache.get(cache_key)
         if cached is not None:
-            return cached
-
-        queryset = WorkingZone.objects.filter(company=employee.company, is_active=True)
-        cache.set(cache_key, queryset, timeout=CACHE_TIMEOUT)
-        return queryset
+            return Response(cached)
+        response = super().list(request, *args, **kwargs)
+        cache.set(cache_key, response.data, timeout=CACHE_TIMEOUT)
+        return response
 
 
 class ClientsListView(generics.ListAPIView):
@@ -45,15 +49,19 @@ class ClientsListView(generics.ListAPIView):
         employee = get_current_employee(self.request.user)
         if employee is None or employee.company_id is None:
             return Client.objects.none()
+        return Client.objects.filter(company=employee.company)
 
+    def list(self, request, *args, **kwargs):
+        employee = get_current_employee(request.user)
+        if employee is None:
+            return Response([])
         cache_key = f"clients_{employee.company_id}"
         cached = cache.get(cache_key)
         if cached is not None:
-            return cached
-
-        queryset = Client.objects.filter(company=employee.company)
-        cache.set(cache_key, queryset, timeout=CACHE_TIMEOUT)
-        return queryset
+            return Response(cached)
+        response = super().list(request, *args, **kwargs)
+        cache.set(cache_key, response.data, timeout=CACHE_TIMEOUT)
+        return response
 
 
 class AssetIdentifiersView(APIView):

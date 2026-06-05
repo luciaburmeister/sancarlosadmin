@@ -98,11 +98,13 @@ class InvoiceResource(resources.ModelResource):
         attribute='provider',
         widget=ForeignKeyWidget(Provider, 'name')
     )
+    provider_tax_identifier = fields.Field(column_name=_('Provider NIF/CIF'))
     company = fields.Field(
         column_name=_('Company'),
         attribute='company',
         widget=ForeignKeyWidget(Company, 'name')
     )
+    company_tax_identifier = fields.Field(column_name=_('Company NIF/CIF'))
     total_amount_value = fields.Field(column_name=_('Total Amount'))
     amount_paid_value = fields.Field(column_name=_('Amount Paid'))
     amount_remaining_value = fields.Field(column_name=_('Amount Remaining'))
@@ -124,7 +126,9 @@ class InvoiceResource(resources.ModelResource):
             'date_issued',
             'due_date',
             'provider',
+            'provider_tax_identifier',
             'company',
+            'company_tax_identifier',
             'payment_method',
             'total_amount_value',
             'amount_paid_value',
@@ -195,6 +199,12 @@ class InvoiceResource(resources.ModelResource):
 
     def dehydrate_currency(self, invoice):
         return str(invoice.total_amount.currency) if invoice.total_amount else "EUR"
+
+    def dehydrate_provider_tax_identifier(self, invoice):
+        return invoice.provider.tax_identifier if invoice.provider and invoice.provider.tax_identifier else ""
+
+    def dehydrate_company_tax_identifier(self, invoice):
+        return invoice.company.tax_identifier if invoice.company and invoice.company.tax_identifier else ""
 
     # ── Tax dehydrators ───────────────────────────────────────────────────
 
@@ -272,11 +282,13 @@ class SalesInvoiceResource(resources.ModelResource):
         attribute='client',
         widget=ForeignKeyWidget(Client, 'name')
     )
+    client_tax_identifier = fields.Field(column_name=_('Client NIF/CIF'))
     company = fields.Field(
         column_name=_('Company'),
         attribute='company',
         widget=ForeignKeyWidget(Company, 'name')
     )
+    company_tax_identifier = fields.Field(column_name=_('Company NIF/CIF'))
     subtotal_amount_value = fields.Field(column_name=_('Subtotal'))
     tax_amount_value = fields.Field(column_name=_('Tax Amount'))
     total_amount_value = fields.Field(column_name=_('Total Amount'))
@@ -300,7 +312,9 @@ class SalesInvoiceResource(resources.ModelResource):
             'date_issued',
             'due_date',
             'client',
+            'client_tax_identifier',
             'company',
+            'company_tax_identifier',
             'subtotal_amount_value',
             'tax_amount_value',
             'total_amount_value',
@@ -343,6 +357,12 @@ class SalesInvoiceResource(resources.ModelResource):
 
     def dehydrate_currency(self, invoice):
         return str(invoice.total_amount.currency) if invoice.total_amount else "EUR"
+
+    def dehydrate_client_tax_identifier(self, invoice):
+        return invoice.client.tax_identifier if invoice.client and invoice.client.tax_identifier else ""
+
+    def dehydrate_company_tax_identifier(self, invoice):
+        return invoice.company.tax_identifier if invoice.company and invoice.company.tax_identifier else ""
 
     # ── Tax dehydrators ───────────────────────────────────────────────────
 

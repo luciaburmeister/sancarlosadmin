@@ -250,6 +250,51 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         ).select_related("tax_type").order_by("order")
 
 
+class ItemProviderInfo(Timestampable):
+    """
+    Stores a provider-specific reference / SKU for an inventory item.
+    Each provider can assign its own unique identifier to the item.
+    """
+
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        verbose_name=_("Item"),
+        on_delete=models.CASCADE,
+        related_name="provider_info",
+    )
+    provider = models.ForeignKey(
+        Provider,
+        verbose_name=_("Provider"),
+        on_delete=models.CASCADE,
+        related_name="item_info",
+    )
+    provider_ref = models.CharField(
+        _("Provider Reference"),
+        max_length=100,
+        help_text=_("The provider's own code / SKU for this item."),
+    )
+
+    class Meta:
+        verbose_name = _("Item Provider Info")
+        verbose_name_plural = _("Item Provider Info")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["item", "provider"],
+                name="uniq_item_provider",
+            ),
+            models.UniqueConstraint(
+                fields=["item", "provider_ref"],
+                name="uniq_item_provider_ref",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["provider_ref"], name="idx_item_provider_ref"),
+        ]
+
+    def __str__(self):
+        return f"{self.provider.name} → {self.provider_ref}"
+
+
 class ItemTransaction(Timestampable):
     """
     Tracks every state change / physical movement an inventory item goes through.

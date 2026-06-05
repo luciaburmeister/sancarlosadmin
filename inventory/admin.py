@@ -21,9 +21,11 @@ from .models import (
     StockLocation,
     InventoryCategory,
     InventoryItem,
+    ItemProviderInfo,
     ItemTransaction,
 )
 from invoices.models import AppliedTax
+from purchasing.models import PurchaseOrderItem
 
 from inventory.views import InvoiceInfoView
 
@@ -164,6 +166,15 @@ class ItemTransactionInline(TabularInline):
     quantity_change_display.short_description = _("Quantity")
 
 
+class ItemProviderInfoInline(TabularInline):
+    model = ItemProviderInfo
+    extra = 0
+    autocomplete_fields = ("provider",)
+    verbose_name = _("Provider Reference")
+    verbose_name_plural = _("Provider References")
+    tab = True
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # InventoryItem form
 # ─────────────────────────────────────────────────────────────────────────────
@@ -278,10 +289,85 @@ class ItemAppliedTaxInline(GenericTabularInline):
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("tax_type")
 
+class PurchaseHistoryInline(TabularInline):
+    model = PurchaseOrderItem
+    fk_name = "inventory_item"
+    extra = 0
+    ordering = ("-purchase_order__date_ordered",)
+    tab = True
+    verbose_name = _("Purchase")
+    verbose_name_plural = _("Purchase History")
+
+    fields = (
+        "po_number_display",
+        "provider_display",
+        "date_ordered_display",
+        "unit_price",
+        "quantity",
+        "line_total",
+        "received_quantity",
+        "last_received_display",
+    )
+    readonly_fields = (
+        "po_number_display",
+        "provider_display",
+        "date_ordered_display",
+        "unit_price",
+        "quantity",
+        "line_total",
+        "received_quantity",
+        "last_received_display",
+    )
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("purchase_order__provider")
+            .prefetch_related("receipt_lines__receipt")
+        )
+
+    def po_number_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        url = reverse("admin:purchasing_purchaseorder_change", args=[obj.purchase_order_id])
+        return format_html('<a href="{}">{}</a>', url, obj.purchase_order.number)
+    po_number_display.short_description = _("PO Number")
+
+    def provider_display(self, obj):
+        return obj.purchase_order.provider.name if obj and obj.pk else "—"
+    provider_display.short_description = _("Provider")
+
+    def date_ordered_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        return obj.purchase_order.date_ordered.strftime("%Y-%m-%d")
+    date_ordered_display.short_description = _("Date Ordered")
+
+    def last_received_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        receipts = obj.receipt_lines.all()
+        if not receipts:
+            return format_html('<span style="color:#9ca3af;">—</span>')
+        last = max(r.receipt.received_at for r in receipts)
+        return last.strftime("%Y-%m-%d %H:%M")
+    last_received_display.short_description = _("Last Received")
+
+
 @admin.register(InventoryItem)
 class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
     form = InventoryItemForm
-    inlines = [ItemTransactionInline, ItemAppliedTaxInline]
+    inlines = [ItemProviderInfoInline, PurchaseHistoryInline, ItemTransactionInline, ItemAppliedTaxInline]
     actions_row = ["row_receive_stock", "row_transfer_stock", "row_adjust_stock"]
 
     list_display = (

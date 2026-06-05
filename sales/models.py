@@ -840,6 +840,7 @@ class QuoteInventoryItem(Timestampable):
     unit_price = MoneyField(
         max_digits=12,
         decimal_places=2,
+        default=0,
         default_currency="EUR",
         verbose_name=_("Unit price"),
     )
@@ -879,6 +880,12 @@ class QuoteInventoryItem(Timestampable):
         return f"QuoteInventoryItem #{self.pk}"
 
     def save(self, *args, **kwargs):
+        # Auto-fill unit_price from the item's selling_price when not provided
+        if self.inventory_item_id and (not self.unit_price or self.unit_price.amount == 0):
+            sp = self.inventory_item.selling_price
+            if sp and sp.amount:
+                self.unit_price = sp
+
         discount_factor = (Decimal("100") - self.discount) / Decimal("100")
         self.line_total = self.unit_price * self.quantity * discount_factor
         is_new = self.pk is None

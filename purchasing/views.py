@@ -14,7 +14,7 @@ class DirectReceiptView(UnfoldModelAdminViewMixin, FormView):
     template_name = "purchasing/direct_receipt.html"
     form_class = DirectReceiptForm
     title = _("Receive Items Directly")
-    permission_required = ("purchasing.add_purchaseorderreceipt",)
+    permission_required = ("purchasing.can_receive_directly",)
 
     def dispatch(self, request, *args, **kwargs):
         po_id = self.kwargs.get("po_id")

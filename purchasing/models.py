@@ -94,6 +94,7 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         ordering = ["-date_ordered", "-number"]
         permissions = [
             ("can_approve_purchase_order", _("Can approve Purchase Orders")),
+            ("can_receive_directly", _("Can receive items directly")),
         ]
 
     def __str__(self):

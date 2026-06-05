@@ -386,8 +386,8 @@ class QuoteInventoryItemInline(TabularInline):
     extra = 1
     tab = True
     autocomplete_fields = ["inventory_item"]
-    readonly_fields = ["line_total", "total_with_tax"]
-    fields = ["inventory_item", "quantity", "unit_price", "discount", "line_total", "total_with_tax"]
+    readonly_fields = ["unit_price", "line_total", "total_with_tax"]
+    fields = ["inventory_item", "quantity", "discount", "unit_price", "line_total", "total_with_tax"]
     verbose_name = _("Sale item")
     verbose_name_plural = _("Sale items")
 

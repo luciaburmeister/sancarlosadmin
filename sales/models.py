@@ -1,6 +1,6 @@
 import hashlib
 
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Sum
 from django.utils import timezone
 from djmoney.models.fields import MoneyField
@@ -504,6 +504,7 @@ class Quote(Timestampable, CompanyOwnedModel):
         super().__init__(*args, **kwargs)
         self._original_status = self.status
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
         if not self.internal_name and self.project_name:
             self.internal_name = self.project_name
@@ -521,7 +522,38 @@ class Quote(Timestampable, CompanyOwnedModel):
                 self.date_rejected = now
 
         super().save(*args, **kwargs)
+
+        # Subtract inventory when the quote is accepted
+        if (
+            self.status == QuoteStatus.ACCEPTED
+            and self._original_status != QuoteStatus.ACCEPTED
+        ):
+            self._deduct_inventory()
+
         self._original_status = self.status
+
+    def _deduct_inventory(self):
+        """Create stock-out ItemTransactions for all stockable QuoteInventoryItems."""
+        from inventory.models import ItemTransaction
+        from inventory.choices import ItemType, MovementType
+
+        for line in self.inventory_items.select_related(
+            "inventory_item", "inventory_item__default_warehouse"
+        ):
+            item = line.inventory_item
+            if item.item_type != ItemType.STOCKABLE:
+                continue
+            if not item.default_warehouse:
+                continue
+
+            ItemTransaction.objects.create(
+                item=item,
+                warehouse=item.default_warehouse,
+                movement_type=MovementType.OUT,
+                quantity_change=-int(line.quantity),
+                reference_object=self,
+                note=f"Stock out from accepted Quote #{self.id}",
+            )
 
     def __str__(self):
         return self.project_name or f"Quote #{self.id}"

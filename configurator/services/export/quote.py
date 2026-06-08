@@ -63,6 +63,20 @@ class QuoteExportStrategy(BaseExportStrategy):
             if c.quote_group_id is None
         ]
 
+        # Serialize inventory items (QuoteInventoryItem)
+        inventory_items_data = []
+        for inv_item in self.quote.inventory_items.select_related("inventory_item").all():
+            inventory_items_data.append({
+                "id": inv_item.pk,
+                "name": str(inv_item.inventory_item) if inv_item.inventory_item_id else "",
+                "code": inv_item.inventory_item.code if inv_item.inventory_item_id and hasattr(inv_item.inventory_item, "code") else "",
+                "quantity": float(inv_item.quantity),
+                "unit_price": float(inv_item.unit_price.amount) if inv_item.unit_price else 0,
+                "discount": float(inv_item.discount),
+                "line_total": float(inv_item.line_total.amount) if inv_item.line_total else 0,
+                "total_with_tax": float(inv_item.total_with_tax.amount) if inv_item.total_with_tax else 0,
+            })
+
         context = {
             "quote": self.quote,
             "client": self.quote.client,
@@ -72,6 +86,9 @@ class QuoteExportStrategy(BaseExportStrategy):
             "groups": groups_data,
             "ungrouped_configurations": ungrouped_configs,
             "has_groups": len(groups_data) > 0,
+            # Inventory / sale items
+            "inventory_items": inventory_items_data,
+            "has_inventory_items": len(inventory_items_data) > 0,
             "subtotal_price": float(self.quote.subtotal_price.amount),
             "tax_amount": float(self.quote.tax_amount.amount),
             "total_price": float(self.quote.total_price.amount),

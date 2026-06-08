@@ -279,12 +279,12 @@ class ItemProviderInfo(Timestampable):
         verbose_name_plural = _("Item Provider Info")
         constraints = [
             models.UniqueConstraint(
-                fields=["item", "provider"],
-                name="uniq_item_provider",
-            ),
-            models.UniqueConstraint(
                 fields=["item", "provider_ref"],
                 name="uniq_item_provider_ref",
+            ),
+            models.UniqueConstraint(
+                fields=["provider", "provider_ref"],
+                name="uniq_provider_item_ref",
             ),
         ]
         indexes = [

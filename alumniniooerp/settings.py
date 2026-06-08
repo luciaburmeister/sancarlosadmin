@@ -465,6 +465,16 @@ UNFOLD = {
                         ),
                     },
                     {
+                        "title": _("Receival Slips"),
+                        "icon": "receipt",
+                        "link": reverse_lazy(
+                            "admin:configurator_receivalslip_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "configurator.view_receivalslip"
+                        ),
+                    },
+                    {
                         "title": _("Product Templates"),
                         "icon": "box",
                         "link": reverse_lazy(
@@ -661,6 +671,16 @@ UNFOLD = {
                         ),
                         "permission": lambda request: request.user.has_perm(
                             "invoices.view_salesinvoice"
+                        ),
+                    },
+                    {
+                        "title": _("Delivery Orders"),
+                        "icon": "local_shipping",
+                        "link": reverse_lazy(
+                            "admin:sales_deliveryorder_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "sales.view_deliveryorder"
                         ),
                     },
                     {

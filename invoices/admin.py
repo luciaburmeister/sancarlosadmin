@@ -36,6 +36,8 @@ from invoices.views.invoice_register_payment import InvoiceRegisterPaymentView
 from invoices.views.accounts_payable_views import AccountsPayableDashboardView
 from invoices.views.operational_dashboard_view import OperationalDashboardView
 from invoices.services.sales_invoice_service import SalesInvoiceService
+from apps.einvoicing.admin import EInvoicingSubmissionInline
+from apps.einvoicing.tasks import submit_invoice_to_aeat, cancel_invoice_at_aeat
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from accounting.tasks import classify_invoice_accounts, generate_journal_entries_task, export_a3_purchase_invoicing_task
 from core.tasks import send_invoice_email_task
@@ -606,7 +608,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
         ("date_issued",RangeDateFilter),)
     search_fields = ("invoice_number", "client__name")
     autocomplete_fields = ("company", "client", "configuration", "project_file")
-    inlines = [SalesInvoiceItemInline, AppliedTaxInline, PaymentAllocationInline, EmailLogInline]
+    inlines = [SalesInvoiceItemInline, AppliedTaxInline, PaymentAllocationInline, EmailLogInline, EInvoicingSubmissionInline]
     list_filter_submit = True
     list_select_related = ["company","client"]
     
@@ -678,8 +680,38 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
         form.instance.recalculate_totals(save=True)
     
     actions = ["download_pdf", "finalize_invoice_action", "import_from_excel"]
-    actions_row = ["view_pdf_row_action", "send_email_row_action", "finalize_invoice_row_action", "view_journal_entry_row_action"]
-    actions_detail = ["view_pdf_detail_action", "send_email_detail_action", "finalize_invoice_detail_action", "view_journal_entry_detail_action", "register_payment_detail_action"]
+    actions_row = [
+        "view_pdf_row_action",
+        "finalize_invoice_row_action",
+        "send_email_row_action",
+        "submit_aeat_row_action",
+        "cancel_aeat_row_action",
+        "view_journal_entry_row_action",
+    ]
+    actions_detail = [
+        {
+            "title": _("Invoice Actions"),
+            "items": [
+                "view_pdf_detail_action",
+                "finalize_invoice_detail_action",
+                "send_email_detail_action",
+                "register_payment_detail_action",
+            ],
+        },
+        {
+            "title": _("AEAT / Verifactu"),
+            "items": [
+                "submit_aeat_detail_action",
+                "cancel_aeat_detail_action",
+            ],
+        },
+        {
+            "title": _("Accounting"),
+            "items": [
+                "view_journal_entry_detail_action",
+            ],
+        },
+    ]
 
     @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
     def view_pdf_row_action(self, request, object_id):
@@ -714,7 +746,8 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
         ordering="status",
         label={
             _(SalesInvoiceStatus.FINAL): "success",  
-            _(SalesInvoiceStatus.PROFORMA): "warning",  
+            _(SalesInvoiceStatus.PROFORMA): "warning",
+            _(SalesInvoiceStatus.CANCELLED): "danger",
         },
     )
     def get_status_label(self, obj):
@@ -830,3 +863,47 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
         if obj.is_external:
             return _("External")
         return _("Internal")
+
+    @action(description=_("Submit to AEAT"), icon="cloud_upload")
+    def submit_aeat_row_action(self, request, object_id):
+        invoice = SalesInvoice.objects.get(pk=object_id)
+        if invoice.status == SalesInvoiceStatus.CANCELLED:
+            self.message_user(request, _("Cancelled invoices cannot be resubmitted."), level="error")
+        elif invoice.status != SalesInvoiceStatus.FINAL:
+            self.message_user(request, _("Only finalized invoices can be submitted to the AEAT."), level="error")
+        else:
+            submit_invoice_to_aeat.delay(invoice.id)
+            self.message_user(request, _("AEAT submission queued for invoice %s.") % invoice.invoice_number)
+        return redirect(reverse("admin:invoices_salesinvoice_changelist"))
+
+    @action(description=_("Submit to AEAT"), icon="cloud_upload")
+    def submit_aeat_detail_action(self, request, object_id):
+        invoice = SalesInvoice.objects.get(pk=object_id)
+        if invoice.status == SalesInvoiceStatus.CANCELLED:
+            self.message_user(request, _("Cancelled invoices cannot be resubmitted."), level="error")
+        elif invoice.status != SalesInvoiceStatus.FINAL:
+            self.message_user(request, _("Only finalized invoices can be submitted to the AEAT."), level="error")
+        else:
+            submit_invoice_to_aeat.delay(invoice.id)
+            self.message_user(request, _("AEAT submission queued for invoice %s.") % invoice.invoice_number)
+        return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
+
+    @action(description=_("Cancel at AEAT"), icon="cancel")
+    def cancel_aeat_row_action(self, request, object_id):
+        invoice = SalesInvoice.objects.get(pk=object_id)
+        if invoice.status == SalesInvoiceStatus.CANCELLED:
+            self.message_user(request, _("Invoice is already cancelled."), level="warning")
+        else:
+            cancel_invoice_at_aeat.delay(invoice.id)
+            self.message_user(request, _("AEAT cancellation queued for invoice %s.") % (invoice.invoice_number or invoice.pk))
+        return redirect(reverse("admin:invoices_salesinvoice_changelist"))
+
+    @action(description=_("Cancel at AEAT"), icon="cancel")
+    def cancel_aeat_detail_action(self, request, object_id):
+        invoice = SalesInvoice.objects.get(pk=object_id)
+        if invoice.status == SalesInvoiceStatus.CANCELLED:
+            self.message_user(request, _("Invoice is already cancelled."), level="warning")
+        else:
+            cancel_invoice_at_aeat.delay(invoice.id)
+            self.message_user(request, _("AEAT cancellation queued for invoice %s.") % (invoice.invoice_number or invoice.pk))
+        return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))

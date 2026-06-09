@@ -9,6 +9,7 @@ from configurator.models import ExportTemplateKind, ConfigurationExportTemplate
 from configurator.services.export.service import ConfigurationExportService
 from invoices.constants import GENERIC_PRODUCT_TEMPLATE_LABEL
 from invoices.services.sales_invoice_payment import resolve_sales_invoice_payment_method
+from apps.einvoicing.tasks import submit_invoice_to_aeat
 
 logger = logging.getLogger(__name__)
 
@@ -84,11 +85,13 @@ class SalesInvoiceService:
         company = sales_invoice.company
         sales_invoice.status = SalesInvoiceStatus.FINAL
         sales_invoice.date_issued = timezone.now().date() if sales_invoice.date_issued is None else sales_invoice.date_issued
-        # Invoices logic
         next_invoice = cls._generate_next_invoice_data(company)
         sales_invoice.invoice_number = next_invoice['number']
         sales_invoice.incremental_id = next_invoice['incremental_id']
         sales_invoice.save(update_fields=['status', 'date_issued', 'invoice_number', 'incremental_id'])
+
+        # Submit to AEAT via e-invoicing provider (async)
+        submit_invoice_to_aeat.delay(sales_invoice.id)
 
         if send_email:
             sales_invoice._finalize_email_status = cls.queue_client_email(sales_invoice)

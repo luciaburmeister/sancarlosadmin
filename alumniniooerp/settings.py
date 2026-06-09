@@ -106,6 +106,7 @@ INSTALLED_APPS = [
     'chatbot',
     "feedback",
     'corsheaders',
+    "apps.einvoicing",
 
 ]
 

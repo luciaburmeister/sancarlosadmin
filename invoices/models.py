@@ -677,6 +677,7 @@ class IncomingInvoice(CompanyOwnedModel):
 class SalesInvoiceStatus(models.TextChoices):
     PROFORMA = "proforma", _("Pro Forma")
     FINAL = "final", _("Final")
+    CANCELLED = "cancelled", _("Cancelled")
 
 
 class SalesInvoice(CompanyOwnedModel):

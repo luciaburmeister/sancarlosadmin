@@ -108,6 +108,7 @@ INSTALLED_APPS = [
     'corsheaders',
     "apps.einvoicing",
 
+    "finance",
 ]
 
 MIDDLEWARE = [

@@ -22,6 +22,12 @@ class Company(models.Model):
     email = models.CharField(max_length=80,blank=True,null=True,verbose_name=_("Email"))
     phone = models.CharField(max_length=18,blank=True,null=True,verbose_name=_("Phone"))
     tax_identifier = models.CharField(max_length=20,blank=True,verbose_name=_("Tax Identifier"),null=True)
+    industry_identifier = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Industry Identifier"),
+        help_text=_("e.g., CNAE, SIC code, or similar industry classification"),
+    )
     constituted_country = CountryField(null=True,verbose_name=_("Constitude Country"))
     production_stages = ArrayField(
         base_field=models.CharField(max_length=50),

@@ -155,8 +155,8 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
     import_form_class = ClientImportForm
     export_form_class = ClientExportForm
 
-    list_display = ["name", "tax_identifier", "phone", "address_truncated", "company",  "has_signed_terms"]
-    search_fields = ["name", "tax_identifier", "email", "phone", "address"]
+    list_display = ["name", "tax_identifier", "industry_identifier", "phone", "address_truncated", "company",  "has_signed_terms"]
+    search_fields = ["name", "tax_identifier", "industry_identifier", "email", "phone", "address"]
     list_filter = ["sale_zone", "is_insured", "company"]
 
     def get_list_filter(self, request):
@@ -210,7 +210,8 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
             "classes": ["tab"],
             "fields": (
                 ("name", "company"),
-                ("tax_identifier", "phone", "email"),
+                ("tax_identifier", "industry_identifier"),
+                ("phone", "email"),
                 "address"
             )
         }),

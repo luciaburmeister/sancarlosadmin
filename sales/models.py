@@ -126,6 +126,12 @@ class Client(Timestampable, CompanyOwnedModel):
         blank=True,
         verbose_name=_("Fiscal Identifier"),
     )
+    industry_identifier = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Industry Identifier"),
+        help_text=_("e.g., CNAE, SIC code, or similar industry classification"),
+    )
 
     # New fields
     sale_zone = models.ForeignKey(

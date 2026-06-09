@@ -254,6 +254,7 @@ class CompanyAdmin(ModelAdmin):
         (_("Taxes"), {
             "fields": (
                 "tax_identifier",
+                "industry_identifier",
                 "business_activity_description"
             ),
             "classes": ["tab"]

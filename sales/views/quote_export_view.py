@@ -10,7 +10,7 @@ from django.utils.translation import gettext_lazy as _
 class QuoteExportView(UnfoldModelAdminViewMixin, FormView):
     template_name = "configurator/export_form.html" 
     form_class = ConfigurationExportForm
-    permission_required = ('configurator.view_configurationexporttemplate') 
+    permission_required = () 
     title = _("Quote Template Exporter")
 
     def dispatch(self, request, *args, **kwargs):

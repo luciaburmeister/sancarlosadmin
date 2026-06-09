@@ -106,7 +106,7 @@ INSTALLED_APPS = [
     'chatbot',
     "feedback",
     'corsheaders',
-
+    "finance",
 ]
 
 MIDDLEWARE = [

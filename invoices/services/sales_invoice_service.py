@@ -90,8 +90,12 @@ class SalesInvoiceService:
         sales_invoice.incremental_id = next_invoice['incremental_id']
         sales_invoice.save(update_fields=['status', 'date_issued', 'invoice_number', 'incremental_id'])
 
-        # Submit to AEAT via e-invoicing provider (async)
-        submit_invoice_to_aeat.delay(sales_invoice.id)
+        # Submit to AEAT via e-invoicing provider (async, non-blocking)
+        try:
+            from apps.einvoicing.tasks import submit_invoice_to_aeat
+            submit_invoice_to_aeat.delay(sales_invoice.id)
+        except Exception:
+            logger.exception("Failed to queue AEAT submission for invoice %s", sales_invoice.pk)
 
         if send_email:
             sales_invoice._finalize_email_status = cls.queue_client_email(sales_invoice)

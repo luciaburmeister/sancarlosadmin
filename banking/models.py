@@ -107,9 +107,9 @@ class BankTransaction(CompanyOwnedModel):
 
 class BankReconciliation(models.Model):
     """
-    The explicit link between a BankTransaction (reality from the bank)
-    and a Payment (the business record in the ERP).
-    Created either automatically by the auto-matcher or manually by a user.
+    Created by the auto-matcher immediately after a BankTransaction is imported.
+    Starts as an unconfirmed suggestion (is_confirmed=False, payment=None).
+    A human reviews it and confirms, at which point a Payment is created and linked.
     """
     bank_transaction = models.OneToOneField(
         BankTransaction,
@@ -122,13 +122,41 @@ class BankReconciliation(models.Model):
         "payments.Payment",
         on_delete=models.CASCADE,
         related_name="reconciliation",
+        null=True,
+        blank=True,
         verbose_name=_("Payment"),
-        help_text=_("The Payment record this bank transaction is matched to.")
+        help_text=_("Null until a human confirms the suggestion. Set when the Payment is created on confirmation.")
+    )
+    is_confirmed = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name=_("Is Confirmed"),
+        help_text=_("False = auto-matcher suggestion pending human review. True = human confirmed.")
+    )
+    suggested_allocations = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name=_("Suggested Allocations"),
+        help_text=_("List of document suggestions from the auto-matcher. Format: [{'content_type': 'invoice', 'object_id': 5}]. Works for any document type: invoices, expenses, payroll, etc.")
+    )
+    unmatched_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Unmatched Amount"),
+        help_text=_("How much of the transaction amount was not matched to any document. Zero means a full match was found.")
     )
     reconciled_at = models.DateTimeField(
         auto_now_add=True,
-        verbose_name=_("Reconciled At"),
-        help_text=_("Timestamp when the match was made.")
+        verbose_name=_("Created At"),
+        help_text=_("Timestamp when this reconciliation record was first created by the matcher.")
+    )
+    confirmed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Confirmed At"),
+        help_text=_("Timestamp when a human confirmed this reconciliation.")
     )
     reconciled_by = models.ForeignKey(
         User,
@@ -136,22 +164,15 @@ class BankReconciliation(models.Model):
         null=True,
         blank=True,
         related_name="reconciliations",
-        verbose_name=_("Reconciled By"),
-        help_text=_("The user who confirmed this match. Null if done automatically.")
+        verbose_name=_("Confirmed By"),
+        help_text=_("The user who confirmed this match. Null until confirmed.")
     )
     method = models.CharField(
         max_length=10,
         choices=ReconciliationMethod.choices,
+        default=ReconciliationMethod.AUTO,
         verbose_name=_("Method"),
-        help_text=_("Whether this reconciliation was made automatically or confirmed by a human.")
-    )
-    confidence_score = models.DecimalField(
-        max_digits=4,
-        decimal_places=3,
-        null=True,
-        blank=True,
-        verbose_name=_("Confidence Score"),
-        help_text=_("Auto-matcher confidence between 0.000 and 1.000. 1.000 if manually confirmed.")
+        help_text=_("Auto = created by the matcher. Manual = human confirmed or created from scratch.")
     )
     notes = models.TextField(
         blank=True,
@@ -165,4 +186,5 @@ class BankReconciliation(models.Model):
         ordering = ["-reconciled_at"]
 
     def __str__(self):
-        return f"{self.bank_transaction} ↔ {self.payment} ({self.get_method_display()})"
+        status = "confirmed" if self.is_confirmed else "pending review"
+        return f"{self.bank_transaction} ↔ {self.payment or 'unconfirmed'} ({status})"

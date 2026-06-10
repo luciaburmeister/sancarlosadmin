@@ -20,7 +20,9 @@ urlpatterns = [
     path("i18n/", include("django.conf.urls.i18n")),
     path('hijack/', include('hijack.urls')),
     path("api/chatbot/", include("chatbot.urls")),
+    path("api/banking/", include("banking.urls")),  # Arcopay callbacks (no i18n)
 ]
+
 
 if settings.DEBUG:
     from debug_toolbar.toolbar import debug_toolbar_urls

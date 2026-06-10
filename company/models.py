@@ -468,7 +468,7 @@ class CompanyScheduleSlot(models.Model):
 class BaseBankAccount(models.Model):
     bank_name = models.CharField(max_length=100, verbose_name=_("Bank Name"))
     holder_name = models.CharField(max_length=100, blank=True, verbose_name=_("Holder Name"))
-    iban = models.CharField(max_length=34, blank=True, verbose_name=_("IBAN"), help_text=_("For SEPA/Europe"))
+    iban = models.CharField(max_length=50, blank=True, verbose_name=_("IBAN"), help_text=_("For SEPA/Europe"))
     swift_bic = models.CharField(max_length=11, blank=True, verbose_name=_("SWIFT/BIC code"))
     account_number = models.CharField(max_length=50, blank=True, verbose_name=_("Account Number"), help_text=_("Local account number"))
     routing_number = models.CharField(max_length=50, blank=True, verbose_name=_("Routing Number"), help_text=_("Routing number, Sort code, ABA, etc."))
@@ -479,6 +479,24 @@ class BaseBankAccount(models.Model):
         abstract = True
 
 class BankAccount(CompanyOwnedModel, BaseBankAccount):
+    nuek_account_id = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Nuek Account ID"),
+        help_text=_("Token assigned by Nuek/Arcopay. Used to fetch transactions."),
+    )
+    nuek_consent_id = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Nuek Consent ID"),
+        help_text=_("Consent identifier from Arcopay. Used to check consent status and avoid re-generating."),
+    )
+    nuek_product_id = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name=_("Nuek Product ID"),
+        help_text=_("Product identifier from Arcopay (IBAN or UUID). Used in /transactions/ calls."),
+    )
     is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
 
     class Meta:
@@ -492,6 +510,48 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
         if self.is_default:
             BankAccount.objects.filter(company=self.company, is_default=True).exclude(pk=self.pk).update(is_default=False)
         super().save(*args, **kwargs)
+
+    @classmethod
+    def upsert_from_arcopay(cls, company, product_data: dict, token: str, consent_id: str = ""):
+        """Create or update a BankAccount from an Arcopay product dict.
+
+        Looks up by company + IBAN (or product_id for banks like Revolut
+        that use UUIDs instead of IBANs).
+
+        Returns (bank_account, created).
+        """
+        product_name = product_data.get("product", "")
+
+        # The real IBAN may be in a dedicated 'iban' field (e.g. Revolut),
+        # or in 'product' for traditional banks.
+        iban = product_data.get("iban", "")
+        if not iban and len(product_name) >= 15 and not product_name.startswith("{"):
+            iban = product_name
+
+        # Extract holder name from holders array
+        holders = product_data.get("holders", [])
+        holder_name = ""
+        if holders and isinstance(holders, list) and isinstance(holders[0], dict):
+            holder_name = holders[0].get("name", "")
+
+        # Build a descriptive bank name
+        bank_type = product_data.get("type", "Bank")
+        description = product_data.get("description", "")
+        bank_name = f"{bank_type} - {description}" if description else bank_type
+
+        lookup = {"company": company, "iban": iban} if iban else {"company": company, "nuek_product_id": product_name}
+        defaults = {
+            "nuek_account_id": token,
+            "nuek_product_id": product_name,
+        }
+        if consent_id:
+            defaults["nuek_consent_id"] = consent_id
+        if holder_name:
+            defaults["holder_name"] = holder_name
+        if bank_name:
+            defaults["bank_name"] = bank_name
+
+        return cls.objects.update_or_create(**lookup, defaults=defaults)
 
 class WorkAttendance(CompanyOwnedModel, Timestampable):
     employee = models.ForeignKey(

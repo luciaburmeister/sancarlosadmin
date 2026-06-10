@@ -4,7 +4,7 @@ from djmoney.models.fields import MoneyField
 from django.db.models.functions import Lower
 from django.db.models import Index
 from configurator.utils import validate_expression_for_safe_eval,safe_eval
-from company.models import CompanyOwnedModel
+from company.models import CompanyOwnedModel, BaseBankAccount
 from django.utils.translation import gettext_lazy as _
 from django.db import transaction
 from django.core.exceptions import ValidationError
@@ -43,6 +43,22 @@ class Provider(Timestampable,CompanyOwnedModel):
             Index(Lower("name"), name="provider_name_ci_idx"),
             GinIndex(fields=['associated_emails'], name='provider_emails_gin_idx')
         ]
+        
+class ProviderBankAccount(CompanyOwnedModel, BaseBankAccount):
+    provider = models.ForeignKey(
+        Provider,
+        on_delete=models.CASCADE,
+        related_name="bank_accounts",
+        verbose_name=_("Provider")
+    )
+    is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
+
+    class Meta:
+        verbose_name = _("Provider Bank Account")
+        verbose_name_plural = _("Provider Bank Accounts")
+
+    def __str__(self):
+        return f"{self.bank_name} - {self.account_number or self.iban} ({self.provider})"
 
 class Category(Timestampable,CompanyOwnedModel):
     """

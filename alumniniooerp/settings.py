@@ -107,7 +107,7 @@ INSTALLED_APPS = [
     "feedback",
     'corsheaders',
     "apps.einvoicing",
-
+    'banking',
     "finance",
 ]
 
@@ -205,6 +205,10 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_KEY")
 
+# Arcopay / Nuek — Bank Aggregation
+NUEK_SERVICE_KEY = os.getenv("NUEK_SERVICE_KEY", "")
+ARCOPAY_API_URL = os.getenv("ARCOPAY_API_URL", "https://apipsd2.arcopay.io")
+
 
 POPPLER_PATH = os.getenv("POPPLER_PATH", "/opt/homebrew/bin")  
 
@@ -284,7 +288,12 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Europe/Madrid'  
 
-
+CELERY_BEAT_SCHEDULE = {
+    "sync-bank-transactions": {
+        "task": "banking.tasks.sync_bank_transactions",
+        "schedule": crontab(minute=0, hour="*/6"),  # every 6 hours
+    },
+}
 
 
 
@@ -694,6 +703,35 @@ UNFOLD = {
                         "permission": lambda request: request.user.has_perm(
                             "invoices.view_invoice"
                         ),
+                    },
+                ],
+            },
+            {
+                "title": _("Banking"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Bank Transactions"),
+                        "icon": "account_balance",
+                        "link": reverse_lazy("admin:banking_banktransaction_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "banking.view_banktransaction"
+                        ),
+                    },
+                    {
+                        "title": _("Reconciliations"),
+                        "icon": "compare_arrows",
+                        "link": reverse_lazy("admin:banking_bankreconciliation_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "banking.view_bankreconciliation"
+                        ),
+                    },
+                    {
+                        "title": _("Connect Bank"),
+                        "icon": "add_link",
+                        "link": reverse_lazy("admin:banking_connect_bank"),
+                        "permission": lambda request: request.user.is_superuser,
                     },
                 ],
             },

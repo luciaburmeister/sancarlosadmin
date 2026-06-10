@@ -1,0 +1,295 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Connect Bank Account" %}{% endblock %}
+
+{% block content %}
+<style>
+    .connect-container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .connect-header {
+        margin-bottom: 2rem;
+    }
+
+    .connect-header h2 {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+
+    .connect-header p {
+        color: var(--font-subtle-light, #666);
+        font-size: 0.9rem;
+        line-height: 1.5;
+    }
+
+    .bank-search {
+        margin-bottom: 1.5rem;
+    }
+
+    .bank-search input {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 8px;
+        font-size: 0.9rem;
+        outline: none;
+        transition: border-color 0.15s ease;
+    }
+
+    .bank-search input:focus {
+        border-color: var(--primary-600, oklch(57% .125 190));
+        box-shadow: 0 0 0 3px oklch(57% .125 190 / 0.1);
+    }
+
+    .bank-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 0.75rem;
+        max-height: 500px;
+        overflow-y: auto;
+        padding: 0.25rem;
+    }
+
+    .bank-card {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.875rem 1rem;
+        border: 2px solid var(--border-default, #e2e8f0);
+        border-radius: 10px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        background: var(--bg-primary, #fff);
+    }
+
+    .bank-card:hover {
+        border-color: var(--primary-400, oklch(67% .125 190));
+        background: var(--bg-secondary, #f8fafc);
+    }
+
+    .bank-card.selected {
+        border-color: var(--primary-600, oklch(57% .125 190));
+        background: oklch(57% .125 190 / 0.05);
+    }
+
+    .bank-card img {
+        width: 36px;
+        height: 36px;
+        border-radius: 6px;
+        object-fit: contain;
+        flex-shrink: 0;
+    }
+
+    .bank-card .bank-name {
+        font-size: 0.85rem;
+        font-weight: 500;
+        line-height: 1.3;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .bank-card.hidden {
+        display: none;
+    }
+
+    .connect-actions {
+        display: flex;
+        gap: 1rem;
+        margin-top: 1.5rem;
+        align-items: center;
+    }
+
+    .btn-connect {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+        border: none;
+        background: var(--primary-600, oklch(57% .125 190));
+        color: #fff;
+        transition: all 0.15s ease;
+    }
+
+    .btn-connect:hover:not(:disabled) {
+        background: var(--primary-700, oklch(49% .105 190));
+    }
+
+    .btn-connect:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .btn-secondary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.25rem;
+        border-radius: 8px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        text-decoration: none;
+        cursor: pointer;
+        border: 1px solid var(--border-default, #e2e8f0);
+        background: var(--bg-primary, #fff);
+        color: var(--font-default-light, #333);
+        transition: all 0.15s ease;
+    }
+
+    .btn-secondary:hover {
+        background: var(--bg-secondary, #f8fafc);
+    }
+
+    .error-box {
+        padding: 1rem;
+        border-radius: 8px;
+        background: #fee2e2;
+        color: #991b1b;
+        margin-bottom: 1rem;
+    }
+
+    .selected-info {
+        font-size: 0.85rem;
+        color: var(--font-subtle-light, #666);
+    }
+
+    .company-selector {
+        margin-bottom: 1.5rem;
+    }
+
+    .company-selector label {
+        display: block;
+        font-size: 0.85rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+
+    .company-selector select {
+        width: 100%;
+        padding: 0.75rem 1rem;
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 8px;
+        font-size: 0.9rem;
+        outline: none;
+        background: var(--bg-primary, #fff);
+        transition: border-color 0.15s ease;
+    }
+
+    .company-selector select:focus {
+        border-color: var(--primary-600, oklch(57% .125 190));
+        box-shadow: 0 0 0 3px oklch(57% .125 190 / 0.1);
+    }
+</style>
+
+<div class="connect-container">
+    <div class="connect-header">
+        <h2>🏦 {% trans "Connect Bank Account" %}</h2>
+        <p>{% trans "Select your bank below. You will be redirected to your bank's website to authorize access to your account data via PSD2." %}</p>
+    </div>
+
+    {% if error_message %}
+    <div class="error-box">
+        {{ error_message }}
+    </div>
+    {% endif %}
+
+    {% if banks %}
+    <div class="bank-search">
+        <input type="text"
+               id="bankSearch"
+               placeholder="{% trans 'Search banks...' %}"
+               oninput="filterBanks(this.value)">
+    </div>
+
+    <form method="post" action="{{ initiate_url }}" id="consentForm">
+        {% csrf_token %}
+        <input type="hidden" name="bank_service" id="selectedBank" value="">
+
+        <div class="company-selector">
+            <label for="companySelect">{% trans "Company" %}</label>
+            <select name="company_id" id="companySelect" onchange="checkFormReady()" required>
+                {% if companies|length > 1 %}
+                <option value="">— {% trans "Select a company" %} —</option>
+                {% endif %}
+                {% for company in companies %}
+                <option value="{{ company.pk }}">{{ company }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="bank-grid" id="bankGrid">
+            {% for bank in banks %}
+            <div class="bank-card"
+                 data-service="{{ bank.service }}"
+                 data-name="{{ bank.fullname|lower }}"
+                 onclick="selectBank(this, '{{ bank.service }}')">
+                <img src="{{ bank.image }}"
+                     alt="{{ bank.fullname }}"
+                     onerror="this.style.display='none'">
+                <span class="bank-name">{{ bank.fullname }}</span>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="connect-actions">
+            <button type="submit" class="btn-connect" id="btnConnect" disabled>
+                <span class="material-symbols-outlined" style="font-size: 18px;">link</span>
+                {% trans "Connect Selected Bank" %}
+            </button>
+            <span class="selected-info" id="selectedInfo"></span>
+        </div>
+    </form>
+    {% else %}
+    <div class="error-box">
+        {% trans "Could not load the list of supported banks. Please try again later." %}
+    </div>
+    {% endif %}
+
+    <div class="connect-actions" style="margin-top: 2rem; border-top: 1px solid var(--border-default, #e2e8f0); padding-top: 1.5rem;">
+        <a href="{% url 'admin:banking_banktransaction_changelist' %}" class="btn-secondary">
+            <span class="material-symbols-outlined" style="font-size: 18px;">list</span>
+            {% trans "View Transactions" %}
+        </a>
+    </div>
+</div>
+
+<script>
+    function selectBank(card, service) {
+        document.querySelectorAll('.bank-card.selected').forEach(function (el) {
+            el.classList.remove('selected');
+        });
+        card.classList.add('selected');
+        document.getElementById('selectedBank').value = service;
+        document.getElementById('selectedInfo').textContent =
+            '{% trans "Selected:" %} ' + card.querySelector('.bank-name').textContent;
+        checkFormReady();
+    }
+
+    function filterBanks(query) {
+        var q = query.toLowerCase().trim();
+        document.querySelectorAll('.bank-card').forEach(function (card) {
+            var name = card.getAttribute('data-name') || '';
+            if (q === '' || name.indexOf(q) !== -1) {
+                card.classList.remove('hidden');
+            } else {
+                card.classList.add('hidden');
+            }
+        });
+    }
+
+    function checkFormReady() {
+        var bankSelected = document.getElementById('selectedBank').value !== '';
+        var companySelected = document.getElementById('companySelect').value !== '';
+        document.getElementById('btnConnect').disabled = !(bankSelected && companySelected);
+    }
+</script>
+{% endblock %}

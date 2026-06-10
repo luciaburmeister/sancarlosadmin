@@ -18,7 +18,10 @@ from .forms import (
     QuoteItemImportForm, QuoteItemConfirmImportForm,
 )
 from invoices.models import AppliedTax
-
+from unfold.contrib.filters.admin import (
+    AutocompleteSelectFilter,
+    AutocompleteSelectMultipleFilter
+)
 from configurator.models import Configuration
 from configurator.admin.configuration import AppliedTaxInline
 from django.shortcuts import redirect, render
@@ -31,7 +34,6 @@ from .views_analysis import ConversionAnalysisView
 from management.views import QuoteAcceptanceWizardView
 from .views.quote_export_view import QuoteExportView
 from .views.quote_dashboard_view import QuoteDashboardView
-from .components.quote_dashboard_charts import QuoteValueByStatusChart, QuoteCountByStatusChart  # noqa: F401
 from core.tasks import send_quote_email_task
 from company.models import EmailLog
 from unfold.admin import GenericTabularInline as _GenericTabularInline
@@ -461,8 +463,11 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
     resource_classes = [QuoteImportResource]
     import_form_class = QuoteImportForm
     export_form_class = ClientExportForm
-    list_display = ["id", "project_name", "client", "date", "project_file", "show_status_customized_color", "total_price_display", "company"]
-    list_filter = ["status", "company", "created_at"]
+    list_display = ["id", "project_name", "client", "date_sent","date_accepted", "project_file", "show_status_customized_color", "total_price_display", "company"]
+    list_filter = [
+        "status", 
+        ("company",AutocompleteSelectMultipleFilter), 
+        "created_at"]
     search_fields = ["project_name", "client__name", "id"]
     autocomplete_fields = ["client", "project_file", "company"]
     readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown", "date_sent", "date_accepted", "date_rejected"]

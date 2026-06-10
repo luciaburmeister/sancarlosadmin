@@ -29,9 +29,33 @@ from django.contrib.postgres.fields import ArrayField
 
 @admin.register(BankAccount)
 class BankAccountAdmin(ModelAdmin):
-    list_display = ("bank_name", "account_number", "company")
+    list_display = ("bank_name", "account_number", "iban", "nuek_account_id", "is_default", "company")
     search_fields = ("bank_name", "account_number", "iban")
     autocomplete_fields = ("company",)
+    actions_detail = ["sync_transactions_action"]
+
+    @action(
+        description=_("Sync Transactions"),
+        url_path="sync-transactions",
+        icon="sync",
+    )
+    def sync_transactions_action(self, request, object_id: int):
+        from banking.tasks import sync_bank_account_task
+
+        account = get_object_or_404(BankAccount, pk=object_id)
+        if not account.nuek_account_id:
+            messages.error(
+                request,
+                _("This bank account is not connected to Arcopay (no token). Please connect it first."),
+            )
+        else:
+            sync_bank_account_task.delay(account.pk)
+            messages.success(
+                request,
+                _("Transaction sync queued for %(bank)s. It will run in the background.")
+                % {"bank": account.bank_name or account.iban},
+            )
+        return redirect(request.META.get("HTTP_REFERER"))
 
 class BankAccountInline(StackedInline):
     model = BankAccount
@@ -218,13 +242,11 @@ class CompanyAdminForm(ModelForm):
 class CompanyAdmin(ModelAdmin):
     form = CompanyAdminForm
     readonly_fields = ("terms_import_hint",)
-    inlines = [BankAccountInline, CompanyDocumentInline]
+    inlines = [BankAccountInline, CompanyDocumentInline, CompanyScheduleSlotInline]
     list_display = ("name", "is_active")
     list_filter = ("is_active",)
     search_fields = ("name",)
     ordering = ("name",)
-
-    inlines = [CompanyScheduleSlotInline]
 
     fieldsets = (
         (_("Base Info"), {

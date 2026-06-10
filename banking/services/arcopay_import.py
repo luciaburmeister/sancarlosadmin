@@ -13,11 +13,9 @@ from decimal import Decimal
 
 import requests
 from django.conf import settings
-from django.db import transaction as db_transaction
 from djmoney.money import Money
 
 from banking.models import BankTransaction, ReconciliationStatus
-from banking.services.transaction_matching import run_matcher
 from company.models import BankAccount, Company
 
 logger = logging.getLogger(__name__)
@@ -300,6 +298,7 @@ class ArcopayService:
         )
 
         created_count = 0
+        to_create = []
         for txn in raw_transactions:
             ext_id = ArcopayService._build_external_id(product_name, txn)
             if ext_id in existing:
@@ -327,36 +326,32 @@ class ArcopayService:
 
             currency = product_data.get("currency", "EUR") or "EUR"
 
-            with db_transaction.atomic():
-                bt = BankTransaction.objects.create(
-                    company=bank_account.company,
-                    bank_account=bank_account,
-                    external_id=ext_id,
-                    transaction_date=txn_date,
-                    amount=Money(amount, currency),
-                    currency=currency,
-                    description=description,
-                    counterparty_name=counterparty_name,
-                    counterparty_iban=counterparty_iban,
-                    raw_data=txn,
-                    reconciliation_status=ReconciliationStatus.UNRECONCILED,
-                )
-                # Run the auto-matcher
-                try:
-                    run_matcher(bt)
-                except Exception:
-                    logger.exception("Matcher failed for BankTransaction %s", bt.pk)
+            bt = BankTransaction(
+                company=bank_account.company,
+                bank_account=bank_account,
+                external_id=ext_id,
+                transaction_date=txn_date,
+                amount=Money(amount, currency),
+                currency=currency,
+                description=description,
+                counterparty_name=counterparty_name,
+                counterparty_iban=counterparty_iban,
+                raw_data=txn,
+                reconciliation_status=ReconciliationStatus.UNRECONCILED,
+            )
+            to_create.append(bt)
 
-            created_count += 1
+        if to_create:
+            BankTransaction.objects.bulk_create(to_create)
 
-        return created_count
+        return len(to_create)
 
     @staticmethod
     def sync_account(bank_account: BankAccount, days_back: int = 90) -> int:
-        """Full sync: fetch + import for a single account.
+        """Full sync: discover products via GLOBAL, then fetch transactions per product.
 
-        Uses the stored ``nuek_product_id`` when available to target a
-        specific product, falling back to ``GLOBAL`` for discovery.
+        Step 1: Call /transactions/ with GLOBAL to discover products and update metadata.
+        Step 2: Call /transactions/ for each product to fetch actual transactions.
 
         Returns the total number of newly imported transactions.
         """
@@ -368,76 +363,59 @@ class ArcopayService:
             )
             return 0
 
-        # Use stored product_id when it looks like an IBAN.
-        # Banks like Revolut use UUIDs as product IDs which the API rejects.
-        product_id = bank_account.nuek_product_id
-        is_iban_like = product_id and len(product_id) >= 15 and product_id[:2].isalpha()
-        products_param = product_id if is_iban_like else "GLOBAL"
-
         start_date = date.today() - timedelta(days=days_back)
-        try:
-            products = ArcopayService.fetch_transactions(
-                token=token,
-                start_date=start_date,
-                products=products_param,
-            )
-        except (ArcopayAPIError, requests.RequestException) as e:
-            # T000 = generic/rate limit error — refreshing the token won't help
-            if isinstance(e, ArcopayAPIError) and e.code == "T000":
-                logger.warning(
-                    "Arcopay rate limit or parameter error for account %s: %s",
-                    bank_account.pk, e,
-                )
-                return 0
 
-            logger.warning("Arcopay /transactions/ failed for account %s: %s — attempting token refresh", bank_account.pk, e)
-
-            # Try refreshing the token via /accounts/getToken/
-            consent_id = bank_account.nuek_consent_id
-            if not consent_id:
-                logger.error("No consent_id stored for account %s; cannot refresh token", bank_account.pk)
-                return 0
-
+        # --- Helper to fetch with token refresh on failure ---
+        def _fetch(products_param: str) -> list[dict]:
+            nonlocal token
             try:
+                return ArcopayService.fetch_transactions(
+                    token=token, start_date=start_date, products=products_param,
+                )
+            except (ArcopayAPIError, requests.RequestException) as e:
+                if isinstance(e, ArcopayAPIError) and e.code == "T000":
+                    logger.warning("Arcopay rate limit for account %s: %s", bank_account.pk, e)
+                    raise
+
+                # Try refreshing the token via consent
+                consent_id = bank_account.nuek_consent_id
+                if not consent_id:
+                    raise
+
+                logger.warning("Token failed for account %s, refreshing via consent %s", bank_account.pk, consent_id)
                 token_data = ArcopayService.get_token_from_consent(consent_id)
                 new_token = token_data.get("token", "")
                 if not new_token:
-                    logger.error("getToken returned no token for consent %s", consent_id)
-                    return 0
+                    raise
 
-                # Update the stored token
                 token = new_token
                 bank_account.nuek_token = new_token
                 bank_account.save(update_fields=["nuek_token"])
-                logger.info("Token refreshed for account %s via consent %s", bank_account.pk, consent_id)
+                logger.info("Token refreshed for account %s", bank_account.pk)
 
-                # Retry with the new token
-                products = ArcopayService.fetch_transactions(
-                    token=token,
-                    start_date=start_date,
-                    products=products_param,
+                return ArcopayService.fetch_transactions(
+                    token=token, start_date=start_date, products=products_param,
                 )
-            except Exception as retry_exc:
-                logger.error("Token refresh/retry failed for account %s: %s", bank_account.pk, retry_exc)
-                return 0
+
+        # --- Step 1: Discover products via GLOBAL ---
+        try:
+            global_products = _fetch("GLOBAL")
+        except Exception as e:
+            logger.error("Failed to discover products for account %s: %s", bank_account.pk, e)
+            return 0
 
         logger.info(
-            "Arcopay /transactions/ response for account %s: %d products returned",
-            bank_account.pk,
-            len(products),
+            "Account %s: discovered %d products via GLOBAL",
+            bank_account.pk, len(global_products),
         )
 
-        total = 0
-        for product_data in products:
-            txns = product_data.get("transactions", [])
-            logger.info(
-                "  Product %s — %d transactions, balance=%s",
-                product_data.get("product", "?"),
-                len(txns),
-                product_data.get("balance", "?"),
-            )
+        # Upsert metadata and collect product names for step 2
+        product_names = []
+        for product_data in global_products:
+            product_name = product_data.get("product", "")
+            if product_name:
+                product_names.append(product_name)
 
-            # Keep BankAccount metadata in sync (IBAN, holder, product_id)
             BankAccount.upsert_from_arcopay(
                 company=bank_account.company,
                 product_data=product_data,
@@ -445,14 +423,35 @@ class ArcopayService:
                 consent_id=bank_account.nuek_consent_id,
             )
 
-            total += ArcopayService.import_transactions_for_account(
-                bank_account, product_data
+            logger.info(
+                "  Product %s — balance=%s, currency=%s",
+                product_name,
+                product_data.get("balance", "?"),
+                product_data.get("currency", "?"),
             )
+
+        # --- Step 2: Fetch transactions for each specific product ---
+        total = 0
+        for product_name in product_names:
+            try:
+                product_results = _fetch(product_name)
+            except Exception as e:
+                logger.error("Failed to fetch transactions for product %s: %s", product_name, e)
+                continue
+
+            for product_data in product_results:
+                txns = product_data.get("transactions", [])
+                logger.info(
+                    "  Product %s — %d transactions fetched",
+                    product_name, len(txns),
+                )
+                total += ArcopayService.import_transactions_for_account(
+                    bank_account, product_data,
+                )
 
         logger.info(
             "Imported %d new transactions for BankAccount %s",
-            total,
-            bank_account.pk,
+            total, bank_account.pk,
         )
 
         return total

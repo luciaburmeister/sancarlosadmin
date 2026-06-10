@@ -307,7 +307,7 @@ class ItemTransaction(Timestampable):
     item = models.ForeignKey(
         "inventory.InventoryItem",
         verbose_name=_("Item"),
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="transactions",
     )
     warehouse = models.ForeignKey(

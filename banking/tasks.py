@@ -19,11 +19,11 @@ def sync_bank_transactions(self):
         result = ArcopayService.sync_all_connected_accounts()
         logger.info(
             "Bank transaction sync complete: %d new transactions across %d accounts",
-            result.get("synced", 0),
-            len(result.get("accounts", [])),
+            result.synced,
+            len(result.accounts),
         )
-        if result.get("errors"):
-            logger.warning("Sync errors: %s", result["errors"])
+        if result.errors:
+            logger.warning("Sync errors: %s", result.errors)
         return result
     except Exception as exc:
         logger.exception("Bank transaction sync failed")

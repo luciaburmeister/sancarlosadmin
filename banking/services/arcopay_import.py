@@ -399,6 +399,36 @@ class ArcopayService:
 
         return result
 
+    @staticmethod
+    def store_accounts_from_token(
+        token: str,
+        company: Company,
+        consent_id: str = "",
+    ) -> list[BankAccount]:
+        """Fetch accounts via /transactions/ and upsert BankAccounts.
+
+        Used when the callback didn't create the accounts (e.g. 402 consent
+        already valid) and we need to create them from the token directly.
+
+        Returns the list of upserted BankAccount instances.
+        """
+        products = ArcopayService.fetch_transactions(
+            token=token,
+            start_date=date.today() - timedelta(days=90),
+            products="GLOBAL",
+        )
+        accounts = []
+        for product_data in products:
+            account, created = BankAccount.upsert_from_arcopay(
+                company=company,
+                product_data=product_data,
+                token=token,
+                consent_id=consent_id,
+            )
+            ArcopayService.import_transactions_for_account(account, product_data)
+            accounts.append(account)
+        return accounts
+
     # ------------------------------------------------------------------
     # Process consent callback
     # ------------------------------------------------------------------

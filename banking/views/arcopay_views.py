@@ -7,6 +7,7 @@ Flow:
     4. SyncAccountsView — manually trigger transaction sync
 """
 import logging
+from http import HTTPStatus
 
 from django.conf import settings
 from django.contrib import messages
@@ -139,8 +140,7 @@ class ConsentDoneView(UnfoldModelAdminViewMixin, View):
 
     Arcopay appends query params to the redirect URL:
         - statusAB: 200 (new consent) or 402 (consent already valid)
-        - consentStatusAB: 'valid'
-        - tokenAB: the Arcopay token for the consent
+        - consentStatusAB: 'valid' or 'Authorised'
 
     For 200: the server-to-server callback should create the BankAccount.
     For 402: the callback won't fire again, so we fetch data directly.
@@ -150,8 +150,7 @@ class ConsentDoneView(UnfoldModelAdminViewMixin, View):
     permission_required = ("banking.view_banktransaction",)
 
     def get(self, request):
-        import time
-        from company.models import BankAccount
+        from django.db.models import Max
 
         status = request.GET.get("statusAB", "")
         consent_status = request.GET.get("consentStatusAB", "")
@@ -163,7 +162,10 @@ class ConsentDoneView(UnfoldModelAdminViewMixin, View):
         session_company_id = request.session.pop("arcopay_company_id", "") or company_id
 
         # 200 = new consent granted, 402 = consent already valid
-        is_success = status in ("200", "402") or consent_status in ("valid", "Authorised")
+        is_success = (
+            status in (str(HTTPStatus.OK), str(HTTPStatus.PAYMENT_REQUIRED))
+            or consent_status in ("valid", "Authorised")
+        )
 
         if not is_success:
             if status:
@@ -183,30 +185,27 @@ class ConsentDoneView(UnfoldModelAdminViewMixin, View):
             user_companies = get_user_companies(request.user)
             company = next((c for c in user_companies if str(c.pk) == str(cid)), None)
 
-        # The callback (server-to-server) should create the BankAccount.
-        # It may arrive before or after this redirect, so we poll briefly.
-        token = session_token
-        latest_account = None
+        qs = BankAccount.objects.filter(company=company) if company else BankAccount.objects.all()
+        max_pk_before = qs.exclude(nuek_account_id="").aggregate(max_pk=Max("pk"))["max_pk"] or 0
 
-        # Wait up to 15s for the callback to create/update a BankAccount
-        for _attempt in range(15):
-            latest_account = (
-                BankAccount.objects
-                .exclude(nuek_account_id="")
-                .exclude(nuek_account_id__isnull=True)
-                .order_by("-pk")
-                .first()
-            )
-            if latest_account:
-                break
-            time.sleep(1)
+        latest_account = (
+            qs.filter(pk__gt=max_pk_before)
+            .exclude(nuek_account_id="")
+            .exclude(nuek_account_id__isnull=True)
+            .order_by("-pk")
+            .first()
+        )
 
-        # If callback didn't create it (or 402), store directly using the token
-        if not latest_account and token and company:
+        if not latest_account and session_token and company:
             try:
-                latest_account = self._store_account_from_token(token, company)
+                accounts = ArcopayService.store_accounts_from_token(
+                    token=session_token,
+                    company=company,
+                    consent_id=session_consent_id,
+                )
+                latest_account = accounts[-1] if accounts else None
             except Exception:
-                logger.exception("Failed to store account from token")
+                logger.exception("Failed to store accounts from token")
 
         if latest_account:
             messages.success(
@@ -222,32 +221,6 @@ class ConsentDoneView(UnfoldModelAdminViewMixin, View):
                 _("Bank authorization completed. The account will appear shortly once processing finishes."),
             )
             return redirect("admin:banking_banktransaction_changelist")
-
-    @staticmethod
-    def _store_account_from_token(token: str, company) -> BankAccount | None:
-        """Fetch account data from Arcopay using the token and store it."""
-        from datetime import date, timedelta
-        from company.models import BankAccount
-
-        products = ArcopayService.fetch_transactions(
-            token=token,
-            start_date=date.today() - timedelta(days=90),
-            products="GLOBAL",
-        )
-
-        if not products:
-            return None
-
-        account = None
-        for product_data in products:
-            account, created = BankAccount.upsert_from_arcopay(
-                company=company,
-                product_data=product_data,
-                token=token,
-            )
-            ArcopayService.import_transactions_for_account(account, product_data)
-
-        return account
 
 
 class SyncAccountsView(UnfoldModelAdminViewMixin, View):

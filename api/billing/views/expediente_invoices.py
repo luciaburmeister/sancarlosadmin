@@ -132,6 +132,9 @@ def _build_items_from_summary(summary, invoice_mode, percentage, custom_amount, 
     export time.  All component items for the same config share source_id
     "config_<id>" so the export strategy can group them back by config.
 
+    Inventory items are billed at full price (not scaled by ratio) — they are
+    either on the invoice or not.
+
     When show_vehicle_name is True the quote's project_name is appended to each
     component description so the PDF template can show it without a DB lookup.
     """
@@ -140,18 +143,14 @@ def _build_items_from_summary(summary, invoice_mode, percentage, custom_amount, 
     )
 
     items = []
-    total_tax = Decimal("0.00")
 
     for quote_data in summary["quotes"]:
         quote = quote_data["quote"]
         quote_name = quote.project_name if show_vehicle_name else "."
         for config in quote.configurations.prefetch_related("items__component").all():
             sub = Decimal(str(config.subtotal_price.amount))
-            tot = Decimal(str(config.total_price.amount))
             if sub <= 0:
                 continue
-            item_tax = ((tot - sub) * ratio).quantize(Decimal("0.01"))
-            total_tax += item_tax
 
             for comp in _get_config_component_lines(config):
                 comp_price = (comp["amount"] * ratio).quantize(Decimal("0.01"))
@@ -179,14 +178,30 @@ def _build_items_from_summary(summary, invoice_mode, percentage, custom_amount, 
                 "discount_percentage": Decimal("0.00"),
             })
 
+        # Inventory items — billed at full price, not scaled by ratio
+        for inv_item in quote.inventory_items.select_related("inventory_item").all():
+            line_amt = inv_item.line_total.amount if inv_item.line_total else Decimal("0.00")
+            if line_amt <= 0:
+                continue
+            inv_name = (
+                inv_item.inventory_item.name
+                if inv_item.inventory_item_id
+                else f"Inventory Item #{inv_item.pk}"
+            )
+            items.append({
+                "source_id": f"inv_item_{inv_item.id}",
+                "description": inv_name,
+                "quote_name": quote_name,
+                "quantity": inv_item.quantity,
+                "unit_price": inv_item.unit_price.amount,
+                "discount_percentage": inv_item.discount,
+            })
+
     for config_data in summary.get("direct_configurations", []):
         sub = config_data["subtotal"]
-        tot = config_data["total"]
         item_price = (sub * ratio).quantize(Decimal("0.01"))
-        item_tax = ((tot - sub) * ratio).quantize(Decimal("0.01"))
         if item_price <= 0:
             continue
-        total_tax += item_tax
         items.append({
             "source_id": f"direct_{config_data['id']}",
             "description": config_data["name"],
@@ -195,7 +210,7 @@ def _build_items_from_summary(summary, invoice_mode, percentage, custom_amount, 
             "discount_percentage": Decimal("0.00"),
         })
 
-    return items, total_tax
+    return items
 
 
 class ProjectFileInvoiceCreateView(CompanyAPIView):
@@ -291,7 +306,7 @@ class ProjectFileInvoiceCreateView(CompanyAPIView):
                     status="accepted",
                 ).exclude(project_name=".").update(project_name=".")
 
-            items_data, total_tax = _build_items_from_summary(
+            items_data = _build_items_from_summary(
                 summary, invoice_mode, percentage, custom_amount,
                 show_vehicle_name=show_vehicle_name,
             )
@@ -308,7 +323,6 @@ class ProjectFileInvoiceCreateView(CompanyAPIView):
                 date_issued=date_issued,
                 due_date=due_date,
                 items_data=items_data,
-                total_tax=total_tax,
                 notes=notes,
                 payment_method=payment_method or None,
             )

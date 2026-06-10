@@ -105,6 +105,31 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                     '_tax_amount': Decimal("0.00"),
                 })
 
+            # Inventory items attached to the quote
+            # Unlike configurations, inventory items are billed at full price or not at all.
+            for inv_item in quote.inventory_items.select_related("inventory_item").all():
+                line_amt = inv_item.line_total.amount if inv_item.line_total else Decimal("0.00")
+                tax_amt = (
+                    (inv_item.total_with_tax.amount - line_amt)
+                    if inv_item.total_with_tax
+                    else Decimal("0.00")
+                )
+                if line_amt <= 0:
+                    continue
+                inv_name = (
+                    inv_item.inventory_item.name
+                    if inv_item.inventory_item_id
+                    else f"Inventory Item #{inv_item.pk}"
+                )
+                items_initial.append({
+                    'source_id': f"inv_item_{inv_item.id}",
+                    'description': f"{inv_name} (Q#{quote.id})",
+                    'quantity': inv_item.quantity,
+                    'unit_price': inv_item.unit_price.amount,
+                    'discount_percentage': inv_item.discount,
+                    '_tax_amount': tax_amt,
+                })
+
         for config_data in summary.get('direct_configurations', []):
             sub = config_data['subtotal']
             tot = config_data['total']

@@ -116,7 +116,6 @@
     box-shadow: var(--od-shadow-lg);
   }
 
-  /* Section dividers */
   .od-section {
     margin-bottom: 36px;
   }
@@ -135,7 +134,6 @@
     font-size: 1.3rem;
   }
 
-  /* KPI Cards */
   .od-kpi-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -151,16 +149,22 @@
     grid-template-columns: repeat(3, 1fr);
   }
 
+  .od-kpi-grid--2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   @media(max-width:900px) {
     .od-kpi-grid--4,
-    .od-kpi-grid--3 {
+    .od-kpi-grid--3,
+    .od-kpi-grid--2 {
       grid-template-columns: repeat(2, 1fr);
     }
   }
 
   @media(max-width:600px) {
     .od-kpi-grid--4,
-    .od-kpi-grid--3 {
+    .od-kpi-grid--3,
+    .od-kpi-grid--2 {
       grid-template-columns: 1fr;
     }
   }
@@ -206,6 +210,12 @@
     letter-spacing: -.01em;
   }
 
+  .od-kpi-sub {
+    font-size: .78rem;
+    color: var(--od-text-sub);
+    margin-top: 4px;
+  }
+
   .od-kpi-accent {
     position: absolute;
     top: 0;
@@ -216,63 +226,21 @@
     opacity: .08;
   }
 
-  .od-kpi--teal .od-kpi-accent {
-    background: var(--od-teal-500);
-  }
+  .od-kpi--teal .od-kpi-accent { background: var(--od-teal-500); }
+  .od-kpi--teal .od-kpi-value { color: var(--od-teal-600); }
+  .od-kpi--indigo .od-kpi-accent { background: var(--od-indigo-500); }
+  .od-kpi--indigo .od-kpi-value { color: var(--od-indigo-500); }
+  .od-kpi--amber .od-kpi-accent { background: var(--od-amber-500); }
+  .od-kpi--amber .od-kpi-value { color: var(--od-amber-500); }
+  .od-kpi--blue .od-kpi-accent { background: var(--od-blue-500); }
+  .od-kpi--blue .od-kpi-value { color: var(--od-blue-500); }
+  .od-kpi--emerald .od-kpi-accent { background: var(--od-emerald-500); }
+  .od-kpi--emerald .od-kpi-value { color: var(--od-emerald-500); }
+  .od-kpi--violet .od-kpi-accent { background: var(--od-violet-500); }
+  .od-kpi--violet .od-kpi-value { color: var(--od-violet-500); }
+  .od-kpi--rose .od-kpi-accent { background: var(--od-rose-500); }
+  .od-kpi--rose .od-kpi-value { color: var(--od-rose-500); }
 
-  .od-kpi--teal .od-kpi-value {
-    color: var(--od-teal-600);
-  }
-
-  .od-kpi--indigo .od-kpi-accent {
-    background: var(--od-indigo-500);
-  }
-
-  .od-kpi--indigo .od-kpi-value {
-    color: var(--od-indigo-500);
-  }
-
-  .od-kpi--amber .od-kpi-accent {
-    background: var(--od-amber-500);
-  }
-
-  .od-kpi--amber .od-kpi-value {
-    color: var(--od-amber-500);
-  }
-
-  .od-kpi--blue .od-kpi-accent {
-    background: var(--od-blue-500);
-  }
-
-  .od-kpi--blue .od-kpi-value {
-    color: var(--od-blue-500);
-  }
-
-  .od-kpi--emerald .od-kpi-accent {
-    background: var(--od-emerald-500);
-  }
-
-  .od-kpi--emerald .od-kpi-value {
-    color: var(--od-emerald-500);
-  }
-
-  .od-kpi--violet .od-kpi-accent {
-    background: var(--od-violet-500);
-  }
-
-  .od-kpi--violet .od-kpi-value {
-    color: var(--od-violet-500);
-  }
-
-  .od-kpi--rose .od-kpi-accent {
-    background: var(--od-rose-500);
-  }
-
-  .od-kpi--rose .od-kpi-value {
-    color: var(--od-rose-500);
-  }
-
-  /* Charts */
   .od-charts {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -281,9 +249,7 @@
   }
 
   @media(max-width:900px) {
-    .od-charts {
-      grid-template-columns: 1fr;
-    }
+    .od-charts { grid-template-columns: 1fr; }
   }
 
   .od-panel {
@@ -300,7 +266,6 @@
     margin-bottom: 16px;
   }
 
-  /* Tables */
   .od-table-wrap {
     background: var(--od-card);
     border: 1px solid var(--od-border);
@@ -339,13 +304,8 @@
     background: var(--od-bg);
   }
 
-  .od-table tbody tr {
-    transition: background .15s;
-  }
-
-  .od-table tbody tr:hover {
-    background: var(--od-teal-50);
-  }
+  .od-table tbody tr { transition: background .15s; }
+  .od-table tbody tr:hover { background: var(--od-teal-50); }
 
   .od-table tbody td {
     padding: 12px 16px;
@@ -353,21 +313,11 @@
     vertical-align: middle;
   }
 
-  .od-table tbody tr:last-child td {
-    border-bottom: none;
-  }
+  .od-table tbody tr:last-child td { border-bottom: none; }
 
-  .od-clickable-row {
-    cursor: pointer;
-  }
-
-  .od-clickable-row:hover {
-    background: var(--od-indigo-50, rgba(99,102,241,.06)) !important;
-  }
-
-  .od-clickable-row:hover td:first-child svg {
-    opacity: 1 !important;
-  }
+  .od-clickable-row { cursor: pointer; }
+  .od-clickable-row:hover { background: var(--od-indigo-50, rgba(99,102,241,.06)) !important; }
+  .od-clickable-row:hover td:first-child svg { opacity: 1 !important; }
 
   .od-badge {
     display: inline-block;
@@ -379,148 +329,36 @@
     letter-spacing: .03em;
   }
 
-  .od-badge--final {
-    background: var(--od-emerald-50);
-    color: var(--od-emerald-500);
-  }
+  .od-badge--final { background: var(--od-emerald-50); color: var(--od-emerald-500); }
+  .od-badge--proforma { background: var(--od-amber-50); color: var(--od-amber-500); }
+  .od-badge--done { background: var(--od-emerald-50); color: var(--od-emerald-500); }
+  .od-badge--in_progress { background: var(--od-amber-50); color: var(--od-amber-500); }
+  .od-badge--pending { background: var(--od-blue-50); color: var(--od-blue-500); }
 
-  .od-badge--proforma {
-    background: var(--od-amber-50);
-    color: var(--od-amber-500);
-  }
+  .od-link { color: var(--od-teal-600); text-decoration: none; font-weight: 600; }
+  .od-link:hover { text-decoration: underline; }
 
-  .od-badge--done {
-    background: var(--od-emerald-50);
-    color: var(--od-emerald-500);
-  }
+  .od-empty { text-align: center; padding: 48px 16px; color: var(--od-text-sub); }
+  .od-empty-icon { font-size: 3rem; margin-bottom: 8px; }
 
-  .od-badge--in_progress {
-    background: var(--od-amber-50);
-    color: var(--od-amber-500);
-  }
+  .od-client-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .od-client-name { width: 160px; font-size: .82rem; font-weight: 600; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .od-client-bar-wrap { flex: 1; height: 24px; background: var(--od-bg); border-radius: 8px; overflow: hidden; }
+  .od-client-bar { height: 100%; border-radius: 8px; transition: width .6s ease; display: flex; align-items: center; padding-left: 8px; background: linear-gradient(135deg, var(--od-teal-500), var(--od-emerald-500)); }
+  .od-client-bar span { font-size: .72rem; font-weight: 700; color: #fff; white-space: nowrap; }
+  .od-client-amt { width: 100px; text-align: right; font-size: .82rem; font-weight: 600; flex-shrink: 0; }
 
-  .od-badge--pending {
-    background: var(--od-blue-50);
-    color: var(--od-blue-500);
-  }
-
-  .od-link {
-    color: var(--od-teal-600);
-    text-decoration: none;
-    font-weight: 600;
-  }
-
-  .od-link:hover {
-    text-decoration: underline;
-  }
-
-  .od-empty {
-    text-align: center;
-    padding: 48px 16px;
+  .od-aging-note {
+    font-size: .85rem;
     color: var(--od-text-sub);
-  }
-
-  .od-empty-icon {
-    font-size: 3rem;
-    margin-bottom: 8px;
-  }
-
-  /* Top clients bar */
-  .od-client-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 8px;
-  }
-
-  .od-client-name {
-    width: 160px;
-    font-size: .82rem;
-    font-weight: 600;
-    flex-shrink: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .od-client-bar-wrap {
-    flex: 1;
-    height: 24px;
+    margin-bottom: 16px;
+    padding: 10px 14px;
     background: var(--od-bg);
     border-radius: 8px;
-    overflow: hidden;
+    border-left: 3px solid var(--od-teal-500);
   }
 
-  .od-client-bar {
-    height: 100%;
-    border-radius: 8px;
-    transition: width .6s ease;
-    display: flex;
-    align-items: center;
-    padding-left: 8px;
-    background: linear-gradient(135deg, var(--od-teal-500), var(--od-emerald-500));
-  }
-
-  .od-client-bar span {
-    font-size: .72rem;
-    font-weight: 700;
-    color: #fff;
-    white-space: nowrap;
-  }
-
-  .od-client-amt {
-    width: 100px;
-    text-align: right;
-    font-size: .82rem;
-    font-weight: 600;
-    flex-shrink: 0;
-  }
-
-  /* Tabs */
-  .od-tabs {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 16px;
-  }
-
-  .od-tab {
-    font-family: inherit;
-    font-size: .82rem;
-    font-weight: 600;
-    padding: 8px 18px;
-    border: 1px solid var(--od-border);
-    border-radius: 10px;
-    background: var(--od-card);
-    color: var(--od-text-sub);
-    cursor: pointer;
-    transition: all .2s;
-  }
-
-  .od-tab:hover {
-    border-color: var(--od-teal-500);
-    color: var(--od-teal-500);
-  }
-
-  .od-tab.active {
-    background: var(--od-teal-500);
-    border-color: var(--od-teal-500);
-    color: #fff;
-  }
-
-  .od-tab-content {
-    display: none;
-  }
-
-  .od-tab-content.active {
-    display: block;
-  }
-
-  /* Divider */
-  .od-divider {
-    border: none;
-    border-top: 2px solid var(--od-border);
-    margin: 36px 0;
-  }
+  .od-divider { border: none; border-top: 2px solid var(--od-border); margin: 36px 0; }
 </style>
 {% endblock %}
 
@@ -544,13 +382,12 @@
     </form>
   </div>
 
-  <!-- ═════════════════════════════════════════════════════════════ -->
-  <!-- SALES INVOICING (WITHOUT TAXES)                              -->
-  <!-- ═════════════════════════════════════════════════════════════ -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- SALES INVOICING                                                 -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
   <div class="od-section">
     <div class="od-section-title"><span class="icon">🧾</span> {% trans "Sales Invoicing" %}</div>
 
-    <!-- Invoicing KPIs -->
     <div class="od-subsection-label">📋 {% trans "Invoicing Summary" %}</div>
     <div class="od-kpi-grid od-kpi-grid--4">
       <div class="od-kpi od-kpi--emerald">
@@ -581,7 +418,6 @@
       </div>
     </div>
 
-    <!-- Collection KPIs -->
     <div class="od-subsection-label">💰 {% trans "Collection Status" %}</div>
     <div class="od-kpi-grid od-kpi-grid--4">
       <div class="od-kpi od-kpi--indigo">
@@ -606,17 +442,13 @@
       </div>
     </div>
 
-    <!-- Charts Row -->
     <div class="od-charts">
-      <!-- Monthly Invoicing Chart -->
       <div class="od-panel">
         <div class="od-panel-title">📈 {% trans "Monthly Sales Invoicing (Without Taxes)" %}</div>
         <div style="position:relative;height:300px;max-height:300px">
           <canvas id="monthlyInvoicingChart"></canvas>
         </div>
       </div>
-
-      <!-- Top Clients -->
       <div class="od-panel">
         <div class="od-panel-title">👥 {% trans "Top Clients (Without Taxes)" %}</div>
         {% if invoicing.top_clients %}
@@ -625,7 +457,6 @@
         <div class="od-client-row">
           <div class="od-client-name" title="{{ client.client__name }}">{{ client.client__name|default:"—" }}</div>
           <div class="od-client-bar-wrap">
-            {% widthratio client.total max_total 100 as pct %}
             <div class="od-client-bar" style="width:{% widthratio client.total max_total 100 %}%">
               <span>€{{ client.total|euro_format }}</span>
             </div>
@@ -642,18 +473,16 @@
         {% endif %}
       </div>
     </div>
-
   </div>
 
   <hr class="od-divider">
 
-  <!-- ═════════════════════════════════════════════════════════════ -->
-  <!-- PURCHASE INVOICING (by Due Date)                             -->
-  <!-- ═════════════════════════════════════════════════════════════ -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- PURCHASE INVOICING                                              -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
   <div class="od-section">
     <div class="od-section-title"><span class="icon">📥</span> {% trans "Purchase Invoicing (Due in Period)" %}</div>
 
-    <!-- KPIs -->
     <div class="od-subsection-label">📋 {% trans "Period Summary" %}</div>
     <div class="od-kpi-grid od-kpi-grid--4">
       <div class="od-kpi od-kpi--indigo">
@@ -684,7 +513,6 @@
       </div>
     </div>
 
-    <!-- Cumulative Debt KPI -->
     <div class="od-subsection-label">⚠️ {% trans "Cumulative Payables" %}</div>
     <div class="od-kpi-grid od-kpi-grid--3">
       <div class="od-kpi od-kpi--amber">
@@ -704,17 +532,13 @@
       </div>
     </div>
 
-    <!-- Charts Row -->
     <div class="od-charts">
-      <!-- Monthly Payment Chart -->
       <div class="od-panel">
         <div class="od-panel-title">📊 {% trans "Monthly Payments Due" %}</div>
         <div style="position:relative;height:300px;max-height:300px">
           <canvas id="monthlyPaymentChart"></canvas>
         </div>
       </div>
-
-      <!-- Top Providers -->
       <div class="od-panel">
         <div class="od-panel-title">🏢 {% trans "Top Providers (by Due Amount)" %}</div>
         {% if payment.top_providers %}
@@ -723,7 +547,6 @@
         <div class="od-client-row">
           <div class="od-client-name" title="{{ prov.provider__name }}">{{ prov.provider__name|default:"—" }}</div>
           <div class="od-client-bar-wrap">
-            {% widthratio prov.total max_total 100 as pct %}
             <div class="od-client-bar" style="width:{% widthratio prov.total max_total 100 %}%;background:linear-gradient(90deg, rgba(99,102,241,.8), rgba(99,102,241,.4))">
               <span>€{{ prov.total|euro_format }}</span>
             </div>
@@ -741,7 +564,6 @@
       </div>
     </div>
 
-    <!-- Outstanding Providers Table -->
     <div class="od-table-wrap" style="margin-top:16px">
       <div class="od-table-header">
         <h3>🔴 {% trans "Outstanding Debt by Provider" %}</h3>
@@ -789,18 +611,15 @@
       </div>
       {% endif %}
     </div>
-
   </div>
 
   <hr class="od-divider">
 
-  <!-- ═════════════════════════════════════════════════════════════ -->
-  <!-- TAX BALANCE                                                  -->
-  <!-- ═════════════════════════════════════════════════════════════ -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- TAX BALANCE                                                     -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
   <div class="od-section">
     <div class="od-section-title"><span class="icon">🏛️</span> {% trans "Tax Balance per Type" %}</div>
-
-    <!-- Per-Tax Balance -->
     <div class="od-table-wrap" style="margin-top:16px">
       <div class="od-table-header">
         <h3>⚖️ {% trans "Tax Balance per Type" %}</h3>
@@ -855,13 +674,120 @@
 
   <hr class="od-divider">
 
-  <!-- ═════════════════════════════════════════════════════════════ -->
-  <!-- PRODUCTION COSTS                                             -->
-  <!-- ═════════════════════════════════════════════════════════════ -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- CASH POSITION                                                   -->
+  <!-- NEW SECTION — overall money in vs money out, all time          -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="od-section">
+    <div class="od-section-title"><span class="icon">💵</span> {% trans "Cash Position" %}</div>
+
+    <!-- Money coming IN from clients -->
+    <div class="od-subsection-label">📥 {% trans "Money In — Clients" %}</div>
+    <div class="od-kpi-grid od-kpi-grid--2">
+      <div class="od-kpi od-kpi--emerald">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Collected from Clients" %}</div>
+        <div class="od-kpi-value">€{{ cash.collected_from_clients|euro_format }}</div>
+        <div class="od-kpi-sub">{% trans "Sales invoices marked as paid" %}</div>
+      </div>
+      <div class="od-kpi od-kpi--amber">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Still Owed by Clients" %}</div>
+        <div class="od-kpi-value">€{{ cash.still_owed_by_clients|euro_format }}</div>
+        <div class="od-kpi-sub">{% trans "Final sales invoices not yet paid" %}</div>
+      </div>
+    </div>
+
+    <!-- Money going OUT to providers -->
+    <div class="od-subsection-label">📤 {% trans "Money Out — Providers" %}</div>
+    <div class="od-kpi-grid od-kpi-grid--2">
+      <div class="od-kpi od-kpi--rose">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Paid to Providers" %}</div>
+        <div class="od-kpi-value">€{{ cash.paid_to_providers|euro_format }}</div>
+        <div class="od-kpi-sub">{% trans "Purchase invoices marked as paid" %}</div>
+      </div>
+      <div class="od-kpi od-kpi--violet">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Still Owe to Providers" %}</div>
+        <div class="od-kpi-value">€{{ cash.still_owe_to_providers|euro_format }}</div>
+        <div class="od-kpi-sub">{% trans "Purchase invoices not yet paid" %}</div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="od-divider">
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- ACCOUNTS RECEIVABLE AGING                                       -->
+  <!-- NEW SECTION — what clients owe us, bucketed by due date        -->
+  <!-- Rolling from today — NOT affected by the date filter above     -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="od-section">
+    <div class="od-section-title"><span class="icon">📅</span> {% trans "Accounts Receivable — Aging" %}</div>
+
+    <div class="od-kpi-grid od-kpi-grid--3">
+      <div class="od-kpi od-kpi--emerald">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Due in 0–30 days" %}</div>
+        <div class="od-kpi-value">€{{ ar_aging.bucket_30|euro_format }}</div>
+        <div class="od-kpi-sub">{{ ar_aging.bucket_30_count }} {% trans "invoice(s)" %}</div>
+      </div>
+      <div class="od-kpi od-kpi--amber">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Due in 31–60 days" %}</div>
+        <div class="od-kpi-value">€{{ ar_aging.bucket_60|euro_format }}</div>
+        <div class="od-kpi-sub">{{ ar_aging.bucket_60_count }} {% trans "invoice(s)" %}</div>
+      </div>
+      <div class="od-kpi od-kpi--rose">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Due in 61–90 days" %}</div>
+        <div class="od-kpi-value">€{{ ar_aging.bucket_90|euro_format }}</div>
+        <div class="od-kpi-sub">{{ ar_aging.bucket_90_count }} {% trans "invoice(s)" %}</div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="od-divider">
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- ACCOUNTS PAYABLE AGING                                          -->
+  <!-- NEW SECTION — what we owe providers, bucketed by due date      -->
+  <!-- Rolling from today — NOT affected by the date filter above     -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <div class="od-section">
+    <div class="od-section-title"><span class="icon">📆</span> {% trans "Accounts Payable — Aging" %}</div>
+
+    <div class="od-kpi-grid od-kpi-grid--3">
+      <div class="od-kpi od-kpi--emerald">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Due in 0–30 days" %}</div>
+        <div class="od-kpi-value">€{{ ap_aging.bucket_30|euro_format }}</div>
+        <div class="od-kpi-sub">{{ ap_aging.bucket_30_count }} {% trans "invoice(s)" %}</div>
+      </div>
+      <div class="od-kpi od-kpi--amber">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Due in 31–60 days" %}</div>
+        <div class="od-kpi-value">€{{ ap_aging.bucket_60|euro_format }}</div>
+        <div class="od-kpi-sub">{{ ap_aging.bucket_60_count }} {% trans "invoice(s)" %}</div>
+      </div>
+      <div class="od-kpi od-kpi--rose">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Due in 61–90 days" %}</div>
+        <div class="od-kpi-value">€{{ ap_aging.bucket_90|euro_format }}</div>
+        <div class="od-kpi-sub">{{ ap_aging.bucket_90_count }} {% trans "invoice(s)" %}</div>
+      </div>
+    </div>
+  </div>
+
+  <hr class="od-divider">
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- PRODUCTION COSTS                                                -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
   <div class="od-section">
     <div class="od-section-title"><span class="icon">🏭</span> {% trans "Production Costs" %}</div>
 
-    <!-- KPIs -->
     <div class="od-kpi-grid">
       <div class="od-kpi od-kpi--rose">
         <div class="od-kpi-accent"></div>
@@ -875,7 +801,6 @@
       </div>
     </div>
 
-    <!-- Monthly Production Cost Chart -->
     <div class="od-charts">
       <div class="od-panel">
         <div class="od-panel-title">📊 {% trans "Monthly Production Cost" %}</div>
@@ -883,7 +808,6 @@
           <canvas id="monthlyProductionChart"></canvas>
         </div>
       </div>
-
       <div class="od-panel">
         <div class="od-panel-title">📋 {% trans "Summary" %}</div>
         <div style="display:flex;flex-direction:column;gap:16px;padding:16px 0">
@@ -904,11 +828,10 @@
         </div>
       </div>
     </div>
-
   </div>
 
-
 </div>
+
 <!-- Chart data -->
 <script>
   document.addEventListener('DOMContentLoaded', function () {
@@ -918,209 +841,159 @@
 
     const gridColor = isDark ? 'rgba(148,163,184,.15)' : 'rgba(0,0,0,.06)';
     const textColor = isDark ? '#94a3b8' : '#64748b';
-
     const euro = (v) => '€' + v.toLocaleString('es-ES', { minimumFractionDigits: 2 });
 
     // ── Monthly Invoicing Chart ──
     const monthlyFinal = [
       {% for m in invoicing.monthly_final %}
       { label: "{{ m.month|date:'M Y' }}", amount: {{ m.total|unlocalize }} },
-    {% endfor %}
-  ];
-  const monthlyProforma = [
-    {% for m in invoicing.monthly_proforma %}
+      {% endfor %}
+    ];
+    const monthlyProforma = [
+      {% for m in invoicing.monthly_proforma %}
       { label: "{{ m.month|date:'M Y' }}", amount: {{ m.total|unlocalize }} },
-    {% endfor %}
-  ];
+      {% endfor %}
+    ];
 
-  // Merge labels
-  const allLabels = [...new Set([
-    ...monthlyFinal.map(m => m.label),
-    ...monthlyProforma.map(m => m.label),
-  ])];
+    const allLabels = [...new Set([
+      ...monthlyFinal.map(m => m.label),
+      ...monthlyProforma.map(m => m.label),
+    ])];
+    const finalMap = Object.fromEntries(monthlyFinal.map(m => [m.label, m.amount]));
+    const proformaMap = Object.fromEntries(monthlyProforma.map(m => [m.label, m.amount]));
 
-  const finalMap = Object.fromEntries(monthlyFinal.map(m => [m.label, m.amount]));
-  const proformaMap = Object.fromEntries(monthlyProforma.map(m => [m.label, m.amount]));
-
-  const invCtx = document.getElementById('monthlyInvoicingChart');
-  if (invCtx) {
-    new Chart(invCtx, {
-      type: 'bar',
-      data: {
-        labels: allLabels,
-        datasets: [
-          {
-            label: '{% trans "Finalized" %}',
-            data: allLabels.map(l => finalMap[l] || 0),
-            backgroundColor: 'rgba(16, 185, 129, .7)',
-            borderColor: '#059669',
-            borderWidth: 2,
-            borderRadius: 6,
-            borderSkipped: false,
-          },
-          {
-            label: '{% trans "Pro Forma" %}',
-            data: allLabels.map(l => proformaMap[l] || 0),
-            backgroundColor: 'rgba(245, 158, 11, .5)',
-            borderColor: '#d97706',
-            borderWidth: 2,
-            borderRadius: 6,
-            borderSkipped: false,
-          },
-        ]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            position: 'top',
-            labels: { color: textColor, font: { family: 'Inter', weight: '600', size: 12 } }
-          },
-          tooltip: {
-            backgroundColor: isDark ? '#1e293b' : '#fff',
-            titleColor: isDark ? '#f1f5f9' : '#0f172a',
-            bodyColor: isDark ? '#cbd5e1' : '#334155',
-            borderColor: isDark ? '#334155' : '#e2e8f0',
-            borderWidth: 1,
-            padding: 12,
-            cornerRadius: 8,
-            callbacks: { label: ctx => ctx.dataset.label + ': ' + euro(ctx.parsed.y) }
-          }
+    const invCtx = document.getElementById('monthlyInvoicingChart');
+    if (invCtx) {
+      new Chart(invCtx, {
+        type: 'bar',
+        data: {
+          labels: allLabels,
+          datasets: [
+            {
+              label: '{% trans "Finalized" %}',
+              data: allLabels.map(l => finalMap[l] || 0),
+              backgroundColor: 'rgba(16, 185, 129, .7)',
+              borderColor: '#059669',
+              borderWidth: 2,
+              borderRadius: 6,
+              borderSkipped: false,
+            },
+            {
+              label: '{% trans "Pro Forma" %}',
+              data: allLabels.map(l => proformaMap[l] || 0),
+              backgroundColor: 'rgba(245, 158, 11, .5)',
+              borderColor: '#d97706',
+              borderWidth: 2,
+              borderRadius: 6,
+              borderSkipped: false,
+            },
+          ]
         },
-        scales: {
-          x: {
-            stacked: true,
-            grid: { display: false },
-            ticks: { color: textColor, font: { size: 11, family: 'Inter' } }
-          },
-          y: {
-            stacked: true,
-            grid: { color: gridColor },
-            ticks: {
-              color: textColor,
-              font: { size: 11, family: 'Inter' },
-              callback: v => euro(v)
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'top', labels: { color: textColor, font: { family: 'Inter', weight: '600', size: 12 } } },
+            tooltip: {
+              backgroundColor: isDark ? '#1e293b' : '#fff',
+              titleColor: isDark ? '#f1f5f9' : '#0f172a',
+              bodyColor: isDark ? '#cbd5e1' : '#334155',
+              borderColor: isDark ? '#334155' : '#e2e8f0',
+              borderWidth: 1, padding: 12, cornerRadius: 8,
+              callbacks: { label: ctx => ctx.dataset.label + ': ' + euro(ctx.parsed.y) }
             }
+          },
+          scales: {
+            x: { stacked: true, grid: { display: false }, ticks: { color: textColor, font: { size: 11, family: 'Inter' } } },
+            y: { stacked: true, grid: { color: gridColor }, ticks: { color: textColor, font: { size: 11, family: 'Inter' }, callback: v => euro(v) } }
           }
         }
-      }
-    });
-  }
+      });
+    }
 
-  // ── Monthly Payments Due Chart ──
-  const monthlyPayment = [
-    {% for m in payment.monthly %}
+    // ── Monthly Payments Due Chart ──
+    const monthlyPayment = [
+      {% for m in payment.monthly %}
       { label: "{{ m.month|date:'M Y' }}", amount: {{ m.total|unlocalize }} },
-    {% endfor %}
-  ];
+      {% endfor %}
+    ];
 
-  const payCtx = document.getElementById('monthlyPaymentChart');
-  if (payCtx) {
-    new Chart(payCtx, {
-      type: 'bar',
-      data: {
-        labels: monthlyPayment.map(m => m.label),
-        datasets: [{
-          label: '{% trans "Due Amount" %}',
-          data: monthlyPayment.map(m => m.amount),
-          backgroundColor: 'rgba(99, 102, 241, .6)',
-          borderColor: '#4f46e5',
-          borderWidth: 2,
-          borderRadius: 6,
-          borderSkipped: false,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: isDark ? '#1e293b' : '#fff',
-            titleColor: isDark ? '#f1f5f9' : '#0f172a',
-            bodyColor: isDark ? '#cbd5e1' : '#334155',
-            borderColor: isDark ? '#334155' : '#e2e8f0',
-            borderWidth: 1,
-            padding: 12,
-            cornerRadius: 8,
-            callbacks: { label: ctx => euro(ctx.parsed.y) }
-          }
+    const payCtx = document.getElementById('monthlyPaymentChart');
+    if (payCtx) {
+      new Chart(payCtx, {
+        type: 'bar',
+        data: {
+          labels: monthlyPayment.map(m => m.label),
+          datasets: [{
+            label: '{% trans "Due Amount" %}',
+            data: monthlyPayment.map(m => m.amount),
+            backgroundColor: 'rgba(99, 102, 241, .6)',
+            borderColor: '#4f46e5',
+            borderWidth: 2, borderRadius: 6, borderSkipped: false,
+          }]
         },
-        scales: {
-          x: {
-            grid: { display: false },
-            ticks: { color: textColor, font: { size: 11, family: 'Inter' } }
-          },
-          y: {
-            grid: { color: gridColor },
-            ticks: {
-              color: textColor,
-              font: { size: 11, family: 'Inter' },
-              callback: v => euro(v)
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: isDark ? '#1e293b' : '#fff',
+              titleColor: isDark ? '#f1f5f9' : '#0f172a',
+              bodyColor: isDark ? '#cbd5e1' : '#334155',
+              borderColor: isDark ? '#334155' : '#e2e8f0',
+              borderWidth: 1, padding: 12, cornerRadius: 8,
+              callbacks: { label: ctx => euro(ctx.parsed.y) }
             }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: textColor, font: { size: 11, family: 'Inter' } } },
+            y: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 11, family: 'Inter' }, callback: v => euro(v) } }
           }
         }
-      }
-    });
-  }
+      });
+    }
 
-  // ── Monthly Production Cost Chart ──
-  const monthlyProd = [
-    {% for m in production.monthly %}
+    // ── Monthly Production Cost Chart ──
+    const monthlyProd = [
+      {% for m in production.monthly %}
       { label: "{{ m.month|date:'M Y' }}", amount: {{ m.total|unlocalize }} },
-    {% endfor %}
-  ];
+      {% endfor %}
+    ];
 
-  const prodCtx = document.getElementById('monthlyProductionChart');
-  if (prodCtx) {
-    new Chart(prodCtx, {
-      type: 'bar',
-      data: {
-        labels: monthlyProd.map(m => m.label),
-        datasets: [{
-          label: '{% trans "Production Cost" %}',
-          data: monthlyProd.map(m => m.amount),
-          backgroundColor: 'rgba(244, 63, 94, .6)',
-          borderColor: '#e11d48',
-          borderWidth: 2,
-          borderRadius: 6,
-          borderSkipped: false,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            backgroundColor: isDark ? '#1e293b' : '#fff',
-            titleColor: isDark ? '#f1f5f9' : '#0f172a',
-            bodyColor: isDark ? '#cbd5e1' : '#334155',
-            borderColor: isDark ? '#334155' : '#e2e8f0',
-            borderWidth: 1,
-            padding: 12,
-            cornerRadius: 8,
-            callbacks: { label: ctx => euro(ctx.parsed.y) }
-          }
+    const prodCtx = document.getElementById('monthlyProductionChart');
+    if (prodCtx) {
+      new Chart(prodCtx, {
+        type: 'bar',
+        data: {
+          labels: monthlyProd.map(m => m.label),
+          datasets: [{
+            label: '{% trans "Production Cost" %}',
+            data: monthlyProd.map(m => m.amount),
+            backgroundColor: 'rgba(244, 63, 94, .6)',
+            borderColor: '#e11d48',
+            borderWidth: 2, borderRadius: 6, borderSkipped: false,
+          }]
         },
-        scales: {
-          x: {
-            grid: { display: false },
-            ticks: { color: textColor, font: { size: 11, family: 'Inter' } }
-          },
-          y: {
-            grid: { color: gridColor },
-            ticks: {
-              color: textColor,
-              font: { size: 11, family: 'Inter' },
-              callback: v => euro(v)
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: isDark ? '#1e293b' : '#fff',
+              titleColor: isDark ? '#f1f5f9' : '#0f172a',
+              bodyColor: isDark ? '#cbd5e1' : '#334155',
+              borderColor: isDark ? '#334155' : '#e2e8f0',
+              borderWidth: 1, padding: 12, cornerRadius: 8,
+              callbacks: { label: ctx => euro(ctx.parsed.y) }
             }
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: textColor, font: { size: 11, family: 'Inter' } } },
+            y: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 11, family: 'Inter' }, callback: v => euro(v) } }
           }
         }
-      }
-    });
-  }
-});
+      });
+    }
+  });
 </script>
 {% endblock %}

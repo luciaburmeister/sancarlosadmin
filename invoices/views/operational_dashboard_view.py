@@ -88,14 +88,17 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         cached = cache.get(cache_key)
 
         if cached:
-            invoicing_data, production_data, tax_data, payment_data = cached
+            invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data = cached
+
         else:
             invoicing_data = self._compute_invoicing(selected_company, date_from, date_to)
             production_data = self._compute_production_costs(selected_company, date_from, date_to)
             tax_data = self._compute_tax_summary(selected_company, date_from, date_to)
             payment_data = self._compute_payment_invoicing(selected_company, date_from, date_to)
-            cache.set(cache_key, (invoicing_data, production_data, tax_data, payment_data), _CACHE_TTL)
-
+            cash_data = self._compute_cash_position(selected_company)
+            ar_aging_data = self._compute_ar_aging(selected_company)
+            ap_aging_data = self._compute_ap_aging(selected_company)
+            cache.set(cache_key, (invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data), _CACHE_TTL)
         ctx.update({
             "title": _("Operational Dashboard"),
             "opts": SalesInvoice._meta,
@@ -108,6 +111,9 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "taxes": tax_data,
             "payment": payment_data,
             "today": today,
+            "cash": cash_data,
+            "ar_aging": ar_aging_data,
+            "ap_aging": ap_aging_data,
         })
         return ctx
 
@@ -536,4 +542,148 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "outstanding_providers": outstanding_providers,
             "cumulative_debt": cumulative_purchase_debt["total"],
             "cumulative_debt_count": cumulative_purchase_debt["count"],
+        }
+
+
+    @staticmethod
+    def _compute_cash_position(company):
+        """
+        Four simple numbers showing the overall money position.
+        Uses payment_status field directly — no PaymentAllocation queries needed.
+        """
+        if not company:
+            return {
+                "collected_from_clients": Decimal("0.00"),
+                "still_owed_by_clients": Decimal("0.00"),
+                "paid_to_providers": Decimal("0.00"),
+                "still_owe_to_providers": Decimal("0.00"),
+            }
+
+        zero = Value(Decimal("0.00"))
+        field = DecimalField(max_digits=12, decimal_places=2)
+
+        # Money coming IN — sales invoices that are fully paid
+        collected = SalesInvoice.objects.filter(
+            company=company,
+            status=SalesInvoiceStatus.FINAL,
+            payment_status=InvoicePaymentStatus.PAID,
+        ).aggregate(
+            total=Coalesce(Sum("total_amount"), zero, output_field=field)
+        )["total"]
+
+        # Money still owed TO us — final sales invoices not yet fully paid
+        owed_by_clients = SalesInvoice.objects.filter(
+            company=company,
+            status=SalesInvoiceStatus.FINAL,
+        ).exclude(
+            payment_status=InvoicePaymentStatus.PAID,
+        ).aggregate(
+            total=Coalesce(Sum("total_amount"), zero, output_field=field)
+        )["total"]
+
+        # Money we PAID OUT — purchase invoices fully paid
+        paid_out = Invoice.objects.filter(
+            company=company,
+            payment_status=InvoicePaymentStatus.PAID,
+        ).aggregate(
+            total=Coalesce(Sum("total_amount"), zero, output_field=field)
+        )["total"]
+
+        # Money we still OWE — purchase invoices not yet fully paid
+        still_owe = Invoice.objects.filter(
+            company=company,
+        ).exclude(
+            payment_status=InvoicePaymentStatus.PAID,
+        ).aggregate(
+            total=Coalesce(Sum("total_amount"), zero, output_field=field)
+        )["total"]
+
+        return {
+            "collected_from_clients": collected,
+            "still_owed_by_clients": owed_by_clients,
+            "paid_to_providers": paid_out,
+            "still_owe_to_providers": still_owe,
+        }
+
+
+    @staticmethod
+    def _compute_ar_aging(company):
+        """
+        Accounts Receivable aging — what clients owe us, bucketed by due date.
+        Always rolling from TODAY, ignores the dashboard date range filter.
+        Buckets: 0-30 days, 31-60 days, 61-90 days.
+        """
+        if not company:
+            return {"bucket_30": Decimal("0.00"), "bucket_60": Decimal("0.00"), "bucket_90": Decimal("0.00"), "bucket_30_count": 0, "bucket_60_count": 0, "bucket_90_count": 0}
+
+        today = timezone.now().date()
+        zero = Value(Decimal("0.00"))
+        field = DecimalField(max_digits=12, decimal_places=2)
+
+        # Base: final invoices that are not fully paid and have a due date set
+        base_qs = SalesInvoice.objects.filter(
+            company=company,
+            status=SalesInvoiceStatus.FINAL,
+            due_date__isnull=False,
+        ).exclude(payment_status=InvoicePaymentStatus.PAID)
+
+        def bucket(date_from, date_to):
+            qs = base_qs.filter(due_date__gte=date_from, due_date__lte=date_to)
+            return qs.aggregate(
+                total=Coalesce(Sum("total_amount"), zero, output_field=field),
+                count=Count("id"),
+            )
+
+        b30 = bucket(today, today + timedelta(days=30))
+        b60 = bucket(today + timedelta(days=31), today + timedelta(days=60))
+        b90 = bucket(today + timedelta(days=61), today + timedelta(days=90))
+
+        return {
+            "bucket_30": b30["total"],
+            "bucket_60": b60["total"],
+            "bucket_90": b90["total"],
+            "bucket_30_count": b30["count"],
+            "bucket_60_count": b60["count"],
+            "bucket_90_count": b90["count"],
+        }
+
+
+    @staticmethod
+    def _compute_ap_aging(company):
+        """
+        Accounts Payable aging — what we owe providers, bucketed by due date.
+        Always rolling from TODAY, ignores the dashboard date range filter.
+        Buckets: 0-30 days, 31-60 days, 61-90 days.
+        """
+        if not company:
+            return {"bucket_30": Decimal("0.00"), "bucket_60": Decimal("0.00"), "bucket_90": Decimal("0.00"), "bucket_30_count": 0, "bucket_60_count": 0, "bucket_90_count": 0}
+
+        today = timezone.now().date()
+        zero = Value(Decimal("0.00"))
+        field = DecimalField(max_digits=12, decimal_places=2)
+
+        # Base: purchase invoices not yet fully paid with a due date
+        base_qs = Invoice.objects.filter(
+            company=company,
+            due_date__isnull=False,
+        ).exclude(payment_status=InvoicePaymentStatus.PAID)
+
+        def bucket(date_from, date_to):
+            qs = base_qs.filter(due_date__gte=date_from, due_date__lte=date_to)
+            return qs.aggregate(
+                total=Coalesce(Sum("total_amount"), zero, output_field=field),
+                count=Count("id"),
+            )
+
+        b30 = bucket(today, today + timedelta(days=30))
+        b60 = bucket(today + timedelta(days=31), today + timedelta(days=60))
+        b90 = bucket(today + timedelta(days=61), today + timedelta(days=90))
+
+        return {
+            "bucket_30": b30["total"],
+            "bucket_60": b60["total"],
+            "bucket_90": b90["total"],
+            "bucket_30_count": b30["count"],
+            "bucket_60_count": b60["count"],
+            "bucket_90_count": b90["count"],
         }

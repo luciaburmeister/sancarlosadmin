@@ -11,7 +11,7 @@ def sync_bank_transactions(self):
     """Periodic task: fetch new transactions for all connected bank accounts.
 
     Runs every 6 hours via Celery Beat.  Syncs all BankAccounts that
-    have a nuek_account_id (Arcopay PSD2 token).
+    have a nuek_token (Arcopay PSD2 token).
     """
     from banking.services.arcopay_import import ArcopayService
 

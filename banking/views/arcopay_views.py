@@ -186,12 +186,12 @@ class ConsentDoneView(UnfoldModelAdminViewMixin, View):
             company = next((c for c in user_companies if str(c.pk) == str(cid)), None)
 
         qs = BankAccount.objects.filter(company=company) if company else BankAccount.objects.all()
-        max_pk_before = qs.exclude(nuek_account_id="").aggregate(max_pk=Max("pk"))["max_pk"] or 0
+        max_pk_before = qs.exclude(nuek_token="").aggregate(max_pk=Max("pk"))["max_pk"] or 0
 
         latest_account = (
             qs.filter(pk__gt=max_pk_before)
-            .exclude(nuek_account_id="")
-            .exclude(nuek_account_id__isnull=True)
+            .exclude(nuek_token="")
+            .exclude(nuek_token__isnull=True)
             .order_by("-pk")
             .first()
         )

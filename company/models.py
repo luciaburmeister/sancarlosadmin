@@ -483,13 +483,19 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
         max_length=100,
         blank=True,
         verbose_name=_("Nuek Account ID"),
-        help_text=_("Token assigned by Nuek/Arcopay. Used to fetch transactions."),
+        help_text=_("External account identifier assigned by Nuek."),
+    )
+    nuek_token = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Nuek Token"),
+        help_text=_("PSD2 token from Arcopay. Used to fetch transactions via /transactions/."),
     )
     nuek_consent_id = models.CharField(
         max_length=100,
         blank=True,
         verbose_name=_("Nuek Consent ID"),
-        help_text=_("Consent identifier from Arcopay. Used to check consent status and avoid re-generating."),
+        help_text=_("Consent identifier from Arcopay. Used to check consent status and refresh tokens."),
     )
     nuek_product_id = models.CharField(
         max_length=200,
@@ -541,7 +547,7 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
 
         lookup = {"company": company, "iban": iban} if iban else {"company": company, "nuek_product_id": product_name}
         defaults = {
-            "nuek_account_id": token,
+            "nuek_token": token,
             "nuek_product_id": product_name,
         }
         if consent_id:

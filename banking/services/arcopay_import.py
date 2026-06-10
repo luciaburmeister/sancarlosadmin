@@ -116,7 +116,7 @@ class ArcopayService:
             "service": bank_service,
             "grantType": "read",
             "validUntil": valid_until.strftime("%d-%m-%Y"),
-            "dailyFrequency": 4,
+            "dailyFrequency": 30,
             "yourConsentCallback": callback_url,
         }
         if callback_error_url:
@@ -181,6 +181,30 @@ class ArcopayService:
         resp.raise_for_status()
         return resp.json()
 
+    @staticmethod
+    def get_token_from_consent(consent_id: str) -> dict:
+        """POST /accounts/getToken/ — retrieve a token from a consentId.
+
+        Returns dict with ``consentId``, ``token``, and ``globalPosition``.
+        Use this when the token is expired or missing but the consent is still valid.
+        """
+        resp = requests.post(
+            f"{ARCOPAY_API_URL}/accounts/getToken/",
+            data={"servicekey": NUEK_SERVICE_KEY, "consentId": consent_id},
+            timeout=30,
+        )
+        if not resp.ok:
+            try:
+                error_data = resp.json()
+            except Exception:
+                error_data = resp.text
+            logger.error(
+                "Arcopay /accounts/getToken/ failed: status=%s, response=%s",
+                resp.status_code, error_data,
+            )
+            resp.raise_for_status()
+        return resp.json()
+
     # ------------------------------------------------------------------
     # Transaction fetching
     # ------------------------------------------------------------------
@@ -211,7 +235,21 @@ class ArcopayService:
             },
             timeout=60,
         )
-        resp.raise_for_status()
+
+        # Parse response body even on error to get Arcopay's error code
+        if not resp.ok:
+            try:
+                error_data = resp.json()
+            except Exception:
+                error_data = {"message": resp.text, "code": str(resp.status_code)}
+            error_code = error_data.get("code", str(resp.status_code))
+            error_msg = error_data.get("message", "Unknown error")
+            logger.error(
+                "Arcopay /transactions/ failed: status=%s, code=%s, message=%s, token=%s",
+                resp.status_code, error_code, error_msg, token[:8],
+            )
+            raise ArcopayAPIError(error_msg, error_code)
+
         data = resp.json()
         # The API returns either a list or a single error dict
         if isinstance(data, dict) and "code" in data:
@@ -317,47 +355,96 @@ class ArcopayService:
     def sync_account(bank_account: BankAccount, days_back: int = 90) -> int:
         """Full sync: fetch + import for a single account.
 
+        Uses the stored ``nuek_product_id`` when available to target a
+        specific product, falling back to ``GLOBAL`` for discovery.
+
         Returns the total number of newly imported transactions.
         """
-        token = bank_account.nuek_account_id
+        token = bank_account.nuek_token
         if not token:
             logger.warning(
-                "BankAccount %s has no nuek_account_id (token); skipping sync.",
+                "BankAccount %s has no nuek_token; skipping sync.",
                 bank_account.pk,
             )
             return 0
+
+        # Use stored product_id when it looks like an IBAN.
+        # Banks like Revolut use UUIDs as product IDs which the API rejects.
+        product_id = bank_account.nuek_product_id
+        is_iban_like = product_id and len(product_id) >= 15 and product_id[:2].isalpha()
+        products_param = product_id if is_iban_like else "GLOBAL"
 
         start_date = date.today() - timedelta(days=days_back)
         try:
             products = ArcopayService.fetch_transactions(
                 token=token,
                 start_date=start_date,
-                products="GLOBAL",
+                products=products_param,
             )
-        except ArcopayAPIError as e:
-            logger.error("Arcopay API error syncing account %s: %s", bank_account.pk, e)
-            return 0
-        except requests.RequestException as e:
-            logger.error("HTTP error syncing account %s: %s", bank_account.pk, e)
-            return 0
+        except (ArcopayAPIError, requests.RequestException) as e:
+            # T000 = generic/rate limit error — refreshing the token won't help
+            if isinstance(e, ArcopayAPIError) and e.code == "T000":
+                logger.warning(
+                    "Arcopay rate limit or parameter error for account %s: %s",
+                    bank_account.pk, e,
+                )
+                return 0
+
+            logger.warning("Arcopay /transactions/ failed for account %s: %s — attempting token refresh", bank_account.pk, e)
+
+            # Try refreshing the token via /accounts/getToken/
+            consent_id = bank_account.nuek_consent_id
+            if not consent_id:
+                logger.error("No consent_id stored for account %s; cannot refresh token", bank_account.pk)
+                return 0
+
+            try:
+                token_data = ArcopayService.get_token_from_consent(consent_id)
+                new_token = token_data.get("token", "")
+                if not new_token:
+                    logger.error("getToken returned no token for consent %s", consent_id)
+                    return 0
+
+                # Update the stored token
+                token = new_token
+                bank_account.nuek_token = new_token
+                bank_account.save(update_fields=["nuek_token"])
+                logger.info("Token refreshed for account %s via consent %s", bank_account.pk, consent_id)
+
+                # Retry with the new token
+                products = ArcopayService.fetch_transactions(
+                    token=token,
+                    start_date=start_date,
+                    products=products_param,
+                )
+            except Exception as retry_exc:
+                logger.error("Token refresh/retry failed for account %s: %s", bank_account.pk, retry_exc)
+                return 0
 
         logger.info(
             "Arcopay /transactions/ response for account %s: %d products returned",
             bank_account.pk,
             len(products),
         )
-        for i, prod in enumerate(products):
-            txns = prod.get("transactions", [])
-            logger.info(
-                "  Product %d: %s — %d transactions, balance=%s",
-                i,
-                prod.get("product", "?"),
-                len(txns),
-                prod.get("balance", "?"),
-            )
 
         total = 0
         for product_data in products:
+            txns = product_data.get("transactions", [])
+            logger.info(
+                "  Product %s — %d transactions, balance=%s",
+                product_data.get("product", "?"),
+                len(txns),
+                product_data.get("balance", "?"),
+            )
+
+            # Keep BankAccount metadata in sync (IBAN, holder, product_id)
+            BankAccount.upsert_from_arcopay(
+                company=bank_account.company,
+                product_data=product_data,
+                token=token,
+                consent_id=bank_account.nuek_consent_id,
+            )
+
             total += ArcopayService.import_transactions_for_account(
                 bank_account, product_data
             )
@@ -372,9 +459,9 @@ class ArcopayService:
 
     @staticmethod
     def sync_all_connected_accounts(company: Company | None = None) -> "SyncResult":
-        """Sync all accounts that have a nuek_account_id (Arcopay token)."""
-        qs = BankAccount.objects.exclude(nuek_account_id="").exclude(
-            nuek_account_id__isnull=True
+        """Sync all accounts that have a nuek_token (Arcopay PSD2 token)."""
+        qs = BankAccount.objects.exclude(nuek_token="").exclude(
+            nuek_token__isnull=True
         )
         if company:
             qs = qs.filter(company=company)

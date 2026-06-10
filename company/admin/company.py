@@ -29,7 +29,7 @@ from django.contrib.postgres.fields import ArrayField
 
 @admin.register(BankAccount)
 class BankAccountAdmin(ModelAdmin):
-    list_display = ("bank_name", "account_number", "iban", "nuek_account_id", "is_default", "company")
+    list_display = ("bank_name", "account_number", "iban", "nuek_token", "is_default", "company")
     search_fields = ("bank_name", "account_number", "iban")
     autocomplete_fields = ("company",)
     actions_detail = ["sync_transactions_action"]
@@ -43,7 +43,7 @@ class BankAccountAdmin(ModelAdmin):
         from banking.tasks import sync_bank_account_task
 
         account = get_object_or_404(BankAccount, pk=object_id)
-        if not account.nuek_account_id:
+        if not account.nuek_token:
             messages.error(
                 request,
                 _("This bank account is not connected to Arcopay (no token). Please connect it first."),

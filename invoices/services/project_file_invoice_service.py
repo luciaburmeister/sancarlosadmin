@@ -259,12 +259,14 @@ class ProjectFileInvoiceService:
         date_issued,
         due_date,
         items_data,
-        total_tax=Decimal("0.00"),
         notes="",
         payment_method=None,
     ):
         """
         Creates a SalesInvoice from a ProjectFile with validation.
+
+        Taxes are computed per line item from each source's own AppliedTax
+        records (Configuration or QuoteInventoryItem), supporting mixed rates.
 
         Args:
             project_file: The ProjectFile to invoice
@@ -272,8 +274,8 @@ class ProjectFileInvoiceService:
             client: Client for the invoice
             date_issued: Invoice date
             due_date: Payment due date
-            items_data: List of dicts with description, quantity, unit_price, discount_percentage
-            total_tax: Pre-computed total tax from per-config taxes (scaled by invoicing %)
+            items_data: List of dicts with description, quantity, unit_price,
+                        discount_percentage, and source_id
             notes: Optional notes
             payment_method: Expected payment method (defaults to client.payment_method)
 
@@ -308,8 +310,19 @@ class ProjectFileInvoiceService:
             payment_method=resolved_payment_method,
         )
 
-        # Create line items (pre-tax subtotals)
+        # Create line items and compute per-line taxes from each source's
+        # own AppliedTax records. This handles mixed tax rates correctly
+        # (e.g. configs at 21% IVA, inventory items at 10% reduced rate).
         subtotal = Decimal("0.00")
+        # Aggregation: (tax_type_id, behavior, percentage) → {tax_type, base, calc}
+        tax_agg: dict[tuple, dict] = {}
+
+        from configurator.models import Configuration
+        from sales.models import QuoteInventoryItem
+
+        config_ct = ContentType.objects.get_for_model(Configuration)
+        inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
+
         for item_data in items_data:
             item = SalesInvoiceItem.objects.create(
                 invoice=invoice,
@@ -320,34 +333,65 @@ class ProjectFileInvoiceService:
                 discount_percentage=item_data.get('discount_percentage', Decimal("0.00")),
                 source_id=item_data.get('source_id', ''),
             )
-            subtotal += item.line_total.amount
+            line_total = item.line_total.amount
+            subtotal += line_total
 
-        # Create AppliedTax records from per-config tax profiles.
-        # The total_tax is pre-computed from per-config taxes (scaled by the
-        # invoicing percentage). Distribute across tax entries proportionally.
+            # Resolve the source's taxes from its source_id
+            source_id = item_data.get('source_id', '')
+            source_taxes = []
+
+            if source_id.startswith("config_") or source_id.startswith("direct_"):
+                obj_id = source_id.split("_", 1)[1]
+                source_taxes = list(
+                    AppliedTax.objects.filter(
+                        content_type=config_ct, object_id=obj_id
+                    ).select_related("tax_type")
+                )
+            elif source_id.startswith("inv_item_"):
+                obj_id = source_id.split("_", 2)[2]
+                source_taxes = list(
+                    AppliedTax.objects.filter(
+                        content_type=inv_item_ct, object_id=obj_id
+                    ).select_related("tax_type")
+                )
+            # quote_item_ lines have no taxes
+
+            for tax in source_taxes:
+                if tax.selected_percentage <= 0:
+                    continue
+                key = (tax.tax_type_id, tax.tax_type.behavior, tax.selected_percentage)
+                rate = tax.selected_percentage / Decimal("100")
+                calc = (line_total * rate).quantize(Decimal("0.01"))
+
+                if key not in tax_agg:
+                    tax_agg[key] = {
+                        "tax_type": tax.tax_type,
+                        "selected_percentage": tax.selected_percentage,
+                        "base_amount": Decimal("0.00"),
+                        "calculated_amount": Decimal("0.00"),
+                    }
+                tax_agg[key]["base_amount"] += line_total
+                tax_agg[key]["calculated_amount"] += calc
+
+        # Create the aggregated AppliedTax records on the invoice
         ct = ContentType.objects.get_for_model(invoice)
-        tax_entries = cls._compute_per_config_taxes(project_file)
-        full_tax = sum(e['computed_amount'] for e in tax_entries)
+        computed_total_tax = Decimal("0.00")
 
-        for order, entry in enumerate(tax_entries):
-            if full_tax > 0:
-                proportion = entry['computed_amount'] / full_tax
-                scaled_amount = (total_tax * proportion).quantize(Decimal("0.01"))
-            else:
-                scaled_amount = Decimal("0.00")
+        for order, entry in enumerate(tax_agg.values()):
+            computed_total_tax += entry["calculated_amount"]
             AppliedTax.objects.create(
                 content_type=ct,
                 object_id=invoice.id,
-                tax_type=entry['tax_type'],
-                selected_percentage=entry['selected_percentage'],
-                base_amount=subtotal,
-                calculated_amount=scaled_amount,
+                tax_type=entry["tax_type"],
+                selected_percentage=entry["selected_percentage"],
+                base_amount=entry["base_amount"],
+                calculated_amount=entry["calculated_amount"],
                 order=order,
             )
 
         invoice.subtotal_amount = subtotal
-        invoice.tax_amount = total_tax
-        invoice.total_amount = subtotal + total_tax
+        invoice.tax_amount = computed_total_tax
+        invoice.total_amount = subtotal + computed_total_tax
         invoice.save(update_fields=['subtotal_amount', 'tax_amount', 'total_amount'])
 
         # Validate: the new total should not exceed the remaining invoiceable amount.

@@ -197,23 +197,12 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
         items_formset = all_forms[1]
         notes_form = all_forms[2]
 
-        # Build tax lookup keyed by source_id (unique per config/item)
-        items_initial = self._build_items_initial()
-        tax_lookup = {
-            item['source_id']: item.get('_tax_amount', Decimal("0.00"))
-            for item in items_initial
-        }
-
         items_data = []
-        total_tax = Decimal("0.00")
         for form in items_formset:
             if not form.cleaned_data or form.cleaned_data.get('DELETE'):
                 continue
-            source_id = form.cleaned_data.get('source_id', '')
-            item_tax = tax_lookup.get(source_id, Decimal("0.00"))
-            total_tax += item_tax
             items_data.append({
-                'source_id': source_id,
+                'source_id': form.cleaned_data.get('source_id', ''),
                 'description': form.cleaned_data.get('description', ''),
                 'quantity': form.cleaned_data.get('quantity', Decimal("1")),
                 'unit_price': form.cleaned_data.get('unit_price'),
@@ -228,7 +217,6 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                 date_issued=setup_form.cleaned_data['date_issued'],
                 due_date=setup_form.cleaned_data.get('due_date'),
                 items_data=items_data,
-                total_tax=total_tax,
                 notes=notes_form.cleaned_data.get('notes', ''),
                 payment_method=setup_form.cleaned_data.get('payment_method'),
             )

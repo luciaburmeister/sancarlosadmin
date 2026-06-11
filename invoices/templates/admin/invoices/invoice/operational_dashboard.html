@@ -620,56 +620,86 @@
   <!-- ═══════════════════════════════════════════════════════════════ -->
   <div class="od-section">
     <div class="od-section-title"><span class="icon">🏛️</span> {% trans "Tax Balance per Type" %}</div>
-    <div class="od-table-wrap" style="margin-top:16px">
-      <div class="od-table-header">
-        <h3>⚖️ {% trans "Tax Balance per Type" %}</h3>
+
+    <!-- KPIs del período vigente por cada regla activa hoy -->
+    {% for period in tax_periods %}{% if period.date_from <= today and today <= period.date_to %}
+    <div class="od-subsection-label">📌 {% trans "Período vigente" %} — {{ period.rule.name }} &nbsp;·&nbsp; {{ period.date_from }} → {{ period.date_to }} &nbsp;·&nbsp; {% trans "Vence" %} {{ period.due_date }}</div>
+    <div class="od-kpi-grid od-kpi-grid--4" style="margin-bottom:24px">
+      <div class="od-kpi od-kpi--emerald">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "IVA Repercutido" %}</div>
+        <div class="od-kpi-value">€{{ period.tax_collected.amount|floatformat:2 }}</div>
+        <div class="od-kpi-sub">{% trans "Acumulado en facturas de venta" %}</div>
       </div>
-      {% if taxes.balance %}
+      <div class="od-kpi od-kpi--rose">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "IVA Soportado" %}</div>
+        <div class="od-kpi-value">€{{ period.tax_paid.amount|floatformat:2 }}</div>
+        <div class="od-kpi-sub">{% trans "Acumulado en facturas de compra" %}</div>
+      </div>
+      <div class="od-kpi {% if period.tax_net.amount >= 0 %}od-kpi--teal{% else %}od-kpi--rose{% endif %}">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "IVA a Ingresar" %}</div>
+        <div class="od-kpi-value">€{{ period.tax_net.amount|floatformat:2 }}</div>
+        <div class="od-kpi-sub">{% trans "Repercutido − Soportado" %}</div>
+      </div>
+      <div class="od-kpi {% if period.net_after_credit.amount >= 0 %}od-kpi--indigo{% else %}od-kpi--amber{% endif %}">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Neto a pagar" %}</div>
+        <div class="od-kpi-value">€{{ period.net_after_credit.amount|floatformat:2 }}</div>
+        <div class="od-kpi-sub">{% trans "Tras descontar saldo acumulado" %}</div>
+      </div>
+    </div>
+    {% endif %}{% endfor %}
+
+    <!-- Tabla de períodos en el rango seleccionado + anterior -->
+    {% if tax_periods %}
+    <div class="od-table-wrap" style="margin-bottom:24px">
+      <div class="od-table-header">
+        <h3>📆 {% trans "Períodos fiscales en este rango" %}</h3>
+      </div>
       <table class="od-table">
         <thead>
           <tr>
-            <th>{% trans "Tax" %}</th>
-            <th style="text-align:right">{% trans "Billed (Base)" %}</th>
-            <th style="text-align:right">{% trans "Billed (Tax)" %}</th>
-            <th style="text-align:right">{% trans "Paid (Base)" %}</th>
-            <th style="text-align:right">{% trans "Paid (Tax)" %}</th>
-            <th style="text-align:right">{% trans "Net (Billed − Paid)" %}</th>
+            <th>{% trans "Regla" %}</th>
+            <th>{% trans "Inicio" %}</th>
+            <th>{% trans "Fin" %}</th>
+            <th>{% trans "Vencimiento" %}</th>
+            <th style="text-align:right">{% trans "Repercutido" %}</th>
+            <th style="text-align:right">{% trans "Soportado" %}</th>
+            <th style="text-align:right">{% trans "A ingresar" %}</th>
+            <th style="text-align:right">{% trans "Neto a pagar" %}</th>
+            <th style="text-align:center">{% trans "Estado" %}</th>
           </tr>
         </thead>
         <tbody>
-          {% for row in taxes.balance %}
-          <tr>
-            <td style="font-weight:600">{{ row.tax_name }}</td>
-            <td style="text-align:right">€{{ row.billed_base|euro_format }}</td>
-            <td style="text-align:right;color:var(--od-emerald-500);font-weight:600">€{{ row.billed_tax|euro_format }}</td>
-            <td style="text-align:right">€{{ row.paid_base|euro_format }}</td>
-            <td style="text-align:right;color:var(--od-rose-500);font-weight:600">€{{ row.paid_tax|euro_format }}</td>
-            <td style="text-align:right;font-weight:800;font-size:.95rem">
-              <span style="{% if row.net >= 0 %}color:var(--od-emerald-500){% else %}color:var(--od-rose-500){% endif %}">
-                €{{ row.net|euro_format }}
+          {% for period in tax_periods %}
+          <tr class="od-clickable-row" onclick="window.open('/{{ LANGUAGE_CODE }}/admin/finance/taxperiod/{{ period.pk }}/change/', '_blank')">
+            <td style="font-weight:600">{{ period.rule.name }}</td>
+            <td>{{ period.date_from }}</td>
+            <td>{{ period.date_to }}</td>
+            <td {% if period.status == 'overdue' %}style="color:var(--od-rose-500);font-weight:700"{% endif %}>{{ period.due_date }}</td>
+            <td style="text-align:right;font-weight:600">€{{ period.tax_collected.amount|floatformat:2 }}</td>
+            <td style="text-align:right;font-weight:600">€{{ period.tax_paid.amount|floatformat:2 }}</td>
+            <td style="text-align:right;font-weight:600;color:var(--od-text-sub)">€{{ period.tax_net.amount|floatformat:2 }}</td>
+            <td style="text-align:right;font-weight:800">
+              <span style="{% if period.net_after_credit.amount >= 0 %}color:var(--od-emerald-500){% else %}color:var(--od-rose-500){% endif %}">
+                €{{ period.net_after_credit.amount|floatformat:2 }}
               </span>
+            </td>
+            <td style="text-align:center">
+              {% if period.status == 'paid' %}<span class="od-badge od-badge--done">{% trans "Pagado" %}</span>
+              {% elif period.status == 'overdue' %}<span class="od-badge" style="background:var(--od-rose-50);color:var(--od-rose-500)">{% trans "Vencido" %}</span>
+              {% elif period.status == 'pending_payment' %}<span class="od-badge od-badge--in_progress">{% trans "Pendiente" %}</span>
+              {% else %}<span class="od-badge od-badge--pending">{% trans "Abierto" %}</span>{% endif %}
             </td>
           </tr>
           {% endfor %}
         </tbody>
-        <tfoot>
-          <tr style="border-top:2px solid var(--od-border)">
-            <td colspan="5" style="font-weight:700;padding:12px 16px">{% trans "Total Net" %}</td>
-            <td style="text-align:right;font-weight:800;padding:12px 16px;font-size:1rem">
-              <span style="{% if taxes.net >= 0 %}color:var(--od-emerald-500){% else %}color:var(--od-rose-500){% endif %}">
-                €{{ taxes.net|euro_format }}
-              </span>
-            </td>
-          </tr>
-        </tfoot>
       </table>
-      {% else %}
-      <div class="od-empty">
-        <div class="od-empty-icon">⚖️</div>
-        <p>{% trans "No tax data available for this period." %}</p>
-      </div>
-      {% endif %}
     </div>
+    {% endif %}
+
   </div>
 
   <hr class="od-divider">

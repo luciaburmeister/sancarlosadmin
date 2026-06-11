@@ -13,7 +13,9 @@ class MatchResult:
     documents: list = field(default_factory=list)
     unmatched_amount: Decimal = Decimal("0.00")
     confidence: str = "none"  # "exact", "close", or "none"
+    alternatives: list = field(default_factory=list)  # list of doc-lists
 
     @property
     def has_match(self) -> bool:
         return len(self.documents) > 0
+

@@ -46,15 +46,23 @@ class TransactionMatcher:
         """
         self.counterparty = find_counterparty(self.transaction, self.direction)
         candidates = self._get_candidate_documents()
-        self.result = match_amount(self.transaction, candidates)
+        self.result = match_amount(
+            self.transaction,
+            candidates,
+            has_counterparty=self.counterparty is not None,
+        )
 
+        # Build the combined suggested_allocations structure:
+        # [{"allocations": [...], "confidence": "exact", "is_selected": bool}, ...]
+        all_combos = [self.result.documents] + self.result.alternatives
         suggested_allocations = [
             {
-                "content_type": ContentType.objects.get_for_model(doc).model,
-                "object_id": doc.pk,
-                "match_confidence": self.result.confidence,
+                "allocations": self._serialize_docs(docs),
+                "confidence": self.result.confidence,
+                "is_selected": idx == 0 and self.result.has_match,
             }
-            for doc in self.result.documents
+            for idx, docs in enumerate(all_combos)
+            if docs  # skip empty
         ]
 
         reconciliation = BankReconciliation.objects.create(
@@ -72,6 +80,25 @@ class TransactionMatcher:
         return reconciliation
 
     @staticmethod
+    def _serialize_docs(docs: list) -> list:
+        """Convert a list of model instances to the allocation JSON format."""
+        return [
+            {
+                "content_type": ContentType.objects.get_for_model(doc).model,
+                "object_id": doc.pk,
+            }
+            for doc in docs
+        ]
+
+    @staticmethod
+    def get_selected_allocations(suggested_allocations: list) -> list:
+        """Extract the allocations list from the selected combination."""
+        for combo in suggested_allocations:
+            if combo.get("is_selected"):
+                return combo.get("allocations", [])
+        return []
+
+    @staticmethod
     @db_transaction.atomic
     def confirm(
         reconciliation: BankReconciliation,
@@ -84,25 +111,19 @@ class TransactionMatcher:
         confirmed_allocations is a list of dicts:
             [{"content_type": "invoice", "object_id": 5}, ...]
 
-        Steps:
-        1. Determine if the human changed the suggestion (AUTO vs MANUAL)
-        2. Create the Payment
-        3. Create PaymentAllocations
-        4. Link the Payment to the BankReconciliation
-        5. Update statuses
+        Idempotent — if the reconciliation is already confirmed, returns it.
         """
-        txn = reconciliation.bank_transaction
-
-        # Guard: don't re-create if already confirmed
-        if reconciliation.is_confirmed and reconciliation.payment_id:
+        if reconciliation.is_confirmed:
             return reconciliation
+
+        txn = reconciliation.bank_transaction
 
         # Step 1 — Did the human change the suggestion?
         method = TransactionMatcher._determine_method(
             reconciliation.suggested_allocations, confirmed_allocations,
         )
 
-        # Step 2 — Get or create the Payment (idempotent)
+        # Step 1 — Determine payment direction
         direction = (
             PaymentDirection.INBOUND
             if txn.amount.amount > 0
@@ -140,13 +161,7 @@ class TransactionMatcher:
         reconciliation.method = method
         reconciliation.reconciled_by = user
         reconciliation.confirmed_at = timezone.now()
-        reconciliation.save(update_fields=[
-            "payment",
-            "is_confirmed",
-            "method",
-            "reconciled_by",
-            "confirmed_at",
-        ])
+        reconciliation.save()
 
         # Step 5 — Update BankTransaction reconciliation status
         txn.reconciliation_status = ReconciliationStatus.RECONCILED
@@ -168,14 +183,17 @@ class TransactionMatcher:
         """
         Fetch unpaid / partially paid documents that could match.
         Scoped to the identified counterparty when available.
+        Only considers invoices issued on or before the transaction date.
         """
         Invoice = apps.get_model("invoices", "Invoice")
         SalesInvoice = apps.get_model("invoices", "SalesInvoice")
+        txn_date = self.transaction.transaction_date
 
         if self.direction == PaymentDirection.OUTBOUND:
             qs = Invoice.objects.filter(
                 company=self.transaction.company,
                 payment_status__in=["unpaid", "partial"],
+                date_issued__lte=txn_date,
             )
             if self.counterparty:
                 qs = qs.filter(provider=self.counterparty)
@@ -184,6 +202,7 @@ class TransactionMatcher:
         qs = SalesInvoice.objects.filter(
             company=self.transaction.company,
             payment_status__in=["unpaid", "partial"],
+            date_issued__lte=txn_date,
         )
         if self.counterparty:
             qs = qs.filter(client=self.counterparty)
@@ -198,7 +217,8 @@ class TransactionMatcher:
         Compare what the matcher suggested vs what the human confirmed.
         Same → AUTO; different → MANUAL.
         """
-        if not suggested_allocations:
+        selected = TransactionMatcher.get_selected_allocations(suggested_allocations)
+        if not selected:
             return ReconciliationMethod.MANUAL
 
         def as_set(allocs):
@@ -207,6 +227,6 @@ class TransactionMatcher:
                 for a in allocs
             )
 
-        if as_set(suggested_allocations) == as_set(confirmed_allocations):
+        if as_set(selected) == as_set(confirmed_allocations):
             return ReconciliationMethod.AUTO
         return ReconciliationMethod.MANUAL

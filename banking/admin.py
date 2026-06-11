@@ -132,12 +132,20 @@ class BankTransactionAdmin(ModelAdmin):
         try:
             matcher = TransactionMatcher(txn)
             recon = matcher.run()
-            if recon.suggested_allocations:
-                messages.success(
-                    request,
-                    _("Matcher found %(count)d matching document(s). Review the suggestion in Bank Reconciliations.")
-                    % {"count": len(recon.suggested_allocations)},
-                )
+            selected = TransactionMatcher.get_selected_allocations(
+                recon.suggested_allocations,
+            )
+            if selected:
+                alt_count = len(recon.suggested_allocations) - 1
+                msg = _(
+                    "Matcher found %(count)d matching document(s)."
+                ) % {"count": len(selected)}
+                if alt_count > 0:
+                    msg += " " + _(
+                        "%(alt)d alternative combination(s) also found."
+                    ) % {"alt": alt_count}
+                msg += " " + _("Review the suggestion in Bank Reconciliations.")
+                messages.success(request, msg)
             else:
                 messages.info(
                     request,

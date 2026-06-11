@@ -9,6 +9,7 @@ from datetime import timedelta
 from unfold.admin import ModelAdmin, GenericTabularInline
 from django.utils.html import format_html
 from django.db import models
+from invoices.views.invoice.aging_export_view import AgingExportView
 from django_json_widget.widgets import JSONEditorWidget
 from invoices.models import (
     Invoice,
@@ -22,6 +23,7 @@ from invoices.models import (
     SalesInvoiceStatus,
     InvoiceItem
 )
+from invoices.views.invoice.aging_export_view import AgingExportView
 from payments.models import PaymentAllocation
 from django.utils import timezone
 from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
@@ -412,6 +414,13 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
                 ),
                 name="invoices_invoice_register_payment",
             ),
+            path(
+                "dashboard/operational/aging-export/",
+                self.admin_site.admin_view(
+                    AgingExportView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_aging_export",
+),
         ]
         return custom + urls
 

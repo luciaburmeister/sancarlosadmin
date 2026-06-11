@@ -4,20 +4,148 @@ import logging
 from django.contrib import admin
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
-from django.urls import path
+from django.urls import path, reverse
+from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
-from unfold.admin import ModelAdmin
+from unfold.admin import ModelAdmin, StackedInline
+from unfold.contrib.inlines.admin import NonrelatedTabularInline
 from unfold.decorators import action, display
 
 from banking.models import BankReconciliation, BankTransaction, ReconciliationStatus
 from banking.views import (
+    ApproveReconciliationView,
     ConnectBankView,
     ConsentDoneView,
     InitiateConsentView,
+    ReviewReconciliationView,
+    SkipReconciliationView,
     SyncAccountsView,
 )
+from payments.models import PaymentAllocation
 
 logger = logging.getLogger(__name__)
+
+
+class BankReconciliationInline(StackedInline):
+    """Read-only inline showing reconciliation status + link to review page."""
+    model = BankReconciliation
+    extra = 0
+    max_num = 0
+    can_delete = False
+    tab = True
+    fields = (
+        "is_confirmed",
+        "method",
+        "payment",
+        "unmatched_amount",
+        "confirmed_at",
+        "review_link",
+    )
+    readonly_fields = (
+        "is_confirmed",
+        "method",
+        "payment",
+        "unmatched_amount",
+        "confirmed_at",
+        "review_link",
+    )
+
+    @admin.display(description=_("Review"))
+    def review_link(self, obj):
+        if not obj.pk:
+            return "—"
+        url = reverse("admin:banking_reconciliation_review", args=[obj.pk])
+        combo_count = len(obj.suggested_allocations or [])
+        if obj.is_confirmed:
+            return format_html(
+                '<a href="{}" style="color: #16a34a; font-weight: 500;">'
+                '✓ {}</a>',
+                url, _("View details"),
+            )
+        label = _("Review & Approve")
+        if combo_count > 1:
+            label = _("Review & Approve (%(alt)d alternatives)") % {
+                "alt": combo_count - 1
+            }
+        return format_html(
+            '<a href="{}" style="color: var(--primary-600, #0369a1); '
+            'font-weight: 600;">⚡ {}</a>',
+            url, label,
+        )
+
+
+class PaymentAllocationInline(NonrelatedTabularInline):
+    """Non-related inline showing payment allocations via the reconciliation chain."""
+    model = PaymentAllocation
+    extra = 0
+    can_delete = False
+    tab = True
+    fields = (
+        "document_link",
+        "document_date",
+        "document_counterparty",
+        "amount_applied",
+    )
+    readonly_fields = (
+        "document_link",
+        "document_date",
+        "document_counterparty",
+        "amount_applied",
+    )
+
+    def get_form_queryset(self, obj):
+        """Return PaymentAllocations for this transaction's reconciliation payment."""
+        try:
+            recon = obj.reconciliation
+            if recon.payment_id:
+                return PaymentAllocation.objects.filter(
+                    payment=recon.payment,
+                ).select_related("content_type")
+        except BankReconciliation.DoesNotExist:
+            pass
+        return PaymentAllocation.objects.none()
+
+    def save_new_instance(self, parent, instance):
+        """Required by NonrelatedTabularInline but we never create."""
+        pass
+
+    @admin.display(description=_("Document"))
+    def document_link(self, obj):
+        if not obj.pk:
+            return "—"
+        ct = obj.content_type
+        doc = obj.related_object
+        label = getattr(doc, "invoice_number", str(doc))
+        try:
+            url = reverse(
+                f"admin:{ct.app_label}_{ct.model}_change",
+                args=[obj.object_id],
+            )
+            return format_html(
+                '<a href="{}" target="_blank" style="color: var(--primary-600, #0369a1); '
+                'font-weight: 500;">{}</a>',
+                url, label,
+            )
+        except Exception:
+            return label
+
+    @admin.display(description=_("Date"))
+    def document_date(self, obj):
+        if not obj.pk:
+            return "—"
+        doc = obj.related_object
+        return getattr(doc, "date_issued", "—")
+
+    @admin.display(description=_("Counterparty"))
+    def document_counterparty(self, obj):
+        if not obj.pk:
+            return "—"
+        doc = obj.related_object
+        return str(
+            getattr(doc, "client", None)
+            or getattr(doc, "provider", None)
+            or "—"
+        )
 
 
 @admin.register(BankTransaction)
@@ -51,7 +179,8 @@ class BankTransactionAdmin(ModelAdmin):
     ordering = ("-transaction_date", "-imported_at")
     list_per_page = 30
 
-    actions_detail = ["run_matcher_detail_action"]
+    actions_detail = ["run_matcher_detail_action", "review_suggestion_action"]
+    inlines = [BankReconciliationInline, PaymentAllocationInline]
 
     def get_urls(self):
         custom_urls = [
@@ -107,6 +236,26 @@ class BankTransactionAdmin(ModelAdmin):
         return obj.reconciliation_status
 
     @action(
+        description=_("Review Suggestion"),
+        url_path="review-suggestion",
+        icon="rate_review",
+    )
+    def review_suggestion_action(self, request, object_id: int):
+        """Redirect to the review page for this transaction's reconciliation."""
+        txn = get_object_or_404(BankTransaction, pk=object_id)
+        try:
+            recon = txn.reconciliation
+            return redirect(
+                reverse("admin:banking_reconciliation_review", args=[recon.pk])
+            )
+        except BankReconciliation.DoesNotExist:
+            messages.info(
+                request,
+                _("No reconciliation suggestion exists. Run the matcher first."),
+            )
+            return redirect(request.META.get("HTTP_REFERER"))
+
+    @action(
         description=_("Run Matcher"),
         url_path="run-matcher",
         icon="compare_arrows",
@@ -136,16 +285,10 @@ class BankTransactionAdmin(ModelAdmin):
                 recon.suggested_allocations,
             )
             if selected:
-                alt_count = len(recon.suggested_allocations) - 1
-                msg = _(
-                    "Matcher found %(count)d matching document(s)."
-                ) % {"count": len(selected)}
-                if alt_count > 0:
-                    msg += " " + _(
-                        "%(alt)d alternative combination(s) also found."
-                    ) % {"alt": alt_count}
-                msg += " " + _("Review the suggestion in Bank Reconciliations.")
-                messages.success(request, msg)
+                # Redirect directly to review page
+                return redirect(
+                    reverse("admin:banking_reconciliation_review", args=[recon.pk])
+                )
             else:
                 messages.info(
                     request,
@@ -168,9 +311,11 @@ class BankReconciliationAdmin(ModelAdmin):
         "bank_transaction",
         "payment",
         "get_confirmed_label",
+        "combo_count_display",
         "method",
         "reconciled_at",
         "confirmed_at",
+        "review_action",
     )
     list_filter = (
         "is_confirmed",
@@ -188,9 +333,56 @@ class BankReconciliationAdmin(ModelAdmin):
     ordering = ("-reconciled_at",)
     list_per_page = 30
 
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "<int:pk>/review/",
+                self.admin_site.admin_view(
+                    ReviewReconciliationView.as_view(model_admin=self)
+                ),
+                name="banking_reconciliation_review",
+            ),
+            path(
+                "<int:pk>/approve/",
+                self.admin_site.admin_view(
+                    ApproveReconciliationView.as_view(model_admin=self)
+                ),
+                name="banking_reconciliation_approve",
+            ),
+            path(
+                "<int:pk>/skip/",
+                self.admin_site.admin_view(
+                    SkipReconciliationView.as_view(model_admin=self)
+                ),
+                name="banking_reconciliation_skip",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
     @display(
         description=_("Confirmed"),
         boolean=True,
     )
     def get_confirmed_label(self, obj):
         return obj.is_confirmed
+
+    @admin.display(description=_("Combos"))
+    def combo_count_display(self, obj):
+        count = len(obj.suggested_allocations or [])
+        if count == 0:
+            return "—"
+        return count
+
+    @admin.display(description=_("Action"))
+    def review_action(self, obj):
+        url = reverse("admin:banking_reconciliation_review", args=[obj.pk])
+        if obj.is_confirmed:
+            return format_html(
+                '<a href="{}" style="color: #16a34a;">✓ {}</a>',
+                url, _("View"),
+            )
+        return format_html(
+            '<a href="{}" style="color: var(--primary-600, #0369a1); '
+            'font-weight: 600;">⚡ {}</a>',
+            url, _("Review"),
+        )

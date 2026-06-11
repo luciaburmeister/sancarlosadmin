@@ -88,16 +88,16 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         cached = cache.get(cache_key)
 
         if cached:
-            invoicing_data, production_data, tax_data, payment_data = cached
+            invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data = cached
         else:
             invoicing_data = self._compute_invoicing(selected_company, date_from, date_to)
             production_data = self._compute_production_costs(selected_company, date_from, date_to)
             tax_data = self._compute_tax_summary(selected_company, date_from, date_to)
             payment_data = self._compute_payment_invoicing(selected_company, date_from, date_to)
-            cache.set(cache_key, (invoicing_data, production_data, tax_data, payment_data), _CACHE_TTL)
-
-        # Tax periods are NOT cached — always fresh so status changes reflect immediately
-        tax_periods = self._compute_tax_periods(selected_company, date_from, date_to)
+            cash_data = self._compute_tax_periods(selected_company, date_from, date_to)
+            ar_aging_data = self._compute_ar_aging(selected_company)
+            ap_aging_data = self._compute_ap_aging(selected_company)
+            cache.set(cache_key, (invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data), _CACHE_TTL)
 
         ctx.update({
             "title": _("Operational Dashboard"),
@@ -110,7 +110,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "production": production_data,
             "taxes": tax_data,
             "payment": payment_data,
-            "tax_periods": tax_periods,
+            "tax_periods": cash_data,
             "today": today,
         })
         return ctx
@@ -129,6 +129,16 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
                 "monthly_final": [],
                 "monthly_proforma": [],
                 "top_clients": [],
+                "final_total_with_tax": Decimal("0.00"),
+                "total_paid": Decimal("0.00"),
+                "pending_to_collect": Decimal("0.00"),
+                "cumulative_debt": Decimal("0.00"),
+                # NEW — payment status breakdown
+                "paid_count": 0,
+                "partial_total": Decimal("0.00"),
+                "partial_count": 0,
+                "unpaid_total": Decimal("0.00"),
+                "unpaid_count": 0,
             }
 
         base_qs = SalesInvoice.objects.filter(
@@ -140,7 +150,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         zero = Value(Decimal("0.00"))
         field = DecimalField(max_digits=12, decimal_places=2)
 
-        # KPIs
         final_agg = base_qs.filter(status=SalesInvoiceStatus.FINAL).aggregate(
             total=Coalesce(Sum("subtotal_amount"), zero, output_field=field),
             count=Count("id"),
@@ -150,7 +159,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             count=Count("id"),
         )
 
-        # Monthly breakdown
         monthly_final = list(
             base_qs.filter(status=SalesInvoiceStatus.FINAL)
             .annotate(month=TruncMonth("date_issued"))
@@ -167,15 +175,12 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             .order_by("month")
         )
 
-        # Top clients (subtotal without tax)
         top_clients = list(
             base_qs.values("client__name")
             .annotate(total=Coalesce(Sum("subtotal_amount"), zero, output_field=field))
             .order_by("-total")[:10]
         )
 
-        # Pending to collect: total_amount (with taxes) for FINAL invoices
-        # minus total payments allocated to those invoices
         final_qs = base_qs.filter(status=SalesInvoiceStatus.FINAL)
         final_total_with_tax = final_qs.aggregate(
             total=Coalesce(Sum("total_amount"), zero, output_field=field),
@@ -194,8 +199,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
 
         pending_to_collect = final_total_with_tax - total_paid
 
-        # Cumulative debt: all FINAL invoices issued up to date_to that
-        # still have outstanding balance (regardless of date_from)
         all_final_qs = SalesInvoice.objects.filter(
             company=company,
             status=SalesInvoiceStatus.FINAL,
@@ -216,6 +219,33 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
 
         cumulative_debt = cumulative_total - cumulative_paid
 
+        # ── NEW: payment status breakdown (paid / partial / unpaid) ──
+        # Scoped to the selected period (date_from → date_to), final invoices only.
+        # These three queries power the three Collection Status KPI cards in the template.
+        paid_agg = base_qs.filter(
+            status=SalesInvoiceStatus.FINAL,
+            payment_status=InvoicePaymentStatus.PAID,
+        ).aggregate(
+            total=Coalesce(Sum("total_amount"), zero, output_field=field),
+            count=Count("id"),
+        )
+
+        partial_agg = base_qs.filter(
+            status=SalesInvoiceStatus.FINAL,
+            payment_status=InvoicePaymentStatus.PARTIAL,
+        ).aggregate(
+            total=Coalesce(Sum("total_amount"), zero, output_field=field),
+            count=Count("id"),
+        )
+
+        unpaid_agg = base_qs.filter(
+            status=SalesInvoiceStatus.FINAL,
+            payment_status=InvoicePaymentStatus.UNPAID,
+        ).aggregate(
+            total=Coalesce(Sum("total_amount"), zero, output_field=field),
+            count=Count("id"),
+        )
+
         return {
             "final_total": final_agg["total"],
             "final_count": final_agg["count"],
@@ -229,6 +259,12 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "total_paid": total_paid,
             "pending_to_collect": pending_to_collect,
             "cumulative_debt": cumulative_debt,
+            # NEW
+            "paid_count": paid_agg["count"],
+            "partial_total": partial_agg["total"],
+            "partial_count": partial_agg["count"],
+            "unpaid_total": unpaid_agg["total"],
+            "unpaid_count": unpaid_agg["count"],
         }
 
     # ── Production cost helpers ─────────────────────────────────────
@@ -247,7 +283,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
 
         config_ct = ContentType.objects.get_for_model(Configuration)
 
-        # Find tickets that had sessions completed in this period
         session_qs = ProductionItemSession.objects.filter(
             company=company,
             status=ProductionItemSessionStatus.DONE,
@@ -261,7 +296,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             )
         )
 
-        # Get distinct config IDs from tickets that point to a Configuration
         config_ids = list(
             ProductionTicket.objects.filter(
                 pk__in=ticket_ids_with_work,
@@ -270,14 +304,12 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             ).values_list("object_id", flat=True).distinct()
         )
 
-        # DB-level aggregate on the underlying amount column
         total_cost = Configuration.objects.filter(
             pk__in=config_ids,
         ).aggregate(
             total=Coalesce(Sum("total_cost"), zero, output_field=field),
         )["total"]
 
-        # Monthly cost breakdown
         monthly_data = []
         sessions_by_month = (
             session_qs
@@ -345,7 +377,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         sales_ct = ContentType.objects.get_for_model(SalesInvoice)
         purchase_ct = ContentType.objects.get_for_model(Invoice)
 
-        # ── Taxes billed (on SalesInvoices in the period) ──────────
         sales_invoice_ids = list(
             SalesInvoice.objects.filter(
                 company=company,
@@ -371,7 +402,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         billed = list(billed_qs)
         billed_total = sum(row["total_tax"] for row in billed)
 
-        # ── Taxes paid (on purchase Invoices in the period) ────────
         purchase_invoice_ids = list(
             Invoice.objects.filter(
                 company=company,
@@ -397,8 +427,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         paid = list(paid_qs)
         paid_total = sum(row["total_tax"] for row in paid)
 
-        # ── Per-tax balance (billed vs paid, net per tax type) ─────
-        balance_map = {}  # key: tax_name → {billed, paid, net}
+        balance_map = {}
 
         for row in billed:
             key = row["tax_type__tax_name"]
@@ -429,7 +458,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             entry["net"] = entry["billed_tax"] - entry["paid_tax"]
             balance.append(entry)
 
-        # Sort by absolute net descending so the biggest positions come first
         balance.sort(key=lambda x: abs(x["net"]), reverse=True)
 
         return {
@@ -452,6 +480,9 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
                 "count": 0,
                 "paid_total": Decimal("0.00"),
                 "paid_count": 0,
+                # NEW — split partial from unpaid
+                "partial_total": Decimal("0.00"),
+                "partial_count": 0,
                 "unpaid_total": Decimal("0.00"),
                 "unpaid_count": 0,
                 "monthly": [],
@@ -467,13 +498,11 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             due_date__lte=date_to,
         )
 
-        # Overall totals
         total_agg = base_qs.aggregate(
             total=Coalesce(Sum("total_amount"), zero, output_field=field),
             count=Count("id"),
         )
 
-        # By payment status
         paid_agg = base_qs.filter(
             payment_status=InvoicePaymentStatus.PAID,
         ).aggregate(
@@ -481,14 +510,23 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             count=Count("id"),
         )
 
-        unpaid_agg = base_qs.exclude(
-            payment_status=InvoicePaymentStatus.PAID,
+        # ── NEW: separate partial from unpaid ────────────────────────
+        # Previously these were combined with .exclude(PAID).
+        # Now each status gets its own query so the template can show them separately.
+        partial_agg = base_qs.filter(
+            payment_status=InvoicePaymentStatus.PARTIAL,
         ).aggregate(
             total=Coalesce(Sum("total_amount"), zero, output_field=field),
             count=Count("id"),
         )
 
-        # Monthly breakdown by due_date
+        unpaid_agg = base_qs.filter(
+            payment_status=InvoicePaymentStatus.UNPAID,
+        ).aggregate(
+            total=Coalesce(Sum("total_amount"), zero, output_field=field),
+            count=Count("id"),
+        )
+
         monthly = list(
             base_qs
             .annotate(month=TruncMonth("due_date"))
@@ -497,7 +535,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             .order_by("month")
         )
 
-        # Top providers (by total amount due in period)
         top_providers = list(
             base_qs
             .values("provider__name")
@@ -505,8 +542,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             .order_by("-total")[:10]
         )
 
-        # Outstanding providers: who we still owe money to (up to date_to)
-        # All unpaid/partial invoices with due_date <= date_to
         outstanding_qs = Invoice.objects.filter(
             company=company,
             due_date__lte=date_to,
@@ -522,7 +557,6 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             .order_by("-total_owed")[:15]
         )
 
-        # Cumulative purchase debt: total owed across all unpaid invoices up to date_to
         cumulative_purchase_debt = outstanding_qs.aggregate(
             total=Coalesce(Sum("total_amount"), zero, output_field=field),
             count=Count("id"),
@@ -533,6 +567,9 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "count": total_agg["count"],
             "paid_total": paid_agg["total"],
             "paid_count": paid_agg["count"],
+            # NEW
+            "partial_total": partial_agg["total"],
+            "partial_count": partial_agg["count"],
             "unpaid_total": unpaid_agg["total"],
             "unpaid_count": unpaid_agg["count"],
             "monthly": monthly,
@@ -545,50 +582,119 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
     @staticmethod
     def _compute_tax_periods(company, date_from, date_to):
         """
-        Find all TaxPeriods for this company that overlap with date_from→date_to,
-        plus the immediately preceding period for each rule found.
-        Returns a list of TaxPeriod objects ordered by date_from ascending.
+        Return TaxPeriod instances whose date range overlaps with the selected
+        period, plus the immediately preceding period for each rule so the
+        template can show carry-forward context.
         """
         if not company:
             return []
 
         from finance.models import TaxPeriod
 
-        # Periods that overlap with the selected range:
-        # overlap condition: period starts before date_to AND ends after date_from
-        overlapping = TaxPeriod.objects.filter(
-            company=company,
-            date_from__lte=date_to,
-            date_to__gte=date_from,
-            rule__tax_type__tax_name__icontains="IVA",
-        ).select_related("rule", "rule__tax_type").order_by("rule", "date_from")
-
-        # Collect the previous period for each rule
-        period_ids = set(overlapping.values_list("id", flat=True))
-        rules_seen = set()
-
-        for period in overlapping:
-            rule = period.rule
-            if rule.id in rules_seen:
-                continue
-            rules_seen.add(rule.id)
-
-            # Find the period immediately before the earliest overlapping one for this rule
-            earliest = overlapping.filter(rule=rule).order_by("date_from").first()
-            if earliest:
-                prev = (
-                    TaxPeriod.objects.filter(
-                        rule=rule,
-                        date_to__lt=earliest.date_from,
-                    )
-                    .order_by("-date_from")
-                    .first()
-                )
-                if prev:
-                    period_ids.add(prev.id)
-
         return list(
-            TaxPeriod.objects.filter(id__in=period_ids)
-            .select_related("rule", "rule__tax_type")
-            .order_by("rule__tax_type__tax_name", "date_from")
+            TaxPeriod.objects.filter(
+                company=company,
+                date_to__gte=date_from,
+                date_from__lte=date_to,
+                rule__tax_type__behavior="add",
+            )
+            .select_related("rule")
+            .order_by("date_from")
         )
+
+    # ── Accounts Receivable aging helpers ──────────────────────────
+
+    @staticmethod
+    def _compute_ar_aging(company):
+        """
+        What clients owe us, bucketed by due date.
+        Always rolling from TODAY — ignores the dashboard date range filter.
+        Buckets: 0-30 days, 31-60 days, 61-90 days.
+        """
+        if not company:
+            return {
+                "bucket_30": Decimal("0.00"),
+                "bucket_60": Decimal("0.00"),
+                "bucket_90": Decimal("0.00"),
+                "bucket_30_count": 0,
+                "bucket_60_count": 0,
+                "bucket_90_count": 0,
+            }
+
+        today = timezone.now().date()
+        zero = Value(Decimal("0.00"))
+        field = DecimalField(max_digits=12, decimal_places=2)
+
+        base_qs = SalesInvoice.objects.filter(
+            company=company,
+            status=SalesInvoiceStatus.FINAL,
+            due_date__isnull=False,
+        ).exclude(payment_status=InvoicePaymentStatus.PAID)
+
+        def bucket(date_from, date_to):
+            qs = base_qs.filter(due_date__gte=date_from, due_date__lte=date_to)
+            return qs.aggregate(
+                total=Coalesce(Sum("total_amount"), zero, output_field=field),
+                count=Count("id"),
+            )
+
+        b30 = bucket(today, today + timedelta(days=30))
+        b60 = bucket(today + timedelta(days=31), today + timedelta(days=60))
+        b90 = bucket(today + timedelta(days=61), today + timedelta(days=90))
+
+        return {
+            "bucket_30": b30["total"],
+            "bucket_60": b60["total"],
+            "bucket_90": b90["total"],
+            "bucket_30_count": b30["count"],
+            "bucket_60_count": b60["count"],
+            "bucket_90_count": b90["count"],
+        }
+
+    # ── Accounts Payable aging helpers ─────────────────────────────
+
+    @staticmethod
+    def _compute_ap_aging(company):
+        """
+        What we owe providers, bucketed by due date.
+        Always rolling from TODAY — ignores the dashboard date range filter.
+        Buckets: 0-30 days, 31-60 days, 61-90 days.
+        """
+        if not company:
+            return {
+                "bucket_30": Decimal("0.00"),
+                "bucket_60": Decimal("0.00"),
+                "bucket_90": Decimal("0.00"),
+                "bucket_30_count": 0,
+                "bucket_60_count": 0,
+                "bucket_90_count": 0,
+            }
+
+        today = timezone.now().date()
+        zero = Value(Decimal("0.00"))
+        field = DecimalField(max_digits=12, decimal_places=2)
+
+        base_qs = Invoice.objects.filter(
+            company=company,
+            due_date__isnull=False,
+        ).exclude(payment_status=InvoicePaymentStatus.PAID)
+
+        def bucket(date_from, date_to):
+            qs = base_qs.filter(due_date__gte=date_from, due_date__lte=date_to)
+            return qs.aggregate(
+                total=Coalesce(Sum("total_amount"), zero, output_field=field),
+                count=Count("id"),
+            )
+
+        b30 = bucket(today, today + timedelta(days=30))
+        b60 = bucket(today + timedelta(days=31), today + timedelta(days=60))
+        b90 = bucket(today + timedelta(days=61), today + timedelta(days=90))
+
+        return {
+            "bucket_30": b30["total"],
+            "bucket_60": b60["total"],
+            "bucket_90": b90["total"],
+            "bucket_30_count": b30["count"],
+            "bucket_60_count": b60["count"],
+            "bucket_90_count": b90["count"],
+        }

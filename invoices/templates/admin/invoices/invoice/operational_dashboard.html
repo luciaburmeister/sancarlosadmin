@@ -141,32 +141,20 @@
     margin-bottom: 24px;
   }
 
-  .od-kpi-grid--4 {
-    grid-template-columns: repeat(4, 1fr);
-  }
-
-  .od-kpi-grid--3 {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .od-kpi-grid--2 {
-    grid-template-columns: repeat(2, 1fr);
-  }
+  .od-kpi-grid--4 { grid-template-columns: repeat(4, 1fr); }
+  .od-kpi-grid--3 { grid-template-columns: repeat(3, 1fr); }
+  .od-kpi-grid--2 { grid-template-columns: repeat(2, 1fr); }
 
   @media(max-width:900px) {
     .od-kpi-grid--4,
     .od-kpi-grid--3,
-    .od-kpi-grid--2 {
-      grid-template-columns: repeat(2, 1fr);
-    }
+    .od-kpi-grid--2 { grid-template-columns: repeat(2, 1fr); }
   }
 
   @media(max-width:600px) {
     .od-kpi-grid--4,
     .od-kpi-grid--3,
-    .od-kpi-grid--2 {
-      grid-template-columns: 1fr;
-    }
+    .od-kpi-grid--2 { grid-template-columns: 1fr; }
   }
 
   .od-subsection-label {
@@ -348,17 +336,34 @@
   .od-client-bar span { font-size: .72rem; font-weight: 700; color: #fff; white-space: nowrap; }
   .od-client-amt { width: 100px; text-align: right; font-size: .82rem; font-weight: 600; flex-shrink: 0; }
 
-  .od-aging-note {
-    font-size: .85rem;
-    color: var(--od-text-sub);
-    margin-bottom: 16px;
-    padding: 10px 14px;
-    background: var(--od-bg);
-    border-radius: 8px;
-    border-left: 3px solid var(--od-teal-500);
+  .od-divider { border: none; border-top: 2px solid var(--od-border); margin: 36px 0; }
+
+  .od-export-btn {
+    margin-left: auto;
+    font-size: .82rem;
+    font-weight: 600;
+    padding: 7px 16px;
+    color: #fff;
+    border-radius: 10px;
+    text-decoration: none;
+    transition: transform .15s, box-shadow .15s;
+    white-space: nowrap;
   }
 
-  .od-divider { border: none; border-top: 2px solid var(--od-border); margin: 36px 0; }
+  .od-export-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--od-shadow-lg);
+    color: #fff;
+    text-decoration: none;
+  }
+
+  .od-export-btn--green {
+    background: linear-gradient(135deg, #10b981, #059669);
+  }
+
+  .od-export-btn--indigo {
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+  }
 </style>
 {% endblock %}
 
@@ -429,16 +434,19 @@
         <div class="od-kpi-accent"></div>
         <div class="od-kpi-label">{% trans "Collected" %}</div>
         <div class="od-kpi-value">€{{ invoicing.total_paid|euro_format }}</div>
-      </div>
-      <div class="od-kpi od-kpi--rose">
-        <div class="od-kpi-accent"></div>
-        <div class="od-kpi-label">{% trans "Pending (Period)" %}</div>
-        <div class="od-kpi-value">€{{ invoicing.pending_to_collect|euro_format }}</div>
+        <div class="od-kpi-sub">{{ invoicing.paid_count }} {% trans "invoice(s) fully paid" %}</div>
       </div>
       <div class="od-kpi od-kpi--amber">
         <div class="od-kpi-accent"></div>
-        <div class="od-kpi-label">{% trans "Cumulative Receivables" %}</div>
-        <div class="od-kpi-value">€{{ invoicing.cumulative_debt|euro_format }}</div>
+        <div class="od-kpi-label">{% trans "Partially Collected" %}</div>
+        <div class="od-kpi-value">€{{ invoicing.partial_total|euro_format }}</div>
+        <div class="od-kpi-sub">{{ invoicing.partial_count }} {% trans "invoice(s) partially paid" %}</div>
+      </div>
+      <div class="od-kpi od-kpi--rose">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Not Yet Collected" %}</div>
+        <div class="od-kpi-value">€{{ invoicing.unpaid_total|euro_format }}</div>
+        <div class="od-kpi-sub">{{ invoicing.unpaid_count }} {% trans "invoice(s) unpaid" %}</div>
       </div>
     </div>
 
@@ -494,22 +502,19 @@
         <div class="od-kpi-accent"></div>
         <div class="od-kpi-label">{% trans "Paid" %}</div>
         <div class="od-kpi-value">€{{ payment.paid_total|euro_format }}</div>
+        <div class="od-kpi-sub">{{ payment.paid_count }} {% trans "invoice(s) fully paid" %}</div>
+      </div>
+      <div class="od-kpi od-kpi--amber">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Partially Paid" %}</div>
+        <div class="od-kpi-value">€{{ payment.partial_total|euro_format }}</div>
+        <div class="od-kpi-sub">{{ payment.partial_count }} {% trans "invoice(s) partially paid" %}</div>
       </div>
       <div class="od-kpi od-kpi--rose">
         <div class="od-kpi-accent"></div>
-        <div class="od-kpi-label">{% trans "Unpaid / Partial" %}</div>
+        <div class="od-kpi-label">{% trans "Unpaid" %}</div>
         <div class="od-kpi-value">€{{ payment.unpaid_total|euro_format }}</div>
-      </div>
-      <div class="od-kpi od-kpi--blue">
-        <div class="od-kpi-accent"></div>
-        <div class="od-kpi-label">{% trans "Invoices" %}</div>
-        <div class="od-kpi-value">
-          <span style="color:var(--od-emerald-500)">{{ payment.paid_count }}</span>
-          <span style="font-size:.8rem;color:var(--od-text-sub);font-weight:500">{% trans "paid" %}</span>
-          +
-          <span style="color:var(--od-rose-500)">{{ payment.unpaid_count }}</span>
-          <span style="font-size:.8rem;color:var(--od-text-sub);font-weight:500">{% trans "pending" %}</span>
-        </div>
+        <div class="od-kpi-sub">{{ payment.unpaid_count }} {% trans "invoice(s) not yet paid" %}</div>
       </div>
     </div>
 
@@ -527,7 +532,7 @@
       </div>
       <div class="od-kpi od-kpi--rose">
         <div class="od-kpi-accent"></div>
-        <div class="od-kpi-label">{% trans "Providers with Debt" %}</div>
+        <div class="od-kpi-label">{% trans "Providers with Outstanding Payables" %}</div>
         <div class="od-kpi-value">{{ payment.outstanding_providers|length }}</div>
       </div>
     </div>
@@ -540,7 +545,7 @@
         </div>
       </div>
       <div class="od-panel">
-        <div class="od-panel-title">🏢 {% trans "Top Providers (by Due Amount)" %}</div>
+        <div class="od-panel-title">🏢 {% trans "Top Providers (by Amount We Owe)" %}</div>
         {% if payment.top_providers %}
         {% for prov in payment.top_providers %}
         {% with max_total=payment.top_providers.0.total %}
@@ -566,7 +571,7 @@
 
     <div class="od-table-wrap" style="margin-top:16px">
       <div class="od-table-header">
-        <h3>🔴 {% trans "Outstanding Debt by Provider" %}</h3>
+        <h3>🔴 {% trans "Outstanding Payables by Provider" %}</h3>
       </div>
       {% if payment.outstanding_providers %}
       <table class="od-table">
@@ -574,7 +579,7 @@
           <tr>
             <th>{% trans "Provider" %}</th>
             <th style="text-align:center">{% trans "Unpaid Invoices" %}</th>
-            <th style="text-align:right">{% trans "Total Owed" %}</th>
+            <th style="text-align:right">{% trans "Amount We Owe" %}</th>
           </tr>
         </thead>
         <tbody>
@@ -597,7 +602,7 @@
         </tbody>
         <tfoot>
           <tr style="border-top:2px solid var(--od-border)">
-            <td colspan="2" style="font-weight:700;padding:12px 16px">{% trans "Total Outstanding" %}</td>
+            <td colspan="2" style="font-weight:700;padding:12px 16px">{% trans "Total Outstanding Payables" %}</td>
             <td style="text-align:right;font-weight:800;padding:12px 16px;font-size:1rem;color:var(--od-rose-500)">
               €{{ payment.cumulative_debt|euro_format }}
             </td>
@@ -607,7 +612,7 @@
       {% else %}
       <div class="od-empty">
         <div class="od-empty-icon">✅</div>
-        <p>{% trans "No outstanding debt — all invoices are paid!" %}</p>
+        <p>{% trans "No outstanding payables — all invoices are paid!" %}</p>
       </div>
       {% endif %}
     </div>
@@ -615,7 +620,7 @@
 
   <hr class="od-divider">
 
-  <!-- ═══════════════════════════════════════════════════════════════ -->
+    <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- TAX BALANCE                                                     -->
   <!-- ═══════════════════════════════════════════════════════════════ -->
   <div class="od-section">
@@ -706,12 +711,10 @@
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- CASH POSITION                                                   -->
-  <!-- NEW SECTION — overall money in vs money out, all time          -->
   <!-- ═══════════════════════════════════════════════════════════════ -->
   <div class="od-section">
     <div class="od-section-title"><span class="icon">💵</span> {% trans "Cash Position" %}</div>
 
-    <!-- Money coming IN from clients -->
     <div class="od-subsection-label">📥 {% trans "Money In — Clients" %}</div>
     <div class="od-kpi-grid od-kpi-grid--2">
       <div class="od-kpi od-kpi--emerald">
@@ -728,7 +731,6 @@
       </div>
     </div>
 
-    <!-- Money going OUT to providers -->
     <div class="od-subsection-label">📤 {% trans "Money Out — Providers" %}</div>
     <div class="od-kpi-grid od-kpi-grid--2">
       <div class="od-kpi od-kpi--rose">
@@ -750,11 +752,15 @@
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- ACCOUNTS RECEIVABLE AGING                                       -->
-  <!-- NEW SECTION — what clients owe us, bucketed by due date        -->
-  <!-- Rolling from today — NOT affected by the date filter above     -->
   <!-- ═══════════════════════════════════════════════════════════════ -->
   <div class="od-section">
-    <div class="od-section-title"><span class="icon">📅</span> {% trans "Accounts Receivable — Aging" %}</div>
+    <div class="od-section-title">
+      <span class="icon">📅</span> {% trans "Accounts Receivable — Aging" %}
+      <a href="{% url 'admin:invoices_invoice_aging_export' %}?type=ar&company={{ selected_company.id }}"
+         class="od-export-btn od-export-btn--green">
+        ⬇️ {% trans "Export Excel" %}
+      </a>
+    </div>
 
     <div class="od-kpi-grid od-kpi-grid--3">
       <div class="od-kpi od-kpi--emerald">
@@ -782,11 +788,15 @@
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- ACCOUNTS PAYABLE AGING                                          -->
-  <!-- NEW SECTION — what we owe providers, bucketed by due date      -->
-  <!-- Rolling from today — NOT affected by the date filter above     -->
   <!-- ═══════════════════════════════════════════════════════════════ -->
   <div class="od-section">
-    <div class="od-section-title"><span class="icon">📆</span> {% trans "Accounts Payable — Aging" %}</div>
+    <div class="od-section-title">
+      <span class="icon">📆</span> {% trans "Accounts Payable — Aging" %}
+      <a href="{% url 'admin:invoices_invoice_aging_export' %}?type=ap&company={{ selected_company.id }}"
+         class="od-export-btn od-export-btn--indigo">
+        ⬇️ {% trans "Export Excel" %}
+      </a>
+    </div>
 
     <div class="od-kpi-grid od-kpi-grid--3">
       <div class="od-kpi od-kpi--emerald">
@@ -873,7 +883,6 @@
     const textColor = isDark ? '#94a3b8' : '#64748b';
     const euro = (v) => '€' + v.toLocaleString('es-ES', { minimumFractionDigits: 2 });
 
-    // ── Monthly Invoicing Chart ──
     const monthlyFinal = [
       {% for m in invoicing.monthly_final %}
       { label: "{{ m.month|date:'M Y' }}", amount: {{ m.total|unlocalize }} },
@@ -904,24 +913,19 @@
               data: allLabels.map(l => finalMap[l] || 0),
               backgroundColor: 'rgba(16, 185, 129, .7)',
               borderColor: '#059669',
-              borderWidth: 2,
-              borderRadius: 6,
-              borderSkipped: false,
+              borderWidth: 2, borderRadius: 6, borderSkipped: false,
             },
             {
               label: '{% trans "Pro Forma" %}',
               data: allLabels.map(l => proformaMap[l] || 0),
               backgroundColor: 'rgba(245, 158, 11, .5)',
               borderColor: '#d97706',
-              borderWidth: 2,
-              borderRadius: 6,
-              borderSkipped: false,
+              borderWidth: 2, borderRadius: 6, borderSkipped: false,
             },
           ]
         },
         options: {
-          responsive: true,
-          maintainAspectRatio: false,
+          responsive: true, maintainAspectRatio: false,
           plugins: {
             legend: { position: 'top', labels: { color: textColor, font: { family: 'Inter', weight: '600', size: 12 } } },
             tooltip: {
@@ -941,7 +945,6 @@
       });
     }
 
-    // ── Monthly Payments Due Chart ──
     const monthlyPayment = [
       {% for m in payment.monthly %}
       { label: "{{ m.month|date:'M Y' }}", amount: {{ m.total|unlocalize }} },
@@ -983,7 +986,6 @@
       });
     }
 
-    // ── Monthly Production Cost Chart ──
     const monthlyProd = [
       {% for m in production.monthly %}
       { label: "{{ m.month|date:'M Y' }}", amount: {{ m.total|unlocalize }} },

@@ -17,6 +17,7 @@ import unicodedata
 import re
 import uuid
 from payments.models import PaymentAllocation
+from payments.mixins import Payable
 import os
 
 class InvoiceGroup(models.Model):
@@ -66,7 +67,7 @@ def invoice_file_path(instance, filename):
     return f"invoices/uploads/{company_folder}/{provider_folder}/{unique_filename}"
 
 
-class Invoice(models.Model):
+class Invoice(Payable):
     invoice_number = models.CharField(max_length=30,blank=True, null=True,verbose_name=_("Invoice number")) #numero de factura
     date_issued = models.DateField(db_index=True,blank=True, null=True,verbose_name=_("Date issued")) 
     due_date = models.DateField(blank=True, null=True,verbose_name=_("Due date")) #fecha de vencimiento
@@ -680,7 +681,7 @@ class SalesInvoiceStatus(models.TextChoices):
     CANCELLED = "cancelled", _("Cancelled")
 
 
-class SalesInvoice(CompanyOwnedModel):
+class SalesInvoice(CompanyOwnedModel, Payable):
     status = models.CharField(
         max_length=20, 
         choices=SalesInvoiceStatus.choices, 

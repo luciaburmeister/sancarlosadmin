@@ -397,38 +397,47 @@ class ArcopayService:
                     token=token, start_date=start_date, products=products_param,
                 )
 
-        # --- Step 1: Discover products via GLOBAL ---
-        try:
-            global_products = _fetch("GLOBAL")
-        except Exception as e:
-            logger.error("Failed to discover products for account %s: %s", bank_account.pk, e)
-            return 0
-
-        logger.info(
-            "Account %s: discovered %d products via GLOBAL",
-            bank_account.pk, len(global_products),
-        )
-
-        # Upsert metadata and collect product names for step 2
-        product_names = []
-        for product_data in global_products:
-            product_name = product_data.get("product", "")
-            if product_name:
-                product_names.append(product_name)
-
-            BankAccount.upsert_from_arcopay(
-                company=bank_account.company,
-                product_data=product_data,
-                token=token,
-                consent_id=bank_account.nuek_consent_id,
+        # --- Step 1: Discover products via GLOBAL (skip if already known) ---
+        if bank_account.nuek_product_id:
+            # Products already discovered — skip the GLOBAL call to avoid
+            # hitting Arcopay's rate limit unnecessarily.
+            product_names = [p.strip() for p in bank_account.nuek_product_id.split(",") if p.strip()]
+            logger.info(
+                "Account %s: skipping GLOBAL discovery, using known products: %s",
+                bank_account.pk, product_names,
             )
+        else:
+            try:
+                global_products = _fetch("GLOBAL")
+            except Exception as e:
+                logger.error("Failed to discover products for account %s: %s", bank_account.pk, e)
+                return 0
 
             logger.info(
-                "  Product %s — balance=%s, currency=%s",
-                product_name,
-                product_data.get("balance", "?"),
-                product_data.get("currency", "?"),
+                "Account %s: discovered %d products via GLOBAL",
+                bank_account.pk, len(global_products),
             )
+
+            # Upsert metadata and collect product names for step 2
+            product_names = []
+            for product_data in global_products:
+                product_name = product_data.get("product", "")
+                if product_name:
+                    product_names.append(product_name)
+
+                BankAccount.upsert_from_arcopay(
+                    company=bank_account.company,
+                    product_data=product_data,
+                    token=token,
+                    consent_id=bank_account.nuek_consent_id,
+                )
+
+                logger.info(
+                    "  Product %s — balance=%s, currency=%s",
+                    product_name,
+                    product_data.get("balance", "?"),
+                    product_data.get("currency", "?"),
+                )
 
         # --- Step 2: Fetch transactions for each specific product ---
         total = 0

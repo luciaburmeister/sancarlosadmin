@@ -2,10 +2,12 @@
 import logging
 
 from django.contrib import admin
+from django.shortcuts import get_object_or_404, redirect
+from django.contrib import messages
 from django.urls import path
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
-from unfold.decorators import display
+from unfold.decorators import action, display
 
 from banking.models import BankReconciliation, BankTransaction, ReconciliationStatus
 from banking.views import (
@@ -48,6 +50,8 @@ class BankTransactionAdmin(ModelAdmin):
     list_select_related = ("bank_account",)
     ordering = ("-transaction_date", "-imported_at")
     list_per_page = 30
+
+    actions_detail = ["run_matcher_detail_action"]
 
     def get_urls(self):
         custom_urls = [
@@ -101,6 +105,52 @@ class BankTransactionAdmin(ModelAdmin):
     )
     def get_reconciliation_label(self, obj):
         return obj.reconciliation_status
+
+    @action(
+        description=_("Run Matcher"),
+        url_path="run-matcher",
+        icon="compare_arrows",
+    )
+    def run_matcher_detail_action(self, request, object_id: int):
+        from banking.services.transaction_matching import TransactionMatcher
+
+        txn = get_object_or_404(BankTransaction, pk=object_id)
+
+        # Don't re-run if already reconciled
+        if txn.reconciliation_status == ReconciliationStatus.RECONCILED:
+            messages.warning(
+                request,
+                _("This transaction is already reconciled."),
+            )
+            return redirect(request.META.get("HTTP_REFERER"))
+
+        # Delete any existing unconfirmed suggestion so we can re-run
+        BankReconciliation.objects.filter(
+            bank_transaction=txn, is_confirmed=False,
+        ).delete()
+
+        try:
+            matcher = TransactionMatcher(txn)
+            recon = matcher.run()
+            if recon.suggested_allocations:
+                messages.success(
+                    request,
+                    _("Matcher found %(count)d matching document(s). Review the suggestion in Bank Reconciliations.")
+                    % {"count": len(recon.suggested_allocations)},
+                )
+            else:
+                messages.info(
+                    request,
+                    _("Matcher ran but found no matching documents. A reconciliation record was created for manual review."),
+                )
+        except Exception as e:
+            logger.exception("Error running matcher for transaction %s", object_id)
+            messages.error(
+                request,
+                _("Error running matcher: %(error)s") % {"error": str(e)},
+            )
+
+        return redirect(request.META.get("HTTP_REFERER"))
 
 
 @admin.register(BankReconciliation)

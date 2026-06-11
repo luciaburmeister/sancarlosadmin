@@ -1,16 +1,15 @@
-from django.db.models import DecimalField, Q, Sum, Value, OuterRef, Subquery
+from django.db.models import DecimalField, Sum, Value, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 
 from decimal import Decimal
-
+from management.models import ProjectFile
 from django.contrib import admin
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
-from unfold.admin import ModelAdmin, TabularInline, StackedInline
+from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action, display
-from .models import ProjectFile, ProjectFileStatus
 from sales.models import Quote, QuoteStatus, DeliveryOrder
 from production.models import ProductionTicket
 from invoices.models import SalesInvoice, Invoice
@@ -18,6 +17,9 @@ from invoices.views.invoice.project_file_wizard_views import ProjectFileInvoiceW
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.models import Configuration, ConfigurationStatus
+from unfold.contrib.filters.admin import (
+    AutocompleteSelectMultipleFilter
+)
 
 class QuoteInline(TabularInline):
     model = Quote
@@ -79,8 +81,8 @@ class DirectConfigurationInline(TabularInline):
 
 @admin.register(ProjectFile)
 class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["reference", "name", "client", "status", "start_date", "company", "invoicing_status"]
-    list_filter = ["status", "company", "created_at"]
+    list_display = ["reference", "name", "client", "status", "total_amount", "start_date","invoicing_status","company"]
+    list_filter = ["status", ("company",AutocompleteSelectMultipleFilter), "created_at"]
     search_fields = ["reference", "name", "client__name"]
     autocomplete_fields = ["client", "company"]
     list_select_related = ["client","company"]
@@ -215,6 +217,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return format_html(
             '<span style="color: #9ca3af;">0%</span>'
         )
+
 
     @admin.display(description=_("Invoicing Summary"))
     def invoicing_summary_display(self, obj):

@@ -1,0 +1,19 @@
+"""Shared types and constants for transaction matching."""
+from dataclasses import dataclass, field
+from decimal import Decimal
+
+
+# Tolerance for "close" amount matching (2%)
+AMOUNT_TOLERANCE_PERCENT = Decimal("0.02")
+
+
+@dataclass
+class MatchResult:
+    """Result of the amount-matching step."""
+    documents: list = field(default_factory=list)
+    unmatched_amount: Decimal = Decimal("0.00")
+    confidence: str = "none"  # "exact", "close", or "none"
+
+    @property
+    def has_match(self) -> bool:
+        return len(self.documents) > 0

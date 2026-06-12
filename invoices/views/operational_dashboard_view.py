@@ -8,7 +8,6 @@ from django.db.models import (
     Sum,
     Value,
     Count,
-    Q,
 )
 from django.db.models.functions import Coalesce, TruncMonth
 from django.utils import timezone
@@ -95,7 +94,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             production_data = self._compute_production_costs(selected_company, date_from, date_to)
             tax_data = self._compute_tax_summary(selected_company, date_from, date_to)
             payment_data = self._compute_payment_invoicing(selected_company, date_from, date_to)
-            cash_data = self._compute_cash_position(selected_company)
+            cash_data = self._compute_tax_periods(selected_company, date_from, date_to)
             ar_aging_data = self._compute_ar_aging(selected_company)
             ap_aging_data = self._compute_ap_aging(selected_company)
             cache.set(cache_key, (invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data), _CACHE_TTL)
@@ -111,10 +110,8 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "production": production_data,
             "taxes": tax_data,
             "payment": payment_data,
+            "tax_periods": cash_data,
             "today": today,
-            "cash": cash_data,
-            "ar_aging": ar_aging_data,
-            "ap_aging": ap_aging_data,
         })
         return ctx
 
@@ -582,65 +579,28 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "cumulative_debt_count": cumulative_purchase_debt["count"],
         }
 
-    # ── Cash position helpers ───────────────────────────────────────
-
     @staticmethod
-    def _compute_cash_position(company):
+    def _compute_tax_periods(company, date_from, date_to):
         """
-        Four numbers showing the overall money position.
-        Uses conditional aggregation — only 2 DB queries instead of 4.
-        Q() allows filtering inside Sum() so we split paid/unpaid in one shot.
+        Return TaxPeriod instances whose date range overlaps with the selected
+        period, plus the immediately preceding period for each rule so the
+        template can show carry-forward context.
         """
         if not company:
-            return {
-                "collected_from_clients": Decimal("0.00"),
-                "still_owed_by_clients": Decimal("0.00"),
-                "paid_to_providers": Decimal("0.00"),
-                "still_owe_to_providers": Decimal("0.00"),
-            }
+            return []
 
-        zero = Value(Decimal("0.00"))
-        field = DecimalField(max_digits=12, decimal_places=2)
+        from finance.models import TaxPeriod
 
-        # Query 1 — all final sales invoices, split by payment status in one go
-        sales_agg = SalesInvoice.objects.filter(
-            company=company,
-            status=SalesInvoiceStatus.FINAL,
-        ).aggregate(
-            collected=Coalesce(
-                Sum("total_amount", filter=Q(payment_status=InvoicePaymentStatus.PAID)),
-                zero,
-                output_field=field,
-            ),
-            owed=Coalesce(
-                Sum("total_amount", filter=~Q(payment_status=InvoicePaymentStatus.PAID)),
-                zero,
-                output_field=field,
-            ),
+        return list(
+            TaxPeriod.objects.filter(
+                company=company,
+                date_to__gte=date_from,
+                date_from__lte=date_to,
+                rule__tax_type__behavior="add",
+            )
+            .select_related("rule")
+            .order_by("date_from")
         )
-
-        # Query 2 — all purchase invoices, split by payment status in one go
-        invoice_agg = Invoice.objects.filter(
-            company=company,
-        ).aggregate(
-            paid_out=Coalesce(
-                Sum("total_amount", filter=Q(payment_status=InvoicePaymentStatus.PAID)),
-                zero,
-                output_field=field,
-            ),
-            still_owe=Coalesce(
-                Sum("total_amount", filter=~Q(payment_status=InvoicePaymentStatus.PAID)),
-                zero,
-                output_field=field,
-            ),
-        )
-
-        return {
-            "collected_from_clients": sales_agg["collected"],
-            "still_owed_by_clients": sales_agg["owed"],
-            "paid_to_providers": invoice_agg["paid_out"],
-            "still_owe_to_providers": invoice_agg["still_owe"],
-        }
 
     # ── Accounts Receivable aging helpers ──────────────────────────
 

@@ -924,12 +924,30 @@ class SalesInvoiceItem(models.Model):
         verbose_name=_("Quote name"),
         help_text=_("project_name of the originating quote at invoice creation time; '.' when vehicle is hidden."),
     )
+    reference = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name=_("Reference"),
+        help_text=_("Item reference. Auto-filled from inventory item code when applicable."),
+    )
 
     def save(self, *args, **kwargs):
         if self.invoice.status == SalesInvoiceStatus.FINAL and self.pk:
             from django.core.exceptions import ValidationError
             raise ValidationError(_("Cannot edit items in a finalized invoice."))
-            
+
+        # Auto-populate reference from inventory item code when source is an inventory item
+        if not self.reference and self.source_id and self.source_id.startswith("inv_item_"):
+            try:
+                from sales.models import QuoteInventoryItem
+                obj_id = self.source_id.split("_", 2)[2]
+                qi = QuoteInventoryItem.objects.select_related("inventory_item").get(pk=obj_id)
+                if qi.inventory_item_id:
+                    self.reference = qi.inventory_item.code
+            except (QuoteInventoryItem.DoesNotExist, ValueError, IndexError):
+                pass
+
         self.discount_amount = (self.unit_price * self.quantity) * (self.discount_percentage / Decimal("100"))
         self.line_total = (self.unit_price * self.quantity) - self.discount_amount
         super().save(*args, **kwargs)

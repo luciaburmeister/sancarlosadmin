@@ -33,7 +33,7 @@ def fetch_email_invoices_task(config_id=None):
         processor = EmailInvoiceProcessor(config)
         try:
             processor.connect()
-            count = processor.fetch_new_invoices(only_unseen=False)
+            count = processor.fetch_new_invoices()
             processor.disconnect()
             total_count += count
         except Exception as e:

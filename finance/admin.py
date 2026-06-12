@@ -8,25 +8,18 @@ from unfold.contrib.filters.admin import RangeDateFilter
 from core.admin.company_admin import CompanyRestrictedAdmin
 
 from .models import TaxScheduleRule, TaxPeriod, TaxPayment, TaxPeriodStatus
-from .signals import advance_all_rules
+from .models import advance_all_rules
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Inlines
-# ─────────────────────────────────────────────────────────────────────────────
 
 class TaxPaymentInline(TabularInline):
     model = TaxPayment
     extra = 0
     tab = True
     fields = ["payment_date", "amount_paid", "reference", "notes"]
-    verbose_name = _("Pago")
-    verbose_name_plural = _("Pagos")
+    verbose_name = _("Payment")
+    verbose_name_plural = _("Payments")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TaxScheduleRule
-# ─────────────────────────────────────────────────────────────────────────────
 
 @admin.register(TaxScheduleRule)
 class TaxScheduleRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -45,18 +38,18 @@ class TaxScheduleRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 "is_active",
             ),
         }),
-        (_("Definición del período"), {
+        (_("Period Definition"), {
             "description": _(
-                "Define la duración de cada período de acumulación. "
-                "Al guardar, el primer período se crea automáticamente desde la fecha de inicio."
+                "Define how long each accumulation period lasts. "
+                "On save, the first period is created automatically from the start date."
             ),
             "fields": (
                 ("period_length", "period_unit"),
             ),
         }),
-        (_("Vencimiento del pago"), {
+        (_("Payment Deadline"), {
             "description": _(
-                "Define cuándo vence el pago después de que cierre el período."
+                "Define when payment is due after the period closes."
             ),
             "fields": (
                 ("payment_day", "meses_hasta_vencimiento"),
@@ -64,26 +57,22 @@ class TaxScheduleRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
         }),
     )
 
-    @action(description=_("Ver períodos"), icon="date_range")
+    @action(description=_("View Periods"), icon="date_range")
     def view_periods_action(self, request, object_id: int):
         url = reverse("admin:finance_taxperiod_changelist") + f"?rule__id__exact={object_id}"
         return redirect(url)
 
-    @display(description=_("Frecuencia"))
+    @display(description=_("Frequency"))
     def get_frequency_label(self, obj):
-        return f"Cada {obj.period_length} {obj.get_period_unit_display().lower()}"
+        return _("Every %(length)s %(unit)s") % {"length": obj.period_length, "unit": obj.get_period_unit_display().lower()}
 
     @display(
-        description=_("Activa"),
+        description=_("Active"),
         label={True: "success", False: "danger"},
     )
     def get_active_label(self, obj):
         return obj.is_active
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TaxPeriod
-# ─────────────────────────────────────────────────────────────────────────────
 
 @admin.register(TaxPeriod)
 class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -98,7 +87,7 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
     actions_row    = ["compute_row_action"]
 
     fieldsets = (
-        (_("Período"), {
+        (_("Period"), {
             "fields": (
                 ("company", "rule"),
                 ("date_from", "date_to", "due_date"),
@@ -106,10 +95,10 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 "notes",
             ),
         }),
-        (_("Resumen fiscal"), {
+        (_("Tax Summary"), {
             "description": _(
-                "Usa la acción 'Calcular' para acumular los importes desde las facturas. "
-                "Impuesto repercutido = ventas · Impuesto soportado = compras · Impuesto a ingresar = diferencia."
+                "Use the Compute action to aggregate amounts from invoices. "
+                "Tax collected = sales · Tax paid = purchases · Net = difference."
             ),
             "fields": (
                 ("tax_collected", "tax_paid", "tax_net"),
@@ -119,7 +108,7 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
 
     @display(
-        description=_("Estado"),
+        description=_("Status"),
         ordering="status",
         label={
             TaxPeriodStatus.OPEN:            "info",
@@ -131,32 +120,32 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def get_status_label(self, obj):
         return obj.status
 
-    @action(description=_("Calcular importes"), icon="calculate")
+    @action(description=_("Compute tax amounts"), icon="calculate")
     def compute_action(self, request, object_id: int):
         period = TaxPeriod.objects.get(pk=object_id)
         period.compute(save=True)
         self.message_user(
             request,
-            _(f"Repercutido: {period.tax_collected} · Soportado: {period.tax_paid} · A ingresar: {period.tax_net}")
+            _(f"Collected: {period.tax_collected} · Paid: {period.tax_paid} · Net: {period.tax_net}")
         )
         return redirect(reverse("admin:finance_taxperiod_change", args=[object_id]))
 
-    @action(description=_("Calcular"), icon="calculate")
+    @action(description=_("Compute"), icon="calculate")
     def compute_row_action(self, request, object_id: int):
         period = TaxPeriod.objects.get(pk=object_id)
         period.compute(save=True)
-        self.message_user(request, _("Importes calculados correctamente."))
+        self.message_user(request, _("Tax amounts computed successfully."))
         return redirect(reverse("admin:finance_taxperiod_changelist"))
 
-    @action(description=_("Marcar como pendiente de pago"), icon="schedule")
+    @action(description=_("Mark as pending payment"), icon="schedule")
     def mark_pending_action(self, request, object_id: int):
         period = TaxPeriod.objects.get(pk=object_id)
         if period.status == TaxPeriodStatus.OPEN:
             period.status = TaxPeriodStatus.PENDING_PAYMENT
             period.save(update_fields=["status"])
-            self.message_user(request, _("Período marcado como pendiente de pago."))
+            self.message_user(request, _("Period marked as pending payment."))
         else:
-            self.message_user(request, _("Solo los períodos abiertos pueden marcarse como pendientes."), level="warning")
+            self.message_user(request, _("Only open periods can be marked as pending."), level="warning")
         return redirect(reverse("admin:finance_taxperiod_change", args=[object_id]))
 
     def get_queryset(self, request):
@@ -165,9 +154,6 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return super().get_queryset(request)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TaxPayment
-# ─────────────────────────────────────────────────────────────────────────────
 
 @admin.register(TaxPayment)
 class TaxPaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -177,7 +163,7 @@ class TaxPaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
     autocomplete_fields = ["company", "period"]
 
     fieldsets = (
-        (_("Detalles del pago"), {
+        (_("Payment Details"), {
             "fields": (
                 ("company", "period"),
                 ("payment_date", "amount_paid"),

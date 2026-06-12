@@ -8,79 +8,104 @@ from company.models import CompanyOwnedModel
 
 
 class PeriodUnit(models.TextChoices):
-    DAYS   = "days",   _("Días")
-    MONTHS = "months", _("Meses")
-    YEARS  = "years",  _("Años")
+    DAYS   = "days",   _("Days")
+    MONTHS = "months", _("Months")
+    YEARS  = "years",  _("Years")
 
 
 class TaxPeriodStatus(models.TextChoices):
-    OPEN            = "open",            _("Abierto")
-    PENDING_PAYMENT = "pending_payment", _("Pendiente de pago")
-    PAID            = "paid",            _("Pagado")
-    OVERDUE         = "overdue",         _("Vencido")
+    OPEN            = "open",            _("Open")
+    PENDING_PAYMENT = "pending_payment", _("Pending Payment")
+    PAID            = "paid",            _("Paid")
+    OVERDUE         = "overdue",         _("Overdue")
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# TaxScheduleRule
-# ─────────────────────────────────────────────────────────────────────────────
 
 class TaxScheduleRule(Timestampable, CompanyOwnedModel):
     name = models.CharField(
         max_length=150,
-        verbose_name=_("Nombre de la regla"),
-        help_text=_("Ej: 'IVA Trimestral', 'IRPF Mensual'"),
+        verbose_name=_("Rule Name"),
+        help_text=_("E.g. 'Quarterly VAT', 'Monthly IRPF'"),
     )
     tax_type = models.ForeignKey(
         "invoices.TaxType",
         on_delete=models.PROTECT,
         related_name="schedule_rules",
-        verbose_name=_("Tipo de impuesto"),
-        help_text=_("Las facturas con este tipo de impuesto se acumularán automáticamente en los períodos."),
+        verbose_name=_("Tax Type"),
+        help_text=_("Invoices with this tax type will be accumulated automatically into periods."),
     )
     start_date = models.DateField(
-        verbose_name=_("Fecha de inicio"),
-        help_text=_("Fecha en la que empieza el primer período de acumulación."),
+        verbose_name=_("Start Date"),
+        help_text=_("Date on which the first accumulation period begins."),
         default="2026-01-01",
     )
     period_length = models.PositiveIntegerField(
-        verbose_name=_("Duración del período"),
-        help_text=_("Número de unidades que dura cada período. Ej: 3 + Meses = trimestral, 1 + Meses = mensual."),
+        verbose_name=_("Period Length"),
+        help_text=_("Number of units per period. E.g. 3 + Months = quarterly, 1 + Month = monthly."),
         validators=[MinValueValidator(1)],
     )
     period_unit = models.CharField(
         max_length=10,
         choices=PeriodUnit.choices,
         default=PeriodUnit.MONTHS,
-        verbose_name=_("Unidad del período"),
+        verbose_name=_("Period Unit"),
     )
     payment_day = models.PositiveIntegerField(
-        verbose_name=_("Día de pago"),
-        help_text=_("Día del mes en que vence el pago. Ej: 20 → vence el día 20."),
+        verbose_name=_("Payment Day"),
+        help_text=_("Day of the month the payment is due. E.g. 20 → due on the 20th."),
         validators=[MinValueValidator(1), MaxValueValidator(31)],
     )
     meses_hasta_vencimiento = models.PositiveIntegerField(
         default=1,
-        verbose_name=_("Meses hasta el vencimiento"),
+        verbose_name=_("Months Until Due"),
         help_text=_(
-            "Meses desde el cierre del período hasta el vencimiento. "
-            "Ej: IVA trimestral — el período cierra el 31 de marzo, "
-            "con 1 mes hasta vencimiento el pago vence el 20 de abril."
+            "Months from the period close to the payment due date. "
+            "E.g. Quarterly VAT — period closes March 31, "
+            "with 1 month offset the payment is due April 20."
         ),
         validators=[MinValueValidator(1)],
     )
     is_active = models.BooleanField(
         default=True,
-        verbose_name=_("Activa"),
-        help_text=_("Las reglas inactivas no generan nuevos períodos."),
+        verbose_name=_("Active"),
+        help_text=_("Inactive rules will not generate new periods."),
     )
 
     class Meta:
-        verbose_name = _("Regla fiscal")
-        verbose_name_plural = _("Reglas fiscales")
+        verbose_name = _("Tax Schedule Rule")
+        verbose_name_plural = _("Tax Schedule Rules")
         ordering = ["company", "name"]
 
     def __str__(self):
         return f"{self.name} ({self.company})"
+
+    # Fields that trigger a full regeneration of OPEN periods when changed
+    REGEN_FIELDS = {"start_date", "period_length", "period_unit", "payment_day", "meses_hasta_vencimiento"}
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+
+        # Detect changed fields before saving
+        changed = set()
+        if not is_new:
+            try:
+                old = TaxScheduleRule.objects.get(pk=self.pk)
+                changed = {f for f in self.REGEN_FIELDS if getattr(old, f) != getattr(self, f)}
+            except TaxScheduleRule.DoesNotExist:
+                pass
+
+        super().save(*args, **kwargs)
+
+        if not self.is_active:
+            return
+
+        # On create or key field change: wipe OPEN periods and regenerate
+        if is_new or (changed & self.REGEN_FIELDS):
+            TaxPeriod.objects.filter(
+                rule=self,
+                status=TaxPeriodStatus.OPEN,
+            ).delete()
+
+        self.generate_up_to_today()
 
     def _compute_due_date(self, period_end):
         """Calculate due date from period end date."""
@@ -142,58 +167,48 @@ class TaxScheduleRule(Timestampable, CompanyOwnedModel):
             start = end + relativedelta(days=1)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TaxPeriod
-# ─────────────────────────────────────────────────────────────────────────────
-
 class TaxPeriod(Timestampable, CompanyOwnedModel):
-    rule      = models.ForeignKey(TaxScheduleRule, on_delete=models.PROTECT, related_name="periods", verbose_name=_("Regla fiscal"))
-    date_from = models.DateField(verbose_name=_("Inicio del período"))
-    date_to   = models.DateField(verbose_name=_("Fin del período"))
-    due_date  = models.DateField(verbose_name=_("Fecha de vencimiento"))
+    rule      = models.ForeignKey(TaxScheduleRule, on_delete=models.PROTECT, related_name="periods", verbose_name=_("Tax Schedule Rule"))
+    date_from = models.DateField(verbose_name=_("Period Start"))
+    date_to   = models.DateField(verbose_name=_("Period End"))
+    due_date  = models.DateField(verbose_name=_("Due Date"))
     status    = models.CharField(
         max_length=20,
         choices=TaxPeriodStatus.choices,
         default=TaxPeriodStatus.OPEN,
-        verbose_name=_("Estado"),
+        verbose_name=_("Status"),
     )
 
     tax_collected = MoneyField(
         max_digits=14, decimal_places=2, default=0, default_currency="EUR",
-        verbose_name=_("Impuesto repercutido"),
-        help_text=_("Total acumulado de impuesto de facturas de venta en este período."),
+        verbose_name=_("Tax Collected"),
+        help_text=_("Total tax aggregated from sales invoices in this period."),
     )
     tax_paid = MoneyField(
         max_digits=14, decimal_places=2, default=0, default_currency="EUR",
-        verbose_name=_("Impuesto soportado"),
-        help_text=_("Total acumulado de impuesto de facturas de compra en este período."),
+        verbose_name=_("Tax Paid"),
+        help_text=_("Total tax aggregated from purchase invoices in this period."),
     )
     tax_net = MoneyField(
         max_digits=14, decimal_places=2, default=0, default_currency="EUR",
-        verbose_name=_("Impuesto a ingresar"),
-        help_text=_("Impuesto repercutido − Impuesto soportado. Importe a pagar a Hacienda."),
+        verbose_name=_("Tax Net"),
+        help_text=_("Tax Collected − Tax Paid. Amount owed to the tax authority."),
     )
     accumulated_credit = MoneyField(
         max_digits=14, decimal_places=2, default=0, default_currency="EUR",
-        verbose_name=_("Saldo a compensar"),
-        help_text=_(
-            "IVA negativo acumulado de períodos anteriores del mismo año natural. "
-            "Hacienda lo descuenta de futuros resultados positivos."
-        ),
+        verbose_name=_("Accumulated Credit"),
+        help_text=_("Negative tax accumulated from prior periods of the same rule. Offset against future positive results."),
     )
     net_after_credit = MoneyField(
         max_digits=14, decimal_places=2, default=0, default_currency="EUR",
-        verbose_name=_("Neto a pagar"),
-        help_text=_(
-            "Impuesto a ingresar una vez aplicado el saldo a compensar acumulado. "
-            "Si es negativo, el exceso se arrastra al siguiente período del año."
-        ),
+        verbose_name=_("Net to Pay"),
+        help_text=_("Tax net after applying accumulated credit. If negative, the excess carries forward to the next period."),
     )
-    notes = models.TextField(blank=True, verbose_name=_("Notas"))
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
 
     class Meta:
-        verbose_name = _("Período fiscal")
-        verbose_name_plural = _("Períodos fiscales")
+        verbose_name = _("Tax Period")
+        verbose_name_plural = _("Tax Periods")
         ordering = ["-date_from"]
         unique_together = [["rule", "date_from"]]
 
@@ -286,37 +301,84 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
             ])
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# TaxPayment
-# ─────────────────────────────────────────────────────────────────────────────
-
 class TaxPayment(Timestampable, CompanyOwnedModel):
-    period       = models.ForeignKey(TaxPeriod, on_delete=models.PROTECT, related_name="payments", verbose_name=_("Período fiscal"))
-    payment_date = models.DateField(verbose_name=_("Fecha de pago"))
+    period       = models.ForeignKey(TaxPeriod, on_delete=models.PROTECT, related_name="payments", verbose_name=_("Tax Period"))
+    payment_date = models.DateField(verbose_name=_("Payment Date"))
     amount_paid  = MoneyField(
         max_digits=14, decimal_places=2, default_currency="EUR",
-        verbose_name=_("Importe pagado"),
+        verbose_name=_("Amount Paid"),
     )
     reference = models.CharField(
         max_length=200, blank=True,
-        verbose_name=_("Referencia"),
-        help_text=_("Referencia bancaria, número de Modelo, o cualquier identificador externo."),
+        verbose_name=_("Reference"),
+        help_text=_("Bank reference, Modelo number, or any external identifier."),
     )
-    notes = models.TextField(blank=True, verbose_name=_("Notas"))
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
 
     class Meta:
-        verbose_name = _("Pago fiscal")
-        verbose_name_plural = _("Pagos fiscales")
+        verbose_name = _("Tax Payment")
+        verbose_name_plural = _("Tax Payments")
         ordering = ["-payment_date"]
 
     def __str__(self):
-        return f"{self.amount_paid} el {self.payment_date}"
+        return f"{self.amount_paid} on {self.payment_date}"
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        # Auto-marcar período como pagado si los pagos cubren el neto
+        # Auto-mark period as paid if total payments cover the net
         from django.db.models import Sum
         total = TaxPayment.objects.filter(period=self.period).aggregate(t=Sum("amount_paid"))["t"] or 0
         if total >= self.period.tax_net.amount:
             self.period.status = TaxPeriodStatus.PAID
             self.period.save(update_fields=["status"])
+
+
+def advance_all_rules():
+    """
+    - Cleans up misaligned OPEN/OVERDUE periods per rule
+    - Generates missing periods up to today for all active rules
+    - Marks overdue periods
+    """
+    from django.utils import timezone
+    from dateutil.relativedelta import relativedelta
+
+    today = timezone.now().date()
+
+    for rule in TaxScheduleRule.objects.filter(is_active=True):
+        _clean_misaligned_periods(rule)
+        rule.generate_up_to_today()
+
+    TaxPeriod.objects.filter(
+        due_date__lt=today,
+        status__in=[TaxPeriodStatus.OPEN, TaxPeriodStatus.PENDING_PAYMENT],
+    ).update(status=TaxPeriodStatus.OVERDUE)
+
+
+def _clean_misaligned_periods(rule):
+    """
+    Delete OPEN and OVERDUE periods that don't align with the rule's
+    current start_date and frequency. PAID and PENDING_PAYMENT are never touched.
+    """
+    from dateutil.relativedelta import relativedelta
+    from django.utils import timezone
+
+    candidates = list(
+        TaxPeriod.objects.filter(
+            rule=rule,
+            status__in=[TaxPeriodStatus.OPEN, TaxPeriodStatus.OVERDUE],
+        )
+    )
+    if not candidates:
+        return
+
+    today = timezone.now().date()
+    valid_starts = set()
+    start = rule.start_date
+    while start <= today:
+        end = start + relativedelta(**{rule.period_unit: rule.period_length}) - relativedelta(days=1)
+        valid_starts.add(start)
+        start = end + relativedelta(days=1)
+
+    stale_ids = [p.pk for p in candidates if p.date_from not in valid_starts]
+    if stale_ids:
+        TaxPeriod.objects.filter(pk__in=stale_ids).delete()

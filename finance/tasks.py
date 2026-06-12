@@ -15,15 +15,12 @@ def advance_and_compute_periods(self):
        so importes are always up to date without manual intervention
     """
     from .models import TaxPeriod, TaxPeriodStatus
-    from .signals import advance_all_rules
+    from .models import advance_all_rules
 
     today = timezone.now().date()
 
-    # Step 1 & 2: generate missing periods + flag overdue
     advance_all_rules()
 
-    # Step 3: compute ALL periods that aren't paid yet
-    # Includes open current periods so dashboard always shows fresh numbers
     periods_to_compute = TaxPeriod.objects.filter(
         status__in=[
             TaxPeriodStatus.OPEN,

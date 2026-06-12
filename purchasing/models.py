@@ -201,7 +201,6 @@ class PurchaseOrderItem(Timestampable):
 class PurchaseOrderReceipt(Timestampable, CompanyOwnedModel):
     number = models.CharField(
         max_length=50,
-        unique=True,
         blank=True,
         verbose_name=_("Receipt Number")
     )
@@ -234,6 +233,12 @@ class PurchaseOrderReceipt(Timestampable, CompanyOwnedModel):
         verbose_name = _("PO Receipt")
         verbose_name_plural = _("PO Receipts")
         ordering = ["-received_at", "-number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "number"],
+                name="uniq_po_receipt_company_number",
+            ),
+        ]
 
     def clean(self):
         super().clean()

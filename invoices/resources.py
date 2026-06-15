@@ -414,6 +414,7 @@ class SalesInvoiceItemResource(resources.ModelResource):
             'client',
             'company',
             'description',
+            'reference',
             'quantity',
             'unit_price_amount',
             'line_total_amount',

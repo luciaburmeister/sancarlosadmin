@@ -1,0 +1,500 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Review Reconciliation" %}{% endblock %}
+
+{% block content %}
+<style>
+    .review-container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    /* ── Transaction header ─────────────────────────── */
+    .txn-header {
+        background: var(--bg-primary, #fff);
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .txn-header h2 {
+        font-size: 1.35rem;
+        font-weight: 700;
+        margin: 0 0 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .txn-meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .txn-meta-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+    }
+
+    .txn-meta-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--font-subtle-light, #888);
+    }
+
+    .txn-meta-value {
+        font-size: 0.95rem;
+        font-weight: 500;
+    }
+
+    .txn-amount {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--primary-600, oklch(57% .125 190));
+    }
+
+    /* ── Status badges ──────────────────────────────── */
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        padding: 0.25rem 0.65rem;
+        border-radius: 100px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+    }
+
+    .badge-exact {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .badge-close {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .badge-none {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    .badge-selected {
+        background: oklch(57% .125 190 / 0.12);
+        color: var(--primary-700, oklch(49% .105 190));
+    }
+
+    /* ── Combination cards ──────────────────────────── */
+    .combo-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .combo-section h3 {
+        font-size: 1rem;
+        font-weight: 600;
+        margin: 0 0 1rem;
+        color: var(--font-default-light, #333);
+    }
+
+    .combo-card {
+        border: 2px solid var(--border-default, #e2e8f0);
+        border-radius: 12px;
+        margin-bottom: 1rem;
+        overflow: hidden;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        cursor: pointer;
+    }
+
+    .combo-card:hover {
+        border-color: var(--primary-300, oklch(72% .125 190));
+    }
+
+    .combo-card.active {
+        border-color: var(--primary-600, oklch(57% .125 190));
+        box-shadow: 0 0 0 3px oklch(57% .125 190 / 0.1);
+    }
+
+    .combo-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.875rem 1.25rem;
+        background: var(--bg-secondary, #f8fafc);
+        border-bottom: 1px solid var(--border-default, #e2e8f0);
+    }
+
+    .combo-header-left {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+
+    .combo-radio {
+        width: 18px;
+        height: 18px;
+        accent-color: var(--primary-600, oklch(57% .125 190));
+        cursor: pointer;
+    }
+
+    .combo-label {
+        font-size: 0.9rem;
+        font-weight: 600;
+    }
+
+    .combo-summary {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        font-size: 0.85rem;
+    }
+
+    .combo-total {
+        font-weight: 700;
+    }
+
+    .combo-match {
+        color: #16a34a;
+    }
+
+    .combo-mismatch {
+        color: #dc2626;
+    }
+
+    /* ── Invoice table ──────────────────────────────── */
+    .combo-body {
+        max-height: 0;
+        overflow: hidden;
+        transition: max-height 0.35s ease;
+    }
+
+    .combo-card.active .combo-body {
+        max-height: 600px;
+    }
+
+    .invoice-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+    }
+
+    .invoice-table th {
+        text-align: left;
+        padding: 0.625rem 1.25rem;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--font-subtle-light, #888);
+        border-bottom: 1px solid var(--border-default, #e2e8f0);
+    }
+
+    .invoice-table td {
+        padding: 0.625rem 1.25rem;
+        border-bottom: 1px solid var(--border-default, #f1f5f9);
+    }
+
+    .invoice-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .invoice-table .doc-link {
+        color: var(--primary-600, oklch(57% .125 190));
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .invoice-table .doc-link:hover {
+        text-decoration: underline;
+    }
+
+    .invoice-table .amount {
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+    }
+
+    .invoice-table tfoot td {
+        font-weight: 700;
+        border-top: 2px solid var(--border-default, #e2e8f0);
+        padding-top: 0.75rem;
+    }
+
+    /* ── Actions ────────────────────────────────────── */
+    .review-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--border-default, #e2e8f0);
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        border: none;
+        transition: all 0.15s ease;
+        text-decoration: none;
+    }
+
+    .btn-approve {
+        background: var(--primary-600, oklch(57% .125 190));
+        color: #fff;
+    }
+
+    .btn-approve:hover {
+        background: var(--primary-700, oklch(49% .105 190));
+    }
+
+    .btn-skip {
+        background: transparent;
+        border: 1px solid var(--border-default, #e2e8f0);
+        color: var(--font-default-light, #666);
+    }
+
+    .btn-skip:hover {
+        background: #fee2e2;
+        border-color: #fca5a5;
+        color: #991b1b;
+    }
+
+    .btn-back {
+        background: transparent;
+        border: 1px solid var(--border-default, #e2e8f0);
+        color: var(--font-default-light, #333);
+    }
+
+    .btn-back:hover {
+        background: var(--bg-secondary, #f8fafc);
+    }
+
+    /* ── No suggestions ─────────────────────────────── */
+    .empty-state {
+        text-align: center;
+        padding: 3rem;
+        color: var(--font-subtle-light, #888);
+    }
+
+    .empty-state .material-symbols-outlined {
+        font-size: 48px;
+        margin-bottom: 0.5rem;
+        opacity: 0.4;
+    }
+
+    /* ── Already confirmed ──────────────────────────── */
+    .confirmed-banner {
+        background: #dcfce7;
+        border: 1px solid #bbf7d0;
+        border-radius: 10px;
+        padding: 1rem 1.25rem;
+        margin-bottom: 1.5rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        color: #166534;
+        font-weight: 500;
+    }
+</style>
+
+<div class="review-container">
+
+    <!-- Transaction header -->
+    <div class="txn-header">
+        <h2>
+            <span class="material-symbols-outlined">receipt_long</span>
+            {% trans "Review Reconciliation" %}
+        </h2>
+        <div class="txn-meta">
+            <div class="txn-meta-item">
+                <span class="txn-meta-label">{% trans "Transaction" %}</span>
+                <span class="txn-meta-value">#{{ txn.pk }}</span>
+            </div>
+            <div class="txn-meta-item">
+                <span class="txn-meta-label">{% trans "Date" %}</span>
+                <span class="txn-meta-value">{{ txn.transaction_date }}</span>
+            </div>
+            <div class="txn-meta-item">
+                <span class="txn-meta-label">{% trans "Amount" %}</span>
+                <span class="txn-amount">{{ txn.amount }}</span>
+            </div>
+            <div class="txn-meta-item">
+                <span class="txn-meta-label">{% trans "Description" %}</span>
+                <span class="txn-meta-value">{{ txn.description|default:"—" }}</span>
+            </div>
+            <div class="txn-meta-item">
+                <span class="txn-meta-label">{% trans "Counterparty" %}</span>
+                <span class="txn-meta-value">{{ txn.counterparty_name|default:"—" }}</span>
+            </div>
+            <div class="txn-meta-item">
+                <span class="txn-meta-label">{% trans "Bank Account" %}</span>
+                <span class="txn-meta-value">{{ txn.bank_account }}</span>
+            </div>
+        </div>
+    </div>
+
+    {% if recon.is_confirmed %}
+    <div class="confirmed-banner">
+        <span class="material-symbols-outlined">check_circle</span>
+        {% trans "This reconciliation has already been confirmed." %}
+    </div>
+    {% endif %}
+
+    {% if combinations %}
+    <form method="post" action="{{ approve_url }}" id="reviewForm">
+        {% csrf_token %}
+
+        <div class="combo-section">
+            <h3>
+                {{ combo_count }} {% trans "matching combination(s) found" %}
+            </h3>
+
+            {% for combo in combinations %}
+            <div class="combo-card {% if combo.is_selected %}active{% endif %}"
+                 onclick="selectCombo({{ combo.index }})"
+                 id="combo-{{ combo.index }}">
+
+                <div class="combo-header">
+                    <div class="combo-header-left">
+                        <input type="radio"
+                               name="selected_combination"
+                               value="{{ combo.index }}"
+                               class="combo-radio"
+                               id="radio-{{ combo.index }}"
+                               {% if combo.is_selected %}checked{% endif %}>
+                        <span class="combo-label">
+                            {% trans "Combination" %} {{ combo.index|add:1 }} — {{ combo.count }} {% trans "document(s)" %}
+                        </span>
+                        <span class="badge badge-{{ combo.confidence }}">
+                            {{ combo.confidence }}
+                        </span>
+                    </div>
+                    <div class="combo-summary">
+                        <span class="combo-total
+                            {% if combo.total == txn_amount %}combo-match{% else %}combo-mismatch{% endif %}">
+                            {{ combo.total|floatformat:2 }} €
+                        </span>
+                    </div>
+                </div>
+
+                <div class="combo-body">
+                    <table class="invoice-table">
+                        <thead>
+                            <tr>
+                                <th>{% trans "Invoice" %}</th>
+                                <th>{% trans "Date" %}</th>
+                                <th>{% trans "Counterparty" %}</th>
+                                <th style="text-align: right;">{% trans "Remaining" %}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for doc in combo.docs %}
+                            <tr>
+                                <td>
+                                    {% if doc.change_url %}
+                                    <a href="{{ doc.change_url }}" class="doc-link" target="_blank"
+                                       onclick="event.stopPropagation();">
+                                        {{ doc.number }}
+                                    </a>
+                                    {% else %}
+                                    {{ doc.number }}
+                                    {% endif %}
+                                </td>
+                                <td>{{ doc.date|default:"—" }}</td>
+                                <td>{{ doc.counterparty }}</td>
+                                <td class="amount">{{ doc.remaining|floatformat:2 }} €</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="3" style="text-align: right;">{% trans "Total" %}</td>
+                                <td class="amount">{{ combo.total|floatformat:2 }} €</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        {% if not recon.is_confirmed %}
+        <div class="review-actions">
+            <div style="display: flex; gap: 0.75rem;">
+                <a href="{{ back_url }}" class="btn btn-back">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
+                    {% trans "Back" %}
+                </a>
+            </div>
+            <div style="display: flex; gap: 0.75rem;">
+                <button type="submit" formaction="{{ skip_url }}" class="btn btn-skip"
+                        onclick="return confirm('{% trans "Are you sure you want to skip this suggestion?" %}');">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
+                    {% trans "Skip" %}
+                </button>
+                <button type="submit" class="btn btn-approve">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">check</span>
+                    {% trans "Approve" %}
+                </button>
+            </div>
+        </div>
+        {% else %}
+        <div class="review-actions">
+            <a href="{{ back_url }}" class="btn btn-back">
+                <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
+                {% trans "Back to Transactions" %}
+            </a>
+        </div>
+        {% endif %}
+    </form>
+
+    {% else %}
+    <div class="empty-state">
+        <span class="material-symbols-outlined">search_off</span>
+        <p>{% trans "No matching combinations were found for this transaction." %}</p>
+    </div>
+
+    <div class="review-actions">
+        <a href="{{ back_url }}" class="btn btn-back">
+            <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
+            {% trans "Back to Transactions" %}
+        </a>
+        {% if not recon.is_confirmed %}
+        <form method="post" action="{{ skip_url }}" style="display: inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-skip">
+                <span class="material-symbols-outlined" style="font-size: 18px;">delete</span>
+                {% trans "Delete Suggestion" %}
+            </button>
+        </form>
+        {% endif %}
+    </div>
+    {% endif %}
+
+</div>
+
+<script>
+    function selectCombo(index) {
+        // Update radio buttons
+        document.getElementById('radio-' + index).checked = true;
+
+        // Update active card styling
+        document.querySelectorAll('.combo-card').forEach(function(card) {
+            card.classList.remove('active');
+        });
+        document.getElementById('combo-' + index).classList.add('active');
+    }
+</script>
+{% endblock %}

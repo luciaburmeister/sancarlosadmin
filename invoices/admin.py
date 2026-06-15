@@ -560,7 +560,7 @@ class SalesInvoiceItemInline(StackedInline):
                     "unit_price"),
                     ("discount_percentage", "discount_amount"), 
                     "description",
-                    ("line_total", "source_id"),
+                    ("reference", "line_total", "source_id"),
                 )
             },
         ),

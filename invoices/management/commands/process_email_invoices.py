@@ -12,17 +12,11 @@ class Command(BaseCommand):
             default=90,
             help='Number of days to look back (default: 90)'
         )
-        parser.add_argument(
-            '--all',
-            action='store_true',
-            help='Fetch all emails (ignore UNSEEN flag)'
-        )
 
     def handle(self, *args, **options):
         days = options['days']
-        only_unseen = not options['all']
         
-        self.stdout.write(f"Starting email invoice processing (lookback: {days} days, only_unseen: {only_unseen})...")
+        self.stdout.write(f"Starting email invoice processing (lookback: {days} days)...")
         
         configs = CompanyEmailConfig.objects.all()
         if not configs.exists():
@@ -34,7 +28,7 @@ class Command(BaseCommand):
             processor = EmailInvoiceProcessor(config)
             try:
                 processor.connect()
-                count = processor.fetch_new_invoices(days=days, only_unseen=only_unseen)
+                count = processor.fetch_new_invoices(days=days)
                 processor.disconnect()
                 
                 if count > 0:

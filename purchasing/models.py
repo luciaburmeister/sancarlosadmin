@@ -26,7 +26,6 @@ class PurchaseOrderStatus(models.TextChoices):
 class PurchaseOrder(Timestampable, CompanyOwnedModel):
     number = models.CharField(
         max_length=50,
-        unique=True,
         blank=True,
         verbose_name=_("PO Number")
     )
@@ -92,6 +91,12 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         verbose_name = _("Purchase Order")
         verbose_name_plural = _("Purchase Orders")
         ordering = ["-date_ordered", "-number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "number"],
+                name="uniq_purchase_order_company_number",
+            ),
+        ]
         permissions = [
             ("can_approve_purchase_order", _("Can approve Purchase Orders")),
             ("can_receive_directly", _("Can receive items directly")),
@@ -196,7 +201,6 @@ class PurchaseOrderItem(Timestampable):
 class PurchaseOrderReceipt(Timestampable, CompanyOwnedModel):
     number = models.CharField(
         max_length=50,
-        unique=True,
         blank=True,
         verbose_name=_("Receipt Number")
     )
@@ -229,6 +233,12 @@ class PurchaseOrderReceipt(Timestampable, CompanyOwnedModel):
         verbose_name = _("PO Receipt")
         verbose_name_plural = _("PO Receipts")
         ordering = ["-received_at", "-number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "number"],
+                name="uniq_po_receipt_company_number",
+            ),
+        ]
 
     def clean(self):
         super().clean()

@@ -83,37 +83,13 @@ class Asset(CompanyOwnedModel):
 
     history = HistoricalRecords()
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._original_working_zone = self.current_working_zone
-
     def save(self, *args, **kwargs):
-        if self.pk:
-            if self.current_working_zone != self._original_working_zone:
-                self.create_transaction_on_change()
         if self.data:
             self.data = {
                 k.strip().lower().replace(" ", "_"): v
                 for k, v in self.data.items()
             }
         super().save(*args, **kwargs)
-        self._original_working_zone = self.current_working_zone
-
-    def create_transaction_on_change(self):
-        to_zone = self.current_working_zone
-        AssetTransaction.objects.create(
-            asset=self,
-            company=self.company,
-            from_zone=self._original_working_zone,
-            to_zone=to_zone,
-            transaction_type=TransactionTypeChoices.MOVEMENT,
-            date=timezone.now(),
-            project_file=to_zone.project_file if to_zone else None,
-            notes=_("Auto-generated movement from {from_z} to {to_z}").format(
-                from_z=self._original_working_zone or 'None',
-                to_z=to_zone or 'None'
-            )
-        )
 
     class Meta:
         verbose_name = _("Asset")

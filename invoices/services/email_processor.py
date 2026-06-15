@@ -28,12 +28,14 @@ class EmailInvoiceProcessor:
         if self.mail:
             self.mail.logout()
 
-    def fetch_new_invoices(self, days=90, only_unseen=True):
-        """Fetches emails from the last X days and processes their attachments."""
-        search_criteria = []
+    def fetch_new_invoices(self, days=90):
+        """Fetches emails from the last X days and processes their attachments.
         
-        if only_unseen:
-            search_criteria.append('UNSEEN')
+        Deduplication is handled by the file_hash unique constraint on
+        IncomingInvoice, so we fetch all emails (seen or unseen) and
+        skip attachments that have already been imported.
+        """
+        search_criteria = []
             
         if days:
             date_since = (timezone.now() - timezone.timedelta(days=days)).strftime("%d-%b-%Y")
@@ -48,6 +50,14 @@ class EmailInvoiceProcessor:
 
         email_ids = response[0].split()
         processed_count = 0
+
+        # Pre-load known hashes for this company within the same date
+        # window for O(1) duplicate checks instead of hitting the DB per attachment.
+        hash_qs = IncomingInvoice.objects.filter(company=self.config.company)
+        if days:
+            date_since = timezone.now() - timezone.timedelta(days=days)
+            hash_qs = hash_qs.filter(email_date__gte=date_since)
+        existing_hashes = set(hash_qs.values_list('file_hash', flat=True))
 
         for e_id in email_ids:
             status, msg_data = self.mail.fetch(e_id, '(BODY.PEEK[])')
@@ -70,7 +80,7 @@ class EmailInvoiceProcessor:
                     content = part.get_payload(decode=True)
                     file_hash = self.calculate_hash(content)
 
-                    if not IncomingInvoice.objects.filter(file_hash=file_hash).exists():
+                    if file_hash not in existing_hashes:
                         # Extract and decode sender email
                         from_header = self.decode_mime_header(msg.get('From', ''))
                         _, sender_email = parseaddr(from_header)
@@ -94,6 +104,7 @@ class EmailInvoiceProcessor:
                             original_filename=filename[:500],
                         )
                         invoice.file.save(filename, ContentFile(content), save=True)
+                        existing_hashes.add(file_hash)
                         processed_count += 1
 
         
@@ -102,18 +113,13 @@ class EmailInvoiceProcessor:
         return processed_count
 
     def is_invoice(self, filename, subject=""):
-        """Check if a file is an invoice based on filename, extension, and email subject."""
-        name_lower = filename.lower()
-        subject_lower = str(subject).lower()
+        """Check if a file is a potential invoice based on file extension.
         
-        # Common invoice keywords
-        invoice_keywords = ['invoice', 'factura', 'bill', 'receipt']
-        
-        is_pdf = name_lower.endswith('.pdf')
-        has_keyword_in_filename = any(keyword in name_lower for keyword in invoice_keywords)
-        has_keyword_in_subject = any(keyword in subject_lower for keyword in invoice_keywords)
-        
-        return is_pdf and (has_keyword_in_filename or has_keyword_in_subject)
+        We accept all PDF attachments rather than filtering by keywords,
+        because many providers don't include 'factura'/'invoice' in
+        their filenames or subjects, which caused missed imports.
+        """
+        return filename.lower().endswith('.pdf')
 
     def decode_mime_header(self, s):
         """Decodes MIME-encoded headers (e.g. subject, filename)."""

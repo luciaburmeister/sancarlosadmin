@@ -26,7 +26,7 @@ class TaxScheduleRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_filter         = ["company", "is_active", "period_unit"]
     search_fields       = ["name", "tax_type__tax_name"]
     autocomplete_fields = ["company", "tax_type"]
-    actions_row         = ["view_periods_action"]
+    actions_row = ["view_periods_action"]
 
     fieldsets = (
         (_("General"), {
@@ -121,6 +121,23 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
     def get_status_label(self, obj):
         return obj.status
+
+    @action(description=_("Compute tax amounts"), icon="calculate")
+    def compute_action(self, request, object_id: int):
+        period = TaxPeriod.objects.get(pk=object_id)
+        period.compute(save=True)
+        self.message_user(
+            request,
+            _(f"Collected: {period.tax_collected} · Paid: {period.tax_paid} · Net: {period.tax_net}")
+        )
+        return redirect(reverse("admin:finance_taxperiod_change", args=[object_id]))
+
+    @action(description=_("Compute"), icon="calculate")
+    def compute_row_action(self, request, object_id: int):
+        period = TaxPeriod.objects.get(pk=object_id)
+        period.compute(save=True)
+        self.message_user(request, _("Tax amounts computed successfully."))
+        return redirect(reverse("admin:finance_taxperiod_changelist"))
 
     @action(description=_("Mark as pending payment"), icon="schedule")
     def mark_pending_action(self, request, object_id: int):

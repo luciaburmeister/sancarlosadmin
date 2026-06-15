@@ -189,6 +189,8 @@ class SalesInvoiceService:
                 quantity=item.quantity,
                 unit_price=item.unit_price,
                 discount_percentage=item.discount_percentage,
+                source_id=item.source_id,
+                reference=item.reference,
             )
             
         # Copy taxes

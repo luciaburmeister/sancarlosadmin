@@ -137,7 +137,11 @@ class BankReconciliation(models.Model):
         default=list,
         blank=True,
         verbose_name=_("Suggested Allocations"),
-        help_text=_("List of document suggestions from the auto-matcher. Format: [{'content_type': 'invoice', 'object_id': 5}]. Works for any document type: invoices, expenses, payroll, etc.")
+        help_text=_(
+            "List of matching combinations found by the auto-matcher. "
+            "Each entry: {'allocations': [...], 'confidence': 'exact', 'is_selected': bool}. "
+            "The first entry with is_selected=True is the primary suggestion."
+        ),
     )
     unmatched_amount = MoneyField(
         max_digits=12,

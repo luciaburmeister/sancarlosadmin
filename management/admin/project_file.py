@@ -2,7 +2,7 @@ from django.db.models import DecimalField, Sum, Value, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 
 from decimal import Decimal
-from management.models import ProjectFile
+from management.models import ProjectFile, ResourcePlanning
 from django.contrib import admin
 from django.shortcuts import redirect
 from django.urls import path, reverse
@@ -20,6 +20,7 @@ from configurator.models import Configuration, ConfigurationStatus
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter
 )
+
 
 class QuoteInline(TabularInline):
     model = Quote
@@ -79,6 +80,16 @@ class DirectConfigurationInline(TabularInline):
     def get_queryset(self, request):
         return super().get_queryset(request).filter(quote__isnull=True)
 
+class ResourcePlanningInline(TabularInline):
+    model = ResourcePlanning
+    extra = 0
+    tab = True
+    tab_title = _("Resource Planning")
+    fields = ["planning_type", "resource_content_type", "resource_object_id", "start", "end", "status", "notes"]
+    readonly_fields = []
+    autocomplete_fields = ["planning_type"]
+
+
 @admin.register(ProjectFile)
 class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ["reference", "name", "client", "status", "total_amount", "start_date","invoicing_status","company"]
@@ -95,7 +106,8 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
         SalesInvoiceInline,
         ProductionTicketInline,
         DeliveryOrderInline,
-        PurchaseInvoiceInline
+        PurchaseInvoiceInline,
+        ResourcePlanningInline,
     ]
 
     actions_row = ["create_invoice_row_action"]

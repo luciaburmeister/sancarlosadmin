@@ -138,6 +138,16 @@ class TaxScheduleRule(Timestampable, CompanyOwnedModel):
         )
         return period
 
+    def compute_all_periods(self):
+        """
+        Compute all periods for this rule in chronological order.
+        Ensures accumulated_credit is always correct since each
+        period depends on the tax_net of all prior periods.
+        """
+        periods = TaxPeriod.objects.filter(rule=self).order_by("date_from")
+        for period in periods:
+            period.compute(save=True)
+
     def generate_up_to_today(self):
         """
         Generate ALL missing periods from start_date up to and including
@@ -228,11 +238,13 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
 
         tax_type = self.rule.tax_type
 
-        # IVA repercutido — facturas de venta
+        # Tax collected — final sales invoices only (proforma excluded as not fiscally valid)
+        from invoices.models import SalesInvoiceStatus
         sales_ct = ContentType.objects.get_for_model(SalesInvoice)
         sales_ids = list(SalesInvoice.objects.filter(
             company=self.company,
             date_issued__range=(self.date_from, self.date_to),
+            status=SalesInvoiceStatus.FINAL,
         ).values_list("id", flat=True))
 
         collected = Decimal("0.00")
@@ -248,11 +260,13 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
             if result is not None:
                 collected = Decimal(str(result.amount if hasattr(result, "amount") else result))
 
-        # IVA soportado — facturas de compra
+        # Tax paid — approved purchase invoices only
+        from invoices.models import ConfirmationStatus
         purchase_ct = ContentType.objects.get_for_model(Invoice)
         purchase_ids = list(Invoice.objects.filter(
             company=self.company,
             date_issued__range=(self.date_from, self.date_to),
+            confirmation_status=ConfirmationStatus.APPROVED,
         ).values_list("id", flat=True))
 
         paid = Decimal("0.00")

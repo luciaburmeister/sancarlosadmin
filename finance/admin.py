@@ -135,29 +135,25 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     def get_urls(self):
         from django.urls import path
-        from .views import export_tax_periods_excel
+        from .views import TaxPeriodExportView
         urls = super().get_urls()
         custom = [
             path(
                 "export/",
-                self.admin_site.admin_view(export_tax_periods_excel),
+                self.admin_site.admin_view(TaxPeriodExportView.as_view()),
                 name="finance_taxperiod_export",
             ),
         ]
         return custom + urls
 
-    @action(description=_("Export to Excel"), icon="download")
+    @action(description=_("Export"), icon="download")
     def export_excel_action(self, request):
         params = request.GET.urlencode()
         url = reverse("admin:finance_taxperiod_export")
         return redirect(f"{url}?{params}")
 
-    @action(description=_("Compute All"), icon="calculate")
+    @action(description=_("Compute All Periods"), icon="calculate")
     def compute_all_action(self, request):
-        """
-        Compute all periods for all active rules in chronological order.
-        Ensures accumulated_credit is always correct.
-        """
         total = 0
         for rule in TaxScheduleRule.objects.filter(is_active=True):
             rule.compute_all_periods()
@@ -166,7 +162,6 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return redirect(reverse("admin:finance_taxperiod_changelist"))
 
     def get_queryset(self, request):
-        # Only advance/flag on list load — computation handled by Celery or manual button
         advance_all_rules()
         return super().get_queryset(request)
 

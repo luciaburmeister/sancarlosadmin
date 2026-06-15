@@ -808,7 +808,7 @@ class SalesInvoice(CompanyOwnedModel, Payable):
             tax.calculated_amount = res['tax_amount']
             tax.save(update_fields=['base_amount', 'calculated_amount'])
                 
-            amt = abs(tax.calculated_amount.amount)
+            amt = Decimal(str(tax.calculated_amount.amount))
             
             if tax.tax_type.behavior == "add":
                 total_tax += amt

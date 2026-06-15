@@ -8,11 +8,11 @@
   <div class="flex items-center justify-between">
     <h1 class="text-xl font-bold">{% trans "Resource Planning" %} — {{ day|date:"l, d M Y" }}</h1>
     <div class="flex items-center gap-2">
-      <a href="?day={{ prev_day|date:'Y-m-d' }}{% if selected_planning_type %}&planning_type={{ selected_planning_type }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}"
+      <a href="?day={{ prev_day|date:'Y-m-d' }}{% if selected_company %}&company={{ selected_company.id }}{% endif %}{% if selected_planning_type %}&planning_type={{ selected_planning_type }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}"
          class="rounded-lg border border-base-200 bg-white px-3 py-1.5 text-sm hover:bg-base-50 transition-colors">
         ← {% trans "Previous" %}
       </a>
-      <a href="?day={{ next_day|date:'Y-m-d' }}{% if selected_planning_type %}&planning_type={{ selected_planning_type }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}"
+      <a href="?day={{ next_day|date:'Y-m-d' }}{% if selected_company %}&company={{ selected_company.id }}{% endif %}{% if selected_planning_type %}&planning_type={{ selected_planning_type }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}"
          class="rounded-lg border border-base-200 bg-white px-3 py-1.5 text-sm hover:bg-base-50 transition-colors">
         {% trans "Next" %} →
       </a>
@@ -27,6 +27,21 @@
         <input type="date" name="day" value="{{ day|date:'Y-m-d' }}"
                class="rounded-lg border border-base-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
       </div>
+
+      {% if show_company_filter %}
+      <div>
+        <label class="block text-xs font-medium text-base-500 mb-1">{% trans "Company" %}</label>
+        <select name="company"
+                class="rounded-lg border border-base-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+          <option value="">{% trans "All companies" %}</option>
+          {% for c in companies %}
+            <option value="{{ c.id }}" {% if selected_company and selected_company.id == c.id %}selected{% endif %}>
+              {{ c.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
 
       <div>
         <label class="block text-xs font-medium text-base-500 mb-1">{% trans "Planning Type" %}</label>

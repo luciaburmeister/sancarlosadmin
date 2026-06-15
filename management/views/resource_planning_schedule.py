@@ -9,6 +9,7 @@ from django.views.generic import TemplateView
 from django.core.exceptions import PermissionDenied
 from unfold.views import UnfoldModelAdminViewMixin
 
+from core.admin.company_access import get_user_companies
 from management.models import ResourcePlanning, ResourcePlanningType, ResourcePlanningStatus
 
 STEP_MINUTES = 30
@@ -34,12 +35,6 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
     permission_required = ("management.view_resourceplanning",)
     template_name = "admin/management/resourceplanning/schedule.html"
 
-    def _get_company(self):
-        employee = getattr(self.request.user, "employee_profile", None)
-        if employee and getattr(employee, "company_id", None):
-            return employee.company
-        return getattr(self.request.user, "company", None)
-
     def _grid(self, start_t: time, end_t: time):
         start_dt = datetime.combine(timezone.localdate(), start_t)
         end_dt = datetime.combine(timezone.localdate(), end_t)
@@ -53,11 +48,28 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
 
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
-        company = self._get_company()
-        if not company:
+        user = self.request.user
+
+        # Get companies the user can access (superuser → all)
+        user_companies = get_user_companies(user)
+        if not user_companies.exists():
             raise PermissionDenied("User has no company")
 
-        # Parse filters from GET params
+        companies = list(user_companies.order_by("name"))
+
+        # Company filter — from GET param or default to first company
+        company_id = self.request.GET.get("company")
+        if company_id:
+            try:
+                selected_company = user_companies.get(pk=int(company_id))
+            except (ValueError, user_companies.model.DoesNotExist):
+                selected_company = companies[0]
+        else:
+            # For non-superusers with one company, auto-select it
+            # For superusers, show all unless filtered
+            selected_company = companies[0] if len(companies) == 1 else None
+
+        # Parse day filter
         day_str = self.request.GET.get("day")
         if day_str:
             try:
@@ -79,11 +91,16 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             ResourcePlanning.objects
             .select_related("project_file", "planning_type", "resource_content_type")
             .filter(
-                company=company,
                 start__lt=end_of_window,
                 end__gt=start_of_window,
             )
         )
+
+        # Scope to user's companies
+        if selected_company:
+            qs = qs.filter(company=selected_company)
+        else:
+            qs = qs.filter(company__in=user_companies)
 
         if planning_type_id:
             qs = qs.filter(planning_type_id=planning_type_id)
@@ -145,10 +162,15 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             for key in resource_keys
         ]
 
-        # Get filter options
-        planning_types = list(
-            ResourcePlanningType.objects.filter(company=company, is_active=True).order_by("name")
-        )
+        # Get filter options — planning types across accessible companies
+        if selected_company:
+            planning_types = list(
+                ResourcePlanningType.objects.filter(company=selected_company, is_active=True).order_by("name")
+            )
+        else:
+            planning_types = list(
+                ResourcePlanningType.objects.filter(company__in=user_companies, is_active=True).order_by("name")
+            )
 
         statuses = ResourcePlanningStatus.choices
 
@@ -170,5 +192,8 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             statuses=statuses,
             selected_status=status_filter,
             has_data=bool(plannings),
+            companies=companies,
+            selected_company=selected_company,
+            show_company_filter=len(companies) > 1,
         )
         return ctx

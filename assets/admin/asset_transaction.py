@@ -1,3 +1,5 @@
+from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
+from unfold.contrib.filters.admin.autocomplete_filters import AutocompleteSelectMultipleFilter
 from django.contrib import admin
 from django.utils.html import format_html
 from django.db import models
@@ -33,18 +35,19 @@ class AssetTransactionEmailLogInline(_GenericTabularInline):
 class AssetTransactionAdmin(ModelAdmin):
     list_display = ("asset", "transaction_type", "from_zone", "to_zone", "project_file", "date", "get_employee", "has_firma", "company","imagen")
     list_filter = (
-        "company",
-        "transaction_type",
-        "asset__asset_type",
-        "asset__client",
-        "from_zone",
-        "to_zone"
+        ("company",AutocompleteSelectMultipleFilter),
+        ("transaction_type",MultipleChoicesDropdownFilter),
+        ("asset__asset_type",AutocompleteSelectMultipleFilter),
+        ("asset__client",AutocompleteSelectMultipleFilter),
+        ("from_zone",AutocompleteSelectMultipleFilter),
+        ("to_zone",AutocompleteSelectMultipleFilter),
     )
     search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes")
     autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file"]
     exclude = ["company", "firma"]
     readonly_fields = ["firma_preview", "imagen_link", "performed_by"]
-
+    list_select_related = ["from_zone__company","to_zone__company","company","performed_by__company","asset__asset_type"]
+    list_filter_submit = True
     inlines = [AssetTransactionEmailLogInline]
 
     formfield_overrides = {

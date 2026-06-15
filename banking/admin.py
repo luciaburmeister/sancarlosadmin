@@ -1,4 +1,5 @@
 """Banking admin — BankTransaction and BankReconciliation."""
+from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 import logging
 
 from django.contrib import admin
@@ -320,6 +321,7 @@ class BankReconciliationAdmin(ModelAdmin):
     list_filter = (
         "is_confirmed",
         "method",
+        ("company",AutocompleteSelectMultipleFilter)
     )
     search_fields = (
         "bank_transaction__description",

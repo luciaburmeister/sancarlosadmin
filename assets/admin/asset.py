@@ -1,3 +1,4 @@
+from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline, StackedInline
 from core.admin.company_admin import CompanyRestrictedAdmin
@@ -101,7 +102,7 @@ class AssetTransactionInline(StackedInline):
 @admin.register(Asset)
 class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     list_display = ("name", "asset_type", "client", "provider", "assigned_to", "qr_link", "get_identifiers","is_active")
-    list_filter = ("asset_type", ("client",AutocompleteSelectFilter), ("provider",AutocompleteSelectFilter), "assigned_to",("company",AutocompleteSelectFilter),"is_active")
+    list_filter = (("asset_type",AutocompleteSelectMultipleFilter), ("client",AutocompleteSelectMultipleFilter), ("provider",AutocompleteSelectMultipleFilter), ("assigned_to",AutocompleteSelectMultipleFilter),("company",AutocompleteSelectMultipleFilter),"is_active")
     search_fields = ("name", "identifiers__value")
     inlines = [AssetIdentifierInline, AssetTransactionInline, AssetDocumentInline]
     actions = ["download_qr_grid"]
@@ -109,8 +110,16 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
         models.JSONField: {"widget": JSONEditorWidget},
     }
     list_editable = ("is_active",)
-    autocomplete_fields = ["asset_type", "client", "company", "current_working_zone", "assigned_to", "provider"]
+    list_filter_submit = True
+    autocomplete_fields = [
+        "asset_type", 
+        "client", 
+        "company", 
+        "current_working_zone", 
+        "assigned_to", 
+        "provider"]
     readonly_fields = ("qr_code_preview",)
+    list_select_related = ["asset_type","client","provider","assigned_to","current_working_zone","company",]
     fieldsets = (
         (
             _("Asset"),
@@ -170,3 +179,8 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
         response = HttpResponse(buffer.getvalue(), content_type="image/png")
         response["Content-Disposition"] = 'attachment; filename="assets_qr_grid.png"'
         return response
+
+    def get_queryset(self,request):
+        qs = super().get_queryset(request)
+        qs = qs.prefetch_related("identifiers")
+        return qs

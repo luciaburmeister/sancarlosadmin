@@ -133,10 +133,23 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
             self.message_user(request, _("Only open periods can be marked as pending."), level="warning")
         return redirect(reverse("admin:finance_taxperiod_change", args=[object_id]))
 
+    def get_urls(self):
+        from django.urls import path
+        from .views import export_tax_periods_excel
+        urls = super().get_urls()
+        custom = [
+            path(
+                "export/",
+                self.admin_site.admin_view(export_tax_periods_excel),
+                name="finance_taxperiod_export",
+            ),
+        ]
+        return custom + urls
+
     @action(description=_("Export"), icon="download")
     def export_excel_action(self, request):
         params = request.GET.urlencode()
-        url = reverse("finance:tax_periods_export")
+        url = reverse("admin:finance_taxperiod_export")
         return redirect(f"{url}?{params}")
 
     @action(description=_("Compute All Periods"), icon="calculate")

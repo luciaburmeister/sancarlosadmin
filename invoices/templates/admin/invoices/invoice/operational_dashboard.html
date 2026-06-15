@@ -627,7 +627,7 @@
     <div class="od-section-title" style="display:flex;align-items:center;justify-content:space-between">
       <span><span class="icon">🏛️</span> {% trans "Tax Balance" %}</span>
       {% if tax_periods %}
-      <a href="{% url 'finance:tax_periods_export' %}?company={{ selected_company.id }}&date_from={{ date_from }}&date_to={{ date_to }}&iva_only=1"
+      <a href="{% url 'admin:finance_taxperiod_export' %}?company={{ selected_company.id }}&date_from={{ date_from }}&date_to={{ date_to }}&iva_only=1"
          class="od-export-btn od-export-btn--green" style="font-size:.82rem">
         ⬇️ {% trans "Export Excel" %}
       </a>

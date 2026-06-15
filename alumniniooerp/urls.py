@@ -29,7 +29,6 @@ if settings.DEBUG:
     urlpatterns = debug_toolbar_urls() + urlpatterns + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 
 urlpatterns += i18n_patterns(
-    path("admin/finance/", include("finance.urls", namespace="finance")),
     path('admin/', admin.site.urls),
     path("api/", include("api.urls")),
     path('password_reset/', CustomPasswordResetView.as_view(), name='admin_password_reset'),

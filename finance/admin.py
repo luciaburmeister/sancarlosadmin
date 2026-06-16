@@ -20,14 +20,13 @@ class TaxPaymentInline(TabularInline):
     verbose_name_plural = _("Payments")
 
 
-
 @admin.register(TaxScheduleRule)
 class TaxScheduleRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display        = ["name", "tax_type", "get_frequency_label", "payment_day", "meses_hasta_vencimiento", "start_date", "company", "get_active_label"]
     list_filter         = ["company", "is_active", "period_unit"]
     search_fields       = ["name", "tax_type__tax_name"]
     autocomplete_fields = ["company", "tax_type"]
-    actions_row = ["view_periods_action"]
+    actions_row         = ["view_periods_action"]
 
     fieldsets = (
         (_("General"), {
@@ -59,6 +58,8 @@ class TaxScheduleRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     @action(description=_("View Periods"), icon="date_range")
     def view_periods_action(self, request, object_id: int):
+        rule = TaxScheduleRule.objects.get(pk=object_id)
+        rule.compute_all_periods()
         url = reverse("admin:finance_taxperiod_changelist") + f"?rule__id__exact={object_id}"
         return redirect(url)
 
@@ -81,10 +82,10 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
     search_fields       = ["rule__name", "rule__tax_type__tax_name"]
     autocomplete_fields = ["company", "rule"]
     readonly_fields     = ["tax_collected", "tax_paid", "tax_net", "accumulated_credit", "net_after_credit"]
+    actions_list        = ["export_excel_action", "compute_all_action"]
+    actions_detail      = ["mark_pending_action"]
 
-    inlines        = [TaxPaymentInline]
-    actions_detail = ["compute_action", "mark_pending_action"]
-    actions_row    = ["compute_row_action"]
+    inlines = [TaxPaymentInline]
 
     fieldsets = (
         (_("Period"), {
@@ -97,7 +98,8 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
         }),
         (_("Tax Summary"), {
             "description": _(
-                "Use the Compute action to aggregate amounts from invoices. "
+                "Amounts are updated automatically every hour via a background task. "
+                "Use 'Compute All' to force a refresh immediately. "
                 "Tax collected = sales · Tax paid = purchases · Net = difference."
             ),
             "fields": (
@@ -120,23 +122,6 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def get_status_label(self, obj):
         return obj.status
 
-    @action(description=_("Compute tax amounts"), icon="calculate")
-    def compute_action(self, request, object_id: int):
-        period = TaxPeriod.objects.get(pk=object_id)
-        period.compute(save=True)
-        self.message_user(
-            request,
-            _(f"Collected: {period.tax_collected} · Paid: {period.tax_paid} · Net: {period.tax_net}")
-        )
-        return redirect(reverse("admin:finance_taxperiod_change", args=[object_id]))
-
-    @action(description=_("Compute"), icon="calculate")
-    def compute_row_action(self, request, object_id: int):
-        period = TaxPeriod.objects.get(pk=object_id)
-        period.compute(save=True)
-        self.message_user(request, _("Tax amounts computed successfully."))
-        return redirect(reverse("admin:finance_taxperiod_changelist"))
-
     @action(description=_("Mark as pending payment"), icon="schedule")
     def mark_pending_action(self, request, object_id: int):
         period = TaxPeriod.objects.get(pk=object_id)
@@ -148,11 +133,37 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
             self.message_user(request, _("Only open periods can be marked as pending."), level="warning")
         return redirect(reverse("admin:finance_taxperiod_change", args=[object_id]))
 
+    def get_urls(self):
+        from django.urls import path
+        from .views import TaxPeriodExportView
+        urls = super().get_urls()
+        custom = [
+            path(
+                "export/",
+                self.admin_site.admin_view(TaxPeriodExportView.as_view()),
+                name="finance_taxperiod_export",
+            ),
+        ]
+        return custom + urls
+
+    @action(description=_("Export"), icon="download")
+    def export_excel_action(self, request):
+        params = request.GET.urlencode()
+        url = reverse("admin:finance_taxperiod_export")
+        return redirect(f"{url}?{params}")
+
+    @action(description=_("Compute All Periods"), icon="calculate")
+    def compute_all_action(self, request):
+        total = 0
+        for rule in TaxScheduleRule.objects.filter(is_active=True):
+            rule.compute_all_periods()
+            total += rule.periods.count()
+        self.message_user(request, _(f"All {total} periods computed in chronological order."))
+        return redirect(reverse("admin:finance_taxperiod_changelist"))
+
     def get_queryset(self, request):
-        # Advance periods and flag overdue on every list load
         advance_all_rules()
         return super().get_queryset(request)
-
 
 
 @admin.register(TaxPayment)

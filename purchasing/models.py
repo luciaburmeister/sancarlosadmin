@@ -5,7 +5,7 @@ from django.utils import timezone
 from djmoney.models.fields import MoneyField
 from timestamps.models import Timestampable
 from company.models import CompanyOwnedModel
-from materials.models import Provider
+from materials.models import Provider, UnitChoices
 from inventory.models import InventoryItem, Warehouse, ItemTransaction
 from inventory.choices import ItemType, MovementType
 from configurator.utils.codegen import next_scoped_code
@@ -163,8 +163,16 @@ class PurchaseOrderItem(Timestampable):
         blank=True,
         verbose_name=_("Description")
     )
-    quantity = models.IntegerField(
+    quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
         verbose_name=_("Quantity")
+    )
+    unit = models.CharField(
+        max_length=2,
+        choices=UnitChoices.choices,
+        default=UnitChoices.UNITS,
+        verbose_name=_("Unit"),
     )
     unit_price = MoneyField(
         max_digits=12,
@@ -179,7 +187,9 @@ class PurchaseOrderItem(Timestampable):
         editable=False,
         verbose_name=_("Line Total")
     )
-    received_quantity = models.IntegerField(
+    received_quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
         default=0,
         verbose_name=_("Received Quantity")
     )
@@ -189,7 +199,7 @@ class PurchaseOrderItem(Timestampable):
         verbose_name_plural = _("PO Items")
 
     def __str__(self):
-        return f"{self.inventory_item.name} ({int(self.quantity)})"
+        return f"{self.inventory_item.name} ({self.quantity} {self.unit})"
 
     def save(self, *args, **kwargs):
         if not self.description:
@@ -270,7 +280,9 @@ class PurchaseOrderReceiptItem(Timestampable):
         related_name="receipt_lines",
         verbose_name=_("PO Item")
     )
-    quantity_received = models.IntegerField(
+    quantity_received = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
         verbose_name=_("Quantity Received")
     )
 

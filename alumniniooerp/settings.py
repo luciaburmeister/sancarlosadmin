@@ -747,7 +747,9 @@ UNFOLD = {
                         "title": _("Connect Bank"),
                         "icon": "add_link",
                         "link": reverse_lazy("admin:banking_connect_bank"),
-                        "permission": lambda request: request.user.is_superuser,
+                        "permission": lambda request: request.user.has_perm(
+                            "banking.connect_bank"
+                        ),
                     },
                 ],
             },

@@ -96,6 +96,7 @@ class BankTransaction(CompanyOwnedModel):
         verbose_name = _("Bank Transaction")
         verbose_name_plural = _("Bank Transactions")
         ordering = ["-transaction_date", "-imported_at"]
+        permissions = [("connect_bank", _("Can connect bank accounts"))]
         indexes = [
             models.Index(fields=["bank_account", "transaction_date"]),
             models.Index(fields=["reconciliation_status", "transaction_date"]),

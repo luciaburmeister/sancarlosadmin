@@ -21,6 +21,7 @@ class PurchaseOrderItemInline(TabularInline):
     fields = [
         "inventory_item",
         "quantity",
+        "unit",
         "formatted_received",
         "formatted_pending",
         "unit_price",
@@ -34,12 +35,12 @@ class PurchaseOrderItemInline(TabularInline):
     def formatted_received(self, obj):
         if obj.received_quantity is None:
             return "-"
-        return int(obj.received_quantity)
+        return obj.received_quantity
 
     @display(description=_("Pending"))
     def formatted_pending(self, obj):
         if obj.pk:
-            return int(obj.quantity - obj.received_quantity)
+            return obj.quantity - obj.received_quantity
         return "-"
 
     def has_add_permission(self, request, obj=None):

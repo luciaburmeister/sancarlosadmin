@@ -82,6 +82,7 @@ class ProjectFileInvoiceService:
                 'name': config.name,
                 'subtotal': sub,
                 'total': tot,
+                'units': config.units,
                 'status': config.get_status_display(),
             })
 

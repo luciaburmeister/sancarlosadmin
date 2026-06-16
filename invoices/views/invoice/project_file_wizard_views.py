@@ -83,11 +83,18 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                 item_tax = ((tot - sub) * ratio).quantize(Decimal("0.01"))
                 if item_price <= 0:
                     continue
+                # ponytail: use config units/unit_price when available
+                if config.units and config.units > 0:
+                    qty = config.units
+                    up = (item_price / qty).quantize(Decimal("0.01"))
+                else:
+                    qty = Decimal("1")
+                    up = item_price
                 items_initial.append({
                     'source_id': f"config_{config.id}",
                     'description': f"{config.name} (Q#{quote.id})",
-                    'quantity': Decimal("1"),
-                    'unit_price': item_price,
+                    'quantity': qty,
+                    'unit_price': up,
                     'discount_percentage': Decimal("0.00"),
                     '_tax_amount': item_tax,
                 })
@@ -137,11 +144,19 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
             item_tax = ((tot - sub) * ratio).quantize(Decimal("0.01"))
             if item_price <= 0:
                 continue
+            # ponytail: use config units/unit_price when available
+            units = config_data.get('units')
+            if units and units > 0:
+                qty = units
+                up = (item_price / qty).quantize(Decimal("0.01"))
+            else:
+                qty = Decimal("1")
+                up = item_price
             items_initial.append({
                 'source_id': f"direct_{config_data['id']}",
                 'description': config_data['name'],
-                'quantity': Decimal("1"),
-                'unit_price': item_price,
+                'quantity': qty,
+                'unit_price': up,
                 'discount_percentage': Decimal("0.00"),
                 '_tax_amount': item_tax,
             })

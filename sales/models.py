@@ -499,6 +499,15 @@ class Quote(Timestampable, CompanyOwnedModel):
         verbose_name=_("Date rejected"),
     )
 
+    external_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+        verbose_name=_("External ID"),
+        help_text=_("External reference identifier for this quote."),
+    )
+
     class Meta:
         verbose_name = _("Quote")
         verbose_name_plural = _("Quotes")

@@ -260,8 +260,7 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
             if result is not None:
                 collected = Decimal(str(result.amount if hasattr(result, "amount") else result))
 
-        # Tax paid — approved purchase invoices only
-        from invoices.models import ConfirmationStatus
+        # Tax paid — all received purchase invoices
         purchase_ct = ContentType.objects.get_for_model(Invoice)
         purchase_ids = list(Invoice.objects.filter(
             company=self.company,

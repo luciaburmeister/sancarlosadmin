@@ -493,6 +493,7 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
                 ("project_name", "company"),
                 ("date", "expires_at"),
                 ("project_file", "external_id"),
+                "observations",
             )
         }),
         (_("Status Dates"), {

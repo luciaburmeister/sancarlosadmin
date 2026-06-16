@@ -395,6 +395,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "preferred_supplier__name",
         "default_warehouse__code",
         "default_warehouse__name",
+        "provider_info__provider_ref",
     )
     ordering = ("-created_at",)
     autocomplete_fields = ("default_warehouse", "preferred_supplier", "product_content_type", "invoice", "company")

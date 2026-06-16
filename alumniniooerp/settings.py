@@ -450,6 +450,22 @@ UNFOLD = {
                             "management.view_projectfile"
                         ),
                     },
+                    {
+                        "title": _("Resource Planning"),
+                        "icon": "calendar_month",
+                        "link": reverse_lazy("admin:management_resourceplanning_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "management.view_resourceplanning"
+                        ),
+                    },
+                    {
+                        "title": _("Planning Types"),
+                        "icon": "label",
+                        "link": reverse_lazy("admin:management_resourceplanningtype_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "management.view_resourceplanningtype"
+                        ),
+                    },
                 ],
             },
             {

@@ -1,0 +1,172 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n %}
+
+{% block content %}
+<div class="flex flex-col gap-6">
+
+  {# Header with day navigation #}
+  <div class="flex items-center justify-between">
+    <h1 class="text-xl font-bold">{% trans "Resource Planning" %} — {{ day|date:"l, d M Y" }}</h1>
+    <div class="flex items-center gap-2">
+      <a href="?day={{ prev_day|date:'Y-m-d' }}{% if selected_company %}&company={{ selected_company.id }}{% endif %}{% if selected_planning_type %}&planning_type={{ selected_planning_type }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}"
+         class="rounded-lg border border-base-200 bg-white px-3 py-1.5 text-sm hover:bg-base-50 transition-colors">
+        ← {% trans "Previous" %}
+      </a>
+      <a href="?day={{ next_day|date:'Y-m-d' }}{% if selected_company %}&company={{ selected_company.id }}{% endif %}{% if selected_planning_type %}&planning_type={{ selected_planning_type }}{% endif %}{% if selected_status %}&status={{ selected_status }}{% endif %}"
+         class="rounded-lg border border-base-200 bg-white px-3 py-1.5 text-sm hover:bg-base-50 transition-colors">
+        {% trans "Next" %} →
+      </a>
+    </div>
+  </div>
+
+  {# Filters #}
+  <div class="rounded-2xl border border-base-200 bg-white p-4">
+    <form method="get" class="flex flex-wrap items-end gap-4">
+      <div>
+        <label class="block text-xs font-medium text-base-500 mb-1">{% trans "Date" %}</label>
+        <input type="date" name="day" value="{{ day|date:'Y-m-d' }}"
+               class="rounded-lg border border-base-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500" />
+      </div>
+
+      {% if show_company_filter %}
+      <div>
+        <label class="block text-xs font-medium text-base-500 mb-1">{% trans "Company" %}</label>
+        <select name="company"
+                class="rounded-lg border border-base-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+          <option value="">{% trans "All companies" %}</option>
+          {% for c in companies %}
+            <option value="{{ c.id }}" {% if selected_company and selected_company.id == c.id %}selected{% endif %}>
+              {{ c.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      <div>
+        <label class="block text-xs font-medium text-base-500 mb-1">{% trans "Planning Type" %}</label>
+        <select name="planning_type"
+                class="rounded-lg border border-base-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+          <option value="">{% trans "All types" %}</option>
+          {% for pt in planning_types %}
+            <option value="{{ pt.id }}" {% if selected_planning_type == pt.id|stringformat:"d" %}selected{% endif %}>
+              {{ pt.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-base-500 mb-1">{% trans "Status" %}</label>
+        <select name="status"
+                class="rounded-lg border border-base-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
+          <option value="">{% trans "All statuses" %}</option>
+          {% for value, label in statuses %}
+            <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <button type="submit"
+                class="rounded-full bg-primary-600 px-6 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 transition-colors flex items-center gap-1">
+          <span class="material-symbols-outlined text-base">search</span>
+          {% trans "Filter" %}
+        </button>
+      </div>
+    </form>
+  </div>
+
+  {# Legend #}
+  {% if planning_types %}
+  <div class="flex flex-wrap gap-3">
+    {% for pt in planning_types %}
+      <div class="flex items-center gap-1.5 text-xs">
+        <span class="inline-block w-3 h-3 rounded-full" style="background: {{ pt.color }};"></span>
+        {{ pt.name }}
+      </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if not has_data %}
+    {# Empty state #}
+    <div class="rounded-2xl border border-base-200 bg-white p-12 text-center">
+      <span class="material-symbols-outlined text-5xl text-base-300 mb-3 block">event_busy</span>
+      <p class="text-base-500 text-sm">{% trans "No resource plannings found for this day." %}</p>
+      <p class="text-base-400 text-xs mt-1">{% trans "Try another date or create a new planning entry." %}</p>
+    </div>
+
+  {% else %}
+
+  {# Timeline #}
+  <div class="rounded-2xl border border-base-200 bg-white overflow-auto">
+    <div class="min-w-[900px]">
+
+      {# Header row #}
+      <div class="grid" style="grid-template-columns: 100px repeat({{ columns|length }}, minmax(200px, 1fr));">
+        <div class="p-3 border-b border-base-200 font-medium text-xs text-base-500">{% trans "Time" %}</div>
+        {% for col in columns %}
+          <div class="p-3 border-b border-l border-base-200 font-medium text-sm">
+            {{ col.resource_name }}
+          </div>
+        {% endfor %}
+      </div>
+
+      {# Body #}
+      <div class="grid" style="grid-template-columns: 100px repeat({{ columns|length }}, minmax(200px, 1fr));">
+
+        {# Time rail #}
+        <div class="relative border-r border-base-200">
+          {% for t in grid %}
+            <div class="px-3 text-xs text-base-400" style="height: calc({{ step_minutes }} * {{ pixels_per_minute }}px); padding-top: 2px;">
+              {% if t.show %}{{ t.label }}{% endif %}
+            </div>
+          {% endfor %}
+        </div>
+
+        {# Resource columns #}
+        {% for col in columns %}
+          <div class="relative border-r border-base-100" style="height: calc({{ total_minutes }} * {{ pixels_per_minute }}px);">
+
+            {# Grid lines #}
+            {% for t in grid %}
+              <div class="border-b border-base-50" style="height: calc({{ step_minutes }} * {{ pixels_per_minute }}px);"></div>
+            {% endfor %}
+
+            {# Blocks overlay #}
+            <div class="absolute inset-0">
+              {% for b in col.blocks %}
+                <a
+                  class="absolute rounded-lg px-2 py-1 text-xs overflow-hidden block border border-white/30 shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                  style="
+                    top: calc({{ b.top_min }} * {{ pixels_per_minute }}px);
+                    height: calc({{ b.height_min }} * {{ pixels_per_minute }}px);
+                    left: 4px;
+                    right: 4px;
+                    background: {{ b.color }};
+                    color: white;
+                  "
+                  href="{% url 'admin:management_resourceplanning_change' b.id %}"
+                  title="{{ b.planning_type_name }}: {{ b.project_file_name }}"
+                >
+                  <div class="font-semibold truncate leading-tight">{{ b.label }}</div>
+                  <div class="truncate opacity-80 text-[10px] leading-tight mt-0.5">
+                    {{ b.planning_type_name }} · {{ b.start|date:"H:i" }}–{{ b.end|date:"H:i" }}
+                  </div>
+                </a>
+              {% endfor %}
+            </div>
+
+          </div>
+        {% endfor %}
+
+      </div>
+
+    </div>
+  </div>
+
+  {% endif %}
+
+</div>
+{% endblock %}

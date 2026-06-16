@@ -468,7 +468,7 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
         "status", 
         ("company",AutocompleteSelectMultipleFilter), 
         "created_at"]
-    search_fields = ["project_name", "client__name", "id"]
+    search_fields = ["project_name", "client__name", "id", "external_id"]
     autocomplete_fields = ["client", "project_file", "company"]
     readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown", "date_sent", "date_accepted", "date_rejected"]
     list_select_related = ["client", "project_file__client", "company"]
@@ -492,7 +492,8 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
                 ("client", "status"),
                 ("project_name", "company"),
                 ("date", "expires_at"),
-                "project_file",
+                ("project_file", "external_id"),
+                "observations",
             )
         }),
         (_("Status Dates"), {

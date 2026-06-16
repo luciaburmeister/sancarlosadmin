@@ -265,6 +265,7 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
         purchase_ids = list(Invoice.objects.filter(
             company=self.company,
             date_issued__range=(self.date_from, self.date_to),
+            confirmation_status=ConfirmationStatus.APPROVED,
         ).values_list("id", flat=True))
 
         paid = Decimal("0.00")

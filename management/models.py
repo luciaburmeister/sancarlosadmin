@@ -1,8 +1,11 @@
 from decimal import Decimal
 
 from django.db import models
-from django.db.models import Sum
+from django.db.models import Sum, Q
 from django.utils.translation import gettext_lazy as _
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ValidationError
 from djmoney.models.fields import MoneyField
 from company.models import CompanyOwnedModel
 from timestamps.models import Timestampable
@@ -122,3 +125,133 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         self.total_amount = Decimal(str(quote_total)) + Decimal(str(config_total))
         self.save(update_fields=["total_amount", "total_amount_currency"])
 
+
+class ResourcePlanningType(CompanyOwnedModel):
+    """
+    Company-configurable planning categories.
+    Examples: "Machine Work", "Maintenance", "Installation", "Transport"
+    """
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+    color = models.CharField(
+        max_length=7,
+        default="#3B82F6",
+        verbose_name=_("Color"),
+        help_text=_("Hex color for calendar display, e.g. #3B82F6"),
+    )
+    icon = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Icon"),
+        help_text=_("Material icon name, e.g. 'build', 'local_shipping'"),
+    )
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Resource Planning Type")
+        verbose_name_plural = _("Resource Planning Types")
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "name"],
+                name="unique_planning_type_per_company",
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class ResourcePlanningStatus(models.TextChoices):
+    PLANNED = "planned", _("Planned")
+    CONFIRMED = "confirmed", _("Confirmed")
+    IN_PROGRESS = "in_progress", _("In Progress")
+    COMPLETED = "completed", _("Completed")
+    CANCELLED = "cancelled", _("Cancelled")
+
+
+class ResourcePlanning(Timestampable, CompanyOwnedModel):
+    """
+    Generic resource planning: assign any resource (Employee, Machine, Asset…)
+    to a ProjectFile for a specific date/time window.
+    """
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.CASCADE,
+        related_name="resource_plannings",
+        verbose_name=_("Project File"),
+    )
+
+    planning_type = models.ForeignKey(
+        ResourcePlanningType,
+        on_delete=models.PROTECT,
+        related_name="plannings",
+        verbose_name=_("Planning Type"),
+    )
+
+    # Generic FK → the resource being planned
+    resource_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        verbose_name=_("Resource Type"),
+    )
+    resource_object_id = models.PositiveBigIntegerField(
+        verbose_name=_("Resource ID"),
+    )
+    resource = GenericForeignKey("resource_content_type", "resource_object_id")
+
+    # Schedule
+    start = models.DateTimeField(verbose_name=_("Start"))
+    end = models.DateTimeField(verbose_name=_("End"))
+
+    status = models.CharField(
+        max_length=20,
+        choices=ResourcePlanningStatus.choices,
+        default=ResourcePlanningStatus.PLANNED,
+        verbose_name=_("Status"),
+    )
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+
+    class Meta:
+        verbose_name = _("Resource Planning")
+        verbose_name_plural = _("Resource Plannings")
+        ordering = ["start"]
+        indexes = [
+            models.Index(
+                fields=["resource_content_type", "resource_object_id"],
+            ),
+            models.Index(fields=["start", "end"]),
+            models.Index(fields=["project_file", "start"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(end__gt=models.F("start")),
+                name="resource_planning_end_after_start",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.resource} → {self.project_file} ({self.start:%d/%m %H:%M}–{self.end:%H:%M})"
+
+    def clean(self):
+        super().clean()
+        if self.start and self.end and self.end <= self.start:
+            raise ValidationError({
+                "end": _("End must be after start."),
+            })
+
+        # Warn about overlaps for the same resource
+        if self.resource_content_type_id and self.resource_object_id and self.start and self.end:
+            overlaps = ResourcePlanning.objects.filter(
+                resource_content_type=self.resource_content_type,
+                resource_object_id=self.resource_object_id,
+                start__lt=self.end,
+                end__gt=self.start,
+            ).exclude(
+                pk=self.pk,
+            ).exclude(
+                status=ResourcePlanningStatus.CANCELLED,
+            )
+            if overlaps.exists():
+                raise ValidationError(
+                    _("This resource already has a planning that overlaps with the selected time range.")
+                )

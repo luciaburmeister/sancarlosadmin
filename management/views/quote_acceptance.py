@@ -6,8 +6,8 @@ from django.contrib import messages
 from django.utils.translation import gettext_lazy as _
 from django.urls import reverse
 from unfold.views import UnfoldModelAdminViewMixin
-from .forms import LinkProjectFileForm
-from .models import ProjectFile
+from management.forms import LinkProjectFileForm
+from management.models import ProjectFile
 from sales.models import Quote
 
 @method_decorator(staff_member_required, name='dispatch')

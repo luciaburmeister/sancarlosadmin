@@ -105,7 +105,7 @@ class BankTransaction(CompanyOwnedModel):
         return f"{self.transaction_date} | {self.amount} | {self.counterparty_name or self.description[:40]}"
 
 
-class BankReconciliation(models.Model):
+class BankReconciliation(CompanyOwnedModel):
     """
     Created by the auto-matcher immediately after a BankTransaction is imported.
     Starts as an unconfirmed suggestion (is_confirmed=False, payment=None).
@@ -192,3 +192,8 @@ class BankReconciliation(models.Model):
     def __str__(self):
         status = "confirmed" if self.is_confirmed else "pending review"
         return f"{self.bank_transaction} ↔ {self.payment or 'unconfirmed'} ({status})"
+
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.bank_transaction_id:
+            self.company = self.bank_transaction.company
+        super().save(*args, **kwargs)

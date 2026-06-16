@@ -623,6 +623,14 @@ class Configuration(Timestampable, CompanyOwnedModel):
         help_text=_("Subtotal divided by the product's unit price variable."),
     )
 
+    units = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=0,
+        verbose_name=_("Units"),
+        help_text=_("Value of the unit price variable (divisor). Stored for invoice generation."),
+    )
+
     total_price = MoneyField(
         max_digits=12,
         decimal_places=2,
@@ -885,10 +893,13 @@ class Configuration(Timestampable, CompanyOwnedModel):
             divisor = Decimal(str(context[unit_var_name]))
             if divisor:
                 self.unit_price = (subtotal / divisor).quantize(Decimal("0.01"))
+                self.units = divisor
             else:
                 self.unit_price = Decimal("0")
+                self.units = Decimal("0")
         else:
             self.unit_price = Decimal("0")
+            self.units = Decimal("0")
 
         total, tax_breakdown = self.calculate_taxes_and_snapshot(subtotal)
 
@@ -913,6 +924,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
                 "total_cost",
                 "subtotal_price",
                 "unit_price",
+                "units",
                 "total_price",
                 "pricing_breakdown",
                 "tax_breakdown",

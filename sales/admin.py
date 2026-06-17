@@ -31,7 +31,7 @@ from django.urls import reverse, path
 from unfold.decorators import action
 from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.company_access import get_user_companies
-from .resources import ClientResource, QuoteImportResource, QuoteItemImportResource
+from .resources import ClientResource, QuoteImportResource, QuoteItemImportResource, QuoteExportResource
 from .views_analysis import ConversionAnalysisView
 from management.views import QuoteAcceptanceWizardView
 from .views.quote_export_view import QuoteExportView
@@ -463,6 +463,7 @@ class QuoteEmailLogInline(_GenericTabularInline):
 @admin.register(Quote)
 class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
     resource_classes = [QuoteImportResource]
+    export_resource_classes = [QuoteExportResource]
     import_form_class = QuoteImportForm
     export_form_class = ClientExportForm
     list_display = ["id", "project_name", "client", "date_sent","date_accepted", "project_file", "show_status_customized_color", "total_price_display", "company"]

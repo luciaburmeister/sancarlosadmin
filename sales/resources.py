@@ -2,10 +2,11 @@ import unicodedata
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
-from import_export import resources
+from import_export import resources, fields
 
 from .models import Client, SaleZone, Quote, QuoteItem
 from configurator.models import Configuration, ConfigurationItem, ConfigurationStatus
+from django.utils.translation import gettext_lazy as _
 
 # Exact column names expected in the import file (after diacritic-stripping)
 COL_NAME    = "nombre comercial"
@@ -1021,12 +1022,18 @@ class ConfigurationItemImportResource(resources.ModelResource):
 class QuoteExportResource(resources.ModelResource):
     """Read-only resource used only for exporting Quotes."""
 
+    client_name = fields.Field(column_name=_("Client"))
+    client_email = fields.Field(column_name=_("Client Email"))
+    client_phone = fields.Field(column_name=_("Client Phone"))
+
     class Meta:
         from .models import Quote
         model = Quote
         fields = (
             "id",
-            "client__name",
+            "client_name",
+            "client_email",
+            "client_phone",
             "project_name",
             "status",
             "subtotal_price",
@@ -1037,3 +1044,15 @@ class QuoteExportResource(resources.ModelResource):
             "company__name",
         )
         export_order = fields
+
+    def get_queryset(self):
+        return super().get_queryset().select_related("client", "company")
+
+    def dehydrate_client_name(self, quote):
+        return quote.client.name if quote.client else ""
+
+    def dehydrate_client_email(self, quote):
+        return quote.client.email if quote.client else ""
+
+    def dehydrate_client_phone(self, quote):
+        return quote.client.phone if quote.client else ""

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from collections import OrderedDict
+from datetime import datetime, date, time, timedelta
 from typing import Any
 
 from django.utils import timezone
@@ -10,24 +10,46 @@ from django.core.exceptions import PermissionDenied
 from unfold.views import UnfoldModelAdminViewMixin
 
 from core.admin.company_access import get_user_companies
+from management.forms import ResourcePlanningFilterForm
 from management.models import ResourcePlanning, ResourcePlanningType, ResourcePlanningStatus
 
-STEP_MINUTES = 30
-PPM = 1.2  # pixels per minute
+
+# ponytail: plain class, no dataclass overhead
+class CellBlock:
+    __slots__ = ("id", "label", "color", "status", "start", "end",
+                 "project_file_name", "planning_type_name")
+
+    def __init__(self, p, start, end):
+        self.id = p.id
+        self.label = p.project_file.name if p.project_file else "—"
+        self.color = p.planning_type.color if p.planning_type else "#3B82F6"
+        self.status = p.status
+        self.start = start
+        self.end = end
+        self.project_file_name = str(p.project_file) if p.project_file else "—"
+        self.planning_type_name = str(p.planning_type) if p.planning_type else "—"
 
 
-@dataclass
-class UiPlanningBlock:
-    id: int
-    top_min: int
-    height_min: int
-    label: str
-    color: str
-    status: str
-    start: datetime
-    end: datetime
-    project_file_name: str
-    planning_type_name: str
+RESOURCE_TYPE_LABELS = {
+    "employee": "Employees",
+    "machine": "Machines",
+    "asset": "Assets",
+}
+
+
+def _build_day_columns(start_date: date, num_days: int):
+    cols = []
+    for i in range(num_days):
+        d = start_date + timedelta(days=i)
+        start_dt = timezone.make_aware(datetime.combine(d, time.min))
+        end_dt = timezone.make_aware(datetime.combine(d + timedelta(days=1), time.min))
+        cols.append({
+            "key": d.isoformat(),
+            "label": d.strftime("%a %d/%m"),
+            "start_dt": start_dt,
+            "end_dt": end_dt,
+        })
+    return cols
 
 
 class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
@@ -35,165 +57,149 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
     permission_required = ("management.view_resourceplanning",)
     template_name = "admin/management/resourceplanning/schedule.html"
 
-    def _grid(self, start_t: time, end_t: time):
-        start_dt = datetime.combine(timezone.localdate(), start_t)
-        end_dt = datetime.combine(timezone.localdate(), end_t)
-        total_min = int((end_dt - start_dt).total_seconds() // 60)
-
-        marks = []
-        for m in range(0, total_min + 1, STEP_MINUTES):
-            label = (start_dt + timedelta(minutes=m)).strftime("%H:%M")
-            marks.append({"minute": m, "label": label, "show": (m % 60 == 0)})
-        return marks, total_min
-
     def get_context_data(self, **kwargs: Any) -> dict[str, Any]:
         ctx = super().get_context_data(**kwargs)
         user = self.request.user
+        GET = self.request.GET
 
-        # Get companies the user can access (superuser → all)
+        # ── Company scoping ───────────────────────────────────────────
         user_companies = get_user_companies(user)
         if not user_companies.exists():
             raise PermissionDenied("User has no company")
 
         companies = list(user_companies.order_by("name"))
-
-        # Company filter — from GET param or default to first company
-        company_id = self.request.GET.get("company")
+        company_id = GET.get("company")
         if company_id:
             try:
                 selected_company = user_companies.get(pk=int(company_id))
             except (ValueError, user_companies.model.DoesNotExist):
                 selected_company = companies[0]
         else:
-            # For non-superusers with one company, auto-select it
-            # For superusers, show all unless filtered
             selected_company = companies[0] if len(companies) == 1 else None
 
-        # Parse day filter
-        day_str = self.request.GET.get("day")
-        if day_str:
-            try:
-                day = datetime.strptime(day_str, "%Y-%m-%d").date()
-            except ValueError:
-                day = timezone.localdate()
+        # ── Filter form (Unfold widgets) ──────────────────────────────
+        filter_form = ResourcePlanningFilterForm(
+            GET or None,
+            company=selected_company,
+            user_companies=user_companies if not selected_company else None,
+        )
+
+        # Extract values — use defaults when form not submitted
+        if filter_form.is_valid():
+            anchor = filter_form.cleaned_data["day"]
+            num_days = filter_form.cleaned_data["num_days"]
+            planning_type = filter_form.cleaned_data.get("planning_type")
+            status_filter = filter_form.cleaned_data.get("status")
         else:
-            day = timezone.localdate()
+            anchor = timezone.localdate()
+            num_days = 7
+            planning_type = None
+            status_filter = None
 
-        planning_type_id = self.request.GET.get("planning_type")
-        status_filter = self.request.GET.get("status")
+        # ── Build columns ─────────────────────────────────────────────
+        columns_meta = _build_day_columns(anchor, num_days)
+        window_start = columns_meta[0]["start_dt"]
+        window_end = columns_meta[-1]["end_dt"]
 
-        start_t, end_t = time(6, 0), time(22, 0)
-        start_of_window = timezone.make_aware(datetime.combine(day, start_t))
-        end_of_window = timezone.make_aware(datetime.combine(day, end_t))
+        end_date = anchor + timedelta(days=num_days - 1)
+        header_label = f"{anchor.strftime('%d %b')} – {end_date.strftime('%d %b %Y')}"
 
-        # Build queryset
+        # ── Nav links (preserve params) ───────────────────────────────
+        def _nav_url(day):
+            params = {"day": day.isoformat(), "num_days": str(num_days)}
+            if selected_company:
+                params["company"] = str(selected_company.id)
+            if planning_type:
+                params["planning_type"] = str(planning_type.pk)
+            if status_filter:
+                params["status"] = status_filter
+            return "?" + "&".join(f"{k}={v}" for k, v in params.items())
+
+        prev_url = _nav_url(anchor - timedelta(days=num_days))
+        next_url = _nav_url(anchor + timedelta(days=num_days))
+
+        # ── Queryset ──────────────────────────────────────────────────
         qs = (
             ResourcePlanning.objects
             .select_related("project_file", "planning_type", "resource_content_type")
-            .filter(
-                start__lt=end_of_window,
-                end__gt=start_of_window,
-            )
+            .filter(start__lt=window_end, end__gt=window_start)
         )
-
-        # Scope to user's companies
         if selected_company:
             qs = qs.filter(company=selected_company)
         else:
             qs = qs.filter(company__in=user_companies)
-
-        if planning_type_id:
-            qs = qs.filter(planning_type_id=planning_type_id)
+        if planning_type:
+            qs = qs.filter(planning_type=planning_type)
         if status_filter:
             qs = qs.filter(status=status_filter)
 
         plannings = list(qs.order_by("start"))
 
-        # Group by resource (content_type + object_id)
-        resource_keys = []
-        resource_names = {}
-        seen = set()
+        # ── Group resources by content type ───────────────────────────
+        resource_map = {}
+        ct_cache = {}
 
         for p in plannings:
-            key = (p.resource_content_type_id, p.resource_object_id)
-            if key not in seen:
-                seen.add(key)
-                resource_keys.append(key)
-                resource_names[key] = str(p.resource) if p.resource else f"{p.resource_content_type} #{p.resource_object_id}"
+            ct_id = p.resource_content_type_id
+            obj_id = p.resource_object_id
+            key = (ct_id, obj_id)
 
-        window_start_naive = timezone.localtime(start_of_window).replace(tzinfo=None)
+            if ct_id not in ct_cache:
+                ct_cache[ct_id] = p.resource_content_type.model
 
-        blocks_by_resource = {key: [] for key in resource_keys}
+            if key not in resource_map:
+                try:
+                    name = str(p.resource) if p.resource else f"{p.resource_content_type} #{obj_id}"
+                except Exception:
+                    name = f"{p.resource_content_type} #{obj_id}"
+                resource_map[key] = {
+                    "name": name,
+                    "ct_model": ct_cache[ct_id],
+                    "cells": {col["key"]: [] for col in columns_meta},
+                }
 
-        for p in plannings:
-            key = (p.resource_content_type_id, p.resource_object_id)
-            ds = max(p.start, start_of_window)
-            de = min(p.end, end_of_window)
+            for col in columns_meta:
+                if p.start < col["end_dt"] and p.end > col["start_dt"]:
+                    resource_map[key]["cells"][col["key"]].append(
+                        CellBlock(p, max(p.start, col["start_dt"]), min(p.end, col["end_dt"]))
+                    )
 
-            ds_local = timezone.localtime(ds).replace(tzinfo=None)
-            de_local = timezone.localtime(de).replace(tzinfo=None)
+        # Group by resource type
+        type_groups = OrderedDict()
+        for (ct_id, obj_id), info in resource_map.items():
+            model = info["ct_model"]
+            label = RESOURCE_TYPE_LABELS.get(model, model.title())
+            if label not in type_groups:
+                type_groups[label] = []
+            type_groups[label].append({
+                "name": info["name"],
+                "cells": [info["cells"][col["key"]] for col in columns_meta],
+            })
 
-            top_min = int((ds_local - window_start_naive).total_seconds() // 60)
-            height_min = max(15, int((de_local - ds_local).total_seconds() // 60))
-
-            color = p.planning_type.color if p.planning_type else "#3B82F6"
-
-            blocks_by_resource[key].append(
-                UiPlanningBlock(
-                    id=p.id,
-                    top_min=top_min,
-                    height_min=height_min,
-                    label=f"{p.project_file.name}" if p.project_file else "—",
-                    color=color,
-                    status=p.status,
-                    start=ds,
-                    end=de,
-                    project_file_name=str(p.project_file) if p.project_file else "—",
-                    planning_type_name=str(p.planning_type) if p.planning_type else "—",
-                )
-            )
-
-        grid, total_minutes = self._grid(start_t, end_t)
-        columns = [
-            {
-                "resource_name": resource_names[key],
-                "blocks": blocks_by_resource.get(key, []),
-            }
-            for key in resource_keys
+        resource_groups = [
+            {"type_label": label, "resources": resources}
+            for label, resources in type_groups.items()
         ]
 
-        # Get filter options — planning types across accessible companies
+        # ── Filter options for legend ─────────────────────────────────
+        pt_qs = ResourcePlanningType.objects.filter(is_active=True)
         if selected_company:
-            planning_types = list(
-                ResourcePlanningType.objects.filter(company=selected_company, is_active=True).order_by("name")
-            )
+            pt_qs = pt_qs.filter(company=selected_company)
         else:
-            planning_types = list(
-                ResourcePlanningType.objects.filter(company__in=user_companies, is_active=True).order_by("name")
-            )
-
-        statuses = ResourcePlanningStatus.choices
-
-        # Navigation days
-        prev_day = day - timedelta(days=1)
-        next_day = day + timedelta(days=1)
+            pt_qs = pt_qs.filter(company__in=user_companies)
+        planning_types = list(pt_qs.order_by("name"))
 
         ctx.update(
-            day=day,
-            prev_day=prev_day,
-            next_day=next_day,
-            grid=grid,
-            total_minutes=total_minutes,
-            step_minutes=STEP_MINUTES,
-            pixels_per_minute=PPM,
-            columns=columns,
-            planning_types=planning_types,
-            selected_planning_type=planning_type_id,
-            statuses=statuses,
-            selected_status=status_filter,
+            header_label=header_label,
+            filter_form=filter_form,
+            columns_meta=columns_meta,
+            resource_groups=resource_groups,
             has_data=bool(plannings),
+            planning_types=planning_types,
             companies=companies,
             selected_company=selected_company,
             show_company_filter=len(companies) > 1,
+            prev_url=prev_url,
+            next_url=next_url,
         )
         return ctx

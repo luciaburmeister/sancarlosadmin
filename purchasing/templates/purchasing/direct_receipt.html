@@ -82,11 +82,11 @@
                                 {{ item.inventory_item.name }}
                                 <div class="text-xs text-gray-500 font-normal mt-1">{{ item.description }}</div>
                             </td>
-                            <td class="px-6 py-5 text-sm text-gray-600 text-center font-mono">{{ item.quantity|floatformat:0 }}</td>
-                            <td class="px-6 py-5 text-sm text-gray-600 text-center font-mono">{{ item.received_quantity|floatformat:0 }}</td>
-                            <td class="px-6 py-5 text-sm font-bold text-primary-600 text-center font-mono">{{ item.pending_qty|floatformat:0 }}</td>
+                            <td class="px-6 py-5 text-sm text-gray-600 text-center font-mono">{{ item.quantity|floatformat:2 }}</td>
+                            <td class="px-6 py-5 text-sm text-gray-600 text-center font-mono">{{ item.received_quantity|floatformat:2 }}</td>
+                            <td class="px-6 py-5 text-sm font-bold text-primary-600 text-center font-mono">{{ item.pending_qty|floatformat:2 }}</td>
                             <td class="px-6 py-5 text-right">
-                                <input type="number" name="qty_{{ item.id }}" step="1" min="0" max="{{ item.pending_qty }}" 
+                                <input type="number" name="qty_{{ item.id }}" step="0.01" min="0" max="{{ item.pending_qty }}" 
                                        placeholder="0"
                                        class="w-full text-right rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2">
                             </td>

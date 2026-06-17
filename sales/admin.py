@@ -16,14 +16,14 @@ from unfold.admin import TabularInline, StackedInline
 from import_export.admin import ImportExportModelAdmin
 from .forms import (
     ClientImportForm, ClientExportForm,
-    QuoteImportForm, ClientConfirmImportForm, QuoteConfirmImportForm,
+     ClientConfirmImportForm, QuoteConfirmImportForm,
     QuoteItemImportForm, QuoteItemConfirmImportForm,
 )
 from invoices.models import AppliedTax
 from unfold.contrib.filters.admin import (
-    AutocompleteSelectFilter,
     AutocompleteSelectMultipleFilter
 )
+from unfold.contrib.import_export.forms import ExportForm, ImportForm, SelectableFieldsExportForm
 from configurator.models import Configuration
 from configurator.admin.configuration import AppliedTaxInline
 from django.shortcuts import redirect, render
@@ -31,7 +31,7 @@ from django.urls import reverse, path
 from unfold.decorators import action
 from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.company_access import get_user_companies
-from .resources import ClientResource, QuoteImportResource, QuoteItemImportResource, QuoteExportResource
+from .resources import ClientResource, QuoteItemImportResource, QuoteExportResource
 from .views_analysis import ConversionAnalysisView
 from management.views import QuoteAcceptanceWizardView
 from .views.quote_export_view import QuoteExportView
@@ -461,11 +461,10 @@ class QuoteEmailLogInline(_GenericTabularInline):
         return False
 
 @admin.register(Quote)
-class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
-    resource_classes = [QuoteImportResource]
-    export_resource_classes = [QuoteExportResource]
-    import_form_class = QuoteImportForm
-    export_form_class = ClientExportForm
+class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
+    resource_classes = [QuoteExportResource]
+    import_form_class = ImportForm
+    export_form_class = SelectableFieldsExportForm
     list_display = ["id", "project_name", "client", "date_sent","date_accepted", "project_file", "show_status_customized_color", "total_price_display", "company"]
     list_filter = [
         ("status",MultipleChoicesDropdownFilter), 
@@ -478,7 +477,7 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
     readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown", "date_sent", "date_accepted", "date_rejected"]
     list_select_related = ["client", "project_file__client", "company"]
     list_filter_submit = True
-    
+
     inlines = [ConfigurationReadOnlyInline, 
     QuoteConfigurationGroupInline, 
     QuoteInventoryItemInline, 
@@ -517,9 +516,6 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
         }),
     )
 
-    def get_confirm_form_class(self, request):
-        return QuoteConfirmImportForm
-
     @display(description=_("Total price"))
     def total_price_display(self, obj):
         return obj.total_price
@@ -545,7 +541,6 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         form.instance.recalc_totals()
-        # Pre-populate and recalculate only on save
         CommissionService.prepopulate_for_quote(form.instance)
         CommissionService.recalculate(form.instance)
 

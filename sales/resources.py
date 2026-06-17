@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 
 from import_export import resources, fields
 
-from .models import Client, SaleZone, Quote, QuoteItem
+from .models import Client,  Quote, QuoteItem
 from configurator.models import Configuration, ConfigurationItem, ConfigurationStatus
 from django.utils.translation import gettext_lazy as _
 
@@ -1025,6 +1025,12 @@ class QuoteExportResource(resources.ModelResource):
     client_name = fields.Field(column_name=_("Client"))
     client_email = fields.Field(column_name=_("Client Email"))
     client_phone = fields.Field(column_name=_("Client Phone"))
+    subtotal_amount = fields.Field(column_name=_("Subtotal"))
+    subtotal_currency = fields.Field(column_name=_("Subtotal Currency"))
+    tax_amount_value = fields.Field(column_name=_("Tax Amount"))
+    tax_currency = fields.Field(column_name=_("Tax Currency"))
+    total_amount = fields.Field(column_name=_("Total"))
+    total_currency = fields.Field(column_name=_("Total Currency"))
 
     class Meta:
         from .models import Quote
@@ -1036,9 +1042,15 @@ class QuoteExportResource(resources.ModelResource):
             "client_phone",
             "project_name",
             "status",
-            "subtotal_price",
-            "tax_amount",
-            "total_price",
+            "subtotal_amount",
+            "subtotal_currency",
+            "date_sent",
+            "date_accepted",
+            "date_rejected",
+            "tax_amount_value",
+            "tax_currency",
+            "total_amount",
+            "total_currency",
             "expires_at",
             "created_at",
             "company__name",
@@ -1056,3 +1068,21 @@ class QuoteExportResource(resources.ModelResource):
 
     def dehydrate_client_phone(self, quote):
         return quote.client.phone if quote.client else ""
+
+    def dehydrate_subtotal_amount(self, quote):
+        return quote.subtotal_price.amount if quote.subtotal_price else 0
+
+    def dehydrate_subtotal_currency(self, quote):
+        return str(quote.subtotal_price.currency) if quote.subtotal_price else "EUR"
+
+    def dehydrate_tax_amount_value(self, quote):
+        return quote.tax_amount.amount if quote.tax_amount else 0
+
+    def dehydrate_tax_currency(self, quote):
+        return str(quote.tax_amount.currency) if quote.tax_amount else "EUR"
+
+    def dehydrate_total_amount(self, quote):
+        return quote.total_price.amount if quote.total_price else 0
+
+    def dehydrate_total_currency(self, quote):
+        return str(quote.total_price.currency) if quote.total_price else "EUR"

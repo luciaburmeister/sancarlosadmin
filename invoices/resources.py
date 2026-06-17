@@ -5,7 +5,7 @@ from materials.models import Provider
 from company.models import Company
 from sales.models import Client
 from django.utils.translation import gettext_lazy as _
-from django.db.models import Sum, DecimalField, Value
+from django.db.models import Sum, Max, DecimalField, Value
 from django.db.models.functions import Coalesce
 from django.db import models as models
 from django.contrib.contenttypes.models import ContentType
@@ -109,6 +109,7 @@ class InvoiceResource(resources.ModelResource):
     amount_paid_value = fields.Field(column_name=_('Amount Paid'))
     amount_remaining_value = fields.Field(column_name=_('Amount Remaining'))
     currency = fields.Field(column_name=_('Currency'))
+    last_payment_date = fields.Field(column_name=_('Last Payment Date'))
 
     # Tax columns
     base_iva_1 = fields.Field(column_name="BASE IVA 1")
@@ -143,6 +144,7 @@ class InvoiceResource(resources.ModelResource):
             'retencion',
             'confirmation_status',
             'payment_status',
+            'last_payment_date',
             'ocr_processed',
             'is_total_balanced',
         )
@@ -161,12 +163,22 @@ class InvoiceResource(resources.ModelResource):
             .annotate(total=Sum("amount_applied"))
             .values("total")
         )
+        last_payment_subquery = (
+            PaymentAllocation.objects.filter(
+                content_type=ct,
+                object_id=models.OuterRef("pk"),
+            )
+            .values("object_id")
+            .annotate(last_date=Max("payment__payment_date"))
+            .values("last_date")
+        )
         return queryset.select_related("provider", "company").annotate(
             _amount_paid=Coalesce(
                 models.Subquery(paid_subquery),
                 Value(Decimal("0.00")),
                 output_field=DecimalField(),
             ),
+            _last_payment_date=models.Subquery(last_payment_subquery),
         )
 
     def get_queryset(self):
@@ -240,6 +252,10 @@ class InvoiceResource(resources.ModelResource):
         _, retention = self._get_tax_data(invoice)
         return retention if retention else ""
 
+    def dehydrate_last_payment_date(self, invoice):
+        dt = getattr(invoice, '_last_payment_date', None)
+        return dt.isoformat() if dt else ""
+
 
 class InvoiceItemResource(resources.ModelResource):
     invoice_number = fields.Field(attribute='invoice__invoice_number', column_name=_('Invoice Number'))
@@ -293,6 +309,7 @@ class SalesInvoiceResource(resources.ModelResource):
     tax_amount_value = fields.Field(column_name=_('Tax Amount'))
     total_amount_value = fields.Field(column_name=_('Total Amount'))
     currency = fields.Field(column_name=_('Currency'))
+    last_payment_date = fields.Field(column_name=_('Last Payment Date'))
 
     # Tax columns
     base_iva_1 = fields.Field(column_name="BASE IVA 1")
@@ -327,16 +344,31 @@ class SalesInvoiceResource(resources.ModelResource):
             'iva_3',
             'retencion',
             'payment_status',
+            'last_payment_date',
             'payment_method',
             'reference',
         )
         export_order = fields
 
     def export(self, queryset=None, *args, **kwargs):
+        from payments.models import PaymentAllocation
+
         if queryset is None:
             queryset = SalesInvoice.objects.all()
 
-        queryset = queryset.select_related("client", "company")
+        ct = ContentType.objects.get_for_model(SalesInvoice)
+        last_payment_subquery = (
+            PaymentAllocation.objects.filter(
+                content_type=ct,
+                object_id=models.OuterRef("pk"),
+            )
+            .values("object_id")
+            .annotate(last_date=Max("payment__payment_date"))
+            .values("last_date")
+        )
+        queryset = queryset.select_related("client", "company").annotate(
+            _last_payment_date=models.Subquery(last_payment_subquery),
+        )
 
         # Bulk-prefetch all taxes in 1 query → attach to each instance
         tax_lookup = _prefetch_tax_data(SalesInvoice, queryset)
@@ -397,6 +429,10 @@ class SalesInvoiceResource(resources.ModelResource):
     def dehydrate_retencion(self, invoice):
         _, retention = self._get_tax_data(invoice)
         return retention if retention else ""
+
+    def dehydrate_last_payment_date(self, invoice):
+        dt = getattr(invoice, '_last_payment_date', None)
+        return dt.isoformat() if dt else ""
 
 
 class SalesInvoiceItemResource(resources.ModelResource):

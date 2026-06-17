@@ -1,3 +1,5 @@
+from unfold.contrib.filters.admin import RangeDateFilter
+from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
 from decimal import Decimal
 
 from django.contrib import admin
@@ -465,13 +467,16 @@ class QuoteAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelA
     export_form_class = ClientExportForm
     list_display = ["id", "project_name", "client", "date_sent","date_accepted", "project_file", "show_status_customized_color", "total_price_display", "company"]
     list_filter = [
-        "status", 
+        ("status",MultipleChoicesDropdownFilter), 
         ("company",AutocompleteSelectMultipleFilter), 
-        "created_at"]
+        ("created_at",RangeDateFilter),
+        ("date_sent", RangeDateFilter),
+        ("date_accepted",RangeDateFilter)]
     search_fields = ["project_name", "client__name", "id", "external_id"]
     autocomplete_fields = ["client", "project_file", "company"]
     readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown", "date_sent", "date_accepted", "date_rejected"]
     list_select_related = ["client", "project_file__client", "company"]
+    list_filter_submit = True
     
     inlines = [ConfigurationReadOnlyInline, 
     QuoteConfigurationGroupInline, 

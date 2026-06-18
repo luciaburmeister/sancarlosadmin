@@ -117,10 +117,20 @@ class PlanningsListView(APIView):
         plannings = AssetPlanning.objects.filter(
             assigned_to=employee,
             status__in=["pending", "in_transit"],
-        ).select_related("asset", "origin", "destination")
+        ).select_related(
+            "asset", "origin", "destination", "transport_asset"
+        ).prefetch_related("stops__zone").order_by("route_order", "pk")
 
         data = []
         for p in plannings:
+            stops = [
+                {
+                    "zone": s.zone.name,
+                    "address": f"{s.zone.street_address}, {s.zone.city}, {s.zone.postal_code}",
+                    "sequence": s.sequence,
+                }
+                for s in p.stops.all()
+            ]
             data.append({
                 "asset_id": p.asset.id,
                 "origin": p.origin.name if p.origin else None,
@@ -133,6 +143,12 @@ class PlanningsListView(APIView):
                     f"{p.destination.street_address}, {p.destination.city}, {p.destination.postal_code}"
                     if p.destination else None
                 ),
+                "stops": stops,
+                "transport_asset": (
+                    {"id": p.transport_asset.id, "name": p.transport_asset.name}
+                    if p.transport_asset else None
+                ),
+                "route_order": p.route_order,
                 "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
                 "status": p.status,
             })

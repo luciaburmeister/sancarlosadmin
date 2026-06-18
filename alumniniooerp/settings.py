@@ -209,6 +209,9 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_KEY")
 NUEK_SERVICE_KEY = os.getenv("NUEK_SERVICE_KEY", "")
 ARCOPAY_API_URL = os.getenv("ARCOPAY_API_URL", "https://apipsd2.arcopay.io")
 
+# Google Maps — Routes API (computeRouteMatrix)
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
+
 
 POPPLER_PATH = os.getenv("POPPLER_PATH", "/opt/homebrew/bin")  
 

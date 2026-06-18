@@ -9,6 +9,8 @@ from django.views.generic import TemplateView
 from django.core.exceptions import PermissionDenied
 from unfold.views import UnfoldModelAdminViewMixin
 
+from django.utils.translation import gettext_lazy as _
+
 from core.admin.company_access import get_user_companies
 from management.forms import ResourcePlanningFilterForm
 from management.models import ResourcePlanning, ResourcePlanningType, ResourcePlanningStatus
@@ -31,9 +33,9 @@ class CellBlock:
 
 
 RESOURCE_TYPE_LABELS = {
-    "employee": "Employees",
-    "machine": "Machines",
-    "asset": "Assets",
+    "employee": _("Employees"),
+    "machine": _("Machines"),
+    "asset": _("Assets"),
 }
 
 

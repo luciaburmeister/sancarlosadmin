@@ -1,3 +1,5 @@
+from unfold.contrib.filters.admin import RangeDateFilter
+from unfold.contrib.filters.admin.dropdown_filters import MultipleChoicesDropdownFilter
 from django.db.models import DecimalField, Sum, Value, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 
@@ -93,11 +95,11 @@ class ResourcePlanningInline(TabularInline):
 @admin.register(ProjectFile)
 class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ["reference", "name", "client", "status", "total_amount", "start_date","invoicing_status","company"]
-    list_filter = ["status", ("company",AutocompleteSelectMultipleFilter), "created_at"]
+    list_filter = [("status",MultipleChoicesDropdownFilter), ("company",AutocompleteSelectMultipleFilter), ("created_at",RangeDateFilter)]
     search_fields = ["reference", "name", "client__name"]
     autocomplete_fields = ["client", "company"]
     list_select_related = ["client","company"]
-    
+    list_filter_submit = True
     readonly_fields = ["reference", "incremental_id", "invoicing_summary_display"]
 
     inlines = [

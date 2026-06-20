@@ -454,6 +454,16 @@ UNFOLD = {
                         ),
                     },
                     {
+                        "title": _("Delivery Orders"),
+                        "icon": "local_shipping",
+                        "link": reverse_lazy(
+                            "admin:sales_deliveryorder_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "sales.view_deliveryorder"
+                        ),
+                    },
+                    {
                         "title": _("Resource Planning"),
                         "icon": "calendar_month",
                         "link": reverse_lazy("admin:management_resourceplanning_changelist"),
@@ -703,16 +713,7 @@ UNFOLD = {
                             "invoices.view_salesinvoice"
                         ),
                     },
-                    {
-                        "title": _("Delivery Orders"),
-                        "icon": "local_shipping",
-                        "link": reverse_lazy(
-                            "admin:sales_deliveryorder_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "sales.view_deliveryorder"
-                        ),
-                    },
+                    
                     {
                         "title": _("Received Invoices"),
                         "icon": "receipt_long",

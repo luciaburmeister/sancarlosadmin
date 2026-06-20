@@ -16,6 +16,7 @@ from sales.models import Quote, QuoteStatus, DeliveryOrder
 from production.models import ProductionTicket
 from invoices.models import SalesInvoice, Invoice
 from invoices.views.invoice.project_file_wizard_views import ProjectFileInvoiceWizardView
+from invoices.views.invoice.delivery_order_wizard_views import DeliveryOrderWizardView
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.models import Configuration, ConfigurationStatus
@@ -112,8 +113,8 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
         ResourcePlanningInline,
     ]
 
-    actions_row = ["create_invoice_row_action"]
-    actions_detail = ["create_invoice_detail_action"]
+    actions_row = ["create_invoice_row_action", "create_delivery_order_row_action"]
+    actions_detail = ["create_invoice_detail_action", "create_delivery_order_detail_action"]
 
     fieldsets = (
         (_("Basic Information"), {
@@ -192,6 +193,13 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ),
                 name="management_projectfile_create_invoice",
             ),
+            path(
+                "<int:project_file_id>/create-delivery-order/",
+                self.admin_site.admin_view(
+                    DeliveryOrderWizardView.as_view(model_admin=self)
+                ),
+                name="management_projectfile_create_delivery_order",
+            ),
         ]
         return custom + urls
 
@@ -205,6 +213,18 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def create_invoice_detail_action(self, request, object_id):
         return redirect(
             reverse("admin:management_projectfile_create_invoice", args=[object_id])
+        )
+
+    @action(description=_("Create Delivery Order"), icon="local_shipping")
+    def create_delivery_order_row_action(self, request, object_id):
+        return redirect(
+            reverse("admin:management_projectfile_create_delivery_order", args=[object_id])
+        )
+
+    @action(description=_("Create Delivery Order"), icon="local_shipping")
+    def create_delivery_order_detail_action(self, request, object_id):
+        return redirect(
+            reverse("admin:management_projectfile_create_delivery_order", args=[object_id])
         )
 
     @display(description=_("Invoicing"))

@@ -10,6 +10,7 @@ from django.utils.translation import gettext_lazy as _
 from company.models import CompanyOwnedModel
 from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
+from django.contrib.contenttypes.fields import GenericForeignKey
 from invoices.models import AppliedTax, PaymentMethod
 from company.models import Company, CompanyOwnedModel, BaseBankAccount, BankAccount
 from django_countries.fields import CountryField
@@ -1091,6 +1092,15 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
         default=DeliveryOrderStatus.DRAFT,
         verbose_name=_("Status")
     )
+    subtotal_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Subtotal"),
+        help_text=_("Sum of delivery order item line totals."),
+    )
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
 
     class Meta:
         verbose_name = _("Delivery Order")
@@ -1101,6 +1111,18 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
     def __str__(self):
         return f"{self.number or 'Draft'} - {self.client}"
 
+    def recalculate_subtotal(self, save=True):
+        """Recompute subtotal_amount from item line_totals."""
+        total = sum(
+            (item.line_total.amount for item in self.items.all() if item.line_total),
+            Decimal("0.00"),
+        )
+        self.subtotal_amount = total
+        if save:
+            self.save(update_fields=["subtotal_amount", "subtotal_amount_currency"])
+        return self.subtotal_amount
+
+
 class DeliveryOrderItem(Timestampable):
     delivery_order = models.ForeignKey(
         DeliveryOrder,
@@ -1108,12 +1130,77 @@ class DeliveryOrderItem(Timestampable):
         related_name="items",
         verbose_name=_("Delivery Order")
     )
-    description = models.CharField(max_length=255, verbose_name=_("Description"))
+    description = models.CharField(max_length=500, verbose_name=_("Description"))
     quantity = models.DecimalField(max_digits=10, decimal_places=3, verbose_name=_("Quantity"))
+
+    # Pricing
+    unit_price = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Unit Price"),
+    )
+    discount_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        verbose_name=_("Discount (%)"),
+    )
+    discount_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Discount"),
+    )
+    line_total = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Line Total"),
+    )
+
+    # Source traceability via GenericFK
+    source_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delivery_order_items",
+        verbose_name=_("Source Type"),
+        help_text=_("Type of the source object (Configuration, QuoteInventoryItem, etc.)"),
+    )
+    source_object_id = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("Source ID"),
+    )
+    source_object = GenericForeignKey("source_content_type", "source_object_id")
+
+    reference = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name=_("Reference"),
+        help_text=_("Item reference code. Auto-filled from source when applicable."),
+    )
 
     class Meta:
         verbose_name = _("Delivery Order Item")
         verbose_name_plural = _("Delivery Order Items")
+        indexes = [
+            models.Index(
+                fields=["source_content_type", "source_object_id"],
+                name="idx_doitem_source",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        self.discount_amount = (self.unit_price * self.quantity) * (self.discount_percentage / Decimal("100"))
+        self.line_total = (self.unit_price * self.quantity) - self.discount_amount
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.description} ({self.quantity})"

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-18 07:35+0200\n"
+"POT-Creation-Date: 2026-06-20 19:21+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -196,6 +196,9 @@ msgstr "Gestión"
 msgid "Expedientes"
 msgstr "Expedientes"
 
+msgid "Delivery Orders"
+msgstr "Albaranes de Trabajo"
+
 #, fuzzy
 #| msgid "Process Planning"
 msgid "Resource Planning"
@@ -282,16 +285,13 @@ msgid "Purchase Orders"
 msgstr "Ordenes de Compra"
 
 msgid "PO Receipts"
-msgstr "Albaránes de Recibido"
+msgstr "Albaránes de Recepción"
 
 msgid "Invoices"
 msgstr "Facturas"
 
 msgid "Sales Invoices"
 msgstr "Facturas de Ventas"
-
-msgid "Delivery Orders"
-msgstr "Albaránes de Transporte"
 
 msgid "Received Invoices"
 msgstr "Facturas de compra"
@@ -529,6 +529,14 @@ msgstr "Ruta"
 msgid "Assignment"
 msgstr "Asignado"
 
+msgid "Optimize Daily Routes"
+msgstr "Optimizar Rutas Diarias"
+
+#, fuzzy, python-format
+#| msgid "Skipped %(count)d rows (duplicates or empty)."
+msgid "Optimized %(count)d daily route(s)."
+msgstr "Se omitieron %(count)d filas (duplicados o vacías)."
+
 msgid "Email Sent"
 msgstr "Correo electrónico enviado"
 
@@ -643,25 +651,16 @@ msgstr "Desde la zona"
 msgid "To Zone"
 msgstr "A Zona"
 
-#, fuzzy
-#| msgid "Machine cost"
 msgid "Transaction Type"
-msgstr "Costo de la máquina"
+msgstr "Tipo de transacción"
 
-#, fuzzy
-#| msgid "Hire Date"
 msgid "Date"
-msgstr "Fecha de contratación"
+msgstr "Fecha"
 
-#, fuzzy
-#| msgid "Quotes"
+
 msgid "Notes"
-msgstr "Presupuestos"
+msgstr "Notas"
 
-#, fuzzy
-#| msgid "Expedientes"
-msgid "Expediente"
-msgstr "Expedientes"
 
 msgid "Asset transaction"
 msgstr "Transacción de activos"
@@ -677,15 +676,70 @@ msgstr "Transacción de artículo"
 msgid "Delivered"
 msgstr "Entregado"
 
+msgid "Transport Asset"
+msgstr "Activo de Transporte"
+
+#, fuzzy
+#| msgid "User who performed the movement."
+msgid "Vehicle or tool needed to perform this movement"
+msgstr "Usuario que realizó el movimiento."
+
 #, fuzzy
 #| msgid "Received Invoices"
 msgid "Scheduled Date"
 msgstr "Facturas de compra"
 
 #, fuzzy
+#| msgid "Date Ordered"
+msgid "Route Order"
+msgstr "Fecha de Orden"
+
+msgid "Execution order within the employee's daily route"
+msgstr "Orden de ejecución dentro de la ruta diaria del empleado"
+
+#, fuzzy
 #| msgid "Process Planning"
 msgid "Asset Plannings"
 msgstr "Planificación del Proceso"
+
+msgid "Planning"
+msgstr "Planificación"
+
+#, fuzzy
+#| msgid "To Zone"
+msgid "Zone"
+msgstr "A Zona"
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "Sequence"
+msgstr "Método de Pago"
+
+#, fuzzy
+#| msgid "Planning"
+msgid "Planning Stop"
+msgstr "Planificación"
+
+#, fuzzy
+#| msgid "Planning"
+msgid "Planning Stops"
+msgstr "Planificación"
+
+msgid "Distance (m)"
+msgstr "Distancia (m)"
+
+#, fuzzy
+#| msgid "Configuration"
+msgid "Duration (s)"
+msgstr "Configuración"
+
+#, fuzzy
+#| msgid "Created at"
+msgid "Fetched At"
+msgstr "Creado en"
+
+msgid "Zone Distance Cache"
+msgstr "Cache de Distancia de Zona"
 
 msgid "Asset Document Type"
 msgstr "Tipo de documento de activo"
@@ -2093,9 +2147,6 @@ msgstr "Propiedad"
 
 msgid "Planning configured"
 msgstr "Planificación configurada"
-
-msgid "Planning"
-msgstr "Planificación"
 
 #, fuzzy
 #| msgid "Confirmed"
@@ -4437,6 +4488,12 @@ msgstr "artículos sin cuenta"
 msgid "total balanced"
 msgstr "La entrada no está equilibrada."
 
+msgid "Unit Price"
+msgstr "Precio Unitario"
+
+msgid "Discount (%)"
+msgstr "Descuento (%)"
+
 #, fuzzy
 #| msgid "Source"
 msgid "Excel File"
@@ -4558,12 +4615,6 @@ msgstr "Seleccionar"
 
 msgid "Qty"
 msgstr "Cantidad"
-
-msgid "Unit Price"
-msgstr "Precio Unitario"
-
-msgid "Discount (%)"
-msgstr "Descuento (%)"
 
 msgid "Percentage"
 msgstr "Porcentaje"
@@ -4821,6 +4872,11 @@ msgstr "Fecha de Pago"
 #| msgid "Client"
 msgid "Client NIF/CIF"
 msgstr "Cliente"
+
+#, fuzzy
+#| msgid "This field is required."
+msgid "At least one item is required."
+msgstr "Este campo es obligatorio."
 
 #, fuzzy
 #| msgid ""
@@ -5428,7 +5484,29 @@ msgid "Confirm Merge"
 msgstr "Confirmado"
 
 #, fuzzy
-#| msgid "Invoice"
+#| msgid "Default Value"
+msgid "Deliverable Value"
+msgstr "Valor predeterminado"
+
+#, fuzzy
+#| msgid "Delivered"
+msgid "Already Delivered"
+msgstr "Entregado"
+
+#, fuzzy
+#| msgid "Delivery Orders"
+msgid "Existing Delivery Orders"
+msgstr "Albaranes de Trabajo"
+
+msgid "Items to Deliver"
+msgstr "Artículos a Entregar"
+
+msgid "Remove items you don't want to include in this delivery"
+msgstr "Elimina los artículos que no deseas incluir en esta entrega."
+
+msgid "Create Delivery Order"
+msgstr "Crear Albarán"
+
 msgid "Invoiced"
 msgstr "Factura"
 
@@ -5451,6 +5529,11 @@ msgstr "Agregar línea"
 
 msgid "Finish"
 msgstr "Terminar"
+
+#, fuzzy, python-format
+#| msgid "Delivery Order Item"
+msgid "Delivery Order %(number)s created."
+msgstr "Elemento del albaran de Transporte"
 
 #, python-format
 msgid "Successfully imported %(count)d invoices."
@@ -5548,8 +5631,6 @@ msgstr "Datos Internos"
 msgid "No accepted quotes or direct configurations yet."
 msgstr "No se han encontrado presupuestos aceptados para este expediente."
 
-#, fuzzy
-#| msgid "Invoice"
 msgid "invoiced"
 msgstr "Factura"
 
@@ -7326,10 +7407,8 @@ msgstr "Componente"
 msgid "Permission denied"
 msgstr "Permiso denegado"
 
-#, fuzzy
-#| msgid "Status"
 msgid "Invalid status"
-msgstr "Estado"
+msgstr "Estado Invalido"
 
 msgid "Invalid action"
 msgstr "Acción inválida"
@@ -7554,6 +7633,14 @@ msgstr "Finanzas y Seguro"
 msgid "Versión T&C"
 msgstr "Versión T&C"
 
+msgid "This delivery order is already linked to an invoice."
+msgstr "Este pedido de entrega ya está vinculado a una factura."
+
+#, fuzzy, python-format
+#| msgid "Invoice finalized and Delivery Order generated."
+msgid "Invoice created from Delivery Order %(number)s."
+msgstr "Factura finalizada y Orden de Entrega generada."
+
 msgid "Photos"
 msgstr "Fotos"
 
@@ -7613,10 +7700,9 @@ msgstr "Enviado"
 msgid "Total Quoted (€)"
 msgstr "Total Cotizado (€)"
 
-#, fuzzy
-#| msgid "Quotes"
+
 msgid "# Quotes"
-msgstr "Presupuestos"
+msgstr "# Presupuestos"
 
 msgid "Empresa"
 msgstr "Company"
@@ -7816,20 +7902,14 @@ msgstr ""
 "Nombre estable que se muestra en la aplicación Fislav; no se ve afectado por"
 " el cambio de nombre del PDF."
 
-#, fuzzy
-#| msgid "Dates"
 msgid "Date sent"
-msgstr "Fechas"
+msgstr "Fecha enviado"
 
-#, fuzzy
-#| msgid "Accepted"
 msgid "Date accepted"
-msgstr "Aceptado"
+msgstr "Fecha aceptado"
 
-#, fuzzy
-#| msgid "Date Ordered"
 msgid "Date rejected"
-msgstr "Fecha de Orden"
+msgstr "Fecha rechazado"
 
 msgid "External reference identifier for this quote."
 msgstr "Identificador de referencia externa para esta cita."
@@ -7893,8 +7973,33 @@ msgstr "Presupuesto no encontrado"
 msgid "Quote Photos"
 msgstr "articulos de Presupuesto"
 
+msgid "Sum of delivery order item line totals."
+msgstr "Suma de los totales de la línea de ítems del pedido de entrega."
+
 msgid "Delivery Order"
 msgstr "Alabarán de Transporte"
+
+#, fuzzy
+#| msgid "Source"
+msgid "Source Type"
+msgstr "Origén"
+
+msgid "Type of the source object (Configuration, QuoteInventoryItem, etc.)"
+msgstr ""
+"Tipo del objeto fuente (Configuración, ArtículoDeInventarioCotización, etc.)"
+
+#, fuzzy
+#| msgid "Source"
+msgid "Source ID"
+msgstr "Origén"
+
+#, fuzzy
+#| msgid ""
+#| "Item reference. Auto-filled from inventory item code when applicable."
+msgid "Item reference code. Auto-filled from source when applicable."
+msgstr ""
+"Referencia de artículo. Autocompletado a partir del código del artículo de "
+"inventario cuando sea aplicable."
 
 msgid "Delivery Order Item"
 msgstr "Elemento del albaran de Transporte"

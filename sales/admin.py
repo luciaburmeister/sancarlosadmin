@@ -294,19 +294,49 @@ class OrderAdmin(ModelAdmin):
     final_price_display.admin_order_field = "final_price"
 
 
-class DeliveryOrderItemInline(TabularInline):
+class DeliveryOrderItemInline(StackedInline):
     model = DeliveryOrderItem
     extra = 0
     tab = True
+    name = _("Items")
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("description", "reference"),
+                ("quantity", "unit_price"),
+                ("discount_percentage", "line_total"),
+                ("source_object"),
+            )
+        }),
+    )
+    readonly_fields = ["line_total","source_object"]
+
 
 @admin.register(DeliveryOrder)
 class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["number", "incremental_id", "get_status_label", "company", "client", "date", "sales_invoice"]
-    list_filter = ["company", "status", "date"]
+    list_display = ["number", "get_status_label", "client", "date", "subtotal_amount", "get_invoiced_label","company"]
+    list_filter = [("company",AutocompleteSelectMultipleFilter), ("status",MultipleChoicesDropdownFilter), ("date",RangeDateFilter)]
     search_fields = ["number", "client__name"]
     autocomplete_fields = ["company", "client", "sales_invoice", "configuration", "project_file"]
     inlines = [DeliveryOrderItemInline]
-    readonly_fields = ["number", "date"]
+    readonly_fields = ["number", "date", "subtotal_amount"]
+    list_filter_submit = True
+
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("number", "date"),
+                ("company", "client"),
+                ("project_file"),
+                ("status", "subtotal_amount"),
+                "sales_invoice",
+                "notes",
+            )
+        }),
+    )
+
+    actions_row = ["create_invoice_from_do_row_action"]
+    actions_detail = ["create_invoice_from_do_detail_action"]
 
     @display(
         description=_("Status"),
@@ -320,6 +350,52 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
     def get_status_label(self, obj):
         return obj.status
+
+    @display(
+        description=_("Invoiced"),
+        label={
+            _("Yes"): "success",
+            _("No"): "warning",
+        },
+    )
+    def get_invoiced_label(self, obj):
+        return _("Yes") if obj.sales_invoice_id else _("No")
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        form.instance.recalculate_subtotal()
+
+    @action(description=_("Create Invoice"), icon="receipt_long")
+    def create_invoice_from_do_row_action(self, request, object_id):
+        from invoices.services.delivery_order_service import DeliveryOrderService
+        from django.utils import timezone
+        from django.contrib import messages as django_messages
+
+        do = DeliveryOrder.objects.select_related("client", "company", "project_file").get(pk=object_id)
+
+        if do.sales_invoice_id:
+            django_messages.warning(request, _("This delivery order is already linked to an invoice."))
+            return redirect(reverse("admin:sales_deliveryorder_changelist"))
+
+        try:
+            invoice = DeliveryOrderService.create_invoice_from_delivery_orders(
+                delivery_orders=[do],
+                company=do.company,
+                client=do.client,
+                date_issued=timezone.now().date(),
+            )
+            django_messages.success(
+                request,
+                _("Invoice created from Delivery Order %(number)s.") % {"number": do.number},
+            )
+            return redirect(reverse("admin:invoices_salesinvoice_change", args=[invoice.id]))
+        except Exception as e:
+            django_messages.error(request, str(e))
+            return redirect(reverse("admin:sales_deliveryorder_changelist"))
+
+    @action(description=_("Create Invoice"), icon="receipt_long")
+    def create_invoice_from_do_detail_action(self, request, object_id):
+        return self.create_invoice_from_do_row_action(request, object_id)
 
 class QuotePhotoInline(TabularInline):
     model = QuotePhoto

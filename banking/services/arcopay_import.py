@@ -458,12 +458,31 @@ class ArcopayService:
                     bank_account, product_data,
                 )
 
+                # ponytail: store bank-reported balance
+                ArcopayService._update_account_balance(bank_account, product_data)
+
         logger.info(
             "Imported %d new transactions for BankAccount %s",
             total, bank_account.pk,
         )
 
         return total
+
+    @staticmethod
+    def _update_account_balance(bank_account: BankAccount, product_data: dict) -> None:
+        """Persist the bank-reported balance from an Arcopay product response."""
+        raw_balance = product_data.get("balance")
+        if raw_balance is None:
+            return
+        try:
+            balance = Decimal(str(raw_balance))
+        except Exception:
+            return
+        currency = product_data.get("currency", "EUR") or "EUR"
+        from django.utils import timezone as tz
+        bank_account.last_known_balance = Money(balance, currency)
+        bank_account.last_balance_updated_at = tz.now()
+        bank_account.save(update_fields=["last_known_balance", "last_known_balance_currency", "last_balance_updated_at"])
 
     @staticmethod
     def sync_all_connected_accounts(company: Company | None = None) -> "SyncResult":

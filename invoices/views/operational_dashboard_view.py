@@ -88,7 +88,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         cached = cache.get(cache_key)
 
         if cached:
-            invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data = cached
+            invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data, bank_balances_data = cached
         else:
             invoicing_data = self._compute_invoicing(selected_company, date_from, date_to)
             production_data = self._compute_production_costs(selected_company, date_from, date_to)
@@ -97,7 +97,8 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             cash_data = self._compute_tax_periods(selected_company, date_from, date_to)
             ar_aging_data = self._compute_ar_aging(selected_company)
             ap_aging_data = self._compute_ap_aging(selected_company)
-            cache.set(cache_key, (invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data), _CACHE_TTL)
+            bank_balances_data = self._compute_bank_balances(selected_company)
+            cache.set(cache_key, (invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data, bank_balances_data), _CACHE_TTL)
 
         ctx.update({
             "title": _("Operational Dashboard"),
@@ -111,6 +112,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "taxes": tax_data,
             "payment": payment_data,
             "tax_periods": cash_data,
+            "bank_balances": bank_balances_data,
             "today": today,
         })
         return ctx
@@ -698,3 +700,28 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "bucket_60_count": b60["count"],
             "bucket_90_count": b90["count"],
         }
+
+    # ── Bank balance helpers ───────────────────────────────────────
+
+    @staticmethod
+    def _compute_bank_balances(company):
+        """Return linked bank accounts with their last known balance."""
+        if not company:
+            return []
+
+        from company.models import BankAccount
+
+        accounts = BankAccount.objects.filter(
+            company=company,
+        ).exclude(nuek_token="").order_by("bank_name")
+
+        return [
+            {
+                "bank_name": a.bank_name,
+                "iban": a.iban or a.nuek_product_id or "—",
+                "balance": a.last_known_balance,
+                "currency": a.last_known_balance_currency or "EUR",
+                "updated_at": a.last_balance_updated_at,
+            }
+            for a in accounts
+        ]

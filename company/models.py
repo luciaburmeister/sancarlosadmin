@@ -8,6 +8,7 @@ from location_field.models.spatial import LocationField
 from django.core.exceptions import ValidationError
 from timestamps.models import Timestampable
 from simple_history.models import HistoricalRecords
+from djmoney.models.fields import MoneyField
 from datetime import timedelta
 
 User = get_user_model()
@@ -504,6 +505,22 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
         help_text=_("Product identifier from Arcopay (IBAN or UUID). Used in /transactions/ calls."),
     )
     is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
+    last_known_balance = MoneyField(
+        max_digits=14,
+        decimal_places=2,
+        default=None,
+        default_currency="EUR",
+        null=True,
+        blank=True,
+        verbose_name=_("Last Known Balance"),
+        help_text=_("Balance reported by the bank on the last sync."),
+    )
+    last_balance_updated_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Balance Updated At"),
+        help_text=_("When the balance was last refreshed from the bank."),
+    )
 
     class Meta:
         verbose_name = _("Bank Account")

@@ -31,9 +31,12 @@ class AssetTransactionEmailService:
         # Resolve recipient
         recipient = to_email
         if not recipient:
-            if transaction.project_file and transaction.project_file.client:
-                recipient = transaction.project_file.client.email
-            elif transaction.asset and transaction.asset.client:
+            if transaction.project_file:
+                recipient = (
+                    transaction.project_file.notification_email
+                    or (transaction.project_file.client and transaction.project_file.client.email)
+                )
+            if not recipient and transaction.asset and transaction.asset.client:
                 recipient = transaction.asset.client.email
 
         if not recipient:

@@ -57,6 +57,11 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
     description = models.TextField(blank=True, verbose_name=_("Description"))
     start_date = models.DateField(null=True, blank=True, verbose_name=_("Start Date"))
     end_date = models.DateField(null=True, blank=True, verbose_name=_("End Date"))
+    notification_email = models.EmailField(
+        blank=True,
+        verbose_name=_("Notification Email"),
+        help_text=_("Email address for project notifications (e.g., asset transactions). Falls back to the client email if left empty."),
+    )
 
     total_amount = MoneyField(
         max_digits=12,

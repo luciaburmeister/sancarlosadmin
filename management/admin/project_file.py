@@ -123,6 +123,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ("name", "client"),
                 "status",
                 "description",
+                "notification_email",
             )
         }),
         (_("Invoicing"), {

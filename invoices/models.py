@@ -118,12 +118,12 @@ class Invoice(Payable):
         null=False,  
         blank=False  
     )
-    gross_amount = MoneyField(
+    net_amount = MoneyField(
         max_digits=10,
         decimal_places=2,
         null=True,
         blank=True,
-        help_text="Total invoice amount before discounts",
+        help_text="Invoice subtotal before taxes (Base Imponible)",
         default_currency='EUR',
         default=0
     )
@@ -279,7 +279,7 @@ class Invoice(Payable):
         tolerance = Decimal("0.01")
         
         stored_total = Decimal(str(self.total_amount.amount)) if self.total_amount else Decimal("0.00")
-        stored_gross = Decimal(str(self.gross_amount.amount)) if self.gross_amount else Decimal("0.00")
+        stored_net = Decimal(str(self.net_amount.amount)) if self.net_amount else Decimal("0.00")
 
         matches_total = abs(calc_total - stored_total) <= tolerance
         

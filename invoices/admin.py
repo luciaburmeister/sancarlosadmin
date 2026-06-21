@@ -276,7 +276,7 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     }
 
     readonly_fields = (
-        "gross_amount",
+        "net_amount",
         "total_amount",
         "gemini_account_response",
         "ocr_raw_response",
@@ -312,7 +312,7 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
             {
                 "fields": (
                     ("invoice_number", "provider"),
-                    ("gross_amount", "total_amount"),
+                    ("net_amount", "total_amount"),
                     "file",
                     "company",
                     "project_file",

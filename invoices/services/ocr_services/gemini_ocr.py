@@ -25,7 +25,7 @@ class GeminiInvoiceProcessor(OcrInterface):
         "invoice_number",
         "date_issued",
         "due_date",
-        "gross_amount",
+        "net_amount",
         "total_amount",
         "currency",
         "payment_method",
@@ -48,10 +48,10 @@ class GeminiInvoiceProcessor(OcrInterface):
             "nullable": True,
             "description": "YYYY-MM-DD",
         },
-        "gross_amount": {
+        "net_amount": {
             "type": "NUMBER",
             "nullable": True,
-            "description": "Invoice total before any discounts (Importe BRUTO)"
+            "description": "Invoice subtotal before taxes (Base Imponible)"
         },
         "total_amount": {"type": "NUMBER", "nullable": True},
         "currency": {"type": "STRING", "nullable": True},
@@ -158,12 +158,12 @@ class GeminiInvoiceProcessor(OcrInterface):
 
       CRITICAL - Amounts on credit notes (any invoice where amounts are negative, regardless of language):
         - A credit note is any invoice whose monetary amounts are negative.
-        - Do NOT calculate gross_amount or total_amount. Read both values directly from the document.
+        - Do NOT calculate net_amount or total_amount. Read both values directly from the document.
         - Do NOT adjust, correct, or apply taxes to derive either value. Just read what is printed.
-        - On a credit note, taxes make total_amount MORE negative than gross_amount, not less.
-        - Therefore: total_amount is always more negative than gross_amount (further from zero).
-        - Wrong reasoning: gross=-X, tax=Y, so total=-X+Y. THIS IS INCORRECT.
-        - Correct reasoning: gross=-X, tax=-Y, so total=-X+(-Y)=-X-Y. THIS IS CORRECT.
+        - On a credit note, taxes make total_amount MORE negative than net_amount, not less.
+        - Therefore: total_amount is always more negative than net_amount (further from zero).
+        - Wrong reasoning: net=-X, tax=Y, so total=-X+Y. THIS IS INCORRECT.
+        - Correct reasoning: net=-X, tax=-Y, so total=-X+(-Y)=-X-Y. THIS IS CORRECT.
 
         """
 
@@ -190,7 +190,8 @@ class GeminiInvoiceProcessor(OcrInterface):
         else:
             raise TypeError(f"Unexpected Gemini JSON type: {type(raw)}")
 
-        return self._convert_to_dataclass(data, raw_response=data)
+        invoice_data = self._convert_to_dataclass(data, raw_response=data)
+        return self._adjust_tax_inclusive_prices(invoice_data)
 
     # =========================
     # CONVERSION
@@ -230,7 +231,7 @@ class GeminiInvoiceProcessor(OcrInterface):
             invoice_number=data.get("invoice_number"),
             date_issued=self._parse_date(data.get("date_issued")),
             due_date=self._parse_date(data.get("due_date")),
-            gross_amount=self._to_decimal(data.get("gross_amount")),
+            net_amount=self._to_decimal(data.get("net_amount")),
             total_amount=self._to_decimal(data.get("total_amount")),
             currency=data.get("currency", "EUR"),
             payment_method=self._normalize_payment_method(
@@ -240,6 +241,47 @@ class GeminiInvoiceProcessor(OcrInterface):
             taxes=taxes,
             raw_response=raw_response,
         )
+
+    def _adjust_tax_inclusive_prices(self, data: InvoiceData) -> InvoiceData:
+        """
+        Detects if line item prices include tax (IVA) and adjusts them to net prices.
+
+        Detection: If sum of line item net_totals ≈ total_amount (not net_amount),
+        the prices are tax-inclusive and need to be divided by (1 + tax_rate/100).
+
+        Example: BAUHAUS receipt shows unit_price=10.95 with tax_rate=21%.
+        Net price = 10.95 / 1.21 = 9.05. This prevents double-counting tax.
+        """
+        if not data.line_items or data.net_amount is None or data.total_amount is None:
+            return data
+
+        # Sum of line item net_totals (the values OCR extracted)
+        items_sum = sum(
+            item.net_total for item in data.line_items
+            if item.net_total is not None
+        )
+
+        if not items_sum:
+            return data
+
+        tolerance = Decimal("0.05")
+
+        matches_total = abs(items_sum - data.total_amount) <= tolerance
+        matches_net = abs(items_sum - data.net_amount) <= tolerance
+
+        if matches_total and not matches_net:
+            # Prices are tax-inclusive — strip embedded tax from each line item
+            for item in data.line_items:
+                if item.tax_rate and item.tax_rate > 0:
+                    divisor = Decimal("1") + item.tax_rate / Decimal("100")
+                    if item.unit_price is not None:
+                        item.unit_price = (item.unit_price / divisor).quantize(Decimal("0.01"))
+                    if item.gross_total is not None:
+                        item.gross_total = (item.gross_total / divisor).quantize(Decimal("0.01"))
+                    if item.net_total is not None:
+                        item.net_total = (item.net_total / divisor).quantize(Decimal("0.01"))
+
+        return data
 
     # =========================
     # HELPERS

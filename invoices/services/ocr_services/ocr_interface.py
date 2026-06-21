@@ -44,7 +44,7 @@ class InvoiceData:
     invoice_number: Optional[str]
     date_issued: Optional[str]  # YYYY-MM-DD format
     due_date: Optional[str]     # YYYY-MM-DD format
-    gross_amount: Optional[Decimal]   # invoice total before discounts
+    net_amount: Optional[Decimal]     # invoice subtotal before taxes (Base Imponible)
     total_amount: Optional[Decimal]
     currency: Optional[str]
     payment_method: Optional[str]

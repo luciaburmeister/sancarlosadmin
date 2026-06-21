@@ -375,7 +375,7 @@ def _import_single_iva(ws, col_map: dict, result: ImportResult, default_year: in
                     date_issued=date_issued,
                     provider=provider,
                     company=company,
-                    gross_amount=base_amount,
+                    net_amount=base_amount,
                     total_amount=total or base_amount,
                     image_hash="",  # No file uploaded for imports
                     needs_manual_review=True,
@@ -631,7 +631,7 @@ def _import_multi_iva(ws, col_map: dict, result: ImportResult, default_year: int
                     date_issued=group.date_issued,
                     provider=provider,
                     company=company,
-                    gross_amount=total_base,
+                    net_amount=total_base,
                     total_amount=total_amount,
                     image_hash="",
                     needs_manual_review=True,

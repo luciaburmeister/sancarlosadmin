@@ -10,7 +10,7 @@ from unfold.admin import ModelAdmin, GenericTabularInline
 from django.utils.html import format_html
 from django.db import models
 from invoices.views.invoice.aging_export_view import AgingExportView
-from django_json_widget.widgets import JSONEditorWidget
+
 from invoices.models import (
     Invoice,
     ConfirmationStatus,
@@ -268,12 +268,6 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
         "account",
         "project_file",
     )
-
-    formfield_overrides = {
-        models.JSONField: {
-            "widget": JSONEditorWidget,
-        },
-    }
 
     readonly_fields = (
         "net_amount",

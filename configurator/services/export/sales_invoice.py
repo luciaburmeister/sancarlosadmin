@@ -15,6 +15,28 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
         super().__init__(sales_invoice)
         self.sales_invoice = sales_invoice
 
+    @staticmethod
+    def _quote_id_from_source(source_id: str):
+        from configurator.models import Configuration
+        from sales.models import QuoteItem, QuoteInventoryItem
+
+        # Maps source_id prefix → model that holds a quote_id FK
+        prefix_to_model = {
+            "config_":     Configuration,
+            "quote_item_": QuoteItem,
+            "inv_item_":   QuoteInventoryItem,
+        }
+
+        for prefix, model in prefix_to_model.items():
+            if source_id.startswith(prefix):
+                pk = source_id[len(prefix):]
+                try:
+                    return model.objects.values_list("quote_id", flat=True).get(pk=pk)
+                except (model.DoesNotExist, ValueError):
+                    return None
+
+        return None
+
     def get_context(self) -> Dict[str, Any]:
         # Items for JSON context
         items_data = []
@@ -23,6 +45,7 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
                 "id": item.id,
                 "description": item.description,
                 "quote_name": item.quote_name,
+                "quote_id": self._quote_id_from_source(item.source_id),
                 "quantity": float(item.quantity) if item.quantity else 0,
                 "unit_price": float(item.unit_price.amount) if item.unit_price else 0,
                 "line_total": float(item.line_total.amount) if item.line_total else 0,

@@ -257,7 +257,7 @@ class Invoice(Payable):
     def get_balance_mismatch(self):
         """
         Compares the calculated total (sum of line items + taxes) against
-        gross_amount — the manually entered / OCR-extracted total as it
+        total_amount — the manually entered / OCR-extracted total as it
         appears on the physical invoice.
 
         Returns None if they match within tolerance (1 cent), or a tuple
@@ -279,17 +279,24 @@ class Invoice(Payable):
                     sum_taxes -= tax_val
 
         calc_total = sum_lines + sum_taxes
-        manual_total = Decimal(str(self.gross_amount.amount)) if self.gross_amount else Decimal("0.00")
+        manual_total = Decimal(str(self.total_amount.amount)) if self.total_amount else Decimal("0.00")
 
         tolerance = Decimal("0.01")
-        
-        stored_total = Decimal(str(self.total_amount.amount)) if self.total_amount else Decimal("0.00")
-        stored_net = Decimal(str(self.net_amount.amount)) if self.net_amount else Decimal("0.00")
+        if abs(calc_total - manual_total) <= tolerance:
+            return None
+
+        return (calc_total, manual_total)
+
+    def verify_total_balance(self, save=True):
+        """
+        Check if the sum of line items and taxes matches the total_amount.
+        Updates is_total_balanced accordingly.
+        """
+        mismatch = self.get_balance_mismatch()
+        self.is_total_balanced = mismatch is None
 
         if save:
             self.save(update_fields=['is_total_balanced'])
-
-        return self.is_total_balanced
 
     def save(self, *args, **kwargs):
         # Automatic recalculation if already exists

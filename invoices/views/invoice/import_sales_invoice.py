@@ -29,6 +29,14 @@ class SalesInvoiceImportAdminView(UnfoldModelAdminViewMixin, FormView):
                 self.request,
                 _("Successfully imported %(count)d sales invoices.") % {"count": result.created},
             )
+        if result.warnings > 0:
+            messages.warning(
+                self.request,
+                _(
+                    "%(count)d imported invoices have a total that doesn't match "
+                    "their base + IVA - retention. Check the row details below."
+                ) % {"count": result.warnings},
+            )
         if result.skipped > 0:
             messages.warning(
                 self.request,

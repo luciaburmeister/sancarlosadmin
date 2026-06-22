@@ -1,10 +1,16 @@
+from urllib.parse import urlparse
+
 from django.contrib import admin
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action, display
-from unfold.contrib.filters.admin import RangeDateFilter
+from unfold.contrib.filters.admin import (
+    RangeDateFilter,
+    ChoicesDropdownFilter,
+    AutocompleteSelectMultipleFilter,
+)
 from core.admin.company_admin import CompanyRestrictedAdmin
 
 from .models import TaxScheduleRule, TaxPeriod, TaxPayment, TaxPeriodStatus
@@ -23,8 +29,13 @@ class TaxPaymentInline(TabularInline):
 @admin.register(TaxScheduleRule)
 class TaxScheduleRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display        = ["name", "tax_type", "get_frequency_label", "payment_day", "meses_hasta_vencimiento", "start_date", "company", "get_active_label"]
-    list_filter         = ["company", "is_active", "period_unit"]
+    list_filter         = (
+        ("company", AutocompleteSelectMultipleFilter),
+        "is_active",
+        ("period_unit", ChoicesDropdownFilter),
+    )
     search_fields       = ["name", "tax_type__tax_name"]
+    list_filter_submit  = True
     autocomplete_fields = ["company", "tax_type"]
     actions_row         = ["view_periods_action"]
 
@@ -78,8 +89,14 @@ class TaxScheduleRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
 @admin.register(TaxPeriod)
 class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display        = ["rule", "date_from", "date_to", "due_date", "tax_collected", "tax_paid", "tax_net", "net_after_credit", "get_status_label", "company"]
-    list_filter         = ["company", "status", ("date_from", RangeDateFilter), "rule"]
+    list_filter          = (
+        ("company", AutocompleteSelectMultipleFilter),
+        ("status", ChoicesDropdownFilter),
+        ("date_from", RangeDateFilter),
+        ("rule", AutocompleteSelectMultipleFilter),
+    )
     search_fields       = ["rule__name", "rule__tax_type__tax_name"]
+    list_filter_submit  = True
     autocomplete_fields = ["company", "rule"]
     readonly_fields     = ["tax_collected", "tax_paid", "tax_net", "accumulated_credit", "net_after_credit"]
     actions_list        = ["export_excel_action", "compute_all_action"]
@@ -148,9 +165,17 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     @action(description=_("Export"), icon="download")
     def export_excel_action(self, request):
-        params = request.GET.urlencode()
+        # Same caveat as compute_all_action: actions_list links carry no
+        # querystring, so we recover the filters from the Referer header.
+        params = ""
+        referer = request.META.get("HTTP_REFERER")
+        if referer:
+            params = urlparse(referer).query
+
         url = reverse("admin:finance_taxperiod_export")
-        return redirect(f"{url}?{params}")
+        if params:
+            url = f"{url}?{params}"
+        return redirect(url)
 
     @action(description=_("Compute All Periods"), icon="calculate")
     def compute_all_action(self, request):
@@ -159,6 +184,14 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
             rule.compute_all_periods()
             total += rule.periods.count()
         self.message_user(request, _(f"All {total} periods computed in chronological order."))
+
+        # Unfold's actions_list links don't carry the current querystring
+        # (they're plain reverse() hrefs), so request.GET is always empty here.
+        # The Referer header is what actually has the filtered URL the user
+        # was on when they clicked the button.
+        referer = request.META.get("HTTP_REFERER")
+        if referer:
+            return redirect(referer)
         return redirect(reverse("admin:finance_taxperiod_changelist"))
 
     def get_queryset(self, request):
@@ -169,8 +202,9 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
 @admin.register(TaxPayment)
 class TaxPaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display        = ["period", "payment_date", "amount_paid", "reference", "company"]
-    list_filter         = ["company", ("payment_date", RangeDateFilter)]
+    list_filter         = [("company", AutocompleteSelectMultipleFilter), ("payment_date", RangeDateFilter)]
     search_fields       = ["period__rule__name", "reference"]
+    list_filter_submit  = True
     autocomplete_fields = ["company", "period"]
 
     fieldsets = (

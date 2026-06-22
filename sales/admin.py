@@ -302,14 +302,14 @@ class DeliveryOrderItemInline(StackedInline):
     fieldsets = (
         (None, {
             "fields": (
-                ("description", "reference"),
+                ("item_number", "description", "reference"),
                 ("quantity", "unit_price"),
                 ("discount_percentage", "line_total"),
                 ("source_object"),
             )
         }),
     )
-    readonly_fields = ["line_total","source_object"]
+    readonly_fields = ["item_number", "line_total","source_object"]
 
 
 @admin.register(DeliveryOrder)

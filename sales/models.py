@@ -1,6 +1,7 @@
 import hashlib
 
 from django.db import models, transaction
+from django.db.models import Max
 from django.db.models import Sum
 from django.utils import timezone
 from djmoney.models.fields import MoneyField
@@ -1111,6 +1112,21 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
     def __str__(self):
         return f"{self.number or 'Draft'} - {self.client}"
 
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        if not self.number:
+            year = timezone.now().year
+            prefix = f"DO-{year}-"
+            last_id = (
+                DeliveryOrder.objects.filter(company=self.company, incremental_id__isnull=False)
+                .select_for_update()
+                .aggregate(max_id=Max("incremental_id"))["max_id"]
+            )
+            next_id = (last_id or 0) + 1
+            self.number = f"{prefix}{next_id:05d}"
+            self.incremental_id = next_id
+        super().save(*args, **kwargs)
+
     def recalculate_subtotal(self, save=True):
         """Recompute subtotal_amount from item line_totals."""
         total = sum(
@@ -1129,6 +1145,12 @@ class DeliveryOrderItem(Timestampable):
         on_delete=models.CASCADE,
         related_name="items",
         verbose_name=_("Delivery Order")
+    )
+    item_number = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Item Number"),
+        help_text=_("Unique item number per company. Auto-generated."),
     )
     description = models.CharField(max_length=500, verbose_name=_("Description"))
     quantity = models.DecimalField(max_digits=10, decimal_places=3, verbose_name=_("Quantity"))
@@ -1160,6 +1182,11 @@ class DeliveryOrderItem(Timestampable):
         default=0,
         default_currency="EUR",
         verbose_name=_("Line Total"),
+    )
+    incremental_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("Incremental ID"),
     )
 
     # Source traceability via GenericFK
@@ -1197,13 +1224,29 @@ class DeliveryOrderItem(Timestampable):
             ),
         ]
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
         self.discount_amount = (self.unit_price * self.quantity) * (self.discount_percentage / Decimal("100"))
         self.line_total = (self.unit_price * self.quantity) - self.discount_amount
+        if not self.item_number and self.delivery_order_id:
+            company = self.delivery_order.company
+            year = timezone.now().year
+            prefix = f"DOI-{year}-"
+            last_id = (
+                DeliveryOrderItem.objects.filter(
+                    delivery_order__company=company,
+                    incremental_id__isnull=False,
+                )
+                .select_for_update()
+                .aggregate(max_id=Max("incremental_id"))["max_id"]
+            )
+            next_id = (last_id or 0) + 1
+            self.item_number = f"{prefix}{next_id:05d}"
+            self.incremental_id = next_id
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.description} ({self.quantity})"
+        return f"{self.item_number or ''} {self.description} ({self.quantity})"
 
 
 class ConversionThresholds(models.Model):

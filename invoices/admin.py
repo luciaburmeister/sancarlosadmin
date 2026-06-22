@@ -709,7 +709,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
                 level=messages.WARNING,
             )
     
-    actions = ["download_pdf", "finalize_invoice_action", "import_from_excel"]
+    actions = ["download_pdf", "finalize_invoice_action", "mark_as_paid", "import_from_excel"]
     actions_row = [
         "view_pdf_row_action",
         "finalize_invoice_row_action",
@@ -802,6 +802,11 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
             SalesInvoiceService.finalize_invoice(invoice)
             count += 1
         self.message_user(request, _("Finalized %d invoices and generated Delivery Orders.") % count)
+
+    @admin.action(description=_("Mark selected invoices as Paid"))
+    def mark_as_paid(self, request, queryset):
+        count = queryset.update(payment_status=InvoicePaymentStatus.PAID)
+        self.message_user(request, _("Marked %d invoices as paid.") % count)
 
     def download_pdf(self, request, queryset):
         if queryset.count() != 1:

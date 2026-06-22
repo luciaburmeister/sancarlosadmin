@@ -15,6 +15,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey
 from invoices.models import AppliedTax, PaymentMethod
 from company.models import Company, CompanyOwnedModel, BaseBankAccount, BankAccount
 from django_countries.fields import CountryField
+from configurator.utils.evaluator import validate_expression_for_safe_eval
 
 class SaleZone(CompanyOwnedModel):
     name = models.CharField(max_length=100, verbose_name=_("Name"))
@@ -25,6 +26,79 @@ class SaleZone(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.name} ({self.company})"
+
+
+class DiscountPolicy(CompanyOwnedModel):
+    """A named set of discount rules. Assigned to clients or quotes."""
+    name = models.CharField(max_length=200, verbose_name=_("Name"))
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+    auto_apply = models.BooleanField(
+        default=False,
+        verbose_name=_("Auto-apply"),
+        help_text=_("If checked, this policy is automatically applied to all new quotes for the company."),
+    )
+
+    class Meta:
+        verbose_name = _("Discount Policy")
+        verbose_name_plural = _("Discount Policies")
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class DiscountMode(models.TextChoices):
+    NET = "net", _("On net subtotal")
+    ACCUMULATED = "accumulated", _("On accumulated")
+
+
+class DiscountRule(models.Model):
+    """A single discount rule within a policy. Ordered and conditionally applied."""
+    policy = models.ForeignKey(
+        DiscountPolicy,
+        on_delete=models.CASCADE,
+        related_name="rules",
+        verbose_name=_("Policy"),
+    )
+    name = models.CharField(max_length=200, verbose_name=_("Name"))
+    order = models.PositiveIntegerField(default=0, verbose_name=_("Order"), db_index=True)
+    percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        verbose_name=_("Percentage"),
+        help_text=_("Discount percentage to apply (e.g. 5 means 5%)."),
+    )
+    mode = models.CharField(
+        max_length=20,
+        choices=DiscountMode.choices,
+        default=DiscountMode.NET,
+        verbose_name=_("Mode"),
+        help_text=_(
+            "'On net subtotal' always discounts from the original subtotal. "
+            "'On accumulated' discounts from the running total after prior discounts."
+        ),
+    )
+    condition = models.TextField(
+        blank=True,
+        verbose_name=_("Condition"),
+        validators=[validate_expression_for_safe_eval],
+        help_text=_(
+            "Optional safe_eval expression. Leave blank to always apply.\n"
+            "Available variables: subtotal, total_quantity.\n"
+            "Examples:\n"
+            "  • subtotal > 1000\n"
+            "  • subtotal > 5000 and total_quantity > 10\n"
+        ),
+    )
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Discount Rule")
+        verbose_name_plural = _("Discount Rules")
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return f"{self.name} ({self.percentage}%)"
 
 class ClientBankAccount(CompanyOwnedModel, BaseBankAccount):
     client = models.ForeignKey(
@@ -151,6 +225,12 @@ class Client(Timestampable, CompanyOwnedModel):
         blank=True,
         related_name="managed_clients",
         verbose_name=_("Agent")
+    )
+    discount_policies = models.ManyToManyField(
+        DiscountPolicy,
+        blank=True,
+        related_name="clients",
+        verbose_name=_("Discount Policies"),
     )
     agent_commission = models.DecimalField(
         max_digits=5,
@@ -412,6 +492,7 @@ class Quote(Timestampable, CompanyOwnedModel):
     )
 
     date = models.DateField(
+        default=timezone.now,
         null=True,
         blank=True,
         verbose_name=_("Date"),
@@ -510,6 +591,37 @@ class Quote(Timestampable, CompanyOwnedModel):
         help_text=_("External reference identifier for this quote."),
     )
 
+    discount_policies = models.ManyToManyField(
+        DiscountPolicy,
+        blank=True,
+        related_name="quotes",
+        verbose_name=_("Discount Policies"),
+    )
+
+    discount_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency="EUR",
+        default=0,
+        verbose_name=_("Discount amount"),
+    )
+
+    discount_breakdown = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name=_("Discount breakdown"),
+        help_text=_("Stores each applied discount rule with its base and amount."),
+    )
+
+    discounted_subtotal = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency="EUR",
+        default=0,
+        verbose_name=_("Discounted subtotal"),
+        help_text=_("subtotal_price - discount_amount. The taxable base."),
+    )
+
     class Meta:
         verbose_name = _("Quote")
         verbose_name_plural = _("Quotes")
@@ -580,15 +692,25 @@ class Quote(Timestampable, CompanyOwnedModel):
             return
 
         item_total, config_subtotal = self._calculate_subtotal()
-        self._sync_applied_taxes()
-        tax_amount, tax_breakdown = self._build_tax_breakdown()
-        total = self._calculate_total(item_total)
+        raw_subtotal = item_total + config_subtotal
 
-        self.subtotal_price = item_total + config_subtotal
+        # ponytail: compute discounts before taxes
+        discount_amount, discount_breakdown = self._compute_discounts(raw_subtotal)
+
+        self._sync_applied_taxes()
+        tax_amount, tax_breakdown = self._build_tax_breakdown(discount_amount)
+
+        self.subtotal_price = raw_subtotal
+        self.discount_amount = discount_amount
+        self.discount_breakdown = discount_breakdown
+        self.discounted_subtotal = raw_subtotal - discount_amount
         self.tax_amount = tax_amount
         self.tax_breakdown = tax_breakdown
-        self.total_price = total
-        self.save(update_fields=['subtotal_price', 'tax_amount', 'total_price', 'tax_breakdown'])
+        self.total_price = (raw_subtotal - discount_amount) + tax_amount
+        self.save(update_fields=[
+            'subtotal_price', 'discount_amount', 'discount_breakdown',
+            'discounted_subtotal', 'tax_amount', 'total_price', 'tax_breakdown',
+        ])
 
     def _calculate_subtotal(self):
         """Returns (item_total, config_subtotal) as raw Decimals."""
@@ -606,6 +728,34 @@ class Quote(Timestampable, CompanyOwnedModel):
             Decimal("0.00"),
         )
         return item_total + inv_item_total, config_subtotal
+
+    def _compute_discounts(self, subtotal: Decimal):
+        """Collect policies from quote + client, evaluate rules via DiscountService."""
+        from sales.services.discount_service import DiscountService
+
+        policies = list(self.discount_policies.filter(is_active=True))
+        if self.client_id:
+            for p in self.client.discount_policies.filter(is_active=True):
+                if p not in policies:
+                    policies.append(p)
+        # Also pick up company auto-apply policies
+        if self.company_id:
+            for p in DiscountPolicy.objects.filter(company=self.company, is_active=True, auto_apply=True):
+                if p not in policies:
+                    policies.append(p)
+
+        rules = (
+            DiscountRule.objects.filter(policy__in=policies, is_active=True)
+            .order_by("order", "id")
+        )
+        context = {
+            "subtotal": float(subtotal),
+            "total_quantity": float(
+                sum((i.quantity for i in self.items.all()), Decimal("0"))
+                + sum((i.quantity for i in self.inventory_items.all()), Decimal("0"))
+            ),
+        }
+        return DiscountService.compute(subtotal, rules, context)
 
     def _sync_applied_taxes(self):
         """
@@ -685,10 +835,11 @@ class Quote(Timestampable, CompanyOwnedModel):
             object_id=self.pk,
         ).exclude(pk__in=seen_ids).delete()
 
-    def _build_tax_breakdown(self):
+    def _build_tax_breakdown(self, discount_amount=Decimal("0.00")):
         """
         Derives the tax_breakdown JSON and total tax amount
         from the Quote's own AppliedTax records (single source of truth).
+        When a discount is present, proportionally reduces the tax base.
         """
         ct = ContentType.objects.get_for_model(self)
         taxes = AppliedTax.objects.filter(
@@ -696,16 +847,34 @@ class Quote(Timestampable, CompanyOwnedModel):
             object_id=self.pk,
         ).select_related("tax_type").order_by("order")
 
+        # Compute discount ratio to scale tax bases
+        total_base = sum(
+            (t.base_amount.amount if t.base_amount else Decimal("0.00")) for t in taxes
+        )
+        if total_base > 0 and discount_amount > 0:
+            discount_ratio = (total_base - discount_amount) / total_base
+        else:
+            discount_ratio = Decimal("1")
+
         breakdown = []
         total_tax = Decimal("0.00")
         for tax in taxes:
-            calc = tax.calculated_amount.amount if tax.calculated_amount else Decimal("0.00")
             base = tax.base_amount.amount if tax.base_amount else Decimal("0.00")
+            # Apply discount proportionally to tax base
+            adjusted_base = (base * discount_ratio).quantize(Decimal("0.01"))
+            rate = tax.selected_percentage / Decimal("100")
+            calc = (adjusted_base * rate).quantize(Decimal("0.01"))
+
+            # Update the AppliedTax record to reflect the discounted base
+            tax.base_amount = adjusted_base
+            tax.calculated_amount = calc
+            tax.save(update_fields=["base_amount", "calculated_amount"])
+
             breakdown.append({
                 "tax_name": tax.tax_type.tax_name,
                 "percentage": str(tax.selected_percentage),
-                "base": str(base.quantize(Decimal("0.01"))),
-                "tax_amount": str(calc.quantize(Decimal("0.01"))),
+                "base": str(adjusted_base),
+                "tax_amount": str(calc),
             })
             total_tax += calc
         return total_tax, breakdown

@@ -390,10 +390,34 @@ class ProjectFileInvoiceService:
                 order=order,
             )
 
+        # ponytail: carry discount from source quotes, scaled by the invoicing ratio
+        total_quote_subtotal = summary['total_invoiceable_subtotal']
+        invoice_discount = Decimal("0.00")
+        invoice_discount_breakdown = []
+
+        if total_quote_subtotal > 0:
+            ratio = subtotal / total_quote_subtotal  # how much of total we're invoicing
+            for qd in summary['quotes']:
+                quote = qd['quote']
+                if quote.discount_amount and quote.discount_amount.amount > 0:
+                    scaled = (quote.discount_amount.amount * ratio).quantize(Decimal("0.01"))
+                    invoice_discount += scaled
+                    for entry in (quote.discount_breakdown or []):
+                        invoice_discount_breakdown.append({
+                            **entry,
+                            "amount": str((Decimal(entry["amount"]) * ratio).quantize(Decimal("0.01"))),
+                            "base": str((Decimal(entry["base"]) * ratio).quantize(Decimal("0.01"))),
+                        })
+
         invoice.subtotal_amount = subtotal
+        invoice.discount_amount = invoice_discount
+        invoice.discount_breakdown = invoice_discount_breakdown
         invoice.tax_amount = computed_total_tax
-        invoice.total_amount = subtotal + computed_total_tax
-        invoice.save(update_fields=['subtotal_amount', 'tax_amount', 'total_amount'])
+        invoice.total_amount = subtotal - invoice_discount + computed_total_tax
+        invoice.save(update_fields=[
+            'subtotal_amount', 'discount_amount', 'discount_amount_currency',
+            'discount_breakdown', 'tax_amount', 'total_amount',
+        ])
 
         # Validate: the new total should not exceed the remaining invoiceable amount.
         # Use a tolerance because per-config tax rounding may cause small differences.

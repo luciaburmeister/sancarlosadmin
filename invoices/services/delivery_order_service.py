@@ -70,6 +70,10 @@ class DeliveryOrderService:
         )
 
         for quote in accepted_quotes:
+            # Ratio of discounted to original subtotal
+            quote_sub = quote.subtotal_price.amount if quote.subtotal_price else Decimal("0")
+            discounted_sub = quote.discounted_subtotal.amount if quote.discounted_subtotal else quote_sub
+
             for config in quote.configurations.all():
                 key = (config_ct.id, config.id)
                 total_qty = config.units if config.units and config.units > 0 else Decimal("1")
@@ -78,8 +82,13 @@ class DeliveryOrderService:
                 if remaining <= 0:
                     continue
 
-                sub = config.subtotal_price.amount
-                up = (sub / total_qty).quantize(Decimal("0.01")) if total_qty > 0 else sub
+                # Config's share of the discounted subtotal
+                config_sub = config.subtotal_price.amount
+                if quote_sub > 0:
+                    actual_sub = (discounted_sub * config_sub / quote_sub).quantize(Decimal("0.01"))
+                else:
+                    actual_sub = config_sub
+                up = (actual_sub / total_qty).quantize(Decimal("0.01")) if total_qty > 0 else actual_sub
 
                 items.append({
                     'source_content_type_id': config_ct.id,

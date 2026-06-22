@@ -11,22 +11,23 @@ from .models import (
     Client, Order, DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
     Quote, QuoteItem, QuoteInventoryItem, SaleZone, ClientAddress, ClientContact, ClientBankAccount,
     QuoteStatus, QuoteConfigurationGroup, QuotePhoto, QuotePhotoCategory,
+    DiscountPolicy, DiscountRule,
 )
 from unfold.admin import TabularInline, StackedInline
 from import_export.admin import ImportExportModelAdmin
 from .forms import (
     ClientImportForm, ClientExportForm,
-     ClientConfirmImportForm, QuoteConfirmImportForm,
+     ClientConfirmImportForm,
     QuoteItemImportForm, QuoteItemConfirmImportForm,
 )
 from invoices.models import AppliedTax
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter
 )
-from unfold.contrib.import_export.forms import ExportForm, ImportForm, SelectableFieldsExportForm
+from unfold.contrib.import_export.forms import  ImportForm, SelectableFieldsExportForm
 from configurator.models import Configuration
 from configurator.admin.configuration import AppliedTaxInline
-from django.shortcuts import redirect, render
+from django.shortcuts import redirect
 from django.urls import reverse, path
 from unfold.decorators import action
 from core.admin.company_admin import CompanyRestrictedAdmin
@@ -41,12 +42,6 @@ from company.models import EmailLog
 from unfold.admin import GenericTabularInline as _GenericTabularInline
 from configurator.commission.admin import QuoteCommissionInline
 from configurator.commission.services import CommissionService
-
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Mixin — shared company-passthrough logic for all import admins
-# ─────────────────────────────────────────────────────────────────────────────
 
 class _CompanyImportMixin:
 
@@ -92,6 +87,30 @@ class SaleZoneAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ["name", "company"]
     search_fields = ["name"]
     autocomplete_fields = ["company"]
+
+
+class DiscountRuleInline(StackedInline):
+    model = DiscountRule
+    extra = 1
+    ordering = ["order"]
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("name", "order", "is_active"),
+                ("percentage", "mode"),
+                "condition",
+            )
+        }),
+    )
+
+
+@admin.register(DiscountPolicy)
+class DiscountPolicyAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ["name", "is_active", "auto_apply", "company"]
+    list_filter = ["is_active", "auto_apply", "company"]
+    search_fields = ["name"]
+    autocomplete_fields = ["company"]
+    inlines = [DiscountRuleInline]
 
 @admin.register(ClientBankAccount)
 class ClientBankAccountAdmin(CompanyRestrictedAdmin,ModelAdmin):
@@ -175,7 +194,7 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
             return "-"
         return obj.address if len(obj.address) <= 40 else obj.address[:40] + "…"
 
-    autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account"]
+    autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account","discount_policies"]
 
     inlines = [ClientAddressInline, ClientContactInline, ClientBankAccountInline]
 
@@ -224,6 +243,7 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
             "fields": (
                 ("sale_zone", "agent"),
                 "agent_commission",
+                "discount_policies",
             )
         }),
         (_("Financial & Insurance"), {
@@ -549,8 +569,8 @@ class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
         ("date_sent", RangeDateFilter),
         ("date_accepted",RangeDateFilter)]
     search_fields = ["project_name", "client__name", "id", "external_id"]
-    autocomplete_fields = ["client", "project_file", "company"]
-    readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown", "date_sent", "date_accepted", "date_rejected"]
+    autocomplete_fields = ["client", "project_file", "company","discount_policies"]
+    readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown", "discount_amount", "discount_breakdown", "date_sent", "date_accepted", "date_rejected"]
     list_select_related = ["client", "project_file__client", "company"]
     list_filter_submit = True
 
@@ -569,25 +589,29 @@ class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
 
     fieldsets = (
         ("Quote Details", {
+            "classes": ["tab"],
             "fields": (
                 ("client", "status"),
                 ("project_name", "company"),
                 ("date", "expires_at"),
+                ("subtotal_price", "discount_amount"),
+                ("tax_amount", "total_price"),
+                "discount_policies",
+            )
+        }),
+        (_("Details"), {
+            "classes": ["tab"],
+            "fields": (
                 ("project_file", "external_id"),
                 "observations",
+                "discount_breakdown",
+                "tax_breakdown",
             )
         }),
         (_("Status Dates"), {
+            "classes": ["tab"],
             "fields": (
                 ("date_sent", "date_accepted", "date_rejected"),
-            ),
-            "classes": ("collapse",),
-        }),
-        ("Financials", {
-            "fields": (
-                ("subtotal_price", "tax_amount"),
-                "total_price",
-                "tax_breakdown"
             )
         }),
     )

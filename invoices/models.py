@@ -769,6 +769,20 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         help_text=_("Indicates this invoice was created outside the ERP system (e.g. imported from Excel)."),
     )
 
+    discount_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency='EUR',
+        verbose_name=_("Discount Amount"),
+    )
+
+    discount_breakdown = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name=_("Discount Breakdown"),
+        help_text=_("Stores each applied discount rule with its base and amount."),
+    )
     class Meta:
         verbose_name = _("Sales Invoice")
         verbose_name_plural = _("Sales Invoices")
@@ -801,18 +815,21 @@ class SalesInvoice(CompanyOwnedModel, Payable):
              self.subtotal_amount = items_sum.amount if hasattr(items_sum, 'amount') else items_sum
              
         ct = ContentType.objects.get_for_model(self)
-        current_total = Decimal(self.subtotal_amount.amount)
+        # ponytail: discount reduces the taxable base
+        discount = Decimal(self.discount_amount.amount) if self.discount_amount else Decimal("0.00")
+        taxable_base = Decimal(self.subtotal_amount.amount) - discount
+        current_total = taxable_base
         
         # 2. Sequential tax application (Additive)
         taxes = list(AppliedTax.objects.filter(content_type=ct, object_id=self.pk).order_by('order', 'id'))
         
         total_tax = Decimal("0.00")
         for tax in taxes:
-            # Always update the base_amount for this tax
-            tax.base_amount = self.subtotal_amount
+            # Tax base is the discounted subtotal
+            tax.base_amount = taxable_base
             
             # Recalculate the amount
-            res = tax.calculate(self.subtotal_amount.amount)
+            res = tax.calculate(taxable_base)
             tax.calculated_amount = res['tax_amount']
             tax.save(update_fields=['base_amount', 'calculated_amount'])
                 
@@ -833,6 +850,7 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         
         return {
             'subtotal': self.subtotal_amount,
+            'discount': self.discount_amount,
             'tax': self.tax_amount,
             'total': self.total_amount
         }

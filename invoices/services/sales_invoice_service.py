@@ -53,6 +53,14 @@ class SalesInvoiceService:
             payment_method=resolve_sales_invoice_payment_method(client=client),
         )
 
+        # ponytail: carry discount from the config's quote if present
+        quote = getattr(configuration, 'quote', None)
+        if quote and quote.discount_amount and quote.discount_amount.amount > 0:
+            sales_invoice.discount_amount = quote.discount_amount
+            sales_invoice.discount_breakdown = quote.discount_breakdown or []
+            sales_invoice.save(update_fields=['discount_amount', 'discount_amount_currency',
+                                              'discount_breakdown'])
+
         SalesInvoiceItem.objects.create(
             invoice=sales_invoice,
             description=str(configuration.product.description or configuration.product.name),

@@ -1,6 +1,7 @@
 from assets import urls
 from unfold.admin import StackedInline
 from django.contrib import admin
+from django.contrib import messages
 from unfold.decorators import action, display
 from django.shortcuts import redirect
 from django.urls import path, reverse
@@ -363,6 +364,19 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
         super().save_related(request, form, formsets, change)
         form.instance.recalculate_totals(save=True)
 
+        mismatch = form.instance.get_balance_mismatch()
+        if mismatch:
+            calculated_total, manual_total = mismatch
+            self.message_user(
+                request,
+                _(
+                    "Warning: the calculated total (%(calculated)s) does not match "
+                    "the invoice's recorded total (%(manual)s). Saved anyway — please "
+                    "review the line items, taxes, or the gross amount."
+                ) % {"calculated": calculated_total, "manual": manual_total},
+                level=messages.WARNING,
+            )
+
     def get_urls(self):
         urls = super().get_urls()
         custom = [
@@ -681,6 +695,19 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         form.instance.recalculate_totals(save=True)
+
+        mismatch = form.instance.get_balance_mismatch()
+        if mismatch:
+            calculated_total, manual_total = mismatch
+            self.message_user(
+                request,
+                _(
+                    "Warning: the calculated total (%(calculated)s) does not match "
+                    "the invoice's recorded total (%(manual)s). Saved anyway — please "
+                    "review the line items and taxes."
+                ) % {"calculated": calculated_total, "manual": manual_total},
+                level=messages.WARNING,
+            )
     
     actions = ["download_pdf", "finalize_invoice_action", "import_from_excel"]
     actions_row = [

@@ -2,7 +2,7 @@ from django.db import models
 from django.db.models import Sum
 from company.models import  CompanyEmailConfig, CompanyOwnedModel
 from django.core.validators import MinValueValidator, MaxValueValidator
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from materials.models import Provider
 from django_countries.fields import CountryField
 from django.utils.translation import gettext_lazy as _ 
@@ -254,10 +254,14 @@ class Invoice(Payable):
             
         return self.total_amount
 
-    def verify_total_balance(self, save=True):
+    def get_balance_mismatch(self):
         """
-        Verifies if sum of line items + taxes matches total_amount.
-        Updates is_total_balanced field.
+        Compares the calculated total (sum of line items + taxes) against
+        gross_amount — the manually entered / OCR-extracted total as it
+        appears on the physical invoice.
+
+        Returns None if they match within tolerance (1 cent), or a tuple
+        (calculated_total, manual_total) if they don't.
         """
         items_sum = self.items.aggregate(total=Sum('line_total'))['total']
         if items_sum is not None:
@@ -273,21 +277,18 @@ class Invoice(Payable):
                     sum_taxes += tax_val
                 else:
                     sum_taxes -= tax_val
-        
+
         calc_total = sum_lines + sum_taxes
-        
+        manual_total = Decimal(str(self.gross_amount.amount)) if self.gross_amount else Decimal("0.00")
+
         tolerance = Decimal("0.01")
         
         stored_total = Decimal(str(self.total_amount.amount)) if self.total_amount else Decimal("0.00")
         stored_net = Decimal(str(self.net_amount.amount)) if self.net_amount else Decimal("0.00")
 
-        matches_total = abs(calc_total - stored_total) <= tolerance
-        
-        self.is_total_balanced = matches_total
-        
         if save:
             self.save(update_fields=['is_total_balanced'])
-            
+
         return self.is_total_balanced
 
     def save(self, *args, **kwargs):
@@ -585,7 +586,7 @@ class AppliedTax(models.Model):
         """
         base_amount = Decimal(base_amount)
         rate = self.selected_percentage / Decimal("100")
-        tax_amount = (base_amount * rate).quantize(Decimal("0.01"))
+        tax_amount = (base_amount * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
         if self.tax_type.behavior == "add":
             total = base_amount + tax_amount
@@ -594,7 +595,7 @@ class AppliedTax(models.Model):
 
         return {
             "tax_amount": tax_amount,
-            "total_amount": total.quantize(Decimal("0.01")),
+            "total_amount": total.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP),
         }
 
     def calculate_from_gross(self, gross_amount: Decimal) -> dict:
@@ -613,11 +614,11 @@ class AppliedTax(models.Model):
 
         if self.tax_type.behavior == "add":
             # Gross = Base * (1 + Rate) => Base = Gross / (1 + Rate)
-            base = (gross_total / (Decimal("1.0") + rate)).quantize(Decimal("0.01"))
+            base = (gross_total / (Decimal("1.0") + rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             tax_amount = gross_total - base
         else:
             # Gross = Base * (1 - Rate) => Base = Gross / (1 - Rate)
-            base = (gross_total / (Decimal("1.0") - rate)).quantize(Decimal("0.01"))
+            base = (gross_total / (Decimal("1.0") - rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             tax_amount = base - gross_total
 
         return {
@@ -828,6 +829,47 @@ class SalesInvoice(CompanyOwnedModel, Payable):
             'tax': self.tax_amount,
             'total': self.total_amount
         }
+
+    def get_balance_mismatch(self):
+        """
+        Compares the calculated total (sum of line items + taxes) against
+        the stored total_amount.
+
+        For PROFORMA invoices this is normally a no-op: recalculate_totals()
+        just set total_amount to this same calculation. It becomes meaningful
+        for FINAL invoices, which skip recalculation to preserve history —
+        in particular invoices imported from Excel, where total_amount holds
+        the manually entered "total" column value instead of a system
+        computed one.
+
+        Returns None if they match within tolerance (1 cent), or a tuple
+        (calculated_total, manual_total) if they don't.
+        """
+        items_sum = self.items.aggregate(total=Sum('line_total'))['total']
+        if items_sum is not None:
+            sum_lines = Decimal(str(items_sum.amount if hasattr(items_sum, 'amount') else items_sum))
+        else:
+            sum_lines = Decimal("0.00")
+
+        ct = ContentType.objects.get_for_model(self)
+        taxes = AppliedTax.objects.filter(content_type=ct, object_id=self.pk).select_related("tax_type")
+
+        sum_taxes = Decimal("0.00")
+        for tax in taxes:
+            if tax.calculated_amount:
+                tax_val = Decimal(str(tax.calculated_amount.amount))
+                if tax.tax_type.behavior == "add":
+                    sum_taxes += tax_val
+                else:
+                    sum_taxes -= tax_val
+
+        calc_total = sum_lines + sum_taxes
+        manual_total = Decimal(str(self.total_amount.amount)) if self.total_amount else Decimal("0.00")
+
+        tolerance = Decimal("0.01")
+        if abs(calc_total - manual_total) <= tolerance:
+            return None
+        return calc_total, manual_total
 
     def recalculate_payment_status(self):
         """

@@ -19,7 +19,7 @@ All imported invoices are marked as:
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import BinaryIO
 
 import openpyxl
@@ -57,6 +57,7 @@ class ImportResult:
     created: int = 0
     skipped: int = 0
     errors: int = 0
+    warnings: int = 0
     rows: list[ImportRowResult] = field(default_factory=list)
 
 
@@ -424,7 +425,7 @@ def import_sales_invoices_from_excel(
         total_base = sum(line.base_amount for line in group.iva_lines)
         total_iva = sum(
             line.iva_amount if line.iva_amount is not None
-            else (line.base_amount * line.iva_percentage / Decimal("100")).quantize(Decimal("0.01"))
+            else (line.base_amount * line.iva_percentage / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             for line in group.iva_lines
         )
         total_retention = sum(line.retention for line in group.iva_lines)
@@ -495,7 +496,7 @@ def import_sales_invoices_from_excel(
                         if computed_iva is None:
                             computed_iva = (
                                 line.base_amount * line.iva_percentage / Decimal("100")
-                            ).quantize(Decimal("0.01"))
+                            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
                         AppliedTax.objects.create(
                             tax_type=iva_tax_type,
@@ -513,7 +514,7 @@ def import_sales_invoices_from_excel(
                     if total_base > 0:
                         irpf_pct = (
                             total_retention / total_base * Decimal("100")
-                        ).quantize(Decimal("0.01"))
+                        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
                     AppliedTax.objects.create(
                         tax_type=irpf_tax_type,
@@ -540,6 +541,14 @@ def import_sales_invoices_from_excel(
                 msg = "OK"
                 if num_iva_lines > 1:
                     msg = f"OK — {num_iva_lines} IVA lines"
+
+                calculated_total = total_base + tax_total
+                if abs(calculated_total - total_amount) > Decimal("0.01"):
+                    result.warnings += 1
+                    msg += (
+                        f" ⚠ Total mismatch: calculated {calculated_total} "
+                        f"vs Excel 'total' column {total_amount}"
+                    )
 
                 result.created += 1
                 result.rows.append(ImportRowResult(
@@ -570,4 +579,3 @@ def import_sales_invoices_from_excel(
             ))
 
     return result
-

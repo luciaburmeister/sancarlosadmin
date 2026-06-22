@@ -126,7 +126,7 @@ class GeminiInvoiceProcessor(OcrInterface):
         Initialize the processor.
         """
         self.client = genai.Client(api_key=api_key)
-        self.model_name = "gemini-flash-latest"
+        self.model_name = "gemini-3-flash-preview"
 
     def extract_data(self, file_path: str) -> InvoiceData:
         """

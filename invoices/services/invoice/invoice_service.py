@@ -135,12 +135,15 @@ class InvoiceService:
                     self._create_applied_taxes(invoice, extracted_data.taxes)
                     messages.append(f"Applied {len(extracted_data.taxes)} tax records")
                 
-                # Mark as processed
+                # Mark as processed — use update_fields to preserve OCR totals
                 invoice.ocr_processed = True
                 invoice.ocr_processing = False
                 invoice.ocr_error = None
                 invoice.needs_manual_review = True
-                invoice.save()
+                invoice.save(update_fields=[
+                    'ocr_processed', 'ocr_processing', 'ocr_error', 'needs_manual_review',
+                ])
+                invoice.verify_total_balance()
             
             return InvoiceProcessingResult(
                 invoice=invoice,
@@ -256,7 +259,14 @@ class InvoiceService:
                 invoice.ocr_processed = True
                 invoice.ocr_error = None
                 invoice.needs_manual_review = True
-                invoice.save()
+                invoice.save(update_fields=[
+                    'invoice_number', 'date_issued', 'due_date', 'provider',
+                    'net_amount', 'net_amount_currency',
+                    'total_amount', 'total_amount_currency',
+                    'currency', 'payment_method', 'company', 'ocr_raw_response',
+                    'needs_manual_review', 'ocr_processing', 'ocr_processed', 'ocr_error',
+                ])
+                invoice.verify_total_balance()
 
             return InvoiceProcessingResult(invoice=invoice, success=True, messages=messages, needs_review=True)
 
@@ -310,7 +320,7 @@ class InvoiceService:
                 invoice=invoice,
                 description=(item.description or '')[:255],
                 quantity=item.quantity or Decimal('1'),
-                unit_price=item.unit_price or Decimal('0'),
+                unit_price=item.unit_price or item.net_total or Decimal('0'),
                 discount_percentage=item.discount_percentage or Decimal('0'),
             )
         

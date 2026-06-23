@@ -16,9 +16,15 @@ def send_invoice_email_task(invoice_id: int, to_email: str | None = None):
         invoice = SalesInvoice.objects.select_related("client", "company").get(pk=invoice_id)
     except SalesInvoice.DoesNotExist:
         logger.error("send_invoice_email_task: SalesInvoice %s not found", invoice_id)
-        return False
+        return {"task": "send_invoice_email", "invoice_id": invoice_id, "status": "error", "detail": "not found"}
 
-    return InvoiceEmailService.send_invoice_email(invoice, to_email=to_email)
+    ok = InvoiceEmailService.send_invoice_email(invoice, to_email=to_email)
+    return {
+        "task": "send_invoice_email",
+        "invoice_id": invoice_id,
+        "to": to_email or str(invoice.client),
+        "status": "ok" if ok else "error",
+    }
 
 
 @shared_task(name="core.tasks.send_quote_email_task")
@@ -34,9 +40,15 @@ def send_quote_email_task(quote_id: int, to_email: str | None = None):
         quote = Quote.objects.select_related("client", "company").get(pk=quote_id)
     except Quote.DoesNotExist:
         logger.error("send_quote_email_task: Quote %s not found", quote_id)
-        return False
+        return {"task": "send_quote_email", "quote_id": quote_id, "status": "error", "detail": "not found"}
 
-    return QuoteEmailService.send_quote_email(quote, to_email=to_email)
+    ok = QuoteEmailService.send_quote_email(quote, to_email=to_email)
+    return {
+        "task": "send_quote_email",
+        "quote_id": quote_id,
+        "to": to_email or str(quote.client),
+        "status": "ok" if ok else "error",
+    }
 
 
 @shared_task(name="core.tasks.send_client_terms_email_task")
@@ -55,11 +67,17 @@ def send_client_terms_email_task(client_id: int, to_email: str | None = None):
         logger.error(
             "send_client_terms_email_task: Client %s not found", client_id
         )
-        return False
+        return {"task": "send_client_terms_email", "client_id": client_id, "status": "error", "detail": "not found"}
 
-    return ClientTermsEmailService.send_terms_acceptance_email(
+    ok = ClientTermsEmailService.send_terms_acceptance_email(
         client, to_email=to_email
     )
+    return {
+        "task": "send_client_terms_email",
+        "client_id": client_id,
+        "to": to_email or str(client),
+        "status": "ok" if ok else "error",
+    }
 
 
 @shared_task(name="core.tasks.send_asset_transaction_email_task")
@@ -80,6 +98,12 @@ def send_asset_transaction_email_task(transaction_id: int, to_email: str | None 
         ).get(pk=transaction_id)
     except AssetTransaction.DoesNotExist:
         logger.error("send_asset_transaction_email_task: AssetTransaction %s not found", transaction_id)
-        return False
+        return {"task": "send_asset_transaction_email", "transaction_id": transaction_id, "status": "error", "detail": "not found"}
 
-    return AssetTransactionEmailService.send_transaction_email(transaction, to_email=to_email)
+    ok = AssetTransactionEmailService.send_transaction_email(transaction, to_email=to_email)
+    return {
+        "task": "send_asset_transaction_email",
+        "transaction_id": transaction_id,
+        "to": to_email or str(transaction.asset),
+        "status": "ok" if ok else "error",
+    }

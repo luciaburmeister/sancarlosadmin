@@ -21,6 +21,7 @@ def advance_and_compute_periods(self):
 
     # Step 3: compute all rules in order
     computed = 0
+    errors = []
     for rule in TaxScheduleRule.objects.filter(is_active=True):
         periods = TaxPeriod.objects.filter(
             rule=rule,
@@ -37,6 +38,12 @@ def advance_and_compute_periods(self):
                 computed += 1
             except Exception as e:
                 logger.error(f"finance: failed to compute period {period.pk}: {e}")
+                errors.append(f"period {period.pk}: {e}")
 
     logger.info(f"finance: computed {computed} periods in chronological order")
-    return {"advanced": True, "computed": computed}
+    return {
+        "task": "advance_and_compute_periods",
+        "status": "ok" if not errors else "partial",
+        "computed": computed,
+        "errors": errors,
+    }

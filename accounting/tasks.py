@@ -37,7 +37,7 @@ def classify_invoice_accounts(invoice_ids: list = None):
     api_key = settings.GEMINI_API_KEY
     if not api_key:
         logger.error("GEMINI_API_KEY not configured.")
-        return "Missing API Key"
+        return {"task": "classify_invoice_accounts", "status": "error", "detail": "missing API key"}
 
     classifier = GeminiAccountClassifier(api_key=api_key)
     service = AccountClassifierService(classifier=classifier)
@@ -45,7 +45,7 @@ def classify_invoice_accounts(invoice_ids: list = None):
     try:
         summary = service.classify_unclassified_invoices(invoice_ids=invoice_ids)
         logger.info(f"Classification complete: {summary}")
-        return str(summary)
+        return {"task": "classify_invoice_accounts", "status": "ok", "summary": str(summary)}
 
     except Exception as e:
         logger.error(f"Account classification task failed: {str(e)}")
@@ -86,11 +86,13 @@ def generate_journal_entries_task(company_id=None):
         if errors:
             logger.error(f"Encountered {len(errors)} errors for {company.name}: {errors}")
 
-    summary = f"Journalized: {total_processed} | Draft (Unbalanced): {total_unbalanced}"
-    if all_errors:
-        summary += f" | Errors: {'; '.join(all_errors)}"
-        
-    return summary
+    return {
+        "task": "generate_journal_entries",
+        "status": "ok" if not all_errors else "partial",
+        "journalized": total_processed,
+        "draft_unbalanced": total_unbalanced,
+        "errors": all_errors,
+    }
 
 @shared_task(name="accounting.tasks.export_a3_purchase_invoicing_task")
 def export_a3_purchase_invoicing_task(company_id, user_email, start_date_str, end_date_str):
@@ -125,10 +127,16 @@ def export_a3_purchase_invoicing_task(company_id, user_email, start_date_str, en
         
         email.send()
         
-        return f"Successfully sent A3 export to {user_email}"
+        return {
+            "task": "export_a3_purchase_invoicing",
+            "status": "ok",
+            "company": company.name,
+            "to": user_email,
+            "period": f"{start_date_str} to {end_date_str}",
+        }
         
     except Company.DoesNotExist:
-        return f"Error: Company {company_id} not found"
+        return {"task": "export_a3_purchase_invoicing", "status": "error", "detail": f"company {company_id} not found"}
     except Exception as e:
         logger.error(f"A3 export task failed: {str(e)}")
-        return f"Error: {str(e)}"
+        return {"task": "export_a3_purchase_invoicing", "status": "error", "detail": str(e)}

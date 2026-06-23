@@ -25,7 +25,7 @@ def fetch_email_invoices_task(config_id=None):
 
     if not configs.exists():
         logger.info("No email configurations to process.")
-        return "No configurations found"
+        return {"task": "fetch_email_invoices", "status": "skipped", "detail": "no configurations"}
 
     total_count = 0
     for config in configs:
@@ -40,7 +40,7 @@ def fetch_email_invoices_task(config_id=None):
             logger.error(f"Error fetching emails for {config.email_address}: {str(e)}")
             continue
 
-    return f"Total invoices fetched: {total_count}"
+    return {"task": "fetch_email_invoices", "status": "ok", "fetched": total_count}
 
 #Email Only Pipeline
 @shared_task(name="invoices.tasks.process_incoming_invoices")
@@ -57,7 +57,7 @@ def process_incoming_invoices(invoice_ids=None):
     
     if not invoices.exists():
         logger.info("No new invoices to process.")
-        return "No new invoices"
+        return {"task": "process_incoming_invoices", "status": "skipped", "detail": "no new invoices"}
 
     logger.info(f"Found {invoices.count()} invoices to process.")
     
@@ -65,7 +65,7 @@ def process_incoming_invoices(invoice_ids=None):
     api_key = settings.GEMINI_API_KEY
     if not api_key:
         logger.error("GEMINI_API_KEY not configured.")
-        return "Missing API Key"
+        return {"task": "process_incoming_invoices", "status": "error", "detail": "missing API key"}
         
     ocr_processor = GeminiInvoiceProcessor(api_key=api_key)
     service = InvoiceService(ocr_processor=ocr_processor)
@@ -110,7 +110,7 @@ def process_incoming_invoices(invoice_ids=None):
             if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
             
-    return f"Processed {processed_count} invoices, {errors_count} errors"
+    return {"task": "process_incoming_invoices", "status": "ok" if not errors_count else "partial", "processed": processed_count, "errors": errors_count}
 
 # Manual Upload Pipeline
 @shared_task(name="invoices.tasks.process_manual_invoice")
@@ -129,7 +129,7 @@ def process_manual_invoice(invoice_id: int):
         invoice = Invoice.objects.get(pk=invoice_id)
     except Invoice.DoesNotExist:
         logger.error(f"Invoice with id={invoice_id} does not exist.")
-        return f"Invoice {invoice_id} not found"
+        return {"task": "process_manual_invoice", "invoice_id": invoice_id, "status": "error", "detail": "not found"}
 
     if not invoice.file:
         logger.error(f"Invoice {invoice_id} has no file attached.")
@@ -138,7 +138,7 @@ def process_manual_invoice(invoice_id: int):
         invoice.ocr_processing = False
         invoice.ocr_error = "No file attached to invoice."
         invoice.save(update_fields=["ocr_processed", "ocr_processing", "ocr_error"])
-        return f"Invoice {invoice_id} has no file"
+        return {"task": "process_manual_invoice", "invoice_id": invoice_id, "status": "error", "detail": "no file attached"}
 
 
     # Initialize services (same as email task)
@@ -149,7 +149,7 @@ def process_manual_invoice(invoice_id: int):
         invoice.ocr_processing = False
         invoice.ocr_error = "GEMINI_API_KEY not configured."
         invoice.save(update_fields=["ocr_processed", "ocr_processing", "ocr_error"])
-        return "Missing API Key"
+        return {"task": "process_manual_invoice", "invoice_id": invoice_id, "status": "error", "detail": "missing API key"}
     
     ocr_processor = GeminiInvoiceProcessor(api_key=api_key)
     service = InvoiceService(ocr_processor=ocr_processor)
@@ -185,13 +185,13 @@ def process_manual_invoice(invoice_id: int):
             invoice.ocr_processed = True
             invoice.ocr_error = ""
             invoice.save(update_fields=["ocr_processing", "ocr_processed", "ocr_error"])
-            return "OK"
+            return {"task": "process_manual_invoice", "invoice_id": invoice_id, "status": "ok"}
         else:
             if getattr(result, 'is_duplicate', False):
                 logger.warning(f"Deleting duplicate MANUAL invoice {invoice.id}")
                 invoice_id_for_log = invoice.id
                 invoice.delete()
-                return f"Duplicate deleted: {invoice_id_for_log}"
+                return {"task": "process_manual_invoice", "invoice_id": invoice_id_for_log, "status": "duplicate_deleted"}
 
             logger.error(
                 f"Failed to process MANUAL invoice {invoice.id}: {result.messages}"
@@ -201,7 +201,7 @@ def process_manual_invoice(invoice_id: int):
             invoice.ocr_processed = False
             invoice.ocr_error = str(result.messages)
             invoice.save(update_fields=["ocr_processing", "ocr_processed", "ocr_error"])
-            return f"Error: {result.messages}"
+            return {"task": "process_manual_invoice", "invoice_id": invoice_id, "status": "error", "detail": str(result.messages)}
 
     except Exception as e:
         logger.error(f"Exception processing MANUAL invoice {invoice.id}: {str(e)}")

@@ -24,7 +24,7 @@ def sync_bank_transactions(self):
         )
         if result.errors:
             logger.warning("Sync errors: %s", result.errors)
-        return result
+        return result.to_dict()
     except Exception as exc:
         logger.exception("Bank transaction sync failed")
         raise self.retry(exc=exc)

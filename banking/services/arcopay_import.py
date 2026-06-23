@@ -432,6 +432,12 @@ class ArcopayService:
         # --- Step 2: Fetch transactions for each specific product ---
         total = 0
         for product_name in product_names:
+            # ponytail: each product belongs to its own BankAccount
+            target_account = BankAccount.objects.filter(
+                company=bank_account.company,
+                nuek_product_id=product_name,
+            ).first() or bank_account
+
             try:
                 product_results = _fetch(product_name)
             except Exception as e:
@@ -445,11 +451,10 @@ class ArcopayService:
                     product_name, len(txns),
                 )
                 total += ArcopayService.import_transactions_for_account(
-                    bank_account, product_data,
+                    target_account, product_data,
                 )
 
-                # ponytail: store bank-reported balance
-                ArcopayService._update_account_balance(bank_account, product_data)
+                ArcopayService._update_account_balance(target_account, product_data)
 
         logger.info(
             "Imported %d new transactions for BankAccount %s",

@@ -19,15 +19,14 @@ def submit_invoice_to_aeat(self, sales_invoice_id: int):
             pk=sales_invoice_id
         )
     except SalesInvoice.DoesNotExist:
-        
-        return ("SalesInvoice %s does not exist — aborting.", sales_invoice_id)
+        return {"task": "submit_invoice_to_aeat", "invoice_id": sales_invoice_id, "status": "error", "detail": "not found"}
 
     if invoice.status == SalesInvoiceStatus.CANCELLED:
         logger.warning(
             "SalesInvoice %s is cancelled — cannot resubmit.",
             sales_invoice_id,
         )
-        return
+        return {"task": "submit_invoice_to_aeat", "invoice_id": sales_invoice_id, "status": "skipped", "detail": "cancelled"}
 
     if invoice.status != SalesInvoiceStatus.FINAL:
         logger.warning(
@@ -35,13 +34,13 @@ def submit_invoice_to_aeat(self, sales_invoice_id: int):
             sales_invoice_id,
             invoice.status,
         )
-        return
+        return {"task": "submit_invoice_to_aeat", "invoice_id": sales_invoice_id, "status": "skipped", "detail": f"status={invoice.status}"}
 
     submission = EInvoicingService.submit_invoice(invoice)
 
     if submission is None:
         logger.info("No e-invoicing account configured — nothing to do.")
-        return
+        return {"task": "submit_invoice_to_aeat", "invoice_id": sales_invoice_id, "status": "skipped", "detail": "no einvoicing configured"}
 
     if not submission.status == "accepted":
         logger.warning(
@@ -52,6 +51,8 @@ def submit_invoice_to_aeat(self, sales_invoice_id: int):
         )
         if submission.status == "error":
             raise self.retry(exc=Exception(submission.error_message))
+
+    return {"task": "submit_invoice_to_aeat", "invoice_id": sales_invoice_id, "status": submission.status}
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
@@ -66,20 +67,22 @@ def cancel_invoice_at_aeat(self, sales_invoice_id: int):
         )
     except SalesInvoice.DoesNotExist:
         logger.error("SalesInvoice %s does not exist — aborting.", sales_invoice_id)
-        return
+        return {"task": "cancel_invoice_at_aeat", "invoice_id": sales_invoice_id, "status": "error", "detail": "not found"}
 
     if invoice.status == SalesInvoiceStatus.CANCELLED:
         logger.warning(
             "SalesInvoice %s is already cancelled — skipping.",
             sales_invoice_id,
         )
-        return
+        return {"task": "cancel_invoice_at_aeat", "invoice_id": sales_invoice_id, "status": "skipped", "detail": "already cancelled"}
 
     submission = EInvoicingService.cancel_invoice(invoice)
 
     if submission is None:
         logger.info("No e-invoicing account configured — nothing to do.")
-        return
+        return {"task": "cancel_invoice_at_aeat", "invoice_id": sales_invoice_id, "status": "skipped", "detail": "no einvoicing configured"}
 
     if submission.status == "error":
         raise self.retry(exc=Exception(submission.error_message))
+
+    return {"task": "cancel_invoice_at_aeat", "invoice_id": sales_invoice_id, "status": submission.status}

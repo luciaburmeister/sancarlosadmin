@@ -41,6 +41,13 @@ def run_schedule_optimization(run_id: int):
                 "status",
             ]
         )
+        return {
+            "task": "run_schedule_optimization",
+            "run_id": run_id,
+            "status": "solved",
+            "configurations": len(configurations),
+            "solver_status": proposal.solver_status,
+        }
 
     except Exception as exc:
         run.status = "error"

@@ -139,4 +139,4 @@ def send_document_reminders():
     if errors:
         raise Exception(f"Document reminder task completed with errors: {'; '.join(errors)}")
 
-    return f"Processed {emails_sent} company emails for {len(all_maturing_docs)} documents."
+    return {"task": "send_document_reminders", "status": "ok", "emails_sent": emails_sent, "documents": len(all_maturing_docs)}

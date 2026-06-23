@@ -74,6 +74,36 @@ class ResourcePlanningAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_select_related = ["project_file", "planning_type", "company", "resource_content_type"]
     actions_list = ["schedule_view_action"]
 
+    def get_search_results(self, request, queryset, search_term):
+        queryset, may_have_duplicates = super().get_search_results(request, queryset, search_term)
+        if search_term:
+            from django.db.models import Q
+            from company.models import Employee, Machine
+            from assets.models import Asset
+
+            employee_ct = ContentType.objects.get_for_model(Employee)
+            machine_ct = ContentType.objects.get_for_model(Machine)
+            asset_ct = ContentType.objects.get_for_model(Asset)
+
+            emp_ids = Employee.objects.filter(
+                Q(first_name__icontains=search_term) | Q(last_name__icontains=search_term)
+            ).values_list("pk", flat=True)
+            machine_ids = Machine.objects.filter(
+                Q(name__icontains=search_term) | Q(code__icontains=search_term)
+            ).values_list("pk", flat=True)
+            asset_ids = Asset.objects.filter(
+                name__icontains=search_term
+            ).values_list("pk", flat=True)
+
+            resource_q = (
+                Q(resource_content_type=employee_ct, resource_object_id__in=emp_ids)
+                | Q(resource_content_type=machine_ct, resource_object_id__in=machine_ids)
+                | Q(resource_content_type=asset_ct, resource_object_id__in=asset_ids)
+            )
+            queryset = queryset | self.model.objects.filter(resource_q)
+            may_have_duplicates = True
+        return queryset, may_have_duplicates
+
     fieldsets = (
         (_("Planning"), {
             "fields": (

@@ -29,24 +29,17 @@
   <div class="rounded-2xl border border-base-200 bg-white p-4">
     <form method="get" class="flex flex-wrap items-end gap-4">
 
-      {% if show_company_filter %}
-      <div>
-        <label class="block text-xs font-medium text-base-500 mb-1">{% trans "Company" %}</label>
-        <select name="company"
-                class="rounded-lg border border-base-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-          <option value="">{% trans "All companies" %}</option>
-          {% for c in companies %}
-            <option value="{{ c.id }}" {% if selected_company and selected_company.id == c.id %}selected{% endif %}>
-              {{ c.name }}
-            </option>
-          {% endfor %}
-        </select>
-      </div>
-      {% endif %}
-
       {% for field in filter_form %}
-        {% include "unfold/helpers/field.html" with field=field %}
+        {% if field.name != "project_file" %}
+          {% include "unfold/helpers/field.html" with field=field %}
+        {% endif %}
       {% endfor %}
+
+      {# Project file — autocomplete widget rendered manually #}
+      <div>
+        <label class="block text-xs font-medium text-base-500 mb-1">{{ filter_form.project_file.label }}</label>
+        {{ filter_form.project_file }}
+      </div>
 
       <div class="flex items-end gap-2">
         {% component "unfold/components/button.html" with type="submit" variant="primary" %}
@@ -76,8 +69,8 @@
     {# Empty state #}
     <div class="rounded-2xl border border-base-200 bg-white p-12 text-center">
       <span class="material-symbols-outlined text-5xl text-base-300 mb-3 block">event_busy</span>
-      <p class="text-base-500 text-sm">{% trans "No resource plannings found for this period." %}</p>
-      <p class="text-base-400 text-xs mt-1">{% trans "Try another date range or create a new planning entry." %}</p>
+      <p class="text-base-500 text-sm">{% trans "No active resources found." %}</p>
+      <p class="text-base-400 text-xs mt-1">{% trans "Add employees, machines, or assets to see them here." %}</p>
     </div>
 
   {% else %}
@@ -130,8 +123,14 @@
                     {% endfor %}
                   </div>
                 {% else %}
-                  {# Empty cell — visual gap indicator #}
-                  <div class="h-8 rounded-md bg-base-50/50 border border-dashed border-base-200"></div>
+                  {# Empty cell — clickable to add a new planning #}
+                  {% with col=columns_meta|slice:"forloop.counter0:forloop.counter"|first %}
+                  {% endwith %}
+                  <a href="{{ add_url }}?resource_content_type={{ res.ct_id }}&resource_object_id={{ res.obj_id }}"
+                     class="group flex items-center justify-center h-8 rounded-md bg-base-50/50 border border-dashed border-base-200 hover:border-primary-400 hover:bg-primary-50 transition-all"
+                     title="{% trans 'Add planning' %}">
+                    <span class="material-symbols-outlined text-base-300 text-sm group-hover:text-primary-500 transition-colors">add</span>
+                  </a>
                 {% endif %}
               </td>
             {% endfor %}

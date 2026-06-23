@@ -171,15 +171,26 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
     date = models.DateTimeField(default=timezone.now, verbose_name=_("Date"))
     data = models.JSONField(default=dict, blank=True, verbose_name=_("Flexible Data"))
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
-    firma = models.TextField(blank=True, null=True, verbose_name=_("Firma"))
-    imagen = models.ImageField(upload_to="asset_transactions/images/", blank=True, null=True, verbose_name=_("Imagen"))
+    firma = models.TextField(blank=True, null=True, verbose_name=_("Signature"))
+    firma_image = models.ImageField(
+        upload_to="asset_transactions/firmas/",
+        blank=True,
+        null=True,
+        verbose_name=_("Signature Image")
+    )
+    imagen = models.ImageField(
+        upload_to="asset_transactions/images/",
+        blank=True,
+        null=True,
+        verbose_name=_("Image")
+    )
     project_file = models.ForeignKey(
         "management.ProjectFile",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name="asset_transactions",
-        verbose_name=_("Expediente"),
+        verbose_name=_("Project File"),
     )
     performed_by = models.ForeignKey(
         "company.Employee",
@@ -205,6 +216,12 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         ('delivered', _('Delivered')),
         ('cancelled', _('Cancelled')),
     ]
+
+    PLANNING_CHOICES = [
+        ('cuba', _('Container Movement')),
+        ('porte', _('Transport')),
+    ]
+
     asset = models.ForeignKey(
         Asset,
         on_delete=models.PROTECT,
@@ -240,6 +257,14 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         verbose_name=_("Transport Asset"),
         help_text=_("Vehicle or tool needed to perform this movement"),
     )
+    transport_asset = models.ForeignKey(
+        Asset,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="transport_plannings",
+        verbose_name=_("Transport Asset"),
+        help_text=_("Vehicle or tool needed to perform this movement"),
+    )
     scheduled_date = models.DateField(verbose_name=_("Scheduled Date"))
     status = models.CharField(
         max_length=20,
@@ -252,6 +277,16 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         verbose_name=_("Route Order"),
         help_text=_("Execution order within the employee's daily route"),
     )
+    planning_type = models.CharField(
+        max_length=10,
+        choices=PLANNING_CHOICES,
+        default='cuba',
+        verbose_name=_("Planning Type")
+    )
+    load_description = models.TextField(
+        blank=True,
+        verbose_name=_("Load Description"),
+    )
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
     history = HistoricalRecords()
 
@@ -262,42 +297,14 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         indexes = [
             models.Index(fields=["assigned_to", "scheduled_date"]),
         ]
+        indexes = [
+            models.Index(fields=["assigned_to", "scheduled_date"]),
+        ]
 
     def __str__(self):
         return f"{self.asset.name} → {self.destination} ({self.scheduled_date})"
 
 
-class AssetPlanningStop(models.Model):
-    """Ordered intermediate stop between origin and destination."""
-    planning = models.ForeignKey(
-        AssetPlanning,
-        on_delete=models.CASCADE,
-        related_name="stops",
-        verbose_name=_("Planning"),
-    )
-    zone = models.ForeignKey(
-        WorkingZone,
-        on_delete=models.PROTECT,
-        verbose_name=_("Zone"),
-    )
-    sequence = models.PositiveSmallIntegerField(
-        verbose_name=_("Sequence"),
-    )
-    notes = models.TextField(blank=True, verbose_name=_("Notes"))
-
-    class Meta:
-        verbose_name = _("Planning Stop")
-        verbose_name_plural = _("Planning Stops")
-        ordering = ["sequence"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["planning", "sequence"],
-                name="unique_stop_sequence",
-            ),
-        ]
-
-    def __str__(self):
-        return f"Stop {self.sequence}: {self.zone}"
 
 
 class ZoneDistanceCache(models.Model):
@@ -330,6 +337,41 @@ class ZoneDistanceCache(models.Model):
 
     def __str__(self):
         return f"{self.from_zone} → {self.to_zone}: {self.distance_meters}m"
+
+
+class AssetPlanningStop(models.Model):
+    """Ordered intermediate stop between origin and destination."""
+    planning = models.ForeignKey(
+        AssetPlanning,
+        on_delete=models.CASCADE,
+        related_name="stops",
+        verbose_name=_("Planning"),
+    )
+    zone = models.ForeignKey(
+        WorkingZone,
+        on_delete=models.PROTECT,
+        verbose_name=_("Zone"),
+    )
+
+
+    sequence = models.PositiveSmallIntegerField(
+        verbose_name=_("Sequence"),
+    )
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+
+    class Meta:
+        verbose_name = _("Planning Stop")
+        verbose_name_plural = _("Planning Stops")
+        ordering = ["sequence"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["planning", "sequence"],
+                name="unique_stop_sequence",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Stop {self.sequence}: {self.zone}"
 
 
 class AssetDocumentType(BaseDocumentType):

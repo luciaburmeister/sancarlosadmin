@@ -618,6 +618,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     list_filter = (
         ("status",ChoicesDropdownFilter),
         ("company",AutocompleteSelectMultipleFilter),
+        ("payment_method", ChoicesDropdownFilter),
         ("client",AutocompleteSelectMultipleFilter),
         ('is_external'),
         ('status'),

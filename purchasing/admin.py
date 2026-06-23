@@ -9,8 +9,8 @@ from .models import (
     PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus,
     PurchaseOrderReceipt, PurchaseOrderReceiptItem
 )
+from inventory.models import ItemIdentityCode
 from django.shortcuts import redirect
-from .views import DirectReceiptView
 
 class PurchaseOrderItemInline(TabularInline):
     model = PurchaseOrderItem
@@ -95,6 +95,7 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     inlines = [PurchaseOrderItemInline]
     
     actions_row = ["send_to_approval", "approve_po", "receive_directly"]
+    actions_detail = ["register_identity_codes"]
 
     @display(
         description=_("Status"),
@@ -147,14 +148,24 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     def has_can_approve_purchase_order_permission(self, request, obj=None):
         return request.user.has_perm("purchasing.can_approve_purchase_order")
-        
+
+    @action(description=_("Register Identity Codes"), icon="qr_code_2")
+    def register_identity_codes(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_purchaseorder_identity_codes", args=[object_id]))
+
     def get_urls(self):
+        from .views import DirectReceiptView, IdentityCodesView
         urls = super().get_urls()
         custom_urls = [
             path(
                 "<int:po_id>/receive-directly",
                 self.admin_site.admin_view(DirectReceiptView.as_view(model_admin=self)),
                 name="purchasing_purchaseorder_receive_directly_view",
+            ),
+            path(
+                "<int:po_id>/identity-codes/",
+                self.admin_site.admin_view(IdentityCodesView.as_view(model_admin=self)),
+                name="purchasing_purchaseorder_identity_codes",
             ),
         ]
         return custom_urls + urls
@@ -198,7 +209,20 @@ class PurchaseOrderItemAdmin(ModelAdmin):
     search_fields = ["inventory_item__name", "purchase_order__number"]
     autocomplete_fields = ["inventory_item", "purchase_order"]
 
+
+class IdentityCodeReceiptInline(TabularInline):
+    model = ItemIdentityCode
+    fk_name = "receipt_item"
+    extra = 1
+    verbose_name = _("Identity Code")
+    verbose_name_plural = _("Identity Codes")
+    fields = ("code", "item", "received_at", "note")
+    readonly_fields = ("received_at",)
+    autocomplete_fields = ("item",)
+
 @admin.register(PurchaseOrderReceiptItem)
 class PurchaseOrderReceiptItemAdmin(ModelAdmin):
     list_display = ["po_item", "receipt", "quantity_received"]
     autocomplete_fields = ["po_item", "receipt"]
+    search_fields = ["po_item__inventory_item__name", "receipt__number"]
+    inlines = [IdentityCodeReceiptInline]

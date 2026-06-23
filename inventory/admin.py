@@ -4,6 +4,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from core.admin.company_admin import CompanyRestrictedAdmin
+from core.admin.company_access import get_user_companies
 
 from unfold.admin import ModelAdmin, TabularInline, GenericTabularInline
 from unfold.decorators import action
@@ -23,6 +24,7 @@ from .models import (
     InventoryItem,
     ItemProviderInfo,
     ItemTransaction,
+    ItemIdentityCode,
 )
 from invoices.models import AppliedTax
 from purchasing.models import PurchaseOrderItem
@@ -173,6 +175,47 @@ class ItemProviderInfoInline(TabularInline):
     verbose_name = _("Provider Reference")
     verbose_name_plural = _("Provider References")
     tab = True
+
+
+class ItemIdentityCodeInline(TabularInline):
+    model = ItemIdentityCode
+    extra = 0
+    tab = True
+    verbose_name = _("Identity Code")
+    verbose_name_plural = _("Identity Codes")
+    fields = (
+        "code",
+        "receipt_item",
+        "received_at",
+        "delivery_order_item",
+        "delivered_at",
+        "status_display",
+        "note",
+    )
+    readonly_fields = ("received_at", "delivered_at", "status_display")
+    autocomplete_fields = ("receipt_item", "delivery_order_item")
+
+    def status_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        parts = []
+        if obj.is_received:
+            parts.append(format_html(
+                '<span style="color:#16a34a;font-weight:600;">✓ {}</span>',
+                _("Received"),
+            ))
+        if obj.is_delivered:
+            parts.append(format_html(
+                '<span style="color:#2563eb;font-weight:600;">✓ {}</span>',
+                _("Delivered"),
+            ))
+        if not parts:
+            return format_html(
+                '<span style="color:#9ca3af;">{}</span>',
+                _("Registered"),
+            )
+        return format_html(" · ".join(str(p) for p in parts))
+    status_display.short_description = _("Status")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -367,7 +410,7 @@ class PurchaseHistoryInline(TabularInline):
 @admin.register(InventoryItem)
 class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
     form = InventoryItemForm
-    inlines = [ItemProviderInfoInline, PurchaseHistoryInline, ItemTransactionInline, ItemAppliedTaxInline]
+    inlines = [ItemProviderInfoInline, ItemIdentityCodeInline, PurchaseHistoryInline, ItemTransactionInline, ItemAppliedTaxInline]
     actions_row = ["row_receive_stock", "row_transfer_stock", "row_adjust_stock"]
 
     list_display = (
@@ -757,3 +800,76 @@ class ItemTransactionAdmin(ModelAdmin):
             return str(obj.reference_object)
         return "—"
     reference_repr.short_description = _("Reference")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ItemIdentityCode — standalone admin for searching / filtering
+# ─────────────────────────────────────────────────────────────────────────────
+
+@admin.register(ItemIdentityCode)
+class ItemIdentityCodeAdmin(ModelAdmin):
+    list_display = (
+        "code",
+        "item",
+        "received_status",
+        "received_at",
+        "delivered_status",
+        "delivered_at",
+    )
+    list_filter = (
+        ["item", AutocompleteSelectFilter],
+    )
+    search_fields = (
+        "code",
+        "item__code",
+        "item__name",
+    )
+    ordering = ("-created_at",)
+    autocomplete_fields = ("item", "receipt_item", "delivery_order_item")
+    readonly_fields = ("received_at", "delivered_at")
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(item__company__in=get_user_companies(request.user))
+
+    fieldsets = (
+        (_("Identity Code"), {
+            "fields": (
+                "item",
+                "code",
+                "note",
+            ),
+        }),
+        (_("Receiving"), {
+            "fields": (
+                "receipt_item",
+                "received_at",
+            ),
+        }),
+        (_("Delivery"), {
+            "fields": (
+                "delivery_order_item",
+                "delivered_at",
+            ),
+        }),
+    )
+
+    def received_status(self, obj):
+        if obj.is_received:
+            return format_html(
+                '<span style="color:#16a34a;font-weight:600;">✓ {}</span>',
+                _("Yes"),
+            )
+        return format_html('<span style="color:#9ca3af;">—</span>')
+    received_status.short_description = _("Received")
+
+    def delivered_status(self, obj):
+        if obj.is_delivered:
+            return format_html(
+                '<span style="color:#2563eb;font-weight:600;">✓ {}</span>',
+                _("Yes"),
+            )
+        return format_html('<span style="color:#9ca3af;">—</span>')
+    delivered_status.short_description = _("Delivered")

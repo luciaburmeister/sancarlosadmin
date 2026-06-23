@@ -7557,7 +7557,7 @@ msgid "Only Draft POs can be sent for approval."
 msgstr "Solo se pueden iniciar ordenes de compra pendientes."
 
 msgid "Approve PO"
-msgstr "Aprobadr OC"
+msgstr "Aprobar OC"
 
 msgid "Purchase Order approved successfully."
 msgstr "Orden de Compra generada con éxito."

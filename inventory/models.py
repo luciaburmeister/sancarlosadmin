@@ -396,6 +396,121 @@ class ItemTransaction(Timestampable):
             )
 
 
+# ── Item Identity Codes (serial numbers, lot IDs, etc.) ─────────────────────
+
+class ItemIdentityCode(Timestampable):
+    """
+    Tracks an individual identity code (serial number, lot ID, etc.)
+    for a specific InventoryItem.  Each code is unique per item.
+
+    Codes can be registered manually from the InventoryItem admin
+    or during goods-receipt via PurchaseOrderReceiptItem.  When items
+    are shipped out, the code is linked to a DeliveryOrderItem.
+    """
+
+    item = models.ForeignKey(
+        "inventory.InventoryItem",
+        verbose_name=_("Item"),
+        on_delete=models.CASCADE,
+        related_name="identity_codes",
+    )
+    code = models.CharField(
+        _("Identity Code"),
+        max_length=200,
+        help_text=_(
+            "Unique identifier for this individual unit "
+            "(serial number, lot ID, IMEI, etc.)."
+        ),
+    )
+
+    # ── Receiving traceability ──────────────────────────────────────────
+    receipt_item = models.ForeignKey(
+        "purchasing.PurchaseOrderReceiptItem",
+        verbose_name=_("Receipt Item"),
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="identity_codes",
+        help_text=_(
+            "The receipt line through which this unit was received."
+        ),
+    )
+    received_at = models.DateTimeField(
+        _("Received At"),
+        null=True,
+        blank=True,
+        help_text=_(
+            "Timestamp when this code was registered upon receiving."
+        ),
+    )
+
+    # ── Delivery traceability ───────────────────────────────────────────
+    delivery_order_item = models.ForeignKey(
+        "sales.DeliveryOrderItem",
+        verbose_name=_("Delivery Order Item"),
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="identity_codes",
+        help_text=_(
+            "The delivery-order line this unit was shipped in."
+        ),
+    )
+    delivered_at = models.DateTimeField(
+        _("Delivered At"),
+        null=True,
+        blank=True,
+        help_text=_(
+            "Timestamp when this code was marked as delivered."
+        ),
+    )
+
+    note = models.TextField(_("Note"), blank=True)
+
+    class Meta:
+        verbose_name = _("Item Identity Code")
+        verbose_name_plural = _("Item Identity Codes")
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["item", "code"],
+                name="uniq_identity_code_per_item",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["code"], name="idx_identity_code"),
+            models.Index(fields=["item", "code"], name="idx_identity_item_code"),
+        ]
+
+    def __str__(self):
+        return f"{self.item.code} — {self.code}"
+
+    @property
+    def is_received(self) -> bool:
+        return self.receipt_item_id is not None
+
+    @property
+    def is_delivered(self) -> bool:
+        return self.delivery_order_item_id is not None
+
+    def save(self, *args, **kwargs):
+        from django.utils import timezone as tz
+
+        # Auto-set received_at when receipt_item is assigned for the first time
+        if self.receipt_item_id and not self.received_at:
+            self.received_at = tz.now()
+
+        # Auto-set delivered_at when delivery_order_item is assigned
+        if self.delivery_order_item_id and not self.delivered_at:
+            self.delivered_at = tz.now()
+
+        # Clear delivered_at if delivery_order_item is removed
+        if not self.delivery_order_item_id and self.delivered_at:
+            self.delivered_at = None
+
+        super().save(*args, **kwargs)
+
+
 # ── Keep the original InventoryMovement for backwards compatibility ──────────
 
 class InventoryMovement(Timestampable):

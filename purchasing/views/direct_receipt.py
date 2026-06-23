@@ -6,9 +6,10 @@ from django.db import transaction
 from django.urls import reverse
 from unfold.views import UnfoldModelAdminViewMixin
 from django.core.exceptions import ValidationError
-from .models import PurchaseOrder, PurchaseOrderReceipt, PurchaseOrderReceiptItem, PurchaseOrderStatus
-from .forms import DirectReceiptForm
+from purchasing.models import PurchaseOrder, PurchaseOrderReceipt, PurchaseOrderReceiptItem, PurchaseOrderStatus
+from purchasing.forms import DirectReceiptForm
 from decimal import Decimal
+
 
 class DirectReceiptView(UnfoldModelAdminViewMixin, FormView):
     template_name = "purchasing/direct_receipt.html"
@@ -23,15 +24,20 @@ class DirectReceiptView(UnfoldModelAdminViewMixin, FormView):
             return redirect("admin:purchasing_purchaseorder_change", po_id)
         return super().dispatch(request, *args, **kwargs)
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["user"] = self.request.user
+        return kwargs
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         po_id = self.kwargs.get("po_id")
         po = PurchaseOrder.objects.get(pk=po_id)
-        
+
         items = po.items.all()
         for item in items:
             item.pending_qty = item.quantity - item.received_quantity
-        
+
         context.update({
             "po": po,
             "items": items,
@@ -42,7 +48,7 @@ class DirectReceiptView(UnfoldModelAdminViewMixin, FormView):
     def form_valid(self, form):
         po_id = self.kwargs.get("po_id")
         po = get_object_or_404(PurchaseOrder, pk=po_id)
-        
+
         try:
             with transaction.atomic():
                 warehouse = form.cleaned_data["warehouse"]
@@ -52,16 +58,15 @@ class DirectReceiptView(UnfoldModelAdminViewMixin, FormView):
                     company=po.company,
                     received_by=self.request.user
                 )
-                
+
                 items_received = 0
                 for key, value in self.request.POST.items():
                     if key.startswith("qty_") and value:
                         try:
                             item_id = int(key.replace("qty_", ""))
                             qty_val = Decimal(value.replace(",", "."))
-                            
+
                             if qty_val > 0:
-                                # Verify the item belongs to this PO
                                 po_item = po.items.filter(pk=item_id).first()
                                 if po_item:
                                     PurchaseOrderReceiptItem.objects.create(
@@ -72,7 +77,7 @@ class DirectReceiptView(UnfoldModelAdminViewMixin, FormView):
                                     items_received += 1
                         except (ValueError, TypeError, Decimal.InvalidOperation):
                             continue
-                
+
                 if items_received > 0:
                     messages.success(self.request, _("Receipt %(number)s created successfully with %(count)d items.") % {'number': receipt.number, 'count': items_received})
                 else:
@@ -84,5 +89,5 @@ class DirectReceiptView(UnfoldModelAdminViewMixin, FormView):
         except Exception as e:
             messages.error(self.request, _("An error occurred while saving the receipt: %(error)s") % {'error': str(e)})
             return self.form_invalid(form)
-                
+
         return redirect("admin:purchasing_purchaseorder_change", po.id)

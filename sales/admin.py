@@ -13,6 +13,7 @@ from .models import (
     QuoteStatus, QuoteConfigurationGroup, QuotePhoto, QuotePhotoCategory,
     DiscountPolicy, DiscountRule,
 )
+from inventory.models import ItemIdentityCode
 from unfold.admin import TabularInline, StackedInline
 from import_export.admin import ImportExportModelAdmin
 from .forms import (
@@ -316,6 +317,23 @@ class OrderAdmin(ModelAdmin):
     final_price_display.admin_order_field = "final_price"
 
 
+# ponytail: read-only display of assigned identity codes on DeliveryOrderItemAdmin
+class IdentityCodeDeliveryInline(TabularInline):
+    model = ItemIdentityCode
+    extra = 0
+    verbose_name = _("Identity Code")
+    verbose_name_plural = _("Identity Codes")
+    fields = ("code", "item", "delivered_at")
+    readonly_fields = ("code", "item", "delivered_at")
+    tab=True
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 class DeliveryOrderItemInline(StackedInline):
     model = DeliveryOrderItem
     extra = 0
@@ -418,6 +436,15 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     @action(description=_("Create Invoice"), icon="receipt_long")
     def create_invoice_from_do_detail_action(self, request, object_id):
         return self.create_invoice_from_do_row_action(request, object_id)
+
+
+@admin.register(DeliveryOrderItem)
+class DeliveryOrderItemAdmin(ModelAdmin):
+    list_display = ["item_number", "description", "quantity", "delivery_order"]
+    search_fields = ["item_number", "description", "delivery_order__number"]
+    autocomplete_fields = ["delivery_order"]
+    readonly_fields = ["item_number", "line_total"]
+    inlines = [IdentityCodeDeliveryInline]
 
 class QuotePhotoInline(TabularInline):
     model = QuotePhoto

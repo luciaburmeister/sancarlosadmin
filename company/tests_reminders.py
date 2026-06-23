@@ -49,7 +49,7 @@ class DocumentReminderTestCase(TestCase):
         # Verify marked as sent
         doc.refresh_from_db()
         self.assertIsNotNone(doc.reminder_sent_at)
-        self.assertIn("Processed 1 company emails", result)
+        self.assertEqual(result["emails_sent"], 1)
 
     def test_grouped_reminders(self):
         # Create 2 documents expiring in 10 days for the same company
@@ -82,7 +82,7 @@ class DocumentReminderTestCase(TestCase):
         # Since it's HTML, we'll check common fragments
         self.assertIn("ID Card", mail.outbox[0].alternatives[0][0])
         self.assertIn("Insurance", mail.outbox[0].alternatives[0][0])
-        self.assertIn("Processed 1 company emails", result)
+        self.assertEqual(result["emails_sent"], 1)
 
     def test_reminder_suppressed_if_newer_doc_exists_with_later_expiry(self):
         # Doc 1: Expiring in 10 days (old)
@@ -108,4 +108,4 @@ class DocumentReminderTestCase(TestCase):
         # No email should be sent for doc1 because doc2 exists
         # No email should be sent for doc2 because it's not yet expiring
         self.assertEqual(len(mail.outbox), 0)
-        self.assertIn("Processed 0 company emails", result)
+        self.assertEqual(result["emails_sent"], 0)

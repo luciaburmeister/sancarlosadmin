@@ -1,4 +1,4 @@
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from company.models import Company
@@ -9,6 +9,7 @@ from invoices.models import SalesInvoice, SalesInvoiceItem, AppliedTax, TaxType,
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from decimal import Decimal
 
+@override_settings(AEAT_SUBMISSIONS_ENABLED=False)
 class SalesInvoiceTest(TestCase):
     def setUp(self):
         self.company = Company.objects.create(name="Test Company")

@@ -300,6 +300,9 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
+# E-invoicing: disable AEAT submissions in tests / staging
+AEAT_SUBMISSIONS_ENABLED = os.getenv("AEAT_SUBMISSIONS_ENABLED", "True") == "True"
+
 
 
 # Default primary key field type

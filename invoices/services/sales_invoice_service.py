@@ -1,5 +1,6 @@
 import logging
 from decimal import Decimal
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
@@ -9,7 +10,6 @@ from configurator.models import ExportTemplateKind, ConfigurationExportTemplate
 from configurator.services.export.service import ConfigurationExportService
 from invoices.constants import GENERIC_PRODUCT_TEMPLATE_LABEL
 from invoices.services.sales_invoice_payment import resolve_sales_invoice_payment_method
-from apps.einvoicing.tasks import submit_invoice_to_aeat
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +99,12 @@ class SalesInvoiceService:
         sales_invoice.save(update_fields=['status', 'date_issued', 'invoice_number', 'incremental_id'])
 
         # Submit to AEAT via e-invoicing provider (async, non-blocking)
-        try:
-            from apps.einvoicing.tasks import submit_invoice_to_aeat
-            submit_invoice_to_aeat.delay(sales_invoice.id)
-        except Exception:
-            logger.exception("Failed to queue AEAT submission for invoice %s", sales_invoice.pk)
+        if settings.AEAT_SUBMISSIONS_ENABLED:
+            try:
+                from apps.einvoicing.tasks import submit_invoice_to_aeat
+                submit_invoice_to_aeat.delay(sales_invoice.id)
+            except Exception:
+                logger.exception("Failed to queue AEAT submission for invoice %s", sales_invoice.pk)
 
         if send_email:
             sales_invoice._finalize_email_status = cls.queue_client_email(sales_invoice)

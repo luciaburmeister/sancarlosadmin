@@ -48,6 +48,7 @@ jobs:
 
       DEBUG: False
       DB_SSLMODE: disable
+      AEAT_SUBMISSIONS_ENABLED: 'False'
 
     steps:
       - name: Checkout code

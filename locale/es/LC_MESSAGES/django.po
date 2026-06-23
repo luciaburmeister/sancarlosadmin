@@ -1505,46 +1505,39 @@ msgstr "Etapas en las que este empleado está autorizado para trabajar"
 msgid "Assigned Sale Zones"
 msgstr "Zona de venta asignada"
 
-#, fuzzy
-#| msgid "Address"
+
 msgid "Street Address"
-msgstr "Dirección"
+msgstr "Dirección de calle"
 
 msgid "City"
 msgstr "Ciudad"
 
-#, fuzzy
-#| msgid "Post time"
-msgid "Postal Code"
-msgstr "Hora de publicación"
 
-#, fuzzy
-#| msgid "Provider"
+msgid "Postal Code"
+msgstr "Codigo postal"
+
 msgid "Province"
-msgstr "Proveedor"
+msgstr "Provincia"
 
 msgid "Country"
 msgstr "País"
 
-#, fuzzy, python-format
 #| msgid ""
 #| "This label is not allowed for this company. Allowed: %(labels)s"
 msgid "These stages are not allowed for the selected company: %(stages)s"
 msgstr ""
 "Esta etiqueta no está permitida para esta empresa. Permitido: %(labels)s"
 
-#, fuzzy
-#| msgid "Machine cost"
+
 msgid "Machine Type"
-msgstr "Costo de la máquina"
+msgstr "Tipo de máquina"
 
 msgid "Internal or shop-floor identifier"
 msgstr "Identificador interno o de planta"
 
-#, fuzzy
-#| msgid "Stages this employee is authorized to work on"
+
 msgid "Stages this machine can work on"
-msgstr "Etapas en las que este empleado está autorizado para trabajar"
+msgstr "Etapas en las que esta máquina está autorizado para trabajar"
 
 msgid "Is active"
 msgstr "Está activo"
@@ -1564,10 +1557,9 @@ msgstr "¿Cuántos elementos se pueden procesar en paralelo?"
 msgid "Parallel capacity in minutes"
 msgstr "Capacidad paralela en minutos"
 
-#, fuzzy
-#| msgid "Address"
+
 msgid "Email Address"
-msgstr "Dirección"
+msgstr "Corréo electronico"
 
 msgid "IMAP Server"
 msgstr "Servidor IMAP"
@@ -1606,10 +1598,8 @@ msgstr "Vertedero"
 msgid "Almacén"
 msgstr "Almacén"
 
-#, fuzzy
-#| msgid "Content Type"
 msgid "Zone Type"
-msgstr "Tipo de contenido"
+msgstr "Tipo de zona"
 
 msgid "Client"
 msgstr "Cliente"
@@ -1700,10 +1690,9 @@ msgstr "Código de Seguimiento"
 msgid "Routing number, Sort code, ABA, etc."
 msgstr "Número de ruta, Código de clasificación, ABA, etc."
 
-#, fuzzy
-#| msgid "Address"
+
 msgid "Bank Address"
-msgstr "Dirección"
+msgstr "Dirección bancaria"
 
 #, fuzzy
 #| msgid "Bank Account"

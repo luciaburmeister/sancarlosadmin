@@ -53,6 +53,7 @@ class CompanyPayrollConfigAdmin(ModelAdmin):
                 "fields": (
                     "number_of_salary_payments",
                     ("pay_by_bank_transfer", "ss_payment_iban"),
+                    ("salary_payment_day", "ss_payment_offset_days"),
                 )
             },
         ),
@@ -95,6 +96,7 @@ class CompanyPayrollConfigAdmin(ModelAdmin):
 class EmployeePayrollProfileAdmin(ModelAdmin):
     list_display = (
         "employee",
+        "a3_employee_code",
         "social_security_affiliation_number",
         "category",
         "contribution_group",
@@ -105,6 +107,7 @@ class EmployeePayrollProfileAdmin(ModelAdmin):
     search_fields = (
         "employee__first_name",
         "employee__last_name",
+        "a3_employee_code",
         "social_security_affiliation_number",
     )
     list_filter = ("payment_frequency", "is_part_time", "tax_residency", "irpf_key")
@@ -114,7 +117,7 @@ class EmployeePayrollProfileAdmin(ModelAdmin):
         (
             _("Employee"),
             {
-                "fields": ("employee",)
+                "fields": ("employee", "a3_employee_code")
             },
         ),
         (

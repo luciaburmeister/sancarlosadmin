@@ -1,0 +1,69 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n unfold %}
+
+{% block content %}
+<div class="max-w-3xl">
+    {% component "unfold/components/card.html" %}
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+                {% trans "Resolve unmatched employee" %}
+            </h1>
+            <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                {% trans "Assign this imported row to an employee in the ERP. A payroll record will be created from the imported figures." %}
+            </p>
+        </div>
+
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 grid grid-cols-2 gap-4 text-sm">
+            <div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{% trans "Name in file" %}</div>
+                <div class="font-medium text-gray-900 dark:text-white">{{ pending.full_name }}</div>
+            </div>
+            <div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{% trans "DNI / NIF" %}</div>
+                <div class="font-mono text-gray-900 dark:text-white">{{ pending.dni|default:"—" }}</div>
+            </div>
+            <div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{% trans "A3 Code" %}</div>
+                <div class="font-mono text-gray-900 dark:text-white">{{ pending.a3_code|default:"—" }}</div>
+            </div>
+            <div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{% trans "Period" %}</div>
+                <div class="text-gray-900 dark:text-white">{{ pending.period }}</div>
+            </div>
+            <div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">{% trans "Net salary" %}</div>
+                <div class="font-mono text-gray-900 dark:text-white">{{ pending.net_salary }}</div>
+            </div>
+        </div>
+
+        <form method="post" novalidate>
+            {% csrf_token %}
+            <div class="px-6 py-4">
+                {% if form.errors %}
+                    <div class="mb-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-md">
+                        <div class="text-sm text-red-600 dark:text-red-400">
+                            {% for error in form.errors.values %}
+                                {% for e in error %}<p>{{ e|safe }}</p>{% endfor %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+                <div class="space-y-4">
+                    {% for field in form %}
+                        {% include "unfold/helpers/field.html" with field=field %}
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
+                <a href="{{ changelist_url }}"
+                   class="inline-flex items-center px-4 py-2 mr-3 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600">
+                    {% trans "Cancel" %}
+                </a>
+                {% component "unfold/components/button.html" with submit=1 %}
+                    {% trans "Assign & create payroll" %}
+                {% endcomponent %}
+            </div>
+        </form>
+    {% endcomponent %}
+</div>
+{% endblock %}

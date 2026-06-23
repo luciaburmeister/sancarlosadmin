@@ -212,6 +212,19 @@
     background: var(--ap-blue-500);
   }
 
+  .ap-kpi--violet .ap-kpi-icon {
+    background: rgba(139, 92, 246, .1);
+    color: #8b5cf6;
+  }
+
+  .ap-kpi--violet .ap-kpi-accent {
+    background: #8b5cf6;
+  }
+
+  .ap-kpi--violet .ap-kpi-value {
+    color: #8b5cf6;
+  }
+
   /* Charts row */
   .ap-charts {
     display: grid;
@@ -434,6 +447,14 @@
       <div class="ap-kpi-label">{% trans "Pending Invoices" %}</div>
       <div class="ap-kpi-value">{{ kpis.pending_count }}</div>
     </div>
+    <div class="ap-kpi ap-kpi--violet">
+      <div class="ap-kpi-accent"></div>
+      <div class="ap-kpi-label">{% trans "Payroll (range)" %}</div>
+      <div class="ap-kpi-value">€{{ kpis.payroll_total|euro_format }}</div>
+      <div style="font-size:.72rem;color:var(--ap-text-sub);margin-top:6px">
+        {% trans "Net" %} €{{ kpis.payroll_net|euro_format }} · SS €{{ kpis.payroll_ss|euro_format }}
+      </div>
+    </div>
   </div>
 
   <!-- Charts Row -->
@@ -443,6 +464,9 @@
       <div class="ap-panel-title">📊 {% trans "Cash Flow Projection" %}</div>
       <div style="position:relative;height:320px;max-height:320px">
         <canvas id="cashFlowChart"></canvas>
+      </div>
+      <div style="font-size:.72rem;color:var(--ap-text-sub);margin-top:10px">
+        {% trans "Includes supplier invoices and closed payroll periods (salaries on their payment date, Social Security on the settlement date)." %}
       </div>
     </div>
 
@@ -599,18 +623,20 @@
 
   const labels = cfWeeks.map(w => w.label);
   const amounts = cfWeeks.map(w => w.amount);
+  const payrollAmounts = (cfData.payroll_weeks || []).slice();
 
   // Add overdue bar at the beginning if there is overdue amount
   if (cfOverdue > 0) {
     labels.unshift('Overdue');
     amounts.unshift(cfOverdue);
+    payrollAmounts.unshift(0);
   }
 
-  const barColors = amounts.map((_, i) => {
+  const invoiceColors = amounts.map((_, i) => {
     if (cfOverdue > 0 && i === 0) return 'rgba(239,68,68,.75)';
     return 'rgba(20,184,166,.7)';
   });
-  const borderColors = amounts.map((_, i) => {
+  const invoiceBorders = amounts.map((_, i) => {
     if (cfOverdue > 0 && i === 0) return '#ef4444';
     return '#0d9488';
   });
@@ -621,21 +647,34 @@
       type: 'bar',
       data: {
         labels: labels,
-        datasets: [{
-          label: 'Amount Due (€)',
-          data: amounts,
-          backgroundColor: barColors,
-          borderColor: borderColors,
-          borderWidth: 2,
-          borderRadius: 6,
-          borderSkipped: false,
-        }]
+        datasets: [
+          {
+            label: 'Invoices (€)',
+            data: amounts,
+            backgroundColor: invoiceColors,
+            borderColor: invoiceBorders,
+            borderWidth: 2,
+            borderRadius: 6,
+            borderSkipped: false,
+            stack: 'cash',
+          },
+          {
+            label: 'Payroll (€)',
+            data: payrollAmounts,
+            backgroundColor: 'rgba(139,92,246,.7)',
+            borderColor: '#8b5cf6',
+            borderWidth: 2,
+            borderRadius: 6,
+            borderSkipped: false,
+            stack: 'cash',
+          }
+        ]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-          legend: { display: false },
+          legend: { display: true, labels: { color: textColor, font: { family: 'Inter' } } },
           tooltip: {
             backgroundColor: isDark ? '#1e293b' : '#fff',
             titleColor: isDark ? '#f1f5f9' : '#0f172a',
@@ -646,17 +685,19 @@
             cornerRadius: 8,
             callbacks: {
               label: function (ctx) {
-                return '€' + ctx.parsed.y.toLocaleString('es-ES', { minimumFractionDigits: 2 });
+                return ctx.dataset.label + ': €' + ctx.parsed.y.toLocaleString('es-ES', { minimumFractionDigits: 2 });
               }
             }
           }
         },
         scales: {
           x: {
+            stacked: true,
             grid: { display: false },
             ticks: { color: textColor, font: { size: 11, family: 'Inter' } }
           },
           y: {
+            stacked: true,
             grid: { color: gridColor },
             ticks: {
               color: textColor,

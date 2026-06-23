@@ -190,6 +190,24 @@ class CompanyPayrollConfig(Timestampable):
         verbose_name=_("Payroll Incidents Cutoff Day"),
     )
 
+    salary_payment_day = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name=_("Salary Payment Day"),
+        help_text=_(
+            "Day of the period's month salaries are paid. "
+            "0 = last business day of the month."
+        ),
+    )
+
+    ss_payment_offset_days = models.PositiveSmallIntegerField(
+        default=30,
+        verbose_name=_("Social Security Payment Offset (days)"),
+        help_text=_(
+            "Days after the end of the period's month when the TGSS "
+            "settlement is paid (the deadline is the end of the next month)."
+        ),
+    )
+
     class Meta:
         verbose_name = _("Company Payroll Configuration")
         verbose_name_plural = _("Company Payroll Configurations")

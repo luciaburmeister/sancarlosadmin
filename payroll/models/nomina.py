@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from timestamps.models import Timestampable
@@ -53,6 +54,62 @@ class PayrollPeriod(Timestampable):
         verbose_name=_("Closed At"),
     )
 
+    # ── Aggregated totals (computed when the period is closed) ──
+    total_net_salary = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=0,
+        verbose_name=_("Total Net Salary"),
+        help_text=_("Sum of employee net pay. Computed on close."),
+    )
+
+    total_employer_ss = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=0,
+        verbose_name=_("Total Employer Social Security"),
+        help_text=_("Sum of employer SS contributions. Computed on close."),
+    )
+
+    total_employee_ss = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=0,
+        verbose_name=_("Total Employee Social Security"),
+        help_text=_("Sum of employee SS contributions withheld. Computed on close."),
+    )
+
+    total_irpf_withheld = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=0,
+        verbose_name=_("Total IRPF Withheld"),
+        help_text=_("Sum of IRPF withholdings. Computed on close."),
+    )
+
+    total_employer_cost = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=0,
+        verbose_name=_("Total Employer Cost"),
+        help_text=_("Total company cost. Computed on close."),
+    )
+
+    # ── Expected payment dates (for cashflow projection) ──
+    salary_payment_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Salary Payment Date"),
+        help_text=_("Expected date salaries leave the bank."),
+    )
+
+    ss_payment_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Social Security Payment Date"),
+        help_text=_("Expected date the TGSS settlement is paid."),
+    )
+
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
 
     class Meta:
@@ -63,6 +120,24 @@ class PayrollPeriod(Timestampable):
 
     def __str__(self):
         return f"{self.company} — {self.month:02d}/{self.year}"
+
+    @property
+    def pending_count(self):
+        if not self.pk:
+            return 0
+        return self.pending_rows.count()
+
+    def clean(self):
+        super().clean()
+        # B: a period cannot be closed while there are unaccounted employees.
+        if self.status == self.Status.CLOSED and self.pk and self.pending_rows.exists():
+            raise ValidationError(
+                _(
+                    "Cannot close this period: %(n)d employee(s) from the import are "
+                    "still unmatched. Resolve them first."
+                )
+                % {"n": self.pending_rows.count()}
+            )
 
 
 class PayrollConcept(Timestampable):
@@ -429,3 +504,67 @@ class PayrollSSBreakdown(Timestampable):
 
     def __str__(self):
         return f"{self.get_concept_display()} — {self.base}"
+
+
+class PayrollImportPendingRow(Timestampable):
+    """
+    An employee column from an A3 import that could NOT be matched to an
+    ERP employee (no A3 code on profile / unknown name, or ambiguous match).
+
+    The full parsed payload is stored so the row can be resolved later from
+    the admin (assigning it to an employee) without re-uploading the file.
+    A period with pending rows cannot be closed (see ``PayrollPeriod.clean``).
+    """
+
+    period = models.ForeignKey(
+        PayrollPeriod,
+        on_delete=models.CASCADE,
+        related_name="pending_rows",
+        verbose_name=_("Period"),
+    )
+
+    a3_code = models.CharField(max_length=20, blank=True, verbose_name=_("A3 Employee Code"))
+    dni = models.CharField(max_length=20, blank=True, verbose_name=_("DNI / NIF"))
+    full_name = models.CharField(max_length=200, verbose_name=_("Name in File"))
+    surname1 = models.CharField(max_length=100, blank=True, verbose_name=_("Surname 1"))
+    surname2 = models.CharField(max_length=100, blank=True, verbose_name=_("Surname 2"))
+    given_name = models.CharField(max_length=100, blank=True, verbose_name=_("Given Name"))
+
+    class Reason(models.TextChoices):
+        UNMATCHED = "unmatched", _("No matching employee")
+        AMBIGUOUS = "ambiguous", _("Ambiguous (multiple matches)")
+
+    reason = models.CharField(
+        max_length=20,
+        choices=Reason.choices,
+        default=Reason.UNMATCHED,
+        verbose_name=_("Reason"),
+    )
+
+    net_salary = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0, verbose_name=_("Net Salary")
+    )
+    gross_salary = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0, verbose_name=_("Gross Salary")
+    )
+    employer_cost = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0, verbose_name=_("Employer Cost")
+    )
+
+    payload = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Parsed Payload"),
+        help_text=_("Full parsed figures, used to build the payroll on resolution."),
+    )
+
+    source_file = models.CharField(max_length=255, blank=True, verbose_name=_("Source File"))
+
+    class Meta:
+        verbose_name = _("Pending Payroll Row")
+        verbose_name_plural = _("Pending Payroll Rows")
+        ordering = ["period", "full_name"]
+        unique_together = [("period", "a3_code", "dni")]
+
+    def __str__(self):
+        return f"{self.full_name or self.a3_code or self.dni} — {self.period}"

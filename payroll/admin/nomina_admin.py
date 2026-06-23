@@ -1,7 +1,10 @@
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.core.exceptions import ValidationError
+from django.shortcuts import get_object_or_404, redirect
+from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin, TabularInline, StackedInline
-from unfold.decorators import display
+from unfold.decorators import action, display
 
 from payroll.models.nomina import (
     PayrollPeriod,
@@ -9,7 +12,10 @@ from payroll.models.nomina import (
     EmployeePayroll,
     PayrollConceptLine,
     PayrollSSBreakdown,
+    PayrollImportPendingRow,
 )
+from payroll.services.period_service import close_period, reopen_period
+from payroll.views import PayrollImportAdminView, PayrollPendingResolveView
 
 
 class PayrollConceptLineInline(TabularInline):
@@ -69,11 +75,27 @@ class PayrollPeriodAdmin(ModelAdmin):
         "show_source",
         "closed_at",
         "payroll_count",
+        "pending_count_badge",
     )
     list_filter = ("status", "source", "company", "year")
     search_fields = ("company__name",)
     autocomplete_fields = ("company",)
     ordering = ("-year", "-month")
+
+    actions_list = ["import_a3_action"]
+    actions_detail = ["close_period_action", "reopen_period_action"]
+    actions_row = ["close_period_action", "reopen_period_action"]
+
+    readonly_fields = (
+        "closed_at",
+        "total_net_salary",
+        "total_employer_ss",
+        "total_employee_ss",
+        "total_irpf_withheld",
+        "total_employer_cost",
+        "salary_payment_date",
+        "ss_payment_date",
+    )
 
     fieldsets = (
         (
@@ -88,9 +110,51 @@ class PayrollPeriodAdmin(ModelAdmin):
                 )
             },
         ),
+        (
+            _("Totals & payment dates (computed on close)"),
+            {
+                "fields": (
+                    ("total_net_salary", "total_employer_cost"),
+                    ("total_employer_ss", "total_employee_ss"),
+                    ("total_irpf_withheld",),
+                    ("salary_payment_date", "ss_payment_date"),
+                ),
+            },
+        ),
     )
 
     inlines = [EmployeePayrollInline]
+
+    @action(description=_("Close period"), icon="lock", permissions=["close"])
+    def close_period_action(self, request, object_id):
+        period = get_object_or_404(PayrollPeriod, pk=object_id)
+        try:
+            close_period(period)
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+        else:
+            messages.success(
+                request,
+                _("Period closed. Totals and payment dates were computed."),
+            )
+        return redirect(reverse("admin:payroll_payrollperiod_change", args=[object_id]))
+
+    def has_close_permission(self, request, object_id=None):
+        return request.user.has_perm("payroll.change_payrollperiod")
+
+    @action(description=_("Reopen period"), icon="lock_open", permissions=["reopen"])
+    def reopen_period_action(self, request, object_id):
+        period = get_object_or_404(PayrollPeriod, pk=object_id)
+        try:
+            reopen_period(period)
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+        else:
+            messages.success(request, _("Period reopened."))
+        return redirect(reverse("admin:payroll_payrollperiod_change", args=[object_id]))
+
+    def has_reopen_permission(self, request, object_id=None):
+        return request.user.has_perm("payroll.change_payrollperiod")
 
     @display(
         description=_("Status"),
@@ -117,6 +181,38 @@ class PayrollPeriodAdmin(ModelAdmin):
     @display(description=_("Payrolls"))
     def payroll_count(self, obj):
         return obj.payrolls.count()
+
+    @display(description=_("Pending"), label={"ok": "success", "pending": "danger"})
+    def pending_count_badge(self, obj):
+        count = obj.pending_count
+        if count == 0:
+            return "ok", _("None")
+        return "pending", _("%(n)d to resolve") % {"n": count}
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "import-a3/",
+                self.admin_site.admin_view(
+                    PayrollImportAdminView.as_view(model_admin=self)
+                ),
+                name="payroll_payroll_import",
+            ),
+        ]
+        return custom + urls
+
+    @action(
+        description=_("Import from A3"),
+        url_path="import-a3-action",
+        permissions=["import_a3"],
+        icon="upload_file",
+    )
+    def import_a3_action(self, request):
+        return redirect(reverse("admin:payroll_payroll_import"))
+
+    def has_import_a3_permission(self, request):
+        return request.user.has_perm("payroll.add_employeepayroll")
 
 
 @admin.register(PayrollConcept)
@@ -236,3 +332,73 @@ class EmployeePayrollAdmin(ModelAdmin):
     )
 
     inlines = [PayrollConceptLineInline, PayrollSSBreakdownInline]
+
+
+@admin.register(PayrollImportPendingRow)
+class PayrollImportPendingRowAdmin(ModelAdmin):
+    list_display = (
+        "full_name",
+        "dni",
+        "a3_code",
+        "period",
+        "show_reason",
+        "net_salary",
+        "gross_salary",
+    )
+    list_filter = ("reason", "period__company", "period__year")
+    search_fields = ("full_name", "a3_code", "dni")
+    ordering = ("period", "full_name")
+    actions_row = ["resolve_row_action"]
+
+    readonly_fields = (
+        "period",
+        "a3_code",
+        "dni",
+        "full_name",
+        "reason",
+        "net_salary",
+        "gross_salary",
+        "employer_cost",
+        "source_file",
+        "payload",
+    )
+
+    @display(
+        description=_("Reason"),
+        label={
+            PayrollImportPendingRow.Reason.UNMATCHED: "warning",
+            PayrollImportPendingRow.Reason.AMBIGUOUS: "danger",
+        },
+    )
+    def show_reason(self, obj):
+        return obj.reason
+
+    def has_add_permission(self, request):
+        return False
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "<path:object_id>/resolve/",
+                self.admin_site.admin_view(
+                    PayrollPendingResolveView.as_view(model_admin=self)
+                ),
+                name="payroll_payrollimportpendingrow_resolve",
+            ),
+        ]
+        return custom + urls
+
+    @action(
+        description=_("Resolve"),
+        url_path="resolve-row-action",
+        permissions=["resolve"],
+        icon="how_to_reg",
+    )
+    def resolve_row_action(self, request, object_id):
+        return redirect(
+            reverse("admin:payroll_payrollimportpendingrow_resolve", args=[object_id])
+        )
+
+    def has_resolve_permission(self, request, object_id=None):
+        return request.user.has_perm("payroll.add_employeepayroll")

@@ -22,6 +22,7 @@ from unfold.views import UnfoldModelAdminViewMixin
 from core.admin.company_access import get_user_companies
 from invoices.models import Invoice, InvoicePaymentStatus
 from payments.models import PaymentAllocation
+from payroll.services.cashflow import build_week_ranges, get_payroll_outflows
 
 
 # Cache TTL in seconds (5 minutes)
@@ -151,9 +152,22 @@ class AccountsPayableDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             # Annotate the unpaid queryset once for aggregations
             annotated_unpaid = self._annotate_remaining(unpaid_qs)
 
+            # Shared weekly buckets so invoice and payroll projections align
+            weeks = build_week_ranges(cf_date_from, cf_date_to)
+            company_ids = [selected_company.id] if selected_company else []
+
             kpis = self._compute_kpis(annotated_unpaid, base_qs, today)
             aging = self._compute_aging(annotated_unpaid, today)
-            cash_flow = self._compute_cash_flow(annotated_unpaid, cf_date_from, cf_date_to)
+            cash_flow = self._compute_cash_flow(annotated_unpaid, weeks, cf_date_from)
+
+            payroll_out = get_payroll_outflows(
+                company_ids, cf_date_from, cf_date_to, weeks
+            )
+            # Align payroll outflows to the same weeks for a stacked chart series
+            cash_flow["payroll_weeks"] = [w["amount"] for w in payroll_out["weeks"]]
+            kpis["payroll_total"] = payroll_out["total"]
+            kpis["payroll_net"] = payroll_out["net_total"]
+            kpis["payroll_ss"] = payroll_out["ss_total"]
 
             cache.set(cache_key, (kpis, aging, cash_flow), _CACHE_TTL)
 
@@ -273,16 +287,12 @@ class AccountsPayableDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         }
 
     @staticmethod
-    def _compute_cash_flow(annotated_unpaid, date_from, date_to):
-        """Compute weekly cash-flow projection via database aggregation."""
-        # Build week boundaries
-        weeks = []
-        cursor = date_from
-        while cursor <= date_to:
-            week_end = min(cursor + timedelta(days=6), date_to)
-            weeks.append({"start": cursor, "end": week_end, "label": cursor.strftime("%d %b")})
-            cursor = week_end + timedelta(days=1)
+    def _compute_cash_flow(annotated_unpaid, weeks, date_from):
+        """Compute weekly cash-flow projection via database aggregation.
 
+        ``weeks`` are prebuilt windows (see ``build_week_ranges``) so this
+        projection lines up with the payroll one shown on the same chart.
+        """
         # Build a single aggregate with one conditional Sum per week
         zero = Value(Decimal("0.00"))
         field = DecimalField(max_digits=12, decimal_places=2)

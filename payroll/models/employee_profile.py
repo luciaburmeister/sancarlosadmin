@@ -20,6 +20,14 @@ class EmployeePayrollProfile(Timestampable):
         verbose_name=_("Employee"),
     )
 
+    a3_employee_code = models.CharField(
+        max_length=20,
+        blank=True,
+        db_index=True,
+        verbose_name=_("A3 Employee Code"),
+        help_text=_("Sequential employee code in A3 (e.g. 000001). Used to match payroll imports."),
+    )
+
     social_security_affiliation_number = models.CharField(
         max_length=20,
         blank=True,

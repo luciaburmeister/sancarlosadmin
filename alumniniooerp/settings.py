@@ -109,6 +109,7 @@ INSTALLED_APPS = [
     "apps.einvoicing",
     'banking',
     "finance",
+    "payroll",
 ]
 
 MIDDLEWARE = [
@@ -754,6 +755,55 @@ UNFOLD = {
                         "link": reverse_lazy("admin:banking_connect_bank"),
                         "permission": lambda request: request.user.has_perm(
                             "banking.connect_bank"
+                        ),
+                    },
+                ],
+            },
+            {
+                "title": _("Payroll"),
+                "separator": True,
+                "collapsible": False,
+                "items": [
+                    {
+                        "title": _("Payroll Periods"),
+                        "icon": "calendar_month",
+                        "link": reverse_lazy("admin:payroll_payrollperiod_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "payroll.view_payrollperiod"
+                        ),
+                    },
+                    {
+                        "title": _("Employee Payrolls"),
+                        "icon": "payments",
+                        "link": reverse_lazy("admin:payroll_employeepayroll_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "payroll.view_employeepayroll"
+                        ),
+                    },
+                    {
+                        "title": _("Pending Import Rows"),
+                        "icon": "person_alert",
+                        "link": reverse_lazy(
+                            "admin:payroll_payrollimportpendingrow_changelist"
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "payroll.view_payrollimportpendingrow"
+                        ),
+                    },
+                    {
+                        "title": _("Payroll Concepts"),
+                        "icon": "list_alt",
+                        "link": reverse_lazy("admin:payroll_payrollconcept_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "payroll.view_payrollconcept"
+                        ),
+                    },
+                    {
+                        "title": _("Payroll Configuration"),
+                        "icon": "settings",
+                        "link": reverse_lazy("admin:payroll_companypayrollconfig_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "payroll.view_companypayrollconfig"
                         ),
                     },
                 ],

@@ -317,7 +317,6 @@ class OrderAdmin(ModelAdmin):
     final_price_display.admin_order_field = "final_price"
 
 
-# ponytail: read-only display of assigned identity codes on DeliveryOrderItemAdmin
 class IdentityCodeDeliveryInline(TabularInline):
     model = ItemIdentityCode
     extra = 0

@@ -7,7 +7,7 @@ Handles:
 """
 import hashlib
 import logging
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
 
@@ -47,18 +47,8 @@ class SyncResult:
     errors: list[SyncAccountError] = field(default_factory=list)
 
     def to_dict(self) -> dict:
-        """Serialize to a plain dict (e.g. for JsonResponse)."""
-        return {
-            "synced": self.synced,
-            "accounts": [
-                {"id": a.id, "bank": a.bank, "imported": a.imported}
-                for a in self.accounts
-            ],
-            "errors": [
-                {"id": e.id, "error": e.error}
-                for e in self.errors
-            ],
-        }
+        """Serialize to a plain dict (e.g. for JsonResponse / Celery)."""
+        return asdict(self)
 
 class ArcopayService:
     """Thin wrapper around the Arcopay PSD2 REST API."""
@@ -487,14 +477,27 @@ class ArcopayService:
     @staticmethod
     def sync_all_connected_accounts(company: Company | None = None) -> "SyncResult":
         """Sync all accounts that have a nuek_token (Arcopay PSD2 token)."""
+        from django.db.models import Max
+
         qs = BankAccount.objects.exclude(nuek_token="").exclude(
             nuek_token__isnull=True
-        )
+        ).exclude(nuek_product_id="")
         if company:
             qs = qs.filter(company=company)
 
+        # ponytail: order by newest transaction so duplicate product IDs
+        # sync only the account that actually has the latest data
+        qs = qs.annotate(latest_txn=Max("transactions__transaction_date")).order_by("-latest_txn")
+
         result = SyncResult()
+        seen_products = set()  # ponytail: one sync per (company, product_id)
         for account in qs.select_related("company"):
+            key = (account.company_id, account.nuek_product_id)
+            if account.nuek_product_id and key in seen_products:
+                continue
+            if account.nuek_product_id:
+                seen_products.add(key)
+
             try:
                 count = ArcopayService.sync_account(account)
                 result.synced += count

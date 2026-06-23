@@ -7911,38 +7911,28 @@ msgstr "Fiscales"
 msgid "Shipping"
 msgstr "Envío"
 
-#, fuzzy
-#| msgid "Address"
+
 msgid "Address Type"
-msgstr "Dirección"
+msgstr "Tipo de dirección"
 
 msgid "Street"
 msgstr "Calle"
 
-#, fuzzy
-#| msgid "Address"
 msgid "Client Address"
 msgstr "Dirección"
 
-#, fuzzy
-#| msgid "Address"
+
 msgid "Client Addresses"
-msgstr "Dirección"
+msgstr "Direcciónes"
 
-#, fuzzy
-#| msgid "Production"
 msgid "Position"
-msgstr "Producción"
+msgstr "Posición"
 
-#, fuzzy
-#| msgid "Contexto"
 msgid "Client Contact"
-msgstr "Contexto"
+msgstr "Contacto del cliente"
 
-#, fuzzy
-#| msgid "Contexto"
 msgid "Client Contacts"
-msgstr "Contexto"
+msgstr "Contactos del cliente"
 
 msgid "e.g., SEBASTIAN HERRERO"
 msgstr "e.j., SEBASTIÁN HERRERO"
@@ -7950,8 +7940,6 @@ msgstr "e.j., SEBASTIÁN HERRERO"
 msgid "Main or legacy address"
 msgstr "Dirección principal o heredada"
 
-#, fuzzy
-#| msgid "Tax Identifier"
 msgid "Fiscal Identifier"
 msgstr "Identificador Fiscal"
 
@@ -7979,10 +7967,8 @@ msgstr "Cuenta de Banco default del cliente"
 msgid "T&C Accepted At"
 msgstr "T&C Acceptado en"
 
-#, fuzzy
-#| msgid "Firma"
 msgid "Firma T&C"
-msgstr "Firma"
+msgstr "Firma T&C"
 
 msgid "T&C company reference"
 msgstr "Referencia de T&C de la empresa"

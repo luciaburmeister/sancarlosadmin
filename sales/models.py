@@ -139,6 +139,7 @@ class ClientAddress(CompanyOwnedModel):
     postal_code = models.CharField(max_length=20, verbose_name=_("Postal Code"))
     province = models.CharField(max_length=100, verbose_name=_("Province"))
     country = CountryField(default="ES", verbose_name=_("Country"))
+    is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
 
     class Meta:
         verbose_name = _("Client Address")
@@ -146,6 +147,28 @@ class ClientAddress(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.get_address_type_display()}: {self.street}, {self.city}"
+
+    @property
+    def formatted(self):
+        """Street, PostalCode City (Province), Country"""
+        parts = [self.street]
+        location = " ".join(filter(None, [self.postal_code, self.city]))
+        if self.province:
+            location += f" ({self.province})"
+        if location:
+            parts.append(location)
+        if self.country:
+            parts.append(str(self.country.name))
+        return ", ".join(parts)
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if self.is_default and self.client_id:
+            ClientAddress.objects.filter(
+                client=self.client
+            ).exclude(pk=self.pk).filter(is_default=True).update(is_default=False)
+            self.client.address = self.formatted
+            self.client.save(update_fields=["address"])
 
 class ClientContact(models.Model):
     client = models.ForeignKey(
@@ -180,8 +203,14 @@ class Client(Timestampable, CompanyOwnedModel):
     # Existing fields
     name = models.CharField(
         max_length=200,
-        help_text=_("e.g., SEBASTIAN HERRERO"),
-        verbose_name=_("Name"),
+        help_text=_("Legal / fiscal name, e.g., SEBASTIAN HERRERO S.L."),
+        verbose_name=_("Fiscal Name"),
+    )
+    commercial_name = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text=_("Trading / commercial name shown to customers"),
+        verbose_name=_("Commercial Name"),
     )
     phone = models.CharField(
         max_length=50,
@@ -312,7 +341,7 @@ class Client(Timestampable, CompanyOwnedModel):
         verbose_name_plural = _("Clients")
 
     def __str__(self):
-        return self.name
+        return self.commercial_name or self.name
 
     @property
     def terms_version(self) -> str:

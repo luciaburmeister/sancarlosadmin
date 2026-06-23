@@ -17,7 +17,9 @@ class ClientAutocompleteView(BaseAutocompleteView):
             
         term = self.request.GET.get("term")
         if term:
-            qs = qs.filter(name__icontains=term)
+            qs = qs.filter(
+                Q(name__icontains=term) | Q(commercial_name__icontains=term)
+            )
             
         return qs
 

@@ -4,6 +4,7 @@ import hashlib
 import json
 
 from django.core.paginator import Paginator
+from django.db import models
 from django.http import JsonResponse
 
 from api._serializers import serialize_client
@@ -39,7 +40,9 @@ class ClientListCreateView(CompanyAPIView):
             clients = clients.exclude(project_files__status__in=_OPEN_PROJECT_STATUSES)
 
         if search:
-            clients = clients.filter(name__icontains=search)
+            clients = clients.filter(
+                models.Q(name__icontains=search) | models.Q(commercial_name__icontains=search)
+            )
         clients = clients.distinct().order_by("name")
 
         try:
@@ -87,6 +90,7 @@ class ClientListCreateView(CompanyAPIView):
         client = Client.objects.create(
             company=company,
             name=name,
+            commercial_name=body.get("commercial_name", ""),
             tax_identifier=tax_identifier,
             phone=body.get("phone", ""),
             email=body.get("email", ""),
@@ -129,6 +133,8 @@ class ClientDetailView(CompanyAPIView):
             if not name:
                 return JsonResponse({"error": "Name is required"}, status=400)
             client.name = name
+        if "commercial_name" in body:
+            client.commercial_name = (body.get("commercial_name") or "").strip()
         if "phone" in body:
             client.phone = (body.get("phone") or "") or ""
         if "tax_identifier" in body:

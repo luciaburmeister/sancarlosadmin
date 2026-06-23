@@ -108,6 +108,7 @@ class ClientResource(resources.ModelResource):
         fields = (
             "id",
             "name",
+            "commercial_name",
             "tax_identifier",
             "address",
             "phone",

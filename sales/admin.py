@@ -132,7 +132,7 @@ class ClientAddressInline(StackedInline):
     fieldsets = (
         (None, {
             "fields": (
-                "address_type",
+                ("address_type", "is_default"),
                 "country",
                 ("province", "city", "postal_code"),
                 "street",
@@ -178,9 +178,10 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
     import_form_class = ClientImportForm
     export_form_class = ClientExportForm
 
-    list_display = ["name", "tax_identifier", "industry_identifier", "phone", "address_truncated", "company",  "has_signed_terms"]
-    search_fields = ["name", "tax_identifier", "industry_identifier", "email", "phone", "address"]
+    list_display = ["name", "commercial_name", "tax_identifier", "industry_identifier", "phone", "address_truncated", "company",  "has_signed_terms"]
+    search_fields = ["name", "commercial_name", "tax_identifier", "industry_identifier", "email", "phone", "address"]
     list_filter = ["sale_zone", "is_insured", "company"]
+    readonly_fields = ["address"]
 
     def get_list_filter(self, request):
         return self.list_filter
@@ -232,7 +233,8 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
         (_("Basic Information"), {
             "classes": ["tab"],
             "fields": (
-                ("name", "company"),
+                ("name", "commercial_name"),
+                ("company",),
                 ("tax_identifier", "industry_identifier"),
                 ("phone", "email"),
                 "address"

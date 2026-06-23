@@ -240,6 +240,7 @@ def serialize_client(c):
     return {
         "id": c.id,
         "name": c.name,
+        "commercial_name": c.commercial_name or "",
         "tax_identifier": c.tax_identifier or "",
         "phone": c.phone or "",
         "email": c.email or "",

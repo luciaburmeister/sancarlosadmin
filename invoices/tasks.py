@@ -72,6 +72,7 @@ def process_incoming_invoices(invoice_ids=None):
     
     processed_count = 0
     errors_count = 0
+    skipped_count = 0
     
     
     
@@ -102,6 +103,7 @@ def process_incoming_invoices(invoice_ids=None):
                 # Document is not an invoice (quote, delivery note, etc.) — skip it
                 incoming.processed = True
                 incoming.save()
+                skipped_count += 1
                 logger.info(f"Skipped incoming {incoming.id}: {result.messages[-1] if result.messages else 'not an invoice'}")
             else:
                 errors_count += 1
@@ -115,7 +117,7 @@ def process_incoming_invoices(invoice_ids=None):
             if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
             
-    return {"task": "process_incoming_invoices", "status": "ok" if not errors_count else "partial", "processed": processed_count, "errors": errors_count}
+    return {"task": "process_incoming_invoices", "status": "ok" if not errors_count else "partial", "processed": processed_count, "skipped": skipped_count, "errors": errors_count}
 
 # Manual Upload Pipeline
 @shared_task(name="invoices.tasks.process_manual_invoice")

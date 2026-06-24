@@ -65,7 +65,8 @@
                     {% endif %}
                 </div>
                 <div class="space-y-3">
-                    <label for="{{ form.external_reference.id_for_label }}" class="block text-sm font-semibold text-gray-700">
+                    <label for="{{ form.external_reference.id_for_label }}"
+                        class="block text-sm font-semibold text-gray-700">
                         {{ form.external_reference.label }}
                     </label>
                     <div class="mt-2">
@@ -79,9 +80,19 @@
                     </label>
                     <div class="mt-2">
                         <input type="file" name="file" id="{{ form.file.id_for_label }}" accept=".pdf,.png,.jpg,.jpeg"
-                            class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100 transition-all">
+                            style="display: none;">
+                        <div class="file-upload-zone" id="file-upload-zone" onclick="document.getElementById('{{ form.file.id_for_label }}').click();">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="color: #9ca3af; margin-bottom: 6px;">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                            <span class="file-upload-label" id="file-upload-label">{% trans "Choose file..." %}</span>
+                            <span class="file-upload-hint">.pdf, .png, .jpg</span>
+                        </div>
                     </div>
-                    <p class="text-xs text-gray-500">{% trans "Upload photo or scan of the provider's delivery note" %}</p>
+                    <p class="text-xs text-gray-500">{% trans "Upload photo or scan of the provider's delivery note" %}
+                    </p>
                 </div>
             </div>
 
@@ -114,12 +125,12 @@
                                 {{ item.inventory_item.name }}
                                 <div class="text-xs text-gray-500 font-normal mt-1">{{ item.description }}</div>
                             </td>
-                            <td class="px-6 py-5 text-sm text-gray-600 text-center font-mono">{{
-                                item.quantity|floatformat:2 }}</td>
-                            <td class="px-6 py-5 text-sm text-gray-600 text-center font-mono">{{
-                                item.received_quantity|floatformat:2 }}</td>
-                            <td class="px-6 py-5 text-sm font-bold text-primary-600 text-center font-mono">{{
-                                item.pending_qty|floatformat:2 }}</td>
+                            <td class="px-6 py-5 text-sm text-gray-600 text-center font-mono">
+                                {{item.quantity|floatformat:2 }}</td>
+                            <td class="px-6 py-5 text-sm text-gray-600 text-center font-mono">
+                                {{item.received_quantity|floatformat:2 }}</td>
+                            <td class="px-6 py-5 text-sm font-bold text-primary-600 text-center font-mono">
+                                {{item.pending_qty|floatformat:2 }}</td>
                             <td class="px-6 py-5 text-right">
                                 <input type="number" name="qty_{{ item.id }}" step="0.01" min="0"
                                     max="{{ item.pending_qty }}" placeholder="0"
@@ -164,5 +175,62 @@
     .text-primary-600 {
         color: #68A7A5;
     }
+
+    /* File upload zone */
+    .file-upload-zone {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 1.25rem 1rem;
+        border: 2px dashed #d1d5db;
+        border-radius: 0.5rem;
+        background: #f9fafb;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .file-upload-zone:hover {
+        border-color: #68A7A5;
+        background: #f0faf9;
+    }
+
+    .file-upload-zone.has-file {
+        border-color: #68A7A5;
+        border-style: solid;
+        background: #f0faf9;
+    }
+
+    .file-upload-label {
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: #374151;
+    }
+
+    .file-upload-hint {
+        font-size: 0.6875rem;
+        color: #9ca3af;
+        margin-top: 2px;
+    }
 </style>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        const fileInput = document.getElementById('{{ form.file.id_for_label }}');
+        const zone = document.getElementById('file-upload-zone');
+        const label = document.getElementById('file-upload-label');
+
+        if (fileInput) {
+            fileInput.addEventListener('change', function () {
+                if (fileInput.files.length > 0) {
+                    label.textContent = fileInput.files[0].name;
+                    zone.classList.add('has-file');
+                } else {
+                    label.textContent = '{% trans "Choose file..." %}';
+                    zone.classList.remove('has-file');
+                }
+            });
+        }
+    });
+</script>
 {% endblock %}

@@ -2,6 +2,13 @@ from django import forms
 from django.utils.translation import gettext_lazy as _
 from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminTextareaWidget
 from company.models import Company
+from invoices.models import InvoicePaymentStatus
+
+
+ACTION_CHOICES = [
+    (InvoicePaymentStatus.PAID, _("Mark as Paid")),
+    (InvoicePaymentStatus.UNPAID, _("Mark as Unpaid")),
+]
 
 
 class BulkMarkPaidForm(forms.Form):
@@ -11,6 +18,12 @@ class BulkMarkPaidForm(forms.Form):
         widget=UnfoldAdminSelectWidget(),
         help_text=_("Select the company these invoices belong to."),
     )
+    action = forms.ChoiceField(
+        choices=ACTION_CHOICES,
+        label=_("Action"),
+        widget=UnfoldAdminSelectWidget(),
+        help_text=_("Choose the payment status to apply to the listed invoices."),
+    )
     invoice_numbers = forms.CharField(
         label=_("Invoice Numbers"),
         widget=UnfoldAdminTextareaWidget(attrs={
@@ -18,8 +31,7 @@ class BulkMarkPaidForm(forms.Form):
             "placeholder": _("Enter one invoice number per line, e.g.:\nFV-2026/001\nFV-2026/002\nFV-2026/003"),
         }),
         help_text=_(
-            "Paste one invoice number per line. "
-            "Only Final invoices that are not already Paid will be updated."
+            "Paste one invoice number per line."
         ),
     )
 

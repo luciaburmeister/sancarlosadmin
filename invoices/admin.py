@@ -893,7 +893,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
             self.message_user(request, _("Invoice email queued for %s.") % invoice.client.email)
         return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
 
-    @admin.action(description=_("Bulk mark as paid (by invoice number)"))
+    @admin.action(description=_("Bulk update payment status"))
     def bulk_mark_as_paid(self, request, queryset):
         return redirect(reverse("admin:invoices_salesinvoice_bulk_mark_paid"))
 

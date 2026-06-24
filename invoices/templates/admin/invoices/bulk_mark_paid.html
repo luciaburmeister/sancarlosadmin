@@ -8,10 +8,10 @@
         {# Header #}
         <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
             <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
-                {% trans "Bulk Mark Invoices as Paid" %}
+                {% trans "Bulk Update Payment Status" %}
             </h1>
             <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-                {% trans "Select a company and paste the invoice numbers (one per line) to mark them as paid in bulk." %}
+                {% trans "Select a company, choose an action (Paid / Unpaid), and paste the invoice numbers (one per line)." %}
             </p>
         </div>
 
@@ -47,7 +47,7 @@
                 </a>
 
                 {% component "unfold/components/button.html" with submit=1 %}
-                    {% trans "Mark as Paid" %}
+                    {% trans "Apply" %}
                 {% endcomponent %}
             </div>
         </form>
@@ -71,12 +71,12 @@
                     <div class="text-xs text-gray-500 dark:text-gray-400">{% trans "Total" %}</div>
                 </div>
                 <div class="text-center">
-                    <div class="text-2xl font-bold text-green-600 dark:text-green-400">{{ bulk_result.marked }}</div>
-                    <div class="text-xs text-gray-500 dark:text-gray-400">{% trans "Marked Paid" %}</div>
+                    <div class="text-2xl font-bold text-green-600 dark:text-green-400">{{ bulk_result.updated }}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">{% trans "Updated" %}</div>
                 </div>
                 <div class="text-center">
                     <div class="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{{ bulk_result.skipped }}</div>
-                    <div class="text-xs text-gray-500 dark:text-gray-400">{% trans "Already Paid" %}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">{% trans "Skipped" %}</div>
                 </div>
                 <div class="text-center">
                     <div class="text-2xl font-bold text-red-600 dark:text-red-400">{{ bulk_result.not_found }}</div>
@@ -100,8 +100,8 @@
                         <tr class="border-b border-gray-100 dark:border-gray-800 {% if row.status == 'not_found' %}bg-red-50 dark:bg-red-900/10{% elif row.status == 'skipped' %}bg-yellow-50 dark:bg-yellow-900/10{% endif %}">
                             <td class="px-3 py-1.5 font-mono text-gray-800 dark:text-gray-200">{{ row.invoice_number }}</td>
                             <td class="px-3 py-1.5">
-                                {% if row.status == 'paid' %}
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">{% trans "Paid" %}</span>
+                                {% if row.status == 'updated' %}
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">{% trans "Updated" %}</span>
                                 {% elif row.status == 'skipped' %}
                                     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">{% trans "Skipped" %}</span>
                                 {% else %}

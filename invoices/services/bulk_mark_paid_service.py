@@ -5,27 +5,35 @@ from invoices.models import SalesInvoice, InvoicePaymentStatus
 
 
 @dataclass
-class BulkMarkPaidRow:
+class BulkPaymentRow:
     invoice_number: str
-    status: str = ""  # "paid", "skipped", "not_found"
+    status: str = ""  # "updated", "skipped", "not_found"
     message: str = ""
 
 
 @dataclass
-class BulkMarkPaidResult:
+class BulkPaymentResult:
     total: int = 0
-    marked: int = 0
+    updated: int = 0
     skipped: int = 0
     not_found: int = 0
+    target_status: str = ""
     rows: list = field(default_factory=list)
 
 
-def bulk_mark_invoices_paid(company, invoice_numbers: list[str]) -> BulkMarkPaidResult:
+def bulk_update_payment_status(
+    company, invoice_numbers: list[str], target_status: str
+) -> BulkPaymentResult:
     """
-    Mark a list of sales invoices as paid for a given company.
-    Returns a result with per-row detail.
+    Set payment_status to *target_status* for a list of sales invoices
+    belonging to *company*.  Returns per-row detail.
     """
-    result = BulkMarkPaidResult(total=len(invoice_numbers))
+    result = BulkPaymentResult(
+        total=len(invoice_numbers),
+        target_status=target_status,
+    )
+
+    label = dict(InvoicePaymentStatus.choices).get(target_status, target_status)
 
     # Pre-fetch all matching invoices in one query
     invoices_qs = SalesInvoice.objects.filter(
@@ -40,26 +48,26 @@ def bulk_mark_invoices_paid(company, invoice_numbers: list[str]) -> BulkMarkPaid
         invoice = invoices_by_number.get(number)
         if invoice is None:
             result.not_found += 1
-            result.rows.append(BulkMarkPaidRow(
+            result.rows.append(BulkPaymentRow(
                 invoice_number=number,
                 status="not_found",
                 message=str(_("Invoice not found for this company.")),
             ))
-        elif invoice.payment_status == InvoicePaymentStatus.PAID:
+        elif invoice.payment_status == target_status:
             result.skipped += 1
-            result.rows.append(BulkMarkPaidRow(
+            result.rows.append(BulkPaymentRow(
                 invoice_number=number,
                 status="skipped",
-                message=str(_("Already marked as paid.")),
+                message=str(_("Already %(status)s.") % {"status": label}),
             ))
         else:
-            invoice.payment_status = InvoicePaymentStatus.PAID
+            invoice.payment_status = target_status
             to_update.append(invoice)
-            result.marked += 1
-            result.rows.append(BulkMarkPaidRow(
+            result.updated += 1
+            result.rows.append(BulkPaymentRow(
                 invoice_number=number,
-                status="paid",
-                message=str(_("Marked as paid.")),
+                status="updated",
+                message=str(_("Set to %(status)s.") % {"status": label}),
             ))
 
     # Bulk update in one query

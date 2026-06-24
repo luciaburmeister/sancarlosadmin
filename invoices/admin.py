@@ -30,6 +30,7 @@ from django.utils import timezone
 from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
 from invoices.views.invoice.wizard_views import SalesInvoiceWizardView
 from invoices.views.invoice.import_sales_invoice import SalesInvoiceImportAdminView
+from invoices.views.invoice.bulk_mark_paid import BulkMarkPaidAdminView
 from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
 from invoices.views.sales_invoice_register_payment import RegisterPaymentView
 from invoices.views.invoice.review_invoice import InvoiceReviewAdminView
@@ -711,7 +712,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
                 level=messages.WARNING,
             )
     
-    actions = ["download_pdf", "finalize_invoice_action", "mark_as_paid", "import_from_excel"]
+    actions = ["download_pdf", "finalize_invoice_action", "mark_as_paid", "bulk_mark_as_paid", "import_from_excel"]
     actions_row = [
         "view_pdf_row_action",
         "finalize_invoice_row_action",
@@ -836,6 +837,13 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
                 name="invoices_salesinvoice_import",
             ),
             path(
+                "bulk-mark-paid/",
+                self.admin_site.admin_view(
+                    BulkMarkPaidAdminView.as_view(model_admin=self)
+                ),
+                name="invoices_salesinvoice_bulk_mark_paid",
+            ),
+            path(
                 "<int:object_id>/pdf/",
                 self.admin_site.admin_view(SalesInvoicePdfView.as_view(model_admin=self)),
                 name="invoices_salesinvoice_pdf",
@@ -884,6 +892,10 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
             send_invoice_email_task.delay(invoice.id)
             self.message_user(request, _("Invoice email queued for %s.") % invoice.client.email)
         return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
+
+    @admin.action(description=_("Bulk mark as paid (by invoice number)"))
+    def bulk_mark_as_paid(self, request, queryset):
+        return redirect(reverse("admin:invoices_salesinvoice_bulk_mark_paid"))
 
     @admin.action(description=_("Import sales invoices from Excel"))
     def import_from_excel(self, request, queryset):

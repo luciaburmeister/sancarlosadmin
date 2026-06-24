@@ -33,7 +33,7 @@ from company.models import Company
 class InvoiceProcessingResult:
     """Container for processing results and metadata"""
     
-    def __init__(self, invoice: Invoice, success: bool, messages: list, needs_review: bool = False, is_duplicate: bool = False):
+    def __init__(self, invoice: Optional[Invoice], success: bool, messages: list, needs_review: bool = False, is_duplicate: bool = False):
         self.invoice = invoice
         self.success = success
         self.messages = messages  # List of processing messages/warnings
@@ -41,8 +41,9 @@ class InvoiceProcessingResult:
         self.is_duplicate = is_duplicate
         
     def __str__(self):
-        status = "SUCCESS" if self.success else "FAILED" 
-        return f"{status}: Invoice {self.invoice.invoice_number} - {len(self.messages)} messages"
+        status = "SUCCESS" if self.success else "FAILED"
+        inv = self.invoice.invoice_number if self.invoice else "N/A"
+        return f"{status}: Invoice {inv} - {len(self.messages)} messages"
 
 
 class InvoiceService:
@@ -96,6 +97,18 @@ class InvoiceService:
             messages.append("Starting OCR processing...")
             extracted_data = self.ocr_processor.extract_data(file_path)
             messages.append(f"OCR completed - found invoice {extracted_data.invoice_number or 'N/A'}")
+
+            # Skip non-invoice documents (quotes, delivery notes, etc.)
+            if extracted_data.document_type not in ("invoice", "credit_note"):
+                messages.append(
+                    f"Document classified as '{extracted_data.document_type}', not an invoice — skipping."
+                )
+                return InvoiceProcessingResult(
+                    invoice=None,
+                    success=False,
+                    messages=messages,
+                    needs_review=False,
+                )
 
             # Step 2: Atomic DB Operations
             with transaction.atomic():

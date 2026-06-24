@@ -19,6 +19,7 @@ class GeminiInvoiceProcessor(OcrInterface):
     INVOICE_SCHEMA = {
     "type": "OBJECT",
     "required": [
+        "document_type",
         "vendor_name",
         "vendor_tax_id",
         "company_tax_id",
@@ -33,6 +34,11 @@ class GeminiInvoiceProcessor(OcrInterface):
         "taxes",
     ],
     "properties": {
+        "document_type": {
+            "type": "STRING",
+            "enum": ["invoice", "credit_note", "quote", "delivery_note", "other"],
+            "description": "Type of document: invoice, credit_note, quote, delivery_note, or other",
+        },
         "vendor_name": {"type": "STRING", "nullable": True},
         "vendor_tax_id": {"type": "STRING", "nullable": True},
         "company_tax_id": {"type": "STRING", "nullable": True},
@@ -142,7 +148,14 @@ class GeminiInvoiceProcessor(OcrInterface):
         print(f"File uploaded: {uploaded_file.uri}")
 
         prompt = """
-        Extract ALL information from this invoice.
+        Extract ALL information from this document.
+
+        FIRST — classify the document_type:
+        - "invoice" = a billing document requesting payment (factura)
+        - "credit_note" = a document reversing/crediting a previous invoice (abono, nota de crédito)
+        - "quote" = a price estimate or proposal, NOT a bill (presupuesto, oferta)
+        - "delivery_note" = a shipping/delivery document (albarán)
+        - "other" = anything else (receipts, contracts, letters, etc.)
 
         Rules:
         - Use null when data is missing
@@ -225,6 +238,7 @@ class GeminiInvoiceProcessor(OcrInterface):
             for tax in data.get("taxes", [])
         ]
         return InvoiceData(
+            document_type=data.get("document_type", "invoice"),
             vendor_name=data.get("vendor_name"),
             vendor_tax_id=self.normalize_tax_id(data.get("vendor_tax_id")),
             company_tax_id=self.normalize_tax_id(data.get("company_tax_id")),

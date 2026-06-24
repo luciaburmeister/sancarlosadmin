@@ -38,6 +38,7 @@ class TaxItem:
 @dataclass
 class InvoiceData:
     """Structured invoice data extracted from OCR"""
+    document_type: Optional[str]  # invoice, credit_note, quote, delivery_note, other
     vendor_name: Optional[str]
     vendor_tax_id: Optional[str]
     company_tax_id: Optional[str]

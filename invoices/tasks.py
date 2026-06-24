@@ -98,6 +98,11 @@ def process_incoming_invoices(invoice_ids=None):
                 incoming.save()
                 processed_count += 1
                 logger.info(f"Successfully processed invoice {incoming.id} (Duplicate: {incoming.is_duplicate})")
+            elif result.invoice is None:
+                # Document is not an invoice (quote, delivery note, etc.) — skip it
+                incoming.processed = True
+                incoming.save()
+                logger.info(f"Skipped incoming {incoming.id}: {result.messages[-1] if result.messages else 'not an invoice'}")
             else:
                 errors_count += 1
                 logger.error(f"Failed to process invoice {incoming.id}: {result.messages}")

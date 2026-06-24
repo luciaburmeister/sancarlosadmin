@@ -825,11 +825,17 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         
         total_tax = Decimal("0.00")
         for tax in taxes:
-            # Tax base is the discounted subtotal
-            tax.base_amount = taxable_base
+            # Use the tax's own stored base_amount if it exists (multi-IVA
+            # invoices set a per-line base during import); otherwise fall
+            # back to the full taxable base.
+            if tax.base_amount is not None:
+                tax_base = Decimal(str(tax.base_amount.amount))
+            else:
+                tax_base = taxable_base
+            tax.base_amount = tax_base
             
             # Recalculate the amount
-            res = tax.calculate(taxable_base)
+            res = tax.calculate(tax_base)
             tax.calculated_amount = res['tax_amount']
             tax.save(update_fields=['base_amount', 'calculated_amount'])
                 

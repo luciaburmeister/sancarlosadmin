@@ -304,13 +304,15 @@ class InvoiceService:
             ocr_processing=True  # Mark as currently processing
         )
         
-        # Attach the file
+        # Attach the file (save=False to avoid triggering recalculate_totals
+        # which would overwrite total_amount to 0 since items don't exist yet)
         with open(file_path, 'rb') as f:
             invoice.file.save(
                 f"invoice_{invoice.invoice_number}.pdf",
                 File(f),
-                save=True
+                save=False,
             )
+            invoice.save(update_fields=["file"])
         
         return invoice
     

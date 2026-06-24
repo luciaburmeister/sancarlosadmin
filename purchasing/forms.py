@@ -5,7 +5,7 @@ from inventory.models import Warehouse
 from .models import PurchaseOrderReceipt
 from core.admin.company_access import get_user_companies
 
-from unfold.widgets import UnfoldAdminSelect2Widget, UnfoldAdminTextareaWidget
+from unfold.widgets import UnfoldAdminSelect2Widget, UnfoldAdminTextareaWidget, UnfoldAdminTextInputWidget
 
 class DirectReceiptForm(forms.ModelForm):
     warehouse = forms.ModelChoiceField(
@@ -17,7 +17,12 @@ class DirectReceiptForm(forms.ModelForm):
 
     class Meta:
         model = PurchaseOrderReceipt
-        fields = ["warehouse"]
+        fields = ["warehouse", "external_reference", "file"]
+        widgets = {
+            "external_reference": UnfoldAdminTextInputWidget(attrs={
+                "placeholder": _("e.g. ALB-2024-001"),
+            }),
+        }
 
     def __init__(self, *args, **kwargs):
         user = kwargs.pop("user", None)

@@ -238,6 +238,25 @@ class PurchaseOrderReceipt(Timestampable, CompanyOwnedModel):
         related_name="received_receipts",
         verbose_name=_("Received By")
     )
+    external_reference = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name=_("Provider Reference"),
+        help_text=_("External receipt/delivery note number from the provider (e.g. albarán number).")
+    )
+    file = models.FileField(
+        upload_to="purchasing/receipts/",
+        null=True,
+        blank=True,
+        validators=[
+            FileExtensionValidator(
+                allowed_extensions=['pdf', 'png', 'jpg', 'jpeg']
+            )
+        ],
+        verbose_name=_("Receipt Document"),
+        help_text=_("Upload the provider's delivery note or receipt image.")
+    )
 
     class Meta:
         verbose_name = _("PO Receipt")

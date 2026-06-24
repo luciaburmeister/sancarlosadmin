@@ -5,6 +5,7 @@ from email.utils import parseaddr, parsedate_to_datetime
 import hashlib
 import os
 from django.core.files.base import ContentFile
+from django.db import IntegrityError
 from django.utils import timezone
 from ..models import IncomingInvoice
 
@@ -94,18 +95,22 @@ class EmailInvoiceProcessor:
                             except Exception:
                                 pass
                         
-                        invoice = IncomingInvoice(
-                            company=self.config.company,
-                            email_config=self.config,
-                            file_hash=file_hash,
-                            source_email_id=self.decode_mime_header(msg.get('Message-ID', str(e_id))),
-                            sender_email=sender_email,
-                            email_date=email_date,
-                            original_filename=filename[:500],
-                        )
-                        invoice.file.save(filename, ContentFile(content), save=True)
+                        try:
+                            invoice = IncomingInvoice(
+                                company=self.config.company,
+                                email_config=self.config,
+                                file_hash=file_hash,
+                                source_email_id=self.decode_mime_header(msg.get('Message-ID', str(e_id))),
+                                sender_email=sender_email,
+                                email_date=email_date,
+                                original_filename=filename[:500],
+                            )
+                            invoice.file.save(filename, ContentFile(content), save=True)
+                            processed_count += 1
+                        except IntegrityError:
+                            # Hash already exists in DB (cross-company or outside date window) — skip
+                            pass
                         existing_hashes.add(file_hash)
-                        processed_count += 1
 
         
         self.config.last_checked = timezone.now()

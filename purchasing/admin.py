@@ -187,9 +187,9 @@ class PurchaseOrderReceiptItemInline(TabularInline):
 
 @admin.register(PurchaseOrderReceipt)
 class PurchaseOrderReceiptAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["number", "purchase_order", "warehouse", "received_at", "company"]
+    list_display = ["number", "purchase_order", "external_reference", "warehouse", "received_at", "company"]
     list_filter = ["warehouse", "received_at", "company"]
-    search_fields = ["number", "purchase_order__number"]
+    search_fields = ["number", "purchase_order__number", "external_reference"]
     autocomplete_fields = ["purchase_order", "warehouse", "company", "received_by"]
     readonly_fields = ["number"]
     

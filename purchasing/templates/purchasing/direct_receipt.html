@@ -37,7 +37,7 @@
             </div>
         </div>
 
-        <form method="post" class="p-8 space-y-10">
+        <form method="post" enctype="multipart/form-data" class="p-8 space-y-10">
             {% csrf_token %}
 
             {% if form.errors %}
@@ -51,8 +51,8 @@
             </div>
             {% endif %}
 
-            <!-- Warehouse Selection -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- Warehouse & Receipt Info -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
                 <div class="space-y-3">
                     <label for="{{ form.warehouse.id_for_label }}" class="block text-sm font-semibold text-gray-700">
                         {{ form.warehouse.label }}
@@ -63,6 +63,25 @@
                     {% if form.warehouse.help_text %}
                     <p class="text-xs text-gray-500">{{ form.warehouse.help_text }}</p>
                     {% endif %}
+                </div>
+                <div class="space-y-3">
+                    <label for="{{ form.external_reference.id_for_label }}" class="block text-sm font-semibold text-gray-700">
+                        {{ form.external_reference.label }}
+                    </label>
+                    <div class="mt-2">
+                        {{ form.external_reference }}
+                    </div>
+                    <p class="text-xs text-gray-500">{% trans "Provider's delivery note or receipt number" %}</p>
+                </div>
+                <div class="space-y-3">
+                    <label for="{{ form.file.id_for_label }}" class="block text-sm font-semibold text-gray-700">
+                        {{ form.file.label }}
+                    </label>
+                    <div class="mt-2">
+                        <input type="file" name="file" id="{{ form.file.id_for_label }}" accept=".pdf,.png,.jpg,.jpeg"
+                            class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100 transition-all">
+                    </div>
+                    <p class="text-xs text-gray-500">{% trans "Upload photo or scan of the provider's delivery note" %}</p>
                 </div>
             </div>
 

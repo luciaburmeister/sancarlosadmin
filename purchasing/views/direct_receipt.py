@@ -27,6 +27,8 @@ class DirectReceiptView(UnfoldModelAdminViewMixin, FormView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs["user"] = self.request.user
+        if self.request.method in ("POST", "PUT"):
+            kwargs["files"] = self.request.FILES
         return kwargs
 
     def get_context_data(self, **kwargs):
@@ -56,7 +58,9 @@ class DirectReceiptView(UnfoldModelAdminViewMixin, FormView):
                     purchase_order=po,
                     warehouse=warehouse,
                     company=po.company,
-                    received_by=self.request.user
+                    received_by=self.request.user,
+                    external_reference=form.cleaned_data.get("external_reference", ""),
+                    file=form.cleaned_data.get("file"),
                 )
 
                 items_received = 0

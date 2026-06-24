@@ -364,7 +364,53 @@ class CompanyEmailConfigAdmin(ModelAdmin):
     list_filter = ("company", "use_ssl")
     search_fields = ("email_address", "imap_server", "imap_user")
     autocomplete_fields = ("company",)
-    actions_row = ["pull_emails_action"]
+    actions_row = ["test_connection_action", "pull_emails_action"]
+
+    @action(
+        description=_("Test Connection"),
+        url_path="test-connection",
+        icon="cable",
+    )
+    def test_connection_action(self, request, object_id: int):
+        import imaplib
+
+        config = get_object_or_404(CompanyEmailConfig, pk=object_id)
+        try:
+            if config.use_ssl:
+                mail = imaplib.IMAP4_SSL(config.imap_server, config.imap_port)
+            else:
+                mail = imaplib.IMAP4(config.imap_server, config.imap_port)
+
+            mail.login(config.imap_user, config.imap_password)
+            status, mailbox_list = mail.list()
+            mailbox_count = len(mailbox_list) if mailbox_list else 0
+            mail.logout()
+
+            messages.success(
+                request,
+                _("Connection successful — %(email)s is reachable (%(count)d mailboxes found).")
+                % {"email": config.email_address, "count": mailbox_count},
+            )
+        except imaplib.IMAP4.error as e:
+            messages.error(
+                request,
+                _("IMAP authentication failed for %(email)s: %(error)s")
+                % {"email": config.email_address, "error": str(e)},
+            )
+        except OSError as e:
+            messages.error(
+                request,
+                _("Could not connect to %(server)s:%(port)s — %(error)s")
+                % {"server": config.imap_server, "port": config.imap_port, "error": str(e)},
+            )
+        except Exception as e:
+            messages.error(
+                request,
+                _("Unexpected error testing %(email)s: %(error)s")
+                % {"email": config.email_address, "error": str(e)},
+            )
+
+        return redirect(request.META.get("HTTP_REFERER"))
 
     @action(
         description=_("pull emails"),

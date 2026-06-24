@@ -170,6 +170,23 @@ class ClientAddress(CompanyOwnedModel):
             self.client.address = self.formatted
             self.client.save(update_fields=["address"])
 
+class ContactRole(models.TextChoices):
+    PURCHASING = 'purchasing', _('Purchasing')
+    SALES = 'sales', _('Sales')
+    FINANCE = 'finance', _('Finance / Accounting')
+    LOGISTICS = 'logistics', _('Logistics')
+    MANAGEMENT = 'management', _('Management')
+    TECHNICAL = 'technical', _('Technical')
+    LEGAL = 'legal', _('Legal')
+    OTHER = 'other', _('Other')
+
+
+class ContactMethod(models.TextChoices):
+    EMAIL = 'email', _('Email')
+    PHONE = 'phone', _('Phone')
+    WHATSAPP = 'whatsapp', _('WhatsApp')
+
+
 class ClientContact(models.Model):
     client = models.ForeignKey(
         'Client',
@@ -189,15 +206,43 @@ class ClientContact(models.Model):
     )
     name = models.CharField(max_length=100, verbose_name=_("Name"))
     position = models.CharField(max_length=100, blank=True, verbose_name=_("Position"))
+    role = models.CharField(
+        max_length=20,
+        choices=ContactRole.choices,
+        default=ContactRole.OTHER,
+        verbose_name=_("Role"),
+    )
+    department = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Department"),
+    )
     email = models.EmailField(blank=True, verbose_name=_("Email"))
     phone = models.CharField(max_length=50, blank=True, verbose_name=_("Phone"))
+    mobile_phone = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Mobile Phone"),
+    )
+    preferred_contact_method = models.CharField(
+        max_length=20,
+        choices=ContactMethod.choices,
+        default=ContactMethod.EMAIL,
+        blank=True,
+        verbose_name=_("Preferred Contact Method"),
+    )
+    notes = models.TextField(
+        blank=True,
+        verbose_name=_("Notes"),
+    )
 
     class Meta:
         verbose_name = _("Client Contact")
         verbose_name_plural = _("Client Contacts")
 
     def __str__(self):
-        return f"{self.name} ({self.position})"
+        role_label = self.get_role_display() if self.role else self.position
+        return f"{self.name} ({role_label})"
 
 class Client(Timestampable, CompanyOwnedModel):
     # Existing fields

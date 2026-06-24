@@ -151,8 +151,10 @@ class ClientContactInline(StackedInline):
         (None, {
             "fields": (
                 ("name", "position"),
-                ("email", "phone"),
-                "address",
+                ("role", "department"),
+                ("email", "phone", "mobile_phone"),
+                ("preferred_contact_method", "address"),
+                "notes",
             ),
         }),
     )
@@ -180,8 +182,11 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
     export_form_class = ClientExportForm
 
     list_display = ["name", "commercial_name", "tax_identifier", "industry_identifier", "phone", "address_truncated", "company",  "has_signed_terms"]
-    search_fields = ["name", "commercial_name", "tax_identifier", "industry_identifier", "email", "phone", "address"]
-    list_filter = ["sale_zone", "is_insured", "company"]
+    search_fields = [
+        "name", "commercial_name", "tax_identifier", "industry_identifier", "email", "phone", "address",
+        "contacts__name", "contacts__email", "contacts__phone", "contacts__mobile_phone", "contacts__department",
+    ]
+    list_filter = ["sale_zone", "is_insured", "company", "contacts__role"]
     readonly_fields = ["address"]
 
     def get_list_filter(self, request):

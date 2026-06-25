@@ -320,6 +320,7 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
             {
                 "fields": (
                     ("date_issued", "due_date"),
+                    "accounting_date",
                 )
             },
         ),

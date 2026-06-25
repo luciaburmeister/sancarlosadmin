@@ -126,6 +126,7 @@ class InvoiceResource(resources.ModelResource):
             'invoice_number',
             'date_issued',
             'due_date',
+            'accounting_date',
             'provider',
             'provider_tax_identifier',
             'company',

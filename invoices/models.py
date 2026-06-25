@@ -70,6 +70,7 @@ def invoice_file_path(instance, filename):
 class Invoice(Payable):
     invoice_number = models.CharField(max_length=30,blank=True, null=True,verbose_name=_("Invoice number")) #numero de factura
     date_issued = models.DateField(db_index=True,blank=True, null=True,verbose_name=_("Date issued")) 
+    accounting_date = models.DateField(blank=True, null=True, verbose_name=_("Accounting date"), help_text=_("Date used for accounting purposes. Defaults to the issued date."))
     due_date = models.DateField(blank=True, null=True,verbose_name=_("Due date")) #fecha de vencimiento
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT,blank=True, null=True,verbose_name=_("Provider")) 
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="invoices", null=True)
@@ -299,6 +300,9 @@ class Invoice(Payable):
             self.save(update_fields=['is_total_balanced'])
 
     def save(self, *args, **kwargs):
+        # Default accounting_date to date_issued if not set
+        if not self.accounting_date and self.date_issued:
+            self.accounting_date = self.date_issued
         # Automatic recalculation if already exists
         if self.pk and not kwargs.get('update_fields'):
             self.recalculate_totals(save=False)

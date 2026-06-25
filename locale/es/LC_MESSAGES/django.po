@@ -2362,7 +2362,7 @@ msgstr ""
 "  • Escalonado (3% bajo €5k, 5% arriba): subtotal * 0.03 if subtotal < 5000 else subtotal * 0.05\n"
 "  • €50 por unidad:                   quantity * 50\n"
 "  • 4% del total después de impuestos: total * 0.04\n"
-"  • 3% + €25 fijo:                    (subtotal * 0.03) + 25"
+"  • 3% + €25 fijo:                    (subtotal * 0.03) + 25\n"
 
 #, fuzzy
 #| msgid "Pricing rule template"
@@ -3026,10 +3026,8 @@ msgstr "Valor"
 msgid "Value (€)"
 msgstr "Total Cotizado (€)"
 
-#, fuzzy
-#| msgid "Review"
 msgid "Preview"
-msgstr "Revisar"
+msgstr "Vista previa"
 
 #, fuzzy
 #| msgid "Save the template first to see a preview."
@@ -3112,7 +3110,10 @@ msgid ""
 "\n"
 "                Step %(current)s of %(total)s\n"
 "                "
-msgstr "Paso %(current)s de %(total)s"
+msgstr ""
+"\n"
+"                Paso %(current)s de %(total)s\n"
+"                "
 
 msgid "Next Step"
 msgstr "Siguiente paso"
@@ -4152,8 +4153,10 @@ msgid ""
 "        Workers can scan this code to go directly to the <strong>%(label)s</strong> form on their device.\n"
 "      "
 msgstr ""
+"\n"
 "Los trabajadores pueden escanear este código para ir directamente al "
-"formulario de <strong>%(label)s</strong> en su dispositivo."
+"formulario de <strong>%(label)s</strong> en su dispositivo.\n"
+"      "
 
 #, fuzzy
 #| msgid "Download PDF"
@@ -4169,8 +4172,10 @@ msgid ""
 "            Current stock: <strong>%(stock)s</strong> unit(s) &nbsp;|&nbsp; minimum threshold: <strong>%(min)s</strong> unit(s)\n"
 "          "
 msgstr ""
+"\n"
 "Stock actual: <strong>%(stock)s</strong> unidad(es) &nbsp;|&nbsp; umbral "
-"mínimo: <strong>%(min)s</strong> unidad(es)"
+"mínimo: <strong>%(min)s</strong> unidad(es)\n"
+"          "
 
 msgid ""
 "Stock has reached or fallen below the minimum level. Place an order "
@@ -5219,10 +5224,8 @@ msgstr "Inicio"
 msgid "End"
 msgstr "Fin"
 
-#, fuzzy
-#| msgid "Next"
 msgid "Net"
-msgstr "Siguiente"
+msgstr "Neto"
 
 #, fuzzy
 #| msgid "Production"
@@ -6110,10 +6113,8 @@ msgstr "Licencias por Enfermedad y Accidentes"
 msgid "Payslip"
 msgstr "Recibo de sueldo"
 
-#, fuzzy
-#| msgid "Personal day"
 msgid "Personal Data"
-msgstr "Día personal"
+msgstr "Datos personales"
 
 msgid "Social Security Contribution"
 msgstr "Contribución a la Seguridad Social"
@@ -6140,10 +6141,8 @@ msgstr "Validez"
 msgid "Levels"
 msgstr "Niveles"
 
-#, fuzzy
-#| msgid "Confirmed"
 msgid "Concept Line"
-msgstr "Confirmado"
+msgstr "Línea de concepto"
 
 msgid "Accruals & Deductions"
 msgstr "Cargos y Deducciones"
@@ -6154,36 +6153,26 @@ msgstr "Concepto de Seguridad Social"
 msgid "Social Security Breakdown"
 msgstr "Desglose de Seguridad Social"
 
-#, fuzzy
-#| msgid "Employee"
 msgid "Employee Payroll"
-msgstr "Empleado"
+msgstr "Nómina de empleado"
 
-#, fuzzy
-#| msgid "Employees"
 msgid "Employee Payrolls"
-msgstr "Empleados"
+msgstr "Nóminas de empleados"
 
-#, fuzzy
-#| msgid "Payroll"
 msgid "Payrolls"
-msgstr "Nómina"
+msgstr "Nóminas"
 
 msgid "Header"
 msgstr "Encabezado"
 
-#, fuzzy
-#| msgid "Total"
 msgid "Totals"
-msgstr "Total"
+msgstr "Totales"
 
 msgid "Bases"
 msgstr "Bases"
 
-#, fuzzy
-#| msgid "Configuration"
 msgid "Deductions"
-msgstr "Configuración"
+msgstr "Deducciones"
 
 msgid "Import Metadata"
 msgstr "Importar metadatos"
@@ -6191,10 +6180,8 @@ msgstr "Importar metadatos"
 msgid "Collective Agreement"
 msgstr "Convenio Colectivo"
 
-#, fuzzy
-#| msgid "Identification Number"
 msgid "SS Registration Number"
-msgstr "Número de identificación"
+msgstr "Número de inscripción en la Seguridad Social"
 
 msgid "SS Contribution Account Code (CCC)"
 msgstr "Código de Cuenta de Contribución al SS (CCC)"
@@ -6226,20 +6213,14 @@ msgstr "Tabla de Retenciones de IRPF"
 msgid "Number of Salary Payments"
 msgstr "Número de Pagos de Salario"
 
-#, fuzzy
-#| msgid "Vacations"
 msgid "Vacation Days"
-msgstr "Vacaciones"
+msgstr "Días de vacaciones"
 
-#, fuzzy
-#| msgid "Vacation wallets"
 msgid "Vacation Accrual Start"
-msgstr "Saldos de vacaciones"
+msgstr "Inicio de devengo de vacaciones"
 
-#, fuzzy
-#| msgid "Vacations"
 msgid "Round Vacation Days"
-msgstr "Vacaciones"
+msgstr "Redondear días de vacaciones"
 
 msgid "Temporary Contract Severance Days"
 msgstr "Días de Indemnización por Contrato Temporal"
@@ -6253,10 +6234,8 @@ msgstr "Base Regulatoria (R)"
 msgid "No Supplement (N)"
 msgstr "No Suplemento (N)"
 
-#, fuzzy
-#| msgid "Sick leave"
 msgid "Sick Leave Type"
-msgstr "Baja médica"
+msgstr "Tipo de baja por enfermedad"
 
 msgid "Workplace Accident Type"
 msgstr "Tipo de accidente laboral"
@@ -6273,20 +6252,14 @@ msgstr "Papel en blanco / Láser"
 msgid "Pre-printed"
 msgstr "Impreso previamente"
 
-#, fuzzy
-#| msgid "Pro Forma"
 msgid "Payslip Format"
-msgstr "Pro Forma"
+msgstr "Formato de nómina"
 
-#, fuzzy
-#| msgid "Receive"
 msgid "Receipt"
-msgstr "Recibir"
+msgstr "Recibo"
 
-#, fuzzy
-#| msgid "Type"
 msgid "Payslip Type"
-msgstr "Tipo"
+msgstr "Tipo de nómina"
 
 msgid "Hide Bank Details on Payslip"
 msgstr "Ocultar detalles bancarios en el recibo de pago"
@@ -6294,10 +6267,8 @@ msgstr "Ocultar detalles bancarios en el recibo de pago"
 msgid "Include Back Pay"
 msgstr "Incluir Pago Retroactivo"
 
-#, fuzzy
-#| msgid "Bank Transfer"
 msgid "Pay by Bank Transfer"
-msgstr "Transferencia Bancaria"
+msgstr "Pagar por transferencia bancaria"
 
 msgid "IBAN for Social Security Payments"
 msgstr "IBAN para Pagos de Seguridad Social"
@@ -6305,15 +6276,11 @@ msgstr "IBAN para Pagos de Seguridad Social"
 msgid "Payroll Incidents Cutoff Day"
 msgstr "Día de Corte de Incidencias de Nómina"
 
-#, fuzzy
-#| msgid "Configuration"
 msgid "Company Payroll Configuration"
-msgstr "Configuración"
+msgstr "Configuración de nómina de la empresa"
 
-#, fuzzy
-#| msgid "Configurations"
 msgid "Company Payroll Configurations"
-msgstr "Configuraciones"
+msgstr "Configuraciones de nómina de la empresa"
 
 msgid "Official Code"
 msgstr "Código Oficial"
@@ -6398,7 +6365,7 @@ msgid "Collective Agreement Categories"
 msgstr "Categorías del Acuerdo Colectivo"
 
 msgid "Ordinary"
-msgstr "Ordinary"
+msgstr "Ordinaria"
 
 msgid "Profit Sharing"
 msgstr "Participación en ganancias"
@@ -6406,15 +6373,11 @@ msgstr "Participación en ganancias"
 msgid "Format: DD/MM e.g. 20/06"
 msgstr "Formato: DD/MM ej. 20/06"
 
-#, fuzzy
-#| msgid "Accrual / Grant"
 msgid "Accrual Start"
-msgstr "Devengo / Subsidio"
+msgstr "Inicio de devengo"
 
-#, fuzzy
-#| msgid "Accrual / Grant"
 msgid "Accrual End"
-msgstr "Devengo / Subsidio"
+msgstr "Fin de devengo"
 
 msgid "Temporary Disability Discount %"
 msgstr "Descuento por Discapacidad Temporal %"
@@ -6425,10 +6388,8 @@ msgstr "Incluir en el recibo de pago"
 msgid "Break Down Concepts"
 msgstr "Desglosar conceptos"
 
-#, fuzzy
-#| msgid "Sick leave"
 msgid "Deduct Sick Leave"
-msgstr "Baja médica"
+msgstr "Deducir baja por enfermedad"
 
 msgid "Deduct Workplace Accident"
 msgstr "Deducción de Accidentes Laborales"
@@ -6451,10 +6412,8 @@ msgstr "Año"
 msgid "Seniority Tables"
 msgstr "Tablas de Antigüedad"
 
-#, fuzzy
-#| msgid "Identification Number"
 msgid "SS Affiliation Number"
-msgstr "Número de identificación"
+msgstr "Número de afiliación a la Seguridad Social"
 
 msgid "Número de Afiliación a la Seguridad Social"
 msgstr "Número de Afiliación a la Seguridad Social"
@@ -6482,10 +6441,8 @@ msgstr "Código de Nacionalidad"
 msgid "724 = Spain"
 msgstr "724 = España"
 
-#, fuzzy
-#| msgid "Personal day"
 msgid "Professional Category"
-msgstr "Día personal"
+msgstr "Categoría profesional"
 
 msgid "SS contribution group (1-11)"
 msgstr "Grupo de contribución SS (1-11)"
@@ -6499,20 +6456,14 @@ msgstr "Semanal"
 msgid "Bi-weekly"
 msgstr "Quincenal"
 
-#, fuzzy
-#| msgid "Payment Method"
 msgid "Payment Frequency"
-msgstr "Método de Pago"
+msgstr "Frecuencia de pago"
 
-#, fuzzy
-#| msgid "Employment"
 msgid "Multiple Employment"
-msgstr "Empleo"
+msgstr "Pluriempleo"
 
-#, fuzzy
-#| msgid "Start Date"
 msgid "Part-time"
-msgstr "Fecha de Inicio"
+msgstr "Tiempo parcial"
 
 msgid "Part-time Coefficient"
 msgstr "Coeficiente de tiempo parcial"
@@ -6520,31 +6471,23 @@ msgstr "Coeficiente de tiempo parcial"
 msgid "e.g. 0.500 for half-time"
 msgstr "ej. 0.500 para el medio tiempo"
 
-#, fuzzy
-#| msgid "Birth Date"
 msgid "Seniority Date"
-msgstr "Fecha de nacimiento"
+msgstr "Fecha de antigüedad"
 
 msgid "Category Seniority Date"
 msgstr "Categoría de Seniority Fecha"
 
-#, fuzzy
-#| msgid "Employee Document Type"
 msgid "Company Seniority Date"
-msgstr "Tipo de Documento de Empleado"
+msgstr "Fecha de antigüedad en la empresa"
 
 msgid "Extra Pay Calculation Date"
 msgstr "Fecha de cálculo de pago adicional"
 
-#, fuzzy
-#| msgid "Termination Date"
 msgid "Termination Reason"
-msgstr "Fecha de Terminación"
+msgstr "Motivo de baja"
 
-#, fuzzy
-#| msgid "Employees"
 msgid "Employees (A)"
-msgstr "Empleados"
+msgstr "Empleados (A)"
 
 msgid "Business owners (B)"
 msgstr "Propietarios de negocios (B)"
@@ -6555,15 +6498,11 @@ msgstr "Agricultores (C)"
 msgid "Public figures (D)"
 msgstr "Figuras públicas (D)"
 
-#, fuzzy
-#| msgid "Other"
 msgid "Other (E)"
-msgstr "Otro"
+msgstr "Otros (E)"
 
-#, fuzzy
-#| msgid "IRPF"
 msgid "IRPF Key"
-msgstr "IRPF"
+msgstr "Clave de IRPF"
 
 msgid "Resident"
 msgstr "Residente"
@@ -6574,25 +6513,17 @@ msgstr "No residente"
 msgid "Tax Residency"
 msgstr "Residencia Fiscal"
 
-#, fuzzy
-#| msgid "Asset Type"
 msgid "IRPF Type"
-msgstr "Tipo de activo"
+msgstr "Tipo de IRPF"
 
-#, fuzzy
-#| msgid "Production Stage"
 msgid "IRPF Base Percentage"
-msgstr "Etapas de Producción"
+msgstr "Porcentaje base de IRPF"
 
-#, fuzzy
-#| msgid "Production Stage"
 msgid "Withholding Percentage"
-msgstr "Etapas de Producción"
+msgstr "Porcentaje de retención"
 
-#, fuzzy
-#| msgid "Annual leave"
 msgid "Annual Income"
-msgstr "Vacaciones"
+msgstr "Ingresos anuales"
 
 msgid "Number of Children"
 msgstr "Número de Niños"
@@ -6614,10 +6545,8 @@ msgstr "Mes"
 msgid "Closed"
 msgstr "Cerrado"
 
-#, fuzzy
-#| msgid "Country"
 msgid "Manual Entry"
-msgstr "País"
+msgstr "Entrada manual"
 
 msgid "Excel Import (A3)"
 msgstr "Importación de Excel (A3)"
@@ -6628,38 +6557,26 @@ msgstr "API externa"
 msgid "AI Import"
 msgstr "Importación de IA"
 
-#, fuzzy
-#| msgid "Source"
 msgid "Data Source"
-msgstr "Origén"
+msgstr "Fuente de datos"
 
-#, fuzzy
-#| msgid "Closed"
 msgid "Closed At"
-msgstr "Cerrado"
+msgstr "Cerrado el"
 
-#, fuzzy
-#| msgid "Payroll"
 msgid "Payroll Period"
-msgstr "Nómina"
+msgstr "Período de nómina"
 
-#, fuzzy
-#| msgid "Payroll"
 msgid "Payroll Periods"
-msgstr "Nómina"
+msgstr "Períodos de nómina"
 
 msgid "A3 concept code e.g. 125, 995"
 msgstr "Código de concepto A3, p. ej. 125, 995"
 
-#, fuzzy
-#| msgid "Accrual / Grant"
 msgid "Accrual"
-msgstr "Devengo / Subsidio"
+msgstr "Devengo"
 
-#, fuzzy
-#| msgid "Configuration"
 msgid "Deduction"
-msgstr "Configuración"
+msgstr "Deducción"
 
 msgid "Is Salary"
 msgstr "Es salario"
@@ -6673,28 +6590,20 @@ msgstr "Cuenta para la Base SS"
 msgid "Counts Towards IRPF Base"
 msgstr "Cuenta para la Base del IRPF"
 
-#, fuzzy
-#| msgid "Payroll"
 msgid "Payroll Concept"
-msgstr "Nómina"
+msgstr "Concepto de nómina"
 
-#, fuzzy
-#| msgid "Payroll"
 msgid "Payroll Concepts"
-msgstr "Nómina"
+msgstr "Conceptos de nómina"
 
-#, fuzzy
-#| msgid "Content Type"
 msgid "Contract Type"
-msgstr "Tipo de contenido"
+msgstr "Tipo de contrato"
 
 msgid "Days in Period"
 msgstr "Días en el período"
 
-#, fuzzy
-#| msgid "Gross Total"
 msgid "Gross Salary"
-msgstr "Total Bruto"
+msgstr "Salario bruto"
 
 msgid "Prorated Extra Payments"
 msgstr "Pagos Extra Proporcionales"
@@ -6702,10 +6611,8 @@ msgstr "Pagos Extra Proporcionales"
 msgid "Net Salary"
 msgstr "Salario Neto"
 
-#, fuzzy
-#| msgid "Employees"
 msgid "Employer Cost"
-msgstr "Empleados"
+msgstr "Coste empresarial"
 
 msgid "Social Security Base"
 msgstr "Base de Seguridad Social"
@@ -6713,20 +6620,14 @@ msgstr "Base de Seguridad Social"
 msgid "Workplace Accident / Occupational Disease Base"
 msgstr "Base de Accidentes Laborales / Enfermedades Ocupacionales"
 
-#, fuzzy
-#| msgid "IRPF"
 msgid "IRPF Base"
-msgstr "IRPF"
+msgstr "Base de IRPF"
 
-#, fuzzy
-#| msgid "Total Quoted"
 msgid "Total Accrued"
-msgstr "Total Presupuestado"
+msgstr "Total devengado"
 
-#, fuzzy
-#| msgid "Total Quoted"
 msgid "Total Deducted"
-msgstr "Total Presupuestado"
+msgstr "Total deducido"
 
 msgid "Employee SS Contribution"
 msgstr "Aporte de SS del Empleado"
@@ -6734,10 +6635,8 @@ msgstr "Aporte de SS del Empleado"
 msgid "IRPF Withholding Amount"
 msgstr "Monto de retención del IRPF"
 
-#, fuzzy
-#| msgid "Production Stage"
 msgid "IRPF Percentage"
-msgstr "Etapas de Producción"
+msgstr "Porcentaje de IRPF"
 
 msgid "Employer SS Contribution"
 msgstr "Contribución del SS del Empleador"
@@ -6749,10 +6648,8 @@ msgid "Original row from Excel/API import for audit trail"
 msgstr ""
 "Fila original de importación de Excel/API para el registro de auditoría"
 
-#, fuzzy
-#| msgid "Source"
 msgid "Source File"
-msgstr "Origén"
+msgstr "Archivo fuente"
 
 msgid "Concept"
 msgstr "Concepto"
@@ -7388,10 +7285,8 @@ msgstr "Fiscales"
 msgid "Apply schedule"
 msgstr "Aplicar horario"
 
-#, fuzzy
-#| msgid "Planning"
 msgid "Warnings"
-msgstr "Planificación"
+msgstr "Advertencias"
 
 msgid "Run summary"
 msgstr "Resumen de ejecución"
@@ -7878,7 +7773,7 @@ msgstr ""
 "Variables disponibles: subtotal, total_quantity.  \n"
 "Ejemplos:  \n"
 "  • subtotal > 1000  \n"
-"  • subtotal > 5000 y total_quantity > 10"
+"  • subtotal > 5000 y total_quantity > 10\n"
 
 
 msgid "Discount Rule"
@@ -8762,3 +8657,78 @@ msgstr "No hay ausencias pasadas"
 
 #~ msgid "Movement type"
 #~ msgstr "Tipo de movimiento"
+
+msgid "Import Payroll from A3"
+msgstr "Importar nómina desde A3"
+
+msgid ""
+"Upload the A3 payroll export (.xlsx or .xls) for one company. The company "
+"and period are detected from the file. You will see a preview before "
+"anything is saved."
+msgstr ""
+"Sube la exportación de nómina de A3 (.xlsx o .xls) para una empresa. La "
+"empresa y el período se detectan desde el archivo. Verás una vista previa "
+"antes de guardar nada."
+
+msgid "Validate file"
+msgstr "Validar archivo"
+
+msgid "Employees in file"
+msgstr "Empleados en el archivo"
+
+msgid "Matched"
+msgstr "Emparejados"
+
+msgid "Unmatched"
+msgstr "Sin emparejar"
+
+msgid "Net total (matched)"
+msgstr "Total neto (emparejados)"
+
+msgid "employee in the file could not be matched."
+msgstr "No se pudo emparejar 1 empleado del archivo."
+
+msgid "employees in the file could not be matched."
+msgstr "No se pudieron emparejar %(counter)s empleados del archivo."
+
+msgid ""
+"They will be saved as pending rows attached to this period. The period "
+"CANNOT be closed until every pending employee is resolved (assigned to an "
+"employee in the ERP)."
+msgstr ""
+"Se guardarán como filas pendientes asociadas a este período. El período NO "
+"se puede cerrar hasta resolver cada empleado pendiente (asignándolo a un "
+"empleado del ERP)."
+
+msgid "Blocking errors"
+msgstr "Errores bloqueantes"
+
+msgid "Name in file"
+msgstr "Nombre en archivo"
+
+msgid "Matched employee"
+msgstr "Empleado emparejado"
+
+msgid "Confirm import"
+msgstr "Confirmar importación"
+
+msgid "Resolve the blocking errors above before importing."
+msgstr "Resuelve los errores bloqueantes anteriores antes de importar."
+
+msgid "Import from A3"
+msgstr "Importar desde A3"
+
+msgid "Pending Import Rows"
+msgstr "Filas pendientes de importación"
+
+msgid "Payroll Configuration"
+msgstr "Configuración de nómina"
+
+msgid ""
+"Upload the A3 payroll export (.xlsx or .xls) for one company. Both layouts "
+"(pivoted and tabular with DNI) are supported. The company and period are "
+"read from the file header."
+msgstr ""
+"Sube la exportación de nómina de A3 (.xlsx o .xls) para una empresa. Se "
+"admiten ambos formatos (pivotado y tabular con DNI). La empresa y el "
+"período se leen de la cabecera del archivo."

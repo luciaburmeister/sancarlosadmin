@@ -101,6 +101,7 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
                 "percentage": float(tax.selected_percentage),
                 "amount": float(tax.calculated_amount.amount) if tax.calculated_amount else 0,
                 "base": float(tax.base_amount.amount) if tax.base_amount else 0,
+                "is_retention": tax.tax_type.behavior == "subtract",
             }
             for tax in applied_taxes
         ]

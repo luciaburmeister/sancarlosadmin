@@ -187,7 +187,7 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
         "contacts__name", "contacts__email", "contacts__phone", "contacts__mobile_phone", "contacts__department",
     ]
     list_filter = ["sale_zone", "is_insured", "company", "contacts__role"]
-    readonly_fields = ["address"]
+
 
     def get_list_filter(self, request):
         return self.list_filter
@@ -274,6 +274,7 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
         }),
     )
     readonly_fields = [
+        "address",
         "has_signed_terms",
         "terms_accepted_at",
         "accepted_terms_company",

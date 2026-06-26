@@ -226,11 +226,6 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
         return f"{self.rule.tax_type} | {self.date_from} → {self.date_to}"
 
     def compute(self, save: bool = True):
-        """
-        Aggregate AppliedTax amounts from invoices within this period's
-        date range, filtered by company and the rule's tax_type.
-        Sums the numeric column directly to avoid djmoney Money aggregation issues.
-        """
         from django.contrib.contenttypes.models import ContentType
         from invoices.models import AppliedTax, SalesInvoice, Invoice
         from django.db.models import Sum
@@ -264,7 +259,7 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
         purchase_ct = ContentType.objects.get_for_model(Invoice)
         purchase_ids = list(Invoice.objects.filter(
             company=self.company,
-            date_issued__range=(self.date_from, self.date_to),
+            accounting_date__range=(self.date_from, self.date_to),
         ).values_list("id", flat=True))
 
         paid = Decimal("0.00")

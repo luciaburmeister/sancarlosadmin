@@ -9,8 +9,14 @@ from unfold.decorators import action
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter,
 )
+from import_export.admin import ImportExportModelAdmin
+from unfold.contrib.import_export.forms import (
+    ImportForm,
+    SelectableFieldsExportForm,
+)
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.models import ConfigurationPreset
+from configurator.resources.preset_resource import ConfigurationPresetResource
 from configurator.views.configuration.preset_wizard_views import (
             PresetProductSelectionView,
             PresetCreationWizardView,
@@ -20,7 +26,11 @@ from configurator.views.configuration.preset_use_wizard_views import (
         )
 
 @admin.register(ConfigurationPreset)
-class ConfigurationPresetAdmin(CompanyRestrictedAdmin, ModelAdmin):
+class ConfigurationPresetAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
+    resource_classes = [ConfigurationPresetResource]
+    import_form_class = ImportForm
+    export_form_class = SelectableFieldsExportForm
+
     list_display = (
         "reference_code",
         "name",
@@ -31,6 +41,7 @@ class ConfigurationPresetAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
 
     list_filter = (
+        ("company", AutocompleteSelectMultipleFilter),
         ("product", AutocompleteSelectMultipleFilter),
         "is_active",
     )

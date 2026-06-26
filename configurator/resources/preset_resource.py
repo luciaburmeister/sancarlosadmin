@@ -9,7 +9,7 @@ from company.models import Company
 class JSONWidget(Widget):
     """Round-trip JSON: export as JSON string, import by parsing it back."""
 
-    def render(self, value, obj=None):
+    def render(self, value, obj=None, **kwargs):
         if value is None:
             return ""
         return json.dumps(value, ensure_ascii=False)

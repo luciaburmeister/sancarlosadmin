@@ -22,6 +22,7 @@ from configurator.views.configuration.preset_use_wizard_views import (
 @admin.register(ConfigurationPreset)
 class ConfigurationPresetAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = (
+        "reference_code",
         "name",
         "product",
         "company",
@@ -34,7 +35,7 @@ class ConfigurationPresetAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "is_active",
     )
 
-    search_fields = ("name", "product__name")
+    search_fields = ("name", "reference_code", "product__name")
     autocomplete_fields = ("product",)
     list_select_related = ("product", "company")
     list_filter_submit = True
@@ -50,7 +51,8 @@ class ConfigurationPresetAdmin(CompanyRestrictedAdmin, ModelAdmin):
             _("Preset Information"),
             {
                 "fields": (
-                    ("name", "product"),
+                    ("name", "reference_code"),
+                    "product",
                     "description",
                     "image",
                     ("is_active", "order"),

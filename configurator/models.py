@@ -1723,6 +1723,13 @@ class ConfigurationPreset(CompanyOwnedModel):
         max_length=200,
         verbose_name=_("Name"),
     )
+    reference_code = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Reference Code"),
+        help_text=_("Optional external reference / catalog code."),
+        db_index=True
+    )
     description = models.TextField(
         blank=True,
         verbose_name=_("Description"),

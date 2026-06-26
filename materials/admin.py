@@ -1,6 +1,9 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
-from materials.models import Category, MaterialFamily, Material, Provider, Component, ComponentPriceRule
+from materials.models import (
+    Category, MaterialFamily, Material, Provider,
+    Component, ComponentPriceRule, PriceSheet, PriceSheetItem,
+)
 from unfold.admin import TabularInline
 from django_json_widget.widgets import JSONEditorWidget
 from django.db import models
@@ -16,7 +19,7 @@ from unfold.contrib.import_export.forms import (
     ImportForm,
     SelectableFieldsExportForm,
 )
-from materials.resources import MaterialResource
+from materials.resources import MaterialResource, PriceSheetItemResource
 
 class ComponentPriceRuleInline(TabularInline):
     model = ComponentPriceRule
@@ -184,6 +187,74 @@ class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
             "fields": ("tax_identifier", "account")
         }),
     )
+
+
+class PriceSheetItemInline(TabularInline):
+    model = PriceSheetItem
+    extra = 1
+    autocomplete_fields = ("material", "component")
+    fields = ("material", "component", "display_name", "order")
+    ordering = ("order", "pk")
+    verbose_name = _("Item")
+    verbose_name_plural = _("Items")
+
+
+@admin.register(PriceSheet)
+class PriceSheetAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ("name", "company", "created_at", "updated_at")
+    search_fields = ("name",)
+    list_filter = (
+        ("company", AutocompleteSelectMultipleFilter),
+    )
+    list_filter_submit = True
+    autocomplete_fields = ("company",)
+    inlines = [PriceSheetItemInline]
+
+    fieldsets = (
+        (None, {
+            "fields": ("name", "company", "notes"),
+        }),
+    )
+
+
+@admin.register(PriceSheetItem)
+class PriceSheetItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
+    company_field_name = "price_sheet__company"
+    resource_classes = [PriceSheetItemResource]
+    export_form_class = SelectableFieldsExportForm
+
+    list_display = ("resolved_reference", "resolved_name", "item_type", "resolved_unit_price", "price_sheet")
+    list_filter = (
+        ("price_sheet", AutocompleteSelectMultipleFilter),
+    )
+    list_filter_submit = True
+    search_fields = ("material__name", "material__reference_code", "component__name", "component__code", "display_name")
+    autocomplete_fields = ("price_sheet", "material", "component")
+    list_select_related = ("price_sheet", "material", "material__provider", "material__category", "component")
+
+    def resolved_reference(self, obj):
+        return obj.resolved_reference
+    resolved_reference.short_description = _("Reference")
+
+    def resolved_name(self, obj):
+        return obj.resolved_name
+    resolved_name.short_description = _("Name")
+
+    def item_type(self, obj):
+        return obj.item_type
+    item_type.short_description = _("Type")
+
+    def resolved_unit_price(self, obj):
+        return obj.resolved_unit_price
+    resolved_unit_price.short_description = _("Unit Price")
+
+    def get_queryset(self, request):
+        qs = super(CompanyRestrictedAdmin, self).get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        from core.admin.company_access import get_user_companies
+        return qs.filter(price_sheet__company__in=get_user_companies(request.user))
+
 
 from unfold.admin import ModelAdmin
 from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminTextInputWidget

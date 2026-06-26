@@ -420,3 +420,116 @@ class ComponentPriceRule(models.Model):
         # Recompute component price after rule deletion
         component.refresh_from_db()
         component.save()
+
+
+class PriceSheet(Timestampable, CompanyOwnedModel):
+    """
+    A named, reusable pricing list.
+    Users pick materials and/or components to include;
+    the exported price is always the live cost_per_unit.
+    """
+    name = models.CharField(max_length=200, verbose_name=_("Name"))
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+
+    class Meta:
+        verbose_name = _("Price Sheet")
+        verbose_name_plural = _("Price Sheets")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.name
+
+
+class PriceSheetItem(models.Model):
+    """
+    A single line in a PriceSheet.
+    Exactly one of `material` or `component` must be set.
+    """
+    price_sheet = models.ForeignKey(
+        PriceSheet,
+        on_delete=models.CASCADE,
+        related_name="items",
+        verbose_name=_("Price Sheet"),
+    )
+    material = models.ForeignKey(
+        Material,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        verbose_name=_("Material"),
+    )
+    component = models.ForeignKey(
+        Component,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        verbose_name=_("Component"),
+    )
+    display_name = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name=_("Display Name"),
+        help_text=_("Optional public name. If blank, the material/component name is used."),
+    )
+    order = models.PositiveIntegerField(default=0, verbose_name=_("Order"))
+
+    class Meta:
+        verbose_name = _("Price Sheet Item")
+        verbose_name_plural = _("Price Sheet Items")
+        ordering = ["order", "pk"]
+
+    def clean(self):
+        super().clean()
+        if not self.material and not self.component:
+            raise ValidationError(
+                _("You must select either a material or a component.")
+            )
+        if self.material and self.component:
+            raise ValidationError(
+                _("Select only one: a material or a component, not both.")
+            )
+
+    @property
+    def resolved_name(self):
+        if self.display_name:
+            return self.display_name
+        if self.material:
+            return self.material.name
+        return self.component.name if self.component else ""
+
+    @property
+    def resolved_reference(self):
+        if self.material:
+            return self.material.reference_code
+        return self.component.code if self.component else ""
+
+    @property
+    def resolved_unit_price(self):
+        if self.material:
+            return self.material.cost_per_unit
+        return self.component.cost_per_unit if self.component else None
+
+    @property
+    def resolved_unit_type(self):
+        if self.material:
+            return self.material.get_unit_type_display()
+        return "-"
+
+    @property
+    def resolved_provider(self):
+        if self.material and self.material.provider:
+            return self.material.provider.name
+        return ""
+
+    @property
+    def resolved_category(self):
+        if self.material and self.material.category:
+            return self.material.category.name
+        return ""
+
+    @property
+    def item_type(self):
+        return _("Material") if self.material else _("Component")
+
+    def __str__(self):
+        return self.resolved_name

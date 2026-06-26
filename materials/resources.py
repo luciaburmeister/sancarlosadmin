@@ -113,3 +113,62 @@ class MaterialResource(resources.ModelResource):
 
     def dehydrate_currency(self, material):
         return str(material.cost_per_unit.currency) if material.cost_per_unit else "EUR"
+
+
+class PriceSheetItemResource(resources.ModelResource):
+    """Export resource for Price Sheet items — always uses the live price."""
+
+    price_sheet_name = fields.Field(column_name=_("Price Sheet"), readonly=True)
+    reference = fields.Field(column_name=_("Reference"), readonly=True)
+    name = fields.Field(column_name=_("Name"), readonly=True)
+    item_type = fields.Field(column_name=_("Type"), readonly=True)
+    unit = fields.Field(column_name=_("Unit"), readonly=True)
+    unit_price = fields.Field(column_name=_("Unit Price"), readonly=True)
+    currency = fields.Field(column_name=_("Currency"), readonly=True)
+    provider = fields.Field(column_name=_("Provider"), readonly=True)
+    category = fields.Field(column_name=_("Category"), readonly=True)
+
+    class Meta:
+        from .models import PriceSheetItem as _Model
+        model = _Model
+        fields = (
+            "price_sheet_name",
+            "reference",
+            "name",
+            "item_type",
+            "unit",
+            "unit_price",
+            "currency",
+            "provider",
+            "category",
+        )
+        export_order = fields
+
+    def dehydrate_price_sheet_name(self, item):
+        return item.price_sheet.name
+
+    def dehydrate_reference(self, item):
+        return item.resolved_reference
+
+    def dehydrate_name(self, item):
+        return item.resolved_name
+
+    def dehydrate_item_type(self, item):
+        return str(item.item_type)
+
+    def dehydrate_unit(self, item):
+        return item.resolved_unit_type
+
+    def dehydrate_unit_price(self, item):
+        price = item.resolved_unit_price
+        return price.amount if price else 0
+
+    def dehydrate_currency(self, item):
+        price = item.resolved_unit_price
+        return str(price.currency) if price else "EUR"
+
+    def dehydrate_provider(self, item):
+        return item.resolved_provider
+
+    def dehydrate_category(self, item):
+        return item.resolved_category

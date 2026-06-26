@@ -200,7 +200,10 @@ class PriceSheetItemInline(TabularInline):
 
 
 @admin.register(PriceSheet)
-class PriceSheetAdmin(CompanyRestrictedAdmin, ModelAdmin):
+class PriceSheetAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
+    resource_classes = [PriceSheetItemResource]
+    export_form_class = SelectableFieldsExportForm
+
     list_display = ("name", "company", "created_at", "updated_at")
     search_fields = ("name",)
     list_filter = (
@@ -215,6 +218,20 @@ class PriceSheetAdmin(CompanyRestrictedAdmin, ModelAdmin):
             "fields": ("name", "company", "notes"),
         }),
     )
+
+    def get_export_queryset(self, request):
+        """Export the items of the visible Price Sheets, not the sheets themselves."""
+        sheets_qs = super().get_queryset(request)
+        return (
+            PriceSheetItem.objects
+            .filter(price_sheet__in=sheets_qs)
+            .select_related(
+                "price_sheet",
+                "material", "material__provider", "material__category",
+                "component",
+            )
+            .order_by("price_sheet__name", "order", "pk")
+        )
 
 
 @admin.register(PriceSheetItem)

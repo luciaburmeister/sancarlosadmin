@@ -119,6 +119,7 @@ class PresetUseWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
         # 4. Setup defaults from product
         config.copy_default_pricing_rules_from_product()
         config.copy_default_taxes_from_product()
+        config.copy_taxes_from_client()
 
         # 5. Generate BOM and recalculate price
         config.generate_bom()

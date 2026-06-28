@@ -24,7 +24,7 @@ class CommissionService:
                 QuoteCommission.objects.create(
                     quote=quote,
                     configuration=config,
-                    employee=None,
+                    agent=None,
                 )
 
     @classmethod
@@ -41,11 +41,11 @@ class CommissionService:
         rows = list(
             QuoteCommission.objects.filter(
                 quote=quote
-            ).select_related("employee", "rule", "configuration__product")
+            ).select_related("agent", "rule", "configuration__product")
         )
 
         for row in rows:
-            if not row.employee_id:
+            if not row.agent_id:
                 continue
 
             config = row.configuration
@@ -58,7 +58,7 @@ class CommissionService:
 
             try:
                 rule = AgentCommissionRule.objects.get(
-                    employee_id=row.employee_id,
+                    agent_id=row.agent_id,
                     product_template=product_template,
                     is_active=True,
                 )
@@ -93,16 +93,16 @@ class CommissionService:
         rows = (
             QuoteCommission.objects
             .filter(quote=quote)
-            .select_related("employee", "rule", "configuration__product")
+            .select_related("agent", "rule", "configuration__product")
             .order_by("configuration_id")
         )
 
         result = []
         for row in rows:
-            if not row.employee_id:
+            if not row.agent_id:
                 continue
             result.append({
-                "employee_name": row.employee.full_name,
+                "agent_name": row.agent.name,
                 "configuration_name": str(row.configuration),
                 "product_template_name": row.configuration.product.name,
                 "rule_type": row.rule_type_snapshot,

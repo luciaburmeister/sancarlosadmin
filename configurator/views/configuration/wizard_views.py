@@ -88,6 +88,7 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
         if not self.instance:
             config.copy_default_pricing_rules_from_product()
             config.copy_default_taxes_from_product()
+            config.copy_taxes_from_client()
 
         config.recalculate_price()
 

@@ -58,7 +58,7 @@ class BulkCommissionWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
         step1 = form_list[0]
         step2 = form_list[1]
 
-        employees = step1.cleaned_data["employees"]
+        agents = step1.cleaned_data["agents"]
         product_templates = step1.cleaned_data["product_templates"]
         rule_type = step2.cleaned_data["rule_type"]
         value = step2.cleaned_data.get("value")
@@ -73,21 +73,21 @@ class BulkCommissionWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
         to_create = []
         conflicts = []
 
-        for employee in employees:
+        for agent in agents:
             for product_template in product_templates:
                 exists = AgentCommissionRule.objects.filter(
-                    employee=employee,
+                    agent=agent,
                     product_template=product_template,
                 ).exists()
 
                 if exists:
                     conflicts.append({
-                        "employee": str(employee),
+                        "agent": str(agent),
                         "product_template": str(product_template),
                     })
                 else:
                     to_create.append({
-                        "employee": employee,
+                        "agent": agent,
                         "product_template": product_template,
                         "rule_type": rule_type,
                         "value": value,
@@ -97,8 +97,8 @@ class BulkCommissionWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
         # Store in session for the confirmation view
         self.request.session["bulk_commission_to_create"] = [
             {
-                "employee_id": item["employee"].pk,
-                "employee_str": str(item["employee"]),
+                "agent_id": item["agent"].pk,
+                "agent_str": str(item["agent"]),
                 "product_template_id": item["product_template"].pk,
                 "product_template_str": str(item["product_template"]),
                 "rule_type": item["rule_type"],
@@ -139,7 +139,7 @@ class BulkCommissionConfirmView(UnfoldModelAdminViewMixin, View):
 
     def post(self, request, *args, **kwargs):
         from decimal import Decimal
-        from company.models import Employee
+        from sales.models import CommissionistAgent
         from configurator.models import ProductTemplate
 
         to_create = request.session.pop("bulk_commission_to_create", [])
@@ -150,7 +150,7 @@ class BulkCommissionConfirmView(UnfoldModelAdminViewMixin, View):
 
         for item in to_create:
             try:
-                employee = Employee.objects.get(pk=item["employee_id"])
+                agent = CommissionistAgent.objects.get(pk=item["agent_id"])
                 product_template = ProductTemplate.objects.get(pk=item["product_template_id"])
                 custom_rule = None
                 if item.get("custom_rule_id"):
@@ -160,7 +160,7 @@ class BulkCommissionConfirmView(UnfoldModelAdminViewMixin, View):
                     company = product_template.company
 
                 AgentCommissionRule.objects.create(
-                    employee=employee,
+                    agent=agent,
                     product_template=product_template,
                     rule_type=item["rule_type"],
                     value=Decimal(item["value"]) if item["value"] else None,

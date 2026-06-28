@@ -85,6 +85,7 @@ class ShopConfigurationWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
             
             config.copy_default_pricing_rules_from_product()
             config.copy_default_taxes_from_product()
+            config.copy_taxes_from_client()
             
             # 2. Automatically generate Production Ticket linked to ProjectFile
             ConfigurationToProductionService.create_ticket(config, project_file=project_file)

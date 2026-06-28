@@ -96,8 +96,8 @@ class AgentCommissionRuleInline(TabularInline):
     tab = True
     verbose_name = _("Agent commission rule")
     verbose_name_plural = _("Agent commission rules")
-    autocomplete_fields = ["employee", "custom_rule"]
-    fields = ("employee", "rule_type", "value", "custom_rule", "is_active")
+    autocomplete_fields = ["agent", "custom_rule"]
+    fields = ("agent", "rule_type", "value", "custom_rule", "is_active")
 
 
 
@@ -107,7 +107,7 @@ class QuoteCommissionInline(TabularInline):
     tab = True
     verbose_name = _("Commission")
     verbose_name_plural = _("Commissions")
-    autocomplete_fields = ["employee"]
+    autocomplete_fields = ["agent"]
 
     readonly_fields = (
         "configuration",
@@ -120,7 +120,7 @@ class QuoteCommissionInline(TabularInline):
     fields = (
         "configuration",
         "product_template_display",
-        "employee",
+        "agent",
         "rule_type_snapshot",
         "rule_value_snapshot",
         "commission_amount",
@@ -171,7 +171,7 @@ class AgentCommissionRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
     change_form_template = "admin/configurator/agentcommissionrule/change_form.html"
 
     list_display = (
-        "employee",
+        "agent",
         "product_template",
         "rule_type",
         "value_display",
@@ -180,19 +180,18 @@ class AgentCommissionRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
     list_filter = ("rule_type", "is_active", "company")
     search_fields = (
-        "employee__first_name",
-        "employee__last_name",
+        "agent__name",
         "product_template__name",
     )
-    autocomplete_fields = ["employee", "product_template", "company"]
-    list_select_related = ["employee", "product_template", "company"]
+    autocomplete_fields = ["agent", "product_template", "company"]
+    list_select_related = ["agent", "product_template", "company"]
 
     actions_list = ["bulk_create_action"]
 
     fieldsets = (
         (_("Who gets the commission"), {
             "fields": (
-                ("employee", "product_template"),
+                ("agent", "product_template"),
                 ("company", "is_active"),
             ),
         }),
@@ -251,9 +250,9 @@ class AgentCommissionRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 if not template:
                     # Create a new template
                     if not expression_name:
-                        employee_str = str(obj.employee) if obj.employee_id else "?"
+                        agent_str = str(obj.agent) if obj.agent_id else "?"
                         product_str = str(obj.product_template) if obj.product_template_id else "?"
-                        expression_name = f"Custom: {employee_str} — {product_str}"
+                        expression_name = f"Custom: {agent_str} — {product_str}"
                     template = CommissionRuleTemplate.objects.create(
                         name=expression_name,
                         expression=expression,
@@ -277,7 +276,7 @@ class AgentCommissionRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
             BulkCommissionConfirmView,
         )
         from configurator.commission.autocomplete_views import (
-            EmployeeAutocompleteView,
+            CommissionistAgentAutocompleteView,
             ProductTemplateAutocompleteView,
         )
         custom_urls = [
@@ -296,9 +295,9 @@ class AgentCommissionRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 name="configurator_agentcommissionrule_bulk_confirm",
             ),
             path(
-                "autocomplete/employee/",
-                self.admin_site.admin_view(EmployeeAutocompleteView.as_view()),
-                name="commission_employee_autocomplete",
+                "autocomplete/agent/",
+                self.admin_site.admin_view(CommissionistAgentAutocompleteView.as_view()),
+                name="commission_agent_autocomplete",
             ),
             path(
                 "autocomplete/producttemplate/",
@@ -314,7 +313,7 @@ class AgentCommissionRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
 class QuoteCommissionAdmin(ModelAdmin):
     list_display = (
         "configuration",
-        "employee",
+        "agent",
         "rule_type_snapshot",
         "rule_value_display",
         "commission_amount",
@@ -322,10 +321,9 @@ class QuoteCommissionAdmin(ModelAdmin):
     )
     list_filter = ("rule_type_snapshot",)
     search_fields = (
-        "employee__first_name",
-        "employee__last_name",
+        "agent__name",
     )
-    autocomplete_fields = ["employee"]
+    autocomplete_fields = ["agent"]
     readonly_fields = (
         "commission_amount",
         "rule",
@@ -333,7 +331,7 @@ class QuoteCommissionAdmin(ModelAdmin):
         "rule_value_snapshot",
         "calculated_at",
     )
-    list_select_related = ["employee", "configuration", "rule"]
+    list_select_related = ["agent", "configuration", "rule"]
 
     def rule_value_display(self, obj):
         return format_rule_snapshot(obj.rule_type_snapshot, obj.rule_value_snapshot)

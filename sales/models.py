@@ -244,6 +244,49 @@ class ClientContact(models.Model):
         role_label = self.get_role_display() if self.role else self.position
         return f"{self.name} ({role_label})"
 
+class CommissionistAgent(Timestampable, CompanyOwnedModel):
+    """An external or internal commissionist agent who earns commissions on sales."""
+
+    name = models.CharField(
+        max_length=200,
+        verbose_name=_("Name"),
+    )
+    tax_identifier = models.CharField(
+        max_length=25,
+        blank=True,
+        verbose_name=_("Tax Identifier"),
+        help_text=_("NIF / CIF of the agent."),
+    )
+    email = models.EmailField(
+        blank=True,
+        verbose_name=_("Email"),
+    )
+    phone = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name=_("Phone"),
+    )
+    commission_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        verbose_name=_("Default Commission (%)"),
+        help_text=_("Default commission percentage for this agent."),
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name=_("Active"),
+    )
+
+    class Meta:
+        verbose_name = _("Commissionist Agent")
+        verbose_name_plural = _("Commissionist Agents")
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class Client(Timestampable, CompanyOwnedModel):
     # Existing fields
     name = models.CharField(
@@ -293,7 +336,7 @@ class Client(Timestampable, CompanyOwnedModel):
         verbose_name=_("Sale Zone")
     )
     agent = models.ForeignKey(
-        'company.Employee',
+        'sales.CommissionistAgent',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -305,12 +348,6 @@ class Client(Timestampable, CompanyOwnedModel):
         blank=True,
         related_name="clients",
         verbose_name=_("Discount Policies"),
-    )
-    agent_commission = models.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        default=0,
-        verbose_name=_("Agent Commission (%)")
     )
     is_insured = models.BooleanField(
         default=False,
@@ -1204,17 +1241,49 @@ class QuoteInventoryItem(Timestampable):
         super().save(update_fields=["total_with_tax", "total_with_tax_currency"])
 
     def _copy_taxes_from_item(self):
-        """Copy AppliedTax rows from the source InventoryItem to this line."""
+        """Copy AppliedTax rows to this line.
+
+        When the company's ``auto_apply_client_taxes`` flag is ON and the
+        quote's client has configured taxes, those client taxes are used
+        instead of the inventory item's taxes.
+        """
         from invoices.models import AppliedTax
         ct = ContentType.objects.get_for_model(self)
-        for src_tax in self.inventory_item.get_taxes():
-            AppliedTax.objects.get_or_create(
-                content_type=ct,
-                object_id=self.pk,
-                tax_type=src_tax.tax_type,
-                selected_percentage=src_tax.selected_percentage,
-                defaults={"order": src_tax.order},
-            )
+
+        # Determine tax source: client (if flag is on) or inventory item
+        use_client_taxes = False
+        if (
+            self.quote_id
+            and self.quote.company_id
+            and self.quote.company.auto_apply_client_taxes
+            and self.quote.client_id
+        ):
+            client_ct = ContentType.objects.get_for_model(self.quote.client)
+            client_taxes = AppliedTax.objects.filter(
+                content_type=client_ct,
+                object_id=self.quote.client_id,
+            ).select_related("tax_type").order_by("order")
+            if client_taxes.exists():
+                use_client_taxes = True
+
+        if use_client_taxes:
+            for src_tax in client_taxes:
+                AppliedTax.objects.get_or_create(
+                    content_type=ct,
+                    object_id=self.pk,
+                    tax_type=src_tax.tax_type,
+                    selected_percentage=src_tax.selected_percentage,
+                    defaults={"order": src_tax.order},
+                )
+        else:
+            for src_tax in self.inventory_item.get_taxes():
+                AppliedTax.objects.get_or_create(
+                    content_type=ct,
+                    object_id=self.pk,
+                    tax_type=src_tax.tax_type,
+                    selected_percentage=src_tax.selected_percentage,
+                    defaults={"order": src_tax.order},
+                )
 
     def get_taxes(self):
         """Return AppliedTax records attached to this line via GenericFK."""

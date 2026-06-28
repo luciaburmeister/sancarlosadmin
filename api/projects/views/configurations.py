@@ -53,6 +53,7 @@ class ConfigurationPreviewView(CompanyAPIView):
                 # Copy taxes so that total_price in the preview reflects the real
                 # VAT-inclusive amount (same taxes the saved config would apply).
                 config.copy_default_taxes_from_product()
+                config.copy_taxes_from_client()
 
                 if final_price is not None:
                     factor = AppliedTax.compound_factor(config.get_taxes())
@@ -282,6 +283,7 @@ class ConfigurationReplaceView(CompanyAPIView):
             )
             new_config.copy_default_pricing_rules_from_product()
             new_config.copy_default_taxes_from_product()
+            new_config.copy_taxes_from_client()
 
             if "final_price" in body:
                 # Key present: explicit override (value) or explicit clear (null)

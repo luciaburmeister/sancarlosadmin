@@ -11,7 +11,7 @@ from .models import (
     Client, Order, DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
     Quote, QuoteItem, QuoteInventoryItem, SaleZone, ClientAddress, ClientContact, ClientBankAccount,
     QuoteStatus, QuoteConfigurationGroup, QuotePhoto, QuotePhotoCategory,
-    DiscountPolicy, DiscountRule,
+    DiscountPolicy, DiscountRule, CommissionistAgent,
 )
 from inventory.models import ItemIdentityCode
 from unfold.admin import TabularInline, StackedInline
@@ -88,6 +88,24 @@ class SaleZoneAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ["name", "company"]
     search_fields = ["name"]
     autocomplete_fields = ["company"]
+
+
+@admin.register(CommissionistAgent)
+class CommissionistAgentAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ["name", "tax_identifier", "commission_percentage", "is_active", "company"]
+    list_filter = ["is_active", "company"]
+    search_fields = ["name", "tax_identifier", "email"]
+    autocomplete_fields = ["company"]
+    fieldsets = (
+        (_("Agent Information"), {
+            "fields": (
+                ("name", "company"),
+                ("tax_identifier", "commission_percentage"),
+                ("email", "phone"),
+                "is_active",
+            ),
+        }),
+    )
 
 
 class DiscountRuleInline(StackedInline):
@@ -175,6 +193,16 @@ class ClientBankAccountInline(StackedInline):
         }),
     )
 
+class ClientAppliedTaxInline(_GenericTabularInline):
+    model = AppliedTax
+    extra = 0
+    autocomplete_fields = ("tax_type",)
+    ordering = ("order",)
+    fields = ("tax_type", "selected_percentage", "order")
+    verbose_name = _("Default tax")
+    verbose_name_plural = _("Default taxes")
+    tab = True
+
 @admin.register(Client)
 class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
     resource_classes = [ClientResource]
@@ -203,7 +231,7 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
 
     autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account","discount_policies"]
 
-    inlines = [ClientAddressInline, ClientContactInline, ClientBankAccountInline]
+    inlines = [ClientAddressInline, ClientContactInline, ClientBankAccountInline, ClientAppliedTaxInline]
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "default_client_bank_account":
@@ -250,7 +278,6 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
             "classes": ["tab"],
             "fields": (
                 ("sale_zone", "agent"),
-                "agent_commission",
                 "discount_policies",
             )
         }),

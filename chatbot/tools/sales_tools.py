@@ -159,7 +159,7 @@ class GetClientDetail(BaseTool):
             "address": client.address,
             "sale_zone": str(client.sale_zone) if client.sale_zone else "",
             "agent": str(client.agent) if client.agent else "",
-            "agent_commission": str(client.agent_commission),
+            "agent_commission": str(client.agent.commission_percentage) if client.agent else "0",
             "payment_method": client.get_payment_method_display(),
             "is_insured": client.is_insured,
             "max_risk": str(client.max_risk) if client.max_risk else "0",

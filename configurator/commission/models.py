@@ -96,11 +96,13 @@ class AgentCommissionRule(CompanyOwnedModel):
         verbose_name=_("Product template"),
     )
 
-    employee = models.ForeignKey(
-        "company.Employee",
+    agent = models.ForeignKey(
+        "sales.CommissionistAgent",
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="commission_rules",
-        verbose_name=_("Employee"),
+        verbose_name=_("Agent"),
     )
 
     rule_type = models.CharField(
@@ -139,10 +141,10 @@ class AgentCommissionRule(CompanyOwnedModel):
     )
 
     class Meta:
-        unique_together = ("employee", "product_template")
+        unique_together = ("agent", "product_template")
         verbose_name = _("Agent commission rule")
         verbose_name_plural = _("Agent commission rules")
-        ordering = ["employee", "product_template"]
+        ordering = ["agent", "product_template"]
 
     def format_value(self) -> str:
         """
@@ -155,7 +157,7 @@ class AgentCommissionRule(CompanyOwnedModel):
         return "-"
 
     def __str__(self):
-        return f"{self.employee} — {self.product_template} [{self.format_value()}]"
+        return f"{self.agent} — {self.product_template} [{self.format_value()}]"
 
     def compute_commission(
         self,
@@ -214,13 +216,13 @@ class QuoteCommission(models.Model):
         blank=True,
     )
 
-    employee = models.ForeignKey(
-        "company.Employee",
+    agent = models.ForeignKey(
+        "sales.CommissionistAgent",
         on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="quote_commissions",
-        verbose_name=_("Employee"),
+        verbose_name=_("Agent"),
     )
 
     rule = models.ForeignKey(
@@ -261,14 +263,14 @@ class QuoteCommission(models.Model):
     )
 
     class Meta:
-        unique_together = ("configuration", "employee")
+        unique_together = ("configuration", "agent")
         verbose_name = _("Quote commission")
         verbose_name_plural = _("Quote commissions")
         ordering = ["quote", "configuration"]
 
     def __str__(self):
-        employee = self.employee or _("No agent")
-        return f"Commission for {employee} on {self.configuration}"
+        agent = self.agent or _("No agent")
+        return f"Commission for {agent} on {self.configuration}"
 
     @property
     def product_template(self):

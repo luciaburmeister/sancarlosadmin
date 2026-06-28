@@ -8,7 +8,7 @@ from unfold.widgets import (
     UnfoldAdminTextInputWidget,
     UnfoldAdminTextareaWidget,
 )
-from company.models import Employee
+from sales.models import CommissionistAgent
 from configurator.models import ProductTemplate
 from configurator.commission.models import CommissionRuleType, CommissionRuleTemplate
 from unfold.fields import UnfoldAdminMultipleAutocompleteModelChoiceField
@@ -24,13 +24,13 @@ EXPRESSION_HELP = _(
 
 class BulkCommissionStep1Form(forms.Form):
     """
-    Step 1: Select employees and product templates using autocomplete multi-select.
+    Step 1: Select agents and product templates using autocomplete multi-select.
     """
 
-    employees = UnfoldAdminMultipleAutocompleteModelChoiceField(
-        queryset=Employee.objects.all(),
-        label=_("Employees"),
-        url_path="admin:commission_employee_autocomplete",
+    agents = UnfoldAdminMultipleAutocompleteModelChoiceField(
+        queryset=CommissionistAgent.objects.all(),
+        label=_("Agents"),
+        url_path="admin:commission_agent_autocomplete",
         required=True,
     )
 
@@ -53,18 +53,18 @@ class BulkCommissionStep1Form(forms.Form):
             company = company_user.company if company_user else None
 
         if company:
-            self.fields["employees"].queryset = (
-                Employee.objects.filter(company=company, is_active=True)
-                .order_by("last_name", "first_name")
+            self.fields["agents"].queryset = (
+                CommissionistAgent.objects.filter(company=company, is_active=True)
+                .order_by("name")
             )
             self.fields["product_templates"].queryset = (
                 ProductTemplate.objects.filter(company=company)
                 .order_by("name")
             )
         else:
-            self.fields["employees"].queryset = (
-                Employee.objects.filter(is_active=True)
-                .order_by("last_name", "first_name")
+            self.fields["agents"].queryset = (
+                CommissionistAgent.objects.filter(is_active=True)
+                .order_by("name")
             )
             self.fields["product_templates"].queryset = (
                 ProductTemplate.objects.all().order_by("name")
@@ -86,12 +86,12 @@ class BulkCommissionStep1FormHelper(FormHelper):
             ),
             HTML(
                 f"""<h3 class="text-base font-semibold text-gray-800 dark:text-gray-100 mb-1">"""
-                f"""{_('Select employees and product templates')}</h3>"""
+                f"""{_('Select agents and product templates')}</h3>"""
                 f"""<p class="text-xs text-gray-500 mb-4">"""
-                f"""{_('Search and select all employees and product templates that will receive these commission rules.')}</p>"""
+                f"""{_('Search and select all agents and product templates that will receive these commission rules.')}</p>"""
             ),
             Row(
-                Column(Field("employees", size=10), css_class="col-span-12"),
+                Column(Field("agents", size=10), css_class="col-span-12"),
                 css_class="mb-4",
             ),
             Row(

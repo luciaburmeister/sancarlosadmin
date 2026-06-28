@@ -189,6 +189,7 @@ class ProductoListCreateView(CompanyAPIView):
             )
             config.copy_default_pricing_rules_from_product()
             config.copy_default_taxes_from_product()
+            config.copy_taxes_from_client()
 
             # If caller supplied a VAT-inclusive final price, back-calculate the subtotal
             # so that after taxes are applied, total_price == final_price.

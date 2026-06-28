@@ -269,6 +269,7 @@ class CompanyAdmin(ModelAdmin):
                 ("production_stages",
                 "asset_identifier_labels"),
                 "allow_shared_production_stage_activities",
+                "auto_apply_client_taxes",
                 ("document_reminder_emails"),
             ),
             "classes": ["tab"]

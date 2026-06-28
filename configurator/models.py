@@ -1134,6 +1134,44 @@ class Configuration(Timestampable, CompanyOwnedModel):
                 },
             )
 
+    def copy_taxes_from_client(self):
+        """Copy the client's configured taxes to this configuration.
+
+        When the company flag ``auto_apply_client_taxes`` is ON and the
+        client has AppliedTax records, those taxes **replace** any existing
+        taxes on this configuration (e.g. those copied from the product).
+        """
+        if not self.client_id or not self.company_id:
+            return
+        if not self.company.auto_apply_client_taxes:
+            return
+
+        client_ct = ContentType.objects.get_for_model(self.client)
+        client_taxes = AppliedTax.objects.filter(
+            content_type=client_ct,
+            object_id=self.client_id,
+        ).select_related("tax_type").order_by("order")
+
+        if not client_taxes.exists():
+            return
+
+        # Remove existing taxes on this configuration (from product defaults)
+        config_ct = ContentType.objects.get_for_model(self)
+        AppliedTax.objects.filter(
+            content_type=config_ct,
+            object_id=self.pk,
+        ).delete()
+
+        # Copy client taxes
+        for tax in client_taxes:
+            AppliedTax.objects.create(
+                content_type=config_ct,
+                object_id=self.pk,
+                tax_type=tax.tax_type,
+                selected_percentage=tax.selected_percentage,
+                order=tax.order,
+            )
+
     def get_taxes(self):
         ct = ContentType.objects.get_for_model(self)
         return (

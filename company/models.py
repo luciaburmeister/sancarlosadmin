@@ -70,6 +70,14 @@ class Company(models.Model):
             "Disable for companies where only one worker may run a stage at a time (e.g. Aluares)."
         ),
     )
+    auto_apply_client_taxes = models.BooleanField(
+        default=False,
+        verbose_name=_("Auto-apply client taxes"),
+        help_text=_(
+            "When enabled, taxes configured on the client replace product template taxes "
+            "on new Configurations. Client taxes on inventory items are applied when added to a Quote."
+        ),
+    )
 
     def __str__(self):
         return self.name

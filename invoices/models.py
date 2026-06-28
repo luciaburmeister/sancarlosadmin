@@ -678,6 +678,7 @@ class IncomingInvoice(CompanyOwnedModel):
     sender_email = models.EmailField(null=True, blank=True, verbose_name=_("Sender Email"))
     processed = models.BooleanField(default=False, verbose_name=_("Processed by AI"))
     is_duplicate = models.BooleanField(default=False, verbose_name=_("Is Duplicate"))
+    error = models.TextField(blank=True, default="", verbose_name=_("Processing Error"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
 
     class Meta:

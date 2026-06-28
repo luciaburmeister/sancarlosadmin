@@ -187,11 +187,8 @@ class InvoiceService:
                     messages=messages,
                     needs_review=True
                 )
-            except:
+            except Exception:
                 # If we can't even create a partial invoice, re-raise the original error
-                raise e
-            finally:
-                # Re-raise the original exception after attempt to create partial invoice
                 raise e
     
     def process_existing_invoice(self, invoice: Invoice, file_path: Optional[str] = None) -> InvoiceProcessingResult:

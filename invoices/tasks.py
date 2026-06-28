@@ -3,6 +3,7 @@ from django.conf import settings
 from .models import IncomingInvoice, Invoice
 from invoices.services.invoice.invoice_service import InvoiceService
 from invoices.services.ocr_services.gemini_ocr import GeminiInvoiceProcessor
+from google.genai.errors import ClientError
 import logging
 import tempfile
 import os
@@ -51,9 +52,9 @@ def process_incoming_invoices(invoice_ids=None):
     Otherwise, processes all unprocessed records.
     """
     if invoice_ids:
-        invoices = IncomingInvoice.objects.filter(id__in=invoice_ids, processed=False)
+        invoices = IncomingInvoice.objects.filter(id__in=invoice_ids, processed=False, error="")
     else:
-        invoices = IncomingInvoice.objects.filter(processed=False)
+        invoices = IncomingInvoice.objects.filter(processed=False, error="")
     
     if not invoices.exists():
         logger.info("No new invoices to process.")
@@ -107,12 +108,26 @@ def process_incoming_invoices(invoice_ids=None):
                 logger.info(f"Skipped incoming {incoming.id}: {result.messages[-1] if result.messages else 'not an invoice'}")
             else:
                 errors_count += 1
+                error_msg = str(result.messages) if result.messages else "Unknown processing error"
                 logger.error(f"Failed to process invoice {incoming.id}: {result.messages}")
+                incoming.processed = True
+                incoming.error = error_msg
+                incoming.save(update_fields=["processed", "error"])
                 
+        except ClientError as e:
+            error_msg = str(e)
+            logger.error(f"ClientError processing invoice {incoming.id}: {error_msg}")
+            incoming.error = error_msg
+            incoming.processed = True
+            incoming.save(update_fields=["error", "processed"])
+            errors_count += 1
         except Exception as e:
             errors_count += 1
-            logger.error(f"Exception processing invoice {incoming.id}: {str(e)}")
-            raise
+            error_msg = str(e)
+            logger.error(f"Exception processing invoice {incoming.id}: {error_msg}")
+            incoming.error = error_msg
+            incoming.processed = True
+            incoming.save(update_fields=["error", "processed"])
         finally:
             if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)

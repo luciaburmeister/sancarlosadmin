@@ -133,10 +133,14 @@ class TaxTypeAdmin(ModelAdmin):
 
 @admin.register(IncomingInvoice)
 class IncomingInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
-    list_display = ("file_hash", "company", "sender_email", "created_at", "processed", "is_duplicate")
+    list_display = ("file_hash", "company", "sender_email", "created_at", "processed", "is_duplicate", "has_error")
     list_filter = ("company", "processed", "is_duplicate", "created_at")
     search_fields = ("file_hash", "source_email_id", "sender_email")
-    readonly_fields = ("file_hash", "source_email_id", "created_at", "sender_email")
+    readonly_fields = ("file_hash", "source_email_id", "created_at", "sender_email", "error")
+
+    @admin.display(boolean=True, description="Error")
+    def has_error(self, obj):
+        return bool(obj.error)
     autocomplete_fields = ("company", "email_config")
     actions = ["process_selected_invoices"]
 

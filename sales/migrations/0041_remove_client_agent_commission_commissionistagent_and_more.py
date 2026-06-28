@@ -4,6 +4,16 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
+def clear_old_agent_ids(apps, schema_editor):
+    """Null out Client.agent_id before the FK target changes.
+
+    The old values pointed to company.Employee rows; those IDs are invalid
+    for the new sales.CommissionistAgent table.
+    """
+    Client = apps.get_model("sales", "Client")
+    Client.objects.filter(agent__isnull=False).update(agent=None)
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -36,9 +46,15 @@ class Migration(migrations.Migration):
                 'ordering': ['name'],
             },
         ),
+        # Clear old Employee IDs before changing the FK target
+        migrations.RunPython(
+            clear_old_agent_ids,
+            migrations.RunPython.noop,
+        ),
         migrations.AlterField(
             model_name='client',
             name='agent',
             field=models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='managed_clients', to='sales.commissionistagent', verbose_name='Agent'),
         ),
     ]
+

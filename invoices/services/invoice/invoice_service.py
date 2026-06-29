@@ -243,6 +243,7 @@ class InvoiceService:
                 invoice.invoice_number = invoice_num
                 invoice.date_issued = self._parse_date(extracted_data.date_issued) or invoice.date_issued or timezone.now().date()
                 invoice.due_date = self._parse_date(extracted_data.due_date) or invoice.due_date or timezone.now().date()
+                invoice.accounting_date = invoice.date_issued
                 invoice.provider = provider
                 invoice.net_amount = extracted_data.net_amount or invoice.net_amount
                 invoice.total_amount = extracted_data.total_amount or invoice.total_amount
@@ -270,7 +271,7 @@ class InvoiceService:
                 invoice.ocr_error = None
                 invoice.needs_manual_review = True
                 invoice.save(update_fields=[
-                    'invoice_number', 'date_issued', 'due_date', 'provider',
+                    'invoice_number', 'date_issued', 'due_date', 'accounting_date', 'provider',
                     'net_amount', 'net_amount_currency',
                     'total_amount', 'total_amount_currency',
                     'currency', 'payment_method', 'company', 'ocr_raw_response',
@@ -303,6 +304,7 @@ class InvoiceService:
             invoice_number=extracted_data.invoice_number or 'UNKNOWN',
             date_issued=date_issued or datetime.now().date(),
             due_date=due_date or datetime.now().date(),
+            accounting_date=date_issued or datetime.now().date(),
             provider=provider,  # Will be None if matching failed
             net_amount=extracted_data.net_amount,
             total_amount=extracted_data.total_amount,

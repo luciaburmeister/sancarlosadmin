@@ -5,6 +5,13 @@
     {{ block.super }}
     <script src="{% url 'admin:jsi18n' %}"></script>
     {{ filter_form.media }}
+    <style>
+      .schedule-filter-expediente select,
+      .schedule-filter-expediente .select2-container {
+        width: 14rem !important;
+        min-width: 14rem;
+      }
+    </style>
 {% endblock %}
 
 {% block content %}
@@ -27,21 +34,26 @@
 
   {# Filters — Unfold widgets #}
   <div class="rounded-2xl border border-base-200 bg-white p-4">
-    <form method="get" class="flex flex-wrap items-end gap-4">
+    <form method="get" class="flex flex-col gap-4">
+      <div class="flex flex-wrap items-end gap-4">
 
-      {% for field in filter_form %}
-        {% if field.name != "project_file" %}
-          {% include "unfold/helpers/field.html" with field=field %}
-        {% endif %}
-      {% endfor %}
+        {% for field in filter_form %}
+          {% if field.name != "project_file" %}
+            {% include "unfold/helpers/field.html" with field=field %}
+          {% endif %}
+        {% endfor %}
 
-      {# Project file — autocomplete widget rendered manually #}
-      <div>
-        <label class="block text-xs font-medium text-base-500 mb-1">{{ filter_form.project_file.label }}</label>
-        {{ filter_form.project_file }}
+        {# Project file — autocomplete, wider, bold label matching the rest #}
+        <div class="flex flex-col gap-2 shrink-0 schedule-filter-expediente">
+          <label for="{{ filter_form.project_file.id_for_label }}" class="block font-semibold text-important">
+            {{ filter_form.project_file.label }}
+          </label>
+          {{ filter_form.project_file }}
+        </div>
+
       </div>
 
-      <div class="flex items-end gap-2">
+      <div class="flex items-center gap-2">
         {% component "unfold/components/button.html" with type="submit" variant="primary" %}
           {% trans "Filter" %}
         {% endcomponent %}
@@ -101,40 +113,63 @@
           </tr>
 
           {% for res in group.resources %}
+          {# Build the resource token once (e.g. "employee:42") #}
+          {% with res_token=res.ct_model|add:":"|add:res.obj_id|stringformat:"s" %}
           <tr class="hover:bg-base-50/50 transition-colors">
-            {# Resource name — sticky left #}
-            <td class="sticky left-0 z-10 bg-white px-4 py-2 text-sm font-medium border-b border-r border-base-200 whitespace-nowrap">
-              {{ res.name }}
+            {# Resource name — sticky left, with + button #}
+            <td class="sticky left-0 z-10 bg-white px-4 py-2 border-b border-r border-base-200 whitespace-nowrap">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-sm font-medium">{{ res.name }}</span>
+                <a href="{{ add_url }}?resources={{ res.ct_model }}:{{ res.obj_id }}{% if selected_company %}&company={{ selected_company.pk }}{% endif %}"
+                   class="group flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-base-100 hover:bg-primary-100 transition-colors"
+                   title="{% trans 'Add planning for this resource' %}">
+                  <span class="material-symbols-outlined text-base-400 group-hover:text-primary-600 transition-colors" style="font-size:16px;">add</span>
+                </a>
+              </div>
             </td>
 
             {# One cell per column #}
-            {% for cell_blocks in res.cells %}
-              <td class="px-1 py-1 border-b border-base-100 align-top min-h-[40px]">
-                {% if cell_blocks %}
-                  <div class="flex flex-col gap-1">
-                    {% for b in cell_blocks %}
+            {% for cell in res.cells %}
+              <td class="px-1 py-1 border-b border-base-100 align-top">
+                <div class="flex flex-col gap-1">
+                  {% for b in cell.blocks %}
+                    <div style="position: relative;" x-data="{ hovered: false }" @mouseenter="hovered = true" @mouseleave="hovered = false">
                       <a href="{% url 'admin:management_resourceplanning_change' b.id %}"
-                         class="block rounded-md px-2 py-1 text-xs text-white shadow-sm hover:shadow-md hover:brightness-110 transition-all truncate"
+                         class="flex items-center h-8 rounded-md px-2 text-xs text-white shadow-sm hover:shadow-md hover:brightness-110 transition-all truncate"
                          style="background: {{ b.color }};"
                          title="{{ b.planning_type_name }}: {{ b.project_file_name }}&#10;{{ b.start|date:'H:i' }}–{{ b.end|date:'H:i' }}">
-                        <span class="font-semibold">{{ b.label }}</span>
-                        <span class="opacity-80 text-[10px] ml-1">{{ b.start|date:"H:i" }}–{{ b.end|date:"H:i" }}</span>
+                        <span class="font-semibold truncate">{{ b.label }}</span>
+                        <span class="opacity-80 text-[10px] ml-1 shrink-0">{{ b.start|date:"H:i" }}–{{ b.end|date:"H:i" }}</span>
                       </a>
-                    {% endfor %}
-                  </div>
-                {% else %}
-                  {# Empty cell — clickable to add a new planning #}
-                  {% with col=columns_meta|slice:"forloop.counter0:forloop.counter"|first %}
-                  {% endwith %}
-                  <a href="{{ add_url }}?resource_content_type={{ res.ct_id }}&resource_object_id={{ res.obj_id }}"
+                      <form method="post"
+                            action="{% url 'admin:management_resourceplanning_delete_day' b.id %}"
+                            x-show="hovered"
+                            x-cloak
+                            style="position: absolute; top: -6px; right: -6px; z-index: 10; margin: 0;">
+                        {% csrf_token %}
+                        <input type="hidden" name="day" value="{{ cell.date_key }}">
+                        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                        <button type="submit"
+                                title="Eliminar este día"
+                                onclick="return confirm('¿Eliminar este día de la planificación?')"
+                                style="width: 18px; height: 18px; border-radius: 50%; background: #ef4444; color: white; font-size: 12px; font-weight: bold; line-height: 1; border: 2px solid white; cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 4px rgba(0,0,0,0.35); padding: 0;">
+                          ×
+                        </button>
+                      </form>
+                    </div>
+                  {% endfor %}
+
+                  {# + button at bottom of every cell #}
+                  <a href="{{ add_url }}?resources={{ res.ct_model }}:{{ res.obj_id }}&day={{ cell.date_key }}{% if selected_company %}&company={{ selected_company.pk }}{% endif %}"
                      class="group flex items-center justify-center h-8 rounded-md bg-base-50/50 border border-dashed border-base-200 hover:border-primary-400 hover:bg-primary-50 transition-all"
-                     title="{% trans 'Add planning' %}">
-                    <span class="material-symbols-outlined text-base-300 text-sm group-hover:text-primary-500 transition-colors">add</span>
+                     title="{% trans 'Add planning for this day' %}">
+                    <span class="material-symbols-outlined text-base-300 group-hover:text-primary-500 transition-colors" style="font-size:16px;">add</span>
                   </a>
-                {% endif %}
+                </div>
               </td>
             {% endfor %}
           </tr>
+          {% endwith %}
           {% endfor %}
         {% endfor %}
       </tbody>

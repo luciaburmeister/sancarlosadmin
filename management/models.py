@@ -174,6 +174,24 @@ class ResourcePlanningStatus(models.TextChoices):
     CANCELLED = "cancelled", _("Cancelled")
 
 
+class ResourcePlanningGroup(Timestampable, CompanyOwnedModel):
+    """
+    Optional grouping for ResourcePlanning records created together.
+    Holds no metadata — the group is just an identifier (its PK) that
+    lets the admin update or cancel all members in a single action.
+    """
+
+    class Meta:
+        verbose_name = _("Resource Planning Group")
+        verbose_name_plural = _("Resource Planning Groups")
+
+    def __str__(self):
+        return f"Group #{self.pk}"
+
+    def cancel_all(self) -> None:
+        self.plannings.update(status=ResourcePlanningStatus.CANCELLED)
+
+
 class ResourcePlanning(Timestampable, CompanyOwnedModel):
     """
     Generic resource planning: assign any resource (Employee, Machine, Asset…)
@@ -193,6 +211,15 @@ class ResourcePlanning(Timestampable, CompanyOwnedModel):
         verbose_name=_("Planning Type"),
     )
 
+    group = models.ForeignKey(
+        ResourcePlanningGroup,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="plannings",
+        verbose_name=_("Group"),
+    )
+
     # Generic FK → the resource being planned
     resource_content_type = models.ForeignKey(
         ContentType,
@@ -207,6 +234,7 @@ class ResourcePlanning(Timestampable, CompanyOwnedModel):
     # Schedule
     start = models.DateTimeField(verbose_name=_("Start"))
     end = models.DateTimeField(verbose_name=_("End"))
+    exclude_weekends = models.BooleanField(default=False, verbose_name=_("Exclude weekends"))
 
     status = models.CharField(
         max_length=20,
@@ -236,6 +264,10 @@ class ResourcePlanning(Timestampable, CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.resource} → {self.project_file} ({self.start:%d/%m %H:%M}–{self.end:%H:%M})"
+
+    def cancel(self) -> None:
+        self.status = ResourcePlanningStatus.CANCELLED
+        self.save(update_fields=["status"])
 
     def clean(self):
         super().clean()

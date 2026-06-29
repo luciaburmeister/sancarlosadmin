@@ -185,6 +185,17 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         blank=True,
     )
 
+    cost_price = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Cost Price"),
+        null=True,
+        blank=True,
+        help_text=_("Purchase/cost price used for margin calculations."),
+    )
+
     min_stock = models.PositiveIntegerField(
         _("Minimum Stock"),
         null=True,

@@ -458,7 +458,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ("company"),
                 ("code", "item_type"),
                 ("name", "stock_on_hand_display"),
-                ("selling_price",),
+                ("selling_price", "cost_price"),
                 ("min_stock",),
                 ("description", "image"),
                 ("product_content_type", "product_object_selector"),

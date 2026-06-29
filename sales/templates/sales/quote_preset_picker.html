@@ -1,0 +1,55 @@
+{% load i18n %}
+
+{% if preset_picker_form %}
+<div class="mt-6 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm overflow-hidden">
+    <div class="px-5 py-4 flex items-center gap-4">
+        <div class="flex items-center gap-2 shrink-0">
+            <span class="material-symbols-outlined text-primary-600 text-xl">dashboard_customize</span>
+            <label class="text-sm font-semibold text-gray-900 dark:text-gray-100 whitespace-nowrap">
+                {% trans "Add from Preset" %}
+            </label>
+        </div>
+
+        <div class="flex-1">
+            {{ preset_picker_form.preset }}
+        </div>
+
+        <a id="preset-add-btn"
+           href="#"
+           style="pointer-events: none; opacity: 0.4;"
+           class="shrink-0 px-4 py-2 text-sm font-medium rounded-lg
+                  bg-primary-600 text-white no-underline
+                  hover:bg-primary-700
+                  transition-colors duration-200">
+            {% trans "Add" %}
+        </a>
+    </div>
+</div>
+
+<script>
+(function () {
+    var $ = django.jQuery;
+    var $select = $('#id_preset');
+    var $btn = $('#preset-add-btn');
+    var quoteId = '{{ original.pk }}';
+    var baseUrl = '/admin/configurator/configurationpreset/';
+
+    // Init select2 using Unfold's own helper (scripts already loaded on admin page)
+    $select.djangoCustomSelect2();
+
+    function updateBtn() {
+        var val = $select.val();
+        if (val) {
+            $btn.attr('href', baseUrl + val + '/use/?quote_id=' + quoteId);
+            $btn.css({'pointer-events': '', 'opacity': ''});
+        } else {
+            $btn.attr('href', '#');
+            $btn.css({'pointer-events': 'none', 'opacity': '0.4'});
+        }
+    }
+
+    $select.on('change select2:select select2:clear', updateBtn);
+    updateBtn();
+})();
+</script>
+{% endif %}

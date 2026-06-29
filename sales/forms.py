@@ -292,3 +292,39 @@ class QuoteImportForm(_AutoFormatMixin, ImportForm):
             from sales.models import Quote
             company_remote_field = Quote._meta.get_field("company").remote_field
             _wrap_fk(self.fields["company"], company_remote_field, request.user)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Preset picker (used inside Quote change_form_outer_after_template)
+# ─────────────────────────────────────────────────────────────────────────────
+
+from django.conf import settings
+from unfold.fields import UnfoldAdminAutocompleteModelChoiceField
+from configurator.models import ConfigurationPreset
+
+
+class QuotePresetPickerForm(forms.Form):
+    """Autocomplete field for selecting a ConfigurationPreset from the Quote detail page."""
+
+    preset = UnfoldAdminAutocompleteModelChoiceField(
+        url_path="admin:preset_autocomplete",
+        queryset=ConfigurationPreset.objects.filter(is_active=True),
+        label=_("Preset"),
+        required=True,
+    )
+
+    class Media:
+        extra = "" if settings.DEBUG else ".min"
+        js = (
+            f"admin/js/vendor/jquery/jquery{extra}.js",
+            "admin/js/vendor/select2/select2.full.js",
+            "admin/js/jquery.init.js",
+            "unfold/js/select2.init.js",
+            "admin/js/admin/RelatedObjectLookups.js",
+        )
+        css = {
+            "screen": (
+                "admin/css/vendor/select2/select2.css",
+                "admin/css/autocomplete.css",
+            ),
+        }

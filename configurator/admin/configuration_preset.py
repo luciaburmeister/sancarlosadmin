@@ -25,8 +25,41 @@ from configurator.views.configuration.preset_use_wizard_views import (
             PresetUseWizardView,
         )
 
+from unfold.views import BaseAutocompleteView
+from core.admin.company_access import get_user_companies
+from django.db.models import Q
+
+
+class ConfigurationPresetAutocompleteView(BaseAutocompleteView):
+    model = ConfigurationPreset
+
+    def get_queryset(self):
+        qs = super().get_queryset().filter(is_active=True).select_related("product")
+        user = self.request.user
+
+        if not user.is_superuser:
+            qs = qs.filter(product__company__in=get_user_companies(user))
+
+        term = self.request.GET.get("term")
+        if term:
+            qs = qs.filter(
+                Q(name__icontains=term)
+                | Q(reference_code__icontains=term)
+                | Q(product__name__icontains=term)
+            )
+
+        return qs.order_by("order", "name")
+
+
 @admin.register(ConfigurationPreset)
 class ConfigurationPresetAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
+    custom_urls = (
+        (
+            "autocomplete/preset/",
+            "preset_autocomplete",
+            ConfigurationPresetAutocompleteView.as_view(),
+        ),
+    )
     resource_classes = [ConfigurationPresetResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm

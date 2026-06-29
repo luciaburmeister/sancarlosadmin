@@ -1,6 +1,7 @@
 from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
 from decimal import Decimal
+from djmoney.money import Money
 
 from django.contrib import admin
 from django.utils.html import format_html
@@ -545,13 +546,52 @@ class QuoteItemInline(TabularInline):
 
 class QuoteInventoryItemInline(TabularInline):
     model = QuoteInventoryItem
-    extra = 1
+    extra = 0
     tab = True
     autocomplete_fields = ["inventory_item"]
-    readonly_fields = ["unit_price", "line_total", "total_with_tax"]
-    fields = ["inventory_item", "quantity", "discount", "unit_price", "line_total", "total_with_tax"]
+    readonly_fields = ["unit_price", "line_total", "total_with_tax", "cost_display", "margin_display", "margin_pct_display"]
+    fields = ["inventory_item", "quantity", "discount", "unit_price", "cost_display", "line_total", "total_with_tax", "margin_display", "margin_pct_display"]
     verbose_name = _("Sale item")
     verbose_name_plural = _("Sale items")
+
+    def _get_item_cost(self, obj):
+        """Last purchase price for this inventory item, fallback to cost_price."""
+        from purchasing.models import PurchaseOrderItem
+        if not obj.inventory_item_id:
+            return Decimal("0")
+        last_po = (
+            PurchaseOrderItem.objects
+            .filter(inventory_item=obj.inventory_item)
+            .order_by("-purchase_order__date_ordered")
+            .values_list("unit_price", flat=True)
+            .first()
+        )
+        if last_po:
+            return last_po
+        cp = obj.inventory_item.cost_price
+        if cp and cp.amount:
+            return cp.amount
+        return Decimal("0")
+
+    @display(description=_("Cost"))
+    def cost_display(self, obj):
+        unit_cost = self._get_item_cost(obj)
+        return Money(unit_cost * (obj.quantity or Decimal("0")), "EUR")
+
+    @display(description=_("Margin (€)"))
+    def margin_display(self, obj):
+        revenue = obj.line_total.amount if obj.line_total else Decimal("0")
+        cost = self._get_item_cost(obj) * (obj.quantity or Decimal("0"))
+        return Money(revenue - cost, "EUR")
+
+    @display(description=_("Margin (%)"))
+    def margin_pct_display(self, obj):
+        revenue = obj.line_total.amount if obj.line_total else Decimal("0")
+        cost = self._get_item_cost(obj) * (obj.quantity or Decimal("0"))
+        if revenue:
+            pct = ((revenue - cost) / revenue * 100).quantize(Decimal("0.1"))
+            return f"{pct}%"
+        return "—"
 
 class QuoteConfigurationGroupInline(StackedInline):
     model = QuoteConfigurationGroup
@@ -576,8 +616,16 @@ class ConfigurationReadOnlyInline(TabularInline):
     model = Configuration
     extra = 0
     tab = True
-    readonly_fields = ["config_link", "status", "subtotal_price", "total_price_display"]
-    fields = ["config_link", "status", "quote_group", "subtotal_price", "total_price_display"]
+    readonly_fields = [
+        "config_link", "status", 
+        "cost_display", "margin_display", "margin_pct_display","subtotal_price", "total_price_display",
+    ]
+    fields = [
+        "config_link", "status", "quote_group",
+        "cost_display", 
+        "margin_display", "margin_pct_display",
+        "subtotal_price", "total_price_display",
+    ]
     can_delete = True
     max_num = 0
 
@@ -602,6 +650,25 @@ class ConfigurationReadOnlyInline(TabularInline):
     @display(description=_("Total price"))
     def total_price_display(self, obj):
         return obj.total_price
+
+    @display(description=_("Cost"))
+    def cost_display(self, obj):
+        return obj.total_cost
+
+    @display(description=_("Margin (€)"))
+    def margin_display(self, obj):
+        cost = obj.total_cost.amount if obj.total_cost else Decimal("0")
+        revenue = obj.subtotal_price.amount if obj.subtotal_price else Decimal("0")
+        return Money(revenue - cost, "EUR")
+
+    @display(description=_("Margin (%)"))
+    def margin_pct_display(self, obj):
+        cost = obj.total_cost.amount if obj.total_cost else Decimal("0")
+        revenue = obj.subtotal_price.amount if obj.subtotal_price else Decimal("0")
+        if revenue:
+            pct = ((revenue - cost) / revenue * 100).quantize(Decimal("0.1"))
+            return f"{pct}%"
+        return "—"
 
 
 class QuoteEmailLogInline(_GenericTabularInline):
@@ -631,17 +698,25 @@ class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
         ("date_accepted",RangeDateFilter)]
     search_fields = ["project_name", "client__name", "id", "external_id"]
     autocomplete_fields = ["client", "project_file", "company","discount_policies"]
-    readonly_fields = ["subtotal_price", "tax_amount", "total_price", "tax_breakdown", "discount_amount", "discount_breakdown", "date_sent", "date_accepted", "date_rejected"]
+    readonly_fields = [
+        "subtotal_price", "tax_amount", "total_price", "tax_breakdown",
+        "discount_amount", "discount_breakdown", "date_sent", "date_accepted", "date_rejected",
+        "total_cost_display", "total_commissions_display",
+        "margin_before_discount_display", "margin_before_discount_pct_display",
+        "margin_after_discount_display", "margin_after_discount_pct_display",
+    ]
     list_select_related = ["client", "project_file__client", "company"]
     list_filter_submit = True
+    change_form_outer_after_template = "sales/quote_preset_picker.html"
 
     inlines = [ConfigurationReadOnlyInline, 
+    QuoteInventoryItemInline,
+    QuoteCommissionInline,
     QuoteConfigurationGroupInline, 
-    QuoteInventoryItemInline, 
-    QuotePhotoInline, 
     AppliedTaxInline, 
     QuoteEmailLogInline,
-    QuoteCommissionInline]
+    QuotePhotoInline, 
+    ]
 
 
     actions_list = [ "quote_dashboard_action"]
@@ -675,11 +750,102 @@ class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
                 ("date_sent", "date_accepted", "date_rejected"),
             )
         }),
+        (_("Margin"), {
+            "classes": ["tab"],
+            "fields": (
+                ("total_cost_display", "total_commissions_display"),
+                ("margin_before_discount_display", "margin_before_discount_pct_display"),
+                ("margin_after_discount_display", "margin_after_discount_pct_display"),
+            )
+        }),
     )
 
     @display(description=_("Total price"))
     def total_price_display(self, obj):
         return obj.total_price
+
+    # ── Margin tab display methods ────────────────────────────────────
+
+    def _get_quote_cost(self, obj):
+        """Total cost = config costs + inventory item last-purchase costs."""
+        from purchasing.models import PurchaseOrderItem
+
+        config_cost = sum(
+            (c.total_cost.amount for c in obj.configurations.all() if c.total_cost),
+            Decimal("0"),
+        )
+
+        inv_cost = Decimal("0")
+        for qi in obj.inventory_items.select_related("inventory_item").all():
+            last_po = (
+                PurchaseOrderItem.objects
+                .filter(inventory_item=qi.inventory_item)
+                .order_by("-purchase_order__date_ordered")
+                .values_list("unit_price", flat=True)
+                .first()
+            )
+            if last_po:
+                inv_cost += last_po * qi.quantity
+            elif qi.inventory_item.cost_price and qi.inventory_item.cost_price.amount:
+                inv_cost += qi.inventory_item.cost_price.amount * qi.quantity
+
+        return config_cost + inv_cost
+
+    def _get_total_commissions(self, obj):
+        return sum(
+            (c.commission_amount.amount for c in obj.commissions.all() if c.commission_amount),
+            Decimal("0"),
+        )
+
+    @display(description=_("Total Cost"))
+    def total_cost_display(self, obj):
+        return Money(self._get_quote_cost(obj), "EUR")
+
+    @display(description=_("Total Commissions"))
+    def total_commissions_display(self, obj):
+        return Money(self._get_total_commissions(obj), "EUR")
+
+    @display(description=_("Margin before discount (€)"))
+    def margin_before_discount_display(self, obj):
+        revenue = obj.subtotal_price.amount if obj.subtotal_price else Decimal("0")
+        cost = self._get_quote_cost(obj)
+        commissions = self._get_total_commissions(obj)
+        return Money(revenue - cost - commissions, "EUR")
+
+    @display(description=_("Margin before discount (%)"))
+    def margin_before_discount_pct_display(self, obj):
+        revenue = obj.subtotal_price.amount if obj.subtotal_price else Decimal("0")
+        cost = self._get_quote_cost(obj)
+        commissions = self._get_total_commissions(obj)
+        if revenue:
+            pct = ((revenue - cost - commissions) / revenue * 100).quantize(Decimal("0.1"))
+            return f"{pct}%"
+        return "—"
+
+    @display(description=_("Margin after discount (€)"))
+    def margin_after_discount_display(self, obj):
+        revenue = getattr(obj, 'discounted_subtotal', None)
+        if revenue is None or not hasattr(revenue, 'amount'):
+            revenue_amt = (obj.subtotal_price.amount if obj.subtotal_price else Decimal("0"))
+        else:
+            revenue_amt = revenue.amount
+        cost = self._get_quote_cost(obj)
+        commissions = self._get_total_commissions(obj)
+        return Money(revenue_amt - cost - commissions, "EUR")
+
+    @display(description=_("Margin after discount (%)"))
+    def margin_after_discount_pct_display(self, obj):
+        revenue = getattr(obj, 'discounted_subtotal', None)
+        if revenue is None or not hasattr(revenue, 'amount'):
+            revenue_amt = (obj.subtotal_price.amount if obj.subtotal_price else Decimal("0"))
+        else:
+            revenue_amt = revenue.amount
+        cost = self._get_quote_cost(obj)
+        commissions = self._get_total_commissions(obj)
+        if revenue_amt:
+            pct = ((revenue_amt - cost - commissions) / revenue_amt * 100).quantize(Decimal("0.1"))
+            return f"{pct}%"
+        return "—"
 
     @display(
         description=_("Status"),
@@ -704,6 +870,12 @@ class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
         form.instance.recalc_totals()
         CommissionService.prepopulate_for_quote(form.instance)
         CommissionService.recalculate(form.instance)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        from sales.forms import QuotePresetPickerForm
+        extra_context = extra_context or {}
+        extra_context["preset_picker_form"] = QuotePresetPickerForm()
+        return super().change_view(request, object_id, form_url, extra_context)
 
     @action(description=_("Export Quote"), attrs={"target": "_blank"})
     def export_quote_action(self, request, object_id: int):

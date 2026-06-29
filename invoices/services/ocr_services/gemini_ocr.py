@@ -342,19 +342,42 @@ class GeminiInvoiceProcessor(OcrInterface):
         """
         if not date_str:
             return None
+
         # Try YYYY-MM-DD first (expected output format)
         try:
-            datetime.strptime(date_str, "%Y-%m-%d")
+            parsed = datetime.strptime(date_str, "%Y-%m-%d")
+            # Sanity check: if the year is < 100, Gemini returned a 2-digit year
+            # as if it were YYYY — e.g. "26-06-19" parsed as year 26.
+            # Also catch the reverse: "19-06-26" parsed as 2019-06-26 when the
+            # first number is actually the day (≤ 31) and year part (26) is 2026.
+            if parsed.year < 100:
+                # Clearly a 2-digit year misparse, re-interpret as DD-MM-YY
+                pass  # fall through to DD-MM-YY formats below
+            elif parsed.year < 2000 and len(date_str.split('-')[0]) == 2:
+                # e.g. "19-06-26" → parsed as 0019-06-26, treat as DD-MM-YY
+                pass  # fall through
+            else:
                 return date_str
         except ValueError:
             pass
-        # Fallback: try DD/MM/YYYY (Spanish document format)
+
+        # Try DD/MM/YYYY with 4-digit year (Spanish document format)
         for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y"):
+            try:
+                parsed = datetime.strptime(date_str, fmt)
+                if parsed.year > 2000:
+                    return parsed.strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+
+        # Try DD/MM/YY with 2-digit year (e.g. "19/06/26" or "19-06-26")
+        for fmt in ("%d/%m/%y", "%d-%m-%y", "%d.%m.%y"):
             try:
                 parsed = datetime.strptime(date_str, fmt)
                 return parsed.strftime("%Y-%m-%d")
             except ValueError:
                 continue
+
         return None
 
     def _to_decimal(self, value) -> Optional[Decimal]:

@@ -809,15 +809,16 @@ class Quote(Timestampable, CompanyOwnedModel):
         discount_amount, discount_breakdown = self._compute_discounts(raw_subtotal)
 
         self._sync_applied_taxes()
-        tax_amount, tax_breakdown = self._build_tax_breakdown(discount_amount)
+        discounted_subtotal = raw_subtotal - discount_amount
+        tax_amount, tax_breakdown = self._build_tax_breakdown(raw_subtotal, discounted_subtotal)
 
         self.subtotal_price = raw_subtotal
         self.discount_amount = discount_amount
         self.discount_breakdown = discount_breakdown
-        self.discounted_subtotal = raw_subtotal - discount_amount
+        self.discounted_subtotal = discounted_subtotal
         self.tax_amount = tax_amount
         self.tax_breakdown = tax_breakdown
-        self.total_price = (raw_subtotal - discount_amount) + tax_amount
+        self.total_price = discounted_subtotal + tax_amount
         self.save(update_fields=[
             'subtotal_price', 'discount_amount', 'discount_breakdown',
             'discounted_subtotal', 'tax_amount', 'total_price', 'tax_breakdown',
@@ -946,11 +947,13 @@ class Quote(Timestampable, CompanyOwnedModel):
             object_id=self.pk,
         ).exclude(pk__in=seen_ids).delete()
 
-    def _build_tax_breakdown(self, discount_amount=Decimal("0.00")):
+    def _build_tax_breakdown(self, raw_subtotal=Decimal("0.00"), discounted_subtotal=Decimal("0.00")):
         """
         Derives the tax_breakdown JSON and total tax amount
         from the Quote's own AppliedTax records (single source of truth).
-        When a discount is present, proportionally reduces the tax base.
+        Each tax's base is scaled by the discount factor
+        (discounted_subtotal / raw_subtotal) so that multiple tax types
+        sharing the same base each get the correct discounted base.
         """
         ct = ContentType.objects.get_for_model(self)
         taxes = AppliedTax.objects.filter(
@@ -958,21 +961,20 @@ class Quote(Timestampable, CompanyOwnedModel):
             object_id=self.pk,
         ).select_related("tax_type").order_by("order")
 
-        # Compute discount ratio to scale tax bases
-        total_base = sum(
-            (t.base_amount.amount if t.base_amount else Decimal("0.00")) for t in taxes
-        )
-        if total_base > 0 and discount_amount > 0:
-            discount_ratio = (total_base - discount_amount) / total_base
+        # Compute discount factor: ratio of discounted to raw subtotal
+        if raw_subtotal > 0:
+            discount_factor = discounted_subtotal / raw_subtotal
         else:
-            discount_ratio = Decimal("1")
+            discount_factor = Decimal("1")
 
         breakdown = []
         total_tax = Decimal("0.00")
         for tax in taxes:
-            base = tax.base_amount.amount if tax.base_amount else Decimal("0.00")
-            # Apply discount proportionally to tax base
-            adjusted_base = (base * discount_ratio).quantize(Decimal("0.01"))
+            orig_base = tax.base_amount.amount if tax.base_amount else Decimal("0.00")
+
+            # Scale each tax's base by the discount factor
+            adjusted_base = (orig_base * discount_factor).quantize(Decimal("0.01"))
+
             rate = tax.selected_percentage / Decimal("100")
             calc = (adjusted_base * rate).quantize(Decimal("0.01"))
 

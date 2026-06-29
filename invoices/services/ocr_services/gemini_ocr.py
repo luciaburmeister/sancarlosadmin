@@ -252,7 +252,7 @@ class GeminiInvoiceProcessor(OcrInterface):
             vendor_name=data.get("vendor_name"),
             vendor_tax_id=self.normalize_tax_id(data.get("vendor_tax_id")),
             company_tax_id=self.normalize_tax_id(data.get("company_tax_id")),
-            invoice_number=data.get("invoice_number"),
+            invoice_number=(data.get("invoice_number") or "").replace(" ", "") or None,
             date_issued=self._parse_date(data.get("date_issued")),
             due_date=self._parse_date(data.get("due_date")),
             net_amount=self._to_decimal(data.get("net_amount")),

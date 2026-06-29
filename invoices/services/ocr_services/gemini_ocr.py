@@ -159,7 +159,11 @@ class GeminiInvoiceProcessor(OcrInterface):
 
         Rules:
         - Use null when data is missing
-        - Dates must be YYYY-MM-DD
+        - IMPORTANT: These documents are in Spanish. Dates on the document will typically
+          be in DD/MM/YYYY format (European/Spanish standard). You MUST convert them to
+          YYYY-MM-DD in your output. For example, if the document shows "05/06/2025",
+          that means June 5th 2025 and you must return "2025-06-05".
+        - Dates must always be returned in YYYY-MM-DD format
         - Numbers must be numeric
         - payment_method must be: transfer, cash, or card
         - line_items MUST include tax_rate
@@ -323,13 +327,23 @@ class GeminiInvoiceProcessor(OcrInterface):
         return None
 
     def _parse_date(self, date_str: Optional[str]) -> Optional[str]:
+        """Parse date string, handling Spanish DD/MM/YYYY format as fallback."""
         if not date_str:
             return None
+        # Try YYYY-MM-DD first (expected output format)
         try:
             datetime.strptime(date_str, "%Y-%m-%d")
             return date_str
         except ValueError:
-            return None
+            pass
+        # Fallback: try DD/MM/YYYY (Spanish document format)
+        for fmt in ("%d/%m/%Y", "%d-%m-%Y", "%d.%m.%Y"):
+            try:
+                parsed = datetime.strptime(date_str, fmt)
+                return parsed.strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+        return None
 
     def _to_decimal(self, value) -> Optional[Decimal]:
         if value is None:

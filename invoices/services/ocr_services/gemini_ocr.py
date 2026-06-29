@@ -159,11 +159,17 @@ class GeminiInvoiceProcessor(OcrInterface):
 
         Rules:
         - Use null when data is missing
-        - IMPORTANT: These documents are in Spanish. Dates on the document will typically
-          be in DD/MM/YYYY format (European/Spanish standard). You MUST convert them to
-          YYYY-MM-DD in your output. For example, if the document shows "05/06/2025",
-          that means June 5th 2025 and you must return "2025-06-05".
-        - Dates must always be returned in YYYY-MM-DD format
+        - IMPORTANT — DATE HANDLING: These documents are in Spanish. Dates on the document
+          will typically be in DD/MM/YYYY or DD/MM/YY format (European/Spanish standard).
+          You MUST convert them to YYYY-MM-DD (4-digit year) in your output.
+          Examples:
+            - "05/06/2025" → "2025-06-05" (June 5th 2025)
+            - "19-06-26" → "2026-06-19" (June 19th 2026, NOT 2019-06-26)
+            - "19/06/26" → "2026-06-19"
+          The first number is ALWAYS the day, the second is ALWAYS the month.
+          A 2-digit year like 26 means 2026, not 1926.
+          NEVER interpret a Spanish date as YYYY-MM-DD or YY-MM-DD.
+        - Dates must always be returned in YYYY-MM-DD format with a 4-digit year
         - Numbers must be numeric
         - payment_method must be: transfer, cash, or card
         - line_items MUST include tax_rate
@@ -327,13 +333,19 @@ class GeminiInvoiceProcessor(OcrInterface):
         return None
 
     def _parse_date(self, date_str: Optional[str]) -> Optional[str]:
-        """Parse date string, handling Spanish DD/MM/YYYY format as fallback."""
+        """
+        Parse date string, handling Spanish DD/MM/YYYY and DD/MM/YY formats.
+
+        Handles the ambiguous case where e.g. "19-06-26" gets misinterpreted
+        as 2019-06-26 (YYYY-MM-DD) when it actually means 26/06/19 → June 19, 2026
+        in DD-MM-YY Spanish format.
+        """
         if not date_str:
             return None
         # Try YYYY-MM-DD first (expected output format)
         try:
             datetime.strptime(date_str, "%Y-%m-%d")
-            return date_str
+                return date_str
         except ValueError:
             pass
         # Fallback: try DD/MM/YYYY (Spanish document format)

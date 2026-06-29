@@ -1,22 +1,35 @@
-from unfold.contrib.filters.admin import RangeDateFilter
-from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
 from django.contrib import admin
 from django.contrib.contenttypes.models import ContentType
-from django.shortcuts import redirect
+from django.http import HttpResponseRedirect
 from django.urls import path, reverse
-from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
+from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
+from unfold.contrib.filters.admin import (
+    AutocompleteSelectMultipleFilter,
+    MultipleChoicesDropdownFilter,
+    RangeDateFilter,
+)
 from unfold.decorators import action, display
-from core.admin.company_admin import CompanyRestrictedAdmin
-from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 
+from core.admin.company_admin import CompanyRestrictedAdmin
 from management.models import (
     ResourcePlanning,
-    ResourcePlanningType,
+    ResourcePlanningGroup,
     ResourcePlanningStatus,
+    ResourcePlanningType,
+)
+from management.views.resource_autocomplete import ResourceAutocompleteView
+from management.views.resource_planning_bulk import (
+    ResourcePlanningAddView,
+    ResourcePlanningDeleteDayView,
+    ResourcePlanningGroupChangeView,
+    ResourcePlanningIndividualChangeView,
 )
 from management.views.resource_planning_schedule import ResourcePlanningScheduleView
+
+PLANNABLE_MODELS = ["employee", "machine", "asset"]
+
 
 @admin.register(ResourcePlanningType)
 class ResourcePlanningTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
@@ -27,29 +40,16 @@ class ResourcePlanningTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_select_related = ["company"]
 
     fieldsets = (
-        (None, {
-            "fields": (
-                "company",
-                "name",
-                ("color", "icon"),
-                "is_active",
-            )
-        }),
+        (None, {"fields": ("company", "name", ("color", "icon"), "is_active")}),
     )
 
     @display(description=_("Color"))
     def color_swatch(self, obj):
         return format_html(
-            '<span style="display:inline-block; width:20px; height:20px; '
-            'border-radius:4px; background:{};" title="{}"></span>',
+            '<span style="display:inline-block;width:20px;height:20px;'
+            'border-radius:4px;background:{};" title="{}"></span>',
             obj.color, obj.color,
         )
-
-
-# ── Resource Planning ──────────────────────────────────────────────────────
-
-# Whitelist of models that can be planned
-PLANNABLE_MODELS = ["employee", "machine", "asset"]
 
 
 @admin.register(ResourcePlanning)
@@ -61,30 +61,109 @@ class ResourcePlanningAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "start",
         "end",
         "show_status",
+        "group_link",
         "company",
     ]
     list_filter = [
-        ("company",AutocompleteSelectMultipleFilter),
-        ("status",MultipleChoicesDropdownFilter),
+        ("company", AutocompleteSelectMultipleFilter),
+        ("status", MultipleChoicesDropdownFilter),
         ("planning_type", AutocompleteSelectMultipleFilter),
-        ("start",RangeDateFilter),
+        ("start", RangeDateFilter),
     ]
     search_fields = ["project_file__name", "project_file__reference", "notes"]
     autocomplete_fields = ["company", "project_file", "planning_type"]
-    list_select_related = ["project_file", "planning_type", "company", "resource_content_type"]
+    list_select_related = ["project_file", "planning_type", "company", "resource_content_type", "group"]
+    actions = ["cancel_group_action", "cancel_individual_action"]
     actions_list = ["schedule_view_action"]
 
-    def get_search_results(self, request, queryset, search_term):
-        queryset, may_have_duplicates = super().get_search_results(request, queryset, search_term)
-        if search_term:
-            from django.db.models import Q
-            from company.models import Employee, Machine
-            from assets.models import Asset
+    fieldsets = (
+        (_("Planning"), {"fields": ("company", "project_file", "planning_type", "status")}),
+        (_("Resource"), {"fields": ("resource_content_type", "resource_object_id")}),
+        (_("Schedule"), {"fields": (("start", "end"),)}),
+        (_("Notes"), {"fields": ("notes",)}),
+    )
 
+    # ── add / change redirects ────────────────────────────────────────────────
+
+    def add_view(self, request, form_url="", extra_context=None):
+        return HttpResponseRedirect(reverse("admin:management_resourceplanning_bulk_add"))
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        obj = self.get_object(request, object_id)
+        if obj is None:
+            return self._get_obj_does_not_exist_redirect(request, self.opts, object_id)
+        if obj.group_id:
+            return HttpResponseRedirect(
+                reverse("admin:management_resourceplanning_group_change", args=[obj.group_id])
+            )
+        return HttpResponseRedirect(
+            reverse("admin:management_resourceplanning_individual_change", args=[object_id])
+        )
+
+    # ── custom URLs ───────────────────────────────────────────────────────────
+
+    def get_urls(self):
+        custom = [
+            path(
+                "schedule/",
+                self.admin_site.admin_view(
+                    ResourcePlanningScheduleView.as_view(model_admin=self)
+                ),
+                name="management_resourceplanning_schedule",
+            ),
+            path(
+                "bulk/add/",
+                self.admin_site.admin_view(
+                    ResourcePlanningAddView.as_view(model_admin=self)
+                ),
+                name="management_resourceplanning_bulk_add",
+            ),
+            path(
+                "group/<int:group_pk>/change/",
+                self.admin_site.admin_view(
+                    ResourcePlanningGroupChangeView.as_view(model_admin=self)
+                ),
+                name="management_resourceplanning_group_change",
+            ),
+            path(
+                "resource-autocomplete/",
+                self.admin_site.admin_view(ResourceAutocompleteView.as_view()),
+                name="management_resourceplanning_resource_autocomplete",
+            ),
+            path(
+                "<int:pk>/change/individual/",
+                self.admin_site.admin_view(
+                    ResourcePlanningIndividualChangeView.as_view(model_admin=self)
+                ),
+                name="management_resourceplanning_individual_change",
+            ),
+            path(
+                "<int:pk>/delete-day/",
+                self.admin_site.admin_view(
+                    ResourcePlanningDeleteDayView.as_view(model_admin=self)
+                ),
+                name="management_resourceplanning_delete_day",
+            ),
+        ]
+        return custom + super().get_urls()
+
+    # ── formfield overrides ───────────────────────────────────────────────────
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "resource_content_type":
+            kwargs["queryset"] = ContentType.objects.filter(model__in=PLANNABLE_MODELS)
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def get_search_results(self, request, queryset, search_term):
+        from django.db.models import Q
+        from assets.models import Asset
+        from company.models import Employee, Machine
+
+        queryset, dupes = super().get_search_results(request, queryset, search_term)
+        if search_term:
             employee_ct = ContentType.objects.get_for_model(Employee)
             machine_ct = ContentType.objects.get_for_model(Machine)
             asset_ct = ContentType.objects.get_for_model(Asset)
-
             emp_ids = Employee.objects.filter(
                 Q(first_name__icontains=search_term) | Q(last_name__icontains=search_term)
             ).values_list("pk", flat=True)
@@ -94,61 +173,26 @@ class ResourcePlanningAdmin(CompanyRestrictedAdmin, ModelAdmin):
             asset_ids = Asset.objects.filter(
                 name__icontains=search_term
             ).values_list("pk", flat=True)
-
-            resource_q = (
+            queryset |= self.model.objects.filter(
                 Q(resource_content_type=employee_ct, resource_object_id__in=emp_ids)
                 | Q(resource_content_type=machine_ct, resource_object_id__in=machine_ids)
                 | Q(resource_content_type=asset_ct, resource_object_id__in=asset_ids)
             )
-            queryset = queryset | self.model.objects.filter(resource_q)
-            may_have_duplicates = True
-        return queryset, may_have_duplicates
+            dupes = True
+        return queryset, dupes
 
-    fieldsets = (
-        (_("Planning"), {
-            "fields": (
-                "company",
-                "project_file",
-                "planning_type",
-                "status",
-            )
-        }),
-        (_("Resource"), {
-            "fields": (
-                "resource_content_type",
-                "resource_object_id",
-            )
-        }),
-        (_("Schedule"), {
-            "fields": (
-                ("start", "end"),
-            )
-        }),
-        (_("Notes"), {
-            "fields": (
-                "notes",
-            )
-        }),
-    )
-
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "resource_content_type":
-            kwargs["queryset"] = ContentType.objects.filter(
-                model__in=PLANNABLE_MODELS,
-            )
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+    # ── list display ──────────────────────────────────────────────────────────
 
     @display(description=_("Type"))
     def type_badge(self, obj):
-        if not obj.planning_type:
+        if not obj.planning_type_id:
             return "—"
+        pt = obj.planning_type
         return format_html(
-            '<span style="display:inline-flex; align-items:center; gap:4px;'
-            ' background:{}; color:white; padding:2px 8px; border-radius:999px;'
-            ' font-size:11px; font-weight:600;">'
-            '{}</span>',
-            obj.planning_type.color,
-            obj.planning_type.name,
+            '<span style="display:inline-flex;align-items:center;gap:4px;'
+            'background:{};color:white;padding:2px 8px;border-radius:999px;'
+            'font-size:11px;font-weight:600;">{}</span>',
+            pt.color, pt.name,
         )
 
     @display(description=_("Resource"))
@@ -156,7 +200,7 @@ class ResourcePlanningAdmin(CompanyRestrictedAdmin, ModelAdmin):
         try:
             return str(obj.resource) if obj.resource else f"{obj.resource_content_type} #{obj.resource_object_id}"
         except Exception:
-            return f"{obj.resource_content_type} #{obj.resource_object_id}"
+            return f"#{obj.resource_object_id}"
 
     @display(
         description=_("Status"),
@@ -172,24 +216,38 @@ class ResourcePlanningAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def show_status(self, obj):
         return _(obj.get_status_display())
 
+    @display(description=_("Group"))
+    def group_link(self, obj):
+        if not obj.group_id:
+            return "—"
+        url = reverse("admin:management_resourceplanning_group_change", args=[obj.group_id])
+        return format_html(
+            '<a href="{}" class="text-xs font-mono text-primary-600 hover:underline">#{}</a>',
+            url, obj.group_id,
+        )
+
+    # ── actions ───────────────────────────────────────────────────────────────
+
+    @admin.action(description=_("Cancel selected (as group)"))
+    def cancel_group_action(self, request, queryset):
+        groups = ResourcePlanningGroup.objects.filter(
+            pk__in=queryset.exclude(group__isnull=True).values_list("group_id", flat=True)
+        )
+        count = groups.count()
+        for group in groups:
+            group.cancel_all()
+        self.message_user(request, _(f"Cancelled {count} group(s)."))
+
+    @admin.action(description=_("Cancel selected (individually)"))
+    def cancel_individual_action(self, request, queryset):
+        count = queryset.count()
+        for planning in queryset:
+            planning.cancel()
+        self.message_user(request, _(f"Cancelled {count} planning(s)."))
+
     @action(description=_("Schedule View"), url_path="schedule-view", icon="calendar_month")
     def schedule_view_action(self, request):
-        return redirect(
-            reverse("admin:management_resourceplanning_schedule")
-        )
+        return HttpResponseRedirect(reverse("admin:management_resourceplanning_schedule"))
 
     def has_schedule_view_action_permission(self, request):
         return True
-
-    def get_urls(self):
-        urls = super().get_urls()
-        custom = [
-            path(
-                "schedule/",
-                self.admin_site.admin_view(
-                    ResourcePlanningScheduleView.as_view(model_admin=self)
-                ),
-                name="management_resourceplanning_schedule",
-            ),
-        ]
-        return custom + urls

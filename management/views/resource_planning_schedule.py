@@ -234,6 +234,9 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
                 }
 
             for col in columns_meta:
+                col_date = date.fromisoformat(col["key"])
+                if p.exclude_weekends and col_date.weekday() >= 5:
+                    continue
                 if p.start < col["end_dt"] and p.end > col["start_dt"]:
                     resource_map[key]["cells"][col["key"]].append(
                         CellBlock(p, max(p.start, col["start_dt"]), min(p.end, col["end_dt"]))
@@ -248,9 +251,15 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
                 type_groups[label] = []
             type_groups[label].append({
                 "name": info["name"],
+                "ct_model": model,
                 "ct_id": info["ct_id"],
                 "obj_id": info["obj_id"],
-                "cells": [info["cells"][col["key"]] for col in columns_meta],
+                # Each cell: dict with "date_key" + "blocks" so the template can
+                # build add-links with the correct ?day= and ?resources= params.
+                "cells": [
+                    {"date_key": col["key"], "blocks": info["cells"][col["key"]]}
+                    for col in columns_meta
+                ],
             })
 
         resource_groups = [
@@ -267,7 +276,7 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
         planning_types = list(pt_qs.order_by("name"))
 
         # ── Add URL for click-to-create ───────────────────────────────
-        add_url = reverse("admin:management_resourceplanning_add")
+        add_url = reverse("admin:management_resourceplanning_bulk_add")
 
         ctx.update(
             header_label=header_label,

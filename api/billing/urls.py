@@ -2,6 +2,8 @@ from django.urls import path
 
 from .views.invoices import QuoteInvoiceView
 from .views.expediente_invoices import (
+    BulkEmitCandidatesView,
+    BulkEmitInvoicesView,
     ProjectFileInvoiceCreateView,
     SalesInvoiceDetailView,
     SalesInvoiceFinalizeView,
@@ -14,6 +16,8 @@ from .views.expediente_invoices import (
 urlpatterns = [
     path("quotes/<int:quote_id>/invoice/", QuoteInvoiceView.as_view(), name="quote_invoice"),
     path("sales-invoices/", SalesInvoiceListView.as_view(), name="sales_invoice_list"),
+    path("sales-invoices/bulk-emit/", BulkEmitInvoicesView.as_view(), name="sales_invoice_bulk_emit"),
+    path("sales-invoices/bulk-emit-candidates/", BulkEmitCandidatesView.as_view(), name="sales_invoice_bulk_emit_candidates"),
     path(
         "project-files/<int:project_file_id>/invoices/",
         ProjectFileInvoiceCreateView.as_view(),

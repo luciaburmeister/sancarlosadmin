@@ -66,14 +66,22 @@ class PresetUseWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
             # Persist in session so it survives POST steps
             request.session["preset_wizard_quote_id"] = str(quote_id)
 
+        # Read quantity from GET or session
+        qty = request.GET.get("quantity") or request.session.get("preset_wizard_quantity")
+        self.quantity_from_url = max(1, int(qty)) if qty else 1
+        if qty:
+            request.session["preset_wizard_quantity"] = str(self.quantity_from_url)
+
         # If quote is known and no missing params → create directly, skip wizard entirely
         if self.quote_from_url and not self.preset.get_missing_parameters():
-            config = create_configuration_from_preset(
+            create_configuration_from_preset(
                 preset=self.preset,
                 quote=self.quote_from_url,
                 merged_values=dict(self.preset.parameter_values),
+                quantity=self.quantity_from_url,
             )
             request.session.pop("preset_wizard_quote_id", None)
+            request.session.pop("preset_wizard_quantity", None)
             return redirect(
                 reverse("admin:sales_quote_change", args=[self.quote_from_url.pk])
             )
@@ -129,15 +137,25 @@ class PresetUseWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
                 if value is not None and value != "":
                     merged_values[param_name] = str(value) if not isinstance(value, bool) else value
 
-        config = create_configuration_from_preset(
+        # Get quantity from client_link form or URL/session fallback
+        quantity = self.quantity_from_url
+        if client_form:
+            quantity = client_form.cleaned_data.get("quantity", 1) or 1
+
+        result = create_configuration_from_preset(
             preset=self.preset,
             quote=quote,
             merged_values=merged_values,
             asset=asset,
+            quantity=quantity,
         )
+
+        # result is a single config or a list of configs
+        config = result[0] if isinstance(result, list) else result
 
         # Clean up session
         self.request.session.pop("preset_wizard_quote_id", None)
+        self.request.session.pop("preset_wizard_quantity", None)
 
         # Redirect back to quote if launched from quote context, else to config
         if self.quote_from_url and quote:

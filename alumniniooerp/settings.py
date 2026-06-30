@@ -836,3 +836,12 @@ SIMPLE_JWT = {
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),     
     'ROTATE_REFRESH_TOKENS': False,
 }
+
+# django-money configuration
+DEFAULT_CURRENCY = "EUR"
+CURRENCIES = ("EUR", "USD", "GBP")
+CURRENCY_CHOICES = [
+    ("EUR", "EUR €"),
+    ("USD", "USD $"),
+    ("GBP", "GBP £"),
+]

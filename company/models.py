@@ -1,3 +1,4 @@
+from django.contrib.auth.hashers import make_password
 from django.db import models
 from django.utils.translation import gettext_lazy as _  
 from django.contrib.auth import get_user_model
@@ -12,6 +13,17 @@ from djmoney.models.fields import MoneyField
 from datetime import timedelta
 
 User = get_user_model()
+
+
+def validate_work_pin(value):
+    """Accept a 4-digit plaintext PIN (before hashing) or an existing Django hash."""
+    if not value:
+        return
+    if value.isdigit() and len(value) == 4:
+        return
+    if "$" in value:
+        return
+    raise ValidationError(_("El PIN debe tener exactamente 4 dígitos numéricos."))
 
 
 class Company(models.Model):
@@ -110,6 +122,14 @@ class CompanyUser(models.Model):
         related_name="user_links"
     )
     is_active = models.BooleanField(default=True)
+    can_use_shared_terminal = models.BooleanField(
+        default=False,
+        verbose_name=_("Puede usar terminal compartida"),
+        help_text=_(
+            "Permite a esta cuenta gestionar sesiones de producción "
+            "en nombre de cualquier empleado de la empresa."
+        ),
+    )
 
     class Meta:
         unique_together = ("user", "company")
@@ -252,6 +272,20 @@ class Employee(CompanyOwnedModel):
     )
     # ──────────────────────────────────────────────────────────────────────
 
+    is_production_supervisor = models.BooleanField(
+        default=False,
+        verbose_name=_("Es supervisor de producción"),
+        help_text=_("Puede asignar empleados a tareas desde la terminal compartida."),
+    )
+    work_pin = models.CharField(
+        max_length=128,
+        blank=True,
+        null=True,
+        verbose_name=_("PIN de terminal (4 dígitos)"),
+        help_text=_("Déjalo vacío para no cambiar el PIN actual. Introduce 4 dígitos para asignar uno nuevo."),
+        validators=[validate_work_pin],
+    )
+
     class Meta:
         verbose_name = _("Employee")
         verbose_name_plural = _("Employees")
@@ -280,6 +314,8 @@ class Employee(CompanyOwnedModel):
                     ) % {"stages": ", ".join(invalid)}
                 })
     def save(self, *args, **kwargs):
+        if self.work_pin and self.work_pin.isdigit() and len(self.work_pin) == 4:
+            self.work_pin = make_password(self.work_pin)
         if self.home_city and not self.work_calendar_id:
             from vacations.models import WorkCalendar
             city_lower = self.home_city.strip().lower()

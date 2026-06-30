@@ -111,6 +111,11 @@ class ProductTemplate(CompanyOwnedModel):
         verbose_name=_("Show in configurator"),
         help_text=_("If false, this template will not be shown in the manual configuration creation list.")
     )
+    allow_production_without_accepted_quote = models.BooleanField(
+        default=False,
+        verbose_name=_("Allow production without accepted quote"),
+        help_text=_("If enabled, configurations using this template can be converted to production even if the linked quote is not accepted yet."),
+    )
     flow_kind = models.CharField(
         max_length=20,
         choices=ProductFlowKind.choices,

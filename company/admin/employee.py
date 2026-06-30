@@ -14,6 +14,7 @@ from unfold.decorators import display, action
 
 from import_export.admin import ImportExportModelAdmin
 from unfold.contrib.forms.widgets import ArrayWidget
+from unfold.widgets import UnfoldAdminPasswordToggleWidget
 from django.contrib.postgres.fields import ArrayField
 from unfold.contrib.import_export.forms import (
     ExportForm,
@@ -177,12 +178,27 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         {
             "classes": ["tab"],
             "fields": (
-                ("can_work_on_production", "production_stages"),
+                ("can_work_on_production", "is_production_supervisor"),
+                "production_stages",
+                "work_pin",
             )
         },
     ),
 )
     inlines = (EmployeeDocumentInline, VacationRequestInline, VacationWalletInline)
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        if db_field.name == "work_pin":
+            kwargs["widget"] = UnfoldAdminPasswordToggleWidget(
+                attrs={"maxlength": 4, "style": "max-width: 140px"}
+            )
+            kwargs["required"] = False
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
+
+    def save_model(self, request, obj, form, change):
+        if change and not form.cleaned_data.get("work_pin"):
+            obj.work_pin = Employee.objects.get(pk=obj.pk).work_pin
+        super().save_model(request, obj, form, change)
 
     def get_form(self, request, obj=None, change=False, **kwargs):
         form = super().get_form(request, obj, change, **kwargs)

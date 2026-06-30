@@ -525,6 +525,224 @@ class SalesInvoicePaymentView(CompanyAPIView):
         return JsonResponse(_serialize_invoice_detail(invoice), status=201)
 
 
+class BulkEmitCandidatesView(CompanyAPIView):
+    """GET sales-invoices/bulk-emit-candidates/ — open expedientes with their invoicing eligibility."""
+
+    def get(self, request):
+        from django.core.paginator import Paginator
+        from django.db.models import Q
+        from sales.models import Quote, QuoteStatus
+
+        search = request.GET.get("search", "").strip()
+        try:
+            page_num = max(1, int(request.GET.get("page", 1)))
+        except ValueError:
+            page_num = 1
+
+        qs = (
+            ProjectFile.objects
+            .filter(company=self.company)
+            .exclude(status__in=["completed", "cancelled"])
+            .select_related("client")
+            .prefetch_related("quotes__configurations", "quotes__items", "quotes__inventory_items")
+            .order_by("-created_at")
+        )
+        if search:
+            qs = qs.filter(Q(name__icontains=search) | Q(client__name__icontains=search))
+
+        paginator = Paginator(qs, 30)
+        page = paginator.get_page(page_num)
+
+        results = []
+        for pf in page:
+            all_quotes = list(pf.quotes.all())
+
+            # Accepted quotes with content
+            accepted = [q for q in all_quotes if q.status == QuoteStatus.ACCEPTED and _quote_has_content(q)]
+            # Pending quotes (draft/sent) with content — candidates for auto-accept
+            pending = [q for q in all_quotes if q.status in (QuoteStatus.DRAFT, QuoteStatus.SENT) and _quote_has_content(q)]
+
+            has_content = bool(accepted or pending)
+
+            # Compute remaining from accepted quotes
+            accepted_total = sum(float(q.total_price.amount) for q in accepted if q.total_price)
+            total_invoiced = float(
+                ProjectFileInvoiceService.get_invoiceable_summary(pf)["total_invoiced"]
+            ) if accepted else 0.0
+            accepted_remaining = max(0.0, accepted_total - total_invoiced)
+
+            already_invoiced = has_content and accepted and accepted_remaining < 0.01 and not pending
+
+            pending_value = sum(float(q.total_price.amount) for q in pending if q.total_price)
+
+            facturable = has_content and not already_invoiced
+
+            block_reason = None
+            if not has_content:
+                block_reason = "Sin presupuestos con contenido"
+            elif already_invoiced:
+                block_reason = "Completamente facturado"
+
+            results.append({
+                "id": pf.id,
+                "reference": pf.reference,
+                "name": pf.name,
+                "client_name": pf.client.name if pf.client else None,
+                "status": pf.status,
+                "facturable": facturable,
+                "block_reason": block_reason,
+                "pending_quote_count": len(pending),
+                "accepted_remaining": accepted_remaining,
+                "pending_value": pending_value,
+            })
+
+        return JsonResponse({
+            "results": results,
+            "count": paginator.count,
+            "has_next": page.has_next(),
+            "page": page_num,
+        })
+
+
+def _quote_has_content(quote):
+    """True if the quote has at least one configuration or item with non-zero value."""
+    for config in quote.configurations.all():
+        if config.subtotal_price and config.subtotal_price.amount > 0:
+            return True
+    for item in quote.items.all():
+        if item.line_total and item.line_total.amount > 0:
+            return True
+    for inv in quote.inventory_items.all():
+        if inv.line_total and inv.line_total.amount > 0:
+            return True
+    return False
+
+
+class BulkEmitInvoicesView(CompanyAPIView):
+    """POST sales-invoices/bulk-emit/ — create and finalize one invoice per ProjectFile at 100%."""
+
+    def post(self, request):
+        try:
+            body = json.loads(request.body)
+        except (json.JSONDecodeError, ValueError):
+            return JsonResponse({"error": "JSON inválido."}, status=400)
+
+        project_file_ids = body.get("project_file_ids", [])
+        if not isinstance(project_file_ids, list) or not project_file_ids:
+            return JsonResponse({"error": "project_file_ids debe ser una lista no vacía."}, status=400)
+
+        payment_method = (body.get("payment_method") or "").strip()
+        if payment_method and payment_method not in ALLOWED_SALES_INVOICE_PAYMENT_METHODS:
+            return JsonResponse(
+                {"error": f"Método de pago inválido. Opciones: {sorted(ALLOWED_SALES_INVOICE_PAYMENT_METHODS)}"},
+                status=400,
+            )
+
+        notes = body.get("notes", "")
+        show_vehicle_name = bool(body.get("show_vehicle_name", True))
+
+        date_issued = timezone.now().date()
+
+        due_date = None
+        if body.get("due_date"):
+            due_date, err = parse_date_or_error(body.get("due_date"))
+            if err:
+                return err
+            if due_date < date_issued:
+                return JsonResponse(
+                    {"error": "La fecha de vencimiento no puede ser anterior a la fecha de emisión."},
+                    status=400,
+                )
+
+        pf_map = {
+            pf.id: pf
+            for pf in ProjectFile.objects.filter(
+                id__in=project_file_ids, company=self.company
+            ).select_related("client")
+        }
+
+        successes = []
+        failures = []
+
+        for pf_id in project_file_ids:
+            pf = pf_map.get(pf_id)
+            if pf is None:
+                failures.append({"project_file_id": pf_id, "reason": "Expediente no encontrado."})
+                continue
+
+            try:
+                with transaction.atomic():
+                    # Auto-accept pending quotes that have content
+                    from sales.models import Quote, QuoteStatus
+                    pending_quotes = list(
+                        Quote.objects.prefetch_related(
+                            "configurations", "items", "inventory_items"
+                        ).filter(
+                            project_file=pf,
+                            status__in=[QuoteStatus.DRAFT, QuoteStatus.SENT],
+                        )
+                    )
+                    for quote in pending_quotes:
+                        if _quote_has_content(quote):
+                            quote.status = QuoteStatus.ACCEPTED
+                            quote.save()
+
+                    summary = ProjectFileInvoiceService.get_invoiceable_summary(pf)
+
+                    if summary["total_invoiceable"] <= 0:
+                        failures.append({"project_file_id": pf_id, "reason": "Sin presupuestos con contenido."})
+                        continue
+
+                    if summary["remaining"] <= Decimal("0.01"):
+                        failures.append({"project_file_id": pf_id, "reason": "Ya está completamente facturado."})
+                        continue
+
+                    items_data = _build_items_from_summary(
+                        summary, "percentage", Decimal("100"), None,
+                        show_vehicle_name=show_vehicle_name,
+                    )
+
+                    if not items_data:
+                        failures.append({"project_file_id": pf_id, "reason": "No se pudieron generar líneas de factura."})
+                        continue
+
+                    invoice = ProjectFileInvoiceService.create_invoice_from_project_file(
+                        project_file=pf,
+                        company=self.company,
+                        client=pf.client,
+                        date_issued=date_issued,
+                        due_date=due_date,
+                        items_data=items_data,
+                        notes=notes,
+                        payment_method=payment_method or None,
+                    )
+                    invoice = SalesInvoiceService.finalize_invoice(invoice, send_email=False)
+
+                auto_accepted = sum(1 for q in pending_quotes if _quote_has_content(q))
+                successes.append({
+                    "project_file_id": pf_id,
+                    "invoice_id": invoice.id,
+                    "invoice_number": invoice.invoice_number,
+                    "total_amount": float(invoice.total_amount.amount) if invoice.total_amount else 0.0,
+                    "client_name": pf.client.name if pf.client else None,
+                    "project_file_reference": pf.reference,
+                    "project_file_name": pf.name,
+                    "auto_accepted_quotes": auto_accepted,
+                })
+
+            except Exception as e:
+                msg = e.message if hasattr(e, "message") else str(e)
+                failures.append({"project_file_id": pf_id, "reason": msg})
+
+        status_code = 200 if successes else 400
+        return JsonResponse({
+            "successes": successes,
+            "failures": failures,
+            "total_created": len(successes),
+            "total_failed": len(failures),
+        }, status=status_code)
+
+
 class SalesInvoiceListView(CompanyAPIView):
     """GET sales-invoices/ — paginated list of all SalesInvoices for the company."""
 

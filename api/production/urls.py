@@ -1,8 +1,9 @@
 from django.urls import path
 
-from .views import employees, stages
+from .views import employees, stages, terminal
 
 urlpatterns = [
+    # ── Existing (CompanyAPIView — authenticated employee) ─────────────────────
     path(
         "configurations/<int:config_id>/stages/",
         stages.ConfigurationStagesView.as_view(),
@@ -39,4 +40,66 @@ urlpatterns = [
         name="stage_revert_item",
     ),
     path("employees/eligible/", employees.EligibleEmployeesView.as_view(), name="eligible_employees"),
+
+    # ── Shared terminal (SharedTerminalAPIView — PIN-based employee actions) ───
+    path(
+        "production/employees/",
+        terminal.TerminalEmployeeListView.as_view(),
+        name="terminal_employee_list",
+    ),
+    path(
+        "production/employees/<int:employee_id>/tasks/",
+        terminal.TerminalEmployeeTasksView.as_view(),
+        name="terminal_employee_tasks",
+    ),
+    path(
+        "production/employees/<int:employee_id>/verify-pin/",
+        terminal.EmployeePinVerifyView.as_view(),
+        name="terminal_employee_verify_pin",
+    ),
+    path(
+        "production/employees/<int:employee_id>/items/<int:item_id>/stages/<str:stage_name>/start/",
+        terminal.TerminalStageStartView.as_view(),
+        name="terminal_stage_start",
+    ),
+    path(
+        "production/employees/<int:employee_id>/items/<int:item_id>/stages/<str:stage_name>/leave/",
+        terminal.TerminalStageLeaveView.as_view(),
+        name="terminal_stage_leave",
+    ),
+    path(
+        "production/employees/<int:employee_id>/items/<int:item_id>/stages/<str:stage_name>/finish/",
+        terminal.TerminalStageFinishView.as_view(),
+        name="terminal_stage_finish",
+    ),
+    path(
+        "production/tasks/",
+        terminal.TerminalAllTasksView.as_view(),
+        name="terminal_all_tasks",
+    ),
+    path(
+        "production/supervisors/",
+        terminal.SupervisorListView.as_view(),
+        name="terminal_supervisor_list",
+    ),
+    path(
+        "production/supervisor/verify/",
+        terminal.SupervisorVerifyView.as_view(),
+        name="terminal_supervisor_verify",
+    ),
+    path(
+        "production/items/<int:item_id>/assignable/",
+        terminal.ItemAssignableEmployeesView.as_view(),
+        name="terminal_item_assignable",
+    ),
+    path(
+        "production/items/<int:item_id>/assign/",
+        terminal.ItemAssignEmployeeView.as_view(),
+        name="terminal_item_assign",
+    ),
+    path(
+        "production/supervisor/leave-employee-stage/",
+        terminal.SupervisorLeaveEmployeeStageView.as_view(),
+        name="terminal_supervisor_leave_employee_stage",
+    ),
 ]

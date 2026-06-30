@@ -40,3 +40,33 @@ class CompanyAPIView(APIView):
             raise PermissionDenied(detail={"error": "Employee profile has no company linked."})
         self.company = company
         self.employee = employee
+
+
+class SharedTerminalAPIView(APIView):
+    """
+    For shared-device terminals (e.g. workshop kiosk screens).
+
+    Authenticated by a CompanyUser with can_use_shared_terminal=True.
+    Does not require an Employee profile — the terminal account is not a worker.
+    Individual employee actions are authorised via their 4-digit work_pin.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+        from company.models import CompanyUser
+        link = (
+            CompanyUser.objects.filter(
+                user=request.user,
+                is_active=True,
+                can_use_shared_terminal=True,
+            )
+            .select_related("company")
+            .first()
+        )
+        if link is None:
+            raise PermissionDenied(
+                detail={"error": "Esta cuenta no tiene permiso de terminal compartida."}
+            )
+        self.company = link.company

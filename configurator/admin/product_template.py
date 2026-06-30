@@ -199,7 +199,7 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
 
     fieldsets = (
         (_("Product Template"), {
-            "fields": (("name", "image"), "description", ("production_stages", "parameter_group_options"), ("flow_kind", "unit_price_variable")),
+            "fields": (("name", "image"), "description", ("production_stages", "parameter_group_options"), ("flow_kind", "unit_price_variable"), "allow_production_without_accepted_quote"),
         })
         ,(_("Ownership"), {
             "fields": ("company",),

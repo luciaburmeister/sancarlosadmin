@@ -416,7 +416,11 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
     def convert_to_production(self, request: HttpRequest, object_id: int):
         config = Configuration.objects.get(pk=object_id)
         
-        if config.quote and config.quote.status != QuoteStatus.ACCEPTED:
+        if (
+            config.quote
+            and config.quote.status != QuoteStatus.ACCEPTED
+            and not config.product.allow_production_without_accepted_quote
+        ):
             self.message_user(
                 request,
                 _("Cannot convert to production. The associated quote must be accepted."),

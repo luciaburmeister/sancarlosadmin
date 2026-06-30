@@ -35,6 +35,7 @@ from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
 from invoices.views.invoice.wizard_views import SalesInvoiceWizardView
 from invoices.views.invoice.import_sales_invoice import SalesInvoiceImportAdminView
 from invoices.views.invoice.bulk_mark_paid import BulkMarkPaidAdminView
+from invoices.views.invoice.bulk_mark_invoice_paid import BulkMarkInvoicePaidAdminView
 from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
 from invoices.views.sales_invoice_register_payment import RegisterPaymentView
 from invoices.views.invoice.review_invoice import InvoiceReviewAdminView
@@ -305,7 +306,7 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
         PaymentAllocationInline,
     ]
 
-    actions = ["send_to_process", "classify_accounts", "journalize_selected", "export_a3_purchase_invoices", "import_from_excel", "run_matcher_bulk"]
+    actions = ["send_to_process", "classify_accounts", "journalize_selected", "export_a3_purchase_invoices", "import_from_excel", "run_matcher_bulk", "bulk_mark_as_paid"]
     actions_row = ["review_invoice_row_action", "view_journal_entry_row_action"]
     actions_detail = ["view_journal_entry_detail_action", "register_payment_detail_action", "run_invoice_matcher_detail_action"]
 
@@ -472,6 +473,13 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
                 name="invoices_invoice_register_payment",
             ),
             path(
+                "bulk-mark-paid/",
+                self.admin_site.admin_view(
+                    BulkMarkInvoicePaidAdminView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_bulk_mark_paid",
+            ),
+            path(
                 "dashboard/operational/aging-export/",
                 self.admin_site.admin_view(
                     AgingExportView.as_view(model_admin=self)
@@ -617,6 +625,10 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
                 url=suggestions_url,
             )),
         )
+
+    @admin.action(description=_("Bulk update payment status"))
+    def bulk_mark_as_paid(self, request, queryset):
+        return redirect(reverse("admin:invoices_invoice_bulk_mark_paid"))
 
 class SalesInvoiceItemInline(StackedInline):
     model = SalesInvoiceItem

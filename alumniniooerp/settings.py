@@ -417,22 +417,22 @@ UNFOLD = {
             {
                 "title": _("Dashboards"),
                 "separator": True,
-                "collapsible": False,
+                "collapsible": True,
                 "items": [
-                    {
-                        "title": _("Accounts Payable"),
-                        "icon": "account_balance_wallet",
-                        "link": reverse_lazy("admin:invoices_invoice_accounts_payable"),
-                        "permission": lambda request: request.user.has_perm(
-                            "invoices.view_invoice"
-                        ),
-                    },
                     {
                         "title": _("Operational Dashboard"),
                         "icon": "monitoring",
                         "link": reverse_lazy("admin:invoices_invoice_operational_dashboard"),
                         "permission": lambda request: request.user.has_perm(
                             "invoices.operational_dashboard"
+                        ),
+                    },
+                    {
+                        "title": _("Accounts Payable"),
+                        "icon": "account_balance_wallet",
+                        "link": reverse_lazy("admin:invoices_invoice_accounts_payable"),
+                        "permission": lambda request: request.user.has_perm(
+                            "invoices.view_invoice"
                         ),
                     },
                     {
@@ -446,10 +446,18 @@ UNFOLD = {
                 ],
             },
             {
-                "title": _("Management"),
+                "title": _("CRM & Sales"),
                 "separator": True,
-                "collapsible": False,
+                "collapsible": True,
                 "items": [
+                    {
+                        "title": _("Customers"),
+                        "icon": "groups",
+                        "link": reverse_lazy("admin:sales_client_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "sales.view_client"
+                        ),
+                    },
                     {
                         "title": _("Expedientes"),
                         "icon": "folder_open",
@@ -459,13 +467,96 @@ UNFOLD = {
                         ),
                     },
                     {
+                        "title": _("Quotes"),
+                        "icon": "request_quote",
+                        "link": reverse_lazy("admin:sales_quote_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "sales.view_quote"
+                        ),
+                    },
+                    {
+                        "title": _("Configuration Presets"),
+                        "icon": "dashboard_customize",
+                        "link": reverse_lazy("admin:configurator_configurationpreset_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "configurator.view_configurationpreset"
+                        ),
+                    },
+                ],
+            },
+            {
+                "title": _("Configurator"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Configurations"),
+                        "icon": "build",
+                        "link": reverse_lazy("admin:configurator_configuration_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "configurator.view_configuration"
+                        ),
+                    },
+                    {
+                        "title": _("Product Templates"),
+                        "icon": "box",
+                        "link": reverse_lazy("admin:configurator_producttemplate_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "configurator.view_producttemplate"
+                        ),
+                    },
+                ],
+            },
+            {
+                "title": _("Production"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Production Tickets"),
+                        "icon": "brick",
+                        "link": lazy(lambda: f"{reverse('admin:production_productionticket_changelist')}?status__exact=pending&status__exact=in_progress", str)(),
+                        "permission": lambda request: request.user.has_perm(
+                            "production.view_productionticket"
+                        ),
+                    },
+                    {
+                        "title": _("Production Items"),
+                        "icon": "brick",
+                        "link": reverse_lazy("admin:production_productionitem_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "production.view_productionitem"
+                        ),
+                    },
+                    {
+                        "title": _("Schedule"),
+                        "icon": "calendar_month",
+                        "link": reverse_lazy("admin:production_plannedproductionsession_schedule"),
+                        "permission": lambda request: request.user.has_perm(
+                            "production.view_plannedproductionsession"
+                        ),
+                    },
+                ],
+            },
+            {
+                "title": _("Logistics"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
                         "title": _("Delivery Orders"),
                         "icon": "local_shipping",
-                        "link": reverse_lazy(
-                            "admin:sales_deliveryorder_changelist"
-                        ),
+                        "link": reverse_lazy("admin:sales_deliveryorder_changelist"),
                         "permission": lambda request: request.user.has_perm(
                             "sales.view_deliveryorder"
+                        ),
+                    },
+                    {
+                        "title": _("Receival Slips"),
+                        "icon": "receipt",
+                        "link": reverse_lazy("admin:configurator_receivalslip_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "configurator.view_receivalslip"
                         ),
                     },
                     {
@@ -487,244 +578,45 @@ UNFOLD = {
                 ],
             },
             {
-                "title": _("Quote"),
-                "separator": True,
-                "collapsible": False,
-                "items": [
-                    {
-                        "title": _("Quotes"),
-                        "icon": "request_quote",
-                        "link": reverse_lazy("admin:sales_quote_changelist"),
-                        "permission": lambda request: request.user.has_perm(
-                            "sales.view_quote"
-                        ),
-                    },
-                    {
-                        "title": _("Configurator"),
-                        "icon": "build",
-                        "link": reverse_lazy(
-                            "admin:configurator_configuration_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "configurator.view_configuration"
-                        ),
-                    },
-                    {
-                        "title": _("Receival Slips"),
-                        "icon": "receipt",
-                        "link": reverse_lazy(
-                            "admin:configurator_receivalslip_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "configurator.view_receivalslip"
-                        ),
-                    },
-                    {
-                        "title": _("Product Templates"),
-                        "icon": "box",
-                        "link": reverse_lazy(
-                            "admin:configurator_producttemplate_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "configurator.view_producttemplate"
-                        ),
-                    },
-                    {
-                        "title": _("Feedback Questionnaires"),
-                        "icon": "quiz",
-                        "link": reverse_lazy(
-                            "admin:feedback_feedbackquestionnaire_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "feedback.view_feedbackquestionnaire"
-                        ),
-                    },
-                    {
-                        "title": _("Feedback Responses"),
-                        "icon": "rate_review",
-                        "link": reverse_lazy(
-                            "admin:feedback_feedbackresponse_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "feedback.view_feedbackresponse"
-                        ),
-                    },
-                ],
-            },
-
-            {
-                "title": _("Materials"),
-                "separator": True,
-                "collapsible": False,
-                "items": [
-                    {
-                        "title": _("Material"),
-                        "icon": "brick",
-                        "link": reverse_lazy(
-                            "admin:materials_material_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "materials.view_material"
-                        ),
-                    },
-                    {
-                        "title": _("Components"),
-                        "icon": "brick",
-                        "link": reverse_lazy(
-                            "admin:materials_component_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "materials.view_component"
-                        )
-                    },
-                ],
-            },
-
-            {
-                "title": _("Company"),
-                "separator": True,
-                "collapsible": False,
-                "items": [
-                    {
-                        "title": _("Company"),
-                        "icon": "domain",
-                        "link": reverse_lazy(
-                            "admin:company_company_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "company.view_company"
-                        ),
-                    },
-                    {
-                        "title": _("Employees"),
-                        "icon": "people",
-                        "link": reverse_lazy(
-                            "admin:company_employee_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "company.view_employee"
-                        )
-                    },
-                    {
-                        "title": _("Customers"),
-                        "icon": "groups",
-                        "link": reverse_lazy(
-                            "admin:sales_client_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "sales.view_client"
-                        )
-                    },
-                ],
-            },
-            {
-    "title": _("Assets"),
-    "separator": True,
-    "collapsible": False,
-    "items": [
-        {
-            "title": _("Assets"),
-            "icon": "web_asset",
-            "link": reverse_lazy("admin:assets_asset_changelist"),
-            "permission": lambda request: request.user.has_perm("assets.view_asset"),
-        },
-        {
-            "title": _("Asset Types"),
-            "icon": "category",
-            "link": reverse_lazy("admin:assets_assettype_changelist"),
-            "permission": lambda request: request.user.has_perm("assets.view_assettype"),
-        },
-        {
-            "title": _("Asset Planning"),
-            "icon": "event_note",
-            "link": reverse_lazy("admin:assets_assetplanning_changelist"),
-            "permission": lambda request: request.user.has_perm("assets.view_assetplanning"),
-        },
-        {                                                              # ← ADD THIS
-            "title": _("Asset Transactions"),
-            "icon": "swap_horiz",
-            "link": reverse_lazy("admin:assets_assettransaction_changelist"),
-            "permission": lambda request: request.user.has_perm("assets.view_assettransaction"),
-        },
-    ],
-},
-
-            {
-                "title": _("Production"),
-                "separator": True,
-                "collapsible": False,
-                "items": [
-                    {
-                        "title": _("Production Tickets"),
-                        "icon": "brick",
-                        "link": lazy(lambda: f"{reverse('admin:production_productionticket_changelist')}?status__exact=pending&status__exact=in_progress", str)(),
-                        "permission": lambda request: request.user.has_perm(
-                            "production.view_productionticket"
-                        ),
-                    },
-                    {
-                        "title": _("Production Items"),
-                        "icon": "brick",
-                        "link": reverse_lazy(
-                            "admin:production_productionitem_changelist"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "production.view_productionitem"
-                        ),
-                    },
-                    {
-                        "title": _("Schedule"),
-                        "icon": "calendar_month",
-                        "link": reverse_lazy(
-                            "admin:production_plannedproductionsession_schedule"
-                        ),
-                        "permission": lambda request: request.user.has_perm(
-                            "production.view_plannedproductionsession"
-                        ),
-                    },
-                ],
-            },
-            {
                 "title": _("Purchasing"),
                 "separator": True,
-                "collapsible": False,
+                "collapsible": True,
                 "items": [
                     {
                         "title": _("Purchase Orders"),
                         "icon": "shopping_cart",
                         "link": reverse_lazy("admin:purchasing_purchaseorder_changelist"),
-                        "permission": lambda request: request.user.has_perm("purchasing.view_purchaseorder"),
+                        "permission": lambda request: request.user.has_perm(
+                            "purchasing.view_purchaseorder"
+                        ),
                     },
                     {
                         "title": _("PO Receipts"),
                         "icon": "receipt",
                         "link": reverse_lazy("admin:purchasing_purchaseorderreceipt_changelist"),
-                        "permission": lambda request: request.user.has_perm("purchasing.view_purchaseorderreceipt"),
+                        "permission": lambda request: request.user.has_perm(
+                            "purchasing.view_purchaseorderreceipt"
+                        ),
                     },
                 ],
             },
             {
-                "title": _("Invoices"),
+                "title": _("Invoicing"),
                 "separator": True,
-                "collapsible": False,
+                "collapsible": True,
                 "items": [
                     {
                         "title": _("Sales Invoices"),
                         "icon": "receipt",
-                        "link": reverse_lazy(
-                            "admin:invoices_salesinvoice_changelist"
-                        ),
+                        "link": reverse_lazy("admin:invoices_salesinvoice_changelist"),
                         "permission": lambda request: request.user.has_perm(
                             "invoices.view_salesinvoice"
                         ),
                     },
-                    
                     {
                         "title": _("Received Invoices"),
                         "icon": "receipt_long",
-                        "link": reverse_lazy(
-                            "admin:invoices_invoice_changelist"
-                        ),
+                        "link": reverse_lazy("admin:invoices_invoice_changelist"),
                         "permission": lambda request: request.user.has_perm(
                             "invoices.view_invoice"
                         ),
@@ -732,9 +624,9 @@ UNFOLD = {
                 ],
             },
             {
-                "title": _("Banking"),
+                "title": _("Finance"),
                 "separator": True,
-                "collapsible": False,
+                "collapsible": True,
                 "items": [
                     {
                         "title": _("Bank Transactions"),
@@ -763,10 +655,119 @@ UNFOLD = {
                 ],
             },
             {
-                "title": _("Payroll"),
+                "title": _("Inventory"),
                 "separator": True,
-                "collapsible": False,
+                "collapsible": True,
                 "items": [
+                    {
+                        "title": _("Items"),
+                        "icon": "inventory_2",
+                        "link": reverse_lazy("admin:inventory_inventoryitem_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "inventory.view_inventoryitem"
+                        ),
+                    },
+                    {
+                        "title": _("Warehouses"),
+                        "icon": "warehouse",
+                        "link": reverse_lazy("admin:inventory_warehouse_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "inventory.view_warehouse"
+                        ),
+                    },
+                    {
+                        "title": _("Categories"),
+                        "icon": "category",
+                        "link": reverse_lazy("admin:inventory_inventorycategory_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "inventory.view_inventorycategory"
+                        ),
+                    },
+                    {
+                        "title": _("Item Transactions"),
+                        "icon": "swap_horiz",
+                        "link": reverse_lazy("admin:inventory_itemtransaction_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "inventory.view_itemtransaction"
+                        ),
+                    },
+                ],
+            },
+            {
+                "title": _("Assets"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Assets"),
+                        "icon": "web_asset",
+                        "link": reverse_lazy("admin:assets_asset_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_asset"
+                        ),
+                    },
+                    {
+                        "title": _("Asset Types"),
+                        "icon": "category",
+                        "link": reverse_lazy("admin:assets_assettype_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_assettype"
+                        ),
+                    },
+                    {
+                        "title": _("Asset Planning"),
+                        "icon": "event_note",
+                        "link": reverse_lazy("admin:assets_assetplanning_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_assetplanning"
+                        ),
+                    },
+                    {
+                        "title": _("Asset Transactions"),
+                        "icon": "swap_horiz",
+                        "link": reverse_lazy("admin:assets_assettransaction_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_assettransaction"
+                        ),
+                    },
+                ],
+            },
+            {
+                "title": _("Materials"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Materials"),
+                        "icon": "brick",
+                        "link": reverse_lazy("admin:materials_material_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "materials.view_material"
+                        ),
+                    },
+                    {
+                        "title": _("Components"),
+                        "icon": "brick",
+                        "link": reverse_lazy("admin:materials_component_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "materials.view_component"
+                        ),
+                    },
+                ],
+            },
+            {
+                "title": _("HR & Payroll"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Employees"),
+                        "icon": "people",
+                        "link": reverse_lazy("admin:company_employee_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "company.view_employee"
+                        ),
+                    },
                     {
                         "title": _("Payroll Periods"),
                         "icon": "calendar_month",
@@ -786,9 +787,7 @@ UNFOLD = {
                     {
                         "title": _("Pending Import Rows"),
                         "icon": "person_alert",
-                        "link": reverse_lazy(
-                            "admin:payroll_payrollimportpendingrow_changelist"
-                        ),
+                        "link": reverse_lazy("admin:payroll_payrollimportpendingrow_changelist"),
                         "permission": lambda request: request.user.has_perm(
                             "payroll.view_payrollimportpendingrow"
                         ),
@@ -811,7 +810,44 @@ UNFOLD = {
                     },
                 ],
             },
-        
+            {
+                "title": _("Settings"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Company"),
+                        "icon": "domain",
+                        "link": reverse_lazy("admin:company_company_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "company.view_company"
+                        ),
+                    },
+                ],
+            },
+            {
+                "title": _("Feedback"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Feedback Questionnaires"),
+                        "icon": "quiz",
+                        "link": reverse_lazy("admin:feedback_feedbackquestionnaire_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "feedback.view_feedbackquestionnaire"
+                        ),
+                    },
+                    {
+                        "title": _("Feedback Responses"),
+                        "icon": "rate_review",
+                        "link": reverse_lazy("admin:feedback_feedbackresponse_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "feedback.view_feedbackresponse"
+                        ),
+                    },
+                ],
+            },
         ],
     },
 }

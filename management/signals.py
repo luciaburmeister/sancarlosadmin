@@ -43,3 +43,30 @@ def configuration_deleted_update_project_file(sender, instance, **kwargs):
             instance.project_file.recalculate_total_amount()
         except Exception:
             logger.debug("ProjectFile already deleted, skipping recalculation.")
+
+
+@receiver(post_save, sender="invoices.SalesInvoice")
+def sales_invoice_saved_update_project_file(sender, instance, **kwargs):
+    """Recalculate ProjectFile totals when a sales invoice is saved."""
+    recalculated = set()
+    # Single FK
+    if instance.project_file_id:
+        instance.project_file.recalculate_total_amount()
+        recalculated.add(instance.project_file_id)
+    # M2M (bulk invoices) — only if saved (has pk)
+    if instance.pk:
+        for pf in instance.project_files.all():
+            if pf.pk not in recalculated:
+                pf.recalculate_total_amount()
+                recalculated.add(pf.pk)
+
+
+@receiver(post_delete, sender="invoices.SalesInvoice")
+def sales_invoice_deleted_update_project_file(sender, instance, **kwargs):
+    """Recalculate ProjectFile totals when a sales invoice is deleted."""
+    # Note: M2M is cleared on delete so we can only handle the FK
+    if instance.project_file_id:
+        try:
+            instance.project_file.recalculate_total_amount()
+        except Exception:
+            logger.debug("ProjectFile already deleted, skipping recalculation.")

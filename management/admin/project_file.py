@@ -1,22 +1,24 @@
 from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.contrib.filters.admin.dropdown_filters import MultipleChoicesDropdownFilter
-from django.db.models import DecimalField, Sum, Value, OuterRef, Subquery
-from django.db.models.functions import Coalesce
 
 from decimal import Decimal
 from management.models import ProjectFile, ResourcePlanning
-from django.contrib import admin
+from management.resources import ProjectFileResource
+from django.contrib import admin, messages
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action, display
+from import_export.admin import ExportActionModelAdmin
+from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from sales.models import Quote, QuoteStatus, DeliveryOrder
 from production.models import ProductionTicket
 from invoices.models import SalesInvoice, Invoice
 from invoices.views.invoice.project_file_wizard_views import ProjectFileInvoiceWizardView
 from invoices.views.invoice.delivery_order_wizard_views import DeliveryOrderWizardView
+from invoices.views.invoice.bulk_invoice_views import BulkInvoiceConfirmView
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.models import Configuration, ConfigurationStatus
@@ -30,8 +32,8 @@ class QuoteInline(TabularInline):
     extra = 0
     tab = True
     tab_title = _("Quotes")
-    fields = ["id", "project_name", "status", "total_price"]
-    readonly_fields = ["id", "project_name", "status", "total_price"]
+    fields = ["id", "project_name", "status", "discounted_subtotal", "total_price"]
+    readonly_fields = ["id", "project_name", "status", "discounted_subtotal", "total_price"]
     show_change_link = True
 
 class SalesInvoiceInline(TabularInline):
@@ -42,6 +44,52 @@ class SalesInvoiceInline(TabularInline):
     fields = ["invoice_number", "date_issued", "total_amount", "status"]
     readonly_fields = ["invoice_number", "date_issued", "total_amount", "status"]
     show_change_link = True
+
+class BulkSalesInvoiceInline(TabularInline):
+    model = SalesInvoice.project_files.through
+    extra = 0
+    tab = True
+    tab_title = _("Sales Invoices")  # same tab as single-PF invoices
+    verbose_name = _("Bulk Invoice")
+    verbose_name_plural = _("Bulk Invoices")
+    fields = ["invoice_number", "date_issued", "pf_amount", "total_amount", "invoice_status"]
+    readonly_fields = ["invoice_number", "date_issued", "pf_amount", "total_amount", "invoice_status"]
+    show_change_link = False
+
+    @display(description=_("Invoice Number"))
+    def invoice_number(self, obj):
+        inv = obj.salesinvoice
+        label = inv.invoice_number or f"Pro Forma #{inv.id}"
+        url = reverse("admin:invoices_salesinvoice_change", args=[inv.pk])
+        return format_html('<a href="{}">{}</a>', url, label)
+
+    @display(description=_("Date Issued"))
+    def date_issued(self, obj):
+        return obj.salesinvoice.date_issued
+
+    @display(description=_("This PF"))
+    def pf_amount(self, obj):
+        from django.db.models import Sum
+        total = obj.salesinvoice.items.filter(
+            project_file_id=obj.projectfile_id,
+        ).aggregate(s=Sum("line_total"))["s"]
+        if total and hasattr(total, "amount"):
+            total = total.amount
+        return f"{total or 0:.2f} €"
+
+    @display(description=_("Invoice Total"))
+    def total_amount(self, obj):
+        return obj.salesinvoice.total_amount
+
+    @display(description=_("Status"))
+    def invoice_status(self, obj):
+        return obj.salesinvoice.get_status_display()
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 class ProductionTicketInline(TabularInline):
     model = ProductionTicket
@@ -94,9 +142,11 @@ class ResourcePlanningInline(TabularInline):
 
 
 @admin.register(ProjectFile)
-class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["reference", "name", "client", "status", "total_amount", "start_date","invoicing_status","company"]
-    list_filter = [("status",MultipleChoicesDropdownFilter), ("company",AutocompleteSelectMultipleFilter), ("created_at",RangeDateFilter)]
+class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
+    resource_classes = [ProjectFileResource]
+    export_form_class = SelectableFieldsExportForm
+    list_display = ["reference", "name", "client", "status", "total_amount", "total_invoiced", "start_date", "invoicing_status", "company"]
+    list_filter = [("client", AutocompleteSelectMultipleFilter), ("status", MultipleChoicesDropdownFilter), ("company", AutocompleteSelectMultipleFilter), ("created_at", RangeDateFilter)]
     search_fields = ["reference", "name", "client__name"]
     autocomplete_fields = ["client", "company"]
     list_select_related = ["client","company"]
@@ -107,6 +157,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
         QuoteInline,
         DirectConfigurationInline,
         SalesInvoiceInline,
+        BulkSalesInvoiceInline,
         ProductionTicketInline,
         DeliveryOrderInline,
         PurchaseInvoiceInline,
@@ -115,6 +166,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     actions_row = ["create_invoice_row_action", "create_delivery_order_row_action"]
     actions_detail = ["create_invoice_detail_action", "create_delivery_order_detail_action"]
+    actions = ["create_bulk_invoice"]
 
     fieldsets = (
         (_("Basic Information"), {
@@ -145,44 +197,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
 
     def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        zero = Value(Decimal("0.00"), output_field=DecimalField())
-
-        # Use Subquery for each aggregation to avoid multi-JOIN row duplication
-        quote_invoiceable = Quote.objects.filter(
-            project_file=OuterRef('pk'),
-            status=QuoteStatus.ACCEPTED,
-        ).values('project_file').annotate(s=Sum('total_price')).values('s')
-
-        direct_config_invoiceable = Configuration.objects.filter(
-            project_file=OuterRef('pk'),
-            quote__isnull=True,
-            status__in=[
-                ConfigurationStatus.SHOP,
-                ConfigurationStatus.COMPLETED,
-                ConfigurationStatus.CONVERTED,
-                ConfigurationStatus.PRODUCTION_DONE,
-            ],
-        ).values('project_file').annotate(s=Sum('total_price')).values('s')
-
-        total_invoiced = SalesInvoice.objects.filter(
-            project_file=OuterRef('pk'),
-        ).values('project_file').annotate(s=Sum('total_amount')).values('s')
-
-        return qs.annotate(
-            _quote_invoiceable=Coalesce(
-                Subquery(quote_invoiceable),
-                zero,
-            ),
-            _direct_config_invoiceable=Coalesce(
-                Subquery(direct_config_invoiceable),
-                zero,
-            ),
-            _total_invoiced=Coalesce(
-                Subquery(total_invoiced),
-                zero,
-            ),
-        )
+        return super().get_queryset(request)
 
     def get_urls(self):
         urls = super().get_urls()
@@ -200,6 +215,13 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
                     DeliveryOrderWizardView.as_view(model_admin=self)
                 ),
                 name="management_projectfile_create_delivery_order",
+            ),
+            path(
+                "bulk-invoice/",
+                self.admin_site.admin_view(
+                    BulkInvoiceConfirmView.as_view(model_admin=self)
+                ),
+                name="management_projectfile_bulk_invoice",
             ),
         ]
         return custom + urls
@@ -228,16 +250,27 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
             reverse("admin:management_projectfile_create_delivery_order", args=[object_id])
         )
 
+    @action(description=_("Create Bulk Invoice"), icon="receipt_long")
+    def create_bulk_invoice(self, request, queryset):
+        pf_list = list(queryset)
+        if len(pf_list) < 2:
+            messages.warning(request, _("Select at least 2 project files for bulk invoicing."))
+            return None
+
+        client_ids = {pf.client_id for pf in pf_list}
+        if len(client_ids) > 1:
+            messages.error(request, _("All selected project files must belong to the same client."))
+            return None
+
+        request.session["bulk_invoice_pf_ids"] = [pf.pk for pf in pf_list]
+        return redirect(reverse("admin:management_projectfile_bulk_invoice"))
+
     @display(description=_("Invoicing"))
     def invoicing_status(self, obj):
-        """List display column — reads from annotated queryset, zero extra queries."""
-        invoiceable = (getattr(obj, '_quote_invoiceable', None) or Decimal("0")) \
-                    + (getattr(obj, '_direct_config_invoiceable', None) or Decimal("0"))
-        if invoiceable <= 0:
+        """List display column — reads from cached model fields."""
+        pct = obj.percentage_invoiced or Decimal("0")
+        if obj.total_amount.amount <= 0:
             return "—"
-
-        invoiced = getattr(obj, '_total_invoiced', None) or Decimal("0")
-        pct = (invoiced / invoiceable * Decimal("100")).quantize(Decimal("0.01"))
 
         if pct >= 100:
             return format_html(
@@ -256,37 +289,45 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     @admin.display(description=_("Invoicing Summary"))
     def invoicing_summary_display(self, obj):
-        """Detail page read-only field showing full invoicing breakdown."""
+        """Detail page read-only field showing full invoicing breakdown (subtotal-based)."""
         if not obj.pk:
             return "—"
 
         summary = ProjectFileInvoiceService.get_invoiceable_summary(obj)
-        if summary['total_invoiceable'] <= 0:
+        if summary['total_invoiceable_subtotal'] <= 0:
             return format_html(
                 '<span style="color: #6b7280;">{}</span>',
                 _("No accepted quotes or direct configurations yet.")
             )
 
+        invoiceable = summary['total_invoiceable_subtotal']
+        invoiced = summary['total_invoiced_subtotal']
+        remaining = summary['remaining_subtotal']
+        pct = (
+            (invoiced / invoiceable * Decimal("100")).quantize(Decimal("0.01"))
+            if invoiceable > 0 else Decimal("0.00")
+        )
+
         html = f"""
         <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; max-width: 600px;">
             <div style="background: #f9fafb; border-radius: 8px; padding: 12px; text-align: center;">
-                <div style="font-size: 11px; color: #6b7280; margin-bottom: 4px;">{_("Total Invoiceable")}</div>
-                <div style="font-size: 18px; font-weight: 700; color: #111827;">{summary['total_invoiceable']:.2f} €</div>
+                <div style="font-size: 11px; color: #6b7280; margin-bottom: 4px;">{_("Total Invoiceable (subtotal)")}</div>
+                <div style="font-size: 18px; font-weight: 700; color: #111827;">{invoiceable:.2f} €</div>
             </div>
             <div style="background: #eff6ff; border-radius: 8px; padding: 12px; text-align: center;">
-                <div style="font-size: 11px; color: #2563eb; margin-bottom: 4px;">{_("Already Invoiced")}</div>
-                <div style="font-size: 18px; font-weight: 700; color: #1d4ed8;">{summary['total_invoiced']:.2f} €</div>
+                <div style="font-size: 11px; color: #2563eb; margin-bottom: 4px;">{_("Already Invoiced (subtotal)")}</div>
+                <div style="font-size: 18px; font-weight: 700; color: #1d4ed8;">{invoiced:.2f} €</div>
             </div>
             <div style="background: #f0fdf4; border-radius: 8px; padding: 12px; text-align: center;">
-                <div style="font-size: 11px; color: #16a34a; margin-bottom: 4px;">{_("Remaining")}</div>
-                <div style="font-size: 18px; font-weight: 700; color: #15803d;">{summary['remaining']:.2f} €</div>
+                <div style="font-size: 11px; color: #16a34a; margin-bottom: 4px;">{_("Remaining (subtotal)")}</div>
+                <div style="font-size: 18px; font-weight: 700; color: #15803d;">{remaining:.2f} €</div>
             </div>
         </div>
         <div style="margin-top: 8px;">
             <div style="background: #e5e7eb; border-radius: 999px; height: 8px; overflow: hidden;">
-                <div style="background: #2563eb; height: 100%; width: {summary['percentage_invoiced']}%; border-radius: 999px;"></div>
+                <div style="background: #2563eb; height: 100%; width: {min(pct, 100)}%; border-radius: 999px;"></div>
             </div>
-            <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">{summary['percentage_invoiced']}% {_("invoiced")}</div>
+            <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">{pct}% {_("invoiced")}</div>
         </div>
         """
         return format_html(html)

@@ -727,6 +727,13 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         related_name="sales_invoices",
         verbose_name=_("Project File")
     )
+    project_files = models.ManyToManyField(
+        "management.ProjectFile",
+        blank=True,
+        related_name="bulk_sales_invoices",
+        verbose_name=_("Project Files"),
+        help_text=_("All project files included in this invoice (for bulk invoicing)."),
+    )
     
     subtotal_amount = MoneyField(
         max_digits=12, 
@@ -1008,6 +1015,15 @@ class SalesInvoiceItem(models.Model):
         default="",
         verbose_name=_("Reference"),
         help_text=_("Item reference. Auto-filled from inventory item code when applicable."),
+    )
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="sales_invoice_items",
+        verbose_name=_("Project File"),
+        help_text=_("Source project file for this line item (used in bulk invoicing)."),
     )
 
     def save(self, *args, **kwargs):

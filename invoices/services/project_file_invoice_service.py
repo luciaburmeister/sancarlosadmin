@@ -87,6 +87,7 @@ class ProjectFileInvoiceService:
             })
 
         # Sum existing invoices linked to this project file
+        # Source 1: single-PF invoices (FK on invoice)
         existing_invoices = SalesInvoice.objects.filter(
             project_file=project_file,
         ).order_by('-date_issued')
@@ -108,6 +109,30 @@ class ProjectFileInvoiceService:
                 'total': inv_total,
                 'date_issued': invoice.date_issued,
             })
+
+        # Source 2: bulk invoices (project_file FK on individual items)
+        bulk_items = SalesInvoiceItem.objects.filter(
+            project_file=project_file,
+            invoice__project_file__isnull=True,  # only bulk invoices
+        ).select_related("invoice")
+
+        seen_bulk_invoices = set()
+        for item in bulk_items:
+            total_invoiced_subtotal += Decimal(str(item.line_total.amount))
+            # Count total for each bulk invoice only once
+            if item.invoice_id not in seen_bulk_invoices:
+                seen_bulk_invoices.add(item.invoice_id)
+                # For bulk invoices, add the full invoice to the list
+                inv = item.invoice
+                invoices_data.append({
+                    'id': inv.id,
+                    'invoice_number': inv.invoice_number or f"Pro Forma #{inv.id} (bulk)",
+                    'status': inv.get_status_display(),
+                    'subtotal': Decimal("0"),  # per-item, not per-invoice
+                    'total': Decimal("0"),
+                    'date_issued': inv.date_issued,
+                    'is_bulk': True,
+                })
 
         remaining = total_invoiceable - total_invoiced
         remaining_subtotal = total_invoiceable_subtotal - total_invoiced_subtotal

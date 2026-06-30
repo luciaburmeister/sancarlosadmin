@@ -72,6 +72,23 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         help_text=_("Cached total of accepted quotes + direct configurations."),
     )
 
+    total_invoiced = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Total Invoiced"),
+        help_text=_("Cached sum of sales invoices linked to this project file."),
+    )
+
+    percentage_invoiced = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        verbose_name=_("% Invoiced"),
+        help_text=_("Cached percentage of total_amount that has been invoiced."),
+    )
+
     class Meta:
         verbose_name = _("Project File")
         verbose_name_plural = _("Project Files")
@@ -96,39 +113,80 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
 
     def recalculate_total_amount(self):
         """
-        Recompute total_amount from accepted quotes and direct configurations.
-        Call this whenever a related Quote or Configuration changes.
+        Recompute total_amount, total_invoiced, and percentage_invoiced.
+        All values are subtotals (pre-tax) so the comparison is apples-to-apples.
+        Call this whenever a related Quote, Configuration, or SalesInvoice changes.
         """
         from django.apps import apps
         Quote = apps.get_model("sales", "Quote")
         Configuration = apps.get_model("configurator", "Configuration")
-        QuoteStatus = apps.get_model("sales", "QuoteStatus") if False else None
+        SalesInvoice = apps.get_model("invoices", "SalesInvoice")
 
-        # Accepted quotes total
-        quote_total = (
+        # Accepted quotes subtotal (pre-tax, post-discount)
+        quote_subtotal = (
             Quote.objects.filter(
                 project_file=self,
                 status="accepted",
-            ).aggregate(total=Sum("total_price"))["total"]
+            ).aggregate(total=Sum("discounted_subtotal"))["total"]
             or Decimal("0.00")
         )
-        if hasattr(quote_total, "amount"):
-            quote_total = quote_total.amount
+        if hasattr(quote_subtotal, "amount"):
+            quote_subtotal = quote_subtotal.amount
 
-        # Direct configurations (no quote) in invoiceable statuses
-        config_total = (
+        # Direct configurations (no quote) subtotal (pre-tax)
+        config_subtotal = (
             Configuration.objects.filter(
                 project_file=self,
                 quote__isnull=True,
                 status__in=["shop", "completed", "converted", "production_done"],
-            ).aggregate(total=Sum("total_price"))["total"]
+            ).aggregate(total=Sum("subtotal_price"))["total"]
             or Decimal("0.00")
         )
-        if hasattr(config_total, "amount"):
-            config_total = config_total.amount
+        if hasattr(config_subtotal, "amount"):
+            config_subtotal = config_subtotal.amount
 
-        self.total_amount = Decimal(str(quote_total)) + Decimal(str(config_total))
-        self.save(update_fields=["total_amount", "total_amount_currency"])
+        invoiceable = Decimal(str(quote_subtotal)) + Decimal(str(config_subtotal))
+
+        # Sum of sales invoice subtotals (pre-tax)
+        # Source 1: single-PF invoices (project_file FK on invoice)
+        from django.db.models import Q
+        SalesInvoiceItem = apps.get_model("invoices", "SalesInvoiceItem")
+
+        fk_invoiced = (
+            SalesInvoice.objects.filter(
+                project_file=self,
+            ).aggregate(total=Sum("subtotal_amount"))["total"]
+            or Decimal("0.00")
+        )
+        if hasattr(fk_invoiced, "amount"):
+            fk_invoiced = fk_invoiced.amount
+
+        # Source 2: bulk invoices (project_file FK on individual items)
+        item_invoiced = (
+            SalesInvoiceItem.objects.filter(
+                project_file=self,
+                invoice__project_file__isnull=True,  # only bulk invoices
+            ).aggregate(total=Sum("line_total"))["total"]
+            or Decimal("0.00")
+        )
+        if hasattr(item_invoiced, "amount"):
+            item_invoiced = item_invoiced.amount
+
+        invoiced = Decimal(str(fk_invoiced)) + Decimal(str(item_invoiced))
+
+        pct = (
+            (invoiced / invoiceable * Decimal("100")).quantize(Decimal("0.01"))
+            if invoiceable > 0 else Decimal("0.00")
+        )
+
+        self.total_amount = invoiceable
+        self.total_invoiced = invoiced
+        self.percentage_invoiced = pct
+        self.save(update_fields=[
+            "total_amount", "total_amount_currency",
+            "total_invoiced", "total_invoiced_currency",
+            "percentage_invoiced",
+        ])
 
 
 class ResourcePlanningType(CompanyOwnedModel):

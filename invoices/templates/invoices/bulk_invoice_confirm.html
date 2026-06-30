@@ -1,0 +1,73 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="{% url 'admin:jsi18n' %}"></script>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto p-6">
+    {# Summary card #}
+    <div class="mb-6 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm overflow-hidden">
+        <div class="p-5">
+            <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">
+                {% trans "Bulk Invoice — Confirmation" %}
+            </h2>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                {% blocktrans with client=client_name count=pf_count %}
+                You are about to create a single invoice for {{ count }} project file(s) belonging to <strong>{{ client }}</strong>.
+                {% endblocktrans %}
+            </p>
+
+            {# PF breakdown table #}
+            <table class="w-full text-sm mb-4">
+                <thead>
+                    <tr class="text-left border-b border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400">
+                        <th class="py-2">{% trans "Project File" %}</th>
+                        <th class="py-2 text-right">{% trans "Remaining (subtotal)" %}</th>
+                        <th class="py-2 text-right">{% trans "Items" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pf in pf_details %}
+                    <tr class="border-b border-gray-100 dark:border-gray-800">
+                        <td class="py-2 font-medium text-gray-900 dark:text-gray-100">
+                            {{ pf.reference }} — {{ pf.name }}
+                        </td>
+                        <td class="py-2 text-right text-gray-700 dark:text-gray-300">
+                            {{ pf.remaining|floatformat:2 }} €
+                        </td>
+                        <td class="py-2 text-right text-gray-500 dark:text-gray-400">
+                            {{ pf.item_count }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+                <tfoot>
+                    <tr class="font-bold text-gray-900 dark:text-gray-100">
+                        <td class="py-3">{% trans "Total" %}</td>
+                        <td class="py-3 text-right">{{ total_remaining|floatformat:2 }} €</td>
+                        <td class="py-3 text-right">{{ total_items }}</td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+    {# Action buttons #}
+    <form method="post">
+        {% csrf_token %}
+        <div class="flex items-center justify-end gap-3">
+            <a href="{% url 'admin:management_projectfile_changelist' %}"
+               class="inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
+                {% trans "Cancel" %}
+            </a>
+            <button type="submit" name="confirm" value="1"
+                    class="inline-flex items-center px-5 py-2 text-sm font-bold rounded-lg text-white bg-primary-600 hover:bg-primary-700 shadow-sm">
+                {% trans "Create Invoice" %}
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

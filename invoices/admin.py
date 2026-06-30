@@ -622,7 +622,7 @@ class SalesInvoiceItemInline(StackedInline):
     model = SalesInvoiceItem
     extra = 0
     tab = True
-    readonly_fields = ("discount_amount", "line_total", "source_id")
+    readonly_fields = ("discount_amount", "line_total", "source_id", "project_file")
     formfield_overrides = {
         models.CharField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 2})},
     }
@@ -636,6 +636,7 @@ class SalesInvoiceItemInline(StackedInline):
                     ("discount_percentage", "discount_amount"), 
                     "description",
                     ("reference", "line_total", "source_id"),
+                    "project_file",
                 )
             },
         ),

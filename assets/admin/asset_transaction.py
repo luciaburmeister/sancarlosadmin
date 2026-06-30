@@ -33,20 +33,20 @@ class AssetTransactionEmailLogInline(_GenericTabularInline):
 
 @admin.register(AssetTransaction)
 class AssetTransactionAdmin(ModelAdmin):
-    list_display = ("asset", "transaction_type", "from_zone", "to_zone", "project_file", "date", "get_employee", "has_firma", "company","imagen")
+    list_display = ("asset", "transaction_type", "from_zone", "to_zone", "project_file", "date", "get_employee", "has_firma", "company", "imagen")
     list_filter = (
-        ("company",AutocompleteSelectMultipleFilter),
-        ("transaction_type",MultipleChoicesDropdownFilter),
-        ("asset__asset_type",AutocompleteSelectMultipleFilter),
-        ("asset__client",AutocompleteSelectMultipleFilter),
-        ("from_zone",AutocompleteSelectMultipleFilter),
-        ("to_zone",AutocompleteSelectMultipleFilter),
+        ("company", AutocompleteSelectMultipleFilter),
+        ("transaction_type", MultipleChoicesDropdownFilter),
+        ("asset__asset_type", AutocompleteSelectMultipleFilter),
+        ("asset__client", AutocompleteSelectMultipleFilter),
+        ("from_zone", AutocompleteSelectMultipleFilter),
+        ("to_zone", AutocompleteSelectMultipleFilter),
     )
     search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes")
     autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file"]
     exclude = ["company", "firma"]
     readonly_fields = ["firma_preview", "imagen_link", "performed_by"]
-    list_select_related = ["from_zone__company","to_zone__company","company","performed_by__company","asset__asset_type"]
+    list_select_related = ["from_zone__company", "to_zone__company", "company", "performed_by__company", "asset__asset_type"]
     list_filter_submit = True
     inlines = [AssetTransactionEmailLogInline]
 
@@ -74,7 +74,7 @@ class AssetTransactionAdmin(ModelAdmin):
             "fields": ("imagen",)
         }),
         (_("Firma"), {
-            "fields": ("firma_preview",)
+            "fields": ("firma_image", "firma_preview",)  
         }),
     )
 
@@ -86,11 +86,15 @@ class AssetTransactionAdmin(ModelAdmin):
 
     @admin.display(boolean=True, description="Firma")
     def has_firma(self, obj):
-        return bool(obj.firma)
-
+        return bool(obj.firma_image) 
     @admin.display(description="Firma")
     def firma_preview(self, obj):
-        if obj.firma:
+        if obj.firma_image:
+            return format_html(
+                '<img src="{}" style="width:400px; height:150px; object-fit:contain; border:1px solid #ccc; background:white;" />',
+                obj.firma_image.url  # ← use URL from ImageField
+            )
+        elif obj.firma:  # ← fallback for old base64 records
             return format_html(
                 '<img src="data:image/png;base64,{}" style="width:400px; height:150px; object-fit:contain; border:1px solid #ccc; background:white;" />',
                 obj.firma

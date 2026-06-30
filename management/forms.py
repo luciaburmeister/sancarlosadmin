@@ -1,3 +1,5 @@
+import datetime
+
 from django import forms
 from django.contrib import admin
 from django.contrib.admin.widgets import AutocompleteSelect
@@ -206,10 +208,12 @@ class ResourcePlanningBulkForm(forms.Form):
     )
     daily_start = forms.TimeField(
         label=_("Daily start"),
+        initial=datetime.time(8, 0),
         widget=UnfoldAdminTimeWidget,
     )
     daily_end = forms.TimeField(
         label=_("Daily end"),
+        initial=datetime.time(17, 0),
         widget=UnfoldAdminTimeWidget,
     )
     exclude_weekends = forms.BooleanField(
@@ -271,6 +275,32 @@ class ResourcePlanningBulkForm(forms.Form):
         if not pairs:
             raise forms.ValidationError(_("Select at least one resource."))
         return pairs
+
+    def clean(self):
+        cleaned = super().clean()
+        date_from = cleaned.get("date_from")
+        date_to = cleaned.get("date_to")
+        daily_start = cleaned.get("daily_start")
+        daily_end = cleaned.get("daily_end")
+        if not all([date_from, date_to, daily_start, daily_end]):
+            return cleaned
+        if date_to < date_from:
+            self.add_error("date_to", _("End date must be on or after start date."))
+            return cleaned
+        start_dt = datetime.datetime.combine(date_from, daily_start)
+        end_dt = datetime.datetime.combine(date_to, daily_end)
+        if end_dt <= start_dt:
+            if date_from == date_to:
+                self.add_error(
+                    "daily_end",
+                    _("Daily end time must be after daily start time."),
+                )
+            else:
+                self.add_error(
+                    "daily_end",
+                    _("End date/time must be after start date/time."),
+                )
+        return cleaned
 
     @property
     def resource_pairs(self) -> list[tuple[ContentType, int]]:

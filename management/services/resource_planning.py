@@ -103,8 +103,12 @@ class ResourcePlanningService:
             raise ValidationError(_("At least one resource is required."))
         if date_to < date_from:
             raise ValidationError(_("End date must be on or after start date."))
-        if daily_end <= daily_start:
-            raise ValidationError(_("Daily end time must be after daily start time."))
+        start_dt = datetime.datetime.combine(date_from, daily_start)
+        end_dt = datetime.datetime.combine(date_to, daily_end)
+        if end_dt <= start_dt:
+            if date_from == date_to:
+                raise ValidationError(_("Daily end time must be after daily start time."))
+            raise ValidationError(_("End date/time must be after start date/time."))
         if not days:
             raise ValidationError(_("The selected date range contains no working days."))
 
@@ -210,9 +214,31 @@ class ResourcePlanningService:
         return ResourcePlanning.objects.filter(group_id=group_pk).order_by("start")
 
     @staticmethod
+    def _detach_planning_from_group(planning: "ResourcePlanning") -> None:
+        """
+        Remove a single planning from its group without affecting other members.
+
+        If the group is left with one or zero plannings, dissolve it entirely.
+        """
+        from management.models import ResourcePlanning, ResourcePlanningGroup
+
+        group_pk = planning.group_id
+        if not group_pk:
+            return
+
+        planning.group = None
+        planning.save(update_fields=["group"])
+
+        if not ResourcePlanning.objects.filter(group_id=group_pk).exists():
+            ResourcePlanningGroup.objects.filter(pk=group_pk).delete()
+
+    @staticmethod
     def delete_day_from_planning(planning_pk: int, day_date: date) -> None:
         """
         Remove a single calendar day from a planning's date range.
+
+        If the planning belongs to a group, it is detached first so only this
+        resource is modified; the rest of the group stays synchronized.
 
         - Single-day planning → deleted entirely.
         - First day  → start moves to the next day.
@@ -222,6 +248,8 @@ class ResourcePlanningService:
         from management.models import ResourcePlanning
 
         planning = ResourcePlanning.objects.get(pk=planning_pk)
+        ResourcePlanningService._detach_planning_from_group(planning)
+
         local_start = timezone.localtime(planning.start)
         local_end   = timezone.localtime(planning.end)
 
@@ -260,7 +288,7 @@ class ResourcePlanningService:
                     status=planning.status,
                     notes=planning.notes,
                     exclude_weekends=planning.exclude_weekends,
-                    group=planning.group,
+                    group=None,
                     resource_content_type=planning.resource_content_type,
                     resource_object_id=planning.resource_object_id,
                     start=timezone.make_aware(

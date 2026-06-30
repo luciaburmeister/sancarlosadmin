@@ -212,7 +212,7 @@ class ResourcePlanningGroupChangeView(_PlanningFormMixin, UnfoldModelAdminViewMi
         first, last = plannings[0], plannings[-1]
         local_first_start = tz.localtime(first.start)
         local_first_end   = tz.localtime(first.end)
-        local_last_start  = tz.localtime(last.start)
+        local_last_end    = tz.localtime(last.end)
         return {
             "company": first.company_id,
             "project_file": first.project_file_id,
@@ -221,9 +221,9 @@ class ResourcePlanningGroupChangeView(_PlanningFormMixin, UnfoldModelAdminViewMi
             "notes": first.notes,
             "resources": self._resource_tokens(),
             "date_from": local_first_start.date(),
-            "date_to": local_last_start.date(),
+            "date_to": local_last_end.date(),
             "daily_start": local_first_start.time(),
-            "daily_end": local_first_end.time(),
+            "daily_end": local_last_end.time(),
             "exclude_weekends": first.exclude_weekends,
             "is_group": True,
         }

@@ -353,7 +353,7 @@
     {% endif %}
 
     {% if combinations %}
-    <form method="post" action="{{ approve_url }}" id="reviewForm">
+    <form method="post" id="reviewForm">
         {% csrf_token %}
 
         <div class="combo-section">

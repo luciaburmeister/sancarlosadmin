@@ -501,22 +501,25 @@ class SalesInvoicePaymentView(CompanyAPIView):
             )
 
         with transaction.atomic():
-            payment = Payment.objects.create(
+            payment, created = Payment.objects.get_or_create(
                 company=self.company,
                 payment_date=payment_date,
                 amount=Money(amount, currency),
                 direction=PaymentDirection.INBOUND,
                 method=method,
-                status=PaymentStatus.CONFIRMED,
                 reference=reference,
-                amount_pending_allocation=Money(amount, currency),
+                defaults={
+                    "status": PaymentStatus.CONFIRMED,
+                    "amount_pending_allocation": Money(amount, currency),
+                },
             )
-            PaymentAllocation.objects.create(
-                payment=payment,
-                content_type=ContentType.objects.get_for_model(invoice),
-                object_id=invoice.pk,
-                amount_applied=Money(amount, currency),
-            )
+            if created:
+                PaymentAllocation.objects.create(
+                    payment=payment,
+                    content_type=ContentType.objects.get_for_model(invoice),
+                    object_id=invoice.pk,
+                    amount_applied=Money(amount, currency),
+                )
 
         invoice.refresh_from_db()
         return JsonResponse(_serialize_invoice_detail(invoice), status=201)

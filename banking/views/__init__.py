@@ -9,8 +9,12 @@ from banking.views.callback_views import (
     ArcopayCallbackView,
     ArcopayErrorCallbackView,
 )
+from banking.views.invoice_reconciliation_views import (
+    ReviewInvoiceReconciliationView,
+)
 from banking.views.reconciliation_views import (
-    ApproveReconciliationView,
+    LinkTransactionView,
+    ManualReconcileView,
     ReviewReconciliationView,
     SkipReconciliationView,
 )
@@ -23,7 +27,9 @@ __all__ = [
     "ArcopayCallbackView",
     "ArcopayErrorCallbackView",
     "ReviewReconciliationView",
-    "ApproveReconciliationView",
     "SkipReconciliationView",
+    "ManualReconcileView",
+    "LinkTransactionView",
+    "ReviewInvoiceReconciliationView",
 ]
 

@@ -332,7 +332,10 @@ class ArcopayService:
             to_create.append(bt)
 
         if to_create:
-            BankTransaction.objects.bulk_create(to_create)
+            created = BankTransaction.objects.bulk_create(to_create)
+            from banking.tasks import run_matcher_for_transaction
+            for bt in created:
+                run_matcher_for_transaction.delay(bt.pk)
 
         return len(to_create)
 

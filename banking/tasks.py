@@ -6,6 +6,79 @@ from celery import shared_task
 logger = logging.getLogger(__name__)
 
 
+@shared_task(bind=True, max_retries=3, default_retry_delay=60)
+def run_matcher_for_transaction(self, bank_transaction_id: int):
+    """Run the transaction matcher for a single BankTransaction.
+
+    Dispatched automatically after every new transaction is imported.
+    Skipped if a confirmed reconciliation already exists.
+    """
+    from banking.models import BankReconciliation, BankTransaction, ReconciliationStatus
+    from banking.services.transaction_matching import TransactionMatcher
+
+    try:
+        txn = BankTransaction.objects.get(pk=bank_transaction_id)
+
+        if txn.reconciliation_status == ReconciliationStatus.RECONCILED:
+            logger.info("Transaction %s already reconciled, skipping matcher.", bank_transaction_id)
+            return
+
+        BankReconciliation.objects.filter(bank_transaction=txn, is_confirmed=False).delete()
+
+        matcher = TransactionMatcher(txn)
+        recon = matcher.run()
+        logger.info(
+            "Matcher ran for transaction %s: %d suggestion(s), unmatched=%s",
+            bank_transaction_id,
+            len(recon.suggested_allocations),
+            recon.unmatched_amount,
+        )
+    except BankTransaction.DoesNotExist:
+        logger.error("BankTransaction %s does not exist, skipping matcher.", bank_transaction_id)
+    except Exception as exc:
+        logger.exception("Matcher failed for transaction %s", bank_transaction_id)
+        raise self.retry(exc=exc)
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=60)
+def run_invoice_matcher_task(self, model_name: str, invoice_id: int):
+    """Run InvoiceMatcher for a single Invoice or SalesInvoice.
+
+    model_name: 'invoice' or 'salesinvoice'
+    """
+    from banking.models import InvoiceReconciliationSuggestion
+    from banking.services.transaction_matching import InvoiceMatcher
+    from django.contrib.contenttypes.models import ContentType
+
+    model_map = {
+        "invoice": "invoices.Invoice",
+        "salesinvoice": "invoices.SalesInvoice",
+    }
+    app_label, model = model_map[model_name].split(".")
+
+    try:
+        from django.apps import apps
+        InvoiceModel = apps.get_model(app_label, model)
+        invoice = InvoiceModel.objects.get(pk=invoice_id)
+
+        ct = ContentType.objects.get_for_model(invoice)
+        InvoiceReconciliationSuggestion.objects.filter(
+            content_type=ct, object_id=invoice_id, is_confirmed=False
+        ).delete()
+
+        matcher = InvoiceMatcher(invoice)
+        suggestion = matcher.run()
+        logger.info(
+            "InvoiceMatcher ran for %s #%s: %d combination(s)",
+            model_name,
+            invoice_id,
+            len(suggestion.suggested_combinations),
+        )
+    except Exception as exc:
+        logger.exception("InvoiceMatcher failed for %s #%s", model_name, invoice_id)
+        raise self.retry(exc=exc)
+
+
 @shared_task(bind=True, max_retries=2, default_retry_delay=300)
 def sync_bank_transactions(self):
     """Periodic task: fetch new transactions for all connected bank accounts.

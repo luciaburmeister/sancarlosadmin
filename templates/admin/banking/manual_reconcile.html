@@ -1,0 +1,421 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{% if is_partial %}{% trans "Add Allocations" %}{% else %}{% trans "Reconcile Manually" %}{% endif %}{% endblock %}
+
+{% block content %}
+<style>
+    .review-container {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .txn-header {
+        background: var(--bg-primary, #fff);
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .txn-header h2 {
+        font-size: 1.35rem;
+        font-weight: 700;
+        margin: 0 0 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .txn-meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .txn-meta-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+    }
+
+    .txn-meta-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--font-subtle-light, #888);
+    }
+
+    .txn-meta-value {
+        font-size: 0.95rem;
+        font-weight: 500;
+    }
+
+    .txn-amount {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--primary-600, oklch(57% .125 190));
+    }
+
+    /* ── Search bar ─────────────────────────────────── */
+    .search-bar {
+        margin-bottom: 1rem;
+    }
+
+    .search-bar input {
+        width: 100%;
+        padding: 0.625rem 1rem;
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 8px;
+        font-size: 0.9rem;
+        background: var(--bg-primary, #fff);
+        color: var(--font-default-light, #333);
+        box-sizing: border-box;
+    }
+
+    .search-bar input:focus {
+        outline: none;
+        border-color: var(--primary-400, oklch(65% .125 190));
+        box-shadow: 0 0 0 3px oklch(57% .125 190 / 0.1);
+    }
+
+    /* ── Document table ─────────────────────────────── */
+    .doc-table-wrapper {
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 12px;
+        overflow: hidden;
+        margin-bottom: 1.5rem;
+    }
+
+    .doc-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.875rem;
+    }
+
+    .doc-table th {
+        text-align: left;
+        padding: 0.75rem 1.25rem;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--font-subtle-light, #888);
+        background: var(--bg-secondary, #f8fafc);
+        border-bottom: 1px solid var(--border-default, #e2e8f0);
+    }
+
+    .doc-table td {
+        padding: 0.75rem 1.25rem;
+        border-bottom: 1px solid var(--border-default, #f1f5f9);
+        vertical-align: middle;
+    }
+
+    .doc-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .doc-table tr.selected-row {
+        background: oklch(57% .125 190 / 0.06);
+    }
+
+    .doc-table tr:hover {
+        background: var(--bg-secondary, #f8fafc);
+        cursor: pointer;
+    }
+
+    .doc-table tr.selected-row:hover {
+        background: oklch(57% .125 190 / 0.1);
+    }
+
+    .doc-checkbox {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--primary-600, oklch(57% .125 190));
+        cursor: pointer;
+    }
+
+    .doc-link {
+        color: var(--primary-600, oklch(57% .125 190));
+        text-decoration: none;
+        font-weight: 500;
+    }
+
+    .doc-link:hover {
+        text-decoration: underline;
+    }
+
+    .amount-col {
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+    }
+
+    /* ── Running total ──────────────────────────────── */
+    .running-total {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 1rem;
+        padding: 0.75rem 1.25rem;
+        background: var(--bg-secondary, #f8fafc);
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        font-size: 0.9rem;
+    }
+
+    .running-total-label {
+        color: var(--font-subtle-light, #888);
+        font-weight: 500;
+    }
+
+    .running-total-value {
+        font-size: 1.25rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .running-total-value.match {
+        color: #16a34a;
+    }
+
+    .running-total-value.over {
+        color: #dc2626;
+    }
+
+    /* ── Actions ────────────────────────────────────── */
+    .review-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--border-default, #e2e8f0);
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        border: none;
+        transition: all 0.15s ease;
+        text-decoration: none;
+    }
+
+    .btn-confirm {
+        background: var(--primary-600, oklch(57% .125 190));
+        color: #fff;
+    }
+
+    .btn-confirm:hover {
+        background: var(--primary-700, oklch(49% .105 190));
+    }
+
+    .btn-confirm:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    .btn-back {
+        background: transparent;
+        border: 1px solid var(--border-default, #e2e8f0);
+        color: var(--font-default-light, #333);
+    }
+
+    .btn-back:hover {
+        background: var(--bg-secondary, #f8fafc);
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 3rem;
+        color: var(--font-subtle-light, #888);
+    }
+
+    .empty-state .material-symbols-outlined {
+        font-size: 48px;
+        margin-bottom: 0.5rem;
+        opacity: 0.4;
+    }
+</style>
+
+<div class="review-container">
+
+    <!-- Transaction header -->
+    <div class="txn-header">
+        <h2>
+            <span class="material-symbols-outlined">edit_note</span>
+            {% if is_partial %}{% trans "Add Allocations" %}{% else %}{% trans "Reconcile Manually" %}{% endif %}
+        </h2>
+        <div class="txn-meta">
+            <div class="txn-meta-item">
+                <span class="txn-meta-label">{% trans "Transaction" %}</span>
+                <span class="txn-meta-value">#{{ txn.pk }}</span>
+            </div>
+            <div class="txn-meta-item">
+                <span class="txn-meta-label">{% trans "Date" %}</span>
+                <span class="txn-meta-value">{{ txn.transaction_date }}</span>
+            </div>
+            <div class="txn-meta-item">
+                <span class="txn-meta-label">{% trans "Amount" %}</span>
+                <span class="txn-amount">{{ txn.amount }}</span>
+            </div>
+            <div class="txn-meta-item">
+                <span class="txn-meta-label">{% trans "Description" %}</span>
+                <span class="txn-meta-value">{{ txn.description|default:"—" }}</span>
+            </div>
+            <div class="txn-meta-item">
+                <span class="txn-meta-label">{% trans "Counterparty" %}</span>
+                <span class="txn-meta-value">{{ txn.counterparty_name|default:"—" }}</span>
+            </div>
+            <div class="txn-meta-item">
+                <span class="txn-meta-label">{% trans "Bank Account" %}</span>
+                <span class="txn-meta-value">{{ txn.bank_account }}</span>
+            </div>
+        </div>
+    </div>
+
+    {% if documents %}
+    <form method="post" action="{{ submit_url }}" id="manualForm">
+        {% csrf_token %}
+
+        <div class="search-bar">
+            <input type="text" id="docSearch" placeholder="{% trans 'Search by invoice number or counterparty…' %}"
+                   oninput="filterDocs(this.value)">
+        </div>
+
+        <!-- Running total -->
+        <div class="running-total">
+            {% if is_partial %}
+            <span class="running-total-label">{% trans "Remaining unmatched:" %} {{ txn_amount|floatformat:2 }} €</span>
+            {% else %}
+            <span class="running-total-label">{% trans "Transaction amount:" %} {{ txn_amount|floatformat:2 }} €</span>
+            {% endif %}
+            <span class="running-total-label">{% trans "Selected:" %}</span>
+            <span class="running-total-value" id="runningTotal">0.00 €</span>
+            <span id="overLimitWarning" style="display:none; color:#dc2626; font-size:0.8rem; font-weight:600;">
+                {% trans "Selection exceeds transaction amount" %}
+            </span>
+        </div>
+
+        <div class="doc-table-wrapper">
+            <table class="doc-table" id="docTable">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"></th>
+                        <th>{% trans "Invoice" %}</th>
+                        <th>{% trans "Date" %}</th>
+                        <th>{% trans "Counterparty" %}</th>
+                        <th style="text-align: right;">{% trans "Remaining" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for doc in documents %}
+                    <tr onclick="toggleRow(this)" data-search="{{ doc.number|lower }} {{ doc.counterparty|lower }}">
+                        <td>
+                            <input type="checkbox"
+                                   name="selected_docs"
+                                   value="{{ doc.form_value }}"
+                                   class="doc-checkbox"
+                                   data-amount="{{ doc.remaining }}"
+                                   onclick="event.stopPropagation();">
+                        </td>
+                        <td>{{ doc.number }}</td>
+                        <td>{{ doc.date|default:"—" }}</td>
+                        <td>{{ doc.counterparty }}</td>
+                        <td class="amount-col">{{ doc.remaining|floatformat:2 }} €</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="review-actions">
+            <a href="{{ back_url }}" class="btn btn-back">
+                <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
+                {% trans "Back" %}
+            </a>
+            <button type="submit" class="btn btn-confirm" id="confirmBtn" disabled>
+                <span class="material-symbols-outlined" style="font-size: 18px;">check</span>
+                {% trans "Confirm Reconciliation" %}
+            </button>
+        </div>
+    </form>
+
+    {% else %}
+    <div class="empty-state">
+        <span class="material-symbols-outlined">inbox</span>
+        <p>{% trans "No unpaid documents found for this transaction." %}</p>
+    </div>
+    <div class="review-actions">
+        <a href="{{ back_url }}" class="btn btn-back">
+            <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
+            {% trans "Back" %}
+        </a>
+    </div>
+    {% endif %}
+
+</div>
+
+<script>
+    const txnAmount = parseFloat("{{ txn_amount }}");
+
+    function updateTotal() {
+        const checked = document.querySelectorAll('.doc-checkbox:checked');
+        let total = 0;
+        checked.forEach(cb => total += parseFloat(cb.dataset.amount || 0));
+
+        const isOver = total > txnAmount + 0.01;
+        const isMatch = Math.abs(total - txnAmount) < 0.01;
+
+        const el = document.getElementById('runningTotal');
+        el.textContent = total.toFixed(2) + ' €';
+        el.className = 'running-total-value' + (isOver ? ' over' : (isMatch ? ' match' : ''));
+
+        document.getElementById('overLimitWarning').style.display = isOver ? 'inline' : 'none';
+        document.getElementById('confirmBtn').disabled = checked.length === 0 || isOver;
+
+        // Disable unchecked boxes whose amount would push the total over the limit
+        document.querySelectorAll('.doc-checkbox:not(:checked)').forEach(cb => {
+            const wouldExceed = total + parseFloat(cb.dataset.amount || 0) > txnAmount + 0.01;
+            cb.disabled = wouldExceed;
+            cb.closest('tr').style.opacity = wouldExceed ? '0.4' : '1';
+        });
+
+        // Always keep checked boxes enabled so they can be unchecked
+        document.querySelectorAll('.doc-checkbox:checked').forEach(cb => {
+            cb.disabled = false;
+            cb.closest('tr').style.opacity = '1';
+        });
+    }
+
+    function toggleRow(row) {
+        const cb = row.querySelector('.doc-checkbox');
+        if (cb.disabled) return;
+        cb.checked = !cb.checked;
+        row.classList.toggle('selected-row', cb.checked);
+        updateTotal();
+    }
+
+    document.querySelectorAll('.doc-checkbox').forEach(cb => {
+        cb.addEventListener('change', function() {
+            this.closest('tr').classList.toggle('selected-row', this.checked);
+            updateTotal();
+        });
+    });
+
+    function filterDocs(query) {
+        const q = query.toLowerCase();
+        document.querySelectorAll('#docTable tbody tr').forEach(row => {
+            row.style.display = row.dataset.search.includes(q) ? '' : 'none';
+        });
+    }
+</script>
+{% endblock %}

@@ -1,5 +1,6 @@
 from django.utils.translation import gettext_lazy as _
 from unfold.contrib.filters.admin import RadioFilter
+from django.contrib.contenttypes.models import ContentType
 
 class HasItemsFilter(RadioFilter):
     title = _("has items")
@@ -37,6 +38,52 @@ class ItemsMissingAccountFilter(RadioFilter):
             # Exclude invoices that have any item with no account
             return queryset.exclude(items__account__isnull=True, items__isnull=False)
         return queryset
+
+class IsReconciledFilter(RadioFilter):
+    title = _("bank reconciled")
+    parameter_name = "is_reconciled"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", _("Reconciled")),
+            ("partial", _("Partially reconciled")),
+            ("no", _("Not reconciled")),
+        )
+
+    def queryset(self, request, queryset):
+        from payments.models import PaymentAllocation
+
+        if self.value() is None:
+            return queryset
+
+        ct = ContentType.objects.get_for_model(queryset.model)
+
+        # Invoice IDs that have at least one allocation with a confirmed reconciliation
+        reconciled_ids = set(
+            PaymentAllocation.objects.filter(
+                content_type=ct,
+                payment__reconciliation__is_confirmed=True,
+            ).values_list("object_id", flat=True)
+        )
+
+        # Invoice IDs that have at least one allocation WITHOUT a confirmed reconciliation
+        unreconciled_ids = set(
+            PaymentAllocation.objects.filter(content_type=ct)
+            .exclude(payment__reconciliation__is_confirmed=True)
+            .values_list("object_id", flat=True)
+        )
+
+        if self.value() == "yes":
+            # All allocations are reconciled (none left unreconciled)
+            return queryset.filter(pk__in=reconciled_ids - unreconciled_ids)
+        if self.value() == "partial":
+            # Some reconciled, some not
+            return queryset.filter(pk__in=reconciled_ids & unreconciled_ids)
+        if self.value() == "no":
+            # No reconciled allocations at all
+            return queryset.exclude(pk__in=reconciled_ids)
+        return queryset
+
 
 class BalanceStatusFilter(RadioFilter):
     title = _("total balanced")

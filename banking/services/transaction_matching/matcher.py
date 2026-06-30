@@ -1,4 +1,6 @@
 """Main orchestrator for bank transaction matching and reconciliation."""
+from decimal import Decimal
+
 from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction as db_transaction
@@ -130,7 +132,7 @@ class TransactionMatcher:
             else PaymentDirection.OUTBOUND
         )
 
-        payment, _created = Payment.objects.get_or_create(
+        payment = Payment.objects.create(
             company=txn.company,
             payment_date=txn.transaction_date,
             amount=abs(txn.amount.amount),
@@ -138,16 +140,15 @@ class TransactionMatcher:
             direction=direction,
             bank_account=txn.bank_account,
             created_by=PaymentCreatedBy.AUTO,
-            defaults={
-                "method": PaymentMethod.TRANSFER,
-                "status": PaymentStatus.DRAFT,
-            },
+            method=PaymentMethod.TRANSFER,
+            status=PaymentStatus.CONFIRMED,
         )
 
         # Step 3 — Create PaymentAllocations
         #   Check the real-time remaining amount at confirmation time.
         #   Another reconciliation may have been confirmed in between,
         #   reducing or zeroing the remaining balance.
+        total_allocated = Decimal("0")
         for allocation in confirmed_allocations:
             ct = ContentType.objects.get(model=allocation["content_type"])
             doc = ct.get_object_for_this_type(pk=allocation["object_id"])
@@ -160,17 +161,24 @@ class TransactionMatcher:
                 object_id=allocation["object_id"],
                 amount_applied=remaining,
             )
+            total_allocated += remaining
 
         # Step 4 — Update the BankReconciliation
+        txn_amount = abs(txn.amount.amount)
+        actual_unmatched = max(Decimal("0"), txn_amount - total_allocated)
         reconciliation.payment = payment
         reconciliation.is_confirmed = True
         reconciliation.method = method
         reconciliation.reconciled_by = user
         reconciliation.confirmed_at = timezone.now()
+        reconciliation.unmatched_amount = Money(actual_unmatched, txn.amount_currency)
         reconciliation.save()
 
         # Step 5 — Update BankTransaction reconciliation status
-        txn.reconciliation_status = ReconciliationStatus.RECONCILED
+        is_partial = confirmed_allocations and total_allocated < txn_amount
+        txn.reconciliation_status = (
+            ReconciliationStatus.PARTIAL if is_partial else ReconciliationStatus.RECONCILED
+        )
         txn.save(update_fields=["reconciliation_status"])
 
         return reconciliation

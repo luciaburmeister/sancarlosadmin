@@ -14,12 +14,14 @@ from unfold.admin import ModelAdmin, StackedInline
 from unfold.contrib.inlines.admin import NonrelatedTabularInline
 from unfold.decorators import action, display
 
-from banking.models import BankReconciliation, BankTransaction, ReconciliationStatus
+from banking.models import BankReconciliation, BankTransaction, InvoiceReconciliationSuggestion, ReconciliationStatus
 from banking.views import (
-    ApproveReconciliationView,
     ConnectBankView,
     ConsentDoneView,
     InitiateConsentView,
+    LinkTransactionView,
+    ManualReconcileView,
+    ReviewInvoiceReconciliationView,
     ReviewReconciliationView,
     SkipReconciliationView,
     SyncAccountsView,
@@ -41,6 +43,7 @@ class BankReconciliationInline(StackedInline):
         "method",
         "payment",
         "unmatched_amount",
+        "reconciled_by",
         "confirmed_at",
         "review_link",
     )
@@ -49,6 +52,7 @@ class BankReconciliationInline(StackedInline):
         "method",
         "payment",
         "unmatched_amount",
+        "reconciled_by",
         "confirmed_at",
         "review_link",
     )
@@ -78,10 +82,11 @@ class BankReconciliationInline(StackedInline):
 
 
 class PaymentAllocationInline(NonrelatedTabularInline):
-    """Non-related inline showing payment allocations via the reconciliation chain."""
+    """Read-only inline showing payment allocations."""
     model = PaymentAllocation
     extra = 0
-    can_delete = False
+    max_num = 0
+    can_delete = True
     tab = True
     fields = (
         "document_link",
@@ -184,7 +189,7 @@ class BankTransactionAdmin(ModelAdmin):
     ordering = ("-transaction_date", "-imported_at")
     list_per_page = 30
 
-    actions_detail = ["run_matcher_detail_action", "review_suggestion_action"]
+    actions_detail = ["run_matcher_detail_action", "review_suggestion_action", "manual_reconcile_action"]
     inlines = [BankReconciliationInline, PaymentAllocationInline]
 
     def get_urls(self):
@@ -216,6 +221,20 @@ class BankTransactionAdmin(ModelAdmin):
                     SyncAccountsView.as_view(model_admin=self)
                 ),
                 name="banking_sync",
+            ),
+            path(
+                "<int:pk>/manual-reconcile/",
+                self.admin_site.admin_view(
+                    ManualReconcileView.as_view(model_admin=self)
+                ),
+                name="banking_banktransaction_manual_reconcile",
+            ),
+            path(
+                "payment/<int:payment_id>/link-transaction/",
+                self.admin_site.admin_view(
+                    LinkTransactionView.as_view(model_admin=self)
+                ),
+                name="banking_payment_link_transaction",
             ),
         ]
         return custom_urls + super().get_urls()
@@ -308,6 +327,20 @@ class BankTransactionAdmin(ModelAdmin):
 
         return redirect(request.META.get("HTTP_REFERER"))
 
+    @action(
+        description=_("Reconcile Manually"),
+        url_path="manual-reconcile",
+        icon="edit_note",
+    )
+    def manual_reconcile_action(self, request, object_id: int):
+        txn = get_object_or_404(BankTransaction, pk=object_id)
+        if txn.reconciliation_status == ReconciliationStatus.RECONCILED:
+            messages.warning(request, _("This transaction is already reconciled."))
+            return redirect(request.META.get("HTTP_REFERER"))
+        return redirect(
+            reverse("admin:banking_banktransaction_manual_reconcile", args=[object_id])
+        )
+
 
 @admin.register(BankReconciliation)
 class BankReconciliationAdmin(ModelAdmin):
@@ -332,6 +365,7 @@ class BankReconciliationAdmin(ModelAdmin):
         "bank_transaction__counterparty_name",
     )
     readonly_fields = (
+        "is_confirmed",
         "suggested_allocations",
         "reconciled_at",
     )
@@ -347,13 +381,6 @@ class BankReconciliationAdmin(ModelAdmin):
                     ReviewReconciliationView.as_view(model_admin=self)
                 ),
                 name="banking_reconciliation_review",
-            ),
-            path(
-                "<int:pk>/approve/",
-                self.admin_site.admin_view(
-                    ApproveReconciliationView.as_view(model_admin=self)
-                ),
-                name="banking_reconciliation_approve",
             ),
             path(
                 "<int:pk>/skip/",
@@ -391,4 +418,40 @@ class BankReconciliationAdmin(ModelAdmin):
             '<a href="{}" style="color: var(--primary-600, #0369a1); '
             'font-weight: 600;">⚡ {}</a>',
             url, _("Review"),
+        )
+
+
+@admin.register(InvoiceReconciliationSuggestion)
+class InvoiceReconciliationSuggestionAdmin(ModelAdmin):
+    list_display = ("id", "content_type", "object_id", "get_confirmed_label", "created_at")
+    list_filter = ("is_confirmed", ("company", AutocompleteSelectMultipleFilter))
+    readonly_fields = ("content_type", "object_id", "suggested_combinations", "is_confirmed", "created_at")
+    ordering = ("-created_at",)
+    list_per_page = 30
+    actions_row = ["review_action"]
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "<int:pk>/review/",
+                self.admin_site.admin_view(
+                    ReviewInvoiceReconciliationView.as_view(model_admin=self)
+                ),
+                name="banking_invoicereconciliationsuggestion_review",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    @display(description=_("Confirmed"), boolean=True)
+    def get_confirmed_label(self, obj):
+        return obj.is_confirmed
+
+    @action(description=_("Review"), url_path="review", icon="rate_review")
+    def review_action(self, request, object_id: int):
+        suggestion = get_object_or_404(InvoiceReconciliationSuggestion, pk=object_id)
+        if suggestion.is_confirmed:
+            messages.info(request, _("This reconciliation is already confirmed."))
+            return redirect(request.META.get("HTTP_REFERER"))
+        return redirect(
+            reverse("admin:banking_invoicereconciliationsuggestion_review", args=[object_id])
         )

@@ -1,3 +1,5 @@
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
@@ -198,3 +200,49 @@ class BankReconciliation(CompanyOwnedModel):
         if not self.company_id and self.bank_transaction_id:
             self.company = self.bank_transaction.company
         super().save(*args, **kwargs)
+
+
+class InvoiceReconciliationSuggestion(CompanyOwnedModel):
+    """
+    Temporary staging record created when running the matcher from an Invoice or SalesInvoice.
+    Stores candidate BankTransaction combinations for human review.
+    On confirmation, standard BankReconciliation + Payment + PaymentAllocation records
+    are created (existing tables) and this record is marked is_confirmed=True.
+    """
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE,
+        verbose_name=_("Invoice Type"),
+    )
+    object_id = models.PositiveIntegerField(verbose_name=_("Invoice ID"))
+    invoice = GenericForeignKey("content_type", "object_id")
+
+    suggested_combinations = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name=_("Suggested Combinations"),
+        help_text=_(
+            "List of matching bank transaction combinations. "
+            "Each entry: {'transactions': [...], 'confidence': 'exact', 'is_selected': bool}. "
+            "Each transaction entry: {'transaction_id': X, 'available_amount': 'Y', 'is_partial': bool}."
+        ),
+    )
+    is_confirmed = models.BooleanField(
+        default=False,
+        db_index=True,
+        verbose_name=_("Is Confirmed"),
+        help_text=_("False = pending review. True = confirmed; BankReconciliation records have been created."),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
+
+    class Meta:
+        verbose_name = _("Invoice Reconciliation Suggestion")
+        verbose_name_plural = _("Invoice Reconciliation Suggestions")
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["content_type", "object_id"]),
+        ]
+
+    def __str__(self):
+        status = "confirmed" if self.is_confirmed else "pending"
+        return f"InvoiceMatchSuggestion #{self.pk} ({status})"

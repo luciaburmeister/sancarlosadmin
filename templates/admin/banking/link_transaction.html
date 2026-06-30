@@ -1,0 +1,399 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Link Bank Transaction" %}{% endblock %}
+
+{% block content %}
+<style>
+    .review-container {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .payment-header {
+        background: var(--bg-primary, #fff);
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 12px;
+        padding: 1.5rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .payment-header h2 {
+        font-size: 1.35rem;
+        font-weight: 700;
+        margin: 0 0 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .payment-meta {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.75rem;
+    }
+
+    .payment-meta-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+    }
+
+    .payment-meta-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--font-subtle-light, #888);
+    }
+
+    .payment-meta-value {
+        font-size: 0.95rem;
+        font-weight: 500;
+    }
+
+    .payment-amount {
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: var(--primary-600, oklch(57% .125 190));
+    }
+
+    .search-bar {
+        margin-bottom: 1rem;
+    }
+
+    .search-bar input {
+        width: 100%;
+        padding: 0.625rem 1rem;
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 8px;
+        font-size: 0.9rem;
+        background: var(--bg-primary, #fff);
+        color: var(--font-default-light, #333);
+        box-sizing: border-box;
+    }
+
+    .search-bar input:focus {
+        outline: none;
+        border-color: var(--primary-400, oklch(65% .125 190));
+        box-shadow: 0 0 0 3px oklch(57% .125 190 / 0.1);
+    }
+
+    .txn-table-wrapper {
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 12px;
+        overflow: hidden;
+        margin-bottom: 1.5rem;
+    }
+
+    .txn-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.875rem;
+    }
+
+    .txn-table th {
+        text-align: left;
+        padding: 0.75rem 1.25rem;
+        font-size: 0.7rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--font-subtle-light, #888);
+        background: var(--bg-secondary, #f8fafc);
+        border-bottom: 1px solid var(--border-default, #e2e8f0);
+    }
+
+    .txn-table td {
+        padding: 0.75rem 1.25rem;
+        border-bottom: 1px solid var(--border-default, #f1f5f9);
+        vertical-align: middle;
+    }
+
+    .txn-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .txn-table tr.selected-row {
+        background: oklch(57% .125 190 / 0.06);
+    }
+
+    .txn-table tr:hover {
+        background: var(--bg-secondary, #f8fafc);
+        cursor: pointer;
+    }
+
+    .txn-table tr.selected-row:hover {
+        background: oklch(57% .125 190 / 0.1);
+    }
+
+    .txn-radio {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--primary-600, oklch(57% .125 190));
+        cursor: pointer;
+    }
+
+    .amount-col {
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+    }
+
+    .review-actions {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--border-default, #e2e8f0);
+    }
+
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.5rem;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        border: none;
+        transition: all 0.15s ease;
+        text-decoration: none;
+    }
+
+    .btn-confirm {
+        background: var(--primary-600, oklch(57% .125 190));
+        color: #fff;
+    }
+
+    .btn-confirm:hover {
+        background: var(--primary-700, oklch(49% .105 190));
+    }
+
+    .btn-confirm:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    .btn-back {
+        background: transparent;
+        border: 1px solid var(--border-default, #e2e8f0);
+        color: var(--font-default-light, #333);
+    }
+
+    .btn-back:hover {
+        background: var(--bg-secondary, #f8fafc);
+    }
+
+    .empty-state {
+        text-align: center;
+        padding: 3rem;
+        color: var(--font-subtle-light, #888);
+    }
+
+    .running-total {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 1rem;
+        padding: 0.75rem 1.25rem;
+        background: var(--bg-secondary, #f8fafc);
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 8px;
+        margin-bottom: 1.5rem;
+        font-size: 0.9rem;
+    }
+
+    .running-total-label {
+        color: var(--font-subtle-light, #888);
+        font-weight: 500;
+    }
+
+    .running-total-value {
+        font-size: 1.25rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+    }
+
+    .running-total-value.match {
+        color: #16a34a;
+    }
+
+    .running-total-value.over {
+        color: #dc2626;
+    }
+
+    .empty-state .material-symbols-outlined {
+        font-size: 48px;
+        margin-bottom: 0.5rem;
+        opacity: 0.4;
+    }
+</style>
+
+<div class="review-container">
+
+    <div class="payment-header">
+        <h2>
+            <span class="material-symbols-outlined">account_balance</span>
+            {% trans "Link Bank Transaction" %}
+        </h2>
+        <div class="payment-meta">
+            <div class="payment-meta-item">
+                <span class="payment-meta-label">{% trans "Payment" %}</span>
+                <span class="payment-meta-value">#{{ payment.pk }}</span>
+            </div>
+            <div class="payment-meta-item">
+                <span class="payment-meta-label">{% trans "Date" %}</span>
+                <span class="payment-meta-value">{{ payment.payment_date }}</span>
+            </div>
+            <div class="payment-meta-item">
+                <span class="payment-meta-label">{% trans "Amount" %}</span>
+                <span class="payment-amount">{{ payment.amount }}</span>
+            </div>
+            <div class="payment-meta-item">
+                <span class="payment-meta-label">{% trans "Method" %}</span>
+                <span class="payment-meta-value">{{ payment.get_method_display }}</span>
+            </div>
+            <div class="payment-meta-item">
+                <span class="payment-meta-label">{% trans "Reference" %}</span>
+                <span class="payment-meta-value">{{ payment.reference|default:"—" }}</span>
+            </div>
+        </div>
+    </div>
+
+    {% if transactions %}
+    <form method="post" action="{{ submit_url }}" id="linkForm">
+        {% csrf_token %}
+        <input type="hidden" name="back" value="{{ back_url }}">
+
+        <div class="search-bar">
+            <input type="text" id="txnSearch"
+                   placeholder="{% trans 'Search by description, counterparty or bank account…' %}"
+                   oninput="filterRows(this.value)">
+        </div>
+
+        <!-- Running indicator -->
+        <div class="running-total">
+            <span class="running-total-label">{% trans "Payment amount:" %} {{ payment_amount|floatformat:2 }} €</span>
+            <span class="running-total-label">{% trans "Selected:" %}</span>
+            <span class="running-total-value" id="selectedAmount">—</span>
+            <span id="overLimitWarning" style="display:none; color:#dc2626; font-size:0.8rem; font-weight:600;">
+                {% trans "Transaction exceeds payment amount" %}
+            </span>
+        </div>
+
+        <div class="txn-table-wrapper">
+            <table class="txn-table" id="txnTable">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;"></th>
+                        <th>{% trans "Date" %}</th>
+                        <th style="text-align: right;">{% trans "Amount" %}</th>
+                        <th>{% trans "Description" %}</th>
+                        <th>{% trans "Counterparty" %}</th>
+                        <th>{% trans "Bank Account" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for txn in transactions %}
+                    <tr onclick="selectRow(this)"
+                        data-amount="{{ txn.effective_amount }}"
+                        data-search="{{ txn.description|lower }} {{ txn.counterparty|lower }} {{ txn.bank_account|lower }}">
+                        <td>
+                            <input type="radio"
+                                   name="selected_txn"
+                                   value="{{ txn.pk }}"
+                                   class="txn-radio"
+                                   data-amount="{{ txn.effective_amount }}"
+                                   onclick="event.stopPropagation();"
+                                   onchange="onRadioChange(this)">
+                        </td>
+                        <td>{{ txn.date }}</td>
+                        <td class="amount-col">
+                            {{ txn.abs_amount|floatformat:2 }} €
+                            {% if txn.is_partial %}
+                            <span style="font-size:0.7rem;font-weight:600;color:#d97706;display:block;">
+                                {% trans "Remaining:" %} {{ txn.effective_amount|floatformat:2 }} €
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td>{{ txn.description }}</td>
+                        <td>{{ txn.counterparty }}</td>
+                        <td>{{ txn.bank_account }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="review-actions">
+            <a href="{{ back_url }}" class="btn btn-back">
+                <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
+                {% trans "Back" %}
+            </a>
+            <button type="submit" class="btn btn-confirm" id="confirmBtn" disabled>
+                <span class="material-symbols-outlined" style="font-size: 18px;">link</span>
+                {% trans "Link Transaction" %}
+            </button>
+        </div>
+    </form>
+
+    {% else %}
+    <div class="empty-state">
+        <span class="material-symbols-outlined">inbox</span>
+        <p>{% trans "No unreconciled bank transactions found for this payment." %}</p>
+    </div>
+    <div class="review-actions">
+        <a href="{{ back_url }}" class="btn btn-back">
+            <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
+            {% trans "Back" %}
+        </a>
+    </div>
+    {% endif %}
+
+</div>
+
+<script>
+    const paymentAmount = parseFloat("{{ payment_amount }}");
+
+    function onRadioChange(radio) {
+        const amount = parseFloat(radio.dataset.amount || 0);
+        const isOver = amount > paymentAmount + 0.01;
+        const isMatch = Math.abs(amount - paymentAmount) < 0.01;
+
+        const el = document.getElementById('selectedAmount');
+        el.textContent = amount.toFixed(2) + ' €';
+        el.className = 'running-total-value' + (isOver ? ' over' : (isMatch ? ' match' : ''));
+        document.getElementById('overLimitWarning').style.display = isOver ? 'inline' : 'none';
+        document.getElementById('confirmBtn').disabled = isOver;
+    }
+
+    function selectRow(row) {
+        const radio = row.querySelector('.txn-radio');
+        if (radio.disabled) return;
+        radio.checked = true;
+        document.querySelectorAll('#txnTable tbody tr').forEach(r => r.classList.remove('selected-row'));
+        row.classList.add('selected-row');
+        onRadioChange(radio);
+    }
+
+    function filterRows(query) {
+        const q = query.toLowerCase();
+        document.querySelectorAll('#txnTable tbody tr').forEach(row => {
+            row.style.display = row.dataset.search.includes(q) ? '' : 'none';
+        });
+    }
+
+    // Pre-disable rows that exceed payment amount
+    document.querySelectorAll('.txn-radio').forEach(radio => {
+        const amount = parseFloat(radio.dataset.amount || 0);
+        if (amount > paymentAmount + 0.01) {
+            radio.disabled = true;
+            radio.closest('tr').style.opacity = '0.4';
+            radio.closest('tr').style.cursor = 'not-allowed';
+        }
+    });
+</script>
+{% endblock %}

@@ -1,10 +1,14 @@
+import logging
+
 from assets import urls
 from unfold.admin import StackedInline
 from django.contrib import admin
 from django.contrib import messages
+from django.shortcuts import get_object_or_404, redirect
 from unfold.decorators import action, display
-from django.shortcuts import redirect
 from django.urls import path, reverse
+
+logger = logging.getLogger(__name__)
 from django.utils.translation import gettext_lazy as _
 from datetime import timedelta
 from unfold.admin import ModelAdmin, GenericTabularInline
@@ -43,6 +47,7 @@ from invoices.services.sales_invoice_service import SalesInvoiceService
 from apps.einvoicing.admin import EInvoicingSubmissionInline
 from apps.einvoicing.tasks import submit_invoice_to_aeat, cancel_invoice_at_aeat
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
+from banking.tasks import run_invoice_matcher_task
 from accounting.tasks import classify_invoice_accounts, generate_journal_entries_task, export_a3_purchase_invoicing_task
 from core.tasks import send_invoice_email_task
 from company.models import EmailLog
@@ -53,7 +58,7 @@ from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter
 )
 from unfold.widgets import UnfoldAdminTextareaWidget
-from .filters import  ItemsMissingAccountFilter, BalanceStatusFilter
+from .filters import ItemsMissingAccountFilter, BalanceStatusFilter, IsReconciledFilter
 from import_export.admin import  ExportActionModelAdmin
 from unfold.contrib.import_export.forms import  ImportForm, SelectableFieldsExportForm
 from .resources import (
@@ -256,6 +261,7 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     list_filter = (
         ItemsMissingAccountFilter,
         BalanceStatusFilter,
+        IsReconciledFilter,
         ("payment_status", ChoicesDropdownFilter),
         ("payment_method",ChoicesDropdownFilter),
         ("confirmation_status", ChoicesDropdownFilter),
@@ -299,12 +305,49 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
         PaymentAllocationInline,
     ]
 
-    actions = ["send_to_process", "classify_accounts", "journalize_selected", "export_a3_purchase_invoices", "import_from_excel"]
+    actions = ["send_to_process", "classify_accounts", "journalize_selected", "export_a3_purchase_invoices", "import_from_excel", "run_matcher_bulk"]
     actions_row = ["review_invoice_row_action", "view_journal_entry_row_action"]
-    actions_detail = ["view_journal_entry_detail_action", "register_payment_detail_action"]
+    actions_detail = ["view_journal_entry_detail_action", "register_payment_detail_action", "run_invoice_matcher_detail_action"]
+
     @action(description=_("Review"), icon="rate_review")
     def review_invoice_row_action(self, request, object_id):
         return redirect(reverse("admin:invoices_invoice_review", args=[object_id]))
+
+    @action(description=_("Run Matcher"), url_path="run-matcher", icon="compare_arrows")
+    def run_invoice_matcher_detail_action(self, request, object_id):
+        from banking.models import InvoiceReconciliationSuggestion
+        from banking.services.transaction_matching import InvoiceMatcher
+        from django.contrib.contenttypes.models import ContentType
+
+        invoice = get_object_or_404(Invoice, pk=object_id)
+
+        # Delete any existing unconfirmed suggestion for this invoice
+        ct = ContentType.objects.get_for_model(invoice)
+        InvoiceReconciliationSuggestion.objects.filter(
+            content_type=ct, object_id=invoice.pk, is_confirmed=False
+        ).delete()
+
+        try:
+            matcher = InvoiceMatcher(invoice)
+            suggestion = matcher.run()
+            if suggestion.suggested_combinations:
+                return redirect(
+                    reverse(
+                        "admin:banking_invoicereconciliationsuggestion_review",
+                        args=[suggestion.pk],
+                    )
+                )
+            messages.info(
+                request,
+                _("Matcher ran but found no matching bank transactions."),
+            )
+        except Exception as e:
+            logger.exception("Error running invoice matcher for invoice %s", object_id)
+            messages.error(
+                request, _("Error running matcher: %(error)s") % {"error": str(e)}
+            )
+
+        return redirect(request.META.get("HTTP_REFERER"))
 
     fieldsets = (
         (
@@ -557,6 +600,24 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     def import_from_excel(self, request, queryset):
         return redirect(reverse("admin:invoices_invoice_import"))
 
+    @admin.action(description=_("Run bank matcher on selected invoices"))
+    def run_matcher_bulk(self, request, queryset):
+        from django.utils.html import format_html
+        from django.utils.safestring import mark_safe
+
+        ids = list(queryset.values_list("id", flat=True))
+        for invoice_id in ids:
+            run_invoice_matcher_task.delay("invoice", invoice_id)
+        suggestions_url = reverse("admin:banking_invoicereconciliationsuggestion_changelist") + "?is_confirmed=False"
+        self.message_user(
+            request,
+            mark_safe(format_html(
+                _("Queued bank matcher for {count} invoice(s). Results will appear in <a href=\"{url}\">Reconciliation Suggestions</a> shortly."),
+                count=len(ids),
+                url=suggestions_url,
+            )),
+        )
+
 class SalesInvoiceItemInline(StackedInline):
     model = SalesInvoiceItem
     extra = 0
@@ -622,6 +683,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     )
     list_display = ("invoice_number", "get_status_label", "get_payment_status_label", "get_external_label", "company", "client", "date_issued", "total_amount")
     list_filter = (
+        IsReconciledFilter,
         ("status",ChoicesDropdownFilter),
         ("company",AutocompleteSelectMultipleFilter),
         ("payment_method", ChoicesDropdownFilter),
@@ -717,7 +779,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
                 level=messages.WARNING,
             )
     
-    actions = ["download_pdf", "finalize_invoice_action", "mark_as_paid", "bulk_mark_as_paid", "import_from_excel"]
+    actions = ["download_pdf", "finalize_invoice_action", "mark_as_paid", "bulk_mark_as_paid", "import_from_excel","run_matcher_bulk"]
     actions_row = [
         "view_pdf_row_action",
         "finalize_invoice_row_action",
@@ -734,6 +796,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
                 "finalize_invoice_detail_action",
                 "send_email_detail_action",
                 "register_payment_detail_action",
+                "run_invoice_matcher_detail_action",
             ],
         },
         {
@@ -906,6 +969,24 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     def import_from_excel(self, request, queryset):
         return redirect(reverse("admin:invoices_salesinvoice_import"))
 
+    @admin.action(description=_("Run bank matcher on selected invoices"))
+    def run_matcher_bulk(self, request, queryset):
+        from django.utils.html import format_html
+        from django.utils.safestring import mark_safe
+
+        ids = list(queryset.values_list("id", flat=True))
+        for invoice_id in ids:
+            run_invoice_matcher_task.delay("salesinvoice", invoice_id)
+        suggestions_url = reverse("admin:banking_invoicereconciliationsuggestion_changelist") + "?is_confirmed=False"
+        self.message_user(
+            request,
+            mark_safe(format_html(
+                _("Queued bank matcher for {count} invoice(s). Results will appear in <a href=\"{url}\">Reconciliation Suggestions</a> shortly."),
+                count=len(ids),
+                url=suggestions_url,
+            )),
+        )
+
     @display(
         description=_("External"),
         label={
@@ -961,3 +1042,38 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
             cancel_invoice_at_aeat.delay(invoice.id)
             self.message_user(request, _("AEAT cancellation queued for invoice %s.") % (invoice.invoice_number or invoice.pk))
         return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
+
+    @action(description=_("Run Matcher"), url_path="run-matcher", icon="compare_arrows")
+    def run_invoice_matcher_detail_action(self, request, object_id):
+        from banking.models import InvoiceReconciliationSuggestion
+        from banking.services.transaction_matching import InvoiceMatcher
+        from django.contrib.contenttypes.models import ContentType
+
+        invoice = get_object_or_404(SalesInvoice, pk=object_id)
+
+        ct = ContentType.objects.get_for_model(invoice)
+        InvoiceReconciliationSuggestion.objects.filter(
+            content_type=ct, object_id=invoice.pk, is_confirmed=False
+        ).delete()
+
+        try:
+            matcher = InvoiceMatcher(invoice)
+            suggestion = matcher.run()
+            if suggestion.suggested_combinations:
+                return redirect(
+                    reverse(
+                        "admin:banking_invoicereconciliationsuggestion_review",
+                        args=[suggestion.pk],
+                    )
+                )
+            messages.info(
+                request,
+                _("Matcher ran but found no matching bank transactions."),
+            )
+        except Exception as e:
+            logger.exception("Error running invoice matcher for sales invoice %s", object_id)
+            messages.error(
+                request, _("Error running matcher: %(error)s") % {"error": str(e)}
+            )
+
+        return redirect(request.META.get("HTTP_REFERER"))

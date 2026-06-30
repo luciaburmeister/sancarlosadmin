@@ -207,6 +207,7 @@ class Invoice(Payable):
         permissions = [
             ("accounts_payable", _("Can view Accounts Payable dashboard")),
             ("operational_dashboard", _("Can view Operational Dashboard")),
+            ("bulk_mark_paid_invoice", _("Can bulk update payment status (purchase invoices)")),
         ]
 
     def __str__(self):
@@ -800,6 +801,9 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         verbose_name_plural = _("Sales Invoices")
         ordering = ['-date_issued', '-invoice_number']
         unique_together = ['company', 'invoice_number']
+        permissions = [
+            ("bulk_mark_paid_salesinvoice", _("Can bulk update payment status (sales invoices)")),
+        ]
 
     def __str__(self):
         if self.status == SalesInvoiceStatus.PROFORMA:

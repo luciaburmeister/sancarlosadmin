@@ -11,7 +11,7 @@ from invoices.models import InvoicePaymentStatus
 class BulkMarkInvoicePaidAdminView(UnfoldModelAdminViewMixin, FormView):
     form_class = BulkMarkInvoicePaidForm
     title = _("Bulk Update Payment Status")
-    permission_required = ("invoices.change_invoice",)
+    permission_required = ("invoices.bulk_mark_paid_invoice",)
     template_name = "admin/invoices/bulk_mark_invoice_paid.html"
 
     def form_valid(self, form):

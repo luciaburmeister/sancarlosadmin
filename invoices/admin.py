@@ -486,6 +486,13 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
                 ),
                 name="invoices_invoice_aging_export",
 ),
+            path(
+                "bulk-mark-paid/",
+                self.admin_site.admin_view(
+                    BulkMarkInvoicePaidAdminView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_bulk_mark_paid",
+            ),
         ]
         return custom + urls
 
@@ -626,9 +633,15 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
             )),
         )
 
-    @admin.action(description=_("Bulk update payment status"))
+    @admin.action(
+        description=_("Bulk update payment status"),
+        permissions=["bulk_mark_paid_invoice"],
+    )
     def bulk_mark_as_paid(self, request, queryset):
         return redirect(reverse("admin:invoices_invoice_bulk_mark_paid"))
+
+    def has_bulk_mark_paid_invoice_permission(self, request):
+        return request.user.has_perm("invoices.bulk_mark_paid_invoice")
 
 class SalesInvoiceItemInline(StackedInline):
     model = SalesInvoiceItem
@@ -974,9 +987,15 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
             self.message_user(request, _("Invoice email queued for %s.") % invoice.client.email)
         return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
 
-    @admin.action(description=_("Bulk update payment status"))
+    @admin.action(
+        description=_("Bulk update payment status"),
+        permissions=["bulk_mark_paid_salesinvoice"],
+    )
     def bulk_mark_as_paid(self, request, queryset):
         return redirect(reverse("admin:invoices_salesinvoice_bulk_mark_paid"))
+
+    def has_bulk_mark_paid_salesinvoice_permission(self, request):
+        return request.user.has_perm("invoices.bulk_mark_paid_salesinvoice")
 
     @admin.action(description=_("Import sales invoices from Excel"))
     def import_from_excel(self, request, queryset):

@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.db import models
 from django.db.models import Sum, Q
 from django.utils.translation import gettext_lazy as _
-from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from djmoney.models.fields import MoneyField
@@ -640,6 +640,12 @@ class WorkEntry(Timestampable, CompanyOwnedModel):
         help_text=_("Locked after invoicing to prevent edits."),
     )
 
+    applied_taxes = GenericRelation(
+        "invoices.AppliedTax",
+        content_type_field="content_type",
+        object_id_field="object_id",
+    )
+
     class Meta:
         verbose_name = _("Work Entry")
         verbose_name_plural = _("Work Entries")
@@ -651,6 +657,19 @@ class WorkEntry(Timestampable, CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.description} ({self.total_price})"
+
+    @property
+    def total_with_tax(self):
+        """total_price + sum of all applied tax amounts."""
+        from djmoney.money import Money
+        tax_sum = Decimal("0")
+        for tax in self.applied_taxes.all():
+            if tax.calculated_amount is not None:
+                amt = tax.calculated_amount.amount if isinstance(tax.calculated_amount, Money) else Decimal(str(tax.calculated_amount))
+                tax_sum += amt
+        base = self.total_price.amount if hasattr(self.total_price, 'amount') else Decimal(str(self.total_price or 0))
+        currency = self.total_price.currency if hasattr(self.total_price, 'currency') else 'EUR'
+        return Money(base + tax_sum, currency)
 
     def save(self, *args, **kwargs):
         # Auto-fill description from template if empty

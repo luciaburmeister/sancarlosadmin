@@ -8236,9 +8236,6 @@ msgstr "Comportamiento"
 msgid "Default %%"
 msgstr "Es default"
 
-#: invoices/templates/admin/invoices/taxtype/merge.html:150
-#, fuzzy
-#| msgid "Applied taxes"
 msgid "Applied Tax Records"
 msgstr "Impuestos aplicados"
 
@@ -8515,11 +8512,9 @@ msgstr "Gastos"
 msgid "Direct Work"
 msgstr "Trabajo directo"
 
-#: management/admin/project_file.py:149 management/models.py:650
-#, fuzzy
-#| msgid "Work / site name"
+
 msgid "Work Entries"
-msgstr "Nombre del trabajo / sitio"
+msgstr "Partes de trabajo"
 
 #: management/admin/project_file.py:187 sales/admin.py:268
 msgid "Basic Information"

@@ -269,4 +269,24 @@ class WorkEntryService:
             company=project_file.company,
         )
         entry.save()
+
+        # Copy AppliedTax from the WorkEntryType to the new WorkEntry
+        from invoices.models import AppliedTax
+        entry_ct = ContentType.objects.get_for_model(WorkEntry)
+        for tax in AppliedTax.objects.filter(
+            content_type=ContentType.objects.get_for_model(entry_type),
+            object_id=entry_type.pk,
+        ):
+            base = entry.total_price.amount
+            calculated = base * tax.selected_percentage / Decimal("100")
+            AppliedTax.objects.create(
+                tax_type=tax.tax_type,
+                selected_percentage=tax.selected_percentage,
+                base_amount=base,
+                calculated_amount=calculated,
+                content_type=entry_ct,
+                object_id=entry.pk,
+                order=tax.order,
+            )
+
         return entry

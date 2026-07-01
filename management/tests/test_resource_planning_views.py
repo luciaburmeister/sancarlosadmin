@@ -555,6 +555,98 @@ class TestScheduleExcludeWeekends(_ViewBase):
         self.assertTrue(len(sat["blocks"]) > 0, "Saturday should have a block")
 
 
+class TestScheduleFilters(_ViewBase):
+    @property
+    def schedule_url(self):
+        return reverse("admin:management_resourceplanning_schedule")
+
+    def test_only_with_plans_shows_only_rows_with_blocks(self):
+        create_plannings(
+            company=self.company,
+            project_file=self.project_file,
+            planning_type=self.planning_type,
+            status=ResourcePlanningStatus.PLANNED,
+            notes="",
+            resources=[(self.employee_ct, self.employee.pk)],
+            date_from=datetime.date(2026, 7, 6),
+            date_to=datetime.date(2026, 7, 6),
+            daily_start=datetime.time(8, 0),
+            daily_end=datetime.time(17, 0),
+            is_group=False,
+        )
+
+        response = self.http.get(
+            self.schedule_url,
+            {
+                "day": "2026-07-06",
+                "num_days": "7",
+                "company": [str(self.company.pk)],
+                "only_with_plans": "on",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = [
+            resource
+            for group in response.context["resource_groups"]
+            for resource in group["resources"]
+        ]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["name"], str(self.employee))
+        self.assertFalse(response.context["show_cell_create_buttons"])
+
+    def test_status_filter_accepts_multiple_values(self):
+        create_plannings(
+            company=self.company,
+            project_file=self.project_file,
+            planning_type=self.planning_type,
+            status=ResourcePlanningStatus.PLANNED,
+            notes="planned",
+            resources=[(self.employee_ct, self.employee.pk)],
+            date_from=datetime.date(2026, 7, 6),
+            date_to=datetime.date(2026, 7, 6),
+            daily_start=datetime.time(8, 0),
+            daily_end=datetime.time(12, 0),
+            is_group=False,
+        )
+        create_plannings(
+            company=self.company,
+            project_file=self.project_file,
+            planning_type=self.planning_type,
+            status=ResourcePlanningStatus.CONFIRMED,
+            notes="confirmed",
+            resources=[(self.employee_ct, self.employee.pk)],
+            date_from=datetime.date(2026, 7, 6),
+            date_to=datetime.date(2026, 7, 6),
+            daily_start=datetime.time(13, 0),
+            daily_end=datetime.time(17, 0),
+            is_group=False,
+        )
+
+        response = self.http.get(
+            self.schedule_url,
+            {
+                "day": "2026-07-06",
+                "num_days": "1",
+                "company": [str(self.company.pk)],
+                "status": [
+                    ResourcePlanningStatus.PLANNED,
+                    ResourcePlanningStatus.CONFIRMED,
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        rows = [
+            resource
+            for group in response.context["resource_groups"]
+            for resource in group["resources"]
+        ]
+        employee_row = next(r for r in rows if r["name"] == str(self.employee))
+        blocks = employee_row["cells"][0]["blocks"]
+        self.assertEqual(len(blocks), 2)
+
+
 # ── Schedule: delete day from grouped planning ────────────────────────────────
 
 class TestScheduleDeleteDayFromGroup(_ViewBase):

@@ -90,10 +90,10 @@ def _parse_resource_tokens(raw: str) -> list[tuple[ContentType, int]]:
 
 
 class ResourcePlanningFilterForm(forms.Form):
-    company = forms.ChoiceField(
+    company = forms.MultipleChoiceField(
         label=_("Company"),
         required=False,
-        widget=UnfoldAdminSelectWidget,
+        widget=forms.SelectMultiple,
     )
     day = forms.DateField(
         label=_("Start date"),
@@ -109,18 +109,17 @@ class ResourcePlanningFilterForm(forms.Form):
         max_value=90,
         widget=UnfoldAdminIntegerFieldWidget,
     )
-    planning_type = forms.ModelChoiceField(
+    planning_type = forms.ModelMultipleChoiceField(
         label=_("Planning Type"),
         required=False,
         queryset=ResourcePlanningType.objects.none(),
-        empty_label=_("All types"),
-        widget=UnfoldAdminSelectWidget,
+        widget=forms.SelectMultiple,
     )
-    status = forms.ChoiceField(
+    status = forms.MultipleChoiceField(
         label=_("Status"),
         required=False,
-        choices=[("", _("All statuses"))] + list(ResourcePlanningStatus.choices),
-        widget=UnfoldAdminSelectWidget,
+        choices=list(ResourcePlanningStatus.choices),
+        widget=forms.SelectMultiple,
     )
     project_file = forms.ModelChoiceField(
         label=_("Project File"),
@@ -128,12 +127,17 @@ class ResourcePlanningFilterForm(forms.Form):
         queryset=ProjectFile.objects.none(),
         empty_label=_("All projects"),
     )
-    asset_type = forms.ModelChoiceField(
+    asset_type = forms.ModelMultipleChoiceField(
         label=_("Asset Type"),
         required=False,
         queryset=AssetType.objects.none(),
-        empty_label=_("All asset types"),
-        widget=UnfoldAdminSelectWidget,
+        widget=forms.SelectMultiple,
+    )
+    only_with_plans = forms.BooleanField(
+        label=_("Only resources with plannings"),
+        required=False,
+        initial=False,
+        widget=UnfoldBooleanSwitchWidget,
     )
     resources = forms.CharField(
         label=_("Resources"),
@@ -150,7 +154,7 @@ class ResourcePlanningFilterForm(forms.Form):
         company_choices = [("", _("All companies"))] + [(c.pk, c.name) for c in companies]
         self.fields["company"].choices = company_choices
         if company:
-            self.fields["company"].initial = str(company.pk)
+            self.fields["company"].initial = [str(company.pk)]
         if len(companies) <= 1:
             self.fields["company"].widget = forms.HiddenInput()
 
@@ -171,8 +175,6 @@ class ResourcePlanningFilterForm(forms.Form):
         self.fields["asset_type"].queryset = at_qs
         self.fields["project_file"].queryset = pf_qs
         # Autocomplete widget — uses ProjectFileAdmin.search_fields
-        from django.contrib.admin.widgets import AutocompleteSelect
-
         class _ProjectFileAutocomplete(AutocompleteSelect):
             """Fix data attrs so the autocomplete URL resolves correctly."""
             def build_attrs(self, base_attrs, extra_attrs=None):

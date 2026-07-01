@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from collections import OrderedDict
 from datetime import datetime, date, time, timedelta
+from urllib.parse import urlencode
 from typing import Any
 
 from django.contrib.contenttypes.models import ContentType
@@ -16,7 +17,12 @@ from django.utils.translation import gettext_lazy as _
 
 from core.admin.company_access import get_user_companies
 from management.forms import ResourcePlanningFilterForm
-from management.models import ResourcePlanning, ResourcePlanningType, ResourcePlanningStatus
+from management.models import (
+    ProjectFile,
+    ResourcePlanning,
+    ResourcePlanningStatus,
+    ResourcePlanningType,
+)
 
 
 # ponytail: plain class, no dataclass overhead
@@ -65,7 +71,7 @@ def _build_day_columns(start_date: date, num_days: int):
     return cols
 
 
-def _get_active_resources(selected_company, user_companies, asset_type=None, selected_keys=None):
+def _get_active_resources(company_scope, asset_types=None, selected_keys=None):
     """Return all active plannable resources grouped by (ct_id, obj_id) → name, ct_model.
 
     When `selected_keys` is given, only resources whose (ct_id, obj_id) key is
@@ -77,15 +83,11 @@ def _get_active_resources(selected_company, user_companies, asset_type=None, sel
         ct = ContentType.objects.get(app_label=app_label, model=model_name)
         Model = ct.model_class()
 
-        qs = Model.objects.filter(is_active=True)
-        if selected_company:
-            qs = qs.filter(company=selected_company)
-        else:
-            qs = qs.filter(company__in=user_companies)
+        qs = Model.objects.filter(is_active=True, company__in=company_scope)
 
         # Filter assets by asset_type when specified
-        if asset_type and model_name == "asset":
-            qs = qs.filter(asset_type=asset_type)
+        if asset_types and model_name == "asset":
+            qs = qs.filter(asset_type__in=asset_types)
 
         for obj in qs:
             key = (ct.id, obj.pk)
@@ -114,14 +116,24 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             raise PermissionDenied("User has no company")
 
         companies = list(user_companies.order_by("name"))
-        company_id = GET.get("company")
-        if company_id:
-            try:
-                selected_company = user_companies.get(pk=int(company_id))
-            except (ValueError, user_companies.model.DoesNotExist):
-                selected_company = companies[0]
+        if len(companies) == 1 and "company" not in GET:
+            selected_company_ids = [companies[0].pk]
         else:
-            selected_company = companies[0] if len(companies) == 1 else None
+            selected_company_ids = []
+            for company_id in GET.getlist("company"):
+                try:
+                    selected_company_ids.append(int(company_id))
+                except (TypeError, ValueError):
+                    continue
+        selected_company_ids = [
+            company_id for company_id in selected_company_ids
+            if user_companies.filter(pk=company_id).exists()
+        ]
+        company_scope = (
+            user_companies.filter(pk__in=selected_company_ids)
+            if selected_company_ids else user_companies
+        )
+        selected_company = company_scope.first() if company_scope.count() == 1 else None
 
         # ── Filter form (Unfold widgets) ──────────────────────────────
         filter_form = ResourcePlanningFilterForm(
@@ -134,19 +146,77 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
         if filter_form.is_valid():
             anchor = filter_form.cleaned_data["day"]
             num_days = filter_form.cleaned_data["num_days"]
-            planning_type = filter_form.cleaned_data.get("planning_type")
-            status_filter = filter_form.cleaned_data.get("status")
+            selected_companies = []
+            for company_id in (filter_form.cleaned_data.get("company") or []):
+                try:
+                    selected_companies.append(int(company_id))
+                except (TypeError, ValueError):
+                    continue
+            planning_types = filter_form.cleaned_data.get("planning_type")
+            status_filters = filter_form.cleaned_data.get("status") or []
             project_file = filter_form.cleaned_data.get("project_file")
-            asset_type = filter_form.cleaned_data.get("asset_type")
+            asset_types = filter_form.cleaned_data.get("asset_type")
             resource_pairs = filter_form.cleaned_data.get("resources") or []
+            only_with_plans = filter_form.cleaned_data.get("only_with_plans") or False
         else:
+            day_raw = GET.get("day", "")
             anchor = timezone.localdate()
-            num_days = 7
-            planning_type = None
-            status_filter = None
+            if day_raw:
+                try:
+                    anchor = date.fromisoformat(day_raw)
+                except ValueError:
+                    try:
+                        anchor = datetime.strptime(day_raw, "%d/%m/%Y").date()
+                    except ValueError:
+                        anchor = timezone.localdate()
+
+            try:
+                num_days = int(GET.get("num_days", 7))
+            except (TypeError, ValueError):
+                num_days = 7
+            num_days = min(max(num_days, 1), 90)
+
+            selected_companies = []
+            for company_id in GET.getlist("company"):
+                try:
+                    selected_companies.append(int(company_id))
+                except (TypeError, ValueError):
+                    continue
+
+            planning_type_ids = []
+            for planning_type_id in GET.getlist("planning_type"):
+                try:
+                    planning_type_ids.append(int(planning_type_id))
+                except (TypeError, ValueError):
+                    continue
+            planning_types = ResourcePlanningType.objects.filter(pk__in=planning_type_ids)
+
+            status_filters = [
+                status for status in GET.getlist("status")
+                if status in {choice[0] for choice in ResourcePlanningStatus.choices}
+            ]
+
             project_file = None
-            asset_type = None
+            project_file_id = GET.get("project_file")
+            if project_file_id:
+                try:
+                    project_file = ProjectFile.objects.get(pk=int(project_file_id))
+                except (ValueError, ProjectFile.DoesNotExist):
+                    project_file = None
+
+            asset_type_ids = []
+            for asset_type_id in GET.getlist("asset_type"):
+                try:
+                    asset_type_ids.append(int(asset_type_id))
+                except (TypeError, ValueError):
+                    continue
+            asset_types = asset_type_ids
             resource_pairs = []
+            only_with_plans = GET.get("only_with_plans") in {"1", "true", "True", "on"}
+
+        if selected_companies:
+            company_scope = user_companies.filter(pk__in=selected_companies)
+        selected_company = company_scope.first() if company_scope.count() == 1 else None
 
         resources_raw = GET.get("resources", "")
         selected_keys = {(ct.id, pk) for ct, pk in resource_pairs} or None
@@ -161,20 +231,25 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
 
         # ── Nav links (preserve params) ───────────────────────────────
         def _nav_url(day):
-            params = {"day": day.isoformat(), "num_days": str(num_days)}
-            if selected_company:
-                params["company"] = str(selected_company.id)
-            if planning_type:
-                params["planning_type"] = str(planning_type.pk)
-            if status_filter:
-                params["status"] = status_filter
+            params: dict[str, Any] = {"day": day.isoformat(), "num_days": str(num_days)}
+            if selected_companies:
+                params["company"] = selected_companies
+            if planning_types:
+                params["planning_type"] = [str(pt.pk) for pt in planning_types]
+            if status_filters:
+                params["status"] = status_filters
             if project_file:
                 params["project_file"] = str(project_file.pk)
-            if asset_type:
-                params["asset_type"] = str(asset_type.pk)
+            if asset_types:
+                params["asset_type"] = [
+                    str(at.pk) if hasattr(at, "pk") else str(at)
+                    for at in asset_types
+                ]
             if resources_raw:
                 params["resources"] = resources_raw
-            return "?" + "&".join(f"{k}={v}" for k, v in params.items())
+            if only_with_plans:
+                params["only_with_plans"] = "on"
+            return "?" + urlencode(params, doseq=True)
 
         prev_url = _nav_url(anchor - timedelta(days=num_days))
         next_url = _nav_url(anchor + timedelta(days=num_days))
@@ -185,21 +260,18 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             .select_related("project_file", "planning_type", "resource_content_type")
             .filter(start__lt=window_end, end__gt=window_start)
         )
-        if selected_company:
-            qs = qs.filter(company=selected_company)
-        else:
-            qs = qs.filter(company__in=user_companies)
-        if planning_type:
-            qs = qs.filter(planning_type=planning_type)
-        if status_filter:
-            qs = qs.filter(status=status_filter)
+        qs = qs.filter(company__in=company_scope)
+        if planning_types:
+            qs = qs.filter(planning_type__in=planning_types)
+        if status_filters:
+            qs = qs.filter(status__in=status_filters)
         if project_file:
             qs = qs.filter(project_file=project_file)
-        if asset_type:
+        if asset_types:
             asset_ct = ContentType.objects.get(app_label="assets", model="asset")
             from assets.models import Asset
             asset_ids = Asset.objects.filter(
-                asset_type=asset_type, is_active=True
+                asset_type__in=asset_types, is_active=True, company__in=company_scope
             ).values_list("pk", flat=True)
             qs = qs.filter(
                 resource_content_type=asset_ct,
@@ -221,7 +293,7 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
         resource_map = {}
         if selected_keys is not None or not project_file:
             all_active = _get_active_resources(
-                selected_company, user_companies, asset_type=asset_type, selected_keys=selected_keys,
+                company_scope, asset_types=asset_types, selected_keys=selected_keys,
             )
             for key, info in all_active.items():
                 resource_map[key] = {
@@ -266,6 +338,13 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
                         CellBlock(p, max(p.start, col["start_dt"]), min(p.end, col["end_dt"]))
                     )
 
+        if only_with_plans:
+            resource_map = {
+                key: info
+                for key, info in resource_map.items()
+                if any(info["cells"][col["key"]] for col in columns_meta)
+            }
+
         # Group by resource type
         type_groups = OrderedDict()
         for (ct_id, obj_id), info in resource_map.items():
@@ -293,10 +372,7 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
 
         # ── Filter options for legend ─────────────────────────────────
         pt_qs = ResourcePlanningType.objects.filter(is_active=True)
-        if selected_company:
-            pt_qs = pt_qs.filter(company=selected_company)
-        else:
-            pt_qs = pt_qs.filter(company__in=user_companies)
+        pt_qs = pt_qs.filter(company__in=company_scope)
         planning_types = list(pt_qs.order_by("name"))
 
         # ── Add URL for click-to-create ───────────────────────────────
@@ -322,6 +398,7 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             prev_url=prev_url,
             next_url=next_url,
             add_url=add_url,
+            show_cell_create_buttons=not only_with_plans,
         )
         return ctx
 

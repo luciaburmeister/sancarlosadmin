@@ -11,6 +11,9 @@ from unfold.decorators import action
 from unfold.enums import ActionVariant
 from unfold.widgets import UnfoldAdminSelect2Widget
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
+from import_export.admin import ImportExportModelAdmin
+from unfold.contrib.import_export.forms import ImportForm, SelectableFieldsExportForm
+from inventory.resources import InventoryItemResource
 
 from django.urls import path, reverse
 from django.shortcuts import redirect
@@ -408,7 +411,10 @@ class PurchaseHistoryInline(TabularInline):
 
 
 @admin.register(InventoryItem)
-class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
+class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
+    resource_classes = [InventoryItemResource]
+    import_form_class = ImportForm
+    export_form_class = SelectableFieldsExportForm
     form = InventoryItemForm
     inlines = [ItemProviderInfoInline, ItemIdentityCodeInline, PurchaseHistoryInline, ItemTransactionInline, ItemAppliedTaxInline]
     actions_row = ["row_receive_stock", "row_transfer_stock", "row_adjust_stock"]

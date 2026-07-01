@@ -370,6 +370,7 @@ class BankReconciliationAdmin(ModelAdmin):
         "reconciled_at",
     )
     list_select_related = ("bank_transaction", "payment")
+    autocomplete_fields = ("bank_transaction", "payment")
     ordering = ("-reconciled_at",)
     list_per_page = 30
 

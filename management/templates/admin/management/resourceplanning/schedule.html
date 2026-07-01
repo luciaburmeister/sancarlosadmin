@@ -6,10 +6,16 @@
     <script src="{% url 'admin:jsi18n' %}"></script>
     {{ filter_form.media }}
     <style>
-      .schedule-filter-expediente select,
-      .schedule-filter-expediente .select2-container {
-        width: 14rem !important;
+      .schedule-filters select[multiple] {
         min-width: 14rem;
+      }
+
+      .schedule-filters .select2-container {
+        min-width: 14rem !important;
+      }
+
+      .schedule-filters .select2-container .select2-selection--multiple {
+        min-height: 2.5rem;
       }
     </style>
 {% endblock %}
@@ -34,23 +40,19 @@
 
   {# Filters — Unfold widgets #}
   <div class="rounded-2xl border border-base-200 bg-white p-4">
-    <form method="get" class="flex flex-col gap-4">
+    <form method="get" class="flex flex-col gap-4 schedule-filters">
       <div class="flex flex-wrap items-end gap-4">
 
         {% for field in filter_form %}
-          {% if field.name != "project_file" and field.name != "resources" %}
+          {% if field.name != "resources" and field.name != "only_with_plans" %}
             {% include "unfold/helpers/field.html" with field=field %}
           {% endif %}
         {% endfor %}
 
-        {# Project file — autocomplete, wider, bold label matching the rest #}
-        <div class="flex flex-col gap-2 shrink-0 schedule-filter-expediente">
-          <label for="{{ filter_form.project_file.id_for_label }}" class="block font-semibold text-important">
-            {{ filter_form.project_file.label }}
-          </label>
-          {{ filter_form.project_file }}
-        </div>
+      </div>
 
+      <div class="flex flex-wrap items-center gap-4">
+        {% include "unfold/helpers/field.html" with field=filter_form.only_with_plans %}
       </div>
 
       {# Resource picker — restrict the schedule to hand-picked employees/machines/assets #}
@@ -143,7 +145,16 @@
             {# Resource name — sticky left, with + button #}
             <td class="sticky left-0 z-10 bg-white px-4 py-2 border-b border-r border-base-200 whitespace-nowrap">
               <div class="flex items-center justify-between gap-2">
-                <span class="text-sm font-medium">{{ res.name }}</span>
+                <div class="flex items-center gap-2">
+                  {% if res.ct_model == "employee" or res.ct_model == "asset" %}
+                    <input type="checkbox"
+                           class="resource-row-checkbox h-4 w-4 rounded border-base-300"
+                           data-resource-id="{{ res.ct_model }}:{{ res.obj_id }}"
+                           data-resource-text="{{ res.name|escape }}"
+                           title="{% trans 'Filter by this resource' %}">
+                  {% endif %}
+                  <span class="text-sm font-medium">{{ res.name }}</span>
+                </div>
                 <a href="{{ add_url }}?resources={{ res.ct_model }}:{{ res.obj_id }}{% if selected_company %}&company={{ selected_company.pk }}{% endif %}"
                    class="group flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-base-100 hover:bg-primary-100 transition-colors"
                    title="{% trans 'Add planning for this resource' %}">
@@ -183,12 +194,14 @@
                     </div>
                   {% endfor %}
 
-                  {# + button at bottom of every cell #}
-                  <a href="{{ add_url }}?resources={{ res.ct_model }}:{{ res.obj_id }}&day={{ cell.date_key }}{% if selected_company %}&company={{ selected_company.pk }}{% endif %}"
-                     class="group flex items-center justify-center h-8 rounded-md bg-base-50/50 border border-dashed border-base-200 hover:border-primary-400 hover:bg-primary-50 transition-all"
-                     title="{% trans 'Add planning for this day' %}">
-                    <span class="material-symbols-outlined text-base-300 group-hover:text-primary-500 transition-colors" style="font-size:16px;">add</span>
-                  </a>
+                  {% if show_cell_create_buttons %}
+                    {# + button at bottom of every cell #}
+                    <a href="{{ add_url }}?resources={{ res.ct_model }}:{{ res.obj_id }}&day={{ cell.date_key }}{% if selected_company %}&company={{ selected_company.pk }}{% endif %}"
+                       class="group flex items-center justify-center h-8 rounded-md bg-base-50/50 border border-dashed border-base-200 hover:border-primary-400 hover:bg-primary-50 transition-all"
+                       title="{% trans 'Add planning for this day' %}">
+                      <span class="material-symbols-outlined text-base-300 group-hover:text-primary-500 transition-colors" style="font-size:16px;">add</span>
+                    </a>
+                  {% endif %}
                 </div>
               </td>
             {% endfor %}
@@ -206,10 +219,45 @@
 
 <script>
 (function () {
+  // Enhance multi-select filters with Select2 (chips + search), matching Unfold admin style.
+  const onReady = function (fn) {
+    if (typeof window.django !== 'undefined' && typeof window.django.jQuery !== 'undefined') {
+      const $ = window.django.jQuery;
+      if ($.isReady) { fn(); } else { $(document).ready(fn); }
+    } else {
+      setTimeout(() => onReady(fn), 50);
+    }
+  };
+
+  onReady(function () {
+    const $ = window.django.jQuery;
+    if (!$ || typeof $.fn.select2 === 'undefined') return;
+
+    const ids = [
+      '#id_company',
+      '#id_planning_type',
+      '#id_status',
+      '#id_asset_type',
+    ];
+
+    ids.forEach((selector) => {
+      const $el = $(selector);
+      if (!$el.length || !$el.prop('multiple') || $el.hasClass('select2-hidden-accessible')) return;
+      $el.select2({
+        width: 'style',
+        theme: 'admin-autocomplete',
+        closeOnSelect: false,
+      });
+    });
+  });
+})();
+
+(function () {
   const searchInput = document.getElementById('resource-filter-search');
   const suggestions = document.getElementById('resource-filter-suggestions');
   const badges      = document.getElementById('resource-filter-badges');
   const hidden      = document.getElementById('{{ filter_form.resources.id_for_label }}');
+  const rowCheckboxes = () => Array.from(document.querySelectorAll('.resource-row-checkbox'));
 
   const INITIAL_LABELS = {{ resource_labels_json|default:"{}"|safe }};
   let selected = [];
@@ -226,6 +274,7 @@
   function renderBadges() {
     badges.innerHTML = '';
     if (hidden) hidden.value = selected.map(r => r.id).join(',');
+    syncRowCheckboxes();
     selected.forEach(r => {
       const span = document.createElement('span');
       span.className = 'inline-flex items-center gap-1 bg-primary-100 text-primary-800 dark:bg-primary-900/30 dark:text-primary-300 rounded-full px-3 py-1 text-xs font-medium';
@@ -244,6 +293,26 @@
       renderBadges();
     }
   }
+
+  function syncRowCheckboxes() {
+    const selectedIds = new Set(selected.map(r => r.id));
+    rowCheckboxes().forEach((checkbox) => {
+      checkbox.checked = selectedIds.has(checkbox.dataset.resourceId);
+    });
+  }
+
+  rowCheckboxes().forEach((checkbox) => {
+    checkbox.addEventListener('change', () => {
+      const id = checkbox.dataset.resourceId;
+      const text = checkbox.dataset.resourceText || id;
+      if (checkbox.checked) {
+        addResource({ id, text });
+        return;
+      }
+      selected = selected.filter(r => r.id !== id);
+      renderBadges();
+    });
+  });
 
   let debounceTimer;
   searchInput.addEventListener('input', () => {

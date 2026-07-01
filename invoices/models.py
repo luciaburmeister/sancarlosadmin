@@ -484,40 +484,43 @@ class AppliedTax(models.Model):
         TaxType,
         on_delete=models.PROTECT,
         related_name="applied_taxes",
+        verbose_name=_("Tax Type"),
     )
 
     selected_percentage = models.DecimalField(
         max_digits=5,
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0.00"))],
-        default=0
+        default=0,
+        verbose_name=_("Selected Percentage"),
     )
 
-    #Base amount each tax is calculated on
     base_amount = MoneyField(
         max_digits=10,
         decimal_places=2,
-        null=True,  # Allow null for existing records
-        blank=True,  # Allow blank in forms
-        help_text="The base amount this tax was calculated on",
+        null=True,
+        blank=True,
+        verbose_name=_("Base Amount"),
+        help_text=_("The base amount this tax was calculated on."),
         default_currency='EUR',
-        default=None
+        default=None,
     )
 
     calculated_amount = MoneyField(
         max_digits=10,
         decimal_places=2,
-        null=True,  # Allow null for existing records
-        blank=True,  # Allow blank in forms
-        help_text="The calculated tax amount",
+        null=True,
+        blank=True,
+        verbose_name=_("Calculated Amount"),
+        help_text=_("The calculated tax amount."),
         default_currency='EUR',
-        default=None
+        default=None,
     )
 
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    object_id = models.PositiveIntegerField()
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, verbose_name=_("Content Type"))
+    object_id = models.PositiveIntegerField(verbose_name=_("Object ID"))
     content_object = GenericForeignKey("content_type", "object_id")
-    order = models.PositiveIntegerField(default=0,db_index=True)
+    order = models.PositiveIntegerField(default=0, db_index=True, verbose_name=_("Order"))
 
     # Fields whose modification is blocked on a finalized invoice.
     # Saves that only touch computed fields (base_amount, calculated_amount)

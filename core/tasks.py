@@ -107,3 +107,74 @@ def send_asset_transaction_email_task(transaction_id: int, to_email: str | None 
         "to": to_email or str(transaction.asset),
         "status": "ok" if ok else "error",
     }
+
+
+@shared_task(name="core.tasks.generate_work_entries_task")
+def generate_work_entries_task(transaction_ids: list[int]):
+    """
+    Celery task to generate all missing work entries for a list of
+    AssetTransaction IDs. Runs asynchronously so bulk actions don't block.
+    """
+    from assets.models import AssetTransaction, BillingStatus
+    from management.services.work_entry import WorkEntryService
+
+    total_created = 0
+    total_skipped = 0
+
+    transactions = AssetTransaction.objects.filter(
+        pk__in=transaction_ids,
+    ).select_related("project_file", "company")
+
+    for transaction in transactions:
+        if not transaction.project_file:
+            total_skipped += 1
+            continue
+
+        created = 0
+        errors = 0
+        try:
+            status = WorkEntryService.get_billing_status(transaction)
+            for wtype in status["missing"]:
+                try:
+                    WorkEntryService.create_work_entry_from_source(
+                        entry_type=wtype,
+                        source_object=transaction,
+                        project_file=transaction.project_file,
+                    )
+                    created += 1
+                    total_created += 1
+                except Exception as e:
+                    errors += 1
+                    logger.exception(
+                        "generate_work_entries_task: failed '%s' for tx %s: %s",
+                        wtype.name, transaction.pk, e,
+                    )
+        except Exception as e:
+            errors += 1
+            logger.exception(
+                "generate_work_entries_task: error processing transaction %s: %s",
+                transaction.pk, e,
+            )
+
+        # Update billing status
+        if errors and not created:
+            transaction.billing_status = BillingStatus.FAILED
+        elif errors:
+            transaction.billing_status = BillingStatus.PENDING
+        elif not status.get("missing"):
+            # Nothing was missing — already fully processed
+            transaction.billing_status = BillingStatus.PROCESSED
+        elif created:
+            remaining = len(status["missing"]) - created
+            transaction.billing_status = BillingStatus.PROCESSED if remaining == 0 else BillingStatus.PENDING
+        transaction.save(update_fields=["billing_status"])
+
+    logger.info(
+        "generate_work_entries_task: created %d entries, skipped %d transactions",
+        total_created, total_skipped,
+    )
+    return {
+        "task": "generate_work_entries",
+        "created": total_created,
+        "skipped": total_skipped,
+    }

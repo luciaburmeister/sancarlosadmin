@@ -9,10 +9,12 @@ from management.services.resource_planning import (
     get_group_plannings,
     iter_working_days,
 )
+from management.services.work_entry import WorkEntryService
 
 __all__ = [
     "ProjectFileService",
     "ResourcePlanningService",
+    "WorkEntryService",
     "create_plannings",
     "update_group",
     "update_planning",

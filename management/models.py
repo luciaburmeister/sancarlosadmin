@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.db import models
 from django.db.models import Sum, Q
 from django.utils.translation import gettext_lazy as _
-from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from djmoney.models.fields import MoneyField
@@ -145,7 +145,15 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         if hasattr(config_subtotal, "amount"):
             config_subtotal = config_subtotal.amount
 
-        invoiceable = Decimal(str(quote_subtotal)) + Decimal(str(config_subtotal))
+        # Work entries subtotal
+        work_entry_subtotal = (
+            self.work_entries.aggregate(total=Sum("total_price"))["total"]
+            or Decimal("0.00")
+        )
+        if hasattr(work_entry_subtotal, "amount"):
+            work_entry_subtotal = work_entry_subtotal.amount
+
+        invoiceable = Decimal(str(quote_subtotal)) + Decimal(str(config_subtotal)) + Decimal(str(work_entry_subtotal))
 
         # Sum of sales invoice subtotals (pre-tax)
         # Source 1: single-PF invoices (project_file FK on invoice)
@@ -350,3 +358,329 @@ class ResourcePlanning(Timestampable, CompanyOwnedModel):
                 raise ValidationError(
                     _("This resource already has a planning that overlaps with the selected time range.")
                 )
+
+
+# ---------------------------------------------------------------------------
+# Work Entries
+# ---------------------------------------------------------------------------
+
+
+class WorkEntryType(CompanyOwnedModel):
+    """
+    Configurable template defining a category of billable work and how to price it.
+    Can be company-wide (project_file=NULL) or scoped to a specific Expediente.
+    """
+
+    name = models.CharField(max_length=200, verbose_name=_("Name"))
+    unit_label = models.CharField(
+        max_length=50,
+        default="unit",
+        verbose_name=_("Unit Label"),
+        help_text=_("e.g. trip, hour, km, unit"),
+    )
+
+    applicability_expression = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name=_("Applicability Expression"),
+        help_text=_(
+            "safe_eval condition evaluated against the source object context. "
+            "Determines if this type SHOULD be created for a given source. "
+            "Leave empty to always apply.\n"
+            "Example: transaction_type == 'delivery'"
+        ),
+    )
+
+    description_template = models.CharField(
+        max_length=500,
+        blank=True,
+        verbose_name=_("Description Template"),
+        help_text=_(
+            "Template for auto-generating the work entry description. "
+            "Use {field_name} placeholders.\n"
+            "Example: Delivery: {asset_name} → {to_zone}"
+        ),
+    )
+
+    # Linked pricing data — only these feed into expression context
+    materials = models.ManyToManyField(
+        "materials.Material",
+        blank=True,
+        related_name="work_entry_types",
+        verbose_name=_("Materials"),
+        help_text=_("Materials whose pricing is available in expression context as materials.<rule_key>."),
+    )
+    components = models.ManyToManyField(
+        "materials.Component",
+        blank=True,
+        related_name="work_entry_types",
+        verbose_name=_("Components"),
+        help_text=_("Components whose pricing is available in expression context as components.<slug>."),
+    )
+
+    source_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name=_("Source Model"),
+        help_text=_("Restrict this type to a specific source model (e.g. Asset Transaction)."),
+    )
+
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="custom_work_entry_types",
+        verbose_name=_("Project File"),
+        help_text=_("Leave empty for company-wide types. Set to restrict to a specific Expediente."),
+    )
+
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Work Entry Type")
+        verbose_name_plural = _("Work Entry Types")
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "name", "project_file"],
+                name="unique_work_entry_type_per_company_project",
+            ),
+        ]
+
+    def __str__(self):
+        suffix = f" [{self.project_file.reference}]" if self.project_file else ""
+        return f"{self.name}{suffix}"
+
+    def evaluate_applicability(self, context: dict) -> bool:
+        """Check if this type applies to a source given its context."""
+        if not self.applicability_expression:
+            return True
+        from configurator.utils import safe_eval
+        try:
+            return bool(safe_eval(self.applicability_expression, context))
+        except Exception:
+            return False
+
+    def compute_unit_price(self, context: dict) -> Decimal:
+        """
+        Execute pricing steps in order. Each step's output is added to the
+        context for subsequent steps. Returns the last step's result,
+        or Decimal('0.00') if no steps exist.
+
+        If `context['components']` is a lazy accessor, it is kept in sync
+        with the step_context so component price rules can use variables
+        defined by earlier steps.
+        """
+        from configurator.utils import safe_eval
+
+        steps = self.pricing_steps.all()
+        if not steps.exists():
+            return Decimal("0.00")
+
+        step_context = dict(context)
+        result = Decimal("0.00")
+
+        # Get reference to lazy accessor (if present) to keep it in sync
+        lazy_components = step_context.get("components")
+        _has_bind = hasattr(lazy_components, "bind_context")
+
+        for step in steps:
+            try:
+                if _has_bind:
+                    lazy_components.bind_context(step_context)
+                value = safe_eval(step.expression, step_context)
+                step_context[step.variable_name] = value
+                result = Decimal(str(value))
+            except Exception:
+                pass
+
+        return result
+
+
+class WorkEntryPricingStep(models.Model):
+    """
+    An ordered expression step in a WorkEntryType's pricing chain.
+    Each step evaluates an expression and outputs a named variable
+    available to subsequent steps. The last step's output becomes
+    the unit_price.
+    """
+
+    entry_type = models.ForeignKey(
+        WorkEntryType,
+        on_delete=models.CASCADE,
+        related_name="pricing_steps",
+        verbose_name=_("Work Entry Type"),
+    )
+
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Order"),
+        help_text=_("Execution order (lower = first)."),
+        db_index=True
+    )
+
+    variable_name = models.SlugField(
+        max_length=50,
+        verbose_name=_("Variable Name"),
+        help_text=_("Output variable name for this step, e.g. 'base_cost'. Available to subsequent steps."),
+    )
+
+    expression = models.TextField(
+        verbose_name=_("Expression"),
+        help_text=_(
+            "safe_eval expression. Can use context variables (quantity, default_price, "
+            "materials.*, components.*, source fields) plus variables from previous steps.\n"
+            "Example: data.distance_km * 3.5"
+        ),
+    )
+
+    class Meta:
+        verbose_name = _("Pricing Step")
+        verbose_name_plural = _("Pricing Steps")
+        ordering = ["order"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["entry_type", "order"],
+                name="unique_pricing_step_order",
+            ),
+            models.UniqueConstraint(
+                fields=["entry_type", "variable_name"],
+                name="unique_pricing_step_variable",
+            ),
+        ]
+
+    def __str__(self):
+        return f"#{self.order} {self.variable_name}"
+
+    def clean(self):
+        super().clean()
+        from configurator.utils import validate_expression_for_safe_eval
+        if self.expression:
+            try:
+                validate_expression_for_safe_eval(self.expression)
+            except ValueError as e:
+                raise ValidationError({"expression": str(e)})
+
+
+class WorkEntry(Timestampable, CompanyOwnedModel):
+    """
+    A billable unit of work linked to a ProjectFile (Expediente).
+    Can optionally reference a source object (e.g. AssetTransaction)
+    via GenericFK. Multiple WorkEntries can point to the same source.
+    """
+
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.CASCADE,
+        related_name="work_entries",
+        verbose_name=_("Project File"),
+    )
+
+    entry_type = models.ForeignKey(
+        WorkEntryType,
+        on_delete=models.PROTECT,
+        related_name="entries",
+        verbose_name=_("Work Entry Type"),
+    )
+
+    description = models.CharField(
+        max_length=500,
+        verbose_name=_("Description"),
+    )
+
+    quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=Decimal("1.00"),
+        verbose_name=_("Quantity"),
+    )
+
+    unit_price = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Unit Price"),
+    )
+
+    total_price = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Total Price"),
+        help_text=_("Auto-computed: quantity × unit_price."),
+    )
+
+    date = models.DateField(verbose_name=_("Date"))
+
+    # GenericFK to any source object
+    source_content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name=_("Source Type"),
+    )
+    source_object_id = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("Source ID"),
+    )
+    source = GenericForeignKey("source_content_type", "source_object_id")
+
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+
+    is_locked = models.BooleanField(
+        default=False,
+        verbose_name=_("Locked"),
+        help_text=_("Locked after invoicing to prevent edits."),
+    )
+
+    applied_taxes = GenericRelation(
+        "invoices.AppliedTax",
+        content_type_field="content_type",
+        object_id_field="object_id",
+    )
+
+    class Meta:
+        verbose_name = _("Work Entry")
+        verbose_name_plural = _("Work Entries")
+        ordering = ["-date", "-created_at"]
+        indexes = [
+            models.Index(fields=["source_content_type", "source_object_id"]),
+            models.Index(fields=["project_file", "date"]),
+        ]
+
+    def __str__(self):
+        return f"{self.description} ({self.total_price})"
+
+    @property
+    def total_with_tax(self):
+        """total_price + sum of all applied tax amounts."""
+        from djmoney.money import Money
+        tax_sum = Decimal("0")
+        for tax in self.applied_taxes.all():
+            if tax.calculated_amount is not None:
+                amt = tax.calculated_amount.amount if isinstance(tax.calculated_amount, Money) else Decimal(str(tax.calculated_amount))
+                tax_sum += amt
+        base = self.total_price.amount if hasattr(self.total_price, 'amount') else Decimal(str(self.total_price or 0))
+        currency = self.total_price.currency if hasattr(self.total_price, 'currency') else 'EUR'
+        return Money(base + tax_sum, currency)
+
+    def save(self, *args, **kwargs):
+        # Auto-fill description from template if empty
+        if not self.description and self.entry_type and self.entry_type.description_template:
+            try:
+                from management.services.work_entry import WorkEntryService
+                context = WorkEntryService.build_source_context(self.source)
+                self.description = self.entry_type.description_template.format(**context)
+            except Exception:
+                self.description = self.entry_type.name
+
+        # Compute total
+        self.total_price = self.unit_price * self.quantity
+        super().save(*args, **kwargs)

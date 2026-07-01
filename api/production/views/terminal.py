@@ -9,6 +9,8 @@ import json
 import unicodedata as _uc
 
 from django.contrib.auth.hashers import check_password
+from django.contrib.postgres.fields import ArrayField
+from django.db.models import F, Func, TextField, Value
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 
@@ -112,6 +114,44 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
         key = (sess.production_item_id, _uc.normalize("NFC", sess.production_stage))
         workers_index.setdefault(key, []).append({"id": emp.id, "full_name": emp.full_name})
 
+    # All session comments for the employee's visible items, oldest first — one DB query.
+    # Includes comments from all employees (not just this one) so coworker notes are visible.
+    employee_item_ids: set[int] = set()
+    for ticket in tickets:
+        for item in active_ticket_items(ticket):
+            employee_item_ids.add(item.id)
+
+    # Session comments: split multi-note blobs so each sub-note gets its own entry with the name.
+    session_comments_index: dict[tuple, list[dict]] = {}
+    for sess in (
+        ProductionItemSession.objects.filter(
+            production_item_id__in=employee_item_ids,
+        )
+        .exclude(comments=[])
+        .select_related("created_by")
+        .order_by("production_item_id", "production_stage", "start_time")
+    ):
+        emp = sess.created_by
+        if emp is None:
+            continue
+        key = (sess.production_item_id, _uc.normalize("NFC", sess.production_stage))
+        for note in sess.comments:
+            note = note.strip()
+            if note:
+                session_comments_index.setdefault(key, []).append({
+                    "employee_name": emp.full_name,
+                    "comment": note,
+                })
+
+    # Items where this employee has ANY session (open or closed) — for Reanudar vs Unirse logic.
+    my_session_keys: set[tuple] = {
+        (item_id, _uc.normalize("NFC", stage or ""))
+        for item_id, stage in ProductionItemSession.objects.filter(
+            created_by=employee,
+            production_item_id__in=employee_item_ids,
+        ).values_list("production_item_id", "production_stage")
+    }
+
     results: list[dict] = []
 
     for ticket in tickets:
@@ -158,13 +198,17 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
                         raw = v if isinstance(v, dict) else {}
                         break
                 status = (raw.get("status") or "pending") if isinstance(raw, dict) else "pending"
+                is_assigned = item.id in assigned_item_ids
+                # Employees only see assigned tasks; in-progress/done always show.
+                if status == "pending" and not is_assigned:
+                    continue
                 pairs.append({
                     "sort": (ii, jj),
                     "production_item_id": item.id,
                     "stage_name": stage_name,
                     "status": status,
                     "component_label": component_label,
-                    "is_assigned": item.id in assigned_item_ids,
+                    "is_assigned": is_assigned,
                 })
 
         pairs.sort(key=lambda p: p["sort"])
@@ -196,6 +240,7 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
         base = {
             "config_id": config.id,
             "config_name": getattr(config, "name", None) or "",
+            "config_notes": getattr(config, "notes", None) or "",
             "quote_name": quote_name,
             "template_name": config.product.name if getattr(config, "product", None) else None,
             "ticket_status": ticket.status,
@@ -207,7 +252,14 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
         for stage_p in pairs:
             stage_name_n = _uc.normalize("NFC", stage_p["stage_name"])
             workers = workers_index.get((stage_p["production_item_id"], stage_name_n), [])
-            has_my_session = any(w["id"] == employee.id for w in workers)
+            has_my_open_session = any(w["id"] == employee.id for w in workers)
+            has_my_prev_session = (
+                stage_p["production_item_id"],
+                stage_name_n,
+            ) in my_session_keys
+            stage_comments = session_comments_index.get(
+                (stage_p["production_item_id"], stage_name_n), []
+            )
             results.append({
                 **base,
                 "next_stage": {
@@ -216,11 +268,16 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
                     "production_item_id": stage_p["production_item_id"],
                     "component_label": stage_p["component_label"],
                     "active_workers": workers,
-                    "has_my_open_session": has_my_session,
+                    "has_my_open_session": has_my_open_session,
+                    # True only when others are working AND I've never touched this stage
                     "started_by_others": (
-                        stage_p["status"] == "in_progress" and bool(workers) and not has_my_session
+                        stage_p["status"] == "in_progress"
+                        and bool(workers)
+                        and not has_my_open_session
+                        and not has_my_prev_session
                     ),
                     "is_assigned": stage_p["is_assigned"],
+                    "session_comments": stage_comments,
                 },
             })
 
@@ -303,6 +360,52 @@ class _TerminalStageActionView(SharedTerminalAPIView):
         raise NotImplementedError
 
 
+class TerminalStageNoteView(SharedTerminalAPIView):
+    def post(self, request, employee_id, item_id, stage_name):
+        body = json.loads(request.body or b"{}")
+        comments = str(body.get("comments", "")).strip()
+
+        if not comments:
+            return JsonResponse({"error": "El comentario no puede estar vacío."}, status=400)
+
+        employee = get_object_or_404(
+            Employee,
+            id=employee_id,
+            company=self.company,
+            can_work_on_production=True,
+            is_active=True,
+        )
+
+        stage_name_n = _uc.normalize("NFC", stage_name)
+
+        # Find the most recent session for this employee on this stage,
+        # open or closed (needed when the stage is paused).
+        session = (
+            ProductionItemSession.objects.filter(
+                production_item_id=item_id,
+                production_item__company=self.company,
+                production_stage=stage_name_n,
+                created_by=employee,
+            )
+            .order_by("-start_time")
+            .first()
+        )
+
+        if not session:
+            return JsonResponse({"error": "No tienes ninguna sesión en esta etapa."}, status=404)
+
+        ProductionItemSession.objects.filter(pk=session.pk).update(
+            comments=Func(
+                F("comments"),
+                Value(comments),
+                function="array_append",
+                output_field=ArrayField(TextField()),
+            )
+        )
+
+        return JsonResponse({"success": True})
+
+
 class TerminalStageStartView(_TerminalStageActionView):
     def _run(self, *, stage_name, item, employee):
         # skip_worker_check=True: terminal allows starting a new task
@@ -374,7 +477,11 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
     active_config_ids = list(
         Configuration.objects.filter(
             company=company,
-            status__in=(ConfigurationStatus.CONVERTED, ConfigurationStatus.SHOP),
+            status__in=(
+                ConfigurationStatus.CONVERTED,
+                ConfigurationStatus.SHOP,
+                ConfigurationStatus.PRODUCTION_DONE,
+            ),
         ).values_list("id", flat=True)
     )
 
@@ -403,6 +510,35 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
             continue
         key = (sess.production_item_id, _uc.normalize("NFC", sess.production_stage))
         workers_index.setdefault(key, []).append({"id": emp.id, "full_name": emp.full_name})
+
+    # Session comments index — most-recent per (item, stage, employee).
+    # Scoped to active tickets only so the query stays bounded.
+    active_item_ids = [
+        item.id
+        for ticket in tickets
+        for item in active_ticket_items(ticket)
+    ]
+    comments_index: dict[tuple, list[dict]] = {}
+    commented_sessions = (
+        ProductionItemSession.objects.filter(
+            production_item_id__in=active_item_ids,
+        )
+        .exclude(comments=[])
+        .select_related("created_by")
+        .order_by("production_item_id", "production_stage", "start_time")
+    )
+    for sess in commented_sessions:
+        emp = sess.created_by
+        if emp is None:
+            continue
+        key = (sess.production_item_id, _uc.normalize("NFC", sess.production_stage))
+        for note in sess.comments:
+            note = note.strip()
+            if note:
+                comments_index.setdefault(key, []).append({
+                    "employee_name": emp.full_name,
+                    "comment": note,
+                })
 
     active: list[dict] = []
     paused: list[dict] = []
@@ -455,6 +591,7 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
         base = {
             "config_id": config.id,
             "config_name": getattr(config, "name", None) or "",
+            "config_notes": getattr(config, "notes", None) or "",
             "quote_name": quote_name,
             "template_name": config.product.name if getattr(config, "product", None) else None,
             "expediente": expediente_data,
@@ -490,6 +627,7 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
                         "status": status,
                         "active_workers": workers,
                         "assigned_employees": assigned_emps,
+                        "session_comments": comments_index.get((item.id, stage_name_n), []),
                     },
                 }
 

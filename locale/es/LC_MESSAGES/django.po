@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-30 17:41+0200\n"
+"POT-Creation-Date: 2026-07-01 14:57+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -287,10 +287,8 @@ msgstr "Reconciliado"
 msgid "Connect Bank"
 msgstr "Conectar Banco"
 
-
 msgid "Inventory"
 msgstr "Inventario"
-
 
 msgid "Items"
 msgstr "Articulos"
@@ -352,6 +350,9 @@ msgstr "Configuraciones"
 
 msgid "Company"
 msgstr "Compañia"
+
+msgid "Work Entry Types"
+msgstr "Tipos de Parte de Trabajo"
 
 msgid "Feedback"
 msgstr "Comentarios"
@@ -618,6 +619,34 @@ msgstr ""
 msgid "Transaction email queued for %s."
 msgstr "Correo electrónico de factura en cola para %s."
 
+msgid "Billing"
+msgstr "Facturación"
+
+msgid "Create Work Entry"
+msgstr "Crear Parte de Trabajo"
+
+msgid "This transaction has no Project File linked."
+msgstr "Esta transacción no tiene ningún Expediente vinculado."
+
+msgid "All expected work entries already exist for this transaction."
+msgstr ""
+"Todos los partes de trabajo esperados ya existen para esta transacción."
+
+#, python-format
+msgid "Failed to create entry '%(name)s': %(error)s"
+msgstr "Error al crear el parte '%(name)s': %(error)s"
+
+#, python-format
+msgid "Created %(count)d work entries."
+msgstr "Se crearon %(count)d partes de trabajo."
+
+msgid "Generate All Work Entries"
+msgstr "Generar Todos los Partes de Trabajo"
+
+#, python-format
+msgid "Work entry generation queued for %(count)d transactions."
+msgstr "Generación de partes de trabajo en cola para %(count)d transacciones."
+
 msgid "Name"
 msgstr "Nombre"
 
@@ -689,6 +718,15 @@ msgstr "Regresar"
 msgid "Movement"
 msgstr "Componentes"
 
+msgid "—"
+msgstr "—"
+
+msgid "Processed"
+msgstr "Procesado"
+
+msgid "Failed"
+msgstr "Fallido"
+
 msgid "From Zone"
 msgstr "Desde la zona"
 
@@ -715,6 +753,11 @@ msgstr "Imagen"
 
 msgid "Project File"
 msgstr "Expediente"
+
+#, fuzzy
+#| msgid "Production Stages"
+msgid "Billing Status"
+msgstr "Etapas de Producción"
 
 msgid "Asset transaction"
 msgstr "Transacción de activos"
@@ -2106,9 +2149,6 @@ msgstr "Documentos del empleado"
 
 msgid "Success"
 msgstr "Éxito"
-
-msgid "Failed"
-msgstr "Fallido"
 
 msgid "Content Type"
 msgstr "Tipo de contenido"
@@ -4145,7 +4185,6 @@ msgstr "Grabado en"
 msgid "Reorder"
 msgstr "Grabado en"
 
-
 msgid "Item Type"
 msgstr "Tipo de activo"
 
@@ -4318,10 +4357,8 @@ msgstr ""
 msgid "Product Object ID"
 msgstr "Plantillas de Producto"
 
-
 msgid "Selling Price"
 msgstr "Precio de venta"
-
 
 msgid "Cost Price"
 msgstr "Precio de coste"
@@ -5138,6 +5175,11 @@ msgstr "Puede ver el panel de cotizaciones."
 msgid "Can view Operational Dashboard"
 msgstr "Puede ver el panel de cotizaciones."
 
+#, fuzzy
+#| msgid "Payment Status"
+msgid "Can bulk update payment status (purchase invoices)"
+msgstr "Estado de pago"
+
 msgid "IVA"
 msgstr "IVA"
 
@@ -5184,6 +5226,29 @@ msgid ""
 msgstr ""
 "Plantilla genérica de cuenta utilizada para este impuesto en las Facturas de"
 " Venta (resuelto por empresa)."
+
+#, fuzzy
+#| msgid "Production Stage"
+msgid "Selected Percentage"
+msgstr "Etapas de Producción"
+
+#, fuzzy
+#| msgid "Amount"
+msgid "Base Amount"
+msgstr "Cantidad"
+
+msgid "The base amount this tax was calculated on."
+msgstr "El monto base sobre el cual se calculó este impuesto."
+
+#, fuzzy
+#| msgid "Unit Price"
+msgid "Calculated Amount"
+msgstr "Precio Unitario"
+
+#, fuzzy
+#| msgid "Last calculated at"
+msgid "The calculated tax amount."
+msgstr "Última calculada en"
 
 msgid "Cannot edit taxes in a finalized invoice."
 msgstr "No se pueden editar los impuestos en una factura finalizada."
@@ -5292,6 +5357,11 @@ msgstr "Desglose de precios"
 
 msgid "Stores each applied discount rule with its base and amount."
 msgstr "Almacena las bases imponibles y montos agregados."
+
+#, fuzzy
+#| msgid "Payment Status"
+msgid "Can bulk update payment status (sales invoices)"
+msgstr "Estado de pago"
 
 msgid "Discount"
 msgstr "Descuento"
@@ -6042,8 +6112,6 @@ msgstr "Comportamiento"
 msgid "Default %%"
 msgstr "Es default"
 
-#, fuzzy
-#| msgid "Applied taxes"
 msgid "Applied Tax Records"
 msgstr "Impuestos aplicados"
 
@@ -6253,6 +6321,27 @@ msgstr "Gastos"
 msgid "Direct Work"
 msgstr "Trabajo directo"
 
+msgid "Tax"
+msgstr "Impuestos"
+
+#, fuzzy
+#| msgid "Completed"
+msgid "Computed"
+msgstr "Completado"
+
+#, fuzzy
+#| msgid "Applied tax"
+msgid "Applied Tax"
+msgstr "Impuesto aplicado"
+
+#, fuzzy
+#| msgid "Applied taxes"
+msgid "Applied Taxes"
+msgstr "Impuestos aplicados"
+
+msgid "Work Entries"
+msgstr "Partes de trabajo"
+
 msgid "Basic Information"
 msgstr "Información General"
 
@@ -6312,6 +6401,41 @@ msgstr "Cancelar las solicitudes seleccionadas"
 msgid "Schedule View"
 msgstr "Facturas de compra"
 
+msgid "Basic"
+msgstr "Básico"
+
+#, fuzzy
+#| msgid "Pricing"
+msgid "Pricing Engine"
+msgstr "Precios"
+
+msgid ""
+"Pricing is computed via the Pricing Steps inline below. The applicability "
+"expression determines when this type should be automatically suggested for a"
+" source object."
+msgstr ""
+"El precio se calcula a través de los Pasos de Precio en línea a "
+"continuación. La expresión de aplicabilidad determina cuándo este tipo "
+"debería ser sugerido automáticamente para un objeto fuente."
+
+msgid "Linked Pricing Data"
+msgstr "Datos de Precios Vinculados"
+
+msgid ""
+"Only the materials and components selected here will be available in the "
+"expression context as materials.<rule_key> and components.<slug>."
+msgstr ""
+"Solo los materiales y componentes seleccionados aquí estarán disponibles en "
+"el contexto de expresión como materials.<rule_key> y components.<slug>."
+
+msgid "Scope"
+msgstr "Alcance"
+
+#, fuzzy
+#| msgid "Company"
+msgid "Company-wide"
+msgstr "Compañia"
+
 msgid "Management"
 msgstr "Gestión"
 
@@ -6347,33 +6471,28 @@ msgstr "Fecha de inicio"
 
 #, fuzzy
 #| msgid "Stages"
-msgid "All types"
-msgstr "Etapas"
-
-#, fuzzy
-#| msgid "Stages"
-msgid "All statuses"
-msgstr "Etapas"
-
-#, fuzzy
-#| msgid "Stages"
 msgid "All projects"
 msgstr "Etapas"
 
 #, fuzzy
-#| msgid "Unit price"
-msgid "All asset types"
-msgstr "Precio unitario"
-
-#, fuzzy
-#| msgid "Stages"
-msgid "All companies"
-msgstr "Etapas"
+#| msgid "Process Planning"
+msgid "Only resources with plannings"
+msgstr "Planificación del Proceso"
 
 #, fuzzy
 #| msgid "Source"
 msgid "Resources"
 msgstr "Origén"
+
+#, fuzzy
+#| msgid "Use the picker to select employees, machines or assets."
+msgid "Show only the selected employees, machines or assets."
+msgstr "Utiliza el selector para elegir empleados, máquinas o activos."
+
+#, fuzzy
+#| msgid "Stages"
+msgid "All companies"
+msgstr "Etapas"
 
 msgid "Use the picker to select employees, machines or assets."
 msgstr "Utiliza el selector para elegir empleados, máquinas o activos."
@@ -6532,6 +6651,116 @@ msgstr ""
 "Este recurso ya tiene una planificación que se superpone con el rango de "
 "tiempo seleccionado."
 
+msgid "Unit Label"
+msgstr "Etiqueta de Unidad"
+
+msgid "e.g. trip, hour, km, unit"
+msgstr "p. ej. viaje, hora, km, unidad"
+
+msgid "Applicability Expression"
+msgstr "Expresión de Aplicabilidad"
+
+msgid ""
+"safe_eval condition evaluated against the source object context. Determines if this type SHOULD be created for a given source. Leave empty to always apply.\n"
+"Example: transaction_type == 'delivery'"
+msgstr ""
+"Condición safe_eval evaluada contra el contexto del objeto origen. Determina si este tipo DEBE crearse para un origen dado. Dejar vacío para aplicar siempre.\n"
+"Ejemplo: transaction_type == 'delivery'"
+
+msgid "Description Template"
+msgstr "Plantilla de Descripción"
+
+#, fuzzy, python-brace-format
+#| msgid ""
+#| "Template for auto-generating the work entry description. Use {field_name} placeholders.\n"
+#| "Example: Delivery: {asset_name} → {to_zone}"
+msgid ""
+"Template for auto-generating the work entry description. Use {field_name} placeholders.\n"
+"Example: Delivery: {asset_name} → {to_zone}"
+msgstr ""
+"Plantilla para auto-generar la descripción del parte de trabajo. Use marcadores {nombre_campo}.\n"
+"Ejemplo: Entrega: {asset_name} → {to_zone}"
+
+msgid ""
+"Materials whose pricing is available in expression context as "
+"materials.<rule_key>."
+msgstr ""
+"Materiales cuyo precio está disponible en el contexto de expresiones como "
+"materials.<rule_key>."
+
+msgid ""
+"Components whose pricing is available in expression context as "
+"components.<slug>."
+msgstr ""
+"Componentes cuyo precio está disponible en el contexto de expresiones como "
+"components.<slug>."
+
+msgid "Source Model"
+msgstr "Modelo Origen"
+
+msgid ""
+"Restrict this type to a specific source model (e.g. Asset Transaction)."
+msgstr ""
+"Restringir este tipo a un modelo origen específico (p. ej. Transacción de "
+"Activo)."
+
+msgid ""
+"Leave empty for company-wide types. Set to restrict to a specific "
+"Expediente."
+msgstr ""
+"Dejar vacío para tipos de toda la empresa. Establecer para restringir a un "
+"Expediente específico."
+
+msgid "Work Entry Type"
+msgstr "Tipo de Parte de Trabajo"
+
+msgid "Execution order (lower = first)."
+msgstr "Orden de ejecución (menor = primero)."
+
+msgid "Variable Name"
+msgstr "Nombre de Variable"
+
+msgid ""
+"Output variable name for this step, e.g. 'base_cost'. Available to "
+"subsequent steps."
+msgstr ""
+"Nombre de variable de salida para este paso, p. ej. 'base_cost'. Disponible "
+"para los pasos siguientes."
+
+msgid ""
+"safe_eval expression. Can use context variables (quantity, default_price, materials.*, components.*, source fields) plus variables from previous steps.\n"
+"Example: data.distance_km * 3.5"
+msgstr ""
+"Expresión safe_eval. Puede usar variables de contexto (quantity, default_price, materials.*, components.*, campos del origen) más variables de pasos anteriores.\n"
+"Ejemplo: data.distance_km * 3.5"
+
+msgid "Pricing Step"
+msgstr "Paso de Precio"
+
+msgid "Pricing Steps"
+msgstr "Pasos de Precio"
+
+msgid "Total Price"
+msgstr "Precio Total"
+
+msgid "Auto-computed: quantity × unit_price."
+msgstr "Auto-calculado: cantidad × precio unitario."
+
+msgid "Source Type"
+msgstr "Tipo de Origen"
+
+msgid "Source ID"
+msgstr "ID de Origen"
+
+msgid "Locked"
+msgstr "Bloqueado"
+
+msgid "Locked after invoicing to prevent edits."
+msgstr "Bloqueado tras facturar para evitar modificaciones."
+
+msgid "Work Entry"
+msgstr "Parte de Trabajo"
+
 #, fuzzy
 #| msgid "Finalized (Subtotal)"
 msgid "Invoiceable (subtotal)"
@@ -6582,6 +6811,14 @@ msgstr "¿Cancelar todas las planificaciones en este grupo?"
 msgid "Cancel group"
 msgstr "Cancelar"
 
+#, fuzzy
+#| msgid "Configure your product"
+msgid "Show only these resources"
+msgstr "Configura tu producto"
+
+msgid "Leave empty to show all active resources."
+msgstr "Deje vacío para mostrar todos los recursos activos."
+
 msgid "Filter"
 msgstr "Filtrar"
 
@@ -6592,6 +6829,11 @@ msgstr "No hay elementos activos para unirte."
 
 msgid "Add employees, machines, or assets to see them here."
 msgstr "Añade empleados, máquinas o activos para verlos aquí."
+
+#, fuzzy
+#| msgid "Configure your product"
+msgid "Filter by this resource"
+msgstr "Configura tu producto"
 
 #, fuzzy
 #| msgid "Configure your product"
@@ -8157,6 +8399,11 @@ msgstr "Hora de finalización"
 msgid "Comments"
 msgstr "Componentes"
 
+#, fuzzy
+#| msgid "Ordered list of possible production stages for this product"
+msgid "Ordered list of comments left on this session"
+msgstr "Lista ordenada de posibles etapas de producción para este producto"
+
 msgid "Production Stage"
 msgstr "Etapas de Producción"
 
@@ -8198,9 +8445,6 @@ msgstr "Fin Planificado"
 
 msgid "Primary Resource"
 msgstr "Recurso Primario"
-
-msgid "Locked"
-msgstr "Bloqueado"
 
 msgid "Ready"
 msgstr "Listo"
@@ -9361,7 +9605,6 @@ msgstr "Total Impuestos"
 msgid "Quote inventory item"
 msgstr "artículo de Presupuesto"
 
-
 msgid "Quote inventory items"
 msgstr "articulos de Presupuesto"
 
@@ -9409,19 +9652,9 @@ msgstr "Apellido"
 msgid "Unique item number per company. Auto-generated."
 msgstr "Número único de artículo por empresa. Generado automáticamente."
 
-#, fuzzy
-#| msgid "Source"
-msgid "Source Type"
-msgstr "Origén"
-
 msgid "Type of the source object (Configuration, QuoteInventoryItem, etc.)"
 msgstr ""
 "Tipo del objeto fuente (Configuración, ArtículoDeInventarioCotización, etc.)"
-
-#, fuzzy
-#| msgid "Source"
-msgid "Source ID"
-msgstr "Origén"
 
 #, fuzzy
 #| msgid ""
@@ -9524,9 +9757,6 @@ msgstr "Valor Promedio del Presupuesto"
 
 msgid "Breakdown by Status"
 msgstr "Desglose por Estado"
-
-msgid "Tax"
-msgstr "Impuestos"
 
 msgid "Add from Preset"
 msgstr "Agregar de predeterminados"
@@ -9979,6 +10209,32 @@ msgstr "Ausencias pasadas"
 
 msgid "No past absences."
 msgstr "No hay ausencias pasadas"
+
+#, fuzzy
+#~ msgid "All types"
+#~ msgstr "Etapas"
+
+#, fuzzy
+#~ msgid "All statuses"
+#~ msgstr "Etapas"
+
+#, fuzzy
+#~ msgid "All asset types"
+#~ msgstr "Precio unitario"
+
+#~ msgid "Tax rate applied to work entries of this type."
+#~ msgstr "Tipo impositivo aplicado a los partes de trabajo de este tipo."
+
+#~ msgid "Human label, e.g. 'Base material cost'."
+#~ msgstr "Etiqueta legible, p. ej. 'Coste base del material'."
+
+#, fuzzy
+#~ msgid "No project file linked."
+#~ msgstr "Cobrado"
+
+#, fuzzy
+#~ msgid "Default Unit Price"
+#~ msgstr "Precio Unitario"
 
 #, fuzzy
 #~ msgid "Banking"

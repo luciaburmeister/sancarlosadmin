@@ -387,7 +387,13 @@ class ProductionItemSession(Timestampable, CompanyOwnedModel):
     )
     start_time = models.DateTimeField(verbose_name=("Start Time"),null=True,blank=True)
     end_time = models.DateTimeField(verbose_name=_("End Time"),null=True,blank=True)
-    comments = models.TextField(max_length=200,verbose_name=_("Comments"),null=True,blank=True)
+    comments = ArrayField(
+        base_field=models.TextField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Comments"),
+        help_text=_("Ordered list of comments left on this session"),
+    )
     production_stage = models.CharField(max_length=50,db_index=True,verbose_name=_("Production Stage"))
     status = models.CharField(
         max_length=20,
@@ -462,7 +468,7 @@ class ProductionItemSession(Timestampable, CompanyOwnedModel):
             self.created_by = started_by
         self.save()
     
-    def finish(self, completed_by: Employee, comments=None):
+    def finish(self, completed_by: Employee):
         if self.status not in {
             ProductionItemSessionStatus.IN_PROGRESS,
             ProductionItemSessionStatus.PENDING,
@@ -472,8 +478,6 @@ class ProductionItemSession(Timestampable, CompanyOwnedModel):
         self.end_time = timezone.now()
         self.status = ProductionItemSessionStatus.DONE
         self.completed_by = completed_by
-        if comments:
-            self.comments = comments
         self.save()
 
 class ProductionResource(Timestampable,CompanyOwnedModel):

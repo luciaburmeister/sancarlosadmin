@@ -5,13 +5,17 @@ from decimal import Decimal
 
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
 from django.db import transaction
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
+from rest_framework.renderers import JSONRenderer
 
 from api._utils import CompanyAPIView, parse_date_or_error
 from configurator.models import ExportTemplateKind
 from core.services.pdf_service import PDFService
+from djmoney.money import Money
 from invoices.models import SalesInvoice, SalesInvoiceStatus
 from invoices.services.sales_invoice_payment import ALLOWED_SALES_INVOICE_PAYMENT_METHODS
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
@@ -24,7 +28,7 @@ from payments.models import (
     PaymentMethod,
     PaymentStatus,
 )
-from djmoney.money import Money
+from sales.models import Quote, QuoteStatus
 
 
 
@@ -300,7 +304,6 @@ class ProjectFileInvoiceCreateView(CompanyAPIView):
                 )
 
             if not show_vehicle_name:
-                from sales.models import Quote
                 Quote.objects.filter(
                     project_file=project_file,
                     status="accepted",
@@ -352,8 +355,6 @@ class SalesInvoicePdfView(CompanyAPIView):
 
     def perform_content_negotiation(self, request, force=False):
         # DRF only registers JSON renderers; Accept: application/pdf would 406 otherwise.
-        from rest_framework.renderers import JSONRenderer
-
         return (JSONRenderer(), "application/json")
 
     def get(self, request, invoice_id):
@@ -529,10 +530,6 @@ class BulkEmitCandidatesView(CompanyAPIView):
     """GET sales-invoices/bulk-emit-candidates/ — open expedientes with their invoicing eligibility."""
 
     def get(self, request):
-        from django.core.paginator import Paginator
-        from django.db.models import Q
-        from sales.models import Quote, QuoteStatus
-
         search = request.GET.get("search", "").strip()
         try:
             page_num = max(1, int(request.GET.get("page", 1)))
@@ -673,7 +670,6 @@ class BulkEmitInvoicesView(CompanyAPIView):
             try:
                 with transaction.atomic():
                     # Auto-accept pending quotes that have content
-                    from sales.models import Quote, QuoteStatus
                     pending_quotes = list(
                         Quote.objects.prefetch_related(
                             "configurations", "items", "inventory_items"
@@ -747,8 +743,6 @@ class SalesInvoiceListView(CompanyAPIView):
     """GET sales-invoices/ — paginated list of all SalesInvoices for the company."""
 
     def get(self, request):
-        from django.core.paginator import Paginator
-
         qs = (
             SalesInvoice.objects.filter(company=self.company)
             .select_related("client")
@@ -765,7 +759,6 @@ class SalesInvoiceListView(CompanyAPIView):
 
         search = request.GET.get("search", "").strip()
         if search:
-            from django.db.models import Q
             qs = qs.filter(
                 Q(invoice_number__icontains=search) | Q(client__name__icontains=search)
             )

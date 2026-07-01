@@ -1,3 +1,4 @@
+from unfold.admin import GenericStackedInline
 from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.contrib.filters.admin.dropdown_filters import MultipleChoicesDropdownFilter
 
@@ -10,18 +11,20 @@ from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
+from unfold.admin import GenericTabularInline
 from unfold.decorators import action, display
 from import_export.admin import ExportActionModelAdmin
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from sales.models import Quote, QuoteStatus, DeliveryOrder
 from production.models import ProductionTicket
-from invoices.models import SalesInvoice, Invoice
+from invoices.models import SalesInvoice, Invoice, AppliedTax
 from invoices.views.invoice.project_file_wizard_views import ProjectFileInvoiceWizardView
 from invoices.views.invoice.delivery_order_wizard_views import DeliveryOrderWizardView
 from invoices.views.invoice.bulk_invoice_views import BulkInvoiceConfirmView
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.models import Configuration, ConfigurationStatus
+from management.models import WorkEntry
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter
 )
@@ -141,6 +144,47 @@ class ResourcePlanningInline(TabularInline):
     autocomplete_fields = ["planning_type"]
 
 
+class WorkEntryAppliedTaxInline(GenericStackedInline):
+    model = AppliedTax
+    extra = 0
+    collapsible = True
+    autocomplete_fields = ("tax_type",)
+    fieldsets = (
+        (_("Tax"), {
+            "fields": ("tax_type", "selected_percentage"),
+        }),
+        (_("Computed"), {
+            "fields": ("base_amount", "calculated_amount"),
+        }),
+    )
+    readonly_fields = ("tax_type", "selected_percentage", "base_amount", "calculated_amount")
+    verbose_name = _("Applied Tax")
+    verbose_name_plural = _("Applied Taxes")
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class WorkEntryInline(TabularInline):
+    model = WorkEntry
+    extra = 0
+    tab = True
+    tab_title = _("Work Entries")
+    fields = ["entry_type", "description", "quantity", "unit_price", "total_price", "total_with_tax", "date"]
+    readonly_fields = ["total_price", "total_with_tax"]
+    autocomplete_fields = ["entry_type"]
+    inlines = [WorkEntryAppliedTaxInline]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("entry_type")
+
+
 @admin.register(ProjectFile)
 class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     resource_classes = [ProjectFileResource]
@@ -156,6 +200,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
     inlines = [
         QuoteInline,
         DirectConfigurationInline,
+        WorkEntryInline,
         SalesInvoiceInline,
         BulkSalesInvoiceInline,
         ProductionTicketInline,

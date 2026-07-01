@@ -86,6 +86,28 @@ class ProjectFileInvoiceService:
                 'status': config.get_status_display(),
             })
 
+        # Work entries (billable work linked to this project file)
+        from management.models import WorkEntry
+
+        work_entries = WorkEntry.objects.filter(
+            project_file=project_file,
+        ).select_related('entry_type')
+
+        work_entries_data = []
+        for entry in work_entries:
+            entry_total = Decimal(str(entry.total_price.amount))
+            total_invoiceable += entry_total
+            total_invoiceable_subtotal += entry_total  # work entries have no separate subtotal/tax split at this level
+            work_entries_data.append({
+                'id': entry.id,
+                'description': entry.description,
+                'quantity': entry.quantity,
+                'unit_price': Decimal(str(entry.unit_price.amount)),
+                'total': entry_total,
+                'entry_type': entry.entry_type.name,
+                'date': entry.date,
+            })
+
         # Sum existing invoices linked to this project file
         # Source 1: single-PF invoices (FK on invoice)
         existing_invoices = SalesInvoice.objects.filter(
@@ -146,6 +168,7 @@ class ProjectFileInvoiceService:
             'remaining_subtotal': remaining_subtotal,
             'quotes': quotes_data,
             'direct_configurations': direct_configs_data,
+            'work_entries': work_entries_data,
             'invoices': invoices_data,
             'project_file': project_file,
             'percentage_invoiced': (

@@ -30,21 +30,32 @@ class EmailInvoiceProcessor:
             self.mail.logout()
 
     def fetch_new_invoices(self, days=90):
-        """Fetches emails from the last X days and processes their attachments.
+        """Fetches emails and processes their attachments.
+        
+        Uses last_checked from the email config when available to only
+        fetch emails since the last successful check. Falls back to the
+        days parameter (default 90) for configs that have never been checked.
         
         Deduplication is handled by the file_hash unique constraint on
         IncomingInvoice, so we fetch all emails (seen or unseen) and
         skip attachments that have already been imported.
         """
+        # Determine the date window: prefer last_checked, fall back to days
+        if self.config.last_checked:
+            since_date = self.config.last_checked
+        elif days:
+            since_date = timezone.now() - timezone.timedelta(days=days)
+        else:
+            since_date = None
+
         search_criteria = []
-            
-        if days:
-            date_since = (timezone.now() - timezone.timedelta(days=days)).strftime("%d-%b-%Y")
-            search_criteria.append(f'SINCE {date_since}')
+        if since_date:
+            date_since_str = since_date.strftime("%d-%b-%Y")
+            search_criteria.append(f'SINCE {date_since_str}')
             
         search_query = " ".join(search_criteria) if search_criteria else "ALL"
         
-        # Search for emails matches the criteria
+        # Search for emails matching the criteria
         status, response = self.mail.search(None, search_query)
         if status != 'OK':
             return 0
@@ -55,9 +66,8 @@ class EmailInvoiceProcessor:
         # Pre-load known hashes for this company within the same date
         # window for O(1) duplicate checks instead of hitting the DB per attachment.
         hash_qs = IncomingInvoice.objects.filter(company=self.config.company)
-        if days:
-            date_since = timezone.now() - timezone.timedelta(days=days)
-            hash_qs = hash_qs.filter(email_date__gte=date_since)
+        if since_date:
+            hash_qs = hash_qs.filter(email_date__gte=since_date)
         existing_hashes = set(hash_qs.values_list('file_hash', flat=True))
 
         for e_id in email_ids:

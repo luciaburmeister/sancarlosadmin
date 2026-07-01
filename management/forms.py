@@ -61,6 +61,34 @@ class LinkProjectFileForm(forms.Form):
 
 
 # ponytail: one form, unfold widgets, minimal fields
+def _parse_resource_tokens(raw: str) -> list[tuple[ContentType, int]]:
+    """Parse 'employee:12,machine:5' into (ContentType, pk) pairs."""
+    from django.apps import apps
+
+    _model_map = {
+        "employee": ("company", "Employee"),
+        "machine": ("company", "Machine"),
+        "asset": ("assets", "Asset"),
+    }
+    pairs = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token or ":" not in token:
+            continue
+        kind, pk_str = token.split(":", 1)
+        if kind not in _model_map:
+            continue
+        try:
+            pk = int(pk_str)
+        except ValueError:
+            continue
+        app_label, model_name = _model_map[kind]
+        Model = apps.get_model(app_label, model_name)
+        ct = ContentType.objects.get_for_model(Model)
+        pairs.append((ct, pk))
+    return pairs
+
+
 class ResourcePlanningFilterForm(forms.Form):
     company = forms.ChoiceField(
         label=_("Company"),
@@ -107,6 +135,12 @@ class ResourcePlanningFilterForm(forms.Form):
         empty_label=_("All asset types"),
         widget=UnfoldAdminSelectWidget,
     )
+    resources = forms.CharField(
+        label=_("Resources"),
+        required=False,
+        widget=forms.HiddenInput,
+        help_text=_("Show only the selected employees, machines or assets."),
+    )
 
     def __init__(self, *args, company=None, user_companies=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -151,6 +185,10 @@ class ResourcePlanningFilterForm(forms.Form):
         rel = ResourcePlanning._meta.get_field("project_file").remote_field
         self.fields["project_file"].widget = _ProjectFileAutocomplete(rel, admin.site)
         self.fields["project_file"].widget.choices = self.fields["project_file"].choices
+
+    def clean_resources(self) -> list[tuple[ContentType, int]]:
+        raw = self.cleaned_data.get("resources", "")
+        return _parse_resource_tokens(raw)
 
     class Media:
         js = [
@@ -246,32 +284,8 @@ class ResourcePlanningBulkForm(forms.Form):
             ).order_by("name")
 
     def clean_resources(self) -> list[tuple[ContentType, int]]:
-        """Parse 'employee:12,machine:5' into (ContentType, pk) pairs."""
         raw = self.cleaned_data.get("resources", "")
-        from django.apps import apps
-
-        _model_map = {
-            "employee": ("company", "Employee"),
-            "machine": ("company", "Machine"),
-            "asset": ("assets", "Asset"),
-        }
-        pairs = []
-        for token in raw.split(","):
-            token = token.strip()
-            if not token or ":" not in token:
-                continue
-            kind, pk_str = token.split(":", 1)
-            if kind not in _model_map:
-                continue
-            try:
-                pk = int(pk_str)
-            except ValueError:
-                continue
-            app_label, model_name = _model_map[kind]
-            Model = apps.get_model(app_label, model_name)
-            ct = ContentType.objects.get_for_model(Model)
-            pairs.append((ct, pk))
-
+        pairs = _parse_resource_tokens(raw)
         if not pairs:
             raise forms.ValidationError(_("Select at least one resource."))
         return pairs

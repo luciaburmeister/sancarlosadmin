@@ -37,17 +37,6 @@ def _no_client_email_q():
     return Q(client__isnull=True) | Q(client__email__isnull=True) | Q(client__email="")
 
 
-def _derive_email_status(client_email, log_status):
-    """One of: no_client_email, sent, error, not_sent."""
-    if not (client_email or "").strip():
-        return "no_client_email"
-    if log_status == EmailLog.EmailStatus.SUCCESS:
-        return "sent"
-    if log_status == EmailLog.EmailStatus.FAILED:
-        return "error"
-    return "not_sent"
-
-
 def _annotate_email_log(qs):
     """Annotate a SalesInvoice queryset with its most recent EmailLog status/date/error."""
     ct = ContentType.objects.get_for_model(SalesInvoice)
@@ -64,14 +53,28 @@ def _annotate_email_log(qs):
 def _serialize_invoice_detail(invoice):
     ct = ContentType.objects.get_for_model(invoice)
     is_final = invoice.status == SalesInvoiceStatus.FINAL
-    email_log = (
-        EmailLog.objects.filter(content_type=ct, object_id=invoice.pk)
-        .order_by("-sent_at")
-        .first()
-        if is_final
-        else None
-    )
-    client_email = invoice.client.email if invoice.client else None
+    if not is_final:
+        email_log_status = None
+        email_sent_at = None
+        email_error = None
+    elif hasattr(invoice, "_email_log_status"):
+        email_log_status = invoice._email_log_status
+        email_sent_at = (
+            invoice._email_log_sent_at.isoformat()
+            if invoice._email_log_sent_at
+            else None
+        )
+        email_error = invoice._email_log_error
+    else:
+        email_log = (
+            EmailLog.objects.filter(content_type=ct, object_id=invoice.pk)
+            .order_by("-sent_at")
+            .first()
+        )
+        email_log_status = email_log.status if email_log else None
+        email_sent_at = email_log.sent_at.isoformat() if email_log else None
+        email_error = email_log.error_message if email_log else None
+
     allocations = (
         PaymentAllocation.objects.filter(content_type=ct, object_id=invoice.pk)
         .select_related("payment")
@@ -121,13 +124,9 @@ def _serialize_invoice_detail(invoice):
         "project_file_id": invoice.project_file_id,
         "items": items,
         "payments": payments,
-        "email_status": (
-            _derive_email_status(client_email, email_log.status if email_log else None)
-            if is_final
-            else None
-        ),
-        "email_sent_at": email_log.sent_at.isoformat() if email_log else None,
-        "email_error": email_log.error_message if email_log else None,
+        "email_log_status": email_log_status if is_final else None,
+        "email_sent_at": email_sent_at,
+        "email_error": email_error,
     }
 
 
@@ -844,11 +843,12 @@ class SalesInvoiceListView(CompanyAPIView):
                 "total_amount": float(inv.total_amount.amount) if inv.total_amount else 0.0,
                 "amount_remaining": float(inv.amount_remaining.amount) if inv.amount_remaining else 0.0,
                 "client_name": inv.client.name if inv.client else None,
+                "client_has_email": bool(
+                    inv.client and (inv.client.email or "").strip()
+                ),
                 "project_file_id": inv.project_file_id,
-                "email_status": (
-                    _derive_email_status(
-                        inv.client.email if inv.client else None, inv._email_log_status
-                    )
+                "email_log_status": (
+                    inv._email_log_status
                     if inv.status == SalesInvoiceStatus.FINAL
                     else None
                 ),

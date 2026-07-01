@@ -15,7 +15,7 @@
 {% endblock %}
 
 {% block content %}
-<div class="flex flex-col gap-6">
+<div class="flex flex-col gap-6 pb-16">
 
   {# Header with navigation #}
   <div class="flex items-center justify-between flex-wrap gap-3">
@@ -38,7 +38,7 @@
       <div class="flex flex-wrap items-end gap-4">
 
         {% for field in filter_form %}
-          {% if field.name != "project_file" %}
+          {% if field.name != "project_file" and field.name != "resources" %}
             {% include "unfold/helpers/field.html" with field=field %}
           {% endif %}
         {% endfor %}
@@ -51,6 +51,24 @@
           {{ filter_form.project_file }}
         </div>
 
+      </div>
+
+      {# Resource picker — restrict the schedule to hand-picked employees/machines/assets #}
+      <div class="flex flex-col gap-2">
+        <label class="block font-semibold text-important">
+          {% trans "Show only these resources" %}
+        </label>
+        {{ filter_form.resources }}
+        <div class="relative max-w-md">
+          <input type="text" id="resource-filter-search" autocomplete="off"
+                 placeholder="{% trans 'Search employee, machine or asset…' %}"
+                 class="w-full rounded-lg border border-base-200 bg-white px-3 py-1.5 text-sm text-important placeholder-base-400 focus:outline-none focus:border-primary-500 transition-colors">
+          <div id="resource-filter-suggestions"
+               class="hidden absolute top-full left-0 right-0 z-50 mt-1 rounded-default border border-base-200 dark:border-base-700 bg-white dark:bg-base-900 shadow-md max-h-48 overflow-auto">
+          </div>
+        </div>
+        <div id="resource-filter-badges" class="flex flex-wrap gap-2 min-h-[24px]"></div>
+        <p class="text-xs text-base-400">{% trans "Leave empty to show all active resources." %}</p>
       </div>
 
       <div class="flex items-center gap-2">
@@ -102,20 +120,26 @@
           {% endfor %}
         </tr>
       </thead>
-      <tbody>
+      <tbody x-data="{ collapsed: {} }">
         {% for group in resource_groups %}
-          {# Group header row #}
-          <tr>
+          {# Group header row — click to collapse/expand #}
+          <tr class="cursor-pointer select-none" @click="collapsed[{{ forloop.counter }}] = !collapsed[{{ forloop.counter }}]">
             <td colspan="{{ columns_meta|length|add:1 }}"
-                class="sticky left-0 z-10 bg-base-100 px-4 py-2 text-xs font-bold text-base-700 uppercase tracking-wide border-b border-base-200">
-              {{ group.type_label }}
+                class="sticky left-0 z-10 bg-base-100 hover:bg-base-200/70 transition-colors px-4 py-2 text-xs font-bold text-base-700 uppercase tracking-wide border-b border-base-200">
+              <div class="flex items-center gap-1">
+                <span class="material-symbols-outlined transition-transform"
+                      style="font-size:16px;"
+                      :class="collapsed[{{ forloop.counter }}] ? '-rotate-90' : ''">expand_more</span>
+                {{ group.type_label }}
+                <span class="font-normal normal-case text-base-400">({{ group.resources|length }})</span>
+              </div>
             </td>
           </tr>
 
           {% for res in group.resources %}
           {# Build the resource token once (e.g. "employee:42") #}
           {% with res_token=res.ct_model|add:":"|add:res.obj_id|stringformat:"s" %}
-          <tr class="hover:bg-base-50/50 transition-colors">
+          <tr class="hover:bg-base-50/50 transition-colors" x-show="!collapsed[{{ forloop.parentloop.counter }}]">
             {# Resource name — sticky left, with + button #}
             <td class="sticky left-0 z-10 bg-white px-4 py-2 border-b border-r border-base-200 whitespace-nowrap">
               <div class="flex items-center justify-between gap-2">
@@ -179,4 +203,86 @@
   {% endif %}
 
 </div>
+
+<script>
+(function () {
+  const searchInput = document.getElementById('resource-filter-search');
+  const suggestions = document.getElementById('resource-filter-suggestions');
+  const badges      = document.getElementById('resource-filter-badges');
+  const hidden      = document.getElementById('{{ filter_form.resources.id_for_label }}');
+
+  const INITIAL_LABELS = {{ resource_labels_json|default:"{}"|safe }};
+  let selected = [];
+
+  const initialRaw = (hidden && hidden.value) ? hidden.value : '';
+  if (initialRaw) {
+    initialRaw.split(',').forEach(token => {
+      token = token.trim();
+      if (token) selected.push({ id: token, text: INITIAL_LABELS[token] || token });
+    });
+    renderBadges();
+  }
+
+  function renderBadges() {
+    badges.innerHTML = '';
+    if (hidden) hidden.value = selected.map(r => r.id).join(',');
+    selected.forEach(r => {
+      const span = document.createElement('span');
+      span.className = 'inline-flex items-center gap-1 bg-primary-100 text-primary-800 dark:bg-primary-900/30 dark:text-primary-300 rounded-full px-3 py-1 text-xs font-medium';
+      span.innerHTML = `${r.text} <button type="button" data-id="${r.id}" class="ml-1 text-primary-500 hover:text-primary-700 font-bold leading-none">&times;</button>`;
+      span.querySelector('button').addEventListener('click', () => {
+        selected = selected.filter(x => x.id !== r.id);
+        renderBadges();
+      });
+      badges.appendChild(span);
+    });
+  }
+
+  function addResource(item) {
+    if (!selected.find(r => r.id === item.id)) {
+      selected.push(item);
+      renderBadges();
+    }
+  }
+
+  let debounceTimer;
+  searchInput.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const term = searchInput.value.trim();
+    if (term.length < 1) { suggestions.classList.add('hidden'); return; }
+    debounceTimer = setTimeout(() => fetchSuggestions(term), 250);
+  });
+
+  function fetchSuggestions(term) {
+    const companyField = document.querySelector('[name="company"]');
+    const companyId = companyField ? companyField.value : '';
+    const url = '{% url "admin:management_resourceplanning_resource_autocomplete" %}' +
+      '?term=' + encodeURIComponent(term) +
+      (companyId ? '&company=' + encodeURIComponent(companyId) : '');
+    fetch(url).then(r => r.json()).then(data => renderSuggestions(data.results || []));
+  }
+
+  function renderSuggestions(items) {
+    suggestions.innerHTML = '';
+    if (!items.length) { suggestions.classList.add('hidden'); return; }
+    items.forEach(item => {
+      const div = document.createElement('div');
+      div.className = 'px-3 py-2 text-sm text-important hover:bg-base-50 dark:hover:bg-base-800 cursor-pointer';
+      div.textContent = item.text;
+      div.addEventListener('mousedown', e => {
+        e.preventDefault();
+        addResource(item);
+        searchInput.value = '';
+        suggestions.classList.add('hidden');
+      });
+      suggestions.appendChild(div);
+    });
+    suggestions.classList.remove('hidden');
+  }
+
+  searchInput.addEventListener('blur', () => {
+    setTimeout(() => suggestions.classList.add('hidden'), 150);
+  });
+})();
+</script>
 {% endblock %}

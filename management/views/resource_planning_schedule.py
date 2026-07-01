@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import OrderedDict
 from datetime import datetime, date, time, timedelta
 from typing import Any
@@ -64,8 +65,13 @@ def _build_day_columns(start_date: date, num_days: int):
     return cols
 
 
-def _get_active_resources(selected_company, user_companies, asset_type=None):
-    """Return all active plannable resources grouped by (ct_id, obj_id) → name, ct_model."""
+def _get_active_resources(selected_company, user_companies, asset_type=None, selected_keys=None):
+    """Return all active plannable resources grouped by (ct_id, obj_id) → name, ct_model.
+
+    When `selected_keys` is given, only resources whose (ct_id, obj_id) key is
+    in that set are returned — used to restrict the schedule to a hand-picked
+    set of employees/machines/assets.
+    """
     resources = {}
     for app_label, model_name in _PLANNABLE_MODELS:
         ct = ContentType.objects.get(app_label=app_label, model=model_name)
@@ -83,6 +89,8 @@ def _get_active_resources(selected_company, user_companies, asset_type=None):
 
         for obj in qs:
             key = (ct.id, obj.pk)
+            if selected_keys is not None and key not in selected_keys:
+                continue
             resources[key] = {
                 "name": str(obj),
                 "ct_model": model_name,
@@ -130,6 +138,7 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             status_filter = filter_form.cleaned_data.get("status")
             project_file = filter_form.cleaned_data.get("project_file")
             asset_type = filter_form.cleaned_data.get("asset_type")
+            resource_pairs = filter_form.cleaned_data.get("resources") or []
         else:
             anchor = timezone.localdate()
             num_days = 7
@@ -137,6 +146,10 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             status_filter = None
             project_file = None
             asset_type = None
+            resource_pairs = []
+
+        resources_raw = GET.get("resources", "")
+        selected_keys = {(ct.id, pk) for ct, pk in resource_pairs} or None
 
         # ── Build columns ─────────────────────────────────────────────
         columns_meta = _build_day_columns(anchor, num_days)
@@ -159,6 +172,8 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
                 params["project_file"] = str(project_file.pk)
             if asset_type:
                 params["asset_type"] = str(asset_type.pk)
+            if resources_raw:
+                params["resources"] = resources_raw
             return "?" + "&".join(f"{k}={v}" for k, v in params.items())
 
         prev_url = _nav_url(anchor - timedelta(days=num_days))
@@ -192,13 +207,22 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             )
 
         plannings = list(qs.order_by("start"))
+        if selected_keys is not None:
+            plannings = [
+                p for p in plannings
+                if (p.resource_content_type_id, p.resource_object_id) in selected_keys
+            ]
 
-        # ── Seed resource_map with ALL active resources ───────────────
-        # Skip when filtering by project file — only show resources with
-        # plannings for that specific project.
+        # ── Seed resource_map with active resources ────────────────────
+        # When specific resources are selected, seed exactly those (so an
+        # empty-for-the-window resource still shows up as a row). Otherwise
+        # seed with ALL active resources, unless filtering by project file —
+        # then only show resources with plannings for that specific project.
         resource_map = {}
-        if not project_file:
-            all_active = _get_active_resources(selected_company, user_companies, asset_type=asset_type)
+        if selected_keys is not None or not project_file:
+            all_active = _get_active_resources(
+                selected_company, user_companies, asset_type=asset_type, selected_keys=selected_keys,
+            )
             for key, info in all_active.items():
                 resource_map[key] = {
                     "name": info["name"],
@@ -278,11 +302,18 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
         # ── Add URL for click-to-create ───────────────────────────────
         add_url = reverse("admin:management_resourceplanning_bulk_add")
 
+        # ── Labels for the resource-picker badges (initial selection) ──
+        resource_labels_json = json.dumps({
+            f"{info['ct_model']}:{info['obj_id']}": info["name"]
+            for info in resource_map.values()
+        })
+
         ctx.update(
             header_label=header_label,
             filter_form=filter_form,
             columns_meta=columns_meta,
             resource_groups=resource_groups,
+            resource_labels_json=resource_labels_json,
             has_data=bool(resource_groups),
             planning_types=planning_types,
             companies=companies,

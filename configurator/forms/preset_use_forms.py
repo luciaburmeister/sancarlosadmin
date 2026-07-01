@@ -37,6 +37,10 @@ class PresetClientLinkFormHelper(FormHelper):
                 Column(Field("asset"), css_class="col-span-12 md:col-span-6"),
                 css_class="gap-4 mb-4",
             ),
+            Row(
+                Column(Field("quantity"), css_class="col-span-12 md:col-span-4"),
+                css_class="mb-4",
+            ),
             HTML("</div>"),
         )
 
@@ -54,6 +58,13 @@ class PresetClientLinkForm(forms.ModelForm):
         queryset=Asset.objects.all(),
         label=_("Select Asset (Optional)"),
         required=False,
+    )
+    quantity = forms.IntegerField(
+        label=_("Quantity"),
+        initial=1,
+        min_value=1,
+        widget=UnfoldAdminDecimalFieldWidget(),
+        help_text=_("Number of configurations to create from this preset."),
     )
 
     class Meta:

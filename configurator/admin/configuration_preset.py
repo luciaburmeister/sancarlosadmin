@@ -68,6 +68,7 @@ class ConfigurationPresetAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportM
         "reference_code",
         "name",
         "product",
+        "final_price",
         "company",
         "is_active",
         "order",
@@ -100,6 +101,7 @@ class ConfigurationPresetAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportM
                     "description",
                     "image",
                     ("is_active", "order"),
+                    "final_price",
                 )
             },
         ),

@@ -1797,6 +1797,15 @@ class ConfigurationPreset(CompanyOwnedModel):
         default=0,
         verbose_name=_("Order"),
     )
+    final_price = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        default_currency="EUR",
+        verbose_name=_("Final Price"),
+        help_text=_("If set, overrides the calculated subtotal price on the resulting configuration."),
+    )
 
     class Meta:
         ordering = ["order", "name"]

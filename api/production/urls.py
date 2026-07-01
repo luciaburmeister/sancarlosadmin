@@ -73,6 +73,11 @@ urlpatterns = [
         name="terminal_stage_finish",
     ),
     path(
+        "production/employees/<int:employee_id>/items/<int:item_id>/stages/<str:stage_name>/note/",
+        terminal.TerminalStageNoteView.as_view(),
+        name="terminal_stage_note",
+    ),
+    path(
         "production/tasks/",
         terminal.TerminalAllTasksView.as_view(),
         name="terminal_all_tasks",

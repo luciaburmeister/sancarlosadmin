@@ -7,12 +7,13 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import OuterRef, Q, Subquery
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from rest_framework.renderers import JSONRenderer
 
 from api._utils import CompanyAPIView, parse_date_or_error
+from company.models import EmailLog
 from configurator.models import ExportTemplateKind
 from core.services.pdf_service import PDFService
 from djmoney.money import Money
@@ -32,8 +33,45 @@ from sales.models import Quote, QuoteStatus
 
 
 
+def _no_client_email_q():
+    return Q(client__isnull=True) | Q(client__email__isnull=True) | Q(client__email="")
+
+
+def _derive_email_status(client_email, log_status):
+    """One of: no_client_email, sent, error, not_sent."""
+    if not (client_email or "").strip():
+        return "no_client_email"
+    if log_status == EmailLog.EmailStatus.SUCCESS:
+        return "sent"
+    if log_status == EmailLog.EmailStatus.FAILED:
+        return "error"
+    return "not_sent"
+
+
+def _annotate_email_log(qs):
+    """Annotate a SalesInvoice queryset with its most recent EmailLog status/date/error."""
+    ct = ContentType.objects.get_for_model(SalesInvoice)
+    latest_logs = EmailLog.objects.filter(
+        content_type=ct, object_id=OuterRef("pk")
+    ).order_by("-sent_at")
+    return qs.annotate(
+        _email_log_status=Subquery(latest_logs.values("status")[:1]),
+        _email_log_sent_at=Subquery(latest_logs.values("sent_at")[:1]),
+        _email_log_error=Subquery(latest_logs.values("error_message")[:1]),
+    )
+
+
 def _serialize_invoice_detail(invoice):
     ct = ContentType.objects.get_for_model(invoice)
+    is_final = invoice.status == SalesInvoiceStatus.FINAL
+    email_log = (
+        EmailLog.objects.filter(content_type=ct, object_id=invoice.pk)
+        .order_by("-sent_at")
+        .first()
+        if is_final
+        else None
+    )
+    client_email = invoice.client.email if invoice.client else None
     allocations = (
         PaymentAllocation.objects.filter(content_type=ct, object_id=invoice.pk)
         .select_related("payment")
@@ -77,11 +115,19 @@ def _serialize_invoice_detail(invoice):
         "amount_paid": float(invoice.amount_paid.amount) if invoice.amount_paid else 0.0,
         "amount_remaining": float(invoice.amount_remaining.amount) if invoice.amount_remaining else 0.0,
         "notes": invoice.notes or "",
+        "client_id": invoice.client_id,
         "client_name": invoice.client.name if invoice.client else None,
         "client_email": (invoice.client.email or "").strip() or None if invoice.client else None,
         "project_file_id": invoice.project_file_id,
         "items": items,
         "payments": payments,
+        "email_status": (
+            _derive_email_status(client_email, email_log.status if email_log else None)
+            if is_final
+            else None
+        ),
+        "email_sent_at": email_log.sent_at.isoformat() if email_log else None,
+        "email_error": email_log.error_message if email_log else None,
     }
 
 
@@ -585,6 +631,7 @@ class BulkEmitCandidatesView(CompanyAPIView):
                 "reference": pf.reference,
                 "name": pf.name,
                 "client_name": pf.client.name if pf.client else None,
+                "client_has_email": bool(pf.client and (pf.client.email or "").strip()),
                 "status": pf.status,
                 "facturable": facturable,
                 "block_reason": block_reason,
@@ -637,6 +684,7 @@ class BulkEmitInvoicesView(CompanyAPIView):
 
         notes = body.get("notes", "")
         show_vehicle_name = bool(body.get("show_vehicle_name", True))
+        send_email = bool(body.get("send_email", True))
 
         date_issued = timezone.now().date()
 
@@ -712,9 +760,10 @@ class BulkEmitInvoicesView(CompanyAPIView):
                         notes=notes,
                         payment_method=payment_method or None,
                     )
-                    invoice = SalesInvoiceService.finalize_invoice(invoice, send_email=False)
+                    invoice = SalesInvoiceService.finalize_invoice(invoice, send_email=send_email)
 
                 auto_accepted = sum(1 for q in pending_quotes if _quote_has_content(q))
+                email_meta = SalesInvoiceService.get_finalize_email_status(invoice)
                 successes.append({
                     "project_file_id": pf_id,
                     "invoice_id": invoice.id,
@@ -724,6 +773,7 @@ class BulkEmitInvoicesView(CompanyAPIView):
                     "project_file_reference": pf.reference,
                     "project_file_name": pf.name,
                     "auto_accepted_quotes": auto_accepted,
+                    **email_meta,
                 })
 
             except Exception as e:
@@ -748,6 +798,7 @@ class SalesInvoiceListView(CompanyAPIView):
             .select_related("client")
             .order_by("-date_issued", "-id")
         )
+        qs = _annotate_email_log(qs)
 
         payment_status = request.GET.get("payment_status")
         if payment_status:
@@ -756,6 +807,18 @@ class SalesInvoiceListView(CompanyAPIView):
         status_filter = request.GET.get("status")
         if status_filter:
             qs = qs.filter(status=status_filter)
+
+        email_status_filter = request.GET.get("email_status")
+        if email_status_filter:
+            qs = qs.filter(status=SalesInvoiceStatus.FINAL)
+            if email_status_filter == "no_client_email":
+                qs = qs.filter(_no_client_email_q())
+            elif email_status_filter == "sent":
+                qs = qs.filter(_email_log_status=EmailLog.EmailStatus.SUCCESS).exclude(_no_client_email_q())
+            elif email_status_filter == "error":
+                qs = qs.filter(_email_log_status=EmailLog.EmailStatus.FAILED).exclude(_no_client_email_q())
+            elif email_status_filter == "not_sent":
+                qs = qs.filter(_email_log_status__isnull=True).exclude(_no_client_email_q())
 
         search = request.GET.get("search", "").strip()
         if search:
@@ -782,6 +845,13 @@ class SalesInvoiceListView(CompanyAPIView):
                 "amount_remaining": float(inv.amount_remaining.amount) if inv.amount_remaining else 0.0,
                 "client_name": inv.client.name if inv.client else None,
                 "project_file_id": inv.project_file_id,
+                "email_status": (
+                    _derive_email_status(
+                        inv.client.email if inv.client else None, inv._email_log_status
+                    )
+                    if inv.status == SalesInvoiceStatus.FINAL
+                    else None
+                ),
             }
             for inv in page
         ]

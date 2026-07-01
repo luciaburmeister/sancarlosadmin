@@ -30,6 +30,12 @@ _ALLOWED_FUNCTIONS = {
     "round": round,       # round(x) or round(x, ndigits)
     "ceil": math.ceil,    # ceil(x)
     "floor": math.floor,  # floor(x)
+    "int": int,           # int(x) — type conversion
+    "float": float,       # float(x) — type conversion
+    "str": str,           # str(x) — type conversion
+    "abs": abs,           # abs(x) — absolute value
+    "min": min,           # min(a, b, ...) — minimum
+    "max": max,           # max(a, b, ...) — maximum
 }
 
 
@@ -230,7 +236,12 @@ def _walk_ast(node: ast.AST, context: dict, *, mode: str):
                 return target[attr_name]
             raise ValueError(f"Key not found in dict: {attr_name}")
 
-        raise ValueError("Attribute access is only allowed on dictionaries.")
+        # Allow attribute access on objects that define __getattr__
+        # (e.g. lazy accessors for component pricing)
+        if hasattr(type(target), "__getattr__"):
+            return getattr(target, attr_name)
+
+        raise ValueError("Attribute access is only allowed on dictionaries or accessor objects.")
 
     # Anything else is forbidden
     raise ValueError(f"Unsupported expression element: {type(node).__name__}")

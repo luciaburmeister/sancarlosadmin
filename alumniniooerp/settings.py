@@ -823,6 +823,14 @@ UNFOLD = {
                             "company.view_company"
                         ),
                     },
+                    {
+                        "title": _("Work Entry Types"),
+                        "icon": "engineering",
+                        "link": reverse_lazy("admin:management_workentrytype_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "management.view_workentrytype"
+                        ),
+                    },
                 ],
             },
             {

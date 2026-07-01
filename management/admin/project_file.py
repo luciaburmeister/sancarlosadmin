@@ -22,6 +22,7 @@ from invoices.views.invoice.bulk_invoice_views import BulkInvoiceConfirmView
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.models import Configuration, ConfigurationStatus
+from management.models import WorkEntry
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter
 )
@@ -141,6 +142,19 @@ class ResourcePlanningInline(TabularInline):
     autocomplete_fields = ["planning_type"]
 
 
+class WorkEntryInline(TabularInline):
+    model = WorkEntry
+    extra = 0
+    tab = True
+    tab_title = _("Work Entries")
+    fields = ["entry_type", "description", "quantity", "unit_price", "total_price", "date"]
+    readonly_fields = ["total_price"]
+    autocomplete_fields = ["entry_type"]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("entry_type")
+
+
 @admin.register(ProjectFile)
 class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     resource_classes = [ProjectFileResource]
@@ -156,6 +170,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
     inlines = [
         QuoteInline,
         DirectConfigurationInline,
+        WorkEntryInline,
         SalesInvoiceInline,
         BulkSalesInvoiceInline,
         ProductionTicketInline,

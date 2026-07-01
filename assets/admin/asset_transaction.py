@@ -1,20 +1,24 @@
 from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
 from unfold.contrib.filters.admin.autocomplete_filters import AutocompleteSelectMultipleFilter
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.db import models
 from django.urls import path, reverse
 from django.shortcuts import redirect
 from django.http import HttpRequest
-from assets.models import AssetTransaction
+from django.contrib.contenttypes.models import ContentType
+from assets.models import AssetTransaction, BillingStatus
 from assets.views import AssetTransactionExportView
 from unfold.admin import ModelAdmin
 from unfold.admin import GenericTabularInline as _GenericTabularInline
-from unfold.decorators import action
+from unfold.decorators import action, display
 from django_json_widget.widgets import JSONEditorWidget
 from django.utils.translation import gettext_lazy as _
 from company.models import EmailLog
 from core.tasks import send_asset_transaction_email_task
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class AssetTransactionEmailLogInline(_GenericTabularInline):
@@ -33,7 +37,7 @@ class AssetTransactionEmailLogInline(_GenericTabularInline):
 
 @admin.register(AssetTransaction)
 class AssetTransactionAdmin(ModelAdmin):
-    list_display = ("asset", "transaction_type", "from_zone", "to_zone", "project_file", "date", "get_employee", "has_firma", "company", "imagen")
+    list_display = ("asset", "transaction_type", "from_zone", "to_zone", "project_file", "date", "get_employee", "has_firma", "billing_status_badge", "company", "imagen")
     list_filter = (
         ("company", AutocompleteSelectMultipleFilter),
         ("transaction_type", MultipleChoicesDropdownFilter),
@@ -54,28 +58,38 @@ class AssetTransactionAdmin(ModelAdmin):
         models.JSONField: {"widget": JSONEditorWidget},
     }
 
-    actions_row = ["export_transaction_action", "send_email_row_action"]
+    actions_row = ["export_transaction_action", "send_email_row_action", "create_work_entry_row_action"]
     actions_detail = ["send_email_detail_action"]
+    actions = ["generate_all_work_entries"]
 
     fieldsets = (
-        (_("Asset Transaction"), {
-            "fields": (
-                ("asset", "transaction_type"),
-                "from_zone",
-                "to_zone",
-                "project_file",
-                "date",
-                "performed_by",
-                "data",
-                "notes",
-            )
-        }),
-        (_("Imagen"), {
-            "fields": ("imagen",)
-        }),
-        (_("Firma"), {
-            "fields": ("firma_image", "firma_preview",)  
-        }),
+        (
+            _("Asset Transaction"),
+            {
+                "fields": (
+                    ("asset", "transaction_type"),
+                    "from_zone",
+                    "to_zone",
+                    "project_file",
+                    "date",
+                    "performed_by",
+                    "data",
+                    "notes",
+                )
+            },
+        ),
+        (
+            _("Imagen"),
+            {
+                "fields": ("imagen",)
+            },
+        ),
+        (
+            _("Firma"),
+            {
+                "fields": ("firma_image", "firma_preview")
+            },
+        ),
     )
 
     @admin.display(description="Empleado")
@@ -169,3 +183,90 @@ class AssetTransactionAdmin(ModelAdmin):
             ),
         ]
         return custom_urls + urls
+
+    # --- Billing status ---
+
+    @display(
+        description=_("Billing"),
+        ordering="billing_status",
+        label={
+            BillingStatus.PROCESSED.label: "success",
+            BillingStatus.PENDING.label: "warning",
+            BillingStatus.FAILED.label: "danger",
+            BillingStatus.NONE.label: None,
+        },
+    )
+    def billing_status_badge(self, obj):
+        return obj.get_billing_status_display()
+
+
+    @action(description=_("Create Work Entry"), icon="add_task")
+    def create_work_entry_row_action(self, request, object_id):
+        """Create work entries from this transaction for all missing expected types."""
+        from management.services.work_entry import WorkEntryService
+
+        transaction = AssetTransaction.objects.select_related(
+            "project_file", "company"
+        ).get(pk=object_id)
+
+        if not transaction.project_file:
+            messages.error(request, _("This transaction has no Project File linked."))
+            return redirect(reverse("admin:assets_assettransaction_changelist"))
+
+        status = WorkEntryService.get_billing_status(transaction)
+
+        if not status["missing"]:
+            transaction.billing_status = BillingStatus.PROCESSED
+            transaction.save(update_fields=["billing_status"])
+            messages.info(request, _("All expected work entries already exist for this transaction."))
+            return redirect(reverse("admin:assets_assettransaction_changelist"))
+
+        created = []
+        errors = []
+        for wtype in status["missing"]:
+            try:
+                entry = WorkEntryService.create_work_entry_from_source(
+                    entry_type=wtype,
+                    source_object=transaction,
+                    project_file=transaction.project_file,
+                )
+                created.append(entry)
+            except Exception as e:
+                logger.exception(
+                    "Failed to create work entry '%s' for transaction %s",
+                    wtype.name, transaction.pk,
+                )
+                errors.append(wtype.name)
+                messages.error(request, _(
+                    "Failed to create entry '%(name)s': %(error)s"
+                ) % {"name": wtype.name, "error": str(e)})
+
+        # Update billing status on the transaction
+        if errors and not created:
+            transaction.billing_status = BillingStatus.FAILED
+        elif errors:
+            transaction.billing_status = BillingStatus.PENDING
+        elif status["count_existing"] + len(created) >= status["count_expected"]:
+            transaction.billing_status = BillingStatus.PROCESSED
+        else:
+            transaction.billing_status = BillingStatus.PENDING
+        transaction.save(update_fields=["billing_status"])
+
+        if created:
+            messages.success(request, _(
+                "Created %(count)d work entries."
+            ) % {"count": len(created)})
+
+        return redirect(reverse("admin:assets_assettransaction_changelist"))
+
+    @action(description=_("Generate All Work Entries"))
+    def generate_all_work_entries(self, request, queryset):
+        """Bulk action: dispatch work entry generation to Celery."""
+        from core.tasks import generate_work_entries_task
+
+        transaction_ids = list(queryset.values_list("pk", flat=True))
+        generate_work_entries_task.delay(transaction_ids)
+
+        messages.success(request, _(
+            "Work entry generation queued for %(count)d transactions."
+        ) % {"count": len(transaction_ids)})

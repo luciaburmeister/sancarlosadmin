@@ -140,6 +140,13 @@ class TransactionTypeChoices(models.TextChoices):
     MOVEMENT = "movement", _("Movement")
 
 
+class BillingStatus(models.TextChoices):
+    NONE = "none", _("—")
+    PENDING = "pending", _("Pending")
+    PROCESSED = "processed", _("Processed")
+    FAILED = "failed", _("Failed")
+
+
 class AssetTransaction(CompanyOwnedModel, Timestampable):
     asset = models.ForeignKey(
         Asset,
@@ -198,6 +205,13 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
         null=True,
         blank=True,
         related_name="performed_transactions"
+    )
+    billing_status = models.CharField(
+        max_length=10,
+        choices=BillingStatus.choices,
+        default=BillingStatus.NONE,
+        db_index=True,
+        verbose_name=_("Billing Status"),
     )
 
     class Meta:

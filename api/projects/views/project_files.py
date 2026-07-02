@@ -7,7 +7,11 @@ from django.db.models import Q
 from django.http import JsonResponse
 from django.utils import timezone
 
-from api._serializers import serialize_configuration, serialize_project_file
+from api._serializers import (
+    project_file_can_mark_completed,
+    serialize_configuration,
+    serialize_project_file,
+)
 from api._utils import CompanyAPIView, parse_date_or_error
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from management.models import ProjectFile, ProjectFileStatus
@@ -58,13 +62,20 @@ class ProjectFileListCreateView(CompanyAPIView):
         else:
             filtered_qs = base_qs
 
-        filtered_qs = filtered_qs.prefetch_related("quotes").order_by("-created_at")
+        filtered_qs = filtered_qs.prefetch_related(
+            "quotes", "sales_invoices",
+        ).order_by("-created_at")
 
         paginator = Paginator(filtered_qs, _PAGE_SIZE)
         page = paginator.get_page(page_num)
 
         return JsonResponse({
-            "results": [serialize_project_file(pf, include_total=True) for pf in page],
+            "results": [
+                serialize_project_file(
+                    pf, include_total=True, include_can_mark_completed=True,
+                )
+                for pf in page
+            ],
             "count": paginator.count,
             "open_count": open_count,
             "completed_count": completed_count,
@@ -176,6 +187,7 @@ class ProjectFileDetailView(CompanyAPIView):
             }
             for t in pf.production_tickets.all()
         ]
+        data["can_mark_completed"] = project_file_can_mark_completed(pf)
         return JsonResponse(data)
 
     def patch(self, request, project_file_id):

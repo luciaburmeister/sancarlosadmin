@@ -5,7 +5,7 @@ from unfold.admin import GenericTabularInline
 
 from core.admin.company_admin import CompanyRestrictedAdmin
 from invoices.models import AppliedTax
-from management.models import WorkEntryType, WorkEntryPricingStep
+from management.models import WorkEntryCategory, WorkEntryType, WorkEntryPricingStep
 
 
 
@@ -30,18 +30,27 @@ class WorkEntryPricingStepInline(TabularInline):
 
 
 
+@admin.register(WorkEntryCategory)
+class WorkEntryCategoryAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ["name", "slug", "description"]
+    search_fields = ["name", "slug"]
+    autocomplete_fields = ["company"]
+    prepopulated_fields = {"slug": ("name",)}
+
+
 @admin.register(WorkEntryType)
 class WorkEntryTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["name", "unit_label", "project_file_display", "is_active"]
-    list_filter = ["is_active"]
-    search_fields = ["name"]
-    autocomplete_fields = ["company", "project_file", "source_content_type","materials","components"]
+    list_display = ["name", "category", "unit_label", "project_file_display", "is_active"]
+    list_filter = ["is_active", "category"]
+    search_fields = ["name", "category__name"]
+    autocomplete_fields = ["company", "category", "project_file", "source_content_type", "materials", "components"]
     inlines = [WorkEntryPricingStepInline, WorkEntryTypeAppliedTaxInline]
 
     fieldsets = (
         (_("Basic"), {
             "fields": (
                 "company",
+                "category",
                 ("name", "unit_label"),
             ),
         }),

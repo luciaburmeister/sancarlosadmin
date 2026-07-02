@@ -177,9 +177,6 @@ else:
         },
         "staticfiles": {
             "BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage",
-            "OPTIONS": {
-                "manifest_strict": False,
-            },
         },
     }
 

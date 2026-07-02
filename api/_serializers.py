@@ -12,7 +12,30 @@ from production.models import ProductionItemSession, ProductionItemSessionStatus
 # ─── Project files (a.k.a. expedientes) ───────────────────────────────────────
 
 
-def serialize_project_file(project_file, include_total=False):
+def project_file_can_mark_completed(project_file):
+    """Open expediente, fully invoiced, all sales invoices paid."""
+    if project_file.status in ("completed", "cancelled"):
+        return False
+    invoices = list(project_file.sales_invoices.all())
+    if not invoices:
+        return False
+    if not all(
+        inv.payment_status == "paid"
+        or float(inv.amount_remaining.amount or 0) < 0.01
+        for inv in invoices
+    ):
+        return False
+    from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
+
+    remaining = ProjectFileInvoiceService.get_invoiceable_summary(project_file)["remaining"]
+    return float(remaining) < 0.01
+
+
+def serialize_project_file(
+    project_file,
+    include_total=False,
+    include_can_mark_completed=False,
+):
     start_date = project_file.start_date
     data = {
         "id": project_file.id,
@@ -30,6 +53,8 @@ def serialize_project_file(project_file, include_total=False):
         data["total_price"] = round(
             sum(float(q.total_price.amount) for q in quotes if q.total_price), 2
         )
+    if include_can_mark_completed:
+        data["can_mark_completed"] = project_file_can_mark_completed(project_file)
     return data
 
 

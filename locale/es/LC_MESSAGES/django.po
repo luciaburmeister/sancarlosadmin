@@ -7734,8 +7734,6 @@ msgstr "Total de IRPF Retenido"
 msgid "Sum of IRPF withholdings. Computed on close."
 msgstr "Suma de retenciones de IRPF. Computado al cerrar."
 
-#, fuzzy
-#| msgid "Employer Cost"
 msgid "Total Employer Cost"
 msgstr "Coste empresarial"
 
@@ -8600,20 +8598,17 @@ msgstr "Etapas"
 msgid "Orders"
 msgstr "Pedidos"
 
-#, fuzzy
-#| msgid "Total price"
-msgid "Total time"
+
+msgid "Tiempo total"
 msgstr "Precio total"
 
-#, fuzzy
-#| msgid "Total cost"
+
 msgid "Total hours"
-msgstr "Costo total"
+msgstr "Horas totales"
 
-#, fuzzy
-#| msgid "Total price"
+
 msgid "Total minutes"
-msgstr "Precio total"
+msgstr "Minutos totales"
 
 msgid "Avg min/order"
 msgstr "Promedio mín. por pedido"
@@ -9177,45 +9172,36 @@ msgstr "Articulo de venta"
 msgid "Sale items"
 msgstr "Articulos de venta"
 
-#, fuzzy
-#| msgid "Post time"
+
 msgid "Cost"
-msgstr "Hora de publicación"
+msgstr "Costo"
 
-#, fuzzy
-#| msgid "Margin"
+
 msgid "Margin (€)"
-msgstr "Margen"
+msgstr "Margen (€)"
 
-#, fuzzy
-#| msgid "Margin"
 msgid "Margin (%)"
-msgstr "Margen"
+msgstr "Margen (%)"
 
-#, fuzzy
-#| msgid "Configurations"
+
 msgid "Configuration Groups"
-msgstr "Configuraciones"
+msgstr "Grupos de configuraciones"
 
-#, fuzzy
-#| msgid "Payment Status"
 msgid "Details"
-msgstr "Estado de pago"
+msgstr "Detalles"
 
 #, fuzzy
 #| msgid "Start Date"
 msgid "Status Dates"
 msgstr "Fecha de Inicio"
 
-#, fuzzy
-#| msgid "Total cost"
+
 msgid "Total Cost"
 msgstr "Costo total"
 
-#, fuzzy
-#| msgid "Agent Commission (%)"
+
 msgid "Total Commissions"
-msgstr "Comisión del Agente (%)"
+msgstr "Comisiones totales"
 
 msgid "Margin before discount (€)"
 msgstr "Margen antes del descuento (€)"
@@ -9229,10 +9215,9 @@ msgstr "Margen después del descuento (€)"
 msgid "Margin after discount (%)"
 msgstr "Margen después del descuento (%)"
 
-#, fuzzy
-#| msgid "Configuration"
+
 msgid "Add Configuration"
-msgstr "Configuración"
+msgstr "Agregar Configuración"
 
 #, fuzzy
 #| msgid "Accepted"
@@ -9315,8 +9300,6 @@ msgstr "Políticas de descuentos"
 msgid "On net subtotal"
 msgstr "Total de la línea"
 
-#, fuzzy
-#| msgid "Accumulated Credit"
 msgid "On accumulated"
 msgstr "Crédito Acumulado"
 

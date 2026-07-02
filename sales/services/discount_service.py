@@ -42,3 +42,15 @@ class DiscountService:
             })
 
         return total_discount, breakdown
+
+    @staticmethod
+    def compute_effective_pct(rules, context: dict) -> tuple:
+        """Compute the effective combined discount percentage from ordered rules.
+
+        Runs the standard cascade against a normalised 100-unit base so the
+        returned discount amount *is* the effective percentage directly.
+
+        Returns ``(effective_percentage, breakdown)``.
+        """
+        total, breakdown = DiscountService.compute(Decimal("100"), rules, context)
+        return total.quantize(Decimal("0.01")), breakdown

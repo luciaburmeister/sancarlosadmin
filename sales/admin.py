@@ -111,13 +111,14 @@ class CommissionistAgentAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
 class DiscountRuleInline(StackedInline):
     model = DiscountRule
-    extra = 1
-    ordering = ["order"]
+    extra = 0
+    hide_ordering_field = True
+    ordering_field = "order"
     fieldsets = (
         (None, {
             "fields": (
-                ("name", "order", "is_active"),
-                ("percentage", "mode"),
+                ("name", "is_active"),
+                ("percentage", "mode", "level"),
                 "condition",
             )
         }),
@@ -805,16 +806,32 @@ class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
     def total_commissions_display(self, obj):
         return Money(self._get_total_commissions(obj), "EUR")
 
+    def _get_pre_discount_revenue(self, obj):
+        """Revenue before any discounts: sum of (unit_price × qty) for all items."""
+        inv_item_base = sum(
+            (item.unit_price.amount * item.quantity for item in obj.inventory_items.all()),
+            Decimal("0"),
+        )
+        quote_item_base = sum(
+            (item.unit_price.amount * item.quantity for item in obj.items.all()),
+            Decimal("0"),
+        )
+        config_subtotal = sum(
+            (c.subtotal_price.amount for c in obj.configurations.all()),
+            Decimal("0"),
+        )
+        return inv_item_base + quote_item_base + config_subtotal
+
     @display(description=_("Margin before discount (€)"))
     def margin_before_discount_display(self, obj):
-        revenue = obj.subtotal_price.amount if obj.subtotal_price else Decimal("0")
+        revenue = self._get_pre_discount_revenue(obj)
         cost = self._get_quote_cost(obj)
         commissions = self._get_total_commissions(obj)
         return Money(revenue - cost - commissions, "EUR")
 
     @display(description=_("Margin before discount (%)"))
     def margin_before_discount_pct_display(self, obj):
-        revenue = obj.subtotal_price.amount if obj.subtotal_price else Decimal("0")
+        revenue = self._get_pre_discount_revenue(obj)
         cost = self._get_quote_cost(obj)
         commissions = self._get_total_commissions(obj)
         if revenue:

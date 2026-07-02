@@ -52,6 +52,11 @@ class DiscountMode(models.TextChoices):
     ACCUMULATED = "accumulated", _("On accumulated")
 
 
+class DiscountLevel(models.TextChoices):
+    LINE_ITEM = "line_item", _("Line item")
+    BASKET = "basket", _("Basket")
+
+
 class DiscountRule(models.Model):
     """A single discount rule within a policy. Ordered and conditionally applied."""
     policy = models.ForeignKey(
@@ -88,6 +93,16 @@ class DiscountRule(models.Model):
             "Examples:\n"
             "  • subtotal > 1000\n"
             "  • subtotal > 5000 and total_quantity > 10\n"
+        ),
+    )
+    level = models.CharField(
+        max_length=20,
+        choices=DiscountLevel.choices,
+        default=DiscountLevel.BASKET,
+        verbose_name=_("Level"),
+        help_text=_(
+            "'Line item' writes the effective discount % to each inventory item. "
+            "'Basket' applies the discount to the overall quote subtotal."
         ),
     )
     is_active = models.BooleanField(default=True, verbose_name=_("Active"))
@@ -804,19 +819,26 @@ class Quote(Timestampable, CompanyOwnedModel):
 
         from sales.services.quote_tax_service import QuoteTaxService
 
+        # Phase 1: Apply line-item discounts to QuoteInventoryItems
+        line_item_breakdown = self._apply_line_item_discounts()
+
+        # Phase 2: Calculate subtotals (line items now carry discounted prices)
         item_total, config_subtotal = self._calculate_subtotal()
         raw_subtotal = item_total + config_subtotal
 
-        discount_amount, discount_breakdown = self._compute_discounts(raw_subtotal)
-        discounted_subtotal = raw_subtotal - discount_amount
+        # Phase 3: Apply basket-level discounts
+        basket_discount, basket_breakdown = self._compute_basket_discounts(raw_subtotal)
+        discounted_subtotal = raw_subtotal - basket_discount
 
+        # Phase 4: Taxes
         tax_amount, tax_breakdown = QuoteTaxService.apply(
             self, raw_subtotal, discounted_subtotal,
         )
 
+        # Phase 5: Persist
         self.subtotal_price = raw_subtotal
-        self.discount_amount = discount_amount
-        self.discount_breakdown = discount_breakdown
+        self.discount_amount = basket_discount
+        self.discount_breakdown = line_item_breakdown + basket_breakdown
         self.discounted_subtotal = discounted_subtotal
         self.tax_amount = tax_amount
         self.tax_breakdown = tax_breakdown
@@ -842,10 +864,8 @@ class Quote(Timestampable, CompanyOwnedModel):
         )
         return item_total + inv_item_total, config_subtotal
 
-    def _compute_discounts(self, subtotal: Decimal):
-        """Collect policies from quote + client, evaluate rules via DiscountService."""
-        from sales.services.discount_service import DiscountService
-
+    def _get_discount_policies(self):
+        """Collect active discount policies from quote, client, and company auto-apply."""
         policies = list(self.discount_policies.filter(is_active=True))
         if self.client_id:
             for p in self.client.discount_policies.filter(is_active=True):
@@ -855,19 +875,93 @@ class Quote(Timestampable, CompanyOwnedModel):
             for p in DiscountPolicy.objects.filter(company=self.company, is_active=True, auto_apply=True):
                 if p not in policies:
                     policies.append(p)
+        return policies
 
-        rules = (
-            DiscountRule.objects.filter(policy__in=policies, is_active=True)
-            .order_by("order", "id")
-        )
-        context = {
+    def _build_discount_context(self, subtotal: Decimal) -> dict:
+        """Build the context dict used for discount rule condition evaluation."""
+        return {
             "subtotal": float(subtotal),
             "total_quantity": float(
                 sum((i.quantity for i in self.items.all()), Decimal("0"))
                 + sum((i.quantity for i in self.inventory_items.all()), Decimal("0"))
             ),
         }
-        return DiscountService.compute(subtotal, rules, context)
+
+    def _apply_line_item_discounts(self):
+        """Apply line-item-level discount rules to each QuoteInventoryItem.
+
+        Computes the effective combined discount percentage from all active
+        line-item rules and writes it to each item's ``discount`` field.
+        Returns the line-item portion of the discount breakdown.
+        """
+        from sales.services.discount_service import DiscountService
+
+        policies = self._get_discount_policies()
+        line_rules = list(
+            DiscountRule.objects.filter(
+                policy__in=policies, is_active=True, level=DiscountLevel.LINE_ITEM,
+            ).order_by("order", "id")
+        )
+
+        if not line_rules:
+            return []
+
+        # Compute base subtotal using full item prices (discount=0) for
+        # condition evaluation so thresholds are not affected by the discount
+        # being calculated.
+        base_inv_total = sum(
+            (
+                (item.unit_price.amount * item.quantity)
+                for item in self.inventory_items.all()
+            ),
+            Decimal("0.00"),
+        )
+        item_total = sum(
+            (item.line_total.amount for item in self.items.all()),
+            Decimal("0.00"),
+        )
+        config_subtotal = sum(
+            (c.subtotal_price.amount for c in self.configurations.all()),
+            Decimal("0.00"),
+        )
+        base_subtotal = item_total + base_inv_total + config_subtotal
+        context = self._build_discount_context(base_subtotal)
+
+        # Effective percentage: run the rules against a 100-unit base so the
+        # returned discount amount equals the combined percentage directly.
+        effective_pct, breakdown = DiscountService.compute_effective_pct(
+            line_rules, context,
+        )
+
+        # Write the percentage to every QuoteInventoryItem
+        for inv_item in self.inventory_items.all():
+            inv_item.discount = effective_pct
+            inv_item._skip_quote_recalc = True
+            inv_item.save()
+
+        # Tag each breakdown entry so the caller can distinguish levels
+        for entry in breakdown:
+            entry["level"] = "line_item"
+
+        return breakdown
+
+    def _compute_basket_discounts(self, subtotal: Decimal):
+        """Apply basket-level discount rules to the overall subtotal."""
+        from sales.services.discount_service import DiscountService
+
+        policies = self._get_discount_policies()
+        rules = (
+            DiscountRule.objects.filter(
+                policy__in=policies, is_active=True, level=DiscountLevel.BASKET,
+            ).order_by("order", "id")
+        )
+        context = self._build_discount_context(subtotal)
+        amount, breakdown = DiscountService.compute(subtotal, rules, context)
+
+        for entry in breakdown:
+            entry["level"] = "basket"
+
+        return amount, breakdown
 
     def _calculate_total(self, item_total):
         """
@@ -1104,7 +1198,8 @@ class QuoteInventoryItem(Timestampable):
 
         # Recalculate stored total_with_tax from per-line taxes
         self._recalc_total_with_tax()
-        self.quote.recalc_totals()
+        if not getattr(self, '_skip_quote_recalc', False):
+            self.quote.recalc_totals()
 
     def _recalc_total_with_tax(self):
         """Recompute total_with_tax from line_total + per-line applied taxes."""

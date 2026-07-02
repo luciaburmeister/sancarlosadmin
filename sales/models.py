@@ -748,6 +748,15 @@ class Quote(Timestampable, CompanyOwnedModel):
         help_text=_("subtotal_price - discount_amount. The taxable base."),
     )
 
+    total_cost = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency="EUR",
+        default=0,
+        verbose_name=_("Total cost"),
+        help_text=_("Sum of configuration costs + inventory item purchase costs."),
+    )
+
     class Meta:
         verbose_name = _("Quote")
         verbose_name_plural = _("Quotes")
@@ -835,17 +844,22 @@ class Quote(Timestampable, CompanyOwnedModel):
             self, raw_subtotal, discounted_subtotal,
         )
 
-        # Phase 5: Persist
+        # Phase 5: Compute total cost
+        total_cost = self._calculate_total_cost()
+
+        # Phase 6: Persist
         self.subtotal_price = raw_subtotal
         self.discount_amount = basket_discount
         self.discount_breakdown = line_item_breakdown + basket_breakdown
         self.discounted_subtotal = discounted_subtotal
+        self.total_cost = total_cost
         self.tax_amount = tax_amount
         self.tax_breakdown = tax_breakdown
         self.total_price = discounted_subtotal + tax_amount
         self.save(update_fields=[
             'subtotal_price', 'discount_amount', 'discount_breakdown',
-            'discounted_subtotal', 'tax_amount', 'total_price', 'tax_breakdown',
+            'discounted_subtotal', 'total_cost',
+            'tax_amount', 'total_price', 'tax_breakdown',
         ])
 
     def _calculate_subtotal(self):
@@ -863,6 +877,20 @@ class Quote(Timestampable, CompanyOwnedModel):
             Decimal("0.00"),
         )
         return item_total + inv_item_total, config_subtotal
+
+    def _calculate_total_cost(self):
+        """Total cost = config costs + inventory item cost prices."""
+        config_cost = sum(
+            (c.total_cost.amount for c in self.configurations.all() if c.total_cost),
+            Decimal("0.00"),
+        )
+
+        inv_cost = Decimal("0.00")
+        for qi in self.inventory_items.select_related("inventory_item").all():
+            if qi.inventory_item.cost_price and qi.inventory_item.cost_price.amount:
+                inv_cost += qi.inventory_item.cost_price.amount * qi.quantity
+
+        return config_cost + inv_cost
 
     def _get_discount_policies(self):
         """Collect active discount policies from quote, client, and company auto-apply."""

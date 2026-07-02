@@ -1026,12 +1026,26 @@ class QuoteExportResource(resources.ModelResource):
     client_name = fields.Field(column_name=_("Client"))
     client_email = fields.Field(column_name=_("Client Email"))
     client_phone = fields.Field(column_name=_("Client Phone"))
+    project_name_field = fields.Field(column_name=_("Project Name"), attribute="project_name")
+    status_field = fields.Field(column_name=_("Status"), attribute="status")
     subtotal_amount = fields.Field(column_name=_("Subtotal"))
     subtotal_currency = fields.Field(column_name=_("Subtotal Currency"))
+    discount_amount_value = fields.Field(column_name=_("Discount Amount"))
+    discounted_subtotal_value = fields.Field(column_name=_("Discounted Subtotal"))
+    cost_amount = fields.Field(column_name=_("Total cost"))
+    cost_currency = fields.Field(column_name=_("Cost Currency"))
+    margin_eur = fields.Field(column_name=_("Margin (€)"))
+    margin_pct = fields.Field(column_name=_("Margin (%)"))
     tax_amount_value = fields.Field(column_name=_("Tax Amount"))
     tax_currency = fields.Field(column_name=_("Tax Currency"))
     total_amount = fields.Field(column_name=_("Total"))
     total_currency = fields.Field(column_name=_("Total Currency"))
+    date_sent_field = fields.Field(column_name=_("Date Sent"), attribute="date_sent")
+    date_accepted_field = fields.Field(column_name=_("Date Accepted"), attribute="date_accepted")
+    date_rejected_field = fields.Field(column_name=_("Date Rejected"), attribute="date_rejected")
+    expires_at_field = fields.Field(column_name=_("Expires At"), attribute="expires_at")
+    created_at_field = fields.Field(column_name=_("Created At"), attribute="created_at")
+    company_name = fields.Field(column_name=_("Company"))
 
     class Meta:
         from .models import Quote
@@ -1041,20 +1055,26 @@ class QuoteExportResource(resources.ModelResource):
             "client_name",
             "client_email",
             "client_phone",
-            "project_name",
-            "status",
+            "project_name_field",
+            "status_field",
             "subtotal_amount",
             "subtotal_currency",
-            "date_sent",
-            "date_accepted",
-            "date_rejected",
+            "discount_amount_value",
+            "discounted_subtotal_value",
+            "cost_amount",
+            "cost_currency",
+            "margin_eur",
+            "margin_pct",
+            "date_sent_field",
+            "date_accepted_field",
+            "date_rejected_field",
             "tax_amount_value",
             "tax_currency",
             "total_amount",
             "total_currency",
-            "expires_at",
-            "created_at",
-            "company__name",
+            "expires_at_field",
+            "created_at_field",
+            "company_name",
         )
         export_order = fields
 
@@ -1076,6 +1096,30 @@ class QuoteExportResource(resources.ModelResource):
     def dehydrate_subtotal_currency(self, quote):
         return str(quote.subtotal_price.currency) if quote.subtotal_price else "EUR"
 
+    def dehydrate_discount_amount_value(self, quote):
+        return quote.discount_amount.amount if quote.discount_amount else 0
+
+    def dehydrate_discounted_subtotal_value(self, quote):
+        return quote.discounted_subtotal.amount if quote.discounted_subtotal else 0
+
+    def dehydrate_cost_amount(self, quote):
+        return quote.total_cost.amount if quote.total_cost else 0
+
+    def dehydrate_cost_currency(self, quote):
+        return str(quote.total_cost.currency) if quote.total_cost else "EUR"
+
+    def dehydrate_margin_eur(self, quote):
+        revenue = quote.discounted_subtotal.amount if quote.discounted_subtotal else Decimal("0")
+        cost = quote.total_cost.amount if quote.total_cost else Decimal("0")
+        return (revenue - cost).quantize(Decimal("0.01"))
+
+    def dehydrate_margin_pct(self, quote):
+        revenue = quote.discounted_subtotal.amount if quote.discounted_subtotal else Decimal("0")
+        cost = quote.total_cost.amount if quote.total_cost else Decimal("0")
+        if revenue:
+            return ((revenue - cost) / revenue * 100).quantize(Decimal("0.1"))
+        return Decimal("0")
+
     def dehydrate_tax_amount_value(self, quote):
         return quote.tax_amount.amount if quote.tax_amount else 0
 
@@ -1087,3 +1131,7 @@ class QuoteExportResource(resources.ModelResource):
 
     def dehydrate_total_currency(self, quote):
         return str(quote.total_price.currency) if quote.total_price else "EUR"
+
+    def dehydrate_company_name(self, quote):
+        return quote.company.name if quote.company else ""
+

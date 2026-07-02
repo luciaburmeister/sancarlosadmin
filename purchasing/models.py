@@ -208,6 +208,11 @@ class PurchaseOrderItem(Timestampable):
         super().save(*args, **kwargs)
         self.purchase_order.recalculate_total()
 
+        # Keep inventory item cost_price in sync with the latest purchase price
+        if self.unit_price and self.unit_price.amount:
+            self.inventory_item.cost_price = self.unit_price
+            self.inventory_item.save(update_fields=["cost_price", "cost_price_currency"])
+
 class PurchaseOrderReceipt(Timestampable, CompanyOwnedModel):
     number = models.CharField(
         max_length=50,

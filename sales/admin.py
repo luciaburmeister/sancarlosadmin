@@ -702,7 +702,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
     readonly_fields = [
         "subtotal_price", "tax_amount", "total_price", "tax_breakdown",
         "discount_amount", "discount_breakdown", "date_sent", "date_accepted", "date_rejected",
-        "total_cost_display", "total_commissions_display",
+        "total_cost", "total_commissions_display",
         "margin_before_discount_display", "margin_before_discount_pct_display",
         "margin_after_discount_display", "margin_after_discount_pct_display",
     ]
@@ -754,7 +754,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
         (_("Margin"), {
             "classes": ["tab"],
             "fields": (
-                ("total_cost_display", "total_commissions_display"),
+                ("total_cost", "total_commissions_display"),
                 ("margin_before_discount_display", "margin_before_discount_pct_display"),
                 ("margin_after_discount_display", "margin_after_discount_pct_display"),
             )
@@ -768,39 +768,16 @@ class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
     # ── Margin tab display methods ────────────────────────────────────
 
     def _get_quote_cost(self, obj):
-        """Total cost = config costs + inventory item last-purchase costs."""
-        from purchasing.models import PurchaseOrderItem
-
-        config_cost = sum(
-            (c.total_cost.amount for c in obj.configurations.all() if c.total_cost),
-            Decimal("0"),
-        )
-
-        inv_cost = Decimal("0")
-        for qi in obj.inventory_items.select_related("inventory_item").all():
-            last_po = (
-                PurchaseOrderItem.objects
-                .filter(inventory_item=qi.inventory_item)
-                .order_by("-purchase_order__date_ordered")
-                .values_list("unit_price", flat=True)
-                .first()
-            )
-            if last_po:
-                inv_cost += last_po * qi.quantity
-            elif qi.inventory_item.cost_price and qi.inventory_item.cost_price.amount:
-                inv_cost += qi.inventory_item.cost_price.amount * qi.quantity
-
-        return config_cost + inv_cost
+        """Read the stored total_cost from the quote."""
+        if obj.total_cost and hasattr(obj.total_cost, 'amount'):
+            return obj.total_cost.amount
+        return Decimal("0")
 
     def _get_total_commissions(self, obj):
         return sum(
             (c.commission_amount.amount for c in obj.commissions.all() if c.commission_amount),
             Decimal("0"),
         )
-
-    @display(description=_("Total Cost"))
-    def total_cost_display(self, obj):
-        return Money(self._get_quote_cost(obj), "EUR")
 
     @display(description=_("Total Commissions"))
     def total_commissions_display(self, obj):

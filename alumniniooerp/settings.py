@@ -176,7 +176,7 @@ else:
             "BACKEND": "storages.backends.s3.S3Storage",
         },
         "staticfiles": {
-            "BACKEND": "core.storage.NonStrictManifestStaticFilesStorage",
+            "BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage",
         },
     }
 

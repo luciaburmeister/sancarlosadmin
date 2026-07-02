@@ -76,7 +76,7 @@ jobs:
         run: poetry install
 
       - name: Run tests (PostgreSQL)
-        run: poetry run python manage.py test
+        run: poetry run python manage.py test --parallel
 
   deploy:
     runs-on: ubuntu-latest

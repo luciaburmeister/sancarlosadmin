@@ -17,6 +17,7 @@ from .models import (
 from inventory.models import ItemIdentityCode
 from unfold.admin import TabularInline, StackedInline
 from import_export.admin import ImportExportModelAdmin
+from core.admin.xlsx_export import FormattedXlsxExportMixin
 from .forms import (
     ClientImportForm, ClientExportForm,
      ClientConfirmImportForm,
@@ -686,7 +687,7 @@ class QuoteEmailLogInline(_GenericTabularInline):
         return False
 
 @admin.register(Quote)
-class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
+class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportModelAdmin, ModelAdmin):
     resource_classes = [QuoteExportResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
@@ -811,8 +812,9 @@ class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
         revenue = self._get_pre_discount_revenue(obj)
         cost = self._get_quote_cost(obj)
         commissions = self._get_total_commissions(obj)
-        if revenue:
-            pct = ((revenue - cost - commissions) / revenue * 100).quantize(Decimal("0.1"))
+        total_cost = cost + commissions
+        if total_cost:
+            pct = ((revenue - total_cost) / total_cost * 100).quantize(Decimal("0.1"))
             return f"{pct}%"
         return "—"
 
@@ -836,8 +838,9 @@ class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
             revenue_amt = revenue.amount
         cost = self._get_quote_cost(obj)
         commissions = self._get_total_commissions(obj)
-        if revenue_amt:
-            pct = ((revenue_amt - cost - commissions) / revenue_amt * 100).quantize(Decimal("0.1"))
+        total_cost = cost + commissions
+        if total_cost:
+            pct = ((revenue_amt - total_cost) / total_cost * 100).quantize(Decimal("0.1"))
             return f"{pct}%"
         return "—"
 
@@ -917,53 +920,6 @@ class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
         ]
         return custom + urls
 
-    def get_export_data(self, file_format, *args, **kwargs):
-        """Apply native Excel formatting when exporting to XLSX."""
-        data = super().get_export_data(file_format, *args, **kwargs)
-
-        if file_format.get_extension() != "xlsx":
-            return data
-
-        from io import BytesIO
-        from openpyxl import load_workbook
-        from openpyxl.utils import get_column_letter
-
-        wb = load_workbook(BytesIO(data))
-        ws = wb.active
-
-        # Build a mapping from column index to format code using the header row
-        resource_cls = self.resource_classes[0] if self.resource_classes else None
-        if not resource_cls:
-            return data
-        resource = resource_cls()
-        col_formats = getattr(resource, "COLUMN_FORMATS", {})
-        if col_formats:
-            header_map = {}
-            for cell in ws[1]:
-                header_map[cell.value] = cell.column
-
-            # Map translated column names → format codes
-            field_to_header = {}
-            for f in resource.get_export_fields():
-                field_to_header[f.column_name] = col_formats.get(f.attribute or f.column_name, None)
-                # Also check by field name on the resource
-                for attr_name, fmt in col_formats.items():
-                    if hasattr(resource.fields.get(attr_name), 'column_name'):
-                        col_name = resource.fields[attr_name].column_name
-                        if col_name in header_map:
-                            field_to_header[col_name] = fmt
-
-            for col_name, fmt in field_to_header.items():
-                if fmt and col_name in header_map:
-                    col_idx = header_map[col_name]
-                    for row in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
-                        for cell in row:
-                            if cell.value is not None:
-                                cell.number_format = fmt
-
-        out = BytesIO()
-        wb.save(out)
-        return out.getvalue()
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)

@@ -1132,8 +1132,8 @@ class QuoteExportResource(resources.ModelResource):
     def dehydrate_margin_pct(self, quote):
         revenue = float(quote.discounted_subtotal.amount) if quote.discounted_subtotal else 0.0
         cost = float(quote.total_cost.amount) if quote.total_cost else 0.0
-        if revenue:
-            return round((revenue - cost) / revenue, 4)  # 0.145 = 14.5%
+        if cost:
+            return round((revenue - cost) / cost, 4)  # 0.145 = 14.5%
         return 0.0
 
     def dehydrate_tax_amount_value(self, quote):

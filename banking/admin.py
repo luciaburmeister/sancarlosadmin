@@ -21,6 +21,8 @@ from banking.views import (
     InitiateConsentView,
     LinkTransactionView,
     ManualReconcileView,
+    MatcherStatusPageView,
+    MatcherTaskStatusAPIView,
     ReviewInvoiceReconciliationView,
     ReviewReconciliationView,
     SkipReconciliationView,
@@ -236,6 +238,20 @@ class BankTransactionAdmin(ModelAdmin):
                 ),
                 name="banking_payment_link_transaction",
             ),
+            path(
+                "matcher-status/",
+                self.admin_site.admin_view(
+                    MatcherStatusPageView.as_view(model_admin=self)
+                ),
+                name="banking_matcher_status",
+            ),
+            path(
+                "matcher-status/<str:task_id>/api/",
+                self.admin_site.admin_view(
+                    MatcherTaskStatusAPIView.as_view(model_admin=self)
+                ),
+                name="banking_matcher_status_api",
+            ),
         ]
         return custom_urls + super().get_urls()
 
@@ -285,7 +301,7 @@ class BankTransactionAdmin(ModelAdmin):
         icon="compare_arrows",
     )
     def run_matcher_detail_action(self, request, object_id: int):
-        from banking.services.transaction_matching import TransactionMatcher
+        from banking.tasks import run_matcher_for_transaction
 
         txn = get_object_or_404(BankTransaction, pk=object_id)
 
@@ -297,35 +313,14 @@ class BankTransactionAdmin(ModelAdmin):
             )
             return redirect(request.META.get("HTTP_REFERER"))
 
-        # Delete any existing unconfirmed suggestion so we can re-run
-        BankReconciliation.objects.filter(
-            bank_transaction=txn, is_confirmed=False,
-        ).delete()
-
-        try:
-            matcher = TransactionMatcher(txn)
-            recon = matcher.run()
-            selected = TransactionMatcher.get_selected_allocations(
-                recon.suggested_allocations,
-            )
-            if selected:
-                # Redirect directly to review page
-                return redirect(
-                    reverse("admin:banking_reconciliation_review", args=[recon.pk])
-                )
-            else:
-                messages.info(
-                    request,
-                    _("Matcher ran but found no matching documents. A reconciliation record was created for manual review."),
-                )
-        except Exception as e:
-            logger.exception("Error running matcher for transaction %s", object_id)
-            messages.error(
-                request,
-                _("Error running matcher: %(error)s") % {"error": str(e)},
-            )
-
-        return redirect(request.META.get("HTTP_REFERER"))
+        # Dispatch to Celery and redirect to the status page
+        result = run_matcher_for_transaction.delay(txn.pk)
+        back_url = reverse("admin:banking_banktransaction_change", args=[txn.pk])
+        status_url = (
+            reverse("admin:banking_matcher_status")
+            + f"?task_id={result.id}&task_type=transaction&back_url={back_url}"
+        )
+        return redirect(status_url)
 
     @action(
         description=_("Reconcile Manually"),

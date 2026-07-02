@@ -124,6 +124,7 @@ def _item_prefix(item_type: str) -> str:
         ItemType.STOCKABLE: "STK",
         ItemType.SERVICE: "SRV",
         ItemType.FINISHED_PRODUCT: "FP",
+        ItemType.OWN_PRODUCTION: "OP",
     }.get(item_type, "ITM")
 
 
@@ -223,8 +224,17 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         super().clean()
         if self.item_type == ItemType.SERVICE and self.default_warehouse_id:
             raise ValidationError({"default_warehouse": _("Services cannot have a warehouse.")})
-        if self.item_type in (ItemType.STOCKABLE, ItemType.FINISHED_PRODUCT) and not self.default_warehouse_id:
+        if self.item_type in (ItemType.STOCKABLE, ItemType.FINISHED_PRODUCT, ItemType.OWN_PRODUCTION) and not self.default_warehouse_id:
             raise ValidationError({"default_warehouse": _("This item type requires a warehouse.")})
+
+        # OWN_PRODUCTION items must be linked to a ConfigurationPreset
+        if self.item_type == ItemType.OWN_PRODUCTION:
+            from configurator.models import ConfigurationPreset
+            preset_ct = ContentType.objects.get_for_model(ConfigurationPreset)
+            if self.product_content_type_id and self.product_content_type_id != preset_ct.pk:
+                raise ValidationError({
+                    "product_content_type": _("Own Production items can only be linked to a Configuration Preset.")
+                })
 
     @transaction.atomic
     def save(self, *args, **kwargs):

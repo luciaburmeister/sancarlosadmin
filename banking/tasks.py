@@ -12,6 +12,11 @@ def run_matcher_for_transaction(self, bank_transaction_id: int):
 
     Dispatched automatically after every new transaction is imported.
     Skipped if a confirmed reconciliation already exists.
+
+    Returns a result dict consumed by the matcher status page:
+        {"status": "done",    "reconciliation_id": X, "has_match": bool}
+        {"status": "skipped"}
+        {"status": "no_match"}
     """
     from banking.models import BankReconciliation, BankTransaction, ReconciliationStatus
     from banking.services.transaction_matching import TransactionMatcher
@@ -21,20 +26,29 @@ def run_matcher_for_transaction(self, bank_transaction_id: int):
 
         if txn.reconciliation_status == ReconciliationStatus.RECONCILED:
             logger.info("Transaction %s already reconciled, skipping matcher.", bank_transaction_id)
-            return
+            return {"status": "skipped"}
 
         BankReconciliation.objects.filter(bank_transaction=txn, is_confirmed=False).delete()
 
         matcher = TransactionMatcher(txn)
         recon = matcher.run()
+        selected = TransactionMatcher.get_selected_allocations(
+            recon.suggested_allocations,
+        )
         logger.info(
             "Matcher ran for transaction %s: %d suggestion(s), unmatched=%s",
             bank_transaction_id,
             len(recon.suggested_allocations),
             recon.unmatched_amount,
         )
+        return {
+            "status": "done",
+            "reconciliation_id": recon.pk,
+            "has_match": bool(selected),
+        }
     except BankTransaction.DoesNotExist:
         logger.error("BankTransaction %s does not exist, skipping matcher.", bank_transaction_id)
+        return {"status": "error", "message": f"BankTransaction {bank_transaction_id} not found."}
     except Exception as exc:
         logger.exception("Matcher failed for transaction %s", bank_transaction_id)
         raise self.retry(exc=exc)
@@ -45,6 +59,10 @@ def run_invoice_matcher_task(self, model_name: str, invoice_id: int):
     """Run InvoiceMatcher for a single Invoice or SalesInvoice.
 
     model_name: 'invoice' or 'salesinvoice'
+
+    Returns a result dict consumed by the matcher status page:
+        {"status": "done",     "suggestion_id": X, "has_match": bool}
+        {"status": "no_match"}
     """
     from banking.models import InvoiceReconciliationSuggestion
     from banking.services.transaction_matching import InvoiceMatcher
@@ -68,12 +86,18 @@ def run_invoice_matcher_task(self, model_name: str, invoice_id: int):
 
         matcher = InvoiceMatcher(invoice)
         suggestion = matcher.run()
+        has_match = bool(suggestion.suggested_combinations)
         logger.info(
             "InvoiceMatcher ran for %s #%s: %d combination(s)",
             model_name,
             invoice_id,
             len(suggestion.suggested_combinations),
         )
+        return {
+            "status": "done" if has_match else "no_match",
+            "suggestion_id": suggestion.pk,
+            "has_match": has_match,
+        }
     except Exception as exc:
         logger.exception("InvoiceMatcher failed for %s #%s", model_name, invoice_id)
         raise self.retry(exc=exc)

@@ -4250,10 +4250,14 @@ msgstr "Artículo Almacenable"
 msgid "Service"
 msgstr "Servicio"
 
-#, fuzzy
-#| msgid "Finished"
 msgid "Finished Product"
-msgstr "Finalizado"
+msgstr "Producto Terminado"
+
+msgid "Own Production"
+msgstr "Producción propia"
+
+msgid "Own Production items can only be linked to a Configuration Preset."
+msgstr "Los artículos de producción propia solo pueden vincularse a un preset de configuración."
 
 msgid "Stock In"
 msgstr "Stock Entrante"
@@ -6139,6 +6143,7 @@ msgid ""
 "                You are about to create a single invoice for %(count)s project file(s) belonging to <strong>%(client)s</strong>.\n"
 "                "
 msgstr ""
+"\n"
 "Estás a punto de crear una sola factura para %(count)s archivo(s) de "
 "proyecto perteneciente(s) a <strong>%(client)s</strong>."
 

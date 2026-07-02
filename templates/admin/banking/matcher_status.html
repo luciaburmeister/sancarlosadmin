@@ -1,0 +1,182 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Running Matcher" %}{% endblock %}
+
+{% block content %}
+<style>
+    .matcher-status-container {
+        max-width: 600px;
+        margin: 4rem auto;
+        padding: 2rem 1rem;
+        text-align: center;
+    }
+
+    .status-card {
+        background: var(--bg-primary, #fff);
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 12px;
+        padding: 3rem 2rem;
+    }
+
+    /* ── Spinner ────────────────────────────── */
+    .spinner {
+        width: 48px;
+        height: 48px;
+        border: 4px solid var(--border-default, #e2e8f0);
+        border-top-color: var(--primary-600, #0369a1);
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin: 0 auto 1.5rem;
+    }
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .status-title {
+        font-size: 1.25rem;
+        font-weight: 700;
+        margin: 0 0 0.5rem;
+        color: var(--text-primary, #1e293b);
+    }
+
+    .status-subtitle {
+        color: var(--text-secondary, #64748b);
+        font-size: 0.9rem;
+        margin: 0;
+    }
+
+    /* ── Result states ─────────────────────── */
+    .status-icon {
+        font-size: 2.5rem;
+        margin-bottom: 1rem;
+    }
+    .status-icon.success { color: #16a34a; }
+    .status-icon.error   { color: #dc2626; }
+    .status-icon.info    { color: #0369a1; }
+
+    .back-link {
+        display: inline-block;
+        margin-top: 1.5rem;
+        padding: 0.5rem 1.25rem;
+        background: var(--primary-600, #0369a1);
+        color: #fff;
+        border-radius: 6px;
+        text-decoration: none;
+        font-weight: 500;
+        font-size: 0.875rem;
+    }
+    .back-link:hover {
+        background: var(--primary-700, #0c4a6e);
+        color: #fff;
+    }
+
+    .error-message {
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        border-radius: 8px;
+        padding: 1rem;
+        margin-top: 1rem;
+        color: #991b1b;
+        font-size: 0.875rem;
+        text-align: left;
+        word-break: break-word;
+    }
+
+    /* ── Hidden until JS swaps ──────────────── */
+    .state-running  { display: block; }
+    .state-done     { display: none; }
+    .state-error    { display: none; }
+    .state-no-match { display: none; }
+</style>
+
+<div class="matcher-status-container">
+    <div class="status-card">
+
+        <!-- Running state -->
+        <div id="state-running" class="state-running">
+            <div class="spinner"></div>
+            <p class="status-title">{% trans "Running matcher…" %}</p>
+            <p class="status-subtitle">{% trans "This may take a few seconds. You will be redirected automatically." %}</p>
+        </div>
+
+        <!-- Done (with matches) — auto-redirect, rarely seen -->
+        <div id="state-done" class="state-done">
+            <div class="status-icon success">✓</div>
+            <p class="status-title">{% trans "Matches found!" %}</p>
+            <p class="status-subtitle">{% trans "Redirecting to review page…" %}</p>
+        </div>
+
+        <!-- No matches found -->
+        <div id="state-no-match" class="state-no-match">
+            <div class="status-icon info">ℹ</div>
+            <p class="status-title">{% trans "No matches found" %}</p>
+            <p class="status-subtitle">{% trans "The matcher ran successfully but could not find any matching documents or bank transactions." %}</p>
+            <a href="{{ back_url }}" class="back-link">{% trans "Go back" %}</a>
+        </div>
+
+        <!-- Error state -->
+        <div id="state-error" class="state-error">
+            <div class="status-icon error">✗</div>
+            <p class="status-title">{% trans "Matcher error" %}</p>
+            <p class="status-subtitle">{% trans "An error occurred while running the matcher." %}</p>
+            <div id="error-detail" class="error-message"></div>
+            <a href="{{ back_url }}" class="back-link">{% trans "Go back" %}</a>
+        </div>
+
+    </div>
+</div>
+
+<script>
+(function() {
+    const POLL_URL  = "{{ poll_url }}";
+    const TASK_TYPE = "{{ task_type }}";
+    const BACK_URL  = "{{ back_url }}";
+
+    function showState(name) {
+        document.getElementById("state-running").style.display   = "none";
+        document.getElementById("state-done").style.display      = "none";
+        document.getElementById("state-no-match").style.display  = "none";
+        document.getElementById("state-error").style.display     = "none";
+        document.getElementById("state-" + name).style.display   = "block";
+    }
+
+    function poll() {
+        const sep = POLL_URL.includes("?") ? "&" : "?";
+        fetch(POLL_URL + sep + "task_type=" + encodeURIComponent(TASK_TYPE))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.state === "running") {
+                    setTimeout(poll, 2000);
+                    return;
+                }
+
+                if (data.state === "done") {
+                    if (data.has_match && data.redirect_url) {
+                        showState("done");
+                        setTimeout(function() {
+                            window.location.href = data.redirect_url;
+                        }, 400);
+                    } else {
+                        showState("no-match");
+                    }
+                    return;
+                }
+
+                // error
+                showState("error");
+                var detail = document.getElementById("error-detail");
+                detail.textContent = data.message || "Unknown error";
+            })
+            .catch(function(err) {
+                showState("error");
+                var detail = document.getElementById("error-detail");
+                detail.textContent = err.toString();
+            });
+    }
+
+    // Start polling immediately
+    poll();
+})();
+</script>
+{% endblock %}

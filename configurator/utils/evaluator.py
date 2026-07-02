@@ -36,6 +36,8 @@ _ALLOWED_FUNCTIONS = {
     "abs": abs,           # abs(x) — absolute value
     "min": min,           # min(a, b, ...) — minimum
     "max": max,           # max(a, b, ...) — maximum
+    "upper": lambda s: str(s).upper(),  # upper("abc") → "ABC"
+    "lower": lambda s: str(s).lower(),  # lower("ABC") → "abc"
 }
 
 

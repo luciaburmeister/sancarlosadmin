@@ -116,6 +116,11 @@ class ProductTemplate(CompanyOwnedModel):
         verbose_name=_("Allow production without accepted quote"),
         help_text=_("If enabled, configurations using this template can be converted to production even if the linked quote is not accepted yet."),
     )
+    allow_parameter_values_edit_in_any_status = models.BooleanField(
+        default=False,
+        verbose_name=_("Allow changing parameter values in any status"),
+        help_text=_("If enabled, parameter values can be edited even when the configuration is in production, completed, or any non-draft status."),
+    )
     flow_kind = models.CharField(
         max_length=20,
         choices=ProductFlowKind.choices,

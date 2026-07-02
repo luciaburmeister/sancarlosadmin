@@ -123,19 +123,28 @@ class ParameterValueInline(TabularInline):
     readonly_fields = ["parameter"]
     verbose_name = _("Parameter value")
     verbose_name_plural = _("Parameter values")
+
+    def _can_edit_parameter_values(self, obj):
+        if not obj:
+            return True
+        if obj.status in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
+            return True
+        return bool(
+            getattr(obj.product, "allow_parameter_values_edit_in_any_status", False)
+        )
     
     def has_change_permission(self, request, obj=None):
-        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
+        if not self._can_edit_parameter_values(obj):
             return False
         return super().has_change_permission(request, obj)
     
     def has_add_permission(self, request, obj=None):
-        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
+        if not self._can_edit_parameter_values(obj):
             return False
         return super().has_add_permission(request, obj)
 
     def has_delete_permission(self, request, obj=None):
-        if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE]:
+        if not self._can_edit_parameter_values(obj):
             return False
         return super().has_delete_permission(request, obj)
 

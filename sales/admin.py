@@ -917,6 +917,54 @@ class QuoteAdmin(CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
         ]
         return custom + urls
 
+    def get_export_data(self, file_format, *args, **kwargs):
+        """Apply native Excel formatting when exporting to XLSX."""
+        data = super().get_export_data(file_format, *args, **kwargs)
+
+        if file_format.get_extension() != "xlsx":
+            return data
+
+        from io import BytesIO
+        from openpyxl import load_workbook
+        from openpyxl.utils import get_column_letter
+
+        wb = load_workbook(BytesIO(data))
+        ws = wb.active
+
+        # Build a mapping from column index to format code using the header row
+        resource_cls = self.resource_classes[0] if self.resource_classes else None
+        if not resource_cls:
+            return data
+        resource = resource_cls()
+        col_formats = getattr(resource, "COLUMN_FORMATS", {})
+        if col_formats:
+            header_map = {}
+            for cell in ws[1]:
+                header_map[cell.value] = cell.column
+
+            # Map translated column names → format codes
+            field_to_header = {}
+            for f in resource.get_export_fields():
+                field_to_header[f.column_name] = col_formats.get(f.attribute or f.column_name, None)
+                # Also check by field name on the resource
+                for attr_name, fmt in col_formats.items():
+                    if hasattr(resource.fields.get(attr_name), 'column_name'):
+                        col_name = resource.fields[attr_name].column_name
+                        if col_name in header_map:
+                            field_to_header[col_name] = fmt
+
+            for col_name, fmt in field_to_header.items():
+                if fmt and col_name in header_map:
+                    col_idx = header_map[col_name]
+                    for row in ws.iter_rows(min_row=2, min_col=col_idx, max_col=col_idx):
+                        for cell in row:
+                            if cell.value is not None:
+                                cell.number_format = fmt
+
+        out = BytesIO()
+        wb.save(out)
+        return out.getvalue()
+
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         form.instance.recalc_totals()

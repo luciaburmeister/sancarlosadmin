@@ -1078,6 +1078,19 @@ class QuoteExportResource(resources.ModelResource):
         )
         export_order = fields
 
+    # Map field names to Excel number format codes.
+    # Used by QuoteAdmin.get_export_data to apply native cell formatting.
+    COLUMN_FORMATS = {
+        "subtotal_amount": '#,##0.00',
+        "discount_amount_value": '#,##0.00',
+        "discounted_subtotal_value": '#,##0.00',
+        "cost_amount": '#,##0.00',
+        "margin_eur": '#,##0.00',
+        "margin_pct": '0.0%',
+        "tax_amount_value": '#,##0.00',
+        "total_amount": '#,##0.00',
+    }
+
     def get_queryset(self):
         return super().get_queryset().select_related("client", "company")
 
@@ -1091,47 +1104,46 @@ class QuoteExportResource(resources.ModelResource):
         return quote.client.phone if quote.client else ""
 
     def dehydrate_subtotal_amount(self, quote):
-        return quote.subtotal_price.amount if quote.subtotal_price else 0
+        return float(quote.subtotal_price.amount) if quote.subtotal_price else 0.0
 
     def dehydrate_subtotal_currency(self, quote):
         return str(quote.subtotal_price.currency) if quote.subtotal_price else "EUR"
 
     def dehydrate_discount_amount_value(self, quote):
-        return quote.discount_amount.amount if quote.discount_amount else 0
+        return float(quote.discount_amount.amount) if quote.discount_amount else 0.0
 
     def dehydrate_discounted_subtotal_value(self, quote):
-        return quote.discounted_subtotal.amount if quote.discounted_subtotal else 0
+        return float(quote.discounted_subtotal.amount) if quote.discounted_subtotal else 0.0
 
     def dehydrate_cost_amount(self, quote):
-        return quote.total_cost.amount if quote.total_cost else 0
+        return float(quote.total_cost.amount) if quote.total_cost else 0.0
 
     def dehydrate_cost_currency(self, quote):
         return str(quote.total_cost.currency) if quote.total_cost else "EUR"
 
     def dehydrate_margin_eur(self, quote):
-        revenue = quote.discounted_subtotal.amount if quote.discounted_subtotal else Decimal("0")
-        cost = quote.total_cost.amount if quote.total_cost else Decimal("0")
-        return (revenue - cost).quantize(Decimal("0.01"))
+        revenue = float(quote.discounted_subtotal.amount) if quote.discounted_subtotal else 0.0
+        cost = float(quote.total_cost.amount) if quote.total_cost else 0.0
+        return round(revenue - cost, 2)
 
     def dehydrate_margin_pct(self, quote):
-        revenue = quote.discounted_subtotal.amount if quote.discounted_subtotal else Decimal("0")
-        cost = quote.total_cost.amount if quote.total_cost else Decimal("0")
+        revenue = float(quote.discounted_subtotal.amount) if quote.discounted_subtotal else 0.0
+        cost = float(quote.total_cost.amount) if quote.total_cost else 0.0
         if revenue:
-            return ((revenue - cost) / revenue * 100).quantize(Decimal("0.1"))
-        return Decimal("0")
+            return round((revenue - cost) / revenue, 4)  # 0.145 = 14.5%
+        return 0.0
 
     def dehydrate_tax_amount_value(self, quote):
-        return quote.tax_amount.amount if quote.tax_amount else 0
+        return float(quote.tax_amount.amount) if quote.tax_amount else 0.0
 
     def dehydrate_tax_currency(self, quote):
         return str(quote.tax_amount.currency) if quote.tax_amount else "EUR"
 
     def dehydrate_total_amount(self, quote):
-        return quote.total_price.amount if quote.total_price else 0
+        return float(quote.total_price.amount) if quote.total_price else 0.0
 
     def dehydrate_total_currency(self, quote):
         return str(quote.total_price.currency) if quote.total_price else "EUR"
 
     def dehydrate_company_name(self, quote):
         return quote.company.name if quote.company else ""
-

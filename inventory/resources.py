@@ -22,6 +22,42 @@ class ContentTypeWidget(Widget):
         return ContentType.objects.get(app_label=app_label, model=model)
 
 
+class MoneyAmountWidget(Widget):
+    """Renders / cleans the numeric amount of a MoneyField."""
+
+    def render(self, value, obj=None, **kwargs):
+        if value is None:
+            return ""
+        # value is a Money instance; return just the numeric part
+        return str(value.amount) if hasattr(value, "amount") else str(value)
+
+    def clean(self, value, row=None, **kwargs):
+        if value is None or str(value).strip() == "":
+            return None
+        from decimal import Decimal
+        return Decimal(str(value).strip())
+
+
+class MoneyCurrencyWidget(Widget):
+    """Renders / cleans the currency code of a MoneyField."""
+
+    def __init__(self, default_currency="EUR"):
+        self.default_currency = default_currency
+
+    def render(self, value, obj=None, **kwargs):
+        if value is None:
+            return self.default_currency
+        # value is a Money instance; return the currency code
+        if hasattr(value, "currency"):
+            return str(value.currency)
+        return str(value) if value else self.default_currency
+
+    def clean(self, value, row=None, **kwargs):
+        if value is None or str(value).strip() == "":
+            return self.default_currency
+        return str(value).strip().upper()
+
+
 class InventoryItemResource(resources.ModelResource):
     company = fields.Field(
         column_name=_("Company"),
@@ -44,6 +80,28 @@ class InventoryItemResource(resources.ModelResource):
         widget=ContentTypeWidget(),
     )
 
+    # ── Money fields split into amount + currency ─────────────────────────
+    selling_price = fields.Field(
+        column_name=_("Selling Price"),
+        attribute="selling_price",
+        widget=MoneyAmountWidget(),
+    )
+    selling_price_currency = fields.Field(
+        column_name=_("Selling Price Currency"),
+        attribute="selling_price_currency",
+        widget=MoneyCurrencyWidget(default_currency="EUR"),
+    )
+    cost_price = fields.Field(
+        column_name=_("Cost Price"),
+        attribute="cost_price",
+        widget=MoneyAmountWidget(),
+    )
+    cost_price_currency = fields.Field(
+        column_name=_("Cost Price Currency"),
+        attribute="cost_price_currency",
+        widget=MoneyCurrencyWidget(default_currency="EUR"),
+    )
+
     class Meta:
         model = InventoryItem
         fields = (
@@ -58,7 +116,9 @@ class InventoryItemResource(resources.ModelResource):
             "product_content_type",
             "product_object_id",
             "selling_price",
+            "selling_price_currency",
             "cost_price",
+            "cost_price_currency",
             "min_stock",
         )
         export_order = fields

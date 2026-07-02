@@ -365,12 +365,59 @@ class ResourcePlanning(Timestampable, CompanyOwnedModel):
 # ---------------------------------------------------------------------------
 
 
+class WorkEntryCategory(CompanyOwnedModel):
+    """
+    Catalog of work entry categories (e.g. Puesta, Recogida, Transporte).
+    Used to group WorkEntryTypes so project-file-scoped overrides can
+    replace company-wide defaults of the same category.
+    """
+
+    name = models.CharField(
+        max_length=200,
+        verbose_name=_("Name"),
+    )
+    slug = models.SlugField(
+        max_length=100,
+        verbose_name=_("Slug"),
+        help_text=_("Unique identifier for this category within the company."),
+    )
+    description = models.TextField(
+        blank=True,
+        verbose_name=_("Description"),
+    )
+
+    class Meta:
+        verbose_name = _("Work Entry Category")
+        verbose_name_plural = _("Work Entry Categories")
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "slug"],
+                name="unique_work_entry_category_per_company",
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class WorkEntryType(CompanyOwnedModel):
     """
     Configurable template defining a category of billable work and how to price it.
     Can be company-wide (project_file=NULL) or scoped to a specific Expediente.
+    When multiple types share the same category, the project-file-scoped one
+    takes priority over the company-wide default.
     """
 
+    category = models.ForeignKey(
+        WorkEntryCategory,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="work_entry_types",
+        verbose_name=_("Category"),
+        help_text=_("Groups this type so project-file overrides replace company-wide defaults of the same category."),
+    )
     name = models.CharField(max_length=200, verbose_name=_("Name"))
     unit_label = models.CharField(
         max_length=50,
@@ -445,8 +492,8 @@ class WorkEntryType(CompanyOwnedModel):
         ordering = ["name"]
         constraints = [
             models.UniqueConstraint(
-                fields=["company", "name", "project_file"],
-                name="unique_work_entry_type_per_company_project",
+                fields=["company", "category", "project_file"],
+                name="unique_work_entry_type_per_company_category_project",
             ),
         ]
 
@@ -542,10 +589,6 @@ class WorkEntryPricingStep(models.Model):
         verbose_name_plural = _("Pricing Steps")
         ordering = ["order"]
         constraints = [
-            models.UniqueConstraint(
-                fields=["entry_type", "order"],
-                name="unique_pricing_step_order",
-            ),
             models.UniqueConstraint(
                 fields=["entry_type", "variable_name"],
                 name="unique_pricing_step_variable",

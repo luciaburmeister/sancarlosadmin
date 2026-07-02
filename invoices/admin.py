@@ -316,39 +316,18 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
 
     @action(description=_("Run Matcher"), url_path="run-matcher", icon="compare_arrows")
     def run_invoice_matcher_detail_action(self, request, object_id):
-        from banking.models import InvoiceReconciliationSuggestion
-        from banking.services.transaction_matching import InvoiceMatcher
-        from django.contrib.contenttypes.models import ContentType
+        from banking.tasks import run_invoice_matcher_task
 
         invoice = get_object_or_404(Invoice, pk=object_id)
 
-        # Delete any existing unconfirmed suggestion for this invoice
-        ct = ContentType.objects.get_for_model(invoice)
-        InvoiceReconciliationSuggestion.objects.filter(
-            content_type=ct, object_id=invoice.pk, is_confirmed=False
-        ).delete()
-
-        try:
-            matcher = InvoiceMatcher(invoice)
-            suggestion = matcher.run()
-            if suggestion.suggested_combinations:
-                return redirect(
-                    reverse(
-                        "admin:banking_invoicereconciliationsuggestion_review",
-                        args=[suggestion.pk],
-                    )
-                )
-            messages.info(
-                request,
-                _("Matcher ran but found no matching bank transactions."),
-            )
-        except Exception as e:
-            logger.exception("Error running invoice matcher for invoice %s", object_id)
-            messages.error(
-                request, _("Error running matcher: %(error)s") % {"error": str(e)}
-            )
-
-        return redirect(request.META.get("HTTP_REFERER"))
+        # Dispatch to Celery and redirect to the status page
+        result = run_invoice_matcher_task.delay("invoice", invoice.pk)
+        back_url = reverse("admin:invoices_invoice_change", args=[invoice.pk])
+        status_url = (
+            reverse("admin:banking_matcher_status")
+            + f"?task_id={result.id}&task_type=invoice&back_url={back_url}"
+        )
+        return redirect(status_url)
 
     fieldsets = (
         (
@@ -1077,35 +1056,15 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
 
     @action(description=_("Run Matcher"), url_path="run-matcher", icon="compare_arrows")
     def run_invoice_matcher_detail_action(self, request, object_id):
-        from banking.models import InvoiceReconciliationSuggestion
-        from banking.services.transaction_matching import InvoiceMatcher
-        from django.contrib.contenttypes.models import ContentType
+        from banking.tasks import run_invoice_matcher_task
 
         invoice = get_object_or_404(SalesInvoice, pk=object_id)
 
-        ct = ContentType.objects.get_for_model(invoice)
-        InvoiceReconciliationSuggestion.objects.filter(
-            content_type=ct, object_id=invoice.pk, is_confirmed=False
-        ).delete()
-
-        try:
-            matcher = InvoiceMatcher(invoice)
-            suggestion = matcher.run()
-            if suggestion.suggested_combinations:
-                return redirect(
-                    reverse(
-                        "admin:banking_invoicereconciliationsuggestion_review",
-                        args=[suggestion.pk],
-                    )
-                )
-            messages.info(
-                request,
-                _("Matcher ran but found no matching bank transactions."),
-            )
-        except Exception as e:
-            logger.exception("Error running invoice matcher for sales invoice %s", object_id)
-            messages.error(
-                request, _("Error running matcher: %(error)s") % {"error": str(e)}
-            )
-
-        return redirect(request.META.get("HTTP_REFERER"))
+        # Dispatch to Celery and redirect to the status page
+        result = run_invoice_matcher_task.delay("salesinvoice", invoice.pk)
+        back_url = reverse("admin:invoices_salesinvoice_change", args=[invoice.pk])
+        status_url = (
+            reverse("admin:banking_matcher_status")
+            + f"?task_id={result.id}&task_type=salesinvoice&back_url={back_url}"
+        )
+        return redirect(status_url)

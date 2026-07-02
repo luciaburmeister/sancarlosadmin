@@ -12,6 +12,10 @@ from banking.views.callback_views import (
 from banking.views.invoice_reconciliation_views import (
     ReviewInvoiceReconciliationView,
 )
+from banking.views.matcher_status_views import (
+    MatcherStatusPageView,
+    MatcherTaskStatusAPIView,
+)
 from banking.views.reconciliation_views import (
     LinkTransactionView,
     ManualReconcileView,
@@ -31,5 +35,6 @@ __all__ = [
     "ManualReconcileView",
     "LinkTransactionView",
     "ReviewInvoiceReconciliationView",
+    "MatcherStatusPageView",
+    "MatcherTaskStatusAPIView",
 ]
-

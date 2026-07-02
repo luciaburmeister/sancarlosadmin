@@ -12,7 +12,7 @@ from unfold.enums import ActionVariant
 from unfold.widgets import UnfoldAdminSelect2Widget
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
 from import_export.admin import ImportExportModelAdmin
-from unfold.contrib.import_export.forms import ImportForm, SelectableFieldsExportForm
+from unfold.contrib.import_export.forms import ExportForm, ImportForm, SelectableFieldsExportForm
 from inventory.resources import InventoryItemResource
 
 from django.urls import path, reverse

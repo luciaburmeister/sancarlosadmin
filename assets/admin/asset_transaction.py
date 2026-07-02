@@ -41,6 +41,7 @@ class AssetTransactionAdmin(ModelAdmin):
     list_filter = (
         ("company", AutocompleteSelectMultipleFilter),
         ("transaction_type", MultipleChoicesDropdownFilter),
+        ("project_file", AutocompleteSelectMultipleFilter),
         ("asset__asset_type", AutocompleteSelectMultipleFilter),
         ("asset__client", AutocompleteSelectMultipleFilter),
         ("from_zone", AutocompleteSelectMultipleFilter),

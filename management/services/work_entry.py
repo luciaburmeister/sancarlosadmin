@@ -167,6 +167,10 @@ class WorkEntryService:
         For a given source (e.g. AssetTransaction), find all applicable
         WorkEntryTypes and check which ones have been fulfilled.
 
+        Resolution order per category:
+        1. Project-file-scoped type (if source has a project_file)
+        2. Company-wide default (project_file=NULL)
+
         Returns:
             dict with 'expected', 'existing_type_ids', 'missing', 'is_fully_processed'
         """
@@ -195,11 +199,29 @@ class WorkEntryService:
             )
             applicable_types = applicable_types.filter(project_file__isnull=True) | pf_types
 
-        # Evaluate applicability
-        expected = []
-        for wtype in applicable_types:
-            if wtype.evaluate_applicability(context):
-                expected.append(wtype)
+        # Evaluate applicability and deduplicate by category.
+        # Per category: project-file-scoped type wins over company-wide default.
+        # Types without a category pass through without deduplication.
+        by_category = {}  # category_id → WorkEntryType
+        no_category = []  # types without a category (backward compat)
+        for wtype in applicable_types.select_related("category"):
+            if not wtype.evaluate_applicability(context):
+                continue
+
+            cat_id = wtype.category_id
+            if cat_id is None:
+                no_category.append(wtype)
+                continue
+
+            existing = by_category.get(cat_id)
+
+            if existing is None:
+                by_category[cat_id] = wtype
+            elif wtype.project_file_id and not existing.project_file_id:
+                # Project-file-scoped overrides company-wide default
+                by_category[cat_id] = wtype
+
+        expected = list(by_category.values()) + no_category
 
         # Check which have been created
         existing_type_ids = set(

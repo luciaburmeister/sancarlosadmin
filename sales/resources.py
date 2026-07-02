@@ -1103,6 +1103,9 @@ class QuoteExportResource(resources.ModelResource):
     def dehydrate_client_phone(self, quote):
         return quote.client.phone if quote.client else ""
 
+    def dehydrate_status_field(self, quote):
+        return quote.get_status_display()
+
     def dehydrate_subtotal_amount(self, quote):
         return float(quote.subtotal_price.amount) if quote.subtotal_price else 0.0
 

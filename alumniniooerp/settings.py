@@ -110,6 +110,7 @@ INSTALLED_APPS = [
     'banking',
     "finance",
     "payroll",
+    "unfold.contrib.hijack",
 ]
 
 MIDDLEWARE = [

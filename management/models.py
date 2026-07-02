@@ -543,10 +543,6 @@ class WorkEntryPricingStep(models.Model):
         ordering = ["order"]
         constraints = [
             models.UniqueConstraint(
-                fields=["entry_type", "order"],
-                name="unique_pricing_step_order",
-            ),
-            models.UniqueConstraint(
                 fields=["entry_type", "variable_name"],
                 name="unique_pricing_step_variable",
             ),

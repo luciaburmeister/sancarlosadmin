@@ -207,7 +207,7 @@ class DeductBOMComponentsTest(_BOMBaseTestCase):
         parent.deduct_bom_components(quantity=3, warehouse=self.warehouse)
 
         # Transaction should be in WH2 (component's warehouse), not WH1
-        tx = ItemTransaction.objects.filter(item=comp).last()
+        tx = ItemTransaction.objects.filter(item=comp).first()
         self.assertEqual(tx.warehouse, wh2)
 
     def test_reference_object_propagated(self):
@@ -223,7 +223,7 @@ class DeductBOMComponentsTest(_BOMBaseTestCase):
             reference_object=parent,
         )
 
-        tx = ItemTransaction.objects.filter(item=comp).last()
+        tx = ItemTransaction.objects.filter(item=comp).first()
         self.assertIsNotNone(tx.reference_content_type)
         self.assertEqual(tx.reference_object_id, parent.pk)
 
@@ -235,7 +235,7 @@ class DeductBOMComponentsTest(_BOMBaseTestCase):
 
         parent.deduct_bom_components(quantity=1, warehouse=self.warehouse)
 
-        tx = ItemTransaction.objects.filter(item=comp).last()
+        tx = ItemTransaction.objects.filter(item=comp).first()
         self.assertEqual(tx.movement_type, MovementType.OUT)
         self.assertEqual(tx.quantity_change, -2)
 

@@ -270,6 +270,125 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
             content_type=ct, object_id=self.pk
         ).select_related("tax_type").order_by("order")
 
+    def deduct_bom_components(
+        self,
+        quantity: int,
+        warehouse,
+        *,
+        reference_object=None,
+        user=None,
+        note: str = "",
+        _seen: set | None = None,
+    ):
+        """Deduct stock for every BOM component of this item.
+
+        For each :model:`inventory.BillOfMaterialsLine` attached to this item,
+        creates a stock-out ``ItemTransaction`` and recurses into the
+        component so nested BOMs are handled automatically.
+
+        Args:
+            quantity: Number of *parent* units being consumed.
+            warehouse: Warehouse to deduct from (falls back to the
+                component's ``default_warehouse`` when available).
+            reference_object: Optional originating document (Quote, etc.).
+            user: User performing the operation.
+            note: Free-text note added to each transaction.
+            _seen: Internal set used to prevent infinite loops from
+                circular BOM references.  Callers should **not** pass this.
+        """
+        if _seen is None:
+            _seen = set()
+        if self.pk in _seen:
+            return  # circular reference guard
+        _seen.add(self.pk)
+
+        bom_lines = self.bom_lines.select_related(
+            "component", "component__default_warehouse"
+        )
+        for line in bom_lines:
+            component = line.component
+            total_qty = line.quantity * quantity
+            target_wh = component.default_warehouse or warehouse
+
+            ref_ct = ref_id = None
+            if reference_object is not None:
+                ref_ct = ContentType.objects.get_for_model(reference_object)
+                ref_id = reference_object.pk
+
+            from .choices import MovementType
+            ItemTransaction.objects.create(
+                item=component,
+                warehouse=target_wh,
+                movement_type=MovementType.OUT,
+                quantity_change=-total_qty,
+                reference_content_type=ref_ct,
+                reference_object_id=ref_id,
+                user=user,
+                note=note or f"BOM deduction for {self.code} ×{quantity}",
+            )
+
+            # Recurse for nested BOMs
+            component.deduct_bom_components(
+                quantity=total_qty,
+                warehouse=target_wh,
+                reference_object=reference_object,
+                user=user,
+                note=note,
+                _seen=_seen,
+            )
+
+
+
+class BillOfMaterialsLine(Timestampable):
+    """Links a parent InventoryItem to a component InventoryItem with a quantity.
+
+    Example: 1 unit of 'Window Assembly' requires 2 units of 'Glass Panel'
+    and 4 units of 'Aluminium Profile'.
+    """
+
+    parent = models.ForeignKey(
+        "inventory.InventoryItem",
+        verbose_name=_("Parent Item"),
+        on_delete=models.CASCADE,
+        related_name="bom_lines",
+        help_text=_("The composite / assembled item."),
+    )
+    component = models.ForeignKey(
+        "inventory.InventoryItem",
+        verbose_name=_("Component Item"),
+        on_delete=models.PROTECT,
+        related_name="used_in_bom",
+        help_text=_("The part / sub-item consumed when the parent is built or sold."),
+    )
+    quantity = models.PositiveIntegerField(
+        _("Quantity"),
+        default=1,
+        help_text=_("How many units of the component are needed per 1 unit of the parent."),
+    )
+
+    class Meta:
+        verbose_name = _("Bill of Materials Line")
+        verbose_name_plural = _("Bill of Materials Lines")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["parent", "component"],
+                name="uniq_bom_parent_component",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["parent"], name="idx_bom_parent"),
+        ]
+
+    def __str__(self):
+        return f"{self.parent.code} → {self.component.code} ×{self.quantity}"
+
+    def clean(self):
+        super().clean()
+        if self.parent_id and self.component_id and self.parent_id == self.component_id:
+            raise ValidationError(
+                {"component": _("A component cannot be the same as the parent item.")}
+            )
+
 
 class ItemProviderInfo(Timestampable):
     """

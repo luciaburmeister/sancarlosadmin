@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-01 14:57+0200\n"
+"POT-Creation-Date: 2026-07-03 08:30+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -918,18 +918,6 @@ msgstr "Ejecutar Matcher"
 
 msgid "This transaction is already reconciled."
 msgstr "Esta transacción ya está reconciliada."
-
-msgid ""
-"Matcher ran but found no matching documents. A reconciliation record was "
-"created for manual review."
-msgstr ""
-"El comparador se ejecutó pero no encontró documentos coincidentes. Se creó "
-"un registro de reconciliación para revisión manual."
-
-#, fuzzy, python-format
-#| msgid "Invalid expression: %(error)s"
-msgid "Error running matcher: %(error)s"
-msgstr "Expresión inválida: %(error)s"
 
 #, fuzzy
 #| msgid "Reconciled"
@@ -2842,6 +2830,17 @@ msgstr ""
 "ser convertidas a producción incluso si la cotización vinculada aún no ha "
 "sido aceptada."
 
+msgid "Allow changing parameter values in any status"
+msgstr "Permitir cambiar los valores de los parámetros en cualquier estado."
+
+msgid ""
+"If enabled, parameter values can be edited even when the configuration is in"
+" production, completed, or any non-draft status."
+msgstr ""
+"Si está habilitado, los valores de los parámetros se pueden editar incluso "
+"cuando la configuración está en producción, completada o en cualquier estado"
+" que no sea borrador."
+
 #, fuzzy
 #| msgid "Kind"
 msgid "Flow Kind"
@@ -4088,18 +4087,24 @@ msgstr "Referencias de Proveedores"
 msgid "Identity Code"
 msgstr "Tipo de activo"
 
-#, fuzzy
-#| msgid "Tax Identifier"
+
 msgid "Identity Codes"
-msgstr "Identificador Fiscal"
+msgstr "Identificadores"
 
 msgid "Received"
 msgstr "Recibido"
 
-#, fuzzy
-#| msgid "Register Payment"
+
 msgid "Registered"
-msgstr "Registrar Pago"
+msgstr "Registrado"
+
+
+msgid "BOM Component"
+msgstr "Componente"
+
+
+msgid "Bill of Materials"
+msgstr "Materiales"
 
 #, fuzzy
 #| msgid "Product Templates"
@@ -4256,9 +4261,6 @@ msgstr "Producto Terminado"
 msgid "Own Production"
 msgstr "Producción propia"
 
-msgid "Own Production items can only be linked to a Configuration Preset."
-msgstr "Los artículos de producción propia solo pueden vincularse a un preset de configuración."
-
 msgid "Stock In"
 msgstr "Stock Entrante"
 
@@ -4386,6 +4388,39 @@ msgstr "Los servicios no pueden tener un almacén."
 msgid "This item type requires a warehouse."
 msgstr "Este tipo de artículo requiere un almacén."
 
+msgid "Own Production items can only be linked to a Configuration Preset."
+msgstr ""
+"Los artículos de producción propia solo pueden vincularse a un preset de "
+"configuración."
+
+#, fuzzy
+#| msgid "Payment Date"
+msgid "Parent Item"
+msgstr "Fecha de Pago"
+
+msgid "The composite / assembled item."
+msgstr "El artículo compuesto / ensamblado."
+
+
+msgid "Component Item"
+msgstr "Componente"
+
+msgid "The part / sub-item consumed when the parent is built or sold."
+msgstr ""
+"La parte / sub-item consumido cuando el padre es construido o vendido."
+
+msgid "How many units of the component are needed per 1 unit of the parent."
+msgstr "¿Cuántas unidades del componente se necesitan por 1 unidad del padre?"
+
+msgid "Bill of Materials Line"
+msgstr "Línea de Lista de Materiales"
+
+msgid "Bill of Materials Lines"
+msgstr "Líneas de la Lista de Materiales"
+
+msgid "A component cannot be the same as the parent item."
+msgstr "Un componente no puede ser el mismo que el ítem padre."
+
 msgid "The provider's own code / SKU for this item."
 msgstr "Código / SKU propio del proveedor para este artículo."
 
@@ -4496,6 +4531,16 @@ msgid "Inventory Movements (legacy)"
 msgstr "Movimientos de Inventario"
 
 #, fuzzy
+#| msgid "Unit Price"
+msgid "Selling Price Currency"
+msgstr "Precio Unitario"
+
+#, fuzzy
+#| msgid "Unit Price"
+msgid "Cost Price Currency"
+msgstr "Precio Unitario"
+
+#, fuzzy
 #| msgid "QR Code"
 msgid "Worker QR Code"
 msgstr "Codigo QR"
@@ -4549,30 +4594,24 @@ msgstr ""
 msgid "Receive Stock Now"
 msgstr "Facturas de compra"
 
-#, fuzzy
-#| msgid "Stock In"
+
 msgid "Stock Actions"
-msgstr "Stock Entrante"
+msgstr "Acciones de inventario"
 
-#, fuzzy
-#| msgid "Received Invoices"
+
 msgid "Receive Stock"
-msgstr "Facturas de compra"
+msgstr "Recibir stock"
 
-#, fuzzy
-#| msgid "Work Order"
+
 msgid "Worker QR"
-msgstr "Orden de Trabajo"
+msgstr "QR"
 
-#, fuzzy
-#| msgid "Bank Transfer"
+
 msgid "Transfer Stock"
-msgstr "Transferencia Bancaria"
+msgstr "Transferir articulos"
 
-#, fuzzy
-#| msgid "Adjustment"
 msgid "Adjust Stock"
-msgstr "Ajuste"
+msgstr "Ajustar inventario"
 
 msgid "Scan to open the Receive Stock form directly on a mobile device."
 msgstr ""
@@ -4689,12 +4728,6 @@ msgstr "Inventario ajustado en %(sign)s%(qty)d para %(item)s en %(wh)s."
 #, python-format
 msgid "Adjust Stock — %s"
 msgstr "Ajustar Stock — %s"
-
-#, fuzzy
-#| msgid "No matching combinations were found for this transaction."
-msgid "Matcher ran but found no matching bank transactions."
-msgstr ""
-"No se encontraron combinaciones que coincidieran para esta transacción."
 
 msgid "Invoice Info"
 msgstr "Información de factura"
@@ -6144,8 +6177,7 @@ msgid ""
 "                "
 msgstr ""
 "\n"
-"Estás a punto de crear una sola factura para %(count)s archivo(s) de "
-"proyecto perteneciente(s) a <strong>%(client)s</strong>."
+"Estás a punto de crear una sola factura para %(count)s archivo(s) de proyecto perteneciente(s) a <strong>%(client)s</strong>."
 
 #, fuzzy
 #| msgid "Finalized (Subtotal)"
@@ -6656,6 +6688,33 @@ msgstr ""
 "Este recurso ya tiene una planificación que se superpone con el rango de "
 "tiempo seleccionado."
 
+msgid "Slug"
+msgstr "Slug"
+
+msgid "Unique identifier for this category within the company."
+msgstr "Identificador único para esta categoría dentro de la empresa."
+
+#, fuzzy
+#| msgid "Work Entry Type"
+msgid "Work Entry Category"
+msgstr "Tipo de Parte de Trabajo"
+
+#, fuzzy
+#| msgid "Inventory Categories"
+msgid "Work Entry Categories"
+msgstr "Categorías de Inventario"
+
+msgid "Category"
+msgstr "Categoría"
+
+msgid ""
+"Groups this type so project-file overrides replace company-wide defaults of "
+"the same category."
+msgstr ""
+"Los grupos de este tipo permiten que las configuraciones de archivo del "
+"proyecto reemplacen las configuraciones predeterminadas a nivel de empresa "
+"de la misma categoría."
+
 msgid "Unit Label"
 msgstr "Etiqueta de Unidad"
 
@@ -6967,9 +7026,6 @@ msgstr "Cuenta de Banco del cliente"
 #| msgid "Client Bank Accounts"
 msgid "Provider Bank Accounts"
 msgstr "Cuentas de banco del cliente"
-
-msgid "Category"
-msgstr "Categoría"
 
 msgid "Reference code"
 msgstr "Código de referencia"
@@ -8598,14 +8654,13 @@ msgstr "Etapas"
 msgid "Orders"
 msgstr "Pedidos"
 
-
-msgid "Tiempo total"
+#, fuzzy
+#| msgid "Total price"
+msgid "Total time"
 msgstr "Precio total"
-
 
 msgid "Total hours"
 msgstr "Horas totales"
-
 
 msgid "Total minutes"
 msgstr "Minutos totales"
@@ -9172,17 +9227,14 @@ msgstr "Articulo de venta"
 msgid "Sale items"
 msgstr "Articulos de venta"
 
-
 msgid "Cost"
 msgstr "Costo"
-
 
 msgid "Margin (€)"
 msgstr "Margen (€)"
 
 msgid "Margin (%)"
 msgstr "Margen (%)"
-
 
 msgid "Configuration Groups"
 msgstr "Grupos de configuraciones"
@@ -9194,11 +9246,6 @@ msgstr "Detalles"
 #| msgid "Start Date"
 msgid "Status Dates"
 msgstr "Fecha de Inicio"
-
-
-msgid "Total Cost"
-msgstr "Costo total"
-
 
 msgid "Total Commissions"
 msgstr "Comisiones totales"
@@ -9214,7 +9261,6 @@ msgstr "Margen después del descuento (€)"
 
 msgid "Margin after discount (%)"
 msgstr "Margen después del descuento (%)"
-
 
 msgid "Add Configuration"
 msgstr "Agregar Configuración"
@@ -9303,6 +9349,14 @@ msgstr "Total de la línea"
 msgid "On accumulated"
 msgstr "Crédito Acumulado"
 
+#, fuzzy
+#| msgid "Line Item"
+msgid "Line item"
+msgstr "Item"
+
+msgid "Basket"
+msgstr "Canasta"
+
 msgid "Policy"
 msgstr "Política"
 
@@ -9334,6 +9388,13 @@ msgstr ""
 "Ejemplos:  \n"
 "  • subtotal > 1000  \n"
 "  • subtotal > 5000 y total_quantity > 10\n"
+
+msgid ""
+"'Line item' writes the effective discount % to each inventory item. 'Basket'"
+" applies the discount to the overall quote subtotal."
+msgstr ""
+"'Line item' escribe el % de descuento efectivo a cada artículo del "
+"inventario. 'Basket' aplica el descuento al subtotal total de la cotización."
 
 msgid "Discount Rule"
 msgstr "Regla de Descuento"
@@ -9571,6 +9632,11 @@ msgstr "Descuento"
 msgid "subtotal_price - discount_amount. The taxable base."
 msgstr "subtotal_price - discount_amount. La base imponible."
 
+#, fuzzy
+#| msgid "Number of configurations to create from this preset."
+msgid "Sum of configuration costs + inventory item purchase costs."
+msgstr "Número de configuraciones para crear a partir de este preset."
+
 msgid "Can view quote dashboard"
 msgstr "Puede ver el panel de cotizaciones."
 
@@ -9722,6 +9788,16 @@ msgid "Subtotal Currency"
 msgstr "Moneda del total"
 
 #, fuzzy
+#| msgid "Discounted subtotal"
+msgid "Discounted Subtotal"
+msgstr "Descuento"
+
+#, fuzzy
+#| msgid "Line Total Currency"
+msgid "Cost Currency"
+msgstr "Moneda del total"
+
+#, fuzzy
 #| msgid "Currency"
 msgid "Tax Currency"
 msgstr "Moneda"
@@ -9730,6 +9806,26 @@ msgstr "Moneda"
 #| msgid "Line Total Currency"
 msgid "Total Currency"
 msgstr "Moneda del total"
+
+#, fuzzy
+#| msgid "Date sent"
+msgid "Date Sent"
+msgstr "Fecha enviado"
+
+#, fuzzy
+#| msgid "Date accepted"
+msgid "Date Accepted"
+msgstr "Fecha aceptado"
+
+#, fuzzy
+#| msgid "Date rejected"
+msgid "Date Rejected"
+msgstr "Fecha rechazado"
+
+#, fuzzy
+#| msgid "Expires at"
+msgid "Expires At"
+msgstr "Expira el"
 
 msgid "Total Quoted"
 msgstr "Total Presupuestado"
@@ -9847,6 +9943,53 @@ msgstr "Conciliación Bancaria"
 msgid "No unpaid documents found for this transaction."
 msgstr ""
 "No se encontraron combinaciones que coincidieran para esta transacción."
+
+#, fuzzy
+#| msgid "Run Matcher"
+msgid "Running Matcher"
+msgstr "Ejecutar Matcher"
+
+#, fuzzy
+#| msgid "Run Matcher"
+msgid "Running matcher…"
+msgstr "Ejecutar Matcher"
+
+msgid "This may take a few seconds. You will be redirected automatically."
+msgstr "Esto puede tardar unos segundos. Serás redirigido automáticamente."
+
+#, fuzzy
+#| msgid "Matched"
+msgid "Matches found!"
+msgstr "Emparejados"
+
+msgid "Redirecting to review page…"
+msgstr "Redirigiendo a la página de revisión…"
+
+#, fuzzy
+#| msgid "No active items to join."
+msgid "No matches found"
+msgstr "No hay elementos activos para unirte."
+
+#, fuzzy
+#| msgid "No matching combinations were found for this transaction."
+msgid ""
+"The matcher ran successfully but could not find any matching documents or "
+"bank transactions."
+msgstr ""
+"No se encontraron combinaciones que coincidieran para esta transacción."
+
+msgid "Go back"
+msgstr "Regresar"
+
+#, fuzzy
+#| msgid "Matched employee"
+msgid "Matcher error"
+msgstr "Empleado emparejado"
+
+#, fuzzy
+#| msgid "An error occurred while saving the receipt: %(error)s"
+msgid "An error occurred while running the matcher."
+msgstr "Ocurrió un error al guardar el recibo: %(error)s"
 
 msgid "This reconciliation has already been confirmed."
 msgstr "Esta reconciliación ya ha sido confirmada."
@@ -10197,6 +10340,23 @@ msgstr "Ausencias pasadas"
 
 msgid "No past absences."
 msgstr "No hay ausencias pasadas"
+
+#~ msgid ""
+#~ "Matcher ran but found no matching documents. A reconciliation record was "
+#~ "created for manual review."
+#~ msgstr ""
+#~ "El comparador se ejecutó pero no encontró documentos coincidentes. Se creó "
+#~ "un registro de reconciliación para revisión manual."
+
+#, fuzzy, python-format
+#~ msgid "Error running matcher: %(error)s"
+#~ msgstr "Expresión inválida: %(error)s"
+
+#~ msgid "Tiempo total"
+#~ msgstr "Precio total"
+
+#~ msgid "Total Cost"
+#~ msgstr "Costo total"
 
 #, fuzzy
 #~ msgid "All types"

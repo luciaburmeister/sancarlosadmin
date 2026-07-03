@@ -28,6 +28,7 @@ from .models import (
     ItemProviderInfo,
     ItemTransaction,
     ItemIdentityCode,
+    BillOfMaterialsLine,
 )
 from invoices.models import AppliedTax
 from purchasing.models import PurchaseOrderItem
@@ -219,6 +220,18 @@ class ItemIdentityCodeInline(TabularInline):
             )
         return format_html(" · ".join(str(p) for p in parts))
     status_display.short_description = _("Status")
+
+
+class BillOfMaterialsInline(TabularInline):
+    model = BillOfMaterialsLine
+    fk_name = "parent"
+    extra = 0
+    tab = True
+    verbose_name = _("BOM Component")
+    verbose_name_plural = _("Bill of Materials")
+    autocomplete_fields = ("component",)
+    fields = ("component", "quantity")
+
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -416,7 +429,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
     form = InventoryItemForm
-    inlines = [ItemProviderInfoInline, ItemIdentityCodeInline, PurchaseHistoryInline, ItemTransactionInline, ItemAppliedTaxInline]
+    inlines = [BillOfMaterialsInline, ItemProviderInfoInline, ItemIdentityCodeInline, PurchaseHistoryInline, ItemTransactionInline, ItemAppliedTaxInline]
     actions_row = ["row_receive_stock", "row_transfer_stock", "row_adjust_stock"]
 
     list_display = (

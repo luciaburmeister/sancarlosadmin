@@ -306,14 +306,25 @@ class AdjustStockView(_MovementViewMixin):
         form = AdjustmentMovementForm(request.POST)
         if form.is_valid():
             data = form.cleaned_data
-            ItemTransaction.objects.create(
-                item=item,
-                movement_type=MovementType.ADJUST,
-                quantity_change=data["quantity_change"],
-                warehouse=data["warehouse"],
-                user=request.user,
-                note=data.get("note", ""),
-            )
+            with transaction.atomic():
+                ItemTransaction.objects.create(
+                    item=item,
+                    movement_type=MovementType.ADJUST,
+                    quantity_change=data["quantity_change"],
+                    warehouse=data["warehouse"],
+                    user=request.user,
+                    note=data.get("note", ""),
+                )
+
+                # Cascade BOM deductions for negative adjustments
+                if data["quantity_change"] < 0:
+                    item.deduct_bom_components(
+                        quantity=abs(data["quantity_change"]),
+                        warehouse=data["warehouse"],
+                        user=request.user,
+                        note=data.get("note", "") or f"BOM adjustment for {item.code}",
+                    )
+
             sign = "+" if data["quantity_change"] > 0 else ""
             messages.success(
                 request,

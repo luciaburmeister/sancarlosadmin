@@ -819,6 +819,14 @@ class Quote(Timestampable, CompanyOwnedModel):
                 note=f"Stock out from accepted Quote #{self.id}",
             )
 
+            # Cascade BOM component deductions
+            item.deduct_bom_components(
+                quantity=int(line.quantity),
+                warehouse=item.default_warehouse,
+                reference_object=self,
+                note=f"BOM deduction from accepted Quote #{self.id}",
+            )
+
     def __str__(self):
         return self.project_name or f"Quote #{self.id}"
 

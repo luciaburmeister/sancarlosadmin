@@ -1,0 +1,116 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% block title %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block extrahead %}
+  {{ block.super }}
+  {{ media }}
+{% endblock %}
+
+{% block content %}
+
+{# Breadcrumb #}
+<div class="mb-6 mt-2">
+  <ul class="flex flex-wrap items-center gap-x-1 text-sm text-font-subtle-light dark:text-font-subtle-dark list-none p-0 m-0">
+    <li><a href="{% url 'admin:index' %}" class="hover:text-primary-600 dark:hover:text-primary-400 transition-colors no-underline">{% trans "Home" %}</a></li>
+    <li class="mx-1">/</li>
+    <li><a href="{% url 'admin:sales_quote_changelist' %}" class="hover:text-primary-600 dark:hover:text-primary-400 transition-colors no-underline">{% trans "Quotes" %}</a></li>
+    <li class="mx-1">/</li>
+    <li><a href="{{ cancel_url }}" class="hover:text-primary-600 dark:hover:text-primary-400 transition-colors no-underline">{{ quote }}</a></li>
+    <li class="mx-1">/</li>
+    <li class="font-semibold text-font-important-light dark:text-font-important-dark">{% trans "Send Email" %}</li>
+  </ul>
+</div>
+
+{# Title card #}
+<div class="border border-base-200 dark:border-base-800 rounded-default shadow-xs mb-6 overflow-hidden bg-white dark:bg-base-900">
+  <div class="flex items-center gap-4 px-6 py-5 border-b border-base-200 dark:border-base-800">
+    <div class="w-10 h-10 rounded-default bg-primary-50 dark:bg-primary-900/30 flex items-center justify-center shrink-0">
+      <span class="material-symbols-outlined text-[22px] leading-none text-primary-600 dark:text-primary-400">mail</span>
+    </div>
+    <div>
+      <h1 class="text-xl font-bold text-font-important-light dark:text-font-important-dark m-0 leading-tight">{{ title }}</h1>
+      {% if quote.client %}
+      <p class="text-sm text-font-subtle-light dark:text-font-subtle-dark m-0 mt-1">
+        {% trans "Client" %}: <span class="font-semibold text-font-default-light dark:text-font-default-dark">{{ quote.client.name }}</span>
+      </p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<form method="post" novalidate>
+  {% csrf_token %}
+
+  {# Hidden field to control redirect destination #}
+  <input type="hidden" name="redirect_to" value="{{ redirect_to|default:'' }}">
+
+  <div class="flex flex-col gap-6">
+
+    {# ── CC info banner ── #}
+    {% if sender_email %}
+    <div class="flex items-center gap-3 px-4 py-3 rounded-default border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/30">
+      <span class="material-symbols-outlined text-blue-600 dark:text-blue-400 text-[20px] leading-none shrink-0">content_copy</span>
+      <p class="text-sm text-blue-700 dark:text-blue-300 m-0">
+        {% blocktrans with email=sender_email %}You will receive a copy (CC) at <strong>{{ email }}</strong>.{% endblocktrans %}
+      </p>
+    </div>
+    {% else %}
+    <div class="flex items-center gap-3 px-4 py-3 rounded-default border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30">
+      <span class="material-symbols-outlined text-amber-600 dark:text-amber-400 text-[20px] leading-none shrink-0">warning</span>
+      <p class="text-sm text-amber-700 dark:text-amber-300 m-0">
+        {% trans "Your user account has no email address set — you will not receive a CC copy." %}
+      </p>
+    </div>
+    {% endif %}
+
+    {# ── Recipients section ── #}
+    <div class="border border-base-200 dark:border-base-800 rounded-default shadow-xs overflow-hidden bg-white dark:bg-base-900">
+
+      <div class="px-6 py-4 border-b border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02]">
+        <h2 class="text-base font-bold text-font-important-light dark:text-font-important-dark m-0">
+          {% trans "Select Recipients" %}
+        </h2>
+        <p class="text-sm text-font-subtle-light dark:text-font-subtle-dark m-0 mt-1">
+          {% trans "Choose who should receive this quote email." %}
+        </p>
+      </div>
+
+      <div class="px-6 py-5">
+
+        {# ── Recipient checkboxes — rendered by Unfold widget ── #}
+        {% if form.to_emails.field.choices %}
+          {% include "unfold/helpers/field.html" with field=form.to_emails %}
+        {% else %}
+        <div class="text-center py-8">
+          <span class="material-symbols-outlined text-[40px] text-font-subtle-light dark:text-font-subtle-dark mb-2">mail_off</span>
+          <p class="text-sm text-font-subtle-light dark:text-font-subtle-dark m-0">{% trans "No email addresses available for this client." %}</p>
+        </div>
+        {% endif %}
+
+      </div>
+    </div>
+
+    {# ── Actions ── #}
+    <div class="flex items-center justify-between">
+      <a
+        href="{{ cancel_url }}"
+        class="inline-flex items-center gap-1.5 px-4 py-2 rounded-default text-sm font-medium border border-base-300 dark:border-base-600 bg-white dark:bg-base-800 text-font-default-light dark:text-font-default-dark hover:bg-base-50 dark:hover:bg-base-700 transition-colors no-underline"
+      >
+        <span class="material-symbols-outlined text-[16px] leading-none">arrow_back</span>
+        {% trans "Cancel" %}
+      </a>
+      <button
+        type="submit"
+        class="inline-flex items-center gap-1.5 px-5 py-2 rounded-default text-sm font-medium bg-primary-600 hover:bg-primary-700 text-white transition-colors"
+      >
+        <span class="material-symbols-outlined text-[16px] leading-none">send</span>
+        {% trans "Send Email" %}
+      </button>
+    </div>
+
+  </div>
+</form>
+
+{% endblock %}

@@ -28,7 +28,11 @@ def send_invoice_email_task(invoice_id: int, to_email: str | None = None):
 
 
 @shared_task(name="core.tasks.send_quote_email_task")
-def send_quote_email_task(quote_id: int, to_email: str | None = None):
+def send_quote_email_task(
+    quote_id: int,
+    to_emails: list[str] | None = None,
+    cc_emails: list[str] | None = None,
+):
     """
     Celery task to send a Quote email with PDF attachment.
     Runs asynchronously so the admin UI doesn't block.
@@ -42,11 +46,14 @@ def send_quote_email_task(quote_id: int, to_email: str | None = None):
         logger.error("send_quote_email_task: Quote %s not found", quote_id)
         return {"task": "send_quote_email", "quote_id": quote_id, "status": "error", "detail": "not found"}
 
-    ok = QuoteEmailService.send_quote_email(quote, to_email=to_email)
+    ok = QuoteEmailService.send_quote_email(
+        quote, to_emails=to_emails, cc_emails=cc_emails,
+    )
     return {
         "task": "send_quote_email",
         "quote_id": quote_id,
-        "to": to_email or str(quote.client),
+        "to": to_emails or str(quote.client),
+        "cc": cc_emails or [],
         "status": "ok" if ok else "error",
     }
 

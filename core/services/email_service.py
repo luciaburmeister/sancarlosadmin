@@ -21,6 +21,7 @@ class EmailService:
         body_html: str,
         attachments: list[tuple] | None = None,
         from_email: str | None = None,
+        cc: list[str] | None = None,
         related_object=None,
         company=None,
     ) -> bool:
@@ -33,6 +34,7 @@ class EmailService:
             body_html: Rendered HTML body
             attachments: List of (filename, content_bytes, mimetype) tuples
             from_email: Sender address (defaults to DEFAULT_FROM_EMAIL)
+            cc: Optional list of CC email addresses
             related_object: Optional model instance for EmailLog (GFK)
             company: Optional company for EmailLog
 
@@ -47,6 +49,7 @@ class EmailService:
             body=plain_body,
             from_email=sender,
             to=to,
+            cc=cc or [],
         )
         msg.content_subtype = "html"
         msg.body = body_html
@@ -59,7 +62,7 @@ class EmailService:
         status = "success"
         try:
             msg.send(fail_silently=False)
-            logger.info("Email sent to %s: %s", to, subject)
+            logger.info("Email sent to %s (cc: %s): %s", to, cc or [], subject)
         except Exception as e:
             error_message = str(e)
             status = "failed"
@@ -70,12 +73,16 @@ class EmailService:
             try:
                 from company.models import EmailLog
 
+                log_to = ", ".join(to)
+                if cc:
+                    log_to += " | CC: " + ", ".join(cc)
+
                 ct = ContentType.objects.get_for_model(related_object)
                 EmailLog.objects.create(
                     company=company,
                     content_type=ct,
                     object_id=related_object.pk,
-                    to_email=", ".join(to),
+                    to_email=log_to,
                     subject=subject,
                     status=status,
                     error_message=error_message,

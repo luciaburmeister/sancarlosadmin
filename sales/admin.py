@@ -41,6 +41,7 @@ from management.views import QuoteAcceptanceWizardView
 from .views.quote_export_view import QuoteExportView
 from .views.quote_dashboard_view import QuoteDashboardView
 from core.tasks import send_quote_email_task
+from sales.views.quote_send_email_view import QuoteSendEmailView
 from company.models import EmailLog
 from unfold.admin import GenericTabularInline as _GenericTabularInline
 from configurator.commission.admin import QuoteCommissionInline
@@ -917,6 +918,11 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
                 self.admin_site.admin_view(QuoteExportView.as_view(model_admin=self)),
                 name="sales_quote_export",
             ),
+            path(
+                "<int:quote_id>/send-email/",
+                self.admin_site.admin_view(QuoteSendEmailView.as_view(model_admin=self)),
+                name="sales_quote_send_email",
+            ),
         ]
         return custom + urls
 
@@ -953,23 +959,12 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
 
     @action(description=_("Send Email"), icon="mail")
     def send_email_row_action(self, request, object_id):
-        quote = Quote.objects.select_related("client").get(pk=object_id)
-        if not quote.client or not quote.client.email:
-            self.message_user(request, _("Client has no email address."), level="error")
-        else:
-            send_quote_email_task.delay(quote.id)
-            self.message_user(request, _("Quote email queued for %s.") % quote.client.email)
-        return redirect(reverse("admin:sales_quote_changelist"))
+        url = reverse("admin:sales_quote_send_email", args=[object_id])
+        return redirect(f"{url}?redirect_to=changelist")
 
     @action(description=_("Send Email"), icon="mail")
     def send_email_detail_action(self, request, object_id):
-        quote = Quote.objects.select_related("client").get(pk=object_id)
-        if not quote.client or not quote.client.email:
-            self.message_user(request, _("Client has no email address."), level="error")
-        else:
-            send_quote_email_task.delay(quote.id)
-            self.message_user(request, _("Quote email queued for %s.") % quote.client.email)
-        return redirect(reverse("admin:sales_quote_change", args=[object_id]))
+        return redirect(reverse("admin:sales_quote_send_email", args=[object_id]))
 
 
 @admin.register(QuoteItem)

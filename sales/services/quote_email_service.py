@@ -15,20 +15,27 @@ class QuoteEmailService:
     """
 
     @staticmethod
-    def send_quote_email(quote, to_email: str | None = None) -> bool:
+    def send_quote_email(
+        quote,
+        to_emails: list[str] | None = None,
+        cc_emails: list[str] | None = None,
+    ) -> bool:
         """
         Generates a PDF from the quote's consolidated quotation export template
         and emails it to the client.
 
         Args:
             quote: Quote instance
-            to_email: Override recipient (defaults to quote.client.email)
+            to_emails: List of recipient addresses (defaults to [quote.client.email])
+            cc_emails: List of CC addresses (e.g. the sender's own email)
 
         Returns:
             True if sent successfully, False otherwise
         """
-        recipient = to_email or (quote.client.email if quote.client else None)
-        if not recipient:
+        recipients = to_emails or (
+            [quote.client.email] if quote.client and quote.client.email else []
+        )
+        if not recipients:
             logger.error(
                 "Cannot send quote email: no email for quote %s (client: %s)",
                 quote.pk, quote.client,
@@ -67,10 +74,11 @@ class QuoteEmailService:
         filename = f"Presupuesto_{quote.id}.pdf"
 
         return EmailService.send_email(
-            to=[recipient],
+            to=recipients,
             subject=f"{quote.company.name} — {doc_number}",
             body_html=body_html,
             attachments=[(filename, pdf_bytes, "application/pdf")],
+            cc=cc_emails or [],
             related_object=quote,
             company=quote.company,
         )

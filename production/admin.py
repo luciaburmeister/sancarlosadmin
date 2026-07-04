@@ -143,7 +143,7 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     actions_row = ["view_work_order", "generate_invoice_action"]
 
     inlines = [ProductionItemInline]
-    autocomplete_fields = ("company",)
+    autocomplete_fields = ("company","project_file")
     list_filter_submit = True
 
     readonly_fields = (

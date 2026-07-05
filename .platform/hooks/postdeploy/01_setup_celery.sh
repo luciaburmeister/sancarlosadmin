@@ -18,7 +18,7 @@ User=webapp
 Group=webapp
 WorkingDirectory=${APP_PATH}
 EnvironmentFile=/opt/elasticbeanstalk/deployment/env
-ExecStart=$(echo $VENV_BIN)/celery -A alumniniooerp worker --loglevel=info --concurrency=6
+ExecStart=$(echo $VENV_BIN)/celery -A alumniniooerp worker --loglevel=info --autoscale=4,2
 Restart=always
 RestartSec=10
 

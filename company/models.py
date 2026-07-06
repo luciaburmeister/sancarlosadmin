@@ -90,12 +90,58 @@ class Company(models.Model):
             "on new Configurations. Client taxes on inventory items are applied when added to a Quote."
         ),
     )
+    default_taxes = models.ManyToManyField(
+        "invoices.TaxType",
+        through="company.CompanyDefaultTax",
+        blank=True,
+        related_name="companies_with_default",
+        verbose_name=_("Default Taxes"),
+        help_text=_(
+            "Taxes automatically applied to new items/configurations "
+            "when no other tax source exists."
+        ),
+    )
 
     def __str__(self):
         return self.name
 
     class Meta:
         verbose_name = _("Company")
+
+
+class CompanyDefaultTax(models.Model):
+    """Through model for Company.default_taxes — stores the selected percentage per company."""
+    company = models.ForeignKey(
+        Company,
+        on_delete=models.CASCADE,
+        related_name="company_default_taxes",
+        verbose_name=_("Company"),
+    )
+    tax_type = models.ForeignKey(
+        "invoices.TaxType",
+        on_delete=models.CASCADE,
+        related_name="company_defaults",
+        verbose_name=_("Tax Type"),
+    )
+    selected_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        verbose_name=_("Selected Percentage"),
+    )
+
+    class Meta:
+        verbose_name = _("Company Default Tax")
+        verbose_name_plural = _("Company Default Taxes")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "tax_type"],
+                name="unique_company_default_tax",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.company.name} — {self.tax_type} @ {self.selected_percentage}%"
 
 class CompanyOwnedModel(models.Model):
     company = models.ForeignKey(

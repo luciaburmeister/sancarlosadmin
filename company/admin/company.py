@@ -10,12 +10,12 @@ import html
 import re
 
 
-from company.models import Company, CompanyScheduleSlot, CompanyUser, CompanyEmailConfig, BankAccount, CompanyDocument, CompanyDocumentType, ConfigurationList
+from company.models import Company, CompanyDefaultTax, CompanyScheduleSlot, CompanyUser, CompanyEmailConfig, BankAccount, CompanyDocument, CompanyDocumentType, ConfigurationList
 from django.utils.translation import gettext_lazy as _
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
 from core.admin.company_access import get_user_companies
-from unfold.admin import ModelAdmin, StackedInline
+from unfold.admin import ModelAdmin, StackedInline,TabularInline
 from core.admin.company_admin import CompanyRestrictedAdmin
 from company.forms import CompanyDocumentForm
 
@@ -63,6 +63,14 @@ class BankAccountInline(StackedInline):
     fields = ("bank_name", "holder_name", "account_number", "iban", "swift_bic", "routing_number", "is_default")
     tab = True
     tab_title = _("Bank Accounts")
+
+
+class CompanyDefaultTaxInline(TabularInline):
+    model = CompanyDefaultTax
+    extra = 0
+    autocomplete_fields = ["tax_type"]
+    verbose_name = _("Default Tax")
+    verbose_name_plural = _("Default Taxes")
 
 class CompanyDocumentInline(StackedInline):
     model = CompanyDocument
@@ -242,7 +250,7 @@ class CompanyAdminForm(ModelForm):
 class CompanyAdmin(ModelAdmin):
     form = CompanyAdminForm
     readonly_fields = ("terms_import_hint",)
-    inlines = [BankAccountInline, CompanyDocumentInline, CompanyScheduleSlotInline]
+    inlines = [BankAccountInline, CompanyDocumentInline, CompanyScheduleSlotInline, CompanyDefaultTaxInline]
     list_display = ("name", "is_active")
     list_filter = ("is_active",)
     search_fields = ("name",)

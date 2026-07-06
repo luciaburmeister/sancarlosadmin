@@ -827,6 +827,15 @@ class Quote(Timestampable, CompanyOwnedModel):
                 note=f"BOM deduction from accepted Quote #{self.id}",
             )
 
+    def mark_as_sent(self):
+        """Mark this quote as sent and stamp date_sent. Only transitions from DRAFT."""
+        from django.utils import timezone as tz
+
+        self.date_sent = tz.now()
+        if self.status == QuoteStatus.DRAFT:
+            self.status = QuoteStatus.SENT
+        self.save(update_fields=["date_sent", "status"])
+
     def __str__(self):
         return self.project_name or f"Quote #{self.id}"
 
@@ -1253,9 +1262,10 @@ class QuoteInventoryItem(Timestampable):
     def _copy_taxes_from_item(self):
         """Copy AppliedTax rows to this line.
 
-        When the company's ``auto_apply_client_taxes`` flag is ON and the
-        quote's client has configured taxes, those client taxes are used
-        instead of the inventory item's taxes.
+        Tax priority:
+        1. Client taxes (if ``auto_apply_client_taxes`` is ON and client has taxes)
+        2. Inventory item taxes
+        3. Company default taxes (fallback)
         """
         from invoices.models import AppliedTax
         ct = ContentType.objects.get_for_model(self)
@@ -1276,6 +1286,8 @@ class QuoteInventoryItem(Timestampable):
             if client_taxes.exists():
                 use_client_taxes = True
 
+        copied = False
+
         if use_client_taxes:
             for src_tax in client_taxes:
                 AppliedTax.objects.get_or_create(
@@ -1285,14 +1297,29 @@ class QuoteInventoryItem(Timestampable):
                     selected_percentage=src_tax.selected_percentage,
                     defaults={"order": src_tax.order},
                 )
+                copied = True
         else:
-            for src_tax in self.inventory_item.get_taxes():
+            item_taxes = list(self.inventory_item.get_taxes())
+            if item_taxes:
+                for src_tax in item_taxes:
+                    AppliedTax.objects.get_or_create(
+                        content_type=ct,
+                        object_id=self.pk,
+                        tax_type=src_tax.tax_type,
+                        selected_percentage=src_tax.selected_percentage,
+                        defaults={"order": src_tax.order},
+                    )
+                    copied = True
+
+        # Fallback: company default taxes
+        if not copied and self.quote_id and self.quote.company_id:
+            for i, cdt in enumerate(self.quote.company.company_default_taxes.select_related("tax_type").all()):
                 AppliedTax.objects.get_or_create(
                     content_type=ct,
                     object_id=self.pk,
-                    tax_type=src_tax.tax_type,
-                    selected_percentage=src_tax.selected_percentage,
-                    defaults={"order": src_tax.order},
+                    tax_type=cdt.tax_type,
+                    selected_percentage=cdt.selected_percentage,
+                    defaults={"order": i},
                 )
 
     def get_taxes(self):

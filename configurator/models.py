@@ -1122,27 +1122,46 @@ class Configuration(Timestampable, CompanyOwnedModel):
         return context
 
     def copy_default_taxes_from_product(self):
-        if not self.product_id:
-            return
+        """Copy taxes from the product template, falling back to company defaults.
 
-        product_ct = ContentType.objects.get_for_model(self.product)
+        Tax priority:
+        1. Product template taxes
+        2. Company default taxes (fallback)
+        """
         config_ct = ContentType.objects.get_for_model(self)
 
-        defaults = AppliedTax.objects.filter(
-            content_type=product_ct,
-            object_id=self.product_id,
-        )
-
-        for tax in defaults:
-            AppliedTax.objects.get_or_create(
-                content_type=config_ct,
-                object_id=self.pk,
-                tax_type=tax.tax_type,
-                defaults={
-                    "selected_percentage": tax.selected_percentage,
-                    "order": tax.order,
-                },
+        # Try product taxes first
+        copied = False
+        if self.product_id:
+            product_ct = ContentType.objects.get_for_model(self.product)
+            defaults = AppliedTax.objects.filter(
+                content_type=product_ct,
+                object_id=self.product_id,
             )
+            for tax in defaults:
+                AppliedTax.objects.get_or_create(
+                    content_type=config_ct,
+                    object_id=self.pk,
+                    tax_type=tax.tax_type,
+                    defaults={
+                        "selected_percentage": tax.selected_percentage,
+                        "order": tax.order,
+                    },
+                )
+                copied = True
+
+        # Fallback: company default taxes
+        if not copied and self.company_id:
+            for i, cdt in enumerate(self.company.company_default_taxes.select_related("tax_type").all()):
+                AppliedTax.objects.get_or_create(
+                    content_type=config_ct,
+                    object_id=self.pk,
+                    tax_type=cdt.tax_type,
+                    defaults={
+                        "selected_percentage": cdt.selected_percentage,
+                        "order": i,
+                    },
+                )
 
     def copy_taxes_from_client(self):
         """Copy the client's configured taxes to this configuration.

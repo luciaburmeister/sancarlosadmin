@@ -73,7 +73,7 @@ class QuoteEmailService:
 
         filename = f"Presupuesto_{quote.id}.pdf"
 
-        return EmailService.send_email(
+        ok = EmailService.send_email(
             to=recipients,
             subject=f"{quote.company.name} — {doc_number}",
             body_html=body_html,
@@ -82,3 +82,8 @@ class QuoteEmailService:
             related_object=quote,
             company=quote.company,
         )
+
+        if ok:
+            quote.mark_as_sent()
+
+        return ok

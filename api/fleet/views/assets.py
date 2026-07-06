@@ -37,7 +37,6 @@ def get_asset_status(last_transaction):
         return "PICKED_UP"
     if last_transaction.transaction_type == TransactionTypeChoices.DELIVERY:
         return "DELIVERED"
-    # RECEIPT does not change the cuba's status — it's still PICKED_UP
     if last_transaction.transaction_type == TransactionTypeChoices.RECEIPT:
         prev = AssetTransaction.objects.filter(
             asset=last_transaction.asset,

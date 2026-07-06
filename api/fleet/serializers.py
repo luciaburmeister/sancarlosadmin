@@ -19,10 +19,11 @@ class AssetTransactionSerializer(serializers.Serializer):
     # Firma and imagen — used by movement and delivery
     firma = serializers.CharField(required=False, default="", allow_blank=True)
     imagen = serializers.CharField(required=False, default="", allow_blank=True)
-    # Receipt-specific fields
-    nro_albaran = serializers.CharField(required=False, default="", allow_blank=True)
-    foto_albaran = serializers.CharField(required=False, default="", allow_blank=True)
-    peso_neto = serializers.CharField(required=False, default="", allow_blank=True)
-    material_vertido = serializers.CharField(required=False, default="", allow_blank=True)
+    # Receipt-specific fields — no default so they are excluded from
+    # validated_data when not sent (prevents them polluting movement/delivery data)
+    nro_albaran = serializers.CharField(required=False, allow_blank=True)
+    foto_albaran = serializers.CharField(required=False, allow_blank=True)
+    peso_neto = serializers.CharField(required=False, allow_blank=True)
+    material_vertido = serializers.CharField(required=False, allow_blank=True)
     # Zone override — sent when driver picks from the multiple-zones dialog
     zone_id = serializers.IntegerField(required=False, default=None, allow_null=True)

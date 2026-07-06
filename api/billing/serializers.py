@@ -498,25 +498,22 @@ class SalesInvoicePaymentCreateSerializer(serializers.Serializer):
             )
 
         with transaction.atomic():
-            payment, created = Payment.objects.get_or_create(
+            payment = Payment.objects.create(
                 company=company,
                 payment_date=payment_date,
                 amount=Money(amount, currency),
                 direction=PaymentDirection.INBOUND,
                 method=method,
+                status=PaymentStatus.CONFIRMED,
                 reference=reference,
-                defaults={
-                    "status": PaymentStatus.CONFIRMED,
-                    "amount_pending_allocation": Money(amount, currency),
-                },
+                amount_pending_allocation=Money(amount, currency),
             )
-            if created:
-                PaymentAllocation.objects.create(
-                    payment=payment,
-                    content_type=ContentType.objects.get_for_model(invoice),
-                    object_id=invoice.pk,
-                    amount_applied=Money(amount, currency),
-                )
+            PaymentAllocation.objects.create(
+                payment=payment,
+                content_type=ContentType.objects.get_for_model(invoice),
+                object_id=invoice.pk,
+                amount_applied=Money(amount, currency),
+            )
 
         invoice.refresh_from_db()
         return invoice

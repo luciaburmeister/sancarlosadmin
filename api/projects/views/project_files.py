@@ -3,7 +3,7 @@
 import json
 
 from django.core.paginator import Paginator
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.http import JsonResponse
 from django.utils import timezone
 
@@ -13,6 +13,7 @@ from api._serializers import (
     serialize_project_file,
 )
 from api._utils import CompanyAPIView, parse_date_or_error
+from invoices.models import SalesInvoice
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from management.models import ProjectFile, ProjectFileStatus
 from production.services.ticket_cancel import cancel_tickets_for_project_file
@@ -49,12 +50,23 @@ class ProjectFileListCreateView(CompanyAPIView):
                 Q(name__icontains=search) | Q(client__name__icontains=search)
             )
 
-        open_count = base_qs.exclude(status__in=["completed", "cancelled"]).count()
+        open_qs = base_qs.exclude(status__in=["completed", "cancelled"])
+        has_invoice = SalesInvoice.objects.filter(project_file_id=OuterRef("pk"))
+        in_progress_qs = open_qs.filter(~Exists(has_invoice))
+        invoiced_open_qs = open_qs.filter(Exists(has_invoice))
+
+        in_progress_count = in_progress_qs.count()
+        invoiced_open_count = invoiced_open_qs.count()
+        open_count = in_progress_count + invoiced_open_count
         completed_count = base_qs.filter(status="completed").count()
         cancelled_count = base_qs.filter(status="cancelled").count()
 
         if status_filter == "open":
-            filtered_qs = base_qs.exclude(status__in=["completed", "cancelled"])
+            filtered_qs = open_qs
+        elif status_filter in ("in_progress", "open_no_invoice"):
+            filtered_qs = in_progress_qs
+        elif status_filter in ("invoiced", "open_invoiced"):
+            filtered_qs = invoiced_open_qs
         elif status_filter == "completed":
             filtered_qs = base_qs.filter(status="completed")
         elif status_filter == "cancelled":
@@ -78,6 +90,8 @@ class ProjectFileListCreateView(CompanyAPIView):
             ],
             "count": paginator.count,
             "open_count": open_count,
+            "in_progress_count": in_progress_count,
+            "invoiced_open_count": invoiced_open_count,
             "completed_count": completed_count,
             "cancelled_count": cancelled_count,
             "page": page_num,

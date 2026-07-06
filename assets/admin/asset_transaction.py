@@ -6,6 +6,7 @@ from django.db import models
 from django.urls import path, reverse
 from django.shortcuts import redirect
 from django.http import HttpRequest
+from assets.models import AssetTransaction, AssetTransactionReceipt
 from django.contrib.contenttypes.models import ContentType
 from assets.models import AssetTransaction, BillingStatus
 from assets.views import AssetTransactionExportView
@@ -35,6 +36,30 @@ class AssetTransactionEmailLogInline(_GenericTabularInline):
         return False
 
 
+class AssetTransactionReceiptInline(admin.TabularInline):
+    """Shows receipts (albaranes) attached to this transaction."""
+    model = AssetTransactionReceipt
+    fk_name = "transaction"
+    extra = 0
+    fields = ("nro_albaran", "foto_preview", "created_at")
+    readonly_fields = ("foto_preview", "created_at")
+    can_delete = False
+    verbose_name = "Albaran"
+    verbose_name_plural = "Albaranes"
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Foto")
+    def foto_preview(self, obj):
+        if obj.foto:
+            return format_html(
+                '<a href="{0}" target="_blank"><img src="{0}" style="width:150px; height:100px; object-fit:cover; border:1px solid #ccc;" /></a>',
+                obj.foto.url
+            )
+        return "Sin foto"
+
+
 @admin.register(AssetTransaction)
 class AssetTransactionAdmin(ModelAdmin):
     list_display = ("asset", "transaction_type", "from_zone", "to_zone", "project_file", "date", "get_employee", "has_firma", "billing_status_badge", "company", "imagen")
@@ -50,10 +75,10 @@ class AssetTransactionAdmin(ModelAdmin):
     search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes")
     autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file"]
     exclude = ["company", "firma"]
-    readonly_fields = ["firma_preview", "imagen_link", "performed_by"]
+    readonly_fields = ["firma_preview", "imagen_link", "performed_by", "material_vertido_display", "peso_neto_display"]
     list_select_related = ["from_zone__company", "to_zone__company", "company", "performed_by__company", "asset__asset_type"]
     list_filter_submit = True
-    inlines = [AssetTransactionEmailLogInline]
+    inlines = [AssetTransactionEmailLogInline, AssetTransactionReceiptInline]
 
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
@@ -64,33 +89,26 @@ class AssetTransactionAdmin(ModelAdmin):
     actions = ["generate_all_work_entries"]
 
     fieldsets = (
-        (
-            _("Asset Transaction"),
-            {
-                "fields": (
-                    ("asset", "transaction_type"),
-                    "from_zone",
-                    "to_zone",
-                    "project_file",
-                    "date",
-                    "performed_by",
-                    "data",
-                    "notes",
-                )
-            },
-        ),
-        (
-            _("Imagen"),
-            {
-                "fields": ("imagen",)
-            },
-        ),
-        (
-            _("Firma"),
-            {
-                "fields": ("firma_image", "firma_preview")
-            },
-        ),
+        (_("Asset Transaction"), {
+            "fields": (
+                ("asset", "transaction_type"),
+                "from_zone",
+                "to_zone",
+                "project_file",
+                "date",
+                "performed_by",
+                "material_vertido_display",
+                "peso_neto_display",
+                "data",
+                "notes",
+            )
+        }),
+        (_("Imagen"), {
+            "fields": ("imagen",)
+        }),
+        (_("Firma"), {
+            "fields": ("firma_preview",)
+        }),
     )
 
     @admin.display(description="Empleado")
@@ -98,18 +116,18 @@ class AssetTransactionAdmin(ModelAdmin):
         if obj.performed_by:
             return obj.performed_by.full_name
         return "—"
-
     @admin.display(boolean=True, description="Firma")
     def has_firma(self, obj):
-        return bool(obj.firma_image) 
+        return bool(obj.firma) or bool(obj.firma_image)
+    
     @admin.display(description="Firma")
     def firma_preview(self, obj):
         if obj.firma_image:
             return format_html(
                 '<img src="{}" style="width:400px; height:150px; object-fit:contain; border:1px solid #ccc; background:white;" />',
-                obj.firma_image.url  # ← use URL from ImageField
+                obj.firma_image.url
             )
-        elif obj.firma:  # ← fallback for old base64 records
+        if obj.firma:
             return format_html(
                 '<img src="data:image/png;base64,{}" style="width:400px; height:150px; object-fit:contain; border:1px solid #ccc; background:white;" />',
                 obj.firma
@@ -185,6 +203,13 @@ class AssetTransactionAdmin(ModelAdmin):
         ]
         return custom_urls + urls
 
+    @admin.display(description="Material de Vertido")
+    def material_vertido_display(self, obj):
+        return obj.data.get("material_vertido", "—") if obj.data else "—"
+
+    @admin.display(description="Peso Neto (kg)")
+    def peso_neto_display(self, obj):
+        return obj.data.get("peso_neto", "—") if obj.data else "—"
     # --- Billing status ---
 
     @display(

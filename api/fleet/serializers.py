@@ -1,0 +1,28 @@
+from rest_framework import serializers
+from assets.models import TransactionTypeChoices
+
+
+class AssetTransactionSerializer(serializers.Serializer):
+    """
+    Validates the body of POST /assets/<id>/transaction/.
+
+    By declaring transaction_type as a ChoiceField pointing at
+    TransactionTypeChoices, DRF automatically rejects any value that
+    is not in the choices list — no hardcoded strings needed in the view.
+    """
+    transaction_type = serializers.ChoiceField(
+        choices=TransactionTypeChoices.choices
+    )
+    # GPS coordinates — used by movement and delivery
+    latitude = serializers.FloatField(required=False, default=0)
+    longitude = serializers.FloatField(required=False, default=0)
+    # Firma and imagen — used by movement and delivery
+    firma = serializers.CharField(required=False, default="", allow_blank=True)
+    imagen = serializers.CharField(required=False, default="", allow_blank=True)
+    # Receipt-specific fields
+    nro_albaran = serializers.CharField(required=False, default="", allow_blank=True)
+    foto_albaran = serializers.CharField(required=False, default="", allow_blank=True)
+    peso_neto = serializers.CharField(required=False, default="", allow_blank=True)
+    material_vertido = serializers.CharField(required=False, default="", allow_blank=True)
+    # Zone override — sent when driver picks from the multiple-zones dialog
+    zone_id = serializers.IntegerField(required=False, default=None, allow_null=True)

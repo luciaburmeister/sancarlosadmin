@@ -8,8 +8,7 @@ from .views import assets, attendance, zones
 urlpatterns = [
     path("assets/", assets.AssetsListView.as_view(), name="assets"),
     path("assets/<int:asset_id>/", assets.AssetDetailView.as_view(), name="asset_by_id"),
-    path("assets/<int:asset_id>/pickup/", assets.AssetPickupView.as_view(), name="pickup"),
-    path("assets/<int:asset_id>/deliver/", assets.AssetDeliverView.as_view(), name="deliver"),
+    path("assets/<int:asset_id>/transaction/", assets.AssetTransactionView.as_view(), name="asset_transaction"),
     path("assets/<int:asset_id>/assign/", assets.AssetAssignView.as_view(), name="assign"),
     path("assets/<int:asset_id>/qr/", assets.AssetQRView.as_view(), name="asset_qr"),
     path(
@@ -30,5 +29,4 @@ urlpatterns = [
     path("config/", zones.ConfigListView.as_view(), name="config"),
     path("portes/", attendance.PortesPlanningListView.as_view(), name="portes_planning"),
     path("portes/<int:planning_id>/submit/", attendance.PorteSubmitView.as_view(), name="porte_submit"),
-
 ]

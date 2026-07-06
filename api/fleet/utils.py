@@ -42,3 +42,20 @@ def find_zone_within_radius(latitude, longitude, company, radius_metres=MAX_ZONE
         if distance <= radius_metres:
             return zone, distance
     return None, None
+
+def find_zones_within_radius(latitude, longitude, company, radius_metres=MAX_ZONE_RADIUS_M):
+    """
+    Returns ALL zones within radius, sorted by distance (closest first).
+    Unlike find_zone_within_radius, this doesn't stop at the first match.
+    """
+    zones = WorkingZone.objects.filter(company=company, is_active=True)
+    results = []
+    for zone in zones:
+        zone_lat, zone_lon = get_zone_coordinates(zone)
+        if zone_lat is None:
+            continue
+        distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
+        if distance <= radius_metres:
+            results.append((zone, distance))
+    results.sort(key=lambda x: x[1])
+    return results

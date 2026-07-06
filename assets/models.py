@@ -25,7 +25,7 @@ class AssetType(CompanyOwnedModel):
         verbose_name_plural = _("Asset types")
         ordering = ["name"]
         indexes = [
-            models.Index(fields=["name","company"]),
+            models.Index(fields=["name", "company"]),
         ]
 
     def __str__(self):
@@ -91,6 +91,38 @@ class Asset(CompanyOwnedModel):
             }
         super().save(*args, **kwargs)
 
+    @property
+    def has_pending_receipt(self) -> bool:
+        """
+        Returns True if the cuba has already been emptied (verteo'd) since
+        its most recent recogida (MOVEMENT transaction).
+
+        Used by the app to grey out the Verteo button so workers cannot
+        register a second verteo for the same pickup.
+
+        Logic: a receipt is "pending" (already done) when the most recent
+        RECEIPT transaction is newer than the most recent MOVEMENT transaction.
+        """
+        last_movement = (
+            self.transactions
+            .filter(transaction_type=TransactionTypeChoices.MOVEMENT)
+            .order_by("-date")
+            .first()
+        )
+        if last_movement is None:
+            return False
+
+        last_receipt = (
+            self.transactions
+            .filter(transaction_type=TransactionTypeChoices.RECEIPT)
+            .order_by("-date")
+            .first()
+        )
+        if last_receipt is None:
+            return False
+
+        return last_receipt.date > last_movement.date
+
     class Meta:
         verbose_name = _("Asset")
         verbose_name_plural = _("Assets")
@@ -138,6 +170,11 @@ class TransactionTypeChoices(models.TextChoices):
     DELIVERY = "delivery", _("Delivery")
     RETURN = "return", _("Return")
     MOVEMENT = "movement", _("Movement")
+    RECEIPT = "receipt", _("Receipt")
+    PORTE_MOVEMENT = "porte_movement", _("Movement Porte")
+    PORTE_DELIVERY = "porte_delivery", _("Delivery Porte")
+
+
 
 
 class BillingStatus(models.TextChoices):
@@ -171,7 +208,7 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
         verbose_name=_("To Zone")
     )
     transaction_type = models.CharField(
-        max_length=10,
+        max_length=20,
         choices=TransactionTypeChoices.choices,
         verbose_name=_("Transaction Type")
     )
@@ -223,6 +260,39 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
         return f"{self.get_transaction_type_display()} - {self.asset} ({self.from_zone} -> {self.to_zone})"
 
 
+class AssetTransactionReceipt(models.Model):
+    """
+    Generic receipt attached to any AssetTransaction.
+    Used to store paper receipts (albaranes) from external parties,
+    e.g. a dump receipt when a cuba is emptied at a vertedero.
+    """
+    transaction = models.ForeignKey(
+        AssetTransaction,
+        on_delete=models.CASCADE,
+        related_name="receipts",
+        verbose_name=_("Transaction"),
+    )
+    foto = models.ImageField(
+        upload_to="transaction_receipts/",
+        blank=True,
+        null=True,
+        verbose_name=_("Foto del Albaran"),
+    )
+    nro_albaran = models.CharField(
+        max_length=100,
+        verbose_name=_("Nro de Albaran"),
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
+
+    class Meta:
+        verbose_name = _("Asset Transaction Receipt")
+        verbose_name_plural = _("Asset Transaction Receipts")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Albaran {self.nro_albaran} - {self.transaction.asset}"
+
+
 class AssetPlanning(CompanyOwnedModel, Timestampable):
     STATUS_CHOICES = [
         ('pending', _('Pending')),
@@ -230,7 +300,6 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         ('delivered', _('Delivered')),
         ('cancelled', _('Cancelled')),
     ]
-
     PLANNING_CHOICES = [
         ('cuba', _('Container Movement')),
         ('porte', _('Transport')),
@@ -262,14 +331,6 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         null=True, blank=True,
         related_name="asset_plannings",
         verbose_name=_("Assigned To")
-    )
-    transport_asset = models.ForeignKey(
-        Asset,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name="transport_plannings",
-        verbose_name=_("Transport Asset"),
-        help_text=_("Vehicle or tool needed to perform this movement"),
     )
     transport_asset = models.ForeignKey(
         Asset,
@@ -311,14 +372,9 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         indexes = [
             models.Index(fields=["assigned_to", "scheduled_date"]),
         ]
-        indexes = [
-            models.Index(fields=["assigned_to", "scheduled_date"]),
-        ]
 
     def __str__(self):
         return f"{self.asset.name} → {self.destination} ({self.scheduled_date})"
-
-
 
 
 class ZoneDistanceCache(models.Model):
@@ -366,8 +422,6 @@ class AssetPlanningStop(models.Model):
         on_delete=models.PROTECT,
         verbose_name=_("Zone"),
     )
-
-
     sequence = models.PositiveSmallIntegerField(
         verbose_name=_("Sequence"),
     )

@@ -245,7 +245,12 @@ class ResourcePlanningGroup(Timestampable, CompanyOwnedModel):
     Optional grouping for ResourcePlanning records created together.
     Holds no metadata — the group is just an identifier (its PK) that
     lets the admin update or cancel all members in a single action.
+    Repetition series (calendar-style repeats) are marked with
+    is_repetition: their members have different dates, so they are edited
+    through the series editor instead of the regular group form.
     """
+
+    is_repetition = models.BooleanField(default=False, verbose_name=_("Repetition series"))
 
     class Meta:
         verbose_name = _("Resource Planning Group")
@@ -309,6 +314,11 @@ class ResourcePlanning(Timestampable, CompanyOwnedModel):
         verbose_name=_("Status"),
     )
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
+    show_planning_type = models.BooleanField(
+        default=False,
+        verbose_name=_("Show planning type"),
+        help_text=_("Label this planning with its planning type instead of the project file name in the schedule view."),
+    )
 
     class Meta:
         verbose_name = _("Resource Planning")

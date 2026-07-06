@@ -202,6 +202,46 @@ class ResourcePlanningFilterForm(forms.Form):
         ]
 
 
+# Apple-calendar-style repeat options
+REPEAT_CHOICES = [
+    ("never", _("Never")),
+    ("daily", _("Every day")),
+    ("weekly", _("Every week")),
+    ("biweekly", _("Every 2 weeks")),
+    ("monthly", _("Every month")),
+    ("yearly", _("Every year")),
+    ("custom", _("Custom (every N days)")),
+]
+
+
+def _clean_repeat_fields(form, cleaned):
+    """Shared validation for the Apple-calendar-style repeat fields."""
+    repeat = cleaned.get("repeat") or "never"
+    cleaned["repeat"] = repeat
+    if repeat != "never":
+        repeat_until = cleaned.get("repeat_until")
+        date_from = cleaned.get("date_from")
+        date_to = cleaned.get("date_to")
+        if date_from and date_to and date_from != date_to:
+            form.add_error(
+                "repeat",
+                _("Repetition is only available for same-day plannings."),
+            )
+        if not repeat_until:
+            form.add_error("repeat_until", _("Choose an end date for the repetition."))
+        elif date_from and repeat_until < date_from:
+            form.add_error("repeat_until", _("Must be on or after the start date."))
+        if repeat == "custom":
+            every_days = cleaned.get("repeat_every_days")
+            if every_days is None:
+                form.add_error("repeat_every_days", _("Enter how many days between repetitions."))
+            elif every_days < 1:
+                form.add_error("repeat_every_days", _("Must be at least 1 day."))
+            elif every_days > 365:
+                form.add_error("repeat_every_days", _("Must be 365 days or fewer."))
+    return cleaned
+
+
 class ResourcePlanningBulkForm(forms.Form):
     """
     Form for creating or group-editing multiple ResourcePlanning records at once.
@@ -262,12 +302,44 @@ class ResourcePlanningBulkForm(forms.Form):
         label=_("Exclude weekends"),
         widget=UnfoldBooleanSwitchWidget,
     )
+    repeat = forms.ChoiceField(
+        choices=REPEAT_CHOICES,
+        initial="never",
+        required=False,
+        label=_("Repeat"),
+        widget=UnfoldAdminSelectWidget,
+    )
+    repeat_until = forms.DateField(
+        required=False,
+        label=_("End repeat"),
+        widget=UnfoldAdminDateWidget,
+    )
+    repeat_every_days = forms.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=365,
+        label=_("Every N days"),
+        widget=UnfoldAdminIntegerFieldWidget(attrs={"placeholder": "2"}),
+    )
     is_group = forms.BooleanField(
         required=False,
         initial=False,
         label=_("Edit as a group"),
         help_text=_("Group these plannings so they can be updated or cancelled together."),
         widget=UnfoldBooleanSwitchWidget,
+    )
+    show_planning_type = forms.BooleanField(
+        required=False,
+        initial=False,
+        label=_("Show planning type"),
+        help_text=_("Label these plannings with the planning type instead of the project file name in the schedule view."),
+        widget=UnfoldBooleanSwitchWidget,
+    )
+    shift_following = forms.BooleanField(
+        required=False,
+        initial=False,
+        widget=forms.HiddenInput,
+        help_text=_("Push the resource's later plannings of the same day forward by this planning's duration."),
     )
 
     def __init__(self, *args, user=None, user_companies=None, **kwargs):
@@ -316,10 +388,226 @@ class ResourcePlanningBulkForm(forms.Form):
                     "daily_end",
                     _("End date/time must be after start date/time."),
                 )
-        return cleaned
+        return _clean_repeat_fields(self, cleaned)
 
     @property
     def resource_pairs(self) -> list[tuple[ContentType, int]]:
         return self.cleaned_data.get("resources", [])
+
+
+class ResourcePlanningMultiForm(forms.Form):
+    """
+    Shared fields for creating several independent plannings at once.
+    Company, status and resources are common to every plan line; everything
+    else (project file, type, dates, hours, options) lives in
+    ResourcePlanningMultiLineForm.
+    """
+    company = forms.ModelChoiceField(
+        queryset=ProjectFile.objects.none(),
+        label=_("Company"),
+        widget=UnfoldAdminSelectWidget,
+    )
+    status = forms.ChoiceField(
+        choices=ResourcePlanningStatus.choices,
+        initial=ResourcePlanningStatus.PLANNED,
+        label=_("Status"),
+        widget=UnfoldAdminSelectWidget,
+    )
+    resources = forms.CharField(
+        label=_("Resources"),
+        help_text=_("Use the picker to select employees, machines or assets."),
+        widget=forms.HiddenInput,
+    )
+
+    def __init__(self, *args, user=None, user_companies=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if user_companies is not None:
+            self.fields["company"].queryset = user_companies.order_by("name")
+
+    def clean_resources(self) -> list[tuple[ContentType, int]]:
+        raw = self.cleaned_data.get("resources", "")
+        pairs = _parse_resource_tokens(raw)
+        if not pairs:
+            raise forms.ValidationError(_("Select at least one resource."))
+        return pairs
+
+    @property
+    def resource_pairs(self) -> list[tuple[ContentType, int]]:
+        return self.cleaned_data.get("resources", [])
+
+
+class ResourcePlanningMultiLineForm(forms.Form):
+    """One plan line: its own project file, planning type, dates, hours and options."""
+    project_file = forms.ModelChoiceField(
+        queryset=ProjectFile.objects.none(),
+        label=_("Project File"),
+        widget=UnfoldAdminSelectWidget,
+    )
+    planning_type = forms.ModelChoiceField(
+        queryset=ResourcePlanningType.objects.none(),
+        label=_("Planning Type"),
+        widget=UnfoldAdminSelectWidget,
+    )
+    date_from = forms.DateField(
+        label=_("From"),
+        widget=UnfoldAdminDateWidget,
+    )
+    date_to = forms.DateField(
+        label=_("To"),
+        widget=UnfoldAdminDateWidget,
+    )
+    daily_start = forms.TimeField(
+        label=_("Daily start"),
+        initial=datetime.time(8, 0),
+        widget=UnfoldAdminTimeWidget,
+    )
+    daily_end = forms.TimeField(
+        label=_("Daily end"),
+        initial=datetime.time(17, 0),
+        widget=UnfoldAdminTimeWidget,
+    )
+    exclude_weekends = forms.BooleanField(
+        required=False,
+        initial=True,
+        label=_("Exclude weekends"),
+        widget=UnfoldBooleanSwitchWidget,
+    )
+    show_planning_type = forms.BooleanField(
+        required=False,
+        initial=False,
+        label=_("Show planning type"),
+        widget=UnfoldBooleanSwitchWidget,
+    )
+    notes = forms.CharField(
+        required=False,
+        label=_("Notes"),
+        widget=UnfoldAdminTextareaWidget(attrs={"rows": 2}),
+    )
+    repeat = forms.ChoiceField(
+        choices=REPEAT_CHOICES,
+        initial="never",
+        required=False,
+        label=_("Repeat"),
+        widget=UnfoldAdminSelectWidget,
+    )
+    repeat_until = forms.DateField(
+        required=False,
+        label=_("End repeat"),
+        widget=UnfoldAdminDateWidget,
+    )
+    repeat_every_days = forms.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=365,
+        label=_("Every N days"),
+        widget=UnfoldAdminIntegerFieldWidget(attrs={"placeholder": "2"}),
+    )
+
+    def __init__(self, *args, user_companies=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if user_companies is not None:
+            self.fields["project_file"].queryset = ProjectFile.objects.filter(
+                company__in=user_companies
+            ).exclude(
+                status__in=[ProjectFileStatus.COMPLETED, ProjectFileStatus.CANCELLED]
+            ).order_by("name")
+            self.fields["planning_type"].queryset = ResourcePlanningType.objects.filter(
+                company__in=user_companies, is_active=True
+            ).order_by("name")
+
+    def clean(self):
+        cleaned = super().clean()
+        date_from = cleaned.get("date_from")
+        date_to = cleaned.get("date_to")
+        daily_start = cleaned.get("daily_start")
+        daily_end = cleaned.get("daily_end")
+        if not all([date_from, date_to, daily_start, daily_end]):
+            return cleaned
+        if date_to < date_from:
+            self.add_error("date_to", _("End date must be on or after start date."))
+            return cleaned
+        start_dt = datetime.datetime.combine(date_from, daily_start)
+        end_dt = datetime.datetime.combine(date_to, daily_end)
+        if end_dt <= start_dt:
+            if date_from == date_to:
+                self.add_error(
+                    "daily_end",
+                    _("Daily end time must be after daily start time."),
+                )
+            else:
+                self.add_error(
+                    "daily_end",
+                    _("End date/time must be after start date/time."),
+                )
+        return _clean_repeat_fields(self, cleaned)
+
+
+ResourcePlanningMultiLineFormSet = forms.formset_factory(
+    ResourcePlanningMultiLineForm,
+    extra=0,
+    min_num=1,
+    validate_min=True,
+    can_delete=True,
+)
+
+
+class ResourcePlanningSeriesForm(forms.Form):
+    """
+    Editor for a repetition series: changes apply to every occurrence in the
+    group without touching their dates. Daily hours are re-applied on each
+    occurrence's own day.
+    """
+    project_file = forms.ModelChoiceField(
+        queryset=ProjectFile.objects.none(),
+        label=_("Project File"),
+    )
+    planning_type = forms.ModelChoiceField(
+        queryset=ResourcePlanningType.objects.none(),
+        label=_("Planning Type"),
+        widget=UnfoldAdminSelectWidget,
+    )
+    status = forms.ChoiceField(
+        choices=ResourcePlanningStatus.choices,
+        label=_("Status"),
+        widget=UnfoldAdminSelectWidget,
+    )
+    daily_start = forms.TimeField(
+        label=_("Daily start"),
+        widget=UnfoldAdminTimeWidget,
+    )
+    daily_end = forms.TimeField(
+        label=_("Daily end"),
+        widget=UnfoldAdminTimeWidget,
+    )
+    show_planning_type = forms.BooleanField(
+        required=False,
+        label=_("Show planning type"),
+        widget=UnfoldBooleanSwitchWidget,
+    )
+    notes = forms.CharField(
+        required=False,
+        label=_("Notes"),
+        widget=UnfoldAdminTextareaWidget(attrs={"rows": 3}),
+    )
+
+    def __init__(self, *args, user_companies=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if user_companies is not None:
+            self.fields["project_file"].queryset = ProjectFile.objects.filter(
+                company__in=user_companies
+            ).exclude(
+                status__in=[ProjectFileStatus.COMPLETED, ProjectFileStatus.CANCELLED]
+            ).order_by("name")
+            self.fields["planning_type"].queryset = ResourcePlanningType.objects.filter(
+                company__in=user_companies, is_active=True
+            ).order_by("name")
+
+    def clean(self):
+        cleaned = super().clean()
+        daily_start = cleaned.get("daily_start")
+        daily_end = cleaned.get("daily_end")
+        if daily_start and daily_end and daily_end <= daily_start:
+            self.add_error("daily_end", _("Daily end time must be after daily start time."))
+        return cleaned
 
 

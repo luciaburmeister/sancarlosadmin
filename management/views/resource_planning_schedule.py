@@ -16,7 +16,7 @@ from unfold.views import UnfoldModelAdminViewMixin
 from django.utils.translation import gettext_lazy as _
 
 from core.admin.company_access import get_user_companies
-from management.forms import ResourcePlanningFilterForm
+from management.forms import ResourcePlanningFilterForm, _parse_resource_tokens
 from management.models import (
     ProjectFile,
     ResourcePlanning,
@@ -28,11 +28,15 @@ from management.models import (
 # ponytail: plain class, no dataclass overhead
 class CellBlock:
     __slots__ = ("id", "label", "color", "status", "start", "end",
-                 "project_file_name", "planning_type_name")
+                 "project_file_name", "planning_type_name", "company_id")
 
     def __init__(self, p, start, end):
         self.id = p.id
-        self.label = p.project_file.name if p.project_file else "—"
+        self.company_id = p.company_id
+        if p.show_planning_type and p.planning_type:
+            self.label = str(p.planning_type)
+        else:
+            self.label = p.project_file.name if p.project_file else "—"
         self.color = p.planning_type.color if p.planning_type else "#3B82F6"
         self.status = p.status
         self.start = start
@@ -211,7 +215,7 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
                 except (TypeError, ValueError):
                     continue
             asset_types = asset_type_ids
-            resource_pairs = []
+            resource_pairs = _parse_resource_tokens(GET.get("resources", ""))
             only_with_plans = GET.get("only_with_plans") in {"1", "true", "True", "on"}
 
         if selected_companies:

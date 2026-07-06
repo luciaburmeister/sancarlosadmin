@@ -191,6 +191,19 @@
                           ×
                         </button>
                       </form>
+                      {% if not forloop.last %}
+                        {# Insert a planning right after this block; later plans of the day are pushed forward by its duration #}
+                        <a href="{{ add_url }}?resources={{ res.ct_model }}:{{ res.obj_id }}&day={{ cell.date_key }}&daily_start={{ b.end|date:'H:i:s' }}&shift_following=1&company={{ b.company_id }}"
+                           x-show="hovered"
+                           x-cloak
+                           title="{% trans 'Insert a planning after this one (later plans are pushed forward)' %}"
+                           style="position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); z-index: 10; width: 18px; height: 18px; border-radius: 50%; background: #3b82f6; border: 2px solid white; box-shadow: 0 1px 4px rgba(0,0,0,0.35); text-decoration: none; padding: 0;">
+                          <svg width="8" height="8" viewBox="0 0 10 10"
+                               style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: block;">
+                            <path d="M5 1.5v7M1.5 5h7" stroke="white" stroke-width="1.6" stroke-linecap="round"/>
+                          </svg>
+                        </a>
+                      {% endif %}
                     </div>
                   {% endfor %}
 

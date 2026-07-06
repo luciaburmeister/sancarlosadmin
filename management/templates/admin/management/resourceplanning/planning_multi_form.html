@@ -1,0 +1,511 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n unfold %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <script src="{% url 'admin:jsi18n' %}"></script>
+  {{ media }}
+{% endblock %}
+
+{% block content %}
+<div id="content-main">
+
+  <form method="post" novalidate id="planning_form" x-data="{ activeTab: 'general' }">
+    {% csrf_token %}
+    {{ form.resources }}
+    {{ line_formset.management_form }}
+
+    <div class="flex flex-col gap-6 pb-20">
+
+      {# ── Errors ── #}
+      {% if errors or form.non_field_errors or line_formset.non_form_errors %}
+        <div class="flex flex-col gap-4 *:mb-0">
+          {% if errors %}
+            <div class="rounded-default border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+              <ul class="list-disc pl-4 space-y-1 text-sm text-red-700 dark:text-red-400">
+                {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+          {% if form.non_field_errors %}
+            <div class="rounded-default border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+              <ul class="list-disc pl-4 space-y-1 text-sm text-red-700 dark:text-red-400">
+                {% for e in form.non_field_errors %}<li>{{ e }}</li>{% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+          {% if line_formset.non_form_errors %}
+            <div class="rounded-default border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20">
+              <ul class="list-disc pl-4 space-y-1 text-sm text-red-700 dark:text-red-400">
+                {% for e in line_formset.non_form_errors %}<li>{{ e }}</li>{% endfor %}
+              </ul>
+            </div>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      {# ── Shared fieldsets (company, status) with Resources + Plan lines after ── #}
+      {% for fieldset in adminform %}
+        {% include 'admin/includes/fieldset.html' %}
+
+        {% if forloop.first %}
+          {# ── Resource picker ── #}
+          <fieldset class="module relative">
+            <h2 class="bg-base-100 flex flex-row font-semibold h-[38px] gap-1 items-center mb-4 px-3 rounded-default text-important dark:bg-white/[.02]">
+              {% trans "Resources" %}
+            </h2>
+            <div class="form-rows aligned border border-base-200 rounded-default shadow-xs dark:border-base-800">
+              <div class="form-row field-row group/row last">
+                <div class="field-line flex flex-col group group/line grow px-3 py-2.5 lg:flex-row">
+                  <div class="lg:min-w-56 lg:w-56 lg:h-[38px] lg:flex lg:items-start lg:self-start lg:pt-2 lg:*:m-0">
+                    <label class="block font-semibold text-important">
+                      {% trans "Resource" %}<span class="text-red-600 dark:text-red-500">*</span>
+                    </label>
+                  </div>
+                  <div class="grow relative flex flex-col gap-2 pt-1">
+                    <div class="relative">
+                      <input type="text" id="resource-search" autocomplete="off"
+                             placeholder="{% trans 'Search employee, machine or asset…' %}"
+                             class="w-full border-b border-base-200 dark:border-base-700 bg-transparent py-1.5 text-sm text-important placeholder-base-400 focus:outline-none focus:border-primary-500 transition-colors">
+                      <div id="resource-suggestions"
+                           class="hidden absolute top-full left-0 right-0 z-50 mt-1 rounded-default border border-base-200 dark:border-base-700 bg-white dark:bg-base-900 shadow-md max-h-48 overflow-auto">
+                      </div>
+                    </div>
+                    <div id="resource-badges" class="flex flex-wrap gap-2 min-h-[24px]"></div>
+                    {% if form.resources.errors %}
+                      <div class="text-red-600 text-xs dark:text-red-500">{{ form.resources.errors }}</div>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </fieldset>
+
+          {# ── Plan lines — each with its own project file, type, dates, hours and options ── #}
+          <fieldset class="module relative">
+            <h2 class="bg-base-100 flex flex-row font-semibold h-[38px] gap-1 items-center mb-4 px-3 rounded-default text-important dark:bg-white/[.02]">
+              {% trans "Plan lines" %}
+            </h2>
+            <p class="text-xs text-base-400 mb-3">
+              {% trans "Each line creates its own plannings. All lines share the company, status and resources selected above. New lines copy the values of the previous one." %}
+            </p>
+            <div id="plan-lines" class="flex flex-col gap-3">
+              {% for line_form in line_formset %}
+                <div class="plan-line-row border border-base-200 rounded-default shadow-xs p-3 flex flex-col gap-3 dark:border-base-800">
+                  {% if line_form.non_field_errors %}
+                    <div class="text-red-600 text-xs dark:text-red-500">{{ line_form.non_field_errors }}</div>
+                  {% endif %}
+                  {# Row 1: what is planned #}
+                  <div class="flex flex-col gap-3 lg:flex-row">
+                    <div class="flex flex-col gap-1 grow lg:w-1/2">
+                      <label class="block font-semibold text-important text-sm">{{ line_form.project_file.label }}<span class="text-red-600 dark:text-red-500">*</span></label>
+                      {{ line_form.project_file }}
+                      {% if line_form.project_file.errors %}<div class="text-red-600 text-xs dark:text-red-500">{{ line_form.project_file.errors }}</div>{% endif %}
+                    </div>
+                    <div class="flex flex-col gap-1 grow lg:w-1/2">
+                      <label class="block font-semibold text-important text-sm">{{ line_form.planning_type.label }}<span class="text-red-600 dark:text-red-500">*</span></label>
+                      {{ line_form.planning_type }}
+                      {% if line_form.planning_type.errors %}<div class="text-red-600 text-xs dark:text-red-500">{{ line_form.planning_type.errors }}</div>{% endif %}
+                    </div>
+                    <div class="flex items-start lg:pt-6">
+                      <span class="hidden">{{ line_form.DELETE }}</span>
+                      <button type="button"
+                              class="remove-line-btn inline-flex items-center justify-center px-3 py-2 rounded-default text-sm font-medium border border-red-300 dark:border-red-700 text-red-700 dark:text-red-400 bg-white dark:bg-transparent hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                              title="{% trans 'Remove line' %}">
+                        &times;
+                      </button>
+                    </div>
+                  </div>
+                  {# Row 2: when — start box and end box #}
+                  <div class="flex flex-col gap-3 lg:flex-row">
+                    <div class="flex flex-col gap-2 grow rounded-default border border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02] p-3">
+                      <span class="font-semibold text-important text-sm">{% trans "Start" %}</span>
+                      <div class="flex flex-col gap-3 sm:flex-row">
+                        <div class="flex flex-col gap-1 grow">
+                          <label class="block text-xs text-base-500 dark:text-base-400">{% trans "Date" %}<span class="text-red-600 dark:text-red-500">*</span></label>
+                          {{ line_form.date_from }}
+                          {% if line_form.date_from.errors %}<div class="text-red-600 text-xs dark:text-red-500">{{ line_form.date_from.errors }}</div>{% endif %}
+                        </div>
+                        <div class="flex flex-col gap-1 grow">
+                          <label class="block text-xs text-base-500 dark:text-base-400">{% trans "Time" %}<span class="text-red-600 dark:text-red-500">*</span></label>
+                          {{ line_form.daily_start }}
+                          {% if line_form.daily_start.errors %}<div class="text-red-600 text-xs dark:text-red-500">{{ line_form.daily_start.errors }}</div>{% endif %}
+                        </div>
+                      </div>
+                    </div>
+                    <div class="flex flex-col gap-2 grow rounded-default border border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02] p-3">
+                      <span class="font-semibold text-important text-sm">{% trans "End" %}</span>
+                      <div class="flex flex-col gap-3 sm:flex-row">
+                        <div class="flex flex-col gap-1 grow">
+                          <label class="block text-xs text-base-500 dark:text-base-400">{% trans "Date" %}<span class="text-red-600 dark:text-red-500">*</span></label>
+                          {{ line_form.date_to }}
+                          {% if line_form.date_to.errors %}<div class="text-red-600 text-xs dark:text-red-500">{{ line_form.date_to.errors }}</div>{% endif %}
+                        </div>
+                        <div class="flex flex-col gap-1 grow">
+                          <label class="block text-xs text-base-500 dark:text-base-400">{% trans "Time" %}<span class="text-red-600 dark:text-red-500">*</span></label>
+                          {{ line_form.daily_end }}
+                          {% if line_form.daily_end.errors %}<div class="text-red-600 text-xs dark:text-red-500">{{ line_form.daily_end.errors }}</div>{% endif %}
+                        </div>
+                      </div>
+                    </div>
+                    <div class="flex flex-col gap-2 grow rounded-default border border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02] p-3">
+                      <span class="font-semibold text-important text-sm">{% trans "Repeat" %}</span>
+                      <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+                        <div class="flex flex-col gap-1 grow">
+                          <label class="block text-xs text-base-500 dark:text-base-400">{{ line_form.repeat.label }}</label>
+                          {{ line_form.repeat }}
+                          {% if line_form.repeat.errors %}<div class="text-red-600 text-xs dark:text-red-500">{{ line_form.repeat.errors }}</div>{% endif %}
+                        </div>
+                        <div class="flex flex-col gap-1 sm:w-24 repeat-custom-field">
+                          <label class="block text-xs text-base-500 dark:text-base-400">{{ line_form.repeat_every_days.label }}</label>
+                          {{ line_form.repeat_every_days }}
+                          {% if line_form.repeat_every_days.errors %}<div class="text-red-600 text-xs dark:text-red-500">{{ line_form.repeat_every_days.errors }}</div>{% endif %}
+                        </div>
+                        <div class="flex flex-col gap-1 grow repeat-until-field">
+                          <label class="block text-xs text-base-500 dark:text-base-400">{{ line_form.repeat_until.label }}</label>
+                          {{ line_form.repeat_until }}
+                          {% if line_form.repeat_until.errors %}<div class="text-red-600 text-xs dark:text-red-500">{{ line_form.repeat_until.errors }}</div>{% endif %}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  {# Row 3: options and notes #}
+                  <div class="flex flex-col gap-3 lg:flex-row lg:items-end">
+                    <div class="flex items-center gap-2 lg:pb-1">
+                      {{ line_form.exclude_weekends }}
+                      <label class="font-semibold text-important text-sm" for="{{ line_form.exclude_weekends.id_for_label }}">{{ line_form.exclude_weekends.label }}</label>
+                    </div>
+                    <div class="flex items-center gap-2 lg:pb-1">
+                      {{ line_form.show_planning_type }}
+                      <label class="font-semibold text-important text-sm" for="{{ line_form.show_planning_type.id_for_label }}">{{ line_form.show_planning_type.label }}</label>
+                    </div>
+                    <div class="flex flex-col gap-1 grow">
+                      <label class="block font-semibold text-important text-sm">{{ line_form.notes.label }}</label>
+                      {{ line_form.notes }}
+                      {% if line_form.notes.errors %}<div class="text-red-600 text-xs dark:text-red-500">{{ line_form.notes.errors }}</div>{% endif %}
+                    </div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+
+            <div class="mt-3">
+              <button type="button" id="add-line-btn"
+                      class="inline-flex items-center justify-center px-4 py-2 rounded-default text-sm font-medium border border-base-200 dark:border-base-700 text-important bg-white dark:bg-transparent hover:bg-base-50 dark:hover:bg-base-800 transition-colors">
+                + {% trans "Add plan line" %}
+              </button>
+            </div>
+          </fieldset>
+        {% endif %}
+
+      {% endfor %}
+
+    </div>
+  </form>
+
+  {# ── Empty line template for JS cloning ── #}
+  <template id="empty-line-template">
+    <div class="plan-line-row border border-base-200 rounded-default shadow-xs p-3 flex flex-col gap-3 dark:border-base-800">
+      {# Row 1: what is planned #}
+      <div class="flex flex-col gap-3 lg:flex-row">
+        <div class="flex flex-col gap-1 grow lg:w-1/2">
+          <label class="block font-semibold text-important text-sm">{{ empty_line_form.project_file.label }}<span class="text-red-600 dark:text-red-500">*</span></label>
+          {{ empty_line_form.project_file }}
+        </div>
+        <div class="flex flex-col gap-1 grow lg:w-1/2">
+          <label class="block font-semibold text-important text-sm">{{ empty_line_form.planning_type.label }}<span class="text-red-600 dark:text-red-500">*</span></label>
+          {{ empty_line_form.planning_type }}
+        </div>
+        <div class="flex items-start lg:pt-6">
+          <span class="hidden">{{ empty_line_form.DELETE }}</span>
+          <button type="button"
+                  class="remove-line-btn inline-flex items-center justify-center px-3 py-2 rounded-default text-sm font-medium border border-red-300 dark:border-red-700 text-red-700 dark:text-red-400 bg-white dark:bg-transparent hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  title="{% trans 'Remove line' %}">
+            &times;
+          </button>
+        </div>
+      </div>
+      {# Row 2: when — start box and end box #}
+      <div class="flex flex-col gap-3 lg:flex-row">
+        <div class="flex flex-col gap-2 grow rounded-default border border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02] p-3">
+          <span class="font-semibold text-important text-sm">{% trans "Start" %}</span>
+          <div class="flex flex-col gap-3 sm:flex-row">
+            <div class="flex flex-col gap-1 grow">
+              <label class="block text-xs text-base-500 dark:text-base-400">{% trans "Date" %}<span class="text-red-600 dark:text-red-500">*</span></label>
+              {{ empty_line_form.date_from }}
+            </div>
+            <div class="flex flex-col gap-1 grow">
+              <label class="block text-xs text-base-500 dark:text-base-400">{% trans "Time" %}<span class="text-red-600 dark:text-red-500">*</span></label>
+              {{ empty_line_form.daily_start }}
+            </div>
+          </div>
+        </div>
+        <div class="flex flex-col gap-2 grow rounded-default border border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02] p-3">
+          <span class="font-semibold text-important text-sm">{% trans "End" %}</span>
+          <div class="flex flex-col gap-3 sm:flex-row">
+            <div class="flex flex-col gap-1 grow">
+              <label class="block text-xs text-base-500 dark:text-base-400">{% trans "Date" %}<span class="text-red-600 dark:text-red-500">*</span></label>
+              {{ empty_line_form.date_to }}
+            </div>
+            <div class="flex flex-col gap-1 grow">
+              <label class="block text-xs text-base-500 dark:text-base-400">{% trans "Time" %}<span class="text-red-600 dark:text-red-500">*</span></label>
+              {{ empty_line_form.daily_end }}
+            </div>
+          </div>
+        </div>
+        <div class="flex flex-col gap-2 grow rounded-default border border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02] p-3">
+          <span class="font-semibold text-important text-sm">{% trans "Repeat" %}</span>
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div class="flex flex-col gap-1 grow">
+              <label class="block text-xs text-base-500 dark:text-base-400">{{ empty_line_form.repeat.label }}</label>
+              {{ empty_line_form.repeat }}
+            </div>
+            <div class="flex flex-col gap-1 sm:w-24 repeat-custom-field">
+              <label class="block text-xs text-base-500 dark:text-base-400">{{ empty_line_form.repeat_every_days.label }}</label>
+              {{ empty_line_form.repeat_every_days }}
+            </div>
+            <div class="flex flex-col gap-1 grow repeat-until-field">
+              <label class="block text-xs text-base-500 dark:text-base-400">{{ empty_line_form.repeat_until.label }}</label>
+              {{ empty_line_form.repeat_until }}
+            </div>
+          </div>
+        </div>
+      </div>
+      {# Row 3: options and notes #}
+      <div class="flex flex-col gap-3 lg:flex-row lg:items-end">
+        <div class="flex items-center gap-2 lg:pb-1">
+          {{ empty_line_form.exclude_weekends }}
+          <label class="font-semibold text-important text-sm">{{ empty_line_form.exclude_weekends.label }}</label>
+        </div>
+        <div class="flex items-center gap-2 lg:pb-1">
+          {{ empty_line_form.show_planning_type }}
+          <label class="font-semibold text-important text-sm">{{ empty_line_form.show_planning_type.label }}</label>
+        </div>
+        <div class="flex flex-col gap-1 grow">
+          <label class="block font-semibold text-important text-sm">{{ empty_line_form.notes.label }}</label>
+          {{ empty_line_form.notes }}
+        </div>
+      </div>
+    </div>
+  </template>
+
+</div>
+{% endblock %}
+
+{% block footer %}
+  {# ── Sticky submit bar ── #}
+  <div id="submit-row" class="relative lg:sticky lg:bottom-0 z-40">
+    <div class="backdrop-blur-xs bg-white/80 rounded-b-default pb-4 px-4 dark:bg-base-900/80 lg:border-t lg:border-base-200 relative lg:py-0 dark:border-base-800">
+      <div class="flex flex-col-reverse gap-3 items-center mx-auto lg:flex-row-reverse container lg:h-[64px]">
+
+        {# Primary: Save #}
+        {% component "unfold/components/button.html" with submit=1 form="planning_form" name="_save" class="w-full lg:w-auto" %}
+          {% trans "Save" %}
+        {% endcomponent %}
+
+        {# Save and add another #}
+        {% component "unfold/components/button.html" with submit=1 form="planning_form" name="_addanother" variant="default" class="w-full lg:w-auto" %}
+          {% trans "Save and add another" %}
+        {% endcomponent %}
+
+        <div class="flex flex-col gap-3 mr-auto w-full lg:flex-row lg:w-auto">
+          {% component "unfold/components/button.html" with href=cancel_url variant="default" class="w-full lg:w-auto" %}
+            {% trans "Cancel" %}
+          {% endcomponent %}
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    const searchInput  = document.getElementById('resource-search');
+    const suggestions  = document.getElementById('resource-suggestions');
+    const badges       = document.getElementById('resource-badges');
+    const hidden       = document.querySelector('input[name="resources"]');
+
+    const INITIAL_LABELS = {{ resource_labels_json|default:"{}"|safe }};
+    let selected = [];
+
+    const initialRaw = (hidden && hidden.value) ? hidden.value : '';
+    if (initialRaw) {
+      initialRaw.split(',').forEach(token => {
+        token = token.trim();
+        if (token) selected.push({ id: token, text: INITIAL_LABELS[token] || token });
+      });
+      renderBadges();
+    }
+
+    function renderBadges() {
+      badges.innerHTML = '';
+      if (hidden) hidden.value = selected.map(r => r.id).join(',');
+      selected.forEach(r => {
+        const span = document.createElement('span');
+        span.className = 'inline-flex items-center gap-1 bg-primary-100 text-primary-800 dark:bg-primary-900/30 dark:text-primary-300 rounded-full px-3 py-1 text-xs font-medium';
+        span.innerHTML = `${r.text} <button type="button" data-id="${r.id}" class="ml-1 text-primary-500 hover:text-primary-700 font-bold leading-none">&times;</button>`;
+        span.querySelector('button').addEventListener('click', () => {
+          selected = selected.filter(x => x.id !== r.id);
+          renderBadges();
+        });
+        badges.appendChild(span);
+      });
+    }
+
+    function addResource(item) {
+      if (!selected.find(r => r.id === item.id)) {
+        selected.push(item);
+        renderBadges();
+      }
+    }
+
+    let debounceTimer;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(debounceTimer);
+      const term = searchInput.value.trim();
+      if (term.length < 1) { suggestions.classList.add('hidden'); return; }
+      debounceTimer = setTimeout(() => fetchSuggestions(term), 250);
+    });
+
+    function fetchSuggestions(term) {
+      const companyId = document.querySelector('[name="company"]')?.value || '';
+      const url = '{% url "admin:management_resourceplanning_resource_autocomplete" %}' +
+        '?term=' + encodeURIComponent(term) +
+        (companyId ? '&company=' + encodeURIComponent(companyId) : '');
+      fetch(url).then(r => r.json()).then(data => renderSuggestions(data.results || []));
+    }
+
+    function renderSuggestions(items) {
+      suggestions.innerHTML = '';
+      if (!items.length) { suggestions.classList.add('hidden'); return; }
+      items.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'px-3 py-2 text-sm text-important hover:bg-base-50 dark:hover:bg-base-800 cursor-pointer';
+        div.textContent = item.text;
+        div.addEventListener('mousedown', e => {
+          e.preventDefault();
+          addResource(item);
+          searchInput.value = '';
+          suggestions.classList.add('hidden');
+        });
+        suggestions.appendChild(div);
+      });
+      suggestions.classList.remove('hidden');
+    }
+
+    searchInput.addEventListener('blur', () => {
+      setTimeout(() => suggestions.classList.add('hidden'), 150);
+    });
+  })();
+
+  // ── Formset add/remove lines ──
+  (function () {
+    const container   = document.getElementById('plan-lines');
+    const addBtn      = document.getElementById('add-line-btn');
+    const template    = document.getElementById('empty-line-template');
+    const totalInput  = document.querySelector('input[name="lines-TOTAL_FORMS"]');
+
+    function reinitDateTimeShortcuts() {
+      if (typeof DateTimeShortcuts === 'undefined') return;
+      document.querySelectorAll('.datetimeshortcuts').forEach(el => el.remove());
+      document.querySelectorAll('.calendarbox, .clockbox').forEach(el => el.remove());
+      DateTimeShortcuts.calendars = [];
+      DateTimeShortcuts.calendarInputs = [];
+      DateTimeShortcuts.clockInputs = [];
+      DateTimeShortcuts.dismissCalendarFunc = [];
+      DateTimeShortcuts.dismissClockFunc = [];
+      DateTimeShortcuts.init();
+      if (typeof dateTimeShortcutsOverlay === 'function') dateTimeShortcutsOverlay();
+    }
+    window.addEventListener('load', reinitDateTimeShortcuts);
+
+    function bindRemove(row) {
+      const btn = row.querySelector('.remove-line-btn');
+      if (!btn) return;
+      btn.addEventListener('click', () => {
+        const del = row.querySelector('input[name$="-DELETE"]');
+        if (del) del.checked = true;
+        row.style.display = 'none';
+      });
+    }
+
+    function visibleRows() {
+      return [...container.querySelectorAll('.plan-line-row')]
+        .filter(r => r.style.display !== 'none');
+    }
+
+    // Copy every field value from the previous line into the new one
+    function copyFromPreviousLine(row) {
+      const prevRow = visibleRows().filter(r => r !== row).pop();
+      if (!prevRow) return;
+      row.querySelectorAll('input, select, textarea').forEach(el => {
+        const match = el.name && el.name.match(/^lines-\d+-(.+)$/);
+        if (!match || match[1] === 'DELETE') return;
+        const prev = prevRow.querySelector(`[name$="-${match[1]}"]`);
+        if (!prev) return;
+        if (el.type === 'checkbox') {
+          el.checked = prev.checked;
+        } else if (el.tagName === 'SELECT') {
+          // Autocomplete selects render no <option> until chosen — clone the
+          // previous line's selected option so the value can be assigned.
+          const prevOpt = prev.selectedOptions && prev.selectedOptions[0];
+          if (!prevOpt || prevOpt.value === '') return;
+          const existing = [...el.options].find(o => o.value === prevOpt.value);
+          if (existing) {
+            el.value = prevOpt.value;
+          } else {
+            el.appendChild(new Option(prevOpt.text, prevOpt.value, true, true));
+          }
+        } else {
+          el.value = prev.value;
+        }
+      });
+    }
+
+    container.querySelectorAll('.plan-line-row').forEach(bindRemove);
+
+    addBtn.addEventListener('click', () => {
+      const index = parseInt(totalInput.value, 10);
+      const html = template.innerHTML.replace(/__prefix__/g, index);
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = html;
+      const row = wrapper.firstElementChild;
+      container.appendChild(row);
+      totalInput.value = index + 1;
+      bindRemove(row);
+      copyFromPreviousLine(row);
+
+      // Init select2 on the new row's autocomplete selects (after copying
+      // values, so the copied selection is rendered)
+      if (window.django && django.jQuery && django.jQuery.fn.djangoAdminSelect2) {
+        django.jQuery(row).find('.admin-autocomplete').djangoAdminSelect2();
+      }
+      reinitDateTimeShortcuts();
+    });
+  })();
+
+  (function () {
+    function bindRepeatToggle(scope) {
+      const repeatSelect = scope.querySelector('select[name$="-repeat"]');
+      const untilField = scope.querySelector('.repeat-until-field');
+      const customField = scope.querySelector('.repeat-custom-field');
+      if (!repeatSelect) return;
+      function sync() {
+        const isNever = repeatSelect.value === 'never';
+        const isCustom = repeatSelect.value === 'custom';
+        if (untilField) untilField.style.display = isNever ? 'none' : '';
+        if (customField) customField.style.display = isCustom ? '' : 'none';
+      }
+      repeatSelect.addEventListener('change', sync);
+      sync();
+    }
+    document.querySelectorAll('.plan-line-row').forEach(bindRepeatToggle);
+    document.getElementById('add-line-btn')?.addEventListener('click', () => {
+      setTimeout(() => {
+        const rows = document.querySelectorAll('.plan-line-row');
+        if (rows.length) bindRepeatToggle(rows[rows.length - 1]);
+      }, 0);
+    });
+  })();
+  </script>
+{% endblock %}

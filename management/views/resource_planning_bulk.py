@@ -16,14 +16,27 @@ from unfold.views import UnfoldModelAdminViewMixin
 from unfold.widgets import UnfoldAdminDateWidget, UnfoldAdminTimeWidget, UnfoldBooleanSwitchWidget
 
 from core.admin.company_access import get_user_companies
-from management.forms import ResourcePlanningBulkForm
-from management.models import ResourcePlanning, ResourcePlanningGroup, ResourcePlanningStatus
+from management.forms import (
+    ResourcePlanningBulkForm,
+    ResourcePlanningMultiForm,
+    ResourcePlanningMultiLineFormSet,
+    ResourcePlanningSeriesForm,
+)
+from management.models import (
+    ResourcePlanning,
+    ResourcePlanningGroup,
+    ResourcePlanningStatus,
+)
 from management.services.resource_planning import (
+    create_multi_plannings,
     create_plannings,
     delete_day_from_planning,
+    delete_group,
+    detach_planning_from_group,
     dissolve_group,
     update_group,
     update_planning,
+    update_series,
 )
 
 
@@ -33,7 +46,7 @@ class _PlanningFormMixin:
     FIELDSETS = [
         (_("Planning"), {"fields": ("company", "project_file", "planning_type", "status")}),
         (_("Schedule"), {"fields": (("date_from", "date_to"), ("daily_start", "daily_end"), "exclude_weekends")}),
-        (_("Options"), {"fields": ("is_group", "notes")}),
+        (_("Options"), {"fields": ("is_group", "show_planning_type", "notes")}),
     ]
 
     RESOURCE_MODEL_MAP = {
@@ -50,7 +63,7 @@ class _PlanningFormMixin:
             user_companies=get_user_companies(request.user),
         )
 
-    def _apply_form_widgets(self, form: ResourcePlanningBulkForm, request) -> None:
+    def _apply_form_widgets(self, form, request) -> None:
         """Wire autocomplete widgets for FK fields after form instantiation."""
         for field_name in ("company", "project_file", "planning_type"):
             if field_name not in form.fields:
@@ -119,21 +132,37 @@ class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, Vie
     permission_required = ("management.add_resourceplanning",)
 
     def get(self, request, *args, **kwargs):
+        from django.utils.dateparse import parse_date, parse_time
+
         initial = {}
         if request.GET.get("resources"):
             initial["resources"] = request.GET["resources"]
         if request.GET.get("company"):
             initial["company"] = request.GET["company"]
         if request.GET.get("day"):
-            from django.utils.dateparse import parse_date
             day = parse_date(request.GET["day"])
             if day:
                 initial.update({"date_from": day, "date_to": day})
+        for field in ("date_from", "date_to"):
+            if request.GET.get(field):
+                value = parse_date(request.GET[field])
+                if value:
+                    initial[field] = value
+        for field in ("daily_start", "daily_end"):
+            if request.GET.get(field):
+                value = parse_time(request.GET[field])
+                if value:
+                    initial[field] = value
+        if "exclude_weekends" in request.GET:
+            initial["exclude_weekends"] = request.GET["exclude_weekends"] == "1"
+        if request.GET.get("shift_following") == "1":
+            initial["shift_following"] = True
 
         form = self._get_form(request, initial=initial)
         self._apply_form_widgets(form, request)
         ctx = self._get_context(request, form, None, [])
         ctx["resource_labels_json"] = self._resource_labels_json(initial.get("resources", ""))
+        ctx["show_repeat"] = True
         return render(request, "admin/management/resourceplanning/planning_form.html", ctx)
 
     def post(self, request, *args, **kwargs):
@@ -155,6 +184,11 @@ class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, Vie
                     daily_end=cd["daily_end"],
                     exclude_weekends=cd["exclude_weekends"],
                     is_group=cd.get("is_group", False),
+                    show_planning_type=cd.get("show_planning_type", False),
+                    shift_following=cd.get("shift_following", False),
+                    repeat=cd.get("repeat", "never"),
+                    repeat_until=cd.get("repeat_until"),
+                    repeat_every_days=cd.get("repeat_every_days"),
                 )
                 self.model_admin.message_user(
                     request,
@@ -162,7 +196,19 @@ class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, Vie
                 )
                 add_url = reverse("admin:management_resourceplanning_bulk_add")
                 if "_addanother" in request.POST:
-                    return HttpResponseRedirect(add_url)
+                    # Carry shared fields over so only project file, type and
+                    # group flag need to be filled in again.
+                    from urllib.parse import urlencode
+                    params = {
+                        "company": cd["company"].pk,
+                        "resources": request.POST.get("resources", ""),
+                        "date_from": cd["date_from"].isoformat(),
+                        "date_to": cd["date_to"].isoformat(),
+                        "daily_start": cd["daily_start"].isoformat(),
+                        "daily_end": cd["daily_end"].isoformat(),
+                        "exclude_weekends": "1" if cd["exclude_weekends"] else "0",
+                    }
+                    return HttpResponseRedirect(add_url + "?" + urlencode(params))
                 group = plannings[0].group if plannings and plannings[0].group_id else None
                 if group:
                     return HttpResponseRedirect(
@@ -180,7 +226,127 @@ class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, Vie
         self._apply_form_widgets(form, request)
         ctx = self._get_context(request, form, None, errors)
         ctx["resource_labels_json"] = self._resource_labels_json(raw)
+        ctx["show_repeat"] = True
         return render(request, "admin/management/resourceplanning/planning_form.html", ctx)
+
+
+class ResourcePlanningMultiAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, View):
+    """
+    Create several independent plannings in one go: resources, company, status
+    and daily hours are shared, while each plan line has its own project file,
+    planning type and date range. No group is created.
+    """
+
+    title = _("Create Multiple Resource Plannings")
+    permission_required = ("management.add_resourceplanning",)
+
+    FIELDSETS = [
+        (_("Planning"), {"fields": ("company", "status")}),
+    ]
+
+    LINE_FIELDS = (
+        "project_file", "planning_type", "date_from", "date_to",
+        "daily_start", "daily_end", "exclude_weekends",
+        "show_planning_type", "notes",
+        "repeat", "repeat_until", "repeat_every_days",
+    )
+
+    def _get_form(self, request, data=None, initial=None) -> ResourcePlanningMultiForm:
+        return ResourcePlanningMultiForm(
+            data=data,
+            initial=initial,
+            user=request.user,
+            user_companies=get_user_companies(request.user),
+        )
+
+    def _get_formset(self, request, data=None, initial=None) -> ResourcePlanningMultiLineFormSet:
+        return ResourcePlanningMultiLineFormSet(
+            data=data,
+            initial=initial,
+            prefix="lines",
+            form_kwargs={"user_companies": get_user_companies(request.user)},
+        )
+
+    def _apply_line_widgets(self, formset, request):
+        """Wire autocomplete widgets on every line form; return the configured
+        empty form (formset.empty_form builds a fresh instance on each access,
+        so it must be configured once and reused)."""
+        empty_line_form = formset.empty_form
+        for line_form in [*formset.forms, empty_line_form]:
+            for field_name in ("project_file", "planning_type"):
+                db_field = ResourcePlanning._meta.get_field(field_name)
+                widget = AutocompleteSelect(db_field, self.model_admin.admin_site)
+                line_form.fields[field_name].widget = widget
+                widget.choices = line_form.fields[field_name].choices
+        return empty_line_form
+
+    def _get_multi_context(self, request, form, formset, empty_line_form, errors) -> dict:
+        ctx = self._get_context(request, form, None, errors)
+        ctx["content_title"] = str(self.title)
+        ctx["title"] = self.title
+        ctx["line_formset"] = formset
+        ctx["empty_line_form"] = empty_line_form
+        ctx["media"] = ctx["media"] + formset.media + empty_line_form.media
+        return ctx
+
+    def get(self, request, *args, **kwargs):
+        initial = {}
+        if request.GET.get("resources"):
+            initial["resources"] = request.GET["resources"]
+        if request.GET.get("company"):
+            initial["company"] = request.GET["company"]
+
+        line_initial = [{}]
+        if request.GET.get("day"):
+            from django.utils.dateparse import parse_date
+            day = parse_date(request.GET["day"])
+            if day:
+                line_initial = [{"date_from": day, "date_to": day}]
+
+        form = self._get_form(request, initial=initial)
+        formset = self._get_formset(request, initial=line_initial)
+        self._apply_form_widgets(form, request)
+        empty_line_form = self._apply_line_widgets(formset, request)
+        ctx = self._get_multi_context(request, form, formset, empty_line_form, [])
+        ctx["resource_labels_json"] = self._resource_labels_json(initial.get("resources", ""))
+        return render(request, "admin/management/resourceplanning/planning_multi_form.html", ctx)
+
+    def post(self, request, *args, **kwargs):
+        form = self._get_form(request, data=request.POST)
+        formset = self._get_formset(request, data=request.POST)
+        errors = []
+        if form.is_valid() and formset.is_valid():
+            lines = [
+                {field: cd[field] for field in self.LINE_FIELDS}
+                for cd in formset.cleaned_data
+                if cd and not cd.get("DELETE")
+            ]
+            try:
+                cd = form.cleaned_data
+                plannings = create_multi_plannings(
+                    company=cd["company"],
+                    status=cd["status"],
+                    resources=form.resource_pairs,
+                    lines=lines,
+                )
+                self.model_admin.message_user(
+                    request,
+                    _(f"Created {len(plannings)} resource planning(s) successfully."),
+                )
+                if "_addanother" in request.POST:
+                    return HttpResponseRedirect(
+                        reverse("admin:management_resourceplanning_multi_add")
+                    )
+                return HttpResponseRedirect(reverse("admin:management_resourceplanning_changelist"))
+            except ValidationError as e:
+                errors = e.messages
+
+        raw = request.POST.get("resources", "")
+        self._apply_form_widgets(form, request)
+        empty_line_form = self._apply_line_widgets(formset, request)
+        ctx = self._get_multi_context(request, form, formset, empty_line_form, errors)
+        ctx["resource_labels_json"] = self._resource_labels_json(raw)
+        return render(request, "admin/management/resourceplanning/planning_multi_form.html", ctx)
 
 
 class ResourcePlanningGroupChangeView(_PlanningFormMixin, UnfoldModelAdminViewMixin, View):
@@ -226,9 +392,123 @@ class ResourcePlanningGroupChangeView(_PlanningFormMixin, UnfoldModelAdminViewMi
             "daily_end": local_last_end.time(),
             "exclude_weekends": first.exclude_weekends,
             "is_group": True,
+            "show_planning_type": first.show_planning_type,
         }
 
+    # ── Series editor (repetition groups) ─────────────────────────────────────
+
+    SERIES_FIELDSETS = [
+        (_("Planning"), {"fields": ("project_file", "planning_type", "status")}),
+        (_("Daily hours"), {"fields": (("daily_start", "daily_end"),)}),
+        (_("Options"), {"fields": ("show_planning_type", "notes")}),
+    ]
+
+    def _get_series_form(self, request, data=None, initial=None) -> ResourcePlanningSeriesForm:
+        return ResourcePlanningSeriesForm(
+            data=data,
+            initial=initial,
+            user_companies=get_user_companies(request.user),
+        )
+
+    def _series_initial(self) -> dict:
+        first = self.group.plannings.order_by("start").first()
+        if not first:
+            return {}
+        return {
+            "project_file": first.project_file_id,
+            "planning_type": first.planning_type_id,
+            "status": first.status,
+            "notes": first.notes,
+            "show_planning_type": first.show_planning_type,
+            "daily_start": tz.localtime(first.start).time(),
+            "daily_end": tz.localtime(first.end).time(),
+        }
+
+    def _series_context(self, request, form, errors) -> dict:
+        adminform = UnfoldAdminForm(
+            form=form,
+            fieldsets=self.SERIES_FIELDSETS,
+            prepopulated_fields={},
+            readonly_fields=[],
+            model_admin=self.model_admin,
+        )
+        title = _("Edit Repetition Series")
+        return {
+            **self.model_admin.admin_site.each_context(request),
+            "model_admin": self.model_admin,
+            "content_title": str(title),
+            "title": title,
+            "adminform": adminform,
+            "form": form,
+            "media": self.model_admin.media + form.media,
+            "group": self.group,
+            "cancel_url": reverse("admin:management_resourceplanning_changelist"),
+            "errors": errors,
+            "has_file_field": False,
+            "plannings": list(
+                self.group.plannings
+                .select_related("resource_content_type", "project_file")
+                .order_by("start")
+            ),
+        }
+
+    def _apply_series_widgets(self, form: ResourcePlanningSeriesForm, request) -> None:
+        for field_name in ("project_file", "planning_type"):
+            if field_name not in form.fields:
+                continue
+            db_field = ResourcePlanning._meta.get_field(field_name)
+            widget = AutocompleteSelect(db_field, self.model_admin.admin_site)
+            form.fields[field_name].widget = widget
+            widget.choices = form.fields[field_name].choices
+
+    def _series_get(self, request):
+        form = self._get_series_form(request, initial=self._series_initial())
+        self._apply_series_widgets(form, request)
+        ctx = self._series_context(request, form, [])
+        return render(request, "admin/management/resourceplanning/planning_series_form.html", ctx)
+
+    def _series_post(self, request):
+        if "delete_group" in request.POST:
+            delete_group(self.group.pk)
+            self.model_admin.message_user(request, _("Series deleted."))
+            return HttpResponseRedirect(reverse("admin:management_resourceplanning_changelist"))
+
+        if "cancel_group" in request.POST:
+            self.group.cancel_all()
+            self.model_admin.message_user(request, _("Series cancelled."))
+            return HttpResponseRedirect(reverse("admin:management_resourceplanning_changelist"))
+
+        form = self._get_series_form(request, data=request.POST)
+        errors = []
+        if form.is_valid():
+            try:
+                cd = form.cleaned_data
+                update_series(
+                    self.group.pk,
+                    project_file=cd["project_file"],
+                    planning_type=cd["planning_type"],
+                    status=cd["status"],
+                    notes=cd.get("notes", ""),
+                    show_planning_type=cd.get("show_planning_type", False),
+                    daily_start=cd["daily_start"],
+                    daily_end=cd["daily_end"],
+                )
+                self.model_admin.message_user(request, _("Series updated successfully."))
+                return HttpResponseRedirect(
+                    reverse("admin:management_resourceplanning_group_change", args=[self.group.pk])
+                )
+            except ValidationError as e:
+                errors = e.messages
+
+        self._apply_series_widgets(form, request)
+        ctx = self._series_context(request, form, errors)
+        return render(request, "admin/management/resourceplanning/planning_series_form.html", ctx)
+
+    # ── Regular group editing ─────────────────────────────────────────────────
+
     def get(self, request, *args, **kwargs):
+        if self.group.is_repetition:
+            return self._series_get(request)
         initial = self._initial_from_group()
         form = self._get_form(request, initial=initial)
         self._apply_form_widgets(form, request)
@@ -240,6 +520,8 @@ class ResourcePlanningGroupChangeView(_PlanningFormMixin, UnfoldModelAdminViewMi
         return render(request, "admin/management/resourceplanning/planning_form.html", ctx)
 
     def post(self, request, *args, **kwargs):
+        if self.group.is_repetition:
+            return self._series_post(request)
         group = self.group
         add_url = reverse("admin:management_resourceplanning_bulk_add")
 
@@ -268,6 +550,7 @@ class ResourcePlanningGroupChangeView(_PlanningFormMixin, UnfoldModelAdminViewMi
                     daily_start=cd["daily_start"],
                     daily_end=cd["daily_end"],
                     exclude_weekends=cd["exclude_weekends"],
+                    show_planning_type=cd.get("show_planning_type", False),
                 )
                 if not is_group:
                     dissolve_group(group.pk)
@@ -327,6 +610,7 @@ class ResourcePlanningIndividualChangeView(_PlanningFormMixin, UnfoldModelAdminV
             "daily_end": local_end.time(),
             "exclude_weekends": p.exclude_weekends,
             "is_group": False,
+            "show_planning_type": p.show_planning_type,
         }
 
     def get(self, request, *args, **kwargs):
@@ -337,6 +621,16 @@ class ResourcePlanningIndividualChangeView(_PlanningFormMixin, UnfoldModelAdminV
         ctx = self._get_context(request, form, None, [], delete_url=delete_url)
         ctx["resource_labels_json"] = self._resource_labels_json(self._resource_token())
         ctx["planning"] = self.planning
+        series_group = None
+        if self.planning.group_id:
+            series_group = ResourcePlanningGroup.objects.filter(
+                pk=self.planning.group_id, is_repetition=True,
+            ).first()
+        ctx["repetition_series_group"] = series_group
+        ctx["series_edit_url"] = (
+            reverse("admin:management_resourceplanning_group_change", args=[series_group.pk])
+            if series_group else None
+        )
         return render(request, "admin/management/resourceplanning/planning_form.html", ctx)
 
     def post(self, request, *args, **kwargs):
@@ -381,6 +675,7 @@ class ResourcePlanningIndividualChangeView(_PlanningFormMixin, UnfoldModelAdminV
                             daily_end=cd["daily_end"],
                             exclude_weekends=cd["exclude_weekends"],
                             is_group=is_group,
+                            show_planning_type=cd.get("show_planning_type", False),
                         )
                     if "_addanother" in request.POST:
                         return HttpResponseRedirect(add_url)
@@ -400,6 +695,14 @@ class ResourcePlanningIndividualChangeView(_PlanningFormMixin, UnfoldModelAdminV
                     return HttpResponseRedirect(reverse("admin:management_resourceplanning_changelist"))
 
                 # Single resource — plain update
+                if planning.group_id:
+                    series_group = ResourcePlanningGroup.objects.filter(
+                        pk=planning.group_id, is_repetition=True,
+                    ).first()
+                    if series_group:
+                        detach_planning_from_group(planning)
+                        planning.refresh_from_db()
+
                 ct, obj_id = resource_pairs[0]
                 update_planning(
                     planning.pk,
@@ -409,6 +712,7 @@ class ResourcePlanningIndividualChangeView(_PlanningFormMixin, UnfoldModelAdminV
                     status=cd["status"],
                     notes=cd.get("notes", ""),
                     exclude_weekends=cd["exclude_weekends"],
+                    show_planning_type=cd.get("show_planning_type", False),
                     resource_content_type=ct,
                     resource_object_id=obj_id,
                     start=start_dt,
@@ -429,6 +733,16 @@ class ResourcePlanningIndividualChangeView(_PlanningFormMixin, UnfoldModelAdminV
         ctx = self._get_context(request, form, None, errors, delete_url=delete_url)
         ctx["resource_labels_json"] = self._resource_labels_json(raw)
         ctx["planning"] = planning
+        series_group = None
+        if planning.group_id:
+            series_group = ResourcePlanningGroup.objects.filter(
+                pk=planning.group_id, is_repetition=True,
+            ).first()
+        ctx["repetition_series_group"] = series_group
+        ctx["series_edit_url"] = (
+            reverse("admin:management_resourceplanning_group_change", args=[series_group.pk])
+            if series_group else None
+        )
         return render(request, "admin/management/resourceplanning/planning_form.html", ctx)
 
 

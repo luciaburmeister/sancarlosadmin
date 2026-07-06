@@ -201,12 +201,41 @@ class TestAddViewPost(_ViewBase):
             fetch_redirect_response=False,
         )
 
-    def test_post_addanother_redirects_to_add(self):
-        data = self._post_data()
+    def test_post_addanother_redirects_to_add_keeping_shared_fields(self):
+        data = self._post_data(exclude_weekends="on")
         data.pop("_save")
         data["_addanother"] = "1"
         r = self.http.post(self.add_url, data)
-        self.assertRedirects(r, self.add_url, fetch_redirect_response=False)
+        self.assertEqual(r.status_code, 302)
+        self.assertTrue(r.url.startswith(self.add_url + "?"))
+        for fragment in (
+            f"company={self.company.pk}",
+            f"resources=employee%3A{self.employee.pk}",
+            "date_from=2026-07-07",
+            "date_to=2026-07-09",
+            "daily_start=08%3A00%3A00",
+            "daily_end=17%3A00%3A00",
+            "exclude_weekends=1",
+        ):
+            self.assertIn(fragment, r.url)
+
+    def test_get_prepopulates_shared_fields_from_addanother(self):
+        r = self.http.get(self.add_url + (
+            f"?company={self.company.pk}"
+            f"&resources=employee:{self.employee.pk}"
+            "&date_from=2026-07-07&date_to=2026-07-09"
+            "&daily_start=08:00:00&daily_end=17:00:00"
+            "&exclude_weekends=0"
+        ))
+        self.assertEqual(r.status_code, 200)
+        initial = r.context["form"].initial
+        self.assertEqual(initial["company"], str(self.company.pk))
+        self.assertEqual(initial["resources"], f"employee:{self.employee.pk}")
+        self.assertEqual(initial["date_from"], datetime.date(2026, 7, 7))
+        self.assertEqual(initial["date_to"], datetime.date(2026, 7, 9))
+        self.assertEqual(initial["daily_start"], datetime.time(8, 0))
+        self.assertEqual(initial["daily_end"], datetime.time(17, 0))
+        self.assertFalse(initial["exclude_weekends"])
 
     def test_post_grouped_save_redirects_to_group_change(self):
         data = self._post_data(
@@ -646,6 +675,150 @@ class TestScheduleFilters(_ViewBase):
         blocks = employee_row["cells"][0]["blocks"]
         self.assertEqual(len(blocks), 2)
 
+    def test_resources_filter_works_when_form_is_invalid(self):
+        """Resource filter must apply even when other fields invalidate the form."""
+        create_plannings(
+            company=self.company,
+            project_file=self.project_file,
+            planning_type=self.planning_type,
+            status=ResourcePlanningStatus.PLANNED,
+            notes="",
+            resources=[(self.employee_ct, self.employee.pk)],
+            date_from=datetime.date(2026, 7, 6),
+            date_to=datetime.date(2026, 7, 6),
+            daily_start=datetime.time(8, 0),
+            daily_end=datetime.time(17, 0),
+            is_group=False,
+        )
+
+        response = self.http.get(
+            self.schedule_url,
+            {
+                "day": "2026-07-06",
+                "num_days": "7",
+                "company": [str(self.company.pk)],
+                "resources": f"employee:{self.employee.pk}",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.context["filter_form"].is_valid())
+        rows = [
+            resource
+            for group in response.context["resource_groups"]
+            for resource in group["resources"]
+        ]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["name"], str(self.employee))
+
+
+# ── Repetition series ─────────────────────────────────────────────────────────
+
+class TestRepetitionSeries(_ViewBase):
+    def _make_repetition(self):
+        plannings = create_plannings(
+            company=self.company,
+            project_file=self.project_file,
+            planning_type=self.planning_type,
+            status=ResourcePlanningStatus.PLANNED,
+            notes="",
+            resources=[(self.employee_ct, self.employee.pk)],
+            date_from=datetime.date(2026, 7, 6),
+            date_to=datetime.date(2026, 7, 6),
+            daily_start=datetime.time(8, 0),
+            daily_end=datetime.time(17, 0),
+            repeat="weekly",
+            repeat_until=datetime.date(2026, 7, 20),
+        )
+        group = plannings[0].group
+        self.assertTrue(group.is_repetition)
+        return group, plannings
+
+    def test_change_view_redirects_repetition_member_to_individual(self):
+        group, plannings = self._make_repetition()
+        change_url = reverse("admin:management_resourceplanning_change", args=[plannings[0].pk])
+        individual_url = reverse(
+            "admin:management_resourceplanning_individual_change", args=[plannings[0].pk]
+        )
+        response = self.http.get(change_url)
+        self.assertRedirects(response, individual_url, fetch_redirect_response=False)
+
+    def test_non_repetition_group_still_redirects_to_group_change(self):
+        plannings = self._make_group()
+        group = plannings[0].group
+        planning = plannings[0]
+        response = self.http.get(
+            reverse("admin:management_resourceplanning_change", args=[planning.pk])
+        )
+        self.assertRedirects(
+            response,
+            self.group_url(group.pk),
+            fetch_redirect_response=False,
+        )
+
+    def test_series_editor_lists_occurrences_with_edit_links(self):
+        group, plannings = self._make_repetition()
+        response = self.http.get(self.group_url(group.pk))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.context["plannings"]), len(plannings))
+        self.assertContains(response, reverse(
+            "admin:management_resourceplanning_individual_change",
+            args=[plannings[0].pk],
+        ))
+
+    def test_delete_series_removes_all_plannings(self):
+        group, plannings = self._make_repetition()
+        count = len(plannings)
+        self.assertGreater(count, 1)
+
+        response = self.http.post(self.group_url(group.pk), {"delete_group": "1"})
+        self.assertRedirects(
+            response,
+            reverse("admin:management_resourceplanning_changelist"),
+            fetch_redirect_response=False,
+        )
+        self.assertEqual(ResourcePlanning.objects.count(), 0)
+        self.assertFalse(ResourcePlanningGroup.objects.filter(pk=group.pk).exists())
+
+    def test_cancel_series_marks_all_as_cancelled(self):
+        group, plannings = self._make_repetition()
+        response = self.http.post(self.group_url(group.pk), {"cancel_group": "1"})
+        self.assertRedirects(
+            response,
+            reverse("admin:management_resourceplanning_changelist"),
+            fetch_redirect_response=False,
+        )
+        statuses = set(ResourcePlanning.objects.values_list("status", flat=True))
+        self.assertEqual(statuses, {ResourcePlanningStatus.CANCELLED})
+        self.assertTrue(ResourcePlanningGroup.objects.filter(pk=group.pk).exists())
+
+    def test_individual_edit_detaches_from_repetition_series(self):
+        group, plannings = self._make_repetition()
+        planning = plannings[0]
+        response = self.http.post(
+            self.individual_url(planning.pk),
+            {
+                "company": self.company.pk,
+                "project_file": self.project_file.pk,
+                "planning_type": self.planning_type.pk,
+                "status": ResourcePlanningStatus.CONFIRMED,
+                "resources": f"employee:{self.employee.pk}",
+                "date_from": "2026-07-06",
+                "date_to": "2026-07-06",
+                "daily_start": "09:00:00",
+                "daily_end": "18:00:00",
+                "_save": "1",
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+
+        planning.refresh_from_db()
+        self.assertIsNone(planning.group_id)
+        self.assertEqual(planning.status, ResourcePlanningStatus.CONFIRMED)
+        self.assertEqual(timezone.localtime(planning.start).time(), datetime.time(9, 0))
+        remaining = ResourcePlanning.objects.filter(group_id=group.pk).count()
+        self.assertEqual(remaining, len(plannings) - 1)
+
 
 # ── Schedule: delete day from grouped planning ────────────────────────────────
 
@@ -684,3 +857,209 @@ class TestScheduleDeleteDayFromGroup(_ViewBase):
         self.assertIsNone(self.p1.group_id)
         self.assertEqual(self.p2.group_id, self.group.pk)
         self.assertTrue(ResourcePlanningGroup.objects.filter(pk=self.group.pk).exists())
+
+
+# ── Multi add view ────────────────────────────────────────────────────────────
+
+class TestMultiAddView(_ViewBase):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.project_file2 = ProjectFile.objects.create(
+            company=cls.company, reference="EXP-00002", name="Second project",
+            status="open", client=cls.client_obj,
+        )
+        cls.planning_type2 = ResourcePlanningType.objects.create(
+            company=cls.company, name="Transport", color="#EF4444",
+        )
+
+    @property
+    def multi_add_url(self):
+        return reverse("admin:management_resourceplanning_multi_add")
+
+    def _multi_post_data(self, **overrides):
+        data = {
+            "company": self.company.pk,
+            "status": ResourcePlanningStatus.PLANNED,
+            "resources": f"employee:{self.employee.pk}",
+            "lines-TOTAL_FORMS": "2",
+            "lines-INITIAL_FORMS": "0",
+            "lines-MIN_NUM_FORMS": "1",
+            "lines-MAX_NUM_FORMS": "1000",
+            "lines-0-project_file": self.project_file.pk,
+            "lines-0-planning_type": self.planning_type.pk,
+            "lines-0-date_from": "2026-07-07",
+            "lines-0-date_to": "2026-07-08",
+            "lines-0-daily_start": "08:00:00",
+            "lines-0-daily_end": "17:00:00",
+            "lines-1-project_file": self.project_file2.pk,
+            "lines-1-planning_type": self.planning_type2.pk,
+            "lines-1-date_from": "2026-07-09",
+            "lines-1-date_to": "2026-07-10",
+            "lines-1-daily_start": "08:00:00",
+            "lines-1-daily_end": "17:00:00",
+            "_save": "1",
+        }
+        data.update(overrides)
+        return data
+
+    def test_get_renders_form(self):
+        r = self.http.get(self.multi_add_url)
+        self.assertEqual(r.status_code, 200)
+
+    def test_get_prepopulates_resources(self):
+        r = self.http.get(self.multi_add_url + f"?resources=employee:{self.employee.pk}")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, f"employee:{self.employee.pk}")
+
+    def test_post_creates_one_planning_per_line(self):
+        r = self.http.post(self.multi_add_url, self._multi_post_data())
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(ResourcePlanning.objects.count(), 2)
+        self.assertEqual(ResourcePlanningGroup.objects.count(), 0)
+
+    def test_post_each_line_keeps_own_fields(self):
+        self.http.post(self.multi_add_url, self._multi_post_data())
+        first = ResourcePlanning.objects.get(project_file=self.project_file)
+        second = ResourcePlanning.objects.get(project_file=self.project_file2)
+        self.assertEqual(first.planning_type, self.planning_type)
+        self.assertEqual(second.planning_type, self.planning_type2)
+
+    def test_post_shared_status_applied(self):
+        self.http.post(self.multi_add_url, self._multi_post_data(
+            status=ResourcePlanningStatus.CONFIRMED,
+        ))
+        for p in ResourcePlanning.objects.all():
+            self.assertEqual(p.status, ResourcePlanningStatus.CONFIRMED)
+
+    def test_post_per_line_options_applied(self):
+        self.http.post(self.multi_add_url, self._multi_post_data(**{
+            "lines-0-notes": "first",
+            "lines-0-show_planning_type": "on",
+            "lines-0-exclude_weekends": "on",
+            "lines-0-daily_start": "06:00:00",
+            "lines-0-daily_end": "14:00:00",
+            "lines-1-notes": "second",
+        }))
+        first = ResourcePlanning.objects.get(project_file=self.project_file)
+        second = ResourcePlanning.objects.get(project_file=self.project_file2)
+        self.assertEqual(first.notes, "first")
+        self.assertTrue(first.show_planning_type)
+        self.assertTrue(first.exclude_weekends)
+        self.assertEqual(second.notes, "second")
+        self.assertFalse(second.show_planning_type)
+        self.assertFalse(second.exclude_weekends)
+
+    def test_post_save_redirects_to_changelist(self):
+        r = self.http.post(self.multi_add_url, self._multi_post_data())
+        self.assertRedirects(
+            r, reverse("admin:management_resourceplanning_changelist"),
+            fetch_redirect_response=False,
+        )
+
+    def test_post_addanother_redirects_to_multi_add(self):
+        data = self._multi_post_data()
+        del data["_save"]
+        data["_addanother"] = "1"
+        r = self.http.post(self.multi_add_url, data)
+        self.assertRedirects(r, self.multi_add_url, fetch_redirect_response=False)
+
+    def test_post_overlapping_lines_shows_error_creates_nothing(self):
+        data = self._multi_post_data(**{"lines-1-date_from": "2026-07-08"})
+        r = self.http.post(self.multi_add_url, data)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.context["errors"])
+        self.assertEqual(ResourcePlanning.objects.count(), 0)
+
+    def test_post_deleted_line_is_skipped(self):
+        data = self._multi_post_data(**{"lines-1-DELETE": "on"})
+        r = self.http.post(self.multi_add_url, data)
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(ResourcePlanning.objects.count(), 1)
+        self.assertEqual(
+            ResourcePlanning.objects.get().project_file, self.project_file
+        )
+
+    def test_post_missing_line_fields_rerenders(self):
+        data = self._multi_post_data(**{"lines-0-project_file": ""})
+        r = self.http.post(self.multi_add_url, data)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(ResourcePlanning.objects.count(), 0)
+
+
+# ── Insert-between (shift_following) via add view ─────────────────────────────
+
+class TestAddViewShiftFollowing(_ViewBase):
+    def setUp(self):
+        super().setUp()
+        day = datetime.date(2026, 7, 7)
+        self.morning = self._make_individual(date_from=day, date_to=day)
+        self.morning.start = self.morning.start.replace(hour=8, minute=0)
+        self.morning.end = self.morning.end.replace(hour=10, minute=0)
+        self.morning.save()
+        self.midday = create_plannings(
+            company=self.company,
+            project_file=self.project_file,
+            planning_type=self.planning_type,
+            status=ResourcePlanningStatus.PLANNED,
+            notes="",
+            resources=[(self.employee_ct, self.employee.pk)],
+            date_from=day,
+            date_to=day,
+            daily_start=datetime.time(10, 0),
+            daily_end=datetime.time(12, 0),
+            exclude_weekends=False,
+            is_group=False,
+        )[0]
+
+    def test_get_prepopulates_shift_following(self):
+        r = self.http.get(self.add_url + "?shift_following=1&day=2026-07-07")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.context["form"].initial.get("shift_following"))
+
+    def test_post_with_shift_inserts_and_pushes_later_plan(self):
+        data = self._post_data(
+            date_from="2026-07-07",
+            date_to="2026-07-07",
+            daily_start="10:00:00",
+            daily_end="11:00:00",
+            shift_following="1",
+        )
+        r = self.http.post(self.add_url, data)
+        self.assertEqual(r.status_code, 302)
+        self.midday.refresh_from_db()
+        from django.utils import timezone as _tz
+        self.assertEqual(_tz.localtime(self.midday.start).time(), datetime.time(11, 0))
+        self.assertEqual(_tz.localtime(self.midday.end).time(), datetime.time(13, 0))
+        self.assertEqual(ResourcePlanning.objects.count(), 3)
+
+    def test_post_shift_crossing_midnight_shows_error(self):
+        # Contiguous with the 10–12 plan so the domino chain reaches it
+        evening = create_plannings(
+            company=self.company,
+            project_file=self.project_file,
+            planning_type=self.planning_type,
+            status=ResourcePlanningStatus.PLANNED,
+            notes="",
+            resources=[(self.employee_ct, self.employee.pk)],
+            date_from=datetime.date(2026, 7, 7),
+            date_to=datetime.date(2026, 7, 7),
+            daily_start=datetime.time(12, 0),
+            daily_end=datetime.time(23, 30),
+            exclude_weekends=False,
+            is_group=False,
+        )[0]
+        data = self._post_data(
+            date_from="2026-07-07",
+            date_to="2026-07-07",
+            daily_start="10:00:00",
+            daily_end="11:00:00",
+            shift_following="1",
+        )
+        r = self.http.post(self.add_url, data)
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.context["errors"])
+        evening.refresh_from_db()
+        from django.utils import timezone as _tz
+        self.assertEqual(_tz.localtime(evening.start).time(), datetime.time(12, 0))
+        self.assertEqual(ResourcePlanning.objects.count(), 3)  # nothing new saved

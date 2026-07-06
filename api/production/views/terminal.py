@@ -9,10 +9,11 @@ import json
 import unicodedata as _uc
 
 from django.contrib.auth.hashers import check_password
-from django.contrib.postgres.fields import ArrayField
-from django.db.models import F, Func, TextField, Value
+from django.db.models import F, JSONField, Value
+from django.db.models.expressions import CombinedExpression
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from api._serializers import active_ticket_items, _ordered_stage_names
 from api._utils import SharedTerminalAPIView
@@ -62,6 +63,75 @@ class TerminalEmployeeListView(SharedTerminalAPIView):
 def _employee_can_work_stage(employee: Employee, stage_name_nfc: str) -> bool:
     allowed = [_uc.normalize("NFC", s) for s in (employee.production_stages or [])]
     return not allowed or stage_name_nfc in allowed
+
+
+def _build_stage_history_indexes(item_ids) -> tuple[dict[tuple, list[dict]], dict[tuple, list]]:
+    """One sessions query -> (comments index, sessions index), keyed by (item_id, stage_nfc).
+
+    Comments are ordered dicts with author and timestamp; sessions are model
+    instances ordered by start_time (sessions without start_time are skipped).
+    """
+    comments_index: dict[tuple, list[dict]] = {}
+    sessions_index: dict[tuple, list] = {}
+    for sess in (
+        ProductionItemSession.objects.filter(production_item_id__in=item_ids)
+        .select_related("created_by")
+        .order_by("production_item_id", "production_stage", "start_time")
+    ):
+        emp = sess.created_by
+        if emp is None:
+            continue
+        key = (sess.production_item_id, _uc.normalize("NFC", sess.production_stage))
+        if sess.start_time:
+            sessions_index.setdefault(key, []).append(sess)
+        for entry in sess.comment_entries or []:
+            if not isinstance(entry, dict):
+                continue
+            text = (entry.get("text") or "").strip()
+            if text:
+                comments_index.setdefault(key, []).append({
+                    "employee_name": emp.full_name,
+                    "comment": text,
+                    "at": entry.get("at"),
+                })
+    return comments_index, sessions_index
+
+
+def _build_session_comments_index(item_ids) -> dict[tuple, list[dict]]:
+    """(item_id, stage_nfc) -> ordered comment dicts with author and timestamp."""
+    comments_index, _ = _build_stage_history_indexes(item_ids)
+    return comments_index
+
+
+def _stage_events(sessions, stage_status: str) -> list[dict]:
+    """Chronological start/resume/pause/finish events derived from sessions.
+
+    The last close of a done stage is the finish; any other close is a pause
+    (cancelled sessions are auto-closed leftovers and labelled as such).
+    """
+    last_end = max((s.end_time for s in sessions if s.end_time), default=None)
+    events: list[dict] = []
+    for i, sess in enumerate(sessions):
+        emp_name = sess.created_by.full_name if sess.created_by else "—"
+        events.append({
+            "type": "started" if i == 0 else "resumed",
+            "employee_name": emp_name,
+            "at": sess.start_time.isoformat(),
+        })
+        if sess.end_time:
+            if sess.status == ProductionItemSessionStatus.CANCELLED:
+                end_type = "cancelled"
+            elif stage_status == "done" and sess.end_time == last_end:
+                end_type = "finished"
+            else:
+                end_type = "paused"
+            events.append({
+                "type": end_type,
+                "employee_name": emp_name,
+                "at": sess.end_time.isoformat(),
+            })
+    events.sort(key=lambda e: e["at"])
+    return events
 
 
 def _build_task_results(employee: Employee, company, search: str = "") -> list[dict]:
@@ -121,27 +191,8 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
         for item in active_ticket_items(ticket):
             employee_item_ids.add(item.id)
 
-    # Session comments: split multi-note blobs so each sub-note gets its own entry with the name.
-    session_comments_index: dict[tuple, list[dict]] = {}
-    for sess in (
-        ProductionItemSession.objects.filter(
-            production_item_id__in=employee_item_ids,
-        )
-        .exclude(comments=[])
-        .select_related("created_by")
-        .order_by("production_item_id", "production_stage", "start_time")
-    ):
-        emp = sess.created_by
-        if emp is None:
-            continue
-        key = (sess.production_item_id, _uc.normalize("NFC", sess.production_stage))
-        for note in sess.comments:
-            note = note.strip()
-            if note:
-                session_comments_index.setdefault(key, []).append({
-                    "employee_name": emp.full_name,
-                    "comment": note,
-                })
+    # Session comments: each entry carries its own timestamp ("at" is null for legacy notes).
+    session_comments_index = _build_session_comments_index(employee_item_ids)
 
     # Items where this employee has ANY session (open or closed) — for Reanudar vs Unirse logic.
     my_session_keys: set[tuple] = {
@@ -394,12 +445,12 @@ class TerminalStageNoteView(SharedTerminalAPIView):
         if not session:
             return JsonResponse({"error": "No tienes ninguna sesión en esta etapa."}, status=404)
 
+        entry = {"text": comments, "at": timezone.now().isoformat()}
         ProductionItemSession.objects.filter(pk=session.pk).update(
-            comments=Func(
-                F("comments"),
-                Value(comments),
-                function="array_append",
-                output_field=ArrayField(TextField()),
+            comment_entries=CombinedExpression(
+                F("comment_entries"),
+                "||",
+                Value([entry], output_field=JSONField()),
             )
         )
 
@@ -511,34 +562,13 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
         key = (sess.production_item_id, _uc.normalize("NFC", sess.production_stage))
         workers_index.setdefault(key, []).append({"id": emp.id, "full_name": emp.full_name})
 
-    # Session comments index — most-recent per (item, stage, employee).
-    # Scoped to active tickets only so the query stays bounded.
+    # Session comments + sessions — scoped to active tickets only so the query stays bounded.
     active_item_ids = [
         item.id
         for ticket in tickets
         for item in active_ticket_items(ticket)
     ]
-    comments_index: dict[tuple, list[dict]] = {}
-    commented_sessions = (
-        ProductionItemSession.objects.filter(
-            production_item_id__in=active_item_ids,
-        )
-        .exclude(comments=[])
-        .select_related("created_by")
-        .order_by("production_item_id", "production_stage", "start_time")
-    )
-    for sess in commented_sessions:
-        emp = sess.created_by
-        if emp is None:
-            continue
-        key = (sess.production_item_id, _uc.normalize("NFC", sess.production_stage))
-        for note in sess.comments:
-            note = note.strip()
-            if note:
-                comments_index.setdefault(key, []).append({
-                    "employee_name": emp.full_name,
-                    "comment": note,
-                })
+    comments_index, sessions_index = _build_stage_history_indexes(active_item_ids)
 
     active: list[dict] = []
     paused: list[dict] = []
@@ -628,6 +658,9 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
                         "active_workers": workers,
                         "assigned_employees": assigned_emps,
                         "session_comments": comments_index.get((item.id, stage_name_n), []),
+                        "session_events": _stage_events(
+                            sessions_index.get((item.id, stage_name_n), []), status
+                        ),
                     },
                 }
 
@@ -774,6 +807,239 @@ class SupervisorLeaveEmployeeStageView(SharedTerminalAPIView):
             return JsonResponse({"error": str(e)}, status=400)
 
         return JsonResponse({"success": True, "count": count})
+
+
+# ─── Supervisor: start / resume an employee on a stage ───────────────────────
+
+class SupervisorStartEmployeeStageView(SharedTerminalAPIView):
+    def post(self, request):
+        body = json.loads(request.body or b"{}")
+        supervisor_id = body.get("supervisor_id")
+        employee_id = body.get("employee_id")
+        item_id = body.get("item_id")
+        stage_name = body.get("stage_name", "")
+
+        try:
+            Employee.objects.get(
+                id=supervisor_id,
+                company=self.company,
+                is_production_supervisor=True,
+                is_active=True,
+            )
+        except Employee.DoesNotExist:
+            return JsonResponse({"error": "Supervisor no válido."}, status=403)
+
+        employee = get_object_or_404(
+            Employee,
+            id=employee_id,
+            company=self.company,
+            can_work_on_production=True,
+            is_active=True,
+        )
+        item = get_object_or_404(ProductionItem, id=item_id, company=self.company)
+
+        stage_name_n = _uc.normalize("NFC", stage_name)
+        try:
+            count = StagesToSessionsService.start_activity(
+                stage_name=stage_name_n,
+                items=[item],
+                employee=employee,
+                skip_worker_check=True,
+            )
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=400)
+
+        if count == 0:
+            return JsonResponse(
+                {"error": "No se pudo activar la etapa (puede que ya esté activa o completada)."},
+                status=400,
+            )
+        return JsonResponse({"success": True, "count": count})
+
+
+# ─── Worked hours per presupuesto ─────────────────────────────────────────────
+
+class ProductionHoursView(SharedTerminalAPIView):
+    """
+    Worked hours per presupuesto (config): sum of session durations.
+
+    A session is open only while someone is actually working (it closes on
+    pause/finish), so paused time never enters the sum. Open sessions count
+    up to now. Cancelled sessions are excluded — they are auto-closed
+    leftovers whose duration is unreliable.
+    """
+
+    def get(self, request):
+        from django.contrib.contenttypes.models import ContentType
+
+        ct = ContentType.objects.get_for_model(Configuration)
+
+        active_config_ids = list(
+            Configuration.objects.filter(
+                company=self.company,
+                status__in=(
+                    ConfigurationStatus.CONVERTED,
+                    ConfigurationStatus.SHOP,
+                    ConfigurationStatus.PRODUCTION_DONE,
+                ),
+            ).values_list("id", flat=True)
+        )
+
+        tickets = [
+            t
+            for t in ProductionTicket.objects.filter(
+                company=self.company,
+                content_type=ct,
+                object_id__in=active_config_ids,
+            )
+            .select_related("project_file__client")
+            .prefetch_related("items")
+            if t.status != ProductionTicketStatus.CANCELLED
+        ]
+
+        item_to_ticket_id: dict[int, int] = {}
+        for ticket in tickets:
+            for item in active_ticket_items(ticket):
+                item_to_ticket_id[item.id] = ticket.id
+
+        now = timezone.now()
+        totals: dict[int, dict] = {}
+
+        sessions = (
+            ProductionItemSession.objects.filter(
+                production_item_id__in=item_to_ticket_id.keys(),
+                start_time__isnull=False,
+            )
+            .exclude(status=ProductionItemSessionStatus.CANCELLED)
+            .select_related("created_by")
+        )
+        for sess in sessions:
+            ticket_id = item_to_ticket_id.get(sess.production_item_id)
+            if ticket_id is None:
+                continue
+            seconds = int(((sess.end_time or now) - sess.start_time).total_seconds())
+            if seconds < 0:
+                continue
+            agg = totals.setdefault(
+                ticket_id, {"total": 0, "open": 0, "employees": {}}
+            )
+            agg["total"] += seconds
+            if sess.end_time is None:
+                agg["open"] += 1
+            emp = sess.created_by
+            if emp is not None:
+                emp_agg = agg["employees"].setdefault(
+                    emp.id, {"full_name": emp.full_name, "seconds": 0}
+                )
+                emp_agg["seconds"] += seconds
+
+        results = []
+        for ticket in tickets:
+            config = ticket.source_object
+            if config is None:
+                continue
+
+            project_file = ticket.project_file
+            if project_file is None:
+                try:
+                    project_file = config.quote.project_file
+                except Exception:
+                    project_file = None
+            if project_file is not None and project_file.status == ProjectFileStatus.CANCELLED:
+                continue
+
+            quote = getattr(config, "quote", None)
+            quote_name = (
+                (quote.project_name or "").strip()
+                if quote and (quote.project_name or "").strip()
+                else (getattr(config, "name", None) or "")
+            )
+
+            expediente_data = None
+            if project_file:
+                expediente_data = {
+                    "id": project_file.id,
+                    "reference": getattr(project_file, "reference", None) or "",
+                    "name": project_file.name or "",
+                    "client_name": project_file.client.name if project_file.client else None,
+                }
+
+            agg = totals.get(ticket.id)
+            results.append({
+                "config_id": config.id,
+                "config_name": getattr(config, "name", None) or "",
+                "quote_name": quote_name,
+                "ticket_status": ticket.status,
+                "expediente": expediente_data,
+                "total_seconds": agg["total"] if agg else 0,
+                "open_sessions": agg["open"] if agg else 0,
+                "employees": (
+                    sorted(agg["employees"].values(), key=lambda e: -e["seconds"])
+                    if agg
+                    else []
+                ),
+            })
+
+        results.sort(key=lambda r: -r["total_seconds"])
+        return JsonResponse({"results": results})
+
+
+# ─── Stage timeline (traceability) ────────────────────────────────────────────
+
+class StageTimelineView(SharedTerminalAPIView):
+    """
+    Chronology of a stage on one item: who started / resumed / paused /
+    finished it and when, plus every comment with its timestamp.
+    """
+
+    def get(self, request, item_id, stage_name):
+        item = get_object_or_404(ProductionItem, id=item_id, company=self.company)
+        stage_name_n = _uc.normalize("NFC", stage_name)
+
+        sessions = [
+            s
+            for s in ProductionItemSession.objects.filter(production_item=item)
+            .select_related("created_by")
+            .order_by("start_time")
+            if s.start_time and _uc.normalize("NFC", s.production_stage) == stage_name_n
+        ]
+
+        raw = {}
+        for k, v in (item.planning or {}).items():
+            if _uc.normalize("NFC", k) == stage_name_n:
+                raw = v if isinstance(v, dict) else {}
+                break
+        stage_status = (raw.get("status") or "pending") if isinstance(raw, dict) else "pending"
+
+        events = _stage_events(sessions, stage_status)
+
+        now = timezone.now()
+        comments: list[dict] = []
+        total_seconds = 0
+
+        for sess in sessions:
+            emp_name = sess.created_by.full_name if sess.created_by else "—"
+            if sess.status != ProductionItemSessionStatus.CANCELLED:
+                total_seconds += int(((sess.end_time or now) - sess.start_time).total_seconds())
+
+            for entry in sess.comment_entries or []:
+                if not isinstance(entry, dict):
+                    continue
+                text = (entry.get("text") or "").strip()
+                if text:
+                    comments.append({
+                        "employee_name": emp_name,
+                        "comment": text,
+                        "at": entry.get("at"),
+                    })
+
+        return JsonResponse({
+            "stage": stage_name,
+            "status": stage_status,
+            "events": events,
+            "comments": comments,
+            "total_seconds": total_seconds,
+        })
 
 
 # ─── Item: assign / unassign employee ────────────────────────────────────────

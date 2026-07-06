@@ -171,6 +171,9 @@ class TransactionTypeChoices(models.TextChoices):
     RETURN = "return", _("Return")
     MOVEMENT = "movement", _("Movement")
     RECEIPT = "receipt", _("Receipt")
+    PORTE_MOVEMENT = "porte_movement", _("Movement Porte")
+    PORTE_DELIVERY = "porte_delivery", _("Delivery Porte")
+
 
 
 

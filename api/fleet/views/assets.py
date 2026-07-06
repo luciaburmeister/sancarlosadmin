@@ -464,13 +464,12 @@ class AssetTransactionView(APIView):
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
 
-        # Validate using the serializer — rejects invalid transaction_type automatically
+        # Validate transaction_type using the serializer
         serializer = AssetTransactionSerializer(data=raw)
         if not serializer.is_valid():
             return JsonResponse(serializer.errors, status=400)
 
-        validated = serializer.validated_data
-        transaction_type = validated["transaction_type"]
+        transaction_type = serializer.validated_data["transaction_type"]
 
         try:
             asset = Asset.objects.get(id=asset_id)
@@ -486,7 +485,7 @@ class AssetTransactionView(APIView):
         if strategy_class is None:
             return JsonResponse({"error": "Unsupported transaction type."}, status=400)
 
-        return strategy_class(validated, asset, employee, user).execute()
+        return strategy_class(raw, asset, employee, user).execute()
 
 
 class AssetCheckDeliveryLocationView(APIView):

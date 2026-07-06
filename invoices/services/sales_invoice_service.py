@@ -243,21 +243,23 @@ class SalesInvoiceService:
     def _generate_next_invoice_data(cls, company):
         """
         Generates the next sequential invoice number and incremental ID for a company.
-        Format: INV-YYYY-SEQ (e.g., INV-2026-00001)
+        Uses the company's invoice_number_format (default: INV-{year}-{number}).
         """
         year = timezone.now().year
-        prefix = f"INV-{year}-"
-        
+
         # Lock for update - only consider finalized invoices
         last_invoice = SalesInvoice.objects.filter(
             company=company,
             incremental_id__isnull=False
         ).select_for_update().order_by('-incremental_id').first()
-        
+
         next_id = (last_invoice.incremental_id + 1) if last_invoice else 1
-        
+
+        fmt = company.invoice_number_format or "INV-{year}-{number}"
+        invoice_number = fmt.format(year=year, number=f"{next_id:05d}")
+
         return {
-            'number': f"{prefix}{next_id:05d}",
+            'number': invoice_number,
             'incremental_id': next_id
         }
 

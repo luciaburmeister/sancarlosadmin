@@ -279,6 +279,7 @@ class CompanyAdmin(ModelAdmin):
                 "allow_shared_production_stage_activities",
                 "auto_apply_client_taxes",
                 ("document_reminder_emails"),
+                "invoice_number_format",
             ),
             "classes": ["tab"]
         }),

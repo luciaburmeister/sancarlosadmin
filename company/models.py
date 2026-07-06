@@ -101,6 +101,17 @@ class Company(models.Model):
             "when no other tax source exists."
         ),
     )
+    invoice_number_format = models.CharField(
+        max_length=100,
+        default="INV-{year}-{number}",
+        blank=True,
+        verbose_name=_("Invoice Number Format"),
+        help_text=_(
+            "Format pattern for generated invoice numbers. "
+            "Available placeholders: {year}, {number}. "
+            "Default: INV-{year}-{number}"
+        ),
+    )
 
     def __str__(self):
         return self.name

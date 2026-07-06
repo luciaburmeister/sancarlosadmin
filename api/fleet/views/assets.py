@@ -401,6 +401,11 @@ class ReceiptStrategy(BaseTransactionStrategy):
             .first()
         )
 
+        form_data = {k: v for k, v in data.items() if k not in (
+            "transaction_type", "latitude", "longitude", "zone_id",
+            "nro_albaran", "foto_albaran", "peso_neto", "material_vertido",
+        )}
+
         transaction = AssetTransaction(
             asset=asset,
             company=asset.company,
@@ -410,6 +415,7 @@ class ReceiptStrategy(BaseTransactionStrategy):
             date=timezone.now(),
             performed_by=employee,
             notes=f"Verteo registrado por {user.username}. Albaran: {nro_albaran}. Material: {material_vertido}. Peso: {peso_neto}kg.",
+            data=form_data,
         )
         transaction.save()
 

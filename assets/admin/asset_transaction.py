@@ -41,7 +41,7 @@ class AssetTransactionReceiptInline(admin.TabularInline):
     model = AssetTransactionReceipt
     fk_name = "transaction"
     extra = 0
-    fields = ("nro_albaran", "peso_neto", "material_vertido", "movement_transaction", "foto_preview", "created_at")
+    fields = ("nro_albaran", "data", "movement_transaction", "foto_preview", "created_at")
     readonly_fields = ("foto_preview", "created_at", "movement_transaction")
     can_delete = False
     verbose_name = "Albaran"
@@ -206,12 +206,16 @@ class AssetTransactionAdmin(ModelAdmin):
     @admin.display(description="Material de Vertido")
     def material_vertido_display(self, obj):
         receipt = obj.receipts.first()
-        return receipt.material_vertido if receipt and receipt.material_vertido else "—"
+        if receipt and receipt.data:
+            return receipt.data.get("material_vertido", "—")
+        return "—"
 
     @admin.display(description="Peso Neto (kg)")
     def peso_neto_display(self, obj):
         receipt = obj.receipts.first()
-        return receipt.peso_neto if receipt and receipt.peso_neto else "—"
+        if receipt and receipt.data:
+            return receipt.data.get("peso_neto", "—")
+        return "—"
     # --- Billing status ---
 
     @display(

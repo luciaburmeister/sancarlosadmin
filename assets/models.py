@@ -282,17 +282,11 @@ class AssetTransactionReceipt(models.Model):
         max_length=100,
         verbose_name=_("Nro de Albaran"),
     )
-    peso_neto = models.CharField(
-        max_length=50,
+    data = models.JSONField(
+        default=dict,
         blank=True,
-        default="",
-        verbose_name=_("Peso Neto (kg)"),
-    )
-    material_vertido = models.CharField(
-        max_length=200,
-        blank=True,
-        default="",
-        verbose_name=_("Material Vertido"),
+        verbose_name=_("Flexible Data"),
+        help_text=_("Schema-less data for this receipt (e.g. peso_neto, material_vertido)."),
     )
     movement_transaction = models.ForeignKey(
         AssetTransaction,

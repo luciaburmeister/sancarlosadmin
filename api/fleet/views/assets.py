@@ -349,9 +349,10 @@ class DeliveryStrategy(BaseTransactionStrategy):
 class ReceiptStrategy(BaseTransactionStrategy):
     """
     Handles RECEIPT transactions (verteo — emptying a cuba at the dump).
-    Does not use firma/imagen. Saves peso_neto and material_vertido in data.
-    Detects the dump zone from GPS. Supports multiple-zone selection.
-    Links back to the original MOVEMENT (recogida) transaction.
+    Does not use firma/imagen. Saves peso_neto and material_vertido on the
+    AssetTransactionReceipt model. Detects the dump zone from GPS.
+    Supports multiple-zone selection. Links back to the original MOVEMENT
+    (recogida) transaction.
     """
 
     def execute(self) -> JsonResponse:
@@ -415,8 +416,10 @@ class ReceiptStrategy(BaseTransactionStrategy):
         receipt = AssetTransactionReceipt(
             transaction=transaction,
             nro_albaran=nro_albaran,
-            peso_neto=peso_neto,
-            material_vertido=material_vertido,
+            data={
+                "peso_neto": peso_neto,
+                "material_vertido": material_vertido,
+            },
             movement_transaction=movement_tx,
         )
         foto_file = _base64_to_image_file(foto_b64)

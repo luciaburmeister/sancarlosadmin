@@ -282,6 +282,26 @@ class AssetTransactionReceipt(models.Model):
         max_length=100,
         verbose_name=_("Nro de Albaran"),
     )
+    peso_neto = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        verbose_name=_("Peso Neto (kg)"),
+    )
+    material_vertido = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        verbose_name=_("Material Vertido"),
+    )
+    movement_transaction = models.ForeignKey(
+        AssetTransaction,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="receipt_links",
+        verbose_name=_("Original Movement"),
+    )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
 
     class Meta:

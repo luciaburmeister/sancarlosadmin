@@ -409,16 +409,16 @@ class ReceiptStrategy(BaseTransactionStrategy):
             date=timezone.now(),
             performed_by=employee,
             notes=f"Verteo registrado por {user.username}. Albaran: {nro_albaran}. Material: {material_vertido}. Peso: {peso_neto}kg.",
-            data={
-                "nro_albaran": nro_albaran,
-                "peso_neto": peso_neto,
-                "material_vertido": material_vertido,
-                "movement_transaction_id": movement_tx.id if movement_tx else None,
-            }
         )
         transaction.save()
 
-        receipt = AssetTransactionReceipt(transaction=transaction, nro_albaran=nro_albaran)
+        receipt = AssetTransactionReceipt(
+            transaction=transaction,
+            nro_albaran=nro_albaran,
+            peso_neto=peso_neto,
+            material_vertido=material_vertido,
+            movement_transaction=movement_tx,
+        )
         foto_file = _base64_to_image_file(foto_b64)
         if foto_file:
             receipt.foto.save(foto_file.name, foto_file, save=False)

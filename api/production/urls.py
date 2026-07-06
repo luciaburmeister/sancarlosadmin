@@ -83,6 +83,11 @@ urlpatterns = [
         name="terminal_all_tasks",
     ),
     path(
+        "production/hours/",
+        terminal.TerminalProductionHoursView.as_view(),
+        name="terminal_production_hours",
+    ),
+    path(
         "production/supervisors/",
         terminal.SupervisorListView.as_view(),
         name="terminal_supervisor_list",
@@ -113,13 +118,13 @@ urlpatterns = [
         name="terminal_supervisor_start_employee_stage",
     ),
     path(
-        "production/hours/",
-        terminal.ProductionHoursView.as_view(),
-        name="terminal_production_hours",
-    ),
-    path(
         "production/items/<int:item_id>/stages/<str:stage_name>/timeline/",
         terminal.StageTimelineView.as_view(),
         name="terminal_stage_timeline",
+    ),
+    path(
+        "production/configurations/<int:config_id>/notes/",
+        terminal.SupervisorUpdateConfigNotesView.as_view(),
+        name="terminal_supervisor_update_config_notes",
     ),
 ]

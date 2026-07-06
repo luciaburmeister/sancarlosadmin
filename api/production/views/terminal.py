@@ -691,6 +691,189 @@ class TerminalAllTasksView(SharedTerminalAPIView):
         return JsonResponse(result)
 
 
+def _session_worked_seconds(session: ProductionItemSession, now) -> int:
+    """Worked time for one session; paused time (no end_time on closed rows) never counts."""
+    if session.status == ProductionItemSessionStatus.CANCELLED:
+        return 0
+    if not session.start_time:
+        return 0
+    if session.end_time is None:
+        if session.status != ProductionItemSessionStatus.IN_PROGRESS:
+            return 0
+        end = now
+    else:
+        end = session.end_time
+    return max(0, int((end - session.start_time).total_seconds()))
+
+
+def _build_production_hours_results(company) -> list[dict]:
+    """Aggregate real worked time per presupuesto (configuration)."""
+    from collections import defaultdict
+    from django.contrib.contenttypes.models import ContentType
+
+    ct = ContentType.objects.get_for_model(Configuration)
+    now = timezone.now()
+
+    active_config_ids = list(
+        Configuration.objects.filter(
+            company=company,
+            status__in=(
+                ConfigurationStatus.CONVERTED,
+                ConfigurationStatus.SHOP,
+                ConfigurationStatus.PRODUCTION_DONE,
+            ),
+        ).values_list("id", flat=True)
+    )
+
+    tickets = list(
+        ProductionTicket.objects.filter(
+            company=company,
+            content_type=ct,
+            object_id__in=active_config_ids,
+        )
+        .select_related("project_file__client")
+        .prefetch_related("items")
+    )
+
+    config_ids = [t.object_id for t in tickets if t.object_id]
+    configs = {
+        c.id: c
+        for c in Configuration.objects.filter(pk__in=config_ids).select_related("quote")
+    }
+
+    ticket_by_config: dict[int, ProductionTicket] = {}
+    item_ids: list[int] = []
+    for ticket in tickets:
+        if ticket.status == ProductionTicketStatus.CANCELLED:
+            continue
+        if ticket.object_id:
+            ticket_by_config[ticket.object_id] = ticket
+        for item in active_ticket_items(ticket):
+            item_ids.append(item.id)
+
+    sessions = (
+        ProductionItemSession.objects.filter(
+            production_item_id__in=item_ids,
+        )
+        .select_related("created_by", "production_item__ticket")
+        .order_by("start_time")
+    )
+
+    seconds_by_config: dict[int, int] = defaultdict(int)
+    open_by_config: dict[int, int] = defaultdict(int)
+    employees_by_config: dict[int, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    for sess in sessions:
+        item = sess.production_item
+        ticket = item.ticket
+        config_id = ticket.object_id
+        if config_id not in ticket_by_config:
+            continue
+
+        worked = _session_worked_seconds(sess, now)
+        if worked:
+            seconds_by_config[config_id] += worked
+            emp = sess.created_by
+            if emp is not None:
+                employees_by_config[config_id][emp.full_name] += worked
+
+        if (
+            sess.end_time is None
+            and sess.status == ProductionItemSessionStatus.IN_PROGRESS
+        ):
+            open_by_config[config_id] += 1
+
+    results: list[dict] = []
+    for config_id, total_seconds in seconds_by_config.items():
+        config = configs.get(config_id)
+        ticket = ticket_by_config.get(config_id)
+        if config is None or ticket is None:
+            continue
+
+        project_file = ticket.project_file
+        if project_file is None:
+            try:
+                project_file = config.quote.project_file
+            except Exception:
+                project_file = None
+
+        if project_file is not None and project_file.status == ProjectFileStatus.CANCELLED:
+            continue
+
+        quote = getattr(config, "quote", None)
+        quote_name = (
+            (quote.project_name or "").strip()
+            if quote and (quote.project_name or "").strip()
+            else (getattr(config, "name", None) or "")
+        )
+
+        expediente_data = None
+        if project_file:
+            start_date = project_file.start_date
+            expediente_data = {
+                "id": project_file.id,
+                "reference": getattr(project_file, "reference", None) or "",
+                "name": project_file.name or "",
+                "client_name": project_file.client.name if project_file.client else None,
+                "start_date": (
+                    start_date.strftime("%Y-%m-%d")
+                    if hasattr(start_date, "strftime")
+                    else start_date
+                ),
+            }
+
+        emp_seconds = employees_by_config.get(config_id, {})
+        employees = [
+            {"full_name": name, "seconds": secs}
+            for name, secs in sorted(emp_seconds.items(), key=lambda x: (-x[1], x[0]))
+        ]
+
+        results.append({
+            "config_id": config_id,
+            "config_name": getattr(config, "name", None) or "",
+            "config_notes": getattr(config, "notes", None) or "",
+            "quote_name": quote_name,
+            "ticket_status": ticket.status,
+            "expediente": expediente_data,
+            "total_seconds": total_seconds,
+            "open_sessions": open_by_config.get(config_id, 0),
+            "employees": employees,
+        })
+
+    results.sort(key=lambda r: (-r["total_seconds"], r["quote_name"]))
+    return results
+
+
+class TerminalProductionHoursView(SharedTerminalAPIView):
+    def get(self, request):
+        from django.core.paginator import Paginator
+
+        all_results = _build_production_hours_results(self.company)
+        total_seconds = sum(r["total_seconds"] for r in all_results)
+
+        try:
+            page_num = max(1, int(request.GET.get("page", 1)))
+        except (TypeError, ValueError):
+            page_num = 1
+        try:
+            raw_size = int(request.GET.get("page_size", 20))
+        except (TypeError, ValueError):
+            raw_size = 20
+        page_size = max(1, min(50, raw_size))
+
+        paginator = Paginator(all_results, page_size)
+        page = paginator.get_page(page_num)
+
+        return JsonResponse({
+            "results": list(page.object_list),
+            "count": paginator.count,
+            "total_seconds": total_seconds,
+            "page": page_num,
+            "page_size": page_size,
+            "has_next": page.has_next(),
+        })
+
+
 # ─── Supervisor: list ─────────────────────────────────────────────────────────
 
 class SupervisorListView(SharedTerminalAPIView):
@@ -808,7 +991,6 @@ class SupervisorLeaveEmployeeStageView(SharedTerminalAPIView):
 
         return JsonResponse({"success": True, "count": count})
 
-
 # ─── Supervisor: start / resume an employee on a stage ───────────────────────
 
 class SupervisorStartEmployeeStageView(SharedTerminalAPIView):
@@ -857,131 +1039,37 @@ class SupervisorStartEmployeeStageView(SharedTerminalAPIView):
         return JsonResponse({"success": True, "count": count})
 
 
-# ─── Worked hours per presupuesto ─────────────────────────────────────────────
+# ─── Supervisor: update configuration notes ────────────────────────────────────
 
-class ProductionHoursView(SharedTerminalAPIView):
-    """
-    Worked hours per presupuesto (config): sum of session durations.
+class SupervisorUpdateConfigNotesView(SharedTerminalAPIView):
+    def post(self, request, config_id):
+        body = json.loads(request.body or b"{}")
+        supervisor_id = body.get("supervisor_id")
+        notes = str(body.get("notes", "")).strip()
 
-    A session is open only while someone is actually working (it closes on
-    pause/finish), so paused time never enters the sum. Open sessions count
-    up to now. Cancelled sessions are excluded — they are auto-closed
-    leftovers whose duration is unreliable.
-    """
-
-    def get(self, request):
-        from django.contrib.contenttypes.models import ContentType
-
-        ct = ContentType.objects.get_for_model(Configuration)
-
-        active_config_ids = list(
-            Configuration.objects.filter(
+        try:
+            Employee.objects.get(
+                id=supervisor_id,
                 company=self.company,
-                status__in=(
-                    ConfigurationStatus.CONVERTED,
-                    ConfigurationStatus.SHOP,
-                    ConfigurationStatus.PRODUCTION_DONE,
-                ),
-            ).values_list("id", flat=True)
+                is_production_supervisor=True,
+                is_active=True,
+            )
+        except Employee.DoesNotExist:
+            return JsonResponse({"error": "Supervisor no válido."}, status=403)
+
+        config = get_object_or_404(
+            Configuration,
+            id=config_id,
+            company=self.company,
         )
+        config.notes = notes or None
+        config.save(update_fields=["notes"])
 
-        tickets = [
-            t
-            for t in ProductionTicket.objects.filter(
-                company=self.company,
-                content_type=ct,
-                object_id__in=active_config_ids,
-            )
-            .select_related("project_file__client")
-            .prefetch_related("items")
-            if t.status != ProductionTicketStatus.CANCELLED
-        ]
-
-        item_to_ticket_id: dict[int, int] = {}
-        for ticket in tickets:
-            for item in active_ticket_items(ticket):
-                item_to_ticket_id[item.id] = ticket.id
-
-        now = timezone.now()
-        totals: dict[int, dict] = {}
-
-        sessions = (
-            ProductionItemSession.objects.filter(
-                production_item_id__in=item_to_ticket_id.keys(),
-                start_time__isnull=False,
-            )
-            .exclude(status=ProductionItemSessionStatus.CANCELLED)
-            .select_related("created_by")
-        )
-        for sess in sessions:
-            ticket_id = item_to_ticket_id.get(sess.production_item_id)
-            if ticket_id is None:
-                continue
-            seconds = int(((sess.end_time or now) - sess.start_time).total_seconds())
-            if seconds < 0:
-                continue
-            agg = totals.setdefault(
-                ticket_id, {"total": 0, "open": 0, "employees": {}}
-            )
-            agg["total"] += seconds
-            if sess.end_time is None:
-                agg["open"] += 1
-            emp = sess.created_by
-            if emp is not None:
-                emp_agg = agg["employees"].setdefault(
-                    emp.id, {"full_name": emp.full_name, "seconds": 0}
-                )
-                emp_agg["seconds"] += seconds
-
-        results = []
-        for ticket in tickets:
-            config = ticket.source_object
-            if config is None:
-                continue
-
-            project_file = ticket.project_file
-            if project_file is None:
-                try:
-                    project_file = config.quote.project_file
-                except Exception:
-                    project_file = None
-            if project_file is not None and project_file.status == ProjectFileStatus.CANCELLED:
-                continue
-
-            quote = getattr(config, "quote", None)
-            quote_name = (
-                (quote.project_name or "").strip()
-                if quote and (quote.project_name or "").strip()
-                else (getattr(config, "name", None) or "")
-            )
-
-            expediente_data = None
-            if project_file:
-                expediente_data = {
-                    "id": project_file.id,
-                    "reference": getattr(project_file, "reference", None) or "",
-                    "name": project_file.name or "",
-                    "client_name": project_file.client.name if project_file.client else None,
-                }
-
-            agg = totals.get(ticket.id)
-            results.append({
-                "config_id": config.id,
-                "config_name": getattr(config, "name", None) or "",
-                "quote_name": quote_name,
-                "ticket_status": ticket.status,
-                "expediente": expediente_data,
-                "total_seconds": agg["total"] if agg else 0,
-                "open_sessions": agg["open"] if agg else 0,
-                "employees": (
-                    sorted(agg["employees"].values(), key=lambda e: -e["seconds"])
-                    if agg
-                    else []
-                ),
-            })
-
-        results.sort(key=lambda r: -r["total_seconds"])
-        return JsonResponse({"results": results})
+        return JsonResponse({
+            "success": True,
+            "config_id": config.id,
+            "config_notes": config.notes or "",
+        })
 
 
 # ─── Stage timeline (traceability) ────────────────────────────────────────────

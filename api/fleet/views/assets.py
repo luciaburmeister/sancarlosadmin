@@ -403,7 +403,7 @@ class ReceiptStrategy(BaseTransactionStrategy):
 
         form_data = {k: v for k, v in data.items() if k not in (
             "transaction_type", "latitude", "longitude", "zone_id",
-            "nro_albaran", "foto_albaran", "peso_neto", "material_vertido",
+             "foto_albaran",
         )}
 
         transaction = AssetTransaction(

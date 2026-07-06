@@ -232,26 +232,6 @@ class MovementStrategy(BaseTransactionStrategy):
         form_data = {k: v for k, v in data.items() if k not in (
             "transaction_type", "latitude", "longitude", "firma", "imagen", "zone_id"
         )}
-
-        employee = get_current_employee(user)
-        if employee is None:
-            return JsonResponse({"error": "No employee profile found"}, status=400)
-
-        if transaction_type == "movement":
-            return self._strategy_movement(raw, asset, employee, user)
-        elif transaction_type == "delivery":
-            return self._strategy_delivery(raw, asset, employee, user)
-        elif transaction_type == "receipt":
-            return self._strategy_receipt(raw, asset, employee, user)
-
-    def _strategy_movement(self, raw, asset, employee, user):
-        latitude = raw.get("latitude", 0)
-        longitude = raw.get("longitude", 0)
-        firma = raw.get("firma", "")
-        imagen = raw.get("imagen", "")
-        form_data = {k: v for k, v in raw.items() if k not in (
-            "transaction_type", "latitude", "longitude", "firma", "imagen"
-        )}
         distance = None
         chosen_zone_id = data.get("zone_id")
 

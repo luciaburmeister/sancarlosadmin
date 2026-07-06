@@ -394,6 +394,12 @@ class ProductionItemSession(Timestampable, CompanyOwnedModel):
         verbose_name=_("Comments"),
         help_text=_("Ordered list of comments left on this session"),
     )
+    comment_entries = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name=_("Comment entries"),
+        help_text=_('Ordered list of {"text", "at"} comment entries; "at" is null for legacy comments'),
+    )
     production_stage = models.CharField(max_length=50,db_index=True,verbose_name=_("Production Stage"))
     status = models.CharField(
         max_length=20,

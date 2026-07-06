@@ -141,7 +141,11 @@ class GetProductionTicketDetail(BaseTool):
                     "end_time": s.end_time.strftime("%d/%m/%Y %H:%M") if s.end_time else "",
                     "created_by": str(s.created_by) if s.created_by else "",
                     "completed_by": str(s.completed_by) if s.completed_by else "",
-                    "comments": s.comments or "",
+                    "comments": [
+                        e.get("text", "")
+                        for e in (s.comment_entries or [])
+                        if isinstance(e, dict)
+                    ],
                 }
                 for s in item.sessions.select_related("created_by", "completed_by").order_by("start_time")
             ]

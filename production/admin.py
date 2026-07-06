@@ -1,4 +1,6 @@
 
+from datetime import datetime
+
 from django.contrib import admin, messages
 from django.http import HttpRequest
 from unfold.admin import ModelAdmin, TabularInline,StackedInline
@@ -294,15 +296,37 @@ class ProductionItemSessionInline(StackedInline):
         "start_time",
         "end_time",
         "duration_display",
-        "comments",
+        "comments_display",
     )
 
     readonly_fields = (
         "session_type_display",
         "duration_display",
+        "comments_display",
     )
 
     ordering = ("-start_time",)
+
+    def comments_display(self, obj):
+        lines = []
+        for entry in obj.comment_entries or []:
+            if not isinstance(entry, dict):
+                continue
+            text = (entry.get("text") or "").strip()
+            if not text:
+                continue
+            at = entry.get("at")
+            if at:
+                try:
+                    at_dt = timezone.localtime(datetime.fromisoformat(at))
+                    lines.append(f"[{at_dt.strftime('%d/%m/%Y %H:%M')}] {text}")
+                    continue
+                except ValueError:
+                    pass
+            lines.append(text)
+        return "\n".join(lines) or "—"
+
+    comments_display.short_description = _("Comments")
 
     def duration_display(self, obj):
         if not obj.duration:

@@ -13,9 +13,36 @@
   <form method="post" novalidate id="planning_form" x-data="{ activeTab: 'general' }">
     {% csrf_token %}
     {{ form.resources }}
+    {{ form.shift_following }}
     {% if group %}<input type="hidden" name="group_pk" value="{{ group.pk }}">{% endif %}
 
     <div class="flex flex-col gap-6 pb-20">
+
+      {# ── Insert-mode notice ── #}
+      {% if form.shift_following.value %}
+        <div class="rounded-default border border-primary-200 bg-primary-50 p-4 dark:border-primary-800 dark:bg-primary-900/20">
+          <div class="flex items-center gap-2 text-sm text-primary-700 dark:text-primary-400">
+            <span class="material-symbols-outlined" style="font-size:18px;">move_down</span>
+            <span>
+              <strong>{% trans "Insert mode:" %}</strong>
+              {% trans "this planning will be inserted in between — same-day plannings that collide with it are pushed forward by its duration, in a chain, until one fits without moving. If any pushed planning would end up on the next day, nothing will be saved." %}
+            </span>
+          </div>
+        </div>
+      {% endif %}
+
+      {% if repetition_series_group %}
+        <div class="rounded-default border border-primary-200 bg-primary-50 p-4 dark:border-primary-800 dark:bg-primary-900/20">
+          <p class="text-sm text-primary-700 dark:text-primary-400">
+            {% trans "This occurrence belongs to a repetition series. Saving will detach it from the series so you can edit it individually." %}
+            {% if series_edit_url %}
+              <a href="{{ series_edit_url }}" class="font-medium underline hover:no-underline">
+                {% trans "Edit the whole series" %}
+              </a>
+            {% endif %}
+          </p>
+        </div>
+      {% endif %}
 
       {# ── Errors ── #}
       {% if errors or form.non_field_errors %}
@@ -71,6 +98,37 @@
                   </div>
                 </div>
               </div>
+            </div>
+          </fieldset>
+        {% endif %}
+
+        {% if forloop.counter == 2 and show_repeat %}
+          {# ── Repetition (same-day only) — labels on top ── #}
+          <fieldset class="module relative">
+            <h2 class="bg-base-100 flex flex-row font-semibold h-[38px] gap-1 items-center mb-4 px-3 rounded-default text-important dark:bg-white/[.02]">
+              {% trans "Repetition" %}
+            </h2>
+            <div class="border border-base-200 rounded-default shadow-xs p-3 dark:border-base-800">
+              <div class="flex flex-col gap-3 lg:flex-row lg:items-end">
+                <div class="flex flex-col gap-1 grow lg:max-w-xs">
+                  <label class="block font-semibold text-important text-sm">{{ form.repeat.label }}</label>
+                  {{ form.repeat }}
+                  {% if form.repeat.errors %}<div class="text-red-600 text-xs dark:text-red-500">{{ form.repeat.errors }}</div>{% endif %}
+                </div>
+                <div class="flex flex-col gap-1 lg:w-28 repeat-custom-field">
+                  <label class="block font-semibold text-important text-sm">{{ form.repeat_every_days.label }}</label>
+                  {{ form.repeat_every_days }}
+                  {% if form.repeat_every_days.errors %}<div class="text-red-600 text-xs dark:text-red-500">{{ form.repeat_every_days.errors }}</div>{% endif %}
+                </div>
+                <div class="flex flex-col gap-1 grow lg:max-w-xs repeat-until-field">
+                  <label class="block font-semibold text-important text-sm">{{ form.repeat_until.label }}</label>
+                  {{ form.repeat_until }}
+                  {% if form.repeat_until.errors %}<div class="text-red-600 text-xs dark:text-red-500">{{ form.repeat_until.errors }}</div>{% endif %}
+                </div>
+              </div>
+              <p class="text-xs text-base-400 mt-2">
+                {% trans "Only for same-day plannings. Choose Custom to repeat every N days (e.g. every 3 days)." %}
+              </p>
             </div>
           </fieldset>
         {% endif %}
@@ -228,6 +286,21 @@
       if (typeof dateTimeShortcutsOverlay === 'function') dateTimeShortcutsOverlay();
     }
     window.addEventListener('load', reinitDateTimeShortcuts);
+  })();
+
+  (function () {
+    const repeatSelect = document.querySelector('select[name="repeat"]');
+    const untilField = document.querySelector('.repeat-until-field');
+    const customField = document.querySelector('.repeat-custom-field');
+    if (!repeatSelect) return;
+    function sync() {
+      const isNever = repeatSelect.value === 'never';
+      const isCustom = repeatSelect.value === 'custom';
+      if (untilField) untilField.style.display = isNever ? 'none' : '';
+      if (customField) customField.style.display = isCustom ? '' : 'none';
+    }
+    repeatSelect.addEventListener('change', sync);
+    sync();
   })();
   </script>
 {% endblock %}

@@ -26,6 +26,7 @@ from management.models import (
     ResourcePlanningType,
 )
 from management.services.resource_planning import (
+    create_multi_plannings,
     create_plannings,
     delete_day_from_planning,
     dissolve_group,
@@ -422,6 +423,33 @@ class TestCancelActions(_Base):
         )
 
 
+class TestDeleteGroup(_Base):
+    def setUp(self):
+        plannings = create_plannings(
+            company=self.company,
+            project_file=self.project_file,
+            planning_type=self.planning_type,
+            status=ResourcePlanningStatus.PLANNED,
+            notes="",
+            resources=self.two_resources,
+            date_from=self.date_from,
+            date_to=self.date_to,
+            daily_start=self.t_start,
+            daily_end=self.t_end,
+            exclude_weekends=False,
+            is_group=True,
+        )
+        self.group = plannings[0].group
+        self.plannings = plannings
+
+    def test_delete_group_removes_plannings_and_group(self):
+        from management.services.resource_planning import delete_group
+
+        delete_group(self.group.pk)
+        self.assertEqual(ResourcePlanning.objects.count(), 0)
+        self.assertFalse(ResourcePlanningGroup.objects.filter(pk=self.group.pk).exists())
+
+
 # ── delete_day_from_planning ──────────────────────────────────────────────────
 
 class TestDeleteDayFromPlanning(_Base):
@@ -506,3 +534,458 @@ class TestDeleteDayFromPlanning(_Base):
         self.assertIsNone(solo.group_id)
         local_end = timezone.localtime(solo.end)
         self.assertEqual(local_end.date(), datetime.date(2026, 8, 8))
+
+# ── create_multi_plannings ────────────────────────────────────────────────────
+
+class TestCreateMultiPlannings(_Base):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.project_file2 = ProjectFile.objects.create(
+            company=cls.company,
+            reference="EXP-00002",
+            name="Second project",
+            status="open",
+            client=cls.client,
+        )
+        cls.planning_type2 = ResourcePlanningType.objects.create(
+            company=cls.company,
+            name="Transport",
+            color="#EF4444",
+        )
+
+    def _line(self, **overrides):
+        line = {
+            "project_file": self.project_file,
+            "planning_type": self.planning_type,
+            "date_from": datetime.date(2026, 7, 7),
+            "date_to": datetime.date(2026, 7, 8),
+            "daily_start": self.t_start,
+            "daily_end": self.t_end,
+            "exclude_weekends": True,
+            "show_planning_type": False,
+            "notes": "",
+        }
+        line.update(overrides)
+        return line
+
+    def _lines(self):
+        return [
+            self._line(),
+            self._line(
+                project_file=self.project_file2,
+                planning_type=self.planning_type2,
+                date_from=datetime.date(2026, 7, 9),
+                date_to=datetime.date(2026, 7, 10),
+            ),
+        ]
+
+    def _create(self, *, resources=None, lines=None, **kwargs):
+        params = dict(
+            company=self.company,
+            status=ResourcePlanningStatus.PLANNED,
+            resources=self.resources if resources is None else resources,
+            lines=self._lines() if lines is None else lines,
+        )
+        params.update(kwargs)
+        return create_multi_plannings(**params)
+
+    def test_creates_one_record_per_line_and_resource(self):
+        plannings = self._create(resources=self.two_resources)
+        self.assertEqual(len(plannings), 4)
+        self.assertEqual(ResourcePlanning.objects.count(), 4)
+
+    def test_no_group_created(self):
+        plannings = self._create()
+        self.assertTrue(all(p.group_id is None for p in plannings))
+        self.assertEqual(ResourcePlanningGroup.objects.count(), 0)
+
+    def test_each_line_keeps_its_own_fields(self):
+        self._create()
+        first = ResourcePlanning.objects.get(project_file=self.project_file)
+        second = ResourcePlanning.objects.get(project_file=self.project_file2)
+        self.assertEqual(first.planning_type, self.planning_type)
+        self.assertEqual(second.planning_type, self.planning_type2)
+        self.assertEqual(timezone.localtime(first.start).date(), datetime.date(2026, 7, 7))
+        self.assertEqual(timezone.localtime(second.end).date(), datetime.date(2026, 7, 10))
+
+    def test_shared_status_applied_to_all(self):
+        self._create(status=ResourcePlanningStatus.CONFIRMED)
+        for p in ResourcePlanning.objects.all():
+            self.assertEqual(p.status, ResourcePlanningStatus.CONFIRMED)
+
+    def test_per_line_options_applied(self):
+        lines = [
+            self._line(
+                notes="first",
+                show_planning_type=True,
+                exclude_weekends=False,
+                daily_start=datetime.time(6, 0),
+                daily_end=datetime.time(14, 0),
+            ),
+            self._line(
+                project_file=self.project_file2,
+                planning_type=self.planning_type2,
+                date_from=datetime.date(2026, 7, 9),
+                date_to=datetime.date(2026, 7, 10),
+                notes="second",
+            ),
+        ]
+        self._create(lines=lines)
+        first = ResourcePlanning.objects.get(project_file=self.project_file)
+        second = ResourcePlanning.objects.get(project_file=self.project_file2)
+        self.assertEqual(first.notes, "first")
+        self.assertTrue(first.show_planning_type)
+        self.assertFalse(first.exclude_weekends)
+        self.assertEqual(timezone.localtime(first.start).time(), datetime.time(6, 0))
+        self.assertEqual(timezone.localtime(first.end).time(), datetime.time(14, 0))
+        self.assertEqual(second.notes, "second")
+        self.assertFalse(second.show_planning_type)
+        self.assertTrue(second.exclude_weekends)
+
+    def test_overlapping_lines_raise(self):
+        lines = self._lines()
+        lines[1]["date_from"] = datetime.date(2026, 7, 8)  # overlaps line 1's end
+        with self.assertRaises(ValidationError):
+            self._create(lines=lines)
+        self.assertEqual(ResourcePlanning.objects.count(), 0)
+
+    def test_overlap_with_existing_planning_raises_and_creates_nothing(self):
+        self._make_planning(
+            date_from=datetime.date(2026, 7, 9),
+            date_to=datetime.date(2026, 7, 10),
+        )
+        with self.assertRaises(ValidationError):
+            self._create()
+        self.assertEqual(ResourcePlanning.objects.count(), 1)  # only the pre-existing one
+
+    def test_empty_lines_raise(self):
+        with self.assertRaises(ValidationError):
+            self._create(lines=[])
+
+    def test_no_resources_raises(self):
+        with self.assertRaises(ValidationError):
+            self._create(resources=[])
+
+    def test_line_end_before_start_raises(self):
+        lines = self._lines()
+        lines[0]["date_to"] = datetime.date(2026, 7, 6)
+        with self.assertRaises(ValidationError):
+            self._create(lines=lines)
+
+
+# ── create_plannings with shift_following ─────────────────────────────────────
+
+class TestShiftFollowingPlannings(_Base):
+    """Inserting a planning between two existing ones pushes the later ones
+    forward by the new planning's duration (same resource, same day only)."""
+
+    def _insert(self, t_start, t_end, *, shift=True, resources=None):
+        return create_plannings(
+            company=self.company,
+            project_file=self.project_file,
+            planning_type=self.planning_type,
+            status=ResourcePlanningStatus.PLANNED,
+            notes="",
+            resources=resources or self.resources,
+            date_from=self.date_from,
+            date_to=self.date_from,
+            daily_start=t_start,
+            daily_end=t_end,
+            exclude_weekends=False,
+            is_group=False,
+            shift_following=shift,
+        )
+
+    def setUp(self):
+        # Two plans for the employee on 2026-07-07: 08–10 and 10–12
+        self.morning = self._make_planning(
+            date_from=self.date_from, date_to=self.date_from,
+            t_start=datetime.time(8, 0), t_end=datetime.time(10, 0),
+        )
+        self.midday = self._make_planning(
+            date_from=self.date_from, date_to=self.date_from,
+            t_start=datetime.time(10, 0), t_end=datetime.time(12, 0),
+        )
+
+    def test_insert_shifts_later_plan_by_duration(self):
+        self._insert(datetime.time(10, 0), datetime.time(11, 0))
+
+        self.midday.refresh_from_db()
+        self.morning.refresh_from_db()
+        self.assertEqual(timezone.localtime(self.midday.start).time(), datetime.time(11, 0))
+        self.assertEqual(timezone.localtime(self.midday.end).time(), datetime.time(13, 0))
+        self.assertEqual(timezone.localtime(self.morning.start).time(), datetime.time(8, 0))
+        self.assertEqual(ResourcePlanning.objects.count(), 3)
+
+    def test_insert_does_not_touch_other_resources_or_days(self):
+        other_resource = self._make_planning(
+            resource=(self.employee_ct, self.employee2.pk),
+            date_from=self.date_from, date_to=self.date_from,
+            t_start=datetime.time(10, 0), t_end=datetime.time(12, 0),
+        )
+        other_day = self._make_planning(
+            date_from=datetime.date(2026, 7, 8), date_to=datetime.date(2026, 7, 8),
+            t_start=datetime.time(10, 0), t_end=datetime.time(12, 0),
+        )
+        self._insert(datetime.time(10, 0), datetime.time(11, 0))
+
+        other_resource.refresh_from_db()
+        other_day.refresh_from_db()
+        self.assertEqual(timezone.localtime(other_resource.start).time(), datetime.time(10, 0))
+        self.assertEqual(timezone.localtime(other_day.start).time(), datetime.time(10, 0))
+
+    def test_non_colliding_later_plan_stays_put(self):
+        # Afternoon plan at 15:00 — the domino chain (midday pushed to 11–13)
+        # never reaches it, so it must not move.
+        afternoon = self._make_planning(
+            date_from=self.date_from, date_to=self.date_from,
+            t_start=datetime.time(15, 0), t_end=datetime.time(16, 0),
+        )
+        self._insert(datetime.time(10, 0), datetime.time(11, 0))
+
+        afternoon.refresh_from_db()
+        self.midday.refresh_from_db()
+        self.assertEqual(timezone.localtime(afternoon.start).time(), datetime.time(15, 0))
+        self.assertEqual(timezone.localtime(self.midday.start).time(), datetime.time(11, 0))
+
+    def test_insert_fitting_in_a_gap_shifts_nothing(self):
+        # Gap 12–14 before the afternoon plan; the new plan fits entirely.
+        afternoon = self._make_planning(
+            date_from=self.date_from, date_to=self.date_from,
+            t_start=datetime.time(14, 0), t_end=datetime.time(16, 0),
+        )
+        self._insert(datetime.time(12, 0), datetime.time(13, 0))
+
+        afternoon.refresh_from_db()
+        self.midday.refresh_from_db()
+        self.assertEqual(timezone.localtime(afternoon.start).time(), datetime.time(14, 0))
+        self.assertEqual(timezone.localtime(self.midday.start).time(), datetime.time(10, 0))
+        self.assertEqual(ResourcePlanning.objects.count(), 4)
+
+    def test_insert_crossing_midnight_raises_and_saves_nothing(self):
+        # Contiguous chain up to late evening: 12:00–23:30 follows the 10–12
+        # plan, so the domino reaches it and would push it past midnight.
+        evening = self._make_planning(
+            date_from=self.date_from, date_to=self.date_from,
+            t_start=datetime.time(12, 0), t_end=datetime.time(23, 30),
+        )
+        with self.assertRaises(ValidationError):
+            self._insert(datetime.time(10, 0), datetime.time(11, 0))
+
+        evening.refresh_from_db()
+        self.midday.refresh_from_db()
+        self.assertEqual(timezone.localtime(evening.start).time(), datetime.time(12, 0))
+        self.assertEqual(timezone.localtime(evening.end).time(), datetime.time(23, 30))
+        self.assertEqual(timezone.localtime(self.midday.start).time(), datetime.time(10, 0))
+        self.assertEqual(ResourcePlanning.objects.count(), 3)  # nothing new created
+
+    def test_without_shift_overlap_still_raises(self):
+        with self.assertRaises(ValidationError):
+            self._insert(datetime.time(10, 0), datetime.time(11, 0), shift=False)
+
+    def test_cancelled_plans_are_not_shifted(self):
+        self.midday.cancel()
+        self._insert(datetime.time(10, 0), datetime.time(11, 0))
+        self.midday.refresh_from_db()
+        self.assertEqual(timezone.localtime(self.midday.start).time(), datetime.time(10, 0))
+
+
+# ── Repetition (Apple-calendar style) ─────────────────────────────────────────
+
+class TestRepeatPlannings(_Base):
+    def _create(self, **overrides):
+        params = dict(
+            company=self.company,
+            project_file=self.project_file,
+            planning_type=self.planning_type,
+            status=ResourcePlanningStatus.PLANNED,
+            notes="",
+            resources=self.resources,
+            date_from=datetime.date(2026, 7, 6),   # Monday
+            date_to=datetime.date(2026, 7, 6),
+            daily_start=datetime.time(8, 0),
+            daily_end=datetime.time(10, 0),
+            exclude_weekends=True,
+            is_group=False,
+        )
+        params.update(overrides)
+        return create_plannings(**params)
+
+    def test_no_repeat_creates_single_ungrouped_planning(self):
+        plannings = self._create(repeat="never")
+        self.assertEqual(len(plannings), 1)
+        self.assertIsNone(plannings[0].group_id)
+
+    def test_repeat_daily_until_date(self):
+        # Mon 6th, daily until Wed 8th → 6, 7, 8 = 3 occurrences
+        plannings = self._create(
+            repeat="daily",
+            repeat_until=datetime.date(2026, 7, 8),
+        )
+        self.assertEqual(len(plannings), 3)
+        starts = sorted(timezone.localtime(p.start).date() for p in plannings)
+        self.assertEqual(starts, [
+            datetime.date(2026, 7, 6), datetime.date(2026, 7, 7), datetime.date(2026, 7, 8),
+        ])
+
+    def test_repeat_custom_every_2_days_until_date(self):
+        # Mon 6th, every 2 days until Fri 10th → 6, 8, 10 = 3 occurrences
+        plannings = self._create(
+            repeat="custom",
+            repeat_every_days=2,
+            repeat_until=datetime.date(2026, 7, 10),
+        )
+        self.assertEqual(len(plannings), 3)
+        starts = sorted(timezone.localtime(p.start).date() for p in plannings)
+        self.assertEqual(starts, [
+            datetime.date(2026, 7, 6), datetime.date(2026, 7, 8), datetime.date(2026, 7, 10),
+        ])
+
+    def test_custom_repeat_without_days_raises(self):
+        with self.assertRaises(ValidationError):
+            self._create(
+                repeat="custom",
+                repeat_every_days=None,
+                repeat_until=datetime.date(2026, 7, 10),
+            )
+
+    def test_repeat_weekly(self):
+        # Mon 6th, weekly until 20th → 6, 13, 20 = 3 occurrences
+        plannings = self._create(
+            repeat="weekly",
+            repeat_until=datetime.date(2026, 7, 20),
+        )
+        starts = sorted(timezone.localtime(p.start).date() for p in plannings)
+        self.assertEqual(starts, [
+            datetime.date(2026, 7, 6), datetime.date(2026, 7, 13), datetime.date(2026, 7, 20),
+        ])
+
+    def test_repetitions_share_one_group(self):
+        plannings = self._create(
+            repeat="weekly",
+            repeat_until=datetime.date(2026, 7, 20),
+        )
+        group_ids = {p.group_id for p in plannings}
+        self.assertEqual(len(group_ids), 1)
+        group_id = group_ids.pop()
+        self.assertIsNotNone(group_id)
+        self.assertEqual(ResourcePlanningGroup.objects.count(), 1)
+        self.assertTrue(ResourcePlanningGroup.objects.get(pk=group_id).is_repetition)
+
+    def test_daily_repeat_skips_weekends_when_excluded(self):
+        # Mon 6th, every day until Sun 12th with exclude_weekends → Mon–Fri = 5
+        plannings = self._create(
+            repeat="daily",
+            repeat_until=datetime.date(2026, 7, 12),
+        )
+        self.assertEqual(len(plannings), 5)
+        self.assertTrue(all(
+            timezone.localtime(p.start).date().weekday() < 5 for p in plannings
+        ))
+
+    def test_weekend_only_repetition_raises(self):
+        # Saturday, weekly, with exclude_weekends → every occurrence is weekend
+        with self.assertRaises(ValidationError):
+            self._create(
+                date_from=datetime.date(2026, 7, 11), date_to=datetime.date(2026, 7, 11),
+                repeat="weekly",
+                repeat_until=datetime.date(2026, 7, 25),
+            )
+
+    def test_repeat_without_until_raises(self):
+        with self.assertRaises(ValidationError):
+            self._create(repeat="daily", repeat_until=None)
+
+    def test_repeat_until_before_start_raises(self):
+        with self.assertRaises(ValidationError):
+            self._create(
+                repeat="daily",
+                repeat_until=datetime.date(2026, 7, 1),
+            )
+
+    def test_overlapping_occurrences_raise(self):
+        # 3-day span (Mon–Wed) repeated every day → occurrences overlap each other
+        with self.assertRaises(ValidationError):
+            self._create(
+                date_to=datetime.date(2026, 7, 8),
+                repeat="daily",
+                repeat_until=datetime.date(2026, 7, 10),
+            )
+        self.assertEqual(ResourcePlanning.objects.count(), 0)
+
+    def test_repeat_conflicting_with_existing_plan_saves_nothing(self):
+        self._make_planning(
+            date_from=datetime.date(2026, 7, 13), date_to=datetime.date(2026, 7, 13),
+            t_start=datetime.time(8, 0), t_end=datetime.time(10, 0),
+        )
+        with self.assertRaises(ValidationError):
+            self._create(
+                repeat="weekly",
+                repeat_until=datetime.date(2026, 7, 20),
+            )
+        self.assertEqual(ResourcePlanning.objects.count(), 1)  # only the pre-existing
+        self.assertEqual(ResourcePlanningGroup.objects.count(), 0)  # group rolled back
+
+    def test_too_many_occurrences_raises(self):
+        with self.assertRaises(ValidationError):
+            self._create(
+                repeat="daily",
+                repeat_until=datetime.date(2026, 12, 31),
+            )
+
+    def test_repeat_combined_with_insert_mode_raises(self):
+        with self.assertRaises(ValidationError):
+            self._create(
+                repeat="weekly",
+                repeat_until=datetime.date(2026, 7, 20),
+                shift_following=True,
+            )
+
+
+class TestRepeatInMultiPlannings(_Base):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.project_file2 = ProjectFile.objects.create(
+            company=cls.company, reference="EXP-00002", name="Second project",
+            status="open", client=cls.client,
+        )
+
+    def test_repeating_line_creates_grouped_occurrences_only_for_that_line(self):
+        lines = [
+            {
+                "project_file": self.project_file,
+                "planning_type": self.planning_type,
+                "date_from": datetime.date(2026, 7, 6),
+                "date_to": datetime.date(2026, 7, 6),
+                "daily_start": datetime.time(8, 0),
+                "daily_end": datetime.time(10, 0),
+                "exclude_weekends": True,
+                "repeat": "weekly",
+                "repeat_until": datetime.date(2026, 7, 20),
+            },
+            {
+                "project_file": self.project_file2,
+                "planning_type": self.planning_type,
+                "date_from": datetime.date(2026, 7, 7),
+                "date_to": datetime.date(2026, 7, 7),
+                "daily_start": datetime.time(8, 0),
+                "daily_end": datetime.time(10, 0),
+                "exclude_weekends": True,
+            },
+        ]
+        plannings = create_multi_plannings(
+            company=self.company,
+            status=ResourcePlanningStatus.PLANNED,
+            resources=self.resources,
+            lines=lines,
+        )
+        self.assertEqual(len(plannings), 4)  # 3 weekly + 1 single
+        repeated = [p for p in plannings if p.project_file == self.project_file]
+        single = [p for p in plannings if p.project_file == self.project_file2]
+        self.assertEqual(len({p.group_id for p in repeated}), 1)
+        self.assertIsNotNone(repeated[0].group_id)
+        self.assertIsNone(single[0].group_id)
+        self.assertEqual(ResourcePlanningGroup.objects.count(), 1)
+        self.assertTrue(ResourcePlanningGroup.objects.first().is_repetition)

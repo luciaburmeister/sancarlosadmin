@@ -25,6 +25,7 @@ from management.views.resource_planning_bulk import (
     ResourcePlanningDeleteDayView,
     ResourcePlanningGroupChangeView,
     ResourcePlanningIndividualChangeView,
+    ResourcePlanningMultiAddView,
 )
 from management.views.resource_planning_schedule import ResourcePlanningScheduleView
 
@@ -74,7 +75,7 @@ class ResourcePlanningAdmin(CompanyRestrictedAdmin, ModelAdmin):
     autocomplete_fields = ["company", "project_file", "planning_type"]
     list_select_related = ["project_file", "planning_type", "company", "resource_content_type", "group"]
     actions = ["cancel_group_action", "cancel_individual_action"]
-    actions_list = ["schedule_view_action"]
+    actions_list = ["schedule_view_action", "multi_add_action"]
 
     fieldsets = (
         (_("Planning"), {"fields": ("company", "project_file", "planning_type", "status")}),
@@ -93,9 +94,11 @@ class ResourcePlanningAdmin(CompanyRestrictedAdmin, ModelAdmin):
         if obj is None:
             return self._get_obj_does_not_exist_redirect(request, self.opts, object_id)
         if obj.group_id:
-            return HttpResponseRedirect(
-                reverse("admin:management_resourceplanning_group_change", args=[obj.group_id])
-            )
+            group = ResourcePlanningGroup.objects.filter(pk=obj.group_id).first()
+            if group and not group.is_repetition:
+                return HttpResponseRedirect(
+                    reverse("admin:management_resourceplanning_group_change", args=[group.pk])
+                )
         return HttpResponseRedirect(
             reverse("admin:management_resourceplanning_individual_change", args=[object_id])
         )
@@ -117,6 +120,13 @@ class ResourcePlanningAdmin(CompanyRestrictedAdmin, ModelAdmin):
                     ResourcePlanningAddView.as_view(model_admin=self)
                 ),
                 name="management_resourceplanning_bulk_add",
+            ),
+            path(
+                "bulk/multi-add/",
+                self.admin_site.admin_view(
+                    ResourcePlanningMultiAddView.as_view(model_admin=self)
+                ),
+                name="management_resourceplanning_multi_add",
             ),
             path(
                 "group/<int:group_pk>/change/",
@@ -251,3 +261,10 @@ class ResourcePlanningAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     def has_schedule_view_action_permission(self, request):
         return True
+
+    @action(description=_("Multi Planning"), url_path="multi-add", icon="playlist_add")
+    def multi_add_action(self, request):
+        return HttpResponseRedirect(reverse("admin:management_resourceplanning_multi_add"))
+
+    def has_multi_add_action_permission(self, request):
+        return request.user.has_perm("management.add_resourceplanning")

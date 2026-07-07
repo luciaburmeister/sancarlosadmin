@@ -39,10 +39,10 @@ class AgentCommissionRuleForm(forms.ModelForm):
         label=_("Expression"),
         widget=UnfoldAdminTextareaWidget(attrs={"rows": 4}),
         help_text=_(
-            "Variables: subtotal, total, quantity.\n"
+            "Variables: subtotal, discounted_subtotal, total, quantity.\n"
             "Examples: subtotal * 0.05 — 5% of subtotal | "
             "200 — flat €200 | "
-            "subtotal * 0.05 if subtotal > 5000 else 0 — 5% only above €5,000"
+            "discounted_subtotal * 0.05 if discounted_subtotal > 5000 else 0 — 5% only above €5,000"
         ),
     )
 
@@ -94,10 +94,10 @@ class AgentCommissionRuleInline(TabularInline):
     model = AgentCommissionRule
     extra = 1
     tab = True
-    verbose_name = _("Agent commission rule")
-    verbose_name_plural = _("Agent commission rules")
-    autocomplete_fields = ["agent", "custom_rule"]
-    fields = ("agent", "rule_type", "value", "custom_rule", "is_active")
+    verbose_name = _("Commission rule")
+    verbose_name_plural = _("Commission rules")
+    autocomplete_fields = ["custom_rule"]
+    fields = ("rule_type", "value", "custom_rule", "is_active")
 
 
 
@@ -110,27 +110,17 @@ class QuoteCommissionInline(TabularInline):
     autocomplete_fields = ["agent"]
 
     readonly_fields = (
-        "configuration",
-        "product_template_display",
         "rule_type_snapshot",
         "rule_value_snapshot",
         "commission_amount",
     )
 
     fields = (
-        "configuration",
-        "product_template_display",
         "agent",
         "rule_type_snapshot",
         "rule_value_snapshot",
         "commission_amount",
     )
-
-    def product_template_display(self, obj):
-        if obj.configuration_id:
-            return obj.configuration.product.name
-        return "-"
-    product_template_display.short_description = _("Product template")
 
     def has_add_permission(self, request, obj=None):
         return False
@@ -172,7 +162,6 @@ class AgentCommissionRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     list_display = (
         "agent",
-        "product_template",
         "rule_type",
         "value_display",
         "is_active",
@@ -181,17 +170,16 @@ class AgentCommissionRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_filter = ("rule_type", "is_active", "company")
     search_fields = (
         "agent__name",
-        "product_template__name",
     )
-    autocomplete_fields = ["agent", "product_template", "company"]
-    list_select_related = ["agent", "product_template", "company"]
+    autocomplete_fields = ["agent", "company"]
+    list_select_related = ["agent", "company"]
 
     actions_list = ["bulk_create_action"]
 
     fieldsets = (
         (_("Who gets the commission"), {
             "fields": (
-                ("agent", "product_template"),
+                "agent",
                 ("company", "is_active"),
             ),
         }),
@@ -251,8 +239,7 @@ class AgentCommissionRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
                     # Create a new template
                     if not expression_name:
                         agent_str = str(obj.agent) if obj.agent_id else "?"
-                        product_str = str(obj.product_template) if obj.product_template_id else "?"
-                        expression_name = f"Custom: {agent_str} — {product_str}"
+                        expression_name = f"Custom: {agent_str}"
                     template = CommissionRuleTemplate.objects.create(
                         name=expression_name,
                         expression=expression,
@@ -277,7 +264,6 @@ class AgentCommissionRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
         )
         from configurator.commission.autocomplete_views import (
             CommissionistAgentAutocompleteView,
-            ProductTemplateAutocompleteView,
         )
         custom_urls = [
             path(
@@ -299,11 +285,6 @@ class AgentCommissionRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 self.admin_site.admin_view(CommissionistAgentAutocompleteView.as_view()),
                 name="commission_agent_autocomplete",
             ),
-            path(
-                "autocomplete/producttemplate/",
-                self.admin_site.admin_view(ProductTemplateAutocompleteView.as_view()),
-                name="commission_producttemplate_autocomplete",
-            ),
         ]
         return custom_urls + super().get_urls()
 
@@ -312,7 +293,7 @@ class AgentCommissionRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
 @admin.register(QuoteCommission)
 class QuoteCommissionAdmin(ModelAdmin):
     list_display = (
-        "configuration",
+        "quote",
         "agent",
         "rule_type_snapshot",
         "rule_value_display",
@@ -331,7 +312,7 @@ class QuoteCommissionAdmin(ModelAdmin):
         "rule_value_snapshot",
         "calculated_at",
     )
-    list_select_related = ["agent", "configuration", "rule"]
+    list_select_related = ["agent", "quote", "rule"]
 
     def rule_value_display(self, obj):
         return format_rule_snapshot(obj.rule_type_snapshot, obj.rule_value_snapshot)
@@ -339,4 +320,4 @@ class QuoteCommissionAdmin(ModelAdmin):
 
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
-        CommissionService.recalculate(obj.configuration.quote)
+        CommissionService.recalculate(obj.quote)

@@ -757,6 +757,16 @@ class Quote(Timestampable, CompanyOwnedModel):
         help_text=_("Sum of configuration costs + inventory item purchase costs."),
     )
 
+    agent = models.ForeignKey(
+        'sales.CommissionistAgent',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="quotes",
+        verbose_name=_("Agent"),
+        help_text=_("Commissionist agent for this quote. Auto-populated from the client's agent."),
+    )
+
     class Meta:
         verbose_name = _("Quote")
         verbose_name_plural = _("Quotes")
@@ -772,6 +782,10 @@ class Quote(Timestampable, CompanyOwnedModel):
     def save(self, *args, **kwargs):
         if not self.internal_name and self.project_name:
             self.internal_name = self.project_name
+
+        # Auto-populate agent from client when not already set
+        if not self.agent_id and self.client_id and self.client.agent_id:
+            self.agent = self.client.agent
 
         # Auto-set date fields on status transitions
         if self.status != self._original_status:

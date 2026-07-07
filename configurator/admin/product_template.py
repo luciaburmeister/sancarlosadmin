@@ -20,8 +20,6 @@ from django.utils.html import format_html
 from django import forms
 from core.admin.company_admin import CompanyRestrictedAdmin
 from materials.models import Component
-# ↓ NEW import
-from configurator.commission.admin import AgentCommissionRuleInline
 
 
 class AppliedTaxInline(GenericTabularInline):
@@ -194,7 +192,6 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
         ProductPricingRuleAssignmentInline,
         AppliedTaxInline,
         ProductTemplateComponentGroupInline,
-        AgentCommissionRuleInline,  # ← NEW
     ]
 
     fieldsets = (

@@ -1,6 +1,9 @@
 """
 Tests for CommissionistAgent model, Client agent FK, commission rules,
 QuoteCommission, and CommissionService.
+
+Commissions operate at the quote/basket level — one rule per agent,
+one QuoteCommission per (quote, agent).
 """
 from decimal import Decimal
 from django.test import TestCase
@@ -136,7 +139,69 @@ class ClientAgentFKTest(_BaseTestCase):
 
 
 # ---------------------------------------------------------------------------
-# AgentCommissionRule
+# Quote.agent auto-population
+# ---------------------------------------------------------------------------
+
+class QuoteAgentAutoPopulationTest(_BaseTestCase):
+    """Test that Quote.agent is auto-populated from Client.agent."""
+
+    def test_auto_populate_agent_from_client(self):
+        agent = CommissionistAgent.objects.create(
+            name="Client's Agent",
+            company=self.company,
+        )
+        client = Client.objects.create(
+            name="Test Client",
+            company=self.company,
+            agent=agent,
+        )
+        quote = Quote.objects.create(
+            client=client,
+            company=self.company,
+            project_name="Auto Agent Test",
+        )
+        quote.refresh_from_db()
+        self.assertEqual(quote.agent, agent)
+
+    def test_no_auto_populate_when_agent_set(self):
+        agent1 = CommissionistAgent.objects.create(
+            name="Agent 1",
+            company=self.company,
+        )
+        agent2 = CommissionistAgent.objects.create(
+            name="Agent 2",
+            company=self.company,
+        )
+        client = Client.objects.create(
+            name="Test Client",
+            company=self.company,
+            agent=agent1,
+        )
+        quote = Quote.objects.create(
+            client=client,
+            company=self.company,
+            project_name="Explicit Agent Test",
+            agent=agent2,
+        )
+        quote.refresh_from_db()
+        self.assertEqual(quote.agent, agent2)
+
+    def test_no_agent_when_client_has_none(self):
+        client = Client.objects.create(
+            name="No-Agent Client",
+            company=self.company,
+        )
+        quote = Quote.objects.create(
+            client=client,
+            company=self.company,
+            project_name="No Agent Test",
+        )
+        quote.refresh_from_db()
+        self.assertIsNone(quote.agent)
+
+
+# ---------------------------------------------------------------------------
+# AgentCommissionRule (now per-agent, no product_template)
 # ---------------------------------------------------------------------------
 
 class AgentCommissionRuleTest(_BaseTestCase):
@@ -152,7 +217,6 @@ class AgentCommissionRuleTest(_BaseTestCase):
     def test_create_percentage_rule(self):
         rule = AgentCommissionRule.objects.create(
             agent=self.agent,
-            product_template=self.product,
             rule_type=CommissionRuleType.PERCENTAGE,
             value=Decimal("5.00"),
             company=self.company,
@@ -164,7 +228,6 @@ class AgentCommissionRuleTest(_BaseTestCase):
     def test_create_fixed_rule(self):
         rule = AgentCommissionRule.objects.create(
             agent=self.agent,
-            product_template=self.product,
             rule_type=CommissionRuleType.FIXED,
             value=Decimal("100.00"),
             company=self.company,
@@ -174,13 +237,13 @@ class AgentCommissionRuleTest(_BaseTestCase):
     def test_compute_percentage_commission(self):
         rule = AgentCommissionRule.objects.create(
             agent=self.agent,
-            product_template=self.product,
             rule_type=CommissionRuleType.PERCENTAGE,
             value=Decimal("10.00"),
             company=self.company,
         )
         result = rule.compute_commission(
             subtotal=Decimal("1000.00"),
+            discounted_subtotal=Decimal("900.00"),
             total=Decimal("1210.00"),
             quantity=Decimal("5"),
         )
@@ -189,22 +252,21 @@ class AgentCommissionRuleTest(_BaseTestCase):
     def test_compute_fixed_commission(self):
         rule = AgentCommissionRule.objects.create(
             agent=self.agent,
-            product_template=self.product,
             rule_type=CommissionRuleType.FIXED,
             value=Decimal("250.00"),
             company=self.company,
         )
         result = rule.compute_commission(
             subtotal=Decimal("1000.00"),
+            discounted_subtotal=Decimal("900.00"),
             total=Decimal("1210.00"),
             quantity=Decimal("5"),
         )
         self.assertEqual(result, Decimal("250.00"))
 
-    def test_unique_together_agent_product(self):
+    def test_unique_per_agent(self):
         AgentCommissionRule.objects.create(
             agent=self.agent,
-            product_template=self.product,
             rule_type=CommissionRuleType.PERCENTAGE,
             value=Decimal("5.00"),
             company=self.company,
@@ -212,7 +274,6 @@ class AgentCommissionRuleTest(_BaseTestCase):
         with self.assertRaises(IntegrityError):
             AgentCommissionRule.objects.create(
                 agent=self.agent,
-                product_template=self.product,
                 rule_type=CommissionRuleType.FIXED,
                 value=Decimal("10.00"),
                 company=self.company,
@@ -221,21 +282,19 @@ class AgentCommissionRuleTest(_BaseTestCase):
     def test_str_representation(self):
         rule = AgentCommissionRule.objects.create(
             agent=self.agent,
-            product_template=self.product,
             rule_type=CommissionRuleType.PERCENTAGE,
             value=Decimal("5.00"),
             company=self.company,
         )
         self.assertIn("Commission Agent", str(rule))
-        self.assertIn("Aluminium Window", str(rule))
 
 
 # ---------------------------------------------------------------------------
-# QuoteCommission
+# QuoteCommission (now per quote, not per configuration)
 # ---------------------------------------------------------------------------
 
 class QuoteCommissionTest(_BaseTestCase):
-    """Test QuoteCommission linked to CommissionistAgent."""
+    """Test QuoteCommission at the quote/basket level."""
 
     def setUp(self):
         self.agent = CommissionistAgent.objects.create(
@@ -252,38 +311,40 @@ class QuoteCommissionTest(_BaseTestCase):
             company=self.company,
             project_name="Test Project",
         )
-        self.config = Configuration.objects.create(
-            company=self.company,
-            client=self.client,
-            product=self.product,
-            name="Config 1",
-            quote=self.quote,
-        )
 
     def test_create_quote_commission(self):
         qc = QuoteCommission.objects.create(
             quote=self.quote,
-            configuration=self.config,
             agent=self.agent,
         )
         self.assertEqual(qc.agent, self.agent)
-        self.assertEqual(qc.configuration, self.config)
+        self.assertEqual(qc.quote, self.quote)
 
     def test_quote_commission_agent_nullable(self):
         qc = QuoteCommission.objects.create(
             quote=self.quote,
-            configuration=self.config,
             agent=None,
         )
         self.assertIsNone(qc.agent)
 
+    def test_unique_per_quote_agent(self):
+        QuoteCommission.objects.create(
+            quote=self.quote,
+            agent=self.agent,
+        )
+        with self.assertRaises(IntegrityError):
+            QuoteCommission.objects.create(
+                quote=self.quote,
+                agent=self.agent,
+            )
+
 
 # ---------------------------------------------------------------------------
-# CommissionService
+# CommissionService (basket-level)
 # ---------------------------------------------------------------------------
 
 class CommissionServiceTest(_BaseTestCase):
-    """Test CommissionService with CommissionistAgent."""
+    """Test CommissionService with basket-level commission calculation."""
 
     def setUp(self):
         self.agent = CommissionistAgent.objects.create(
@@ -310,33 +371,38 @@ class CommissionServiceTest(_BaseTestCase):
         )
         AgentCommissionRule.objects.create(
             agent=self.agent,
-            product_template=self.product,
             rule_type=CommissionRuleType.PERCENTAGE,
             value=Decimal("5.00"),
             company=self.company,
         )
 
-    def test_sync_creates_rows(self):
+    def test_prepopulate_creates_row_with_agent(self):
         CommissionService.prepopulate_for_quote(self.quote)
         qcs = QuoteCommission.objects.filter(quote=self.quote)
         self.assertEqual(qcs.count(), 1)
-        self.assertIsNone(qcs.first().agent)
+        # Agent is pre-filled from quote.agent
+        self.assertEqual(qcs.first().agent, self.agent)
+
+    def test_prepopulate_no_row_when_no_agent(self):
+        # Remove the client's agent so auto-populate doesn't re-set it
+        self.client.agent = None
+        self.client.save(update_fields=["agent"])
+        self.quote.agent = None
+        self.quote.save()
+        # Clear any rows from prior state
+        QuoteCommission.objects.filter(quote=self.quote).delete()
+        CommissionService.prepopulate_for_quote(self.quote)
+        qcs = QuoteCommission.objects.filter(quote=self.quote)
+        self.assertEqual(qcs.count(), 0)
 
     def test_recalculate_with_agent(self):
         CommissionService.prepopulate_for_quote(self.quote)
-        qc = QuoteCommission.objects.get(quote=self.quote, configuration=self.config)
-        qc.agent = self.agent
-        qc.save()
-
         CommissionService.recalculate(self.quote)
-        qc.refresh_from_db()
+        qc = QuoteCommission.objects.get(quote=self.quote, agent=self.agent)
         self.assertEqual(qc.rule_type_snapshot, CommissionRuleType.PERCENTAGE)
 
     def test_get_summary(self):
         CommissionService.prepopulate_for_quote(self.quote)
-        qc = QuoteCommission.objects.get(quote=self.quote, configuration=self.config)
-        qc.agent = self.agent
-        qc.save()
         CommissionService.recalculate(self.quote)
 
         summary = CommissionService.get_commission_context(self.quote)

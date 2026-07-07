@@ -700,7 +700,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
         ("date_sent", RangeDateFilter),
         ("date_accepted",RangeDateFilter)]
     search_fields = ["project_name", "client__name", "id", "external_id"]
-    autocomplete_fields = ["client", "project_file", "company","discount_policies"]
+    autocomplete_fields = ["client", "agent", "project_file", "company","discount_policies"]
     readonly_fields = [
         "subtotal_price", "tax_amount", "total_price", "tax_breakdown",
         "discount_amount", "discount_breakdown", "date_sent", "date_accepted", "date_rejected",
@@ -730,8 +730,9 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
         ("Quote Details", {
             "classes": ["tab"],
             "fields": (
-                ("client", "status"),
-                ("project_name", "company"),
+                ("client", "agent"),
+                ("status", "company"),
+                ("project_name",),
                 ("date", "expires_at"),
                 ("subtotal_price", "discount_amount"),
                 ("tax_amount", "total_price"),
@@ -926,10 +927,6 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
         ]
         return custom + urls
 
-
-    def save_related(self, request, form, formsets, change):
-        super().save_related(request, form, formsets, change)
-        form.instance.recalc_totals()
 
     @action(description=_("Export Quote"), attrs={"target": "_blank"})
     def export_quote_action(self, request, object_id: int):

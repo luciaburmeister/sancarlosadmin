@@ -8,24 +8,18 @@ class CommissionService:
     @transaction.atomic
     def prepopulate_for_quote(cls, quote) -> None:
         """
-        Creates one QuoteCommission row per configuration on the quote,
+        Creates one QuoteCommission row for the quote's agent,
         if one does not already exist.
         """
         from configurator.commission.models import QuoteCommission
 
-        existing_config_ids = set(
-            QuoteCommission.objects.filter(
-                quote=quote
-            ).values_list("configuration_id", flat=True)
-        )
+        if not quote.agent_id:
+            return
 
-        for config in quote.configurations.all():
-            if config.pk not in existing_config_ids:
-                QuoteCommission.objects.create(
-                    quote=quote,
-                    configuration=config,
-                    agent=None,
-                )
+        QuoteCommission.objects.get_or_create(
+            quote=quote,
+            agent=quote.agent,
+        )
 
     @classmethod
     @transaction.atomic
@@ -33,39 +27,51 @@ class CommissionService:
         """
         Recalculates commission_amount for every QuoteCommission row
         belonging to this quote.
-        If no AgentCommissionRule exists for the employee + product template,
-        the commission is set to zero — no override or auto-creation.
+        Commission is calculated on the quote basket (subtotal, discounted_subtotal, total).
         """
         from configurator.commission.models import AgentCommissionRule, QuoteCommission
 
         rows = list(
             QuoteCommission.objects.filter(
                 quote=quote
-            ).select_related("agent", "rule", "configuration__product")
+            ).select_related("agent", "rule")
         )
+
+        # Calculate total quantity across all items on the quote
+        config_quantity = Decimal(str(
+            sum(
+                float(i.quantity)
+                for config in quote.configurations.all()
+                for i in config.items.all()
+            )
+        ))
+        inv_item_quantity = Decimal(str(
+            sum(float(i.quantity) for i in quote.inventory_items.all())
+        ))
+        quote_item_quantity = Decimal(str(
+            sum(float(i.quantity) for i in quote.items.all())
+        ))
+        total_quantity = config_quantity + inv_item_quantity + quote_item_quantity
+
+        subtotal = Decimal(str(quote.subtotal_price.amount))
+        discounted_subtotal = Decimal(str(quote.discounted_subtotal.amount)) if quote.discounted_subtotal else subtotal
+        total = Decimal(str(quote.total_price.amount))
 
         for row in rows:
             if not row.agent_id:
                 continue
 
-            config = row.configuration
-            subtotal = Decimal(str(config.subtotal_price.amount))
-            total = Decimal(str(config.total_price.amount))
-            quantity = Decimal(str(
-                sum(float(i.quantity) for i in config.items.all())
-            ))
-            product_template = config.product
-
             try:
                 rule = AgentCommissionRule.objects.get(
                     agent_id=row.agent_id,
-                    product_template=product_template,
                     is_active=True,
                 )
                 row.rule = rule
                 row.rule_type_snapshot = rule.rule_type
                 row.rule_value_snapshot = rule.value
-                amount = rule.compute_commission(subtotal, total, quantity)
+                amount = rule.compute_commission(
+                    subtotal, discounted_subtotal, total, total_quantity,
+                )
 
             except AgentCommissionRule.DoesNotExist:
                 # No rule defined — set commission to zero, leave rule blank
@@ -93,8 +99,8 @@ class CommissionService:
         rows = (
             QuoteCommission.objects
             .filter(quote=quote)
-            .select_related("agent", "rule", "configuration__product")
-            .order_by("configuration_id")
+            .select_related("agent", "rule")
+            .order_by("agent__name")
         )
 
         result = []
@@ -103,8 +109,6 @@ class CommissionService:
                 continue
             result.append({
                 "agent_name": row.agent.name,
-                "configuration_name": str(row.configuration),
-                "product_template_name": row.configuration.product.name,
                 "rule_type": row.rule_type_snapshot,
                 "rule_value": float(row.rule_value_snapshot) if row.rule_value_snapshot else None,
                 "commission_amount": float(row.commission_amount.amount),

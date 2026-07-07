@@ -59,13 +59,12 @@ class BulkCommissionWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
         step2 = form_list[1]
 
         agents = step1.cleaned_data["agents"]
-        product_templates = step1.cleaned_data["product_templates"]
         rule_type = step2.cleaned_data["rule_type"]
         value = step2.cleaned_data.get("value")
         expression = (step2.cleaned_data.get("expression") or "").strip()
         expression_name = (step2.cleaned_data.get("expression_name") or "").strip()
 
-        # Resolve custom template once for all combinations
+        # Resolve custom template once for all agents
         custom_rule = None
         if rule_type == CommissionRuleType.CUSTOM and expression:
             custom_rule = _resolve_custom_template(expression, expression_name)
@@ -74,33 +73,27 @@ class BulkCommissionWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
         conflicts = []
 
         for agent in agents:
-            for product_template in product_templates:
-                exists = AgentCommissionRule.objects.filter(
-                    agent=agent,
-                    product_template=product_template,
-                ).exists()
+            exists = AgentCommissionRule.objects.filter(
+                agent=agent,
+            ).exists()
 
-                if exists:
-                    conflicts.append({
-                        "agent": str(agent),
-                        "product_template": str(product_template),
-                    })
-                else:
-                    to_create.append({
-                        "agent": agent,
-                        "product_template": product_template,
-                        "rule_type": rule_type,
-                        "value": value,
-                        "custom_rule": custom_rule,
-                    })
+            if exists:
+                conflicts.append({
+                    "agent": str(agent),
+                })
+            else:
+                to_create.append({
+                    "agent": agent,
+                    "rule_type": rule_type,
+                    "value": value,
+                    "custom_rule": custom_rule,
+                })
 
         # Store in session for the confirmation view
         self.request.session["bulk_commission_to_create"] = [
             {
                 "agent_id": item["agent"].pk,
                 "agent_str": str(item["agent"]),
-                "product_template_id": item["product_template"].pk,
-                "product_template_str": str(item["product_template"]),
                 "rule_type": item["rule_type"],
                 "value": str(item["value"]) if item["value"] is not None else None,
                 "custom_rule_id": item["custom_rule"].pk if item["custom_rule"] else None,
@@ -140,7 +133,6 @@ class BulkCommissionConfirmView(UnfoldModelAdminViewMixin, View):
     def post(self, request, *args, **kwargs):
         from decimal import Decimal
         from sales.models import CommissionistAgent
-        from configurator.models import ProductTemplate
 
         to_create = request.session.pop("bulk_commission_to_create", [])
         request.session.pop("bulk_commission_conflicts", [])
@@ -151,17 +143,15 @@ class BulkCommissionConfirmView(UnfoldModelAdminViewMixin, View):
         for item in to_create:
             try:
                 agent = CommissionistAgent.objects.get(pk=item["agent_id"])
-                product_template = ProductTemplate.objects.get(pk=item["product_template_id"])
                 custom_rule = None
                 if item.get("custom_rule_id"):
                     custom_rule = CommissionRuleTemplate.objects.get(pk=item["custom_rule_id"])
 
                 if company is None:
-                    company = product_template.company
+                    company = agent.company
 
                 AgentCommissionRule.objects.create(
                     agent=agent,
-                    product_template=product_template,
                     rule_type=item["rule_type"],
                     value=Decimal(item["value"]) if item["value"] else None,
                     custom_rule=custom_rule,

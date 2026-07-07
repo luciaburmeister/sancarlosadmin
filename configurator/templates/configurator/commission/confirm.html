@@ -10,28 +10,26 @@
             {% trans "Review Commission Rules" %}
         </h1>
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-            {% trans "Review the rules below before confirming. Conflicting combinations will be skipped." %}
+            {% trans "Review the rules below before confirming. Conflicting agents will be skipped." %}
         </p>
     </div>
 
     {% if has_conflicts %}
     <div class="mb-6 rounded-xl border border-yellow-200 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-700 p-4">
         <h2 class="text-base font-semibold text-yellow-800 dark:text-yellow-300 mb-3">
-            ⚠️ {% trans "Conflicts detected: these combinations already exist and will be skipped" %}
+            ⚠️ {% trans "Conflicts detected: these agents already have rules and will be skipped" %}
         </h2>
         <div class="overflow-x-auto">
             <table class="w-full text-sm text-left text-yellow-700 dark:text-yellow-300">
                 <thead>
                     <tr class="border-b border-yellow-200 dark:border-yellow-700">
-                        <th class="py-2 pr-6 font-medium">{% trans "Employee" %}</th>
-                        <th class="py-2 font-medium">{% trans "Product template" %}</th>
+                        <th class="py-2 font-medium">{% trans "Agent" %}</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for conflict in conflicts %}
                     <tr class="border-b border-yellow-100 dark:border-yellow-800">
-                        <td class="py-2 pr-6">{{ conflict.employee }}</td>
-                        <td class="py-2">{{ conflict.product_template }}</td>
+                        <td class="py-2">{{ conflict.agent }}</td>
                     </tr>
                     {% endfor %}
                 </tbody>
@@ -49,8 +47,7 @@
             <table class="w-full text-sm text-left text-green-700 dark:text-green-300">
                 <thead>
                     <tr class="border-b border-green-200 dark:border-green-700">
-                        <th class="py-2 pr-6 font-medium">{% trans "Employee" %}</th>
-                        <th class="py-2 pr-6 font-medium">{% trans "Product template" %}</th>
+                        <th class="py-2 pr-6 font-medium">{% trans "Agent" %}</th>
                         <th class="py-2 pr-6 font-medium">{% trans "Rule type" %}</th>
                         <th class="py-2 font-medium">{% trans "Value / Rule" %}</th>
                     </tr>
@@ -58,8 +55,7 @@
                 <tbody>
                     {% for item in to_create %}
                     <tr class="border-b border-green-100 dark:border-green-800">
-                        <td class="py-2 pr-6">{{ item.employee_str }}</td>
-                        <td class="py-2 pr-6">{{ item.product_template_str }}</td>
+                        <td class="py-2 pr-6">{{ item.agent_str }}</td>
                         <td class="py-2 pr-6">{{ item.rule_type }}</td>
                         <td class="py-2">
                             {% if item.custom_rule_str %}
@@ -83,7 +79,7 @@
     {% else %}
     <div class="mb-6 rounded-xl border border-gray-200 bg-gray-50 dark:bg-gray-800 dark:border-gray-700 p-6 text-center">
         <p class="text-gray-500 dark:text-gray-400">
-            {% trans "No new rules to create — all selected combinations already exist." %}
+            {% trans "No new rules to create — all selected agents already have rules." %}
         </p>
     </div>
     {% endif %}

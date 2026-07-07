@@ -23,9 +23,10 @@ class CommissionRuleTemplate(models.Model):
     Shared across all companies.
 
     Available variables in the expression:
-    - subtotal: configuration subtotal before tax
-    - total: configuration total after tax
-    - quantity: sum of quantities of all items in the configuration
+    - subtotal: quote subtotal before discounts
+    - discounted_subtotal: quote subtotal after discounts
+    - total: quote total after tax
+    - quantity: sum of quantities across all items
     """
 
     name = models.CharField(
@@ -44,11 +45,13 @@ class CommissionRuleTemplate(models.Model):
         help_text=_(
             "Expression evaluated with safe_eval.\n\n"
             "Available variables:\n"
-            "  • subtotal — configuration subtotal before tax\n"
-            "  • total    — configuration total after tax\n"
+            "  • subtotal — quote subtotal before discounts\n"
+            "  • discounted_subtotal — quote subtotal after discounts\n"
+            "  • total    — quote total after tax\n"
             "  • quantity — total quantity of items\n\n"
             "Examples:\n"
             "  • 5% of subtotal:                   subtotal * 0.05\n"
+            "  • 5% after discounts:               discounted_subtotal * 0.05\n"
             "  • Flat €200:                        200\n"
             "  • 5% only if subtotal > €5,000:     subtotal * 0.05 if subtotal > 5000 else 0\n"
             "  • Tiered (3% under €5k, 5% above):  subtotal * 0.03 if subtotal < 5000 else subtotal * 0.05\n"
@@ -71,10 +74,11 @@ class CommissionRuleTemplate(models.Model):
     def __str__(self):
         return self.name
 
-    def compute(self, subtotal: Decimal, total: Decimal, quantity: Decimal) -> Decimal:
+    def compute(self, subtotal: Decimal, discounted_subtotal: Decimal, total: Decimal, quantity: Decimal) -> Decimal:
         from configurator.utils import safe_eval
         context = {
             "subtotal": float(subtotal),
+            "discounted_subtotal": float(discounted_subtotal),
             "total": float(total),
             "quantity": float(quantity),
         }
@@ -84,17 +88,9 @@ class CommissionRuleTemplate(models.Model):
 
 class AgentCommissionRule(CompanyOwnedModel):
     """
-    Defines what commission an employee earns when they sell
-    a configuration based on a specific product template.
-    One rule per (employee, product_template) pair.
+    Defines what commission an agent earns on a quote.
+    One rule per agent.
     """
-
-    product_template = models.ForeignKey(
-        "configurator.ProductTemplate",
-        on_delete=models.CASCADE,
-        related_name="commission_rules",
-        verbose_name=_("Product template"),
-    )
 
     agent = models.ForeignKey(
         "sales.CommissionistAgent",
@@ -141,10 +137,10 @@ class AgentCommissionRule(CompanyOwnedModel):
     )
 
     class Meta:
-        unique_together = ("agent", "product_template")
+        unique_together = (("agent",),)
         verbose_name = _("Agent commission rule")
         verbose_name_plural = _("Agent commission rules")
-        ordering = ["agent", "product_template"]
+        ordering = ["agent"]
 
     def format_value(self) -> str:
         """
@@ -157,14 +153,17 @@ class AgentCommissionRule(CompanyOwnedModel):
         return "-"
 
     def __str__(self):
-        return f"{self.agent} — {self.product_template} [{self.format_value()}]"
+        return f"{self.agent} [{self.format_value()}]"
 
     def compute_commission(
         self,
         subtotal: Decimal,
+        discounted_subtotal: Decimal = None,
         total: Decimal = None,
         quantity: Decimal = None,
     ) -> Decimal:
+        if discounted_subtotal is None:
+            discounted_subtotal = subtotal
         if total is None:
             total = subtotal
         if quantity is None:
@@ -175,7 +174,7 @@ class AgentCommissionRule(CompanyOwnedModel):
         elif self.rule_type == CommissionRuleType.FIXED and self.value is not None:
             return self.value.quantize(Decimal("0.01"))
         elif self.rule_type == CommissionRuleType.CUSTOM and self.custom_rule:
-            return self.custom_rule.compute(subtotal, total, quantity)
+            return self.custom_rule.compute(subtotal, discounted_subtotal, total, quantity)
         return Decimal("0.00")
 
 
@@ -195,7 +194,8 @@ def format_rule_snapshot(rule_type: str, rule_value) -> str:
 
 class QuoteCommission(models.Model):
     """
-    One row per (configuration, employee) pair.
+    One row per (quote, agent) pair.
+    Commission is calculated at the quote/basket level.
     """
 
     quote = models.ForeignKey(
@@ -203,15 +203,6 @@ class QuoteCommission(models.Model):
         on_delete=models.CASCADE,
         related_name="commissions",
         verbose_name=_("Quote"),
-        null=True,
-        blank=True,
-    )
-
-    configuration = models.ForeignKey(
-        "configurator.Configuration",
-        on_delete=models.CASCADE,
-        related_name="commissions",
-        verbose_name=_("Configuration"),
         null=True,
         blank=True,
     )
@@ -263,15 +254,11 @@ class QuoteCommission(models.Model):
     )
 
     class Meta:
-        unique_together = ("configuration", "agent")
+        unique_together = (("quote", "agent"),)
         verbose_name = _("Quote commission")
         verbose_name_plural = _("Quote commissions")
-        ordering = ["quote", "configuration"]
+        ordering = ["quote"]
 
     def __str__(self):
         agent = self.agent or _("No agent")
-        return f"Commission for {agent} on {self.configuration}"
-
-    @property
-    def product_template(self):
-        return self.configuration.product
+        return f"Commission for {agent} on {self.quote}"

@@ -320,6 +320,7 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
                     "component_label": stage_p["component_label"],
                     "active_workers": workers,
                     "has_my_open_session": has_my_open_session,
+                    "has_my_prev_session": has_my_prev_session,
                     # True only when others are working AND I've never touched this stage
                     "started_by_others": (
                         stage_p["status"] == "in_progress"

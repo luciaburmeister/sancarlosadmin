@@ -73,6 +73,34 @@ class SalesInvoiceTest(TestCase):
         self.assertEqual(do.incremental_id, 1)
         self.assertEqual(do.items.count(), 1)
 
+    def test_finalize_sets_date_issued_to_today(self):
+        """An old proforma finalized today must carry today's issue date."""
+        from datetime import date, timedelta
+
+        invoice = SalesInvoiceService.create_from_configuration(self.configuration)
+        old_date = date.today() - timedelta(days=10)
+        invoice.date_issued = old_date
+        invoice.save(update_fields=["date_issued"])
+
+        SalesInvoiceService.finalize_invoice(invoice)
+
+        self.assertEqual(invoice.date_issued, timezone.now().date())
+
+    def test_refinalize_keeps_original_date_issued(self):
+        """Finalizing an already-final invoice must not touch its issue date."""
+        from datetime import date, timedelta
+
+        invoice = SalesInvoiceService.create_from_configuration(self.configuration)
+        SalesInvoiceService.finalize_invoice(invoice)
+        old_date = date.today() - timedelta(days=5)
+        invoice.date_issued = old_date
+        invoice.save(update_fields=["date_issued"])
+
+        SalesInvoiceService.finalize_invoice(invoice)
+
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.date_issued, old_date)
+
     def test_sequential_numbering_finalized(self):
         inv1 = SalesInvoiceService.create_from_configuration(self.configuration)
         SalesInvoiceService.finalize_invoice(inv1)

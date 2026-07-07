@@ -161,11 +161,7 @@ class ProjectFileDetailView(CompanyAPIView):
         else:
             data["client_needs_terms_signature"] = False
             data["client_terms_outdated"] = False
-        accepted_observations = [
-            q.observations.strip()
-            for q in pf.quotes.filter(status="accepted")
-            if q.observations and q.observations.strip()
-        ]
+        accepted_observations = ProjectFileInvoiceService.get_accepted_quote_observations(pf)
         data["invoicing"] = {
             "total_invoiceable": float(invoicing_summary["total_invoiceable"]),
             "total_invoiced": float(invoicing_summary["total_invoiced"]),

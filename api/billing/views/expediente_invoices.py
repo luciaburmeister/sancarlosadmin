@@ -222,6 +222,9 @@ class BulkEmitCandidatesView(CompanyAPIView):
             "count": paginator.count,
             "has_next": page.has_next(),
             "page": page_num,
+            "include_quote_observations_default": (
+                self.company.bulk_emit_copy_quote_observations
+            ),
         })
 
 

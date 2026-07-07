@@ -529,6 +529,10 @@ class BulkEmitInvoicesSerializer(serializers.Serializer):
     show_vehicle_name = serializers.BooleanField(default=True)
     send_email = serializers.BooleanField(default=True)
     due_date = serializers.DateField(required=False, allow_null=True)
+    # None → fall back to Company.bulk_emit_copy_quote_observations
+    include_quote_observations = serializers.BooleanField(
+        required=False, allow_null=True, default=None
+    )
 
     def validate_payment_method(self, value):
         value = (value or "").strip()
@@ -554,6 +558,9 @@ class BulkEmitInvoicesSerializer(serializers.Serializer):
         show_vehicle_name = self.validated_data.get("show_vehicle_name", True)
         send_email = self.validated_data.get("send_email", True)
         due_date = self.validated_data.get("due_date")
+        include_observations = self.validated_data.get("include_quote_observations")
+        if include_observations is None:
+            include_observations = company.bulk_emit_copy_quote_observations
         date_issued = timezone.now().date()
 
         pf_map = {
@@ -612,6 +619,15 @@ class BulkEmitInvoicesSerializer(serializers.Serializer):
                         })
                         continue
 
+                    invoice_notes = notes
+                    if include_observations:
+                        # After auto-accept, so freshly accepted quotes count too.
+                        observations = (
+                            ProjectFileInvoiceService.get_accepted_quote_observations(pf)
+                        )
+                        parts = ([notes.strip()] if notes.strip() else []) + observations
+                        invoice_notes = "\n---\n".join(parts)
+
                     invoice = ProjectFileInvoiceService.create_invoice_from_project_file(
                         project_file=pf,
                         company=company,
@@ -619,7 +635,7 @@ class BulkEmitInvoicesSerializer(serializers.Serializer):
                         date_issued=date_issued,
                         due_date=due_date,
                         items_data=items_data,
-                        notes=notes,
+                        notes=invoice_notes,
                         payment_method=payment_method or None,
                     )
                     invoice = SalesInvoiceService.finalize_invoice(invoice, send_email=send_email)

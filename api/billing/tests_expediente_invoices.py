@@ -297,3 +297,112 @@ class ProjectFileInvoicePartialTests(_ProjectFileInvoiceTestBase):
         subtotal = Decimal(str(data["subtotal_amount"]))
         self.assertEqual(subtotal, Decimal("500.00"))
 
+
+
+class BulkEmitQuoteObservationsTests(_ProjectFileInvoiceTestBase):
+    """Bulk emit should copy quote observations into invoice notes when enabled."""
+
+    def _setup_invoiceable_pf(self, observations="Cambio de aceite incluido"):
+        quote = self._create_quote(subtotal=100, total=121)
+        quote.observations = observations
+        quote.save()
+        config = self._create_config(quote, subtotal=100, total=121)
+        self._attach_tax(config, self.iva21, 21, base=100, calc=21)
+        return quote
+
+    def _post_bulk(self, **overrides):
+        payload = {
+            "project_file_ids": [self.project_file.pk],
+            "send_email": False,
+            **overrides,
+        }
+        return self.api.post(
+            "/es/api/sales-invoices/bulk-emit/",
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+
+    def _created_invoice(self, resp):
+        self.assertEqual(resp.status_code, 200, resp.json())
+        data = resp.json()
+        self.assertEqual(data["total_created"], 1, data)
+        return SalesInvoice.objects.get(pk=data["successes"][0]["invoice_id"])
+
+    def test_flag_off_keeps_common_notes_only(self):
+        self._setup_invoiceable_pf()
+        invoice = self._created_invoice(self._post_bulk(notes="Nota común"))
+        self.assertEqual(invoice.notes, "Nota común")
+
+    def test_company_flag_appends_observations_after_notes(self):
+        self.company.bulk_emit_copy_quote_observations = True
+        self.company.save()
+        self._setup_invoiceable_pf()
+        invoice = self._created_invoice(self._post_bulk(notes="Nota común"))
+        self.assertEqual(invoice.notes, "Nota común\n---\nCambio de aceite incluido")
+
+    def test_company_flag_without_common_notes(self):
+        self.company.bulk_emit_copy_quote_observations = True
+        self.company.save()
+        self._setup_invoiceable_pf()
+        invoice = self._created_invoice(self._post_bulk())
+        self.assertEqual(invoice.notes, "Cambio de aceite incluido")
+
+    def test_request_param_overrides_company_flag_off(self):
+        self.company.bulk_emit_copy_quote_observations = True
+        self.company.save()
+        self._setup_invoiceable_pf()
+        invoice = self._created_invoice(
+            self._post_bulk(notes="Nota común", include_quote_observations=False)
+        )
+        self.assertEqual(invoice.notes, "Nota común")
+
+    def test_request_param_overrides_company_flag_on(self):
+        self._setup_invoiceable_pf()
+        invoice = self._created_invoice(
+            self._post_bulk(include_quote_observations=True)
+        )
+        self.assertEqual(invoice.notes, "Cambio de aceite incluido")
+
+    def test_auto_accepted_quote_observations_included(self):
+        """Draft quotes auto-accepted during bulk emit contribute their observations."""
+        self.company.bulk_emit_copy_quote_observations = True
+        self.company.save()
+        quote = self._create_quote(subtotal=100, total=121)
+        quote.status = QuoteStatus.DRAFT
+        quote.observations = "Observación de borrador"
+        quote.save()
+        config = self._create_config(quote, subtotal=100, total=121)
+        self._attach_tax(config, self.iva21, 21, base=100, calc=21)
+
+        invoice = self._created_invoice(self._post_bulk())
+        self.assertEqual(invoice.notes, "Observación de borrador")
+
+    def test_multiple_quotes_observations_joined(self):
+        self.company.bulk_emit_copy_quote_observations = True
+        self.company.save()
+        self._setup_invoiceable_pf(observations="Obs A")
+        quote2 = self._create_quote(subtotal=50, total=60.50)
+        quote2.observations = "  Obs B  "
+        quote2.save()
+        config2 = self._create_config(quote2, subtotal=50, total=60.50, name="Config 2")
+        self._attach_tax(config2, self.iva21, 21, base=50, calc=10.50)
+
+        invoice = self._created_invoice(self._post_bulk(notes="Común"))
+        self.assertEqual(invoice.notes, "Común\n---\nObs A\n---\nObs B")
+
+    def test_blank_observations_skipped(self):
+        self.company.bulk_emit_copy_quote_observations = True
+        self.company.save()
+        self._setup_invoiceable_pf(observations="   ")
+        invoice = self._created_invoice(self._post_bulk(notes="Nota común"))
+        self.assertEqual(invoice.notes, "Nota común")
+
+    def test_candidates_endpoint_exposes_company_default(self):
+        resp = self.api.get("/es/api/sales-invoices/bulk-emit-candidates/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()["include_quote_observations_default"])
+
+        self.company.bulk_emit_copy_quote_observations = True
+        self.company.save()
+        resp = self.api.get("/es/api/sales-invoices/bulk-emit-candidates/")
+        self.assertTrue(resp.json()["include_quote_observations_default"])

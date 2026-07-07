@@ -22,6 +22,21 @@ class ProjectFileInvoiceService:
     """
 
     @classmethod
+    def get_accepted_quote_observations(cls, project_file):
+        """
+        Returns the non-empty, stripped observations of the ProjectFile's
+        accepted quotes, in quote id order.
+        """
+        return [
+            quote.observations.strip()
+            for quote in Quote.objects.filter(
+                project_file=project_file,
+                status=QuoteStatus.ACCEPTED,
+            ).order_by("id")
+            if quote.observations and quote.observations.strip()
+        ]
+
+    @classmethod
     def get_invoiceable_summary(cls, project_file):
         """
         Returns a dict with the invoicing status for a ProjectFile:

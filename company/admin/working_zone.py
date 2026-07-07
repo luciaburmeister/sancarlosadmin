@@ -13,7 +13,7 @@ class AssetTransactionInline(TabularInline):
     fields = ("asset", "transaction_type", "from_zone", "project_file", "date", "notes")
     readonly_fields = ("created_at",)
     ordering = ("-date",)
-    autocomplete_fields = ["from_zone","project_file"]
+    autocomplete_fields = ["asset","from_zone","project_file"]
     per_page=10
 
 

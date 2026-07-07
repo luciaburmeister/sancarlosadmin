@@ -178,6 +178,7 @@ class GeminiInvoiceProcessor(OcrInterface):
         - The vendor_tax_id has to be the provider of who is issuing the invoice not the client's one.
         - company_tax_id = tax id of the customer/client receiving the invoice (us)
         - Do NOT confuse vendor_tax_id with company_tax_id
+        - IMPORTANT: Never include literal double quotes (") inside string values. Replace any double quotes found in descriptions or text fields with single quotes ('). For example: NUCLEO "FR" GRIS → NUCLEO 'FR' GRIS
 
       CRITICAL - Amounts on credit notes (any invoice where amounts are negative, regardless of language):
         - A credit note is any invoice whose monetary amounts are negative.

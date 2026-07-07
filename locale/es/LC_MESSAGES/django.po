@@ -190,10 +190,8 @@ msgstr "Cuentas por pagar"
 msgid "ERP Chatbot"
 msgstr "Chatbot ERP"
 
-#, fuzzy
-#| msgid "Sales"
 msgid "CRM & Sales"
-msgstr "Ventas"
+msgstr "CRM y Ventas"
 
 msgid "Customers"
 msgstr "Clientes"
@@ -269,20 +267,16 @@ msgstr "Facturas de Ventas"
 msgid "Received Invoices"
 msgstr "Facturas de compra"
 
-#, fuzzy
-#| msgid "Final price"
 msgid "Finance"
-msgstr "Precio final"
+msgstr "Finanzas"
 
-#, fuzzy
-#| msgid "Transaction"
+
 msgid "Bank Transactions"
-msgstr "Transacción"
+msgstr "Transacciónes bancarias"
 
-#, fuzzy
-#| msgid "Reconciled"
+
 msgid "Reconciliations"
-msgstr "Reconciliado"
+msgstr "Conciliaciones"
 
 msgid "Connect Bank"
 msgstr "Conectar Banco"
@@ -296,10 +290,9 @@ msgstr "Articulos"
 msgid "Warehouses"
 msgstr "Almacénes"
 
-#, fuzzy
-#| msgid "Category"
+
 msgid "Categories"
-msgstr "Categoría"
+msgstr "Categorías"
 
 msgid "Item Transactions"
 msgstr "Transacciones de artículo"
@@ -322,10 +315,9 @@ msgstr "Materiales"
 msgid "Components"
 msgstr "Componentes"
 
-#, fuzzy
-#| msgid "Payroll"
+
 msgid "HR & Payroll"
-msgstr "Nómina"
+msgstr "RH & Nomina"
 
 msgid "Employees"
 msgstr "Empleados"

@@ -406,3 +406,73 @@ class BulkEmitQuoteObservationsTests(_ProjectFileInvoiceTestBase):
         self.company.save()
         resp = self.api.get("/es/api/sales-invoices/bulk-emit-candidates/")
         self.assertTrue(resp.json()["include_quote_observations_default"])
+
+
+class ProjectFileInvoiceDirectFinalizeTests(_ProjectFileInvoiceTestBase):
+    """Creating an invoice with finalize=true must emit the final invoice directly."""
+
+    def _setup_invoiceable_pf(self):
+        quote = self._create_quote(subtotal=100, total=121)
+        config = self._create_config(quote, subtotal=100, total=121)
+        self._attach_tax(config, self.iva21, 21, base=100, calc=21)
+
+    def test_finalize_true_creates_final_invoice_with_number(self):
+        self._setup_invoiceable_pf()
+        resp = self._post_create(finalize=True, send_email=False)
+        self.assertEqual(resp.status_code, 201, resp.json())
+
+        data = resp.json()
+        self.assertEqual(data["status"], "final")
+        self.assertIsNotNone(data["invoice_number"])
+        self.assertIn("email_queued", data)
+        self.assertFalse(data["email_queued"])
+
+        invoice = SalesInvoice.objects.get(pk=data["id"])
+        self.assertIsNotNone(invoice.incremental_id)
+
+    def test_finalize_does_not_send_email_by_default(self):
+        """Emails stay a separate user action, as in the legacy flow."""
+        self._setup_invoiceable_pf()
+        self.client_obj.email = "cliente@example.com"
+        self.client_obj.save()
+
+        resp = self._post_create(finalize=True)
+        self.assertEqual(resp.status_code, 201, resp.json())
+        data = resp.json()
+        self.assertEqual(data["status"], "final")
+        self.assertFalse(data["email_queued"])
+        self.assertEqual(data["email_skip_reason"], "disabled")
+
+    def test_default_still_creates_proforma(self):
+        self._setup_invoiceable_pf()
+        resp = self._post_create()
+        self.assertEqual(resp.status_code, 201, resp.json())
+        data = resp.json()
+        self.assertEqual(data["status"], "proforma")
+        self.assertIsNone(data["invoice_number"])
+        self.assertNotIn("email_queued", data)
+
+    def test_existing_proforma_can_still_be_finalized(self):
+        """The legacy proforma → finalize flow must keep working."""
+        self._setup_invoiceable_pf()
+        created = self._post_create().json()
+        self.assertEqual(created["status"], "proforma")
+
+        resp = self.api.post(
+            f"/es/api/sales-invoices/{created['id']}/finalize/",
+            data=json.dumps({"send_email": False}),
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(resp.json()["status"], "final")
+        self.assertIsNotNone(resp.json()["invoice_number"])
+
+    def test_direct_finalize_gets_sequential_number(self):
+        """Direct-final invoices share the same sequence as legacy finalizes."""
+        self._setup_invoiceable_pf()
+        first = self._post_create(percentage=50, finalize=True, send_email=False).json()
+        second = self._post_create(percentage=100, finalize=True, send_email=False).json()
+
+        first_inv = SalesInvoice.objects.get(pk=first["id"])
+        second_inv = SalesInvoice.objects.get(pk=second["id"])
+        self.assertEqual(second_inv.incremental_id, first_inv.incremental_id + 1)

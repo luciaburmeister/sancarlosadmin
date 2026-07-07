@@ -349,6 +349,11 @@ class ProjectFileInvoiceCreateSerializer(serializers.Serializer):
     show_vehicle_name = serializers.BooleanField(default=True)
     payment_method = serializers.CharField(required=False, allow_blank=True, default="")
     due_date = serializers.DateField(required=False, allow_null=True)
+    # Emit the final invoice in the same request, skipping the proforma step.
+    # Emails are never sent unless explicitly requested, matching the legacy
+    # proforma → finalize flow where sending was a separate user action.
+    finalize = serializers.BooleanField(default=False)
+    send_email = serializers.BooleanField(default=False)  # only used with finalize
 
     def validate_payment_method(self, value):
         value = (value or "").strip()
@@ -420,16 +425,23 @@ class ProjectFileInvoiceCreateSerializer(serializers.Serializer):
             )
 
         try:
-            return ProjectFileInvoiceService.create_invoice_from_project_file(
-                project_file=project_file,
-                company=company,
-                client=project_file.client,
-                date_issued=date_issued,
-                due_date=due_date,
-                items_data=items_data,
-                notes=notes,
-                payment_method=payment_method or None,
-            )
+            with transaction.atomic():
+                invoice = ProjectFileInvoiceService.create_invoice_from_project_file(
+                    project_file=project_file,
+                    company=company,
+                    client=project_file.client,
+                    date_issued=date_issued,
+                    due_date=due_date,
+                    items_data=items_data,
+                    notes=notes,
+                    payment_method=payment_method or None,
+                )
+                if validated_data.get("finalize"):
+                    invoice = SalesInvoiceService.finalize_invoice(
+                        invoice,
+                        send_email=validated_data.get("send_email", False),
+                    )
+            return invoice
         except DjangoValidationError as exc:
             msg = exc.message if hasattr(exc, "message") else str(exc)
             raise serializers.ValidationError(msg) from exc

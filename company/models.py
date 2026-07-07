@@ -90,6 +90,15 @@ class Company(models.Model):
             "on new Configurations. Client taxes on inventory items are applied when added to a Quote."
         ),
     )
+    bulk_emit_copy_quote_observations = models.BooleanField(
+        default=False,
+        verbose_name=_("Copy quote observations on bulk emit"),
+        help_text=_(
+            "When enabled, bulk-emitted invoices append the observations of each "
+            "project file's accepted quotes to the invoice notes, matching the "
+            "single-invoice flow. The API can override this per request."
+        ),
+    )
     default_taxes = models.ManyToManyField(
         "invoices.TaxType",
         through="company.CompanyDefaultTax",

@@ -50,10 +50,10 @@ class ProjectFileInvoiceCreateView(CompanyAPIView):
         except DRFValidationError as exc:
             return drf_validation_error_response(exc)
 
-        return JsonResponse(
-            SalesInvoiceDetailSerializer(invoice).data,
-            status=201,
-        )
+        payload = SalesInvoiceDetailSerializer(invoice).data
+        if invoice.status == SalesInvoiceStatus.FINAL:
+            payload.update(SalesInvoiceService.get_finalize_email_status(invoice))
+        return JsonResponse(payload, status=201)
 
 
 class SalesInvoiceDetailView(CompanyAPIView):
@@ -222,6 +222,9 @@ class BulkEmitCandidatesView(CompanyAPIView):
             "count": paginator.count,
             "has_next": page.has_next(),
             "page": page_num,
+            "include_quote_observations_default": (
+                self.company.bulk_emit_copy_quote_observations
+            ),
         })
 
 

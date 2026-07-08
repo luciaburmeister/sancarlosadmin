@@ -1,6 +1,7 @@
 from django.db import models
 from django.db.models import Sum
 from company.models import  CompanyEmailConfig, CompanyOwnedModel
+from timestamps.models import Timestampable
 from django.core.validators import MinValueValidator, MaxValueValidator
 from decimal import Decimal, ROUND_HALF_UP
 from materials.models import Provider
@@ -67,8 +68,10 @@ def invoice_file_path(instance, filename):
     return f"invoices/uploads/{company_folder}/{provider_folder}/{unique_filename}"
 
 
-class Invoice(Payable):
+class Invoice(Timestampable, Payable):
     invoice_number = models.CharField(max_length=30,blank=True, null=True,verbose_name=_("Invoice number")) #numero de factura
+    created_at = models.DateTimeField(auto_now_add=True,verbose_name=_("Created At"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
     date_issued = models.DateField(db_index=True,blank=True, null=True,verbose_name=_("Date issued")) 
     accounting_date = models.DateField(blank=True, null=True, verbose_name=_("Accounting date"), help_text=_("Date used for accounting purposes. Defaults to the issued date."))
     due_date = models.DateField(blank=True, null=True,verbose_name=_("Due date")) #fecha de vencimiento
@@ -705,6 +708,8 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         default=SalesInvoiceStatus.PROFORMA,
         verbose_name=_("Status")
     )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
+    updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
     invoice_number = models.CharField(max_length=50, blank=True, null=True, verbose_name=_("Invoice Number"))
     date_issued = models.DateField(default=timezone.now, verbose_name=_("Date Issued"))
     due_date = models.DateField(null=True, blank=True, verbose_name=_("Due Date"))

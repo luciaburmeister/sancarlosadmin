@@ -110,6 +110,7 @@ class InvoiceResource(resources.ModelResource):
     amount_remaining_value = fields.Field(column_name=_('Amount Remaining'))
     currency = fields.Field(column_name=_('Currency'))
     last_payment_date = fields.Field(column_name=_('Last Payment Date'))
+    created_at = fields.Field(column_name=_('Created At'), attribute='created_at')
 
     # Tax columns
     base_iva_1 = fields.Field(column_name="BASE IVA 1")
@@ -148,6 +149,7 @@ class InvoiceResource(resources.ModelResource):
             'last_payment_date',
             'ocr_processed',
             'is_total_balanced',
+            'created_at',
         )
         export_order = fields
 

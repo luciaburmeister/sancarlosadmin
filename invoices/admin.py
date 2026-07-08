@@ -253,6 +253,7 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
         "total_amount",
         "date_issued",
         "due_date",
+        "created_at",
         "ocr_status",
         "balance_status",
         "get_payment_status_label",

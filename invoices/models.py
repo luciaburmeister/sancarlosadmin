@@ -9,6 +9,7 @@ from django_countries.fields import CountryField
 from django.utils.translation import gettext_lazy as _ 
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import FileExtensionValidator
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
@@ -69,7 +70,7 @@ def invoice_file_path(instance, filename):
 
 
 class Invoice(Timestampable, Payable):
-    invoice_number = models.CharField(max_length=30,blank=True, null=True,verbose_name=_("Invoice number")) #numero de factura
+    invoice_number = models.CharField(max_length=50,blank=True, null=True,verbose_name=_("Invoice number")) #numero de factura
     created_at = models.DateTimeField(auto_now_add=True,verbose_name=_("Created At"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
     date_issued = models.DateField(db_index=True,blank=True, null=True,verbose_name=_("Date issued")) 
@@ -202,7 +203,7 @@ class Invoice(Timestampable, Payable):
         help_text="Check if the sum of line items and taxes matches the total_amount"
     )
 
-    class Meta: 
+    class Meta:
         unique_together = ['provider','invoice_number']
         ordering = ['-date_issued']
         verbose_name = _("Invoice")
@@ -211,6 +212,9 @@ class Invoice(Timestampable, Payable):
             ("accounts_payable", _("Can view Accounts Payable dashboard")),
             ("operational_dashboard", _("Can view Operational Dashboard")),
             ("bulk_mark_paid_invoice", _("Can bulk update payment status (purchase invoices)")),
+        ]
+        indexes = [
+            GinIndex(fields=['invoice_number'], name='invoice_invnum_trgm_gin', opclasses=['gin_trgm_ops']),
         ]
 
     def __str__(self):
@@ -811,6 +815,9 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         unique_together = ['company', 'invoice_number']
         permissions = [
             ("bulk_mark_paid_salesinvoice", _("Can bulk update payment status (sales invoices)")),
+        ]
+        indexes = [
+            GinIndex(fields=['invoice_number'], name='salesinv_invnum_trgm_gin', opclasses=['gin_trgm_ops']),
         ]
 
     def __str__(self):

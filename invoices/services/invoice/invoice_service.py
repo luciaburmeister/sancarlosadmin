@@ -19,7 +19,7 @@ from django.core.files import File
 
 
 from invoices.services import invoice
-from invoices.services.ocr_services import OcrInterface, InvoiceData
+from invoices.services.ocr_services import OcrInterface, InvoiceData, GeminiJSONParseError
 from invoices.models import Invoice, AppliedTax, TaxType, InvoiceItem
 from materials.models import Provider
 from django.utils import timezone
@@ -177,10 +177,11 @@ class InvoiceService:
         
         except Exception as e:
             messages.append(f"Processing failed: {str(e)}")
-            
+
             # Try to create a partial invoice for debugging
             try:
-                partial_invoice = self._create_partial_invoice(file_path, str(e))
+                raw_response = e.raw_text if isinstance(e, GeminiJSONParseError) else None
+                partial_invoice = self._create_partial_invoice(file_path, str(e), raw_response=raw_response)
                 return InvoiceProcessingResult(
                     invoice=partial_invoice,
                     success=False,
@@ -286,8 +287,10 @@ class InvoiceService:
             invoice.ocr_processing = False
             invoice.ocr_processed = False
             invoice.ocr_error = str(e)
+            if isinstance(e, GeminiJSONParseError):
+                invoice.ocr_raw_response = e.raw_text
             invoice.needs_manual_review = True
-            invoice.save(update_fields=["ocr_processing", "ocr_processed", "ocr_error", "needs_manual_review"])
+            invoice.save(update_fields=["ocr_processing", "ocr_processed", "ocr_error", "ocr_raw_response", "needs_manual_review"])
             raise  # Re-raise to let Sentry capture the error
     
     
@@ -398,7 +401,7 @@ class InvoiceService:
                 order=data['order']
             )
     
-    def _create_partial_invoice(self, file_path: str, error_message: str) -> Invoice:
+    def _create_partial_invoice(self, file_path: str, error_message: str, raw_response: Optional[str] = None) -> Invoice:
         """
         Create a minimal invoice record when processing fails.
         Used for debugging and manual processing.
@@ -411,6 +414,7 @@ class InvoiceService:
             ocr_processed=False,
             ocr_processing=False,
             ocr_error=error_message,
+            ocr_raw_response=raw_response,
             needs_manual_review=True  # Failed invoices definitely need review
         )
         

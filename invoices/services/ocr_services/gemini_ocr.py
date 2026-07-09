@@ -12,6 +12,13 @@ from datetime import datetime
 from .ocr_interface import OcrInterface, InvoiceData, LineItem, TaxItem
 
 
+class GeminiJSONParseError(Exception):
+    """Gemini returned text that isn't valid JSON. Carries the raw text so
+    callers can persist it (e.g. to Invoice.ocr_raw_response) for debugging."""
+
+    def __init__(self, message: str, raw_text: str):
+        super().__init__(message)
+        self.raw_text = raw_text
 
 
 class GeminiInvoiceProcessor(OcrInterface):
@@ -208,7 +215,10 @@ class GeminiInvoiceProcessor(OcrInterface):
         raw = json.loads(part.json())["text"]
 
         if isinstance(raw, str):
-            data = json.loads(raw)
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError as e:
+                raise GeminiJSONParseError(f"Gemini returned invalid JSON: {e}", raw_text=raw) from e
         elif isinstance(raw, dict):
             data = raw
         else:

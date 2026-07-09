@@ -157,7 +157,9 @@ class EmployeeRow:
     surname2: str = ""
     given_name: str = ""
     column: Optional[int] = None  # pivoted layout only
-    status: str = "ok"  # ok | unmatched | ambiguous | duplicate
+    # "pending" until matching runs (it is skipped while the company is
+    # unresolved, e.g. duplicate NIF awaiting manual selection).
+    status: str = "pending"  # pending | ok | unmatched | ambiguous | duplicate
     employee_id: Optional[int] = None
     employee_label: str = ""
     messages: list = field(default_factory=list)
@@ -207,6 +209,8 @@ class ImportReport:
     sheet2_total_liquido: Optional[Decimal] = None
     sheet2_total_workers: Optional[int] = None
     file_total_net: Optional[Decimal] = None
+    needs_company_selection: bool = False
+    company_candidate_ids: list = field(default_factory=list)
 
     @property
     def has_blocking_errors(self) -> bool:
@@ -215,8 +219,13 @@ class ImportReport:
     @property
     def can_commit(self) -> bool:
         # Unmatched employees are stored as pending rows rather than blocking
-        # the import, so we only require a parseable file with at least one row.
-        return not self.has_blocking_errors and bool(self.rows)
+        # the import, so we only require a parseable file with at least one row
+        # and a resolved company (picked manually when the NIF is ambiguous).
+        return (
+            not self.has_blocking_errors
+            and bool(self.rows)
+            and self.company_id is not None
+        )
 
     @property
     def matched_count(self) -> int:
@@ -236,10 +245,20 @@ class A3PayrollParseError(Exception):
 
 
 class A3PayrollImportService:
-    def __init__(self, file, *, company: Optional[Company] = None, source_file: str = ""):
+    def __init__(
+        self,
+        file,
+        *,
+        company: Optional[Company] = None,
+        source_file: str = "",
+        allow_nif_mismatch: bool = False,
+    ):
         self.file = file
         self.expected_company = company
         self.source_file = source_file
+        # True when ``company`` was picked manually by the user (NIF missing,
+        # unknown or duplicated): a NIF mismatch is then a warning, not an error.
+        self.allow_nif_mismatch = allow_nif_mismatch
         self._parsed: Optional[ParsedFile] = None
 
     # ── Reading workbooks (xls/xlsx, content-sniffed) ──────────
@@ -699,29 +718,44 @@ class A3PayrollImportService:
     def _resolve_company(self, nif, report) -> Optional[Company]:
         if self.expected_company is not None:
             if nif and normalize_nif(self.expected_company.tax_identifier) != nif:
-                report.errors.append(
-                    _("The file NIF (%(file)s) does not match the selected company.")
-                    % {"file": nif}
-                )
-                return None
+                if self.allow_nif_mismatch:
+                    report.warnings.append(
+                        _(
+                            "The file NIF (%(file)s) does not match the NIF of "
+                            "%(company)s; importing into it anyway."
+                        )
+                        % {"file": nif, "company": self.expected_company.name}
+                    )
+                else:
+                    report.errors.append(
+                        _("The file NIF (%(file)s) does not match the selected company.")
+                        % {"file": nif}
+                    )
+                    return None
             return self.expected_company
 
         if not nif:
-            report.errors.append(_("No company NIF found in the file header."))
+            report.needs_company_selection = True
+            report.warnings.append(
+                _("No company NIF found in the file header. Select the company manually.")
+            )
             return None
 
         matches = [
             c for c in Company.objects.all() if normalize_nif(c.tax_identifier) == nif
         ]
         if not matches:
-            report.errors.append(
-                _("No company found with NIF %(nif)s. Set it on the company first.")
+            report.needs_company_selection = True
+            report.warnings.append(
+                _("No company found with NIF %(nif)s. Select the company to import into.")
                 % {"nif": nif}
             )
             return None
         if len(matches) > 1:
-            report.errors.append(
-                _("Multiple companies share NIF %(nif)s; cannot decide automatically.")
+            report.needs_company_selection = True
+            report.company_candidate_ids = [c.id for c in matches]
+            report.warnings.append(
+                _("Multiple companies share NIF %(nif)s. Select the correct one.")
                 % {"nif": nif}
             )
             return None
@@ -871,6 +905,10 @@ class A3PayrollImportService:
         if report.has_blocking_errors:
             raise A3PayrollParseError(
                 _("Cannot import: %(err)s") % {"err": "; ".join(str(e) for e in report.errors)}
+            )
+        if report.company_id is None:
+            raise A3PayrollParseError(
+                _("The company for this file could not be resolved. Select one first.")
             )
 
         company = Company.objects.get(pk=report.company_id)

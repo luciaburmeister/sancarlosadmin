@@ -7,6 +7,7 @@ from io import BytesIO
 import openpyxl
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.utils import translation
 
 from company.models import Company, Employee
 from payroll.models import (
@@ -143,8 +144,63 @@ class ValidateTests(A3ImporterTestBase):
         self.assertEqual(report.unmatched_count, 0)
         self.assertEqual(report.total_liquido, Decimal("1818.00"))
 
-    def test_nif_not_found_is_blocking(self):
+    def test_nif_not_found_asks_for_company(self):
         report = A3PayrollImportService(build_a3_workbook(nif="X99999999")).validate()
+        self.assertFalse(report.has_blocking_errors)
+        self.assertTrue(report.needs_company_selection)
+        self.assertEqual(report.company_candidate_ids, [])
+        self.assertIsNone(report.company_id)
+        self.assertFalse(report.can_commit)
+
+    def test_duplicate_nif_asks_for_company_with_candidates(self):
+        twin = Company.objects.create(name="Twin Company", tax_identifier="B12345678")
+        report = A3PayrollImportService(build_a3_workbook()).validate()
+        self.assertFalse(report.has_blocking_errors)
+        self.assertTrue(report.needs_company_selection)
+        self.assertCountEqual(report.company_candidate_ids, [self.company.id, twin.id])
+        self.assertFalse(report.can_commit)
+
+    def test_rows_stay_pending_until_company_resolved(self):
+        """Without a resolved company, matching never runs: rows must not read 'ok'."""
+        Company.objects.create(name="Twin Company", tax_identifier="B12345678")
+        report = A3PayrollImportService(build_a3_workbook()).validate()
+        self.assertTrue(report.needs_company_selection)
+        self.assertTrue(report.rows)
+        for row in report.rows:
+            self.assertEqual(row.status, "pending")
+            self.assertIsNone(row.employee_id)
+            self.assertFalse(row.is_importable)
+        self.assertEqual(report.matched_count, 0)
+
+    def test_manual_company_resolves_duplicate_nif(self):
+        Company.objects.create(name="Twin Company", tax_identifier="B12345678")
+        report = A3PayrollImportService(
+            build_a3_workbook(), company=self.company, allow_nif_mismatch=True
+        ).validate()
+        self.assertFalse(report.has_blocking_errors)
+        self.assertFalse(report.needs_company_selection)
+        self.assertEqual(report.company_id, self.company.id)
+        self.assertEqual(report.matched_count, 2)
+        self.assertTrue(report.can_commit)
+
+    def test_manual_company_with_nif_mismatch_warns_instead_of_blocking(self):
+        # Warnings interpolate lazy gettext strings at build time; pin the
+        # language so the assertion is independent of LANGUAGE_CODE.
+        with translation.override("en"):
+            report = A3PayrollImportService(
+                build_a3_workbook(nif="X99999999"),
+                company=self.company,
+                allow_nif_mismatch=True,
+            ).validate()
+            self.assertFalse(report.has_blocking_errors)
+            self.assertEqual(report.company_id, self.company.id)
+            self.assertTrue(any("does not match" in str(w) for w in report.warnings))
+            self.assertTrue(report.can_commit)
+
+    def test_nif_mismatch_still_blocks_without_override(self):
+        report = A3PayrollImportService(
+            build_a3_workbook(nif="X99999999"), company=self.company
+        ).validate()
         self.assertTrue(report.has_blocking_errors)
 
     def test_duplicate_a3_code_is_blocking(self):
@@ -172,6 +228,18 @@ class ValidateTests(A3ImporterTestBase):
 
 
 class CommitTests(A3ImporterTestBase):
+    def test_commit_without_resolved_company_raises(self):
+        with self.assertRaises(A3PayrollParseError):
+            A3PayrollImportService(build_a3_workbook(nif="X99999999")).commit()
+
+    def test_commit_with_manual_company(self):
+        Company.objects.create(name="Twin Company", tax_identifier="B12345678")
+        period = A3PayrollImportService(
+            build_a3_workbook(), company=self.company, allow_nif_mismatch=True
+        ).commit()
+        self.assertEqual(period.company, self.company)
+        self.assertEqual(period.payrolls.count(), 2)
+
     def test_commit_creates_payrolls_and_lines(self):
         period = A3PayrollImportService(build_a3_workbook(), source_file="march.xlsx").commit()
         self.assertEqual(period.company, self.company)

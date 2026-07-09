@@ -3,7 +3,7 @@ from django.core.validators import FileExtensionValidator
 from django.utils.translation import gettext_lazy as _
 from unfold.widgets import UnfoldAdminFileFieldWidget, UnfoldAdminSelectWidget
 
-from company.models import Employee
+from company.models import Company, Employee
 
 
 class A3PayrollImportForm(forms.Form):
@@ -17,6 +17,24 @@ class A3PayrollImportForm(forms.Form):
             "The company and period are read from the file header."
         ),
     )
+
+
+class ImportCompanySelectForm(forms.Form):
+    """Pick the company for an import whose file NIF did not resolve
+    (missing, unknown, or shared by more than one company)."""
+
+    company = forms.ModelChoiceField(
+        queryset=Company.objects.none(),
+        label=_("Import into company"),
+        widget=UnfoldAdminSelectWidget(),
+    )
+
+    def __init__(self, *args, candidate_ids=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        qs = Company.objects.all()
+        if candidate_ids:
+            qs = qs.filter(pk__in=candidate_ids)
+        self.fields["company"].queryset = qs.order_by("name")
 
 
 class PendingRowResolveForm(forms.Form):

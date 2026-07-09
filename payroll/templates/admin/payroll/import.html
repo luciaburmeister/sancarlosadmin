@@ -113,7 +113,6 @@
                 <table class="min-w-full text-sm">
                     <thead class="sticky top-0 bg-white dark:bg-gray-900">
                         <tr class="border-b border-gray-200 dark:border-gray-700">
-                            <th class="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">{% trans "A3 Code" %}</th>
                             <th class="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">{% trans "DNI" %}</th>
                             <th class="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">{% trans "Name in file" %}</th>
                             <th class="px-3 py-2 text-left text-xs font-semibold text-gray-700 dark:text-gray-300">{% trans "Matched employee" %}</th>
@@ -124,7 +123,6 @@
                     <tbody>
                         {% for row in report.rows %}
                         <tr class="border-b border-gray-100 dark:border-gray-800 {% if not row.is_importable %}bg-yellow-50 dark:bg-yellow-900/10{% endif %}">
-                            <td class="px-3 py-1.5 font-mono text-gray-600 dark:text-gray-400">{{ row.a3_code|default:"—" }}</td>
                             <td class="px-3 py-1.5 font-mono text-gray-600 dark:text-gray-400">{{ row.dni|default:"—" }}</td>
                             <td class="px-3 py-1.5 text-gray-800 dark:text-gray-200">{{ row.full_name }}</td>
                             <td class="px-3 py-1.5 text-gray-600 dark:text-gray-400">{{ row.employee_label }}</td>
@@ -132,6 +130,14 @@
                             <td class="px-3 py-1.5">
                                 {% if row.status == 'ok' %}
                                     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">{% trans "OK" %}</span>
+                                {% elif row.status == 'pending' %}
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300">{% trans "Pending match" %}</span>
+                                {% elif row.status == 'unmatched' %}
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">{% trans "Unmatched" %}</span>
+                                {% elif row.status == 'ambiguous' %}
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">{% trans "Ambiguous" %}</span>
+                                {% elif row.status == 'duplicate' %}
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">{% trans "Duplicate" %}</span>
                                 {% else %}
                                     <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400">{{ row.status }}</span>
                                 {% endif %}
@@ -143,12 +149,39 @@
                 </table>
             </div>
 
-            {% if report.can_commit %}
+            {% if report.needs_company_selection %}
+            <form method="post" class="px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="revalidate">
+                <input type="hidden" name="token" value="{{ token }}">
+                <input type="hidden" name="source_file" value="{{ source_file }}">
+                <div class="mb-4 p-4 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700">
+                    <div class="flex items-start">
+                        <span class="material-symbols-outlined text-amber-600 dark:text-amber-400 mr-2">business</span>
+                        <div class="text-sm text-amber-800 dark:text-amber-300">
+                            <p class="font-semibold">{% trans "The company could not be resolved from the file NIF." %}</p>
+                            <p class="mt-1">{% trans "Choose the company this payroll file belongs to. Nothing is saved yet: the file will be re-validated against the selected company." %}</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    {% for field in company_form %}
+                        {% include "unfold/helpers/field.html" with field=field %}
+                    {% endfor %}
+                </div>
+                <div class="mt-4 flex justify-end">
+                    {% component "unfold/components/button.html" with submit=1 %}
+                        {% trans "Validate with this company" %}
+                    {% endcomponent %}
+                </div>
+            </form>
+            {% elif report.can_commit %}
             <form method="post" class="px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="confirm">
                 <input type="hidden" name="token" value="{{ token }}">
                 <input type="hidden" name="source_file" value="{{ source_file }}">
+                {% if selected_company_id %}<input type="hidden" name="company_id" value="{{ selected_company_id }}">{% endif %}
                 {% component "unfold/components/button.html" with submit=1 %}
                     {% trans "Confirm import" %}
                 {% endcomponent %}

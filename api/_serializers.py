@@ -373,7 +373,10 @@ def active_ticket_items(ticket):
             cfg_item_id = int(cfg_item_id)
         except (TypeError, ValueError):
             cfg_item_id = None
-        if cfg_item_id in current_config_item_ids:
+        # Keep lines linked to the current BOM and also legacy/unlinked lines
+        # (no configuration_item_id), otherwise pending stages can disappear from
+        # terminal and supervisor views.
+        if cfg_item_id is None or cfg_item_id in current_config_item_ids:
             filtered.append(item)
     return _sort_production_items_stable(filtered)
 

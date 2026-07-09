@@ -208,7 +208,6 @@ class GeminiInvoiceProcessor(OcrInterface):
                 response_mime_type="application/json",
                 response_schema=self.INVOICE_SCHEMA,
                 temperature=0.0,
-                max_output_tokens=16384,
             ),
         )
         part = response.candidates[0].content.parts[0]

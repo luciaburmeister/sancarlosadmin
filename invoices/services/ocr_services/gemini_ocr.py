@@ -140,6 +140,7 @@ class GeminiInvoiceProcessor(OcrInterface):
         """
         self.client = genai.Client(api_key=api_key)
         self.model_name = "gemini-3-flash-preview"
+        self.fallback_model_name = "gemini-2.5-flash"
 
     def extract_data(self, file_path: str) -> InvoiceData:
         """
@@ -198,8 +199,26 @@ class GeminiInvoiceProcessor(OcrInterface):
 
         """
 
+        models_to_try = [self.model_name, self.fallback_model_name]
+        data = None
+        for i, model_name in enumerate(models_to_try):
+            try:
+                data = self._call_model(model_name, uploaded_file, prompt)
+                break
+            except Exception as e:
+                is_last = i == len(models_to_try) - 1
+                if is_last:
+                    raise
+
+        invoice_data = self._convert_to_dataclass(data, raw_response=data)
+        return self._adjust_tax_inclusive_prices(invoice_data)
+
+    def _call_model(self, model_name: str, uploaded_file, prompt: str) -> Dict:
+        """
+        Call the given Gemini model with the uploaded file + prompt and parse its JSON response.
+        """
         response = self.client.models.generate_content(
-            model=self.model_name,
+            model=model_name,
             contents=[
                 uploaded_file,
                 prompt,
@@ -216,16 +235,13 @@ class GeminiInvoiceProcessor(OcrInterface):
 
         if isinstance(raw, str):
             try:
-                data = json.loads(raw)
+                return json.loads(raw)
             except json.JSONDecodeError as e:
                 raise GeminiJSONParseError(f"Gemini returned invalid JSON: {e}", raw_text=raw) from e
         elif isinstance(raw, dict):
-            data = raw
+            return raw
         else:
             raise TypeError(f"Unexpected Gemini JSON type: {type(raw)}")
-
-        invoice_data = self._convert_to_dataclass(data, raw_response=data)
-        return self._adjust_tax_inclusive_prices(invoice_data)
 
     # =========================
     # CONVERSION

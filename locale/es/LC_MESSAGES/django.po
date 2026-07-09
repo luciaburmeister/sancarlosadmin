@@ -7308,10 +7308,8 @@ msgstr "Importar metadatos"
 msgid "Resolve"
 msgstr "Origén"
 
-#, fuzzy
-#| msgid "Payroll Concept"
 msgid "A3 Payroll Excel"
-msgstr "Concepto de nómina"
+msgstr "Excel de nóminas A3"
 
 msgid ""
 "Upload the A3 payroll export (.xlsx or .xls) for one company. Both layouts "
@@ -8033,26 +8031,39 @@ msgstr "No se pudo encontrar la fila de encabezado del empleado."
 
 #, python-format
 msgid "The file NIF (%(file)s) does not match the selected company."
-msgstr "El archivo NIF (%(file)s) no coincide con la empresa seleccionada."
-
-msgid "No company NIF found in the file header."
-msgstr "No se encontró el NIF de la empresa en el encabezado del archivo."
+msgstr "El NIF del archivo (%(file)s) no coincide con la empresa seleccionada."
 
 #, python-format
-msgid "No company found with NIF %(nif)s. Set it on the company first."
+msgid ""
+"The file NIF (%(file)s) does not match the NIF of %(company)s; importing "
+"into it anyway."
 msgstr ""
-"No se encontró ninguna empresa con NIF %(nif)s. Establezca primero el NIF en"
-" la empresa."
+"El NIF del archivo (%(file)s) no coincide con el NIF de %(company)s; se "
+"importará en esa empresa de todas formas."
+
+msgid "No company NIF found in the file header. Select the company manually."
+msgstr ""
+"No se encontró el NIF de empresa en la cabecera del archivo. Selecciona la "
+"empresa manualmente."
 
 #, python-format
-msgid "Multiple companies share NIF %(nif)s; cannot decide automatically."
+msgid "No company found with NIF %(nif)s. Select the company to import into."
 msgstr ""
-"Varias empresas comparten NIF %(nif)s; no se puede decidir automáticamente."
+"No hay ninguna empresa con NIF %(nif)s. Selecciona la empresa en la que "
+"importar."
+
+#, python-format
+msgid "Multiple companies share NIF %(nif)s. Select the correct one."
+msgstr "Varias empresas comparten el NIF %(nif)s. Selecciona la correcta."
+
+msgid "The company for this file could not be resolved. Select one first."
+msgstr ""
+"No se pudo determinar la empresa de este archivo. Selecciona una primero."
 
 #, python-format
 msgid "Payroll period %(m)02d/%(y)d is closed. Reopen it before re-importing."
 msgstr ""
-"El periodo de nómina %(m)02d/%(y)d está cerrado. Reàbrelo antes de volver a "
+"El periodo de nómina %(m)02d/%(y)d está cerrado. Reábrelo antes de volver a "
 "importar."
 
 #, python-format
@@ -8067,24 +8078,18 @@ msgstr "Duplicado %(kind)s en el archivo"
 msgid "%(kind)s %(key)s appears %(n)d times in the file."
 msgstr "%(kind)s %(key)s aparece %(n)d veces en el archivo."
 
-#, fuzzy
-#| msgid "Multiple Employment"
 msgid "Multiple employees share this DNI"
-msgstr "Pluriempleo"
+msgstr "Varios empleados comparten este DNI"
 
 #, python-format
 msgid "No employee with DNI %(dni)s"
 msgstr "No hay empleado con DNI %(dni)s"
 
-#, fuzzy
-#| msgid "Matched employee"
 msgid "Matched by name"
-msgstr "Empleado emparejado"
+msgstr "Emparejado por nombre"
 
-#, fuzzy
-#| msgid "Multiple Employment"
 msgid "Multiple employees match this name"
-msgstr "Pluriempleo"
+msgstr "Varios empleados coinciden con este nombre"
 
 msgid "No employee found (set A3 code or DNI)"
 msgstr "No se encontró ningún empleado (establecer el código A3 o DNI)"
@@ -8108,18 +8113,14 @@ msgstr ""
 "Desajuste del total neto: la columna total del archivo indica %(s)s, "
 "analizado %(p)s."
 
-#, fuzzy, python-format
-#| msgid "Raw Import Data"
 msgid "Cannot import: %(err)s"
-msgstr "Importar Datos Sin Procesar"
+msgstr "No se puede importar: %(err)s"
 
 msgid "Period is closed."
 msgstr "El período está cerrado."
 
-#, fuzzy, python-format
-#| msgid "Journal must belong to the same company."
 msgid "Employee %(name)s does not belong to this period's company."
-msgstr "El diario debe pertenecer a la misma empresa."
+msgstr "El empleado %(name)s no pertenece a la empresa de este periodo."
 
 #, fuzzy
 #| msgid "This transaction is already reconciled."
@@ -8166,15 +8167,17 @@ msgstr "Emparejados"
 msgid "Unmatched"
 msgstr "Sin emparejar"
 
+msgid "Pending match"
+msgstr "Pendiente de emparejar"
+
 msgid "Net total (matched)"
 msgstr "Total neto (emparejados)"
 
-#, fuzzy, python-format
-#| msgid "employee in the file could not be matched."
+#, python-format
 msgid "%(counter)s employee in the file could not be matched."
 msgid_plural "%(counter)s employees in the file could not be matched."
-msgstr[0] "No se pudo emparejar 1 empleado del archivo."
-msgstr[1] "No se pudo emparejar 1 empleado del archivo."
+msgstr[0] "%(counter)s empleado del archivo no se pudo emparejar."
+msgstr[1] "%(counter)s empleados del archivo no se pudieron emparejar."
 
 msgid ""
 "They will be saved as pending rows attached to this period. The period "
@@ -8189,12 +8192,10 @@ msgid "Blocking errors"
 msgstr "Errores bloqueantes"
 
 msgid "Warnings"
-msgstr "Advertencias"
+msgstr "Avisos"
 
-#, fuzzy
-#| msgid "Code"
 msgid "A3 Code"
-msgstr "Codigo"
+msgstr "Código A3"
 
 msgid "DNI"
 msgstr "DNI"
@@ -8206,9 +8207,7 @@ msgid "Matched employee"
 msgstr "Empleado emparejado"
 
 msgid "OK"
-msgstr ""
-"¡Entendido! Estoy listo para ayudarte con la traducción. ¿Qué necesitas "
-"traducir?"
+msgstr "OK"
 
 msgid "Confirm import"
 msgstr "Confirmar importación"
@@ -8241,7 +8240,29 @@ msgstr "El archivo subido ha expirado. Por favor, súbelo de nuevo."
 
 #, python-format
 msgid "Imported payroll for %(company)s — %(m)02d/%(y)d (%(n)d employees)."
-msgstr "Nómina importada para %(company)s — %(m)02d/%(y)d (%(n)d empleados)."
+msgstr "Nóminas importadas para %(company)s — %(m)02d/%(y)d (%(n)d empleados)."
+
+msgid "Import into company"
+msgstr "Importar en la empresa"
+
+msgid "Select a valid company."
+msgstr "Selecciona una empresa válida."
+
+msgid "The company could not be resolved from the file NIF."
+msgstr "No se pudo determinar la empresa a partir del NIF del archivo."
+
+msgid ""
+"Choose the company this payroll file belongs to. Nothing is saved yet: the "
+"file will be re-validated against the selected company."
+msgstr ""
+"Elige la empresa a la que pertenece este archivo de nóminas. Aún no se guarda "
+"nada: el archivo se volverá a validar con la empresa seleccionada."
+
+msgid "Validate with this company"
+msgstr "Validar con esta empresa"
+
+msgid "Duplicate"
+msgstr "Duplicado"
 
 #, python-format
 msgid "Assigned to %(name)s. The payroll record was created."

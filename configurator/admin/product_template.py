@@ -66,6 +66,7 @@ class ProductParameterInline(TabularInline):
     tab=True
     hide_ordering_field = True
     ordering_field = "order"
+    autocomplete_fields = ["product"]
     
     formfield_overrides = {
         models.JSONField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 2})},

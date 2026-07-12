@@ -175,7 +175,7 @@ class ItemTransactionInline(TabularInline):
 class ItemProviderInfoInline(TabularInline):
     model = ItemProviderInfo
     extra = 0
-    autocomplete_fields = ("provider",)
+    autocomplete_fields = ("provider","item")
     verbose_name = _("Provider Reference")
     verbose_name_plural = _("Provider References")
     tab = True

@@ -219,7 +219,7 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
         "contacts__name", "contacts__email", "contacts__phone", "contacts__mobile_phone", "contacts__department",
     ]
     list_filter = ["sale_zone", "is_insured", "company", "contacts__role"]
-
+    autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account","discount_policies","default_client_bank_account"]
 
     def get_list_filter(self, request):
         return self.list_filter
@@ -233,7 +233,7 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
             return "-"
         return obj.address if len(obj.address) <= 40 else obj.address[:40] + "…"
 
-    autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account","discount_policies"]
+    
 
     inlines = [ClientAddressInline, ClientContactInline, ClientBankAccountInline, ClientAppliedTaxInline]
 
@@ -489,6 +489,7 @@ class QuotePhotoInline(TabularInline):
     tab_title = _("Photos")
     fields = ["image", "category", "caption", "uploaded_at"]
     readonly_fields = ["uploaded_at"]
+    autocomplete_fields = ["category"]
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "category":
@@ -629,6 +630,7 @@ class ConfigurationReadOnlyInline(TabularInline):
         "margin_display", "margin_pct_display",
         "subtotal_price", "total_price_display",
     ]
+    autocomplete_fields = ["quote_group"]
     can_delete = True
     max_num = 0
 

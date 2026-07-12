@@ -141,7 +141,7 @@ class ResourcePlanningInline(TabularInline):
     tab_title = _("Resource Planning")
     fields = ["planning_type", "resource_content_type", "resource_object_id", "start", "end", "status", "notes"]
     readonly_fields = []
-    autocomplete_fields = ["planning_type"]
+    autocomplete_fields = ["planning_type","resource_content_type"]
 
 
 class WorkEntryAppliedTaxInline(GenericStackedInline):

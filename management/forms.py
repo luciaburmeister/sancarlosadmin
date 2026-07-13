@@ -15,6 +15,15 @@ from unfold.widgets import (
     UnfoldBooleanSwitchWidget,
 )
 
+
+class ResourcePlanningTimeWidget(UnfoldAdminTimeWidget):
+    """Time picker with business-hour shortcuts (7:00–19:00) for planning forms."""
+
+    class Media(UnfoldAdminTimeWidget.Media):
+        js = UnfoldAdminTimeWidget.Media.js + [
+            "management/js/resource_planning_time_shortcuts.js",
+        ]
+
 from assets.models import AssetType
 from .models import (
     ProjectFile,
@@ -289,12 +298,12 @@ class ResourcePlanningBulkForm(forms.Form):
     daily_start = forms.TimeField(
         label=_("Daily start"),
         initial=datetime.time(8, 0),
-        widget=UnfoldAdminTimeWidget,
+        widget=ResourcePlanningTimeWidget,
     )
     daily_end = forms.TimeField(
         label=_("Daily end"),
         initial=datetime.time(17, 0),
-        widget=UnfoldAdminTimeWidget,
+        widget=ResourcePlanningTimeWidget,
     )
     exclude_weekends = forms.BooleanField(
         required=False,
@@ -340,6 +349,11 @@ class ResourcePlanningBulkForm(forms.Form):
         initial=False,
         widget=forms.HiddenInput,
         help_text=_("Push the resource's later plannings of the same day forward by this planning's duration."),
+    )
+    backlog_item = forms.IntegerField(
+        required=False,
+        widget=forms.HiddenInput,
+        help_text=_("Backlog item that will be marked as scheduled when these plannings are created."),
     )
 
     def __init__(self, *args, user=None, user_companies=None, **kwargs):
@@ -459,12 +473,12 @@ class ResourcePlanningMultiLineForm(forms.Form):
     daily_start = forms.TimeField(
         label=_("Daily start"),
         initial=datetime.time(8, 0),
-        widget=UnfoldAdminTimeWidget,
+        widget=ResourcePlanningTimeWidget,
     )
     daily_end = forms.TimeField(
         label=_("Daily end"),
         initial=datetime.time(17, 0),
-        widget=UnfoldAdminTimeWidget,
+        widget=ResourcePlanningTimeWidget,
     )
     exclude_weekends = forms.BooleanField(
         required=False,
@@ -573,11 +587,11 @@ class ResourcePlanningSeriesForm(forms.Form):
     )
     daily_start = forms.TimeField(
         label=_("Daily start"),
-        widget=UnfoldAdminTimeWidget,
+        widget=ResourcePlanningTimeWidget,
     )
     daily_end = forms.TimeField(
         label=_("Daily end"),
-        widget=UnfoldAdminTimeWidget,
+        widget=ResourcePlanningTimeWidget,
     )
     show_planning_type = forms.BooleanField(
         required=False,

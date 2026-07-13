@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.conf import settings
 from django.db import models
 from django.db.models import Sum, Q
 from django.utils.translation import gettext_lazy as _
@@ -368,6 +369,101 @@ class ResourcePlanning(Timestampable, CompanyOwnedModel):
                 raise ValidationError(
                     _("This resource already has a planning that overlaps with the selected time range.")
                 )
+
+
+class ResourcePlanningBacklogStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    SCHEDULED = "scheduled", _("Scheduled")
+    CANCELLED = "cancelled", _("Cancelled")
+
+
+class ResourcePlanningBacklogItem(Timestampable, CompanyOwnedModel):
+    """
+    A planning prepared without dates or resources, waiting to be scheduled.
+    Scheduling one creates ResourcePlanning records through the regular bulk
+    form and marks the item as scheduled. If those plannings are later
+    cancelled the item does NOT revive automatically — use the manual
+    "Reopen" admin action instead.
+    """
+
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.CASCADE,
+        related_name="planning_backlog_items",
+        verbose_name=_("Project File"),
+    )
+    planning_type = models.ForeignKey(
+        ResourcePlanningType,
+        on_delete=models.PROTECT,
+        related_name="backlog_items",
+        verbose_name=_("Planning Type"),
+    )
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+    show_planning_type = models.BooleanField(
+        default=False,
+        verbose_name=_("Show planning type"),
+        help_text=_("Label this planning with its planning type instead of the project file name in the schedule view."),
+    )
+    estimated_days = models.PositiveSmallIntegerField(
+        default=1,
+        verbose_name=_("Estimated days"),
+        help_text=_("Working days; used to suggest the date range when scheduling."),
+    )
+    daily_start = models.TimeField(null=True, blank=True, verbose_name=_("Daily start"))
+    daily_end = models.TimeField(null=True, blank=True, verbose_name=_("Daily end"))
+    exclude_weekends = models.BooleanField(default=True, verbose_name=_("Exclude weekends"))
+    priority = models.PositiveIntegerField(
+        default=100,
+        db_index=True,
+        verbose_name=_("Priority"),
+        help_text=_("Lower numbers appear first in the backlog."),
+    )
+    is_reusable = models.BooleanField(
+        default=False,
+        verbose_name=_("Reusable"),
+        help_text=_("Keep this item in the backlog after scheduling so it can be planned again."),
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=ResourcePlanningBacklogStatus.choices,
+        default=ResourcePlanningBacklogStatus.PENDING,
+        verbose_name=_("Status"),
+    )
+    scheduled_group = models.ForeignKey(
+        ResourcePlanningGroup,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="backlog_items",
+        verbose_name=_("Scheduled group"),
+    )
+    scheduled_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Scheduled at"))
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name=_("Created by"),
+    )
+
+    class Meta:
+        verbose_name = _("Planning Backlog Item")
+        verbose_name_plural = _("Planning Backlog")
+        ordering = ["priority", "created_at"]
+        indexes = [
+            models.Index(fields=["company", "status", "priority"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        # Inline creation from the ProjectFile admin does not set company;
+        # inherit it from the expediente so company-scoped queries see the item.
+        if not self.company_id and self.project_file_id:
+            self.company_id = self.project_file.company_id
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.project_file} · {self.planning_type} ({self.get_status_display()})"
 
 
 # ---------------------------------------------------------------------------

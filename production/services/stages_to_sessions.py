@@ -66,6 +66,33 @@ class StagesToSessionsService:
         return items[0].company.allow_shared_production_stage_activities
 
     @classmethod
+    def _validated_pause_reason(cls, items: list[ProductionItem], pause_reason: str | None) -> str | None:
+        """Match a requested pause reason against the company catalogue.
+
+        Returns the canonical value from Company.pause_reasons (comparison is
+        NFC-normalized) or None when no reason was requested.
+        """
+        if not pause_reason:
+            return None
+        if not items or not items[0].company_id:
+            raise ValidationError(_("No se puede validar el motivo de pausa sin empresa."))
+        requested = unicodedata.normalize("NFC", pause_reason.strip())
+        for reason in items[0].company.pause_reasons or []:
+            if unicodedata.normalize("NFC", reason) == requested:
+                return reason
+        raise ValidationError(_("Motivo de pausa no válido para esta empresa."))
+
+    @classmethod
+    def _set_pause_reason(cls, item: ProductionItem, stage_name: str, reason: str) -> None:
+        """Record why an in_progress stage was left paused (no open sessions)."""
+        planning = {unicodedata.normalize("NFC", k): v for k, v in (item.planning or {}).items()}
+        stage_info = planning.get(stage_name) or {}
+        if (stage_info.get("status") or ProductionItemStatus.PENDING) != ProductionItemStatus.IN_PROGRESS:
+            return
+        stage_info["pause_reason"] = reason
+        cls._save_planning(item, stage_name, stage_info)
+
+    @classmethod
     def start_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee, skip_worker_check: bool = False) -> int:
         if cls._uses_shared_stage_activities(items):
             return cls.start_group_activity(
@@ -114,6 +141,10 @@ class StagesToSessionsService:
                 stage_info["status"] = ProductionItemStatus.IN_PROGRESS
                 stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
                 stage_info["completed_at"] = None
+                stage_info.pop("pause_reason", None)
+                cls._save_planning(item, stage_name, stage_info)
+            elif stage_info.pop("pause_reason", None) is not None:
+                # Resuming a paused stage clears its pause reason.
                 cls._save_planning(item, stage_name, stage_info)
 
             ProductionItemSession.objects.create(
@@ -165,6 +196,7 @@ class StagesToSessionsService:
             stage_info["status"] = ProductionItemStatus.IN_PROGRESS
             stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
             stage_info["completed_at"] = None
+            stage_info.pop("pause_reason", None)
             cls._save_planning(item, stage_name, stage_info)
 
             ProductionItemSession.objects.create(
@@ -232,6 +264,7 @@ class StagesToSessionsService:
             stage_info["status"] = ProductionItemStatus.DONE
             stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
             stage_info["completed_at"] = now.isoformat()
+            stage_info.pop("pause_reason", None)
             cls._save_planning(item, stage_name, stage_info)
             count += 1
         return count
@@ -267,6 +300,10 @@ class StagesToSessionsService:
             if cls._stage_has_open_session(item, stage_name):
                 raise ValidationError(_("Another worker already has an active session on this stage. Wait for them to pause first."))
 
+            if stage_info.pop("pause_reason", None) is not None:
+                # Resuming a paused stage clears its pause reason.
+                cls._save_planning(item, stage_name, stage_info)
+
             ProductionItemSession.objects.create(
                 production_item=item,
                 production_stage=stage_name,
@@ -279,9 +316,21 @@ class StagesToSessionsService:
         return count
 
     @classmethod
-    def leave_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
-        """Close this worker's open session without completing the stage for everyone."""
+    def leave_activity(
+        cls,
+        *,
+        stage_name: str,
+        items: list[ProductionItem],
+        employee: Employee,
+        pause_reason: str | None = None,
+    ) -> int:
+        """Close this worker's open session without completing the stage for everyone.
+
+        When the stage is left with no open sessions (truly paused) an optional
+        ``pause_reason`` from Company.pause_reasons is recorded on the planning.
+        """
         stage_name = unicodedata.normalize("NFC", stage_name)
+        reason = cls._validated_pause_reason(items, pause_reason)
         count = 0
         for item in items:
             session = (
@@ -305,13 +354,24 @@ class StagesToSessionsService:
             session.finish(completed_by=employee)
             count += 1
 
+            if reason and not cls._stage_has_open_session(item, stage_name):
+                cls._set_pause_reason(item, stage_name, reason)
+
         if count == 0:
             raise ValidationError(_("No tienes una sesión activa en esta etapa."))
         return count
 
     @classmethod
-    def end_session(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
+    def end_session(
+        cls,
+        *,
+        stage_name: str,
+        items: list[ProductionItem],
+        employee: Employee,
+        pause_reason: str | None = None,
+    ) -> int:
         stage_name = unicodedata.normalize("NFC", stage_name)
+        reason = cls._validated_pause_reason(items, pause_reason)
         count = 0
         for item in items:
             session = (
@@ -333,6 +393,9 @@ class StagesToSessionsService:
             session.kind = ProductionItemSessionKind.SESSION_FINISHED
             session.finish(completed_by=employee)
             count += 1
+
+            if reason and not cls._stage_has_open_session(item, stage_name):
+                cls._set_pause_reason(item, stage_name, reason)
         return count
 
     @classmethod
@@ -381,6 +444,7 @@ class StagesToSessionsService:
 
             stage_info["status"] = target_status
             stage_info["completed_at"] = None
+            stage_info.pop("pause_reason", None)
             # Reverting to pending also clears the start timestamp
             if target_status == ProductionItemStatus.PENDING:
                 stage_info["started_at"] = None

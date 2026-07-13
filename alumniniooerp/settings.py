@@ -563,9 +563,17 @@ UNFOLD = {
                     {
                         "title": _("Resource Planning"),
                         "icon": "calendar_month",
-                        "link": reverse_lazy("admin:management_resourceplanning_changelist"),
+                        "link": reverse_lazy("admin:management_resourceplanning_schedule"),
                         "permission": lambda request: request.user.has_perm(
                             "management.view_resourceplanning"
+                        ),
+                    },
+                    {
+                        "title": _("Planning Backlog"),
+                        "icon": "pending_actions",
+                        "link": reverse_lazy("admin:management_resourceplanningbacklogitem_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "management.view_resourceplanningbacklogitem"
                         ),
                     },
                     {

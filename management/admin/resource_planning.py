@@ -1,8 +1,10 @@
 from django.contrib import admin
 from django.contrib.contenttypes.models import ContentType
-from django.http import HttpResponseRedirect
+from django.core.exceptions import PermissionDenied
+from django.http import HttpResponseNotAllowed, HttpResponseRedirect
 from django.urls import path, reverse
 from django.utils.html import format_html
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin
 from unfold.contrib.filters.admin import (
@@ -19,6 +21,7 @@ from management.models import (
     ResourcePlanningStatus,
     ResourcePlanningType,
 )
+from management.services.resource_planning_backlog import create_backlog_item_from_planning
 from management.views.resource_autocomplete import ResourceAutocompleteView
 from management.views.resource_planning_bulk import (
     ResourcePlanningAddView,
@@ -75,7 +78,7 @@ class ResourcePlanningAdmin(CompanyRestrictedAdmin, ModelAdmin):
     autocomplete_fields = ["company", "project_file", "planning_type"]
     list_select_related = ["project_file", "planning_type", "company", "resource_content_type", "group"]
     actions = ["cancel_group_action", "cancel_individual_action"]
-    actions_list = ["schedule_view_action", "multi_add_action"]
+    actions_list = ["schedule_view_action", "multi_add_action", "backlog_action"]
 
     fieldsets = (
         (_("Planning"), {"fields": ("company", "project_file", "planning_type", "status")}),
@@ -154,8 +157,32 @@ class ResourcePlanningAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ),
                 name="management_resourceplanning_delete_day",
             ),
+            path(
+                "<int:pk>/copy-to-backlog/",
+                self.admin_site.admin_view(self.copy_to_backlog_view),
+                name="management_resourceplanning_copy_to_backlog",
+            ),
         ]
         return custom + super().get_urls()
+
+    def copy_to_backlog_view(self, request, pk):
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+        if not request.user.has_perm("management.add_resourceplanningbacklogitem"):
+            raise PermissionDenied
+        planning = self.get_object(request, pk)
+        if planning is None:
+            return self._get_obj_does_not_exist_redirect(request, self.opts, pk)
+        create_backlog_item_from_planning(planning, created_by=request.user)
+        self.message_user(
+            request, _("Planning copied to the backlog as a reusable item.")
+        )
+        next_url = request.POST.get("next")
+        if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts=None):
+            return HttpResponseRedirect(next_url)
+        return HttpResponseRedirect(
+            reverse("admin:management_resourceplanningbacklogitem_changelist")
+        )
 
     # ── formfield overrides ───────────────────────────────────────────────────
 
@@ -268,3 +295,12 @@ class ResourcePlanningAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     def has_multi_add_action_permission(self, request):
         return request.user.has_perm("management.add_resourceplanning")
+
+    @action(description=_("Backlog"), url_path="backlog", icon="pending_actions")
+    def backlog_action(self, request):
+        return HttpResponseRedirect(
+            reverse("admin:management_resourceplanningbacklogitem_changelist")
+        )
+
+    def has_backlog_action_permission(self, request):
+        return request.user.has_perm("management.view_resourceplanningbacklogitem")

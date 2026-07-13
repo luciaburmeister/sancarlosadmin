@@ -3,7 +3,7 @@ from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.contrib.filters.admin.dropdown_filters import MultipleChoicesDropdownFilter
 
 from decimal import Decimal
-from management.models import ProjectFile, ResourcePlanning
+from management.models import ProjectFile, ResourcePlanning, ResourcePlanningBacklogItem
 from management.resources import ProjectFileResource
 from django.contrib import admin, messages
 from django.shortcuts import redirect
@@ -144,6 +144,19 @@ class ResourcePlanningInline(TabularInline):
     autocomplete_fields = ["planning_type","resource_content_type"]
 
 
+class ResourcePlanningBacklogInline(TabularInline):
+    model = ResourcePlanningBacklogItem
+    extra = 0
+    tab = True
+    tab_title = _("Planning Backlog")
+    fields = ["planning_type", "estimated_days", "priority", "is_reusable", "status", "notes"]
+    readonly_fields = ["status"]
+    autocomplete_fields = ["planning_type"]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("planning_type")
+
+
 class WorkEntryAppliedTaxInline(GenericStackedInline):
     model = AppliedTax
     extra = 0
@@ -207,6 +220,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         DeliveryOrderInline,
         PurchaseInvoiceInline,
         ResourcePlanningInline,
+        ResourcePlanningBacklogInline,
     ]
 
     actions_row = ["create_invoice_row_action", "create_delivery_order_row_action"]

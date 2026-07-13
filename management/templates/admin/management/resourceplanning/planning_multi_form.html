@@ -414,6 +414,7 @@
       DateTimeShortcuts.clockInputs = [];
       DateTimeShortcuts.dismissCalendarFunc = [];
       DateTimeShortcuts.dismissClockFunc = [];
+      if (typeof applyResourcePlanningClockHours === 'function') applyResourcePlanningClockHours();
       DateTimeShortcuts.init();
       if (typeof dateTimeShortcutsOverlay === 'function') dateTimeShortcutsOverlay();
     }

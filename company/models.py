@@ -49,6 +49,16 @@ class Company(models.Model):
         help_text=_("Ordered list of possible production stages for this company"),
         verbose_name=_("Production Stages"),
     )
+    pause_reasons = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text=_(
+            "Reasons the production terminal offers when pausing a task "
+            "(e.g. Waiting for parts). Leave empty to pause without a reason."
+        ),
+        verbose_name=_("Pause Reasons"),
+    )
     asset_identifier_labels = ArrayField(
         base_field=models.CharField(max_length=50),
         default=list,

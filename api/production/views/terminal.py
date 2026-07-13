@@ -53,7 +53,9 @@ class TerminalEmployeeListView(SharedTerminalAPIView):
                     "full_name": e.full_name,
                 }
                 for e in employees
-            ]
+            ],
+            # Company-level terminal config, piggybacked on the bootstrap call.
+            "pause_reasons": self.company.pause_reasons or [],
         })
 
 
@@ -260,6 +262,7 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
                     "status": status,
                     "component_label": component_label,
                     "is_assigned": is_assigned,
+                    "pause_reason": raw.get("pause_reason") if isinstance(raw, dict) else None,
                 })
 
         pairs.sort(key=lambda p: p["sort"])
@@ -330,6 +333,7 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
                     ),
                     "is_assigned": stage_p["is_assigned"],
                     "session_comments": stage_comments,
+                    "pause_reason": stage_p["pause_reason"],
                 },
             })
 
@@ -375,7 +379,7 @@ def _get_employee_and_item(employee_id, item_id, company):
 class _TerminalStageActionView(SharedTerminalAPIView):
     """
     Base class for PIN-authenticated stage mutations.
-    Subclasses implement `_run(stage_name, item, employee) -> int`.
+    Subclasses implement `_run(stage_name, item, employee, body) -> int`.
     """
 
     def post(self, request, employee_id, item_id, stage_name):
@@ -393,7 +397,9 @@ class _TerminalStageActionView(SharedTerminalAPIView):
         stage_name_n = _uc.normalize("NFC", stage_name)
 
         try:
-            count = self._run(stage_name=stage_name_n, item=item, employee=employee)
+            count = self._run(
+                stage_name=stage_name_n, item=item, employee=employee, body=body
+            )
         except StageHasActiveWorkersError as e:
             return JsonResponse(
                 {
@@ -408,7 +414,7 @@ class _TerminalStageActionView(SharedTerminalAPIView):
 
         return JsonResponse({"success": True, "count": count})
 
-    def _run(self, *, stage_name: str, item, employee: Employee) -> int:
+    def _run(self, *, stage_name: str, item, employee: Employee, body: dict) -> int:
         raise NotImplementedError
 
 
@@ -459,7 +465,7 @@ class TerminalStageNoteView(SharedTerminalAPIView):
 
 
 class TerminalStageStartView(_TerminalStageActionView):
-    def _run(self, *, stage_name, item, employee):
+    def _run(self, *, stage_name, item, employee, body):
         # skip_worker_check=True: terminal allows starting a new task
         # even if the employee forgot to close a previous session.
         return StagesToSessionsService.start_activity(
@@ -471,16 +477,17 @@ class TerminalStageStartView(_TerminalStageActionView):
 
 
 class TerminalStageLeaveView(_TerminalStageActionView):
-    def _run(self, *, stage_name, item, employee):
+    def _run(self, *, stage_name, item, employee, body):
         return StagesToSessionsService.leave_activity(
             stage_name=stage_name,
             items=[item],
             employee=employee,
+            pause_reason=body.get("pause_reason"),
         )
 
 
 class TerminalStageFinishView(_TerminalStageActionView):
-    def _run(self, *, stage_name, item, employee):
+    def _run(self, *, stage_name, item, employee, body):
         return StagesToSessionsService.finish_activity(
             stage_name=stage_name,
             items=[item],
@@ -662,6 +669,7 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
                         "session_events": _stage_events(
                             sessions_index.get((item.id, stage_name_n), []), status
                         ),
+                        "pause_reason": raw.get("pause_reason") if isinstance(raw, dict) else None,
                     },
                 }
 
@@ -986,6 +994,7 @@ class SupervisorLeaveEmployeeStageView(SharedTerminalAPIView):
                 stage_name=stage_name_n,
                 items=[item],
                 employee=employee,
+                pause_reason=body.get("pause_reason"),
             )
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=400)

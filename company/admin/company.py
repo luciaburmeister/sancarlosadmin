@@ -276,6 +276,7 @@ class CompanyAdmin(ModelAdmin):
 
                 ("production_stages",
                 "asset_identifier_labels"),
+                "pause_reasons",
                 "allow_shared_production_stage_activities",
                 "auto_apply_client_taxes",
                 "bulk_emit_copy_quote_observations",

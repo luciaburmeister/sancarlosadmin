@@ -1,3 +1,4 @@
+from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
 from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 from django.contrib import admin
 from company.models import WorkingZone
@@ -19,9 +20,9 @@ class AssetTransactionInline(TabularInline):
 
 @admin.register(WorkingZone)
 class WorkingZoneAdmin(ModelAdmin):
-    list_display = ("name", "company", "client", "project_file", "city", "province", "is_active")
+    list_display = ("name", "company", "client", "project_file", "city", "province","zone_type", "is_active")
     search_fields = ("name", "street_address", "city", "company__name", "client__name")
-    list_filter = (("company",AutocompleteSelectMultipleFilter), "is_active", ("client",AutocompleteSelectMultipleFilter))
+    list_filter = (("company",AutocompleteSelectMultipleFilter), "is_active", ("client",AutocompleteSelectMultipleFilter),("zone_type",MultipleChoicesDropdownFilter))
     autocomplete_fields = ["company", "project_file", "client"]
     list_selected_related = ["company","project_file__company"]
     list_filter_submit = True

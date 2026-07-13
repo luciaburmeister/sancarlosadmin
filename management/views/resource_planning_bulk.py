@@ -5,6 +5,7 @@ import json
 from django.contrib.admin.widgets import AutocompleteSelect
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
@@ -24,8 +25,14 @@ from management.forms import (
 )
 from management.models import (
     ResourcePlanning,
+    ResourcePlanningBacklogItem,
+    ResourcePlanningBacklogStatus,
     ResourcePlanningGroup,
     ResourcePlanningStatus,
+)
+from management.services.resource_planning_backlog import (
+    mark_scheduled,
+    suggest_date_to,
 )
 from management.services.resource_planning import (
     create_multi_plannings,
@@ -158,12 +165,50 @@ class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, Vie
         if request.GET.get("shift_following") == "1":
             initial["shift_following"] = True
 
+        backlog_item = self._get_backlog_item(request, request.GET.get("backlog_item"))
+        if backlog_item:
+            initial.update({
+                "backlog_item": backlog_item.pk,
+                "company": backlog_item.company_id,
+                "project_file": backlog_item.project_file_id,
+                "planning_type": backlog_item.planning_type_id,
+                "notes": backlog_item.notes,
+                "show_planning_type": backlog_item.show_planning_type,
+                "exclude_weekends": backlog_item.exclude_weekends,
+                "is_group": True,
+            })
+            if backlog_item.daily_start:
+                initial["daily_start"] = backlog_item.daily_start
+            if backlog_item.daily_end:
+                initial["daily_end"] = backlog_item.daily_end
+            date_from = initial.get("date_from") or tz.localdate()
+            initial["date_from"] = date_from
+            initial["date_to"] = suggest_date_to(
+                date_from, backlog_item.estimated_days, backlog_item.exclude_weekends
+            )
+
         form = self._get_form(request, initial=initial)
         self._apply_form_widgets(form, request)
         ctx = self._get_context(request, form, None, [])
         ctx["resource_labels_json"] = self._resource_labels_json(initial.get("resources", ""))
         ctx["show_repeat"] = True
+        ctx["backlog_item"] = backlog_item
         return render(request, "admin/management/resourceplanning/planning_form.html", ctx)
+
+    @staticmethod
+    def _get_backlog_item(request, raw_pk):
+        """Resolve a pending backlog item the user is allowed to schedule."""
+        if not raw_pk:
+            return None
+        return (
+            ResourcePlanningBacklogItem.objects.filter(
+                pk=raw_pk,
+                company__in=get_user_companies(request.user),
+                status=ResourcePlanningBacklogStatus.PENDING,
+            )
+            .select_related("project_file", "planning_type")
+            .first()
+        )
 
     def post(self, request, *args, **kwargs):
         form = self._get_form(request, data=request.POST)
@@ -171,25 +216,29 @@ class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, Vie
         if form.is_valid():
             try:
                 cd = form.cleaned_data
-                plannings = create_plannings(
-                    company=cd["company"],
-                    project_file=cd["project_file"],
-                    planning_type=cd["planning_type"],
-                    status=cd["status"],
-                    notes=cd.get("notes", ""),
-                    resources=form.resource_pairs,
-                    date_from=cd["date_from"],
-                    date_to=cd["date_to"],
-                    daily_start=cd["daily_start"],
-                    daily_end=cd["daily_end"],
-                    exclude_weekends=cd["exclude_weekends"],
-                    is_group=cd.get("is_group", False),
-                    show_planning_type=cd.get("show_planning_type", False),
-                    shift_following=cd.get("shift_following", False),
-                    repeat=cd.get("repeat", "never"),
-                    repeat_until=cd.get("repeat_until"),
-                    repeat_every_days=cd.get("repeat_every_days"),
-                )
+                with transaction.atomic():
+                    plannings = create_plannings(
+                        company=cd["company"],
+                        project_file=cd["project_file"],
+                        planning_type=cd["planning_type"],
+                        status=cd["status"],
+                        notes=cd.get("notes", ""),
+                        resources=form.resource_pairs,
+                        date_from=cd["date_from"],
+                        date_to=cd["date_to"],
+                        daily_start=cd["daily_start"],
+                        daily_end=cd["daily_end"],
+                        exclude_weekends=cd["exclude_weekends"],
+                        is_group=cd.get("is_group", False),
+                        show_planning_type=cd.get("show_planning_type", False),
+                        shift_following=cd.get("shift_following", False),
+                        repeat=cd.get("repeat", "never"),
+                        repeat_until=cd.get("repeat_until"),
+                        repeat_every_days=cd.get("repeat_every_days"),
+                    )
+                    backlog_item = self._get_backlog_item(request, cd.get("backlog_item"))
+                    if backlog_item:
+                        mark_scheduled(backlog_item, plannings)
                 self.model_admin.message_user(
                     request,
                     _(f"Created {len(plannings)} resource planning(s) successfully."),
@@ -209,6 +258,13 @@ class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, Vie
                         "exclude_weekends": "1" if cd["exclude_weekends"] else "0",
                     }
                     return HttpResponseRedirect(add_url + "?" + urlencode(params))
+                if backlog_item:
+                    # Scheduling a backlog item is a one-shot flow: go back to
+                    # the changelist like the regular forms instead of opening
+                    # the group editor.
+                    return HttpResponseRedirect(
+                        reverse("admin:management_resourceplanning_changelist")
+                    )
                 group = plannings[0].group if plannings and plannings[0].group_id else None
                 if group:
                     return HttpResponseRedirect(
@@ -227,6 +283,7 @@ class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, Vie
         ctx = self._get_context(request, form, None, errors)
         ctx["resource_labels_json"] = self._resource_labels_json(raw)
         ctx["show_repeat"] = True
+        ctx["backlog_item"] = self._get_backlog_item(request, request.POST.get("backlog_item"))
         return render(request, "admin/management/resourceplanning/planning_form.html", ctx)
 
 

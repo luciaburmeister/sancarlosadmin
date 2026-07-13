@@ -14,9 +14,29 @@
     {% csrf_token %}
     {{ form.resources }}
     {{ form.shift_following }}
+    {% if form.backlog_item %}{{ form.backlog_item }}{% endif %}
     {% if group %}<input type="hidden" name="group_pk" value="{{ group.pk }}">{% endif %}
 
     <div class="flex flex-col gap-6 pb-20">
+
+      {# ── Backlog notice ── #}
+      {% if backlog_item %}
+        <div class="rounded-default border border-primary-200 bg-primary-50 p-4 dark:border-primary-800 dark:bg-primary-900/20">
+          <div class="flex items-center gap-2 text-sm text-primary-700 dark:text-primary-400">
+            <span class="material-symbols-outlined" style="font-size:18px;">pending_actions</span>
+            <span>
+              <strong>{% trans "Planning from backlog:" %}</strong>
+              {{ backlog_item.project_file.reference }} — {{ backlog_item.project_file.name }} ·
+              {{ backlog_item.planning_type.name }}.
+              {% if backlog_item.is_reusable %}
+                {% trans "This item is reusable: it will stay in the backlog after saving." %}
+              {% else %}
+                {% trans "The backlog item will be marked as scheduled when you save." %}
+              {% endif %}
+            </span>
+          </div>
+        </div>
+      {% endif %}
 
       {# ── Insert-mode notice ── #}
       {% if form.shift_following.value %}
@@ -171,6 +191,24 @@
             {% component "unfold/components/button.html" with href=delete_url variant="danger" class="w-full lg:w-auto" %}
               {% trans "Delete Resource Planning" %}
             {% endcomponent %}
+          {% endif %}
+
+          {% if planning or plannings %}
+            {% if planning %}
+              {% url 'admin:management_resourceplanning_copy_to_backlog' planning.pk as copy_backlog_url %}
+            {% else %}
+              {% url 'admin:management_resourceplanning_copy_to_backlog' plannings.0.pk as copy_backlog_url %}
+            {% endif %}
+            <form method="post" action="{{ copy_backlog_url }}" style="display:contents">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <button type="submit"
+                      title="{% trans 'Create a reusable backlog item from this planning (without dates or resources)' %}"
+                      class="inline-flex items-center justify-center gap-1.5 w-full lg:w-auto px-4 py-2 rounded-default text-sm font-medium border border-base-200 dark:border-base-700 text-base-700 dark:text-base-300 bg-white dark:bg-transparent hover:bg-base-50 dark:hover:bg-base-800 transition-colors">
+                <span class="material-symbols-outlined" style="font-size:16px;">pending_actions</span>
+                {% trans "Copy to backlog" %}
+              </button>
+            </form>
           {% endif %}
 
           {% if group %}

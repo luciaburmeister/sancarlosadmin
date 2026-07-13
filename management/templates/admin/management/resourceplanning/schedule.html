@@ -21,12 +21,27 @@
 {% endblock %}
 
 {% block content %}
-<div class="flex flex-col gap-6 pb-16">
+<div class="flex flex-col gap-6 pb-16" x-data="{ backlogOpen: false }">
 
   {# Header with navigation #}
   <div class="flex items-center justify-between flex-wrap gap-3">
     <h1 class="text-xl font-bold">{% trans "Resource Planning" %} — {{ header_label }}</h1>
     <div class="flex items-center gap-2">
+      <a href="{% url 'admin:management_resourceplanning_changelist' %}"
+         class="flex items-center gap-1.5 rounded-lg border border-base-200 bg-white px-3 py-1.5 text-sm hover:bg-base-50 transition-colors">
+        <span class="material-symbols-outlined" style="font-size:18px;">list</span>
+        {% trans "List" %}
+      </a>
+      <button type="button"
+              @click="backlogOpen = !backlogOpen"
+              class="flex items-center gap-1.5 rounded-lg border border-base-200 bg-white px-3 py-1.5 text-sm hover:bg-base-50 transition-colors"
+              :class="backlogOpen ? 'border-primary-400 text-primary-600' : ''">
+        <span class="material-symbols-outlined" style="font-size:18px;">pending_actions</span>
+        {% trans "Backlog" %}
+        {% if backlog_count %}
+          <span class="inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary-600 text-white text-[10px] font-bold px-1">{{ backlog_count }}</span>
+        {% endif %}
+      </button>
       <a href="{{ prev_url }}"
          class="rounded-lg border border-base-200 bg-white px-3 py-1.5 text-sm hover:bg-base-50 transition-colors">
         ← {% trans "Previous" %}
@@ -107,8 +122,61 @@
 
   {% else %}
 
+  <div class="flex gap-4 items-start">
+
+  {# Backlog side panel #}
+  <aside x-show="backlogOpen" x-cloak
+         class="w-80 shrink-0 rounded-2xl border border-base-200 bg-white p-4 flex flex-col gap-3">
+    <div class="flex items-center justify-between">
+      <h2 class="text-sm font-bold">{% trans "Backlog" %} ({{ backlog_count }})</h2>
+      <a href="{{ backlog_changelist_url }}"
+         class="text-xs text-primary-600 hover:underline">{% trans "View all" %}</a>
+    </div>
+
+    {% if backlog_items %}
+      <div class="flex flex-col gap-2 max-h-[70vh] overflow-y-auto">
+        {% for item in backlog_items %}
+          <div class="rounded-lg border border-base-200 p-3 flex flex-col gap-1.5 hover:border-primary-300 transition-colors">
+            <div class="flex items-center justify-between gap-2">
+              <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold text-white"
+                    style="background: {{ item.planning_type.color }};">
+                {{ item.planning_type.name }}
+              </span>
+              <span class="flex items-center gap-1 text-[10px] text-base-400 whitespace-nowrap">
+                {% if item.is_reusable %}
+                  <span class="material-symbols-outlined text-primary-500" style="font-size:14px;"
+                        title="{% trans 'Reusable: stays in the backlog after scheduling.' %}">autorenew</span>
+                {% endif %}
+                {{ item.estimated_days }} {% trans "day(s)" %}
+              </span>
+            </div>
+            <div class="text-xs font-medium truncate"
+                 title="{{ item.project_file.reference }} — {{ item.project_file.name }}">
+              {{ item.project_file.reference }} — {{ item.project_file.name }}
+            </div>
+            {% if item.notes %}
+              <div class="text-[11px] text-base-400 truncate" title="{{ item.notes }}">{{ item.notes }}</div>
+            {% endif %}
+            {% if can_plan_backlog %}
+              <a href="{{ add_url }}?backlog_item={{ item.pk }}&day={{ anchor_day }}"
+                 class="mt-1 inline-flex items-center justify-center gap-1 rounded-lg bg-primary-600 text-white text-xs font-medium px-2 py-1.5 hover:bg-primary-700 transition-colors">
+                <span class="material-symbols-outlined" style="font-size:14px;">event_available</span>
+                {% trans "Plan" %}
+              </a>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="text-center py-6">
+        <span class="material-symbols-outlined text-3xl text-base-300 block mb-2">task_alt</span>
+        <p class="text-xs text-base-400">{% trans "No pending backlog items." %}</p>
+      </div>
+    {% endif %}
+  </aside>
+
   {# Grid table #}
-  <div class="rounded-2xl border border-base-200 bg-white overflow-auto">
+  <div class="flex-1 min-w-0 rounded-2xl border border-base-200 bg-white overflow-auto">
     <table class="w-full border-collapse min-w-[700px]">
       <thead>
         <tr class="bg-base-50">
@@ -224,6 +292,8 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+
   </div>
 
   {% endif %}

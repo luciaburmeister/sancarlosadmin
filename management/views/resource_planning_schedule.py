@@ -20,6 +20,8 @@ from management.forms import ResourcePlanningFilterForm, _parse_resource_tokens
 from management.models import (
     ProjectFile,
     ResourcePlanning,
+    ResourcePlanningBacklogItem,
+    ResourcePlanningBacklogStatus,
     ResourcePlanningStatus,
     ResourcePlanningType,
 )
@@ -388,7 +390,22 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             for info in resource_map.values()
         })
 
+        # ── Backlog side panel ────────────────────────────────────────
+        backlog_items = list(
+            ResourcePlanningBacklogItem.objects
+            .filter(company__in=company_scope, status=ResourcePlanningBacklogStatus.PENDING)
+            .select_related("project_file", "planning_type")
+            .order_by("priority", "created_at")[:100]
+        )
+
         ctx.update(
+            backlog_items=backlog_items,
+            backlog_count=len(backlog_items),
+            can_plan_backlog=user.has_perm("management.add_resourceplanning"),
+            backlog_changelist_url=reverse(
+                "admin:management_resourceplanningbacklogitem_changelist"
+            ),
+            anchor_day=anchor.isoformat(),
             header_label=header_label,
             filter_form=filter_form,
             columns_meta=columns_meta,

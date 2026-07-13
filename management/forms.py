@@ -341,6 +341,11 @@ class ResourcePlanningBulkForm(forms.Form):
         widget=forms.HiddenInput,
         help_text=_("Push the resource's later plannings of the same day forward by this planning's duration."),
     )
+    backlog_item = forms.IntegerField(
+        required=False,
+        widget=forms.HiddenInput,
+        help_text=_("Backlog item that will be marked as scheduled when these plannings are created."),
+    )
 
     def __init__(self, *args, user=None, user_companies=None, **kwargs):
         super().__init__(*args, **kwargs)

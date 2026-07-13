@@ -11,7 +11,7 @@ from django.contrib.contenttypes.models import ContentType
 from assets.models import AssetTransaction, BillingStatus
 from assets.views import AssetTransactionExportView
 from unfold.admin import ModelAdmin
-from unfold.admin import GenericTabularInline as _GenericTabularInline
+from unfold.admin import GenericTabularInline as _GenericTabularInline,TabularInline
 from unfold.decorators import action, display
 from django_json_widget.widgets import JSONEditorWidget
 from django.utils.translation import gettext_lazy as _
@@ -36,16 +36,17 @@ class AssetTransactionEmailLogInline(_GenericTabularInline):
         return False
 
 
-class AssetTransactionReceiptInline(admin.TabularInline):
+class AssetTransactionReceiptInline(TabularInline):
     """Shows receipts (albaranes) attached to this transaction."""
     model = AssetTransactionReceipt
     fk_name = "transaction"
     extra = 0
     fields = ("nro_albaran", "data", "movement_transaction", "foto_preview", "created_at")
-    readonly_fields = ("foto_preview", "created_at", "movement_transaction")
+    readonly_fields = ("foto_preview", "created_at", "movement_transaction","nro_albaran","data")
     can_delete = False
     verbose_name = "Albaran"
     verbose_name_plural = "Albaranes"
+    tab=True
 
     def has_add_permission(self, request, obj=None):
         return False

@@ -174,11 +174,24 @@
                  title="{{ item.project_file.reference }} — {{ item.project_file.name }}">
               {{ item.project_file.reference }} — {{ item.project_file.name }}
             </div>
+            {% with labels=item.internal_labels.all %}
+              {% if labels %}
+                <div class="flex flex-wrap gap-1">
+                  {% for label in labels %}
+                    <span class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold text-white"
+                          style="background: {{ label.color }};"
+                          title="{{ label.name }}">
+                      {{ label.name }}
+                    </span>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            {% endwith %}
             {% if item.notes %}
               <div class="text-[11px] text-base-400 truncate" title="{{ item.notes }}">{{ item.notes }}</div>
             {% endif %}
             {% if can_plan_backlog %}
-              <a href="{{ add_url }}?backlog_item={{ item.pk }}&day={{ anchor_day }}"
+              <a href="{{ add_url }}?backlog_item={{ item.pk }}&day={{ anchor_day }}&next={{ schedule_return_url|urlencode }}"
                  class="mt-1 inline-flex items-center justify-center gap-1 rounded-lg bg-primary-600 text-white text-xs font-medium px-2 py-1.5 hover:bg-primary-700 transition-colors">
                 <span class="material-symbols-outlined" style="font-size:14px;">event_available</span>
                 {% trans "Plan" %}
@@ -243,7 +256,7 @@
                   {% endif %}
                   <span class="text-sm font-medium">{{ res.name }}</span>
                 </div>
-                <a href="{{ add_url }}?resources={{ res.ct_model }}:{{ res.obj_id }}{% if selected_company %}&company={{ selected_company.pk }}{% endif %}"
+                <a href="{{ add_url }}?resources={{ res.ct_model }}:{{ res.obj_id }}{% if selected_company %}&company={{ selected_company.pk }}{% endif %}&next={{ schedule_return_url|urlencode }}"
                    class="group flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-base-100 hover:bg-primary-100 transition-colors"
                    title="{% trans 'Add planning for this resource' %}">
                   <span class="material-symbols-outlined text-base-400 group-hover:text-primary-600 transition-colors" style="font-size:16px;">add</span>
@@ -281,7 +294,7 @@
                       </form>
                       {% if not forloop.last %}
                         {# Insert a planning right after this block; later plans of the day are pushed forward by its duration #}
-                        <a href="{{ add_url }}?resources={{ res.ct_model }}:{{ res.obj_id }}&day={{ cell.date_key }}&daily_start={{ b.end|date:'H:i:s' }}&shift_following=1&company={{ b.company_id }}"
+                        <a href="{{ add_url }}?resources={{ res.ct_model }}:{{ res.obj_id }}&day={{ cell.date_key }}&daily_start={{ b.end|date:'H:i:s' }}&shift_following=1&company={{ b.company_id }}&next={{ schedule_return_url|urlencode }}"
                            x-show="hovered"
                            x-cloak
                            title="{% trans 'Insert a planning after this one (later plans are pushed forward)' %}"
@@ -297,7 +310,7 @@
 
                   {% if show_cell_create_buttons %}
                     {# + button at bottom of every cell #}
-                    <a href="{{ add_url }}?resources={{ res.ct_model }}:{{ res.obj_id }}&day={{ cell.date_key }}{% if selected_company %}&company={{ selected_company.pk }}{% endif %}"
+                    <a href="{{ add_url }}?resources={{ res.ct_model }}:{{ res.obj_id }}&day={{ cell.date_key }}{% if selected_company %}&company={{ selected_company.pk }}{% endif %}&next={{ schedule_return_url|urlencode }}"
                        class="group flex items-center justify-center h-8 rounded-md bg-base-50/50 border border-dashed border-base-200 hover:border-primary-400 hover:bg-primary-50 transition-all"
                        title="{% trans 'Add planning for this day' %}">
                       <span class="material-symbols-outlined text-base-300 group-hover:text-primary-500 transition-colors" style="font-size:16px;">add</span>

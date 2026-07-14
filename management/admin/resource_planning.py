@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django import forms
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
 from django.http import HttpResponseNotAllowed, HttpResponseRedirect
@@ -13,6 +14,7 @@ from unfold.contrib.filters.admin import (
     RangeDateFilter,
 )
 from unfold.decorators import action, display
+from unfold.widgets import UnfoldAdminColorInputWidget
 
 from core.admin.company_admin import CompanyRestrictedAdmin
 from management.models import (
@@ -35,8 +37,18 @@ from management.views.resource_planning_schedule import ResourcePlanningSchedule
 PLANNABLE_MODELS = ["employee", "machine", "asset"]
 
 
+class ResourcePlanningTypeForm(forms.ModelForm):
+    class Meta:
+        model = ResourcePlanningType
+        fields = "__all__"
+        widgets = {
+            "color": UnfoldAdminColorInputWidget(),
+        }
+
+
 @admin.register(ResourcePlanningType)
 class ResourcePlanningTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    form = ResourcePlanningTypeForm
     list_display = ["name", "color_swatch", "icon", "is_active", "company"]
     list_filter = ["is_active", ("company", AutocompleteSelectMultipleFilter)]
     search_fields = ["name"]
@@ -44,14 +56,17 @@ class ResourcePlanningTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_select_related = ["company"]
 
     fieldsets = (
-        (None, {"fields": ("company", "name", ("color", "icon"), "is_active")}),
+        (None, {"fields": ("company", "name", "color", "icon", "is_active")}),
     )
 
     @display(description=_("Color"))
     def color_swatch(self, obj):
         return format_html(
-            '<span style="display:inline-block;width:20px;height:20px;'
-            'border-radius:4px;background:{};" title="{}"></span>',
+            '<span style="display:inline-flex;align-items:center;gap:8px;">'
+            '<span style="display:inline-block;width:24px;height:24px;'
+            'border-radius:6px;background:{};border:1px solid rgba(0,0,0,.12);"></span>'
+            '<code style="font-size:12px;font-family:monospace;">{}</code>'
+            '</span>',
             obj.color, obj.color,
         )
 

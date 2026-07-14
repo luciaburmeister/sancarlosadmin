@@ -234,6 +234,29 @@ class ResourcePlanningType(CompanyOwnedModel):
         return self.name
 
 
+class ResourcePlanningBacklogLabel(models.Model):
+    """
+    Global internal labels for backlog items (not company-scoped).
+    Examples: "Urgent", "Waiting for material", "Client pending"
+    """
+    name = models.CharField(max_length=100, unique=True, verbose_name=_("Name"))
+    color = models.CharField(
+        max_length=7,
+        default="#6B7280",
+        verbose_name=_("Color"),
+        help_text=_("Hex color for display, e.g. #6B7280"),
+    )
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Internal Backlog Label")
+        verbose_name_plural = _("Internal Backlog Labels")
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class ResourcePlanningStatus(models.TextChoices):
     PLANNED = "planned", _("Planned")
     CONFIRMED = "confirmed", _("Confirmed")
@@ -446,6 +469,12 @@ class ResourcePlanningBacklogItem(Timestampable, CompanyOwnedModel):
         on_delete=models.SET_NULL,
         related_name="+",
         verbose_name=_("Created by"),
+    )
+    internal_labels = models.ManyToManyField(
+        ResourcePlanningBacklogLabel,
+        blank=True,
+        related_name="backlog_items",
+        verbose_name=_("Internal labels"),
     )
 
     class Meta:

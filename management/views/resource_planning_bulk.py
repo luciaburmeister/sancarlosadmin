@@ -10,6 +10,7 @@ from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
 from django.utils import timezone as tz
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from unfold.forms import AdminForm as UnfoldAdminForm
@@ -133,6 +134,17 @@ class _PlanningFormMixin:
     def _resource_labels_json(self, raw: str) -> str:
         return json.dumps(self._resolve_resource_labels(raw) if raw else {})
 
+    @staticmethod
+    def _return_url(request) -> str | None:
+        return request.GET.get("next") or request.POST.get("next") or None
+
+    @staticmethod
+    def _redirect_return_or(request, fallback: str) -> HttpResponseRedirect:
+        next_url = request.POST.get("next") or request.GET.get("next")
+        if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts=None):
+            return HttpResponseRedirect(next_url)
+        return HttpResponseRedirect(fallback)
+
 
 class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, View):
     title = _("Create Resource Planning")
@@ -193,6 +205,7 @@ class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, Vie
         ctx["resource_labels_json"] = self._resource_labels_json(initial.get("resources", ""))
         ctx["show_repeat"] = True
         ctx["backlog_item"] = backlog_item
+        ctx["return_url"] = self._return_url(request)
         return render(request, "admin/management/resourceplanning/planning_form.html", ctx)
 
     @staticmethod
@@ -257,11 +270,18 @@ class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, Vie
                         "daily_end": cd["daily_end"].isoformat(),
                         "exclude_weekends": "1" if cd["exclude_weekends"] else "0",
                     }
+                    if request.POST.get("next"):
+                        params["next"] = request.POST["next"]
                     return HttpResponseRedirect(add_url + "?" + urlencode(params))
+                if "_continue" in request.POST and plannings:
+                    return HttpResponseRedirect(
+                        reverse("admin:management_resourceplanning_individual_change", args=[plannings[0].pk])
+                    )
+                if request.POST.get("next"):
+                    return self._redirect_return_or(
+                        request, reverse("admin:management_resourceplanning_changelist")
+                    )
                 if backlog_item:
-                    # Scheduling a backlog item is a one-shot flow: go back to
-                    # the changelist like the regular forms instead of opening
-                    # the group editor.
                     return HttpResponseRedirect(
                         reverse("admin:management_resourceplanning_changelist")
                     )
@@ -269,10 +289,6 @@ class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, Vie
                 if group:
                     return HttpResponseRedirect(
                         reverse("admin:management_resourceplanning_group_change", args=[group.pk])
-                    )
-                if plannings and "_continue" in request.POST:
-                    return HttpResponseRedirect(
-                        reverse("admin:management_resourceplanning_individual_change", args=[plannings[0].pk])
                     )
                 return HttpResponseRedirect(reverse("admin:management_resourceplanning_changelist"))
             except ValidationError as e:
@@ -284,6 +300,7 @@ class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, Vie
         ctx["resource_labels_json"] = self._resource_labels_json(raw)
         ctx["show_repeat"] = True
         ctx["backlog_item"] = self._get_backlog_item(request, request.POST.get("backlog_item"))
+        ctx["return_url"] = self._return_url(request)
         return render(request, "admin/management/resourceplanning/planning_form.html", ctx)
 
 

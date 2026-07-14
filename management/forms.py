@@ -8,6 +8,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from unfold.widgets import (
     UnfoldAdminDateWidget,
+    UnfoldAdminSelect2MultipleWidget,
     UnfoldAdminSelectWidget,
     UnfoldAdminIntegerFieldWidget,
     UnfoldAdminTextareaWidget,
@@ -23,6 +24,22 @@ class ResourcePlanningTimeWidget(UnfoldAdminTimeWidget):
         js = UnfoldAdminTimeWidget.Media.js + [
             "management/js/resource_planning_time_shortcuts.js",
         ]
+
+
+class InternalLabelsSelectWidget(UnfoldAdminSelect2MultipleWidget):
+    """Select2 multi-select with static options (no Django admin AJAX)."""
+
+    def __init__(self, attrs=None, choices=()):
+        attrs = attrs or {}
+        attrs["data-theme"] = "admin-autocomplete"
+        attrs["class"] = "unfold-admin-autocomplete"
+        # Call SelectMultiple directly — parent adds admin-autocomplete which
+        # triggers djangoAdminSelect2 AJAX and breaks M2M label picking.
+        forms.SelectMultiple.__init__(self, attrs, choices)
+
+    class Media(UnfoldAdminSelect2MultipleWidget.Media):
+        pass
+
 
 from assets.models import AssetType
 from .models import (

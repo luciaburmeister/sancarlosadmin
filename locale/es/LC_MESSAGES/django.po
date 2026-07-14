@@ -357,7 +357,11 @@ msgstr "Backlog de planificación"
 #, fuzzy
 #| msgid "Planning"
 msgid "Planning Types"
-msgstr "Planificación"
+msgstr "Tipos de planificación"
+
+#: alumniniooerp/settings.py:588
+msgid "Backlog Labels"
+msgstr "Etiquetas de backlog"
 
 #: alumniniooerp/settings.py:590 purchasing/apps.py:7 sales/models.py:189
 msgid "Purchasing"
@@ -9291,7 +9295,19 @@ msgstr "Planificación del Proceso"
 #, fuzzy
 #| msgid "Process Planning"
 msgid "Resource Planning Types"
-msgstr "Planificación del Proceso"
+msgstr "Tipos de planificación de recursos"
+
+#: management/models.py:251
+msgid "Internal Backlog Label"
+msgstr "Etiqueta interna de backlog"
+
+#: management/models.py:252
+msgid "Internal Backlog Labels"
+msgstr "Etiquetas internas de backlog"
+
+#: management/models.py:246
+msgid "Hex color for display, e.g. #6B7280"
+msgstr "Color hexadecimal para visualización, p. ej. #6B7280"
 
 #: management/models.py:237
 #, fuzzy
@@ -9403,6 +9419,10 @@ msgstr "Planificado el"
 #: management/models.py:447 production/models.py:417
 msgid "Created by"
 msgstr "Creado por"
+
+#: management/admin/resource_planning_backlog.py:82 management/models.py:482
+msgid "Internal labels"
+msgstr "Etiquetas internas"
 
 #: management/models.py:451
 msgid "Planning Backlog Item"

@@ -15,6 +15,7 @@
     {{ form.resources }}
     {{ form.shift_following }}
     {% if form.backlog_item %}{{ form.backlog_item }}{% endif %}
+    {% if return_url %}<input type="hidden" name="next" value="{{ return_url }}">{% endif %}
     {% if group %}<input type="hidden" name="group_pk" value="{{ group.pk }}">{% endif %}
 
     <div class="flex flex-col gap-6 pb-20">

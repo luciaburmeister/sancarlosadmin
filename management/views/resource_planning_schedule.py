@@ -395,6 +395,7 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             ResourcePlanningBacklogItem.objects
             .filter(company__in=company_scope, status=ResourcePlanningBacklogStatus.PENDING)
             .select_related("project_file", "planning_type")
+            .prefetch_related("internal_labels")
             .order_by("priority", "created_at")[:100]
         )
 
@@ -420,6 +421,7 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             next_url=next_url,
             add_url=add_url,
             show_cell_create_buttons=not only_with_plans,
+            schedule_return_url=self.request.get_full_path(),
         )
         return ctx
 

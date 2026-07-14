@@ -584,6 +584,14 @@ UNFOLD = {
                             "management.view_resourceplanningtype"
                         ),
                     },
+                    {
+                        "title": _("Backlog Labels"),
+                        "icon": "sell",
+                        "link": reverse_lazy("admin:management_resourceplanningbackloglabel_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "management.view_resourceplanningbackloglabel"
+                        ),
+                    },
                 ],
             },
             {

@@ -346,6 +346,10 @@ class ArcopayService:
         Step 1: Call /transactions/ with GLOBAL to discover products and update metadata.
         Step 2: Call /transactions/ for each product to fetch actual transactions.
 
+        Each product is fetched from its own account's ``sync_from_date``
+        when set (one-shot: cleared after that product syncs successfully);
+        otherwise from ``days_back`` days ago.
+
         Returns the total number of newly imported transactions.
         """
         token = bank_account.nuek_token
@@ -356,14 +360,16 @@ class ArcopayService:
             )
             return 0
 
-        start_date = date.today() - timedelta(days=days_back)
+        default_start = date.today() - timedelta(days=days_back)
+        start_date = bank_account.sync_from_date or default_start
 
         # --- Helper to fetch with token refresh on failure ---
-        def _fetch(products_param: str) -> list[dict]:
+        def _fetch(products_param: str, fetch_start: date | None = None) -> list[dict]:
             nonlocal token
+            fetch_start = fetch_start or start_date
             try:
                 return ArcopayService.fetch_transactions(
-                    token=token, start_date=start_date, products=products_param,
+                    token=token, start_date=fetch_start, products=products_param,
                 )
             except (ArcopayAPIError, requests.RequestException) as e:
                 if isinstance(e, ArcopayAPIError) and e.code == "T000":
@@ -387,7 +393,7 @@ class ArcopayService:
                 logger.info("Token refreshed for account %s", bank_account.pk)
 
                 return ArcopayService.fetch_transactions(
-                    token=token, start_date=start_date, products=products_param,
+                    token=token, start_date=fetch_start, products=products_param,
                 )
 
         # --- Step 1: Discover products via GLOBAL (skip if already known) ---
@@ -441,8 +447,10 @@ class ArcopayService:
                 nuek_product_id=product_name,
             ).first() or bank_account
 
+            product_start = target_account.sync_from_date or default_start
+
             try:
-                product_results = _fetch(product_name)
+                product_results = _fetch(product_name, product_start)
             except Exception as e:
                 logger.error("Failed to fetch transactions for product %s: %s", product_name, e)
                 continue
@@ -458,11 +466,10 @@ class ArcopayService:
                 )
 
                 ArcopayService._update_account_balance(target_account)
-
-        logger.info(
-            "Imported %d new transactions for BankAccount %s",
-            total, bank_account.pk,
-        )
+            if target_account.sync_from_date:
+                target_account.sync_from_date = None
+                target_account.save(update_fields=["sync_from_date"])
+                
 
         return total
 

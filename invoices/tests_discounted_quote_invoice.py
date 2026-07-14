@@ -175,6 +175,46 @@ class PartialInvoiceOfDiscountedQuoteTests(_DiscountedQuoteTestBase):
         self.assertLessEqual(abs(summary["remaining"]), Decimal("0.05"))
 
 
+class NetSummaryFieldsTests(_DiscountedQuoteTestBase):
+    """The *_net summary fields compare discounted bases on both sides, no
+    matter whether an invoice carries its discount at line or invoice level."""
+
+    def _make_invoice(self, subtotal, discount):
+        from invoices.models import SalesInvoice, SalesInvoiceStatus
+        return SalesInvoice.objects.create(
+            company=self.company,
+            status=SalesInvoiceStatus.PROFORMA,
+            client=self.client_obj,
+            project_file=self.project_file,
+            date_issued=date(2026, 7, 14),
+            subtotal_amount=subtotal,
+            discount_amount=discount,
+            tax_amount=self.TAX,
+            total_amount=self.TOTAL,
+        )
+
+    def test_invoiceable_net_uses_discounted_subtotal(self):
+        summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
+        self.assertEqual(summary["total_invoiceable_subtotal"], self.SUBTOTAL)   # gross
+        self.assertEqual(summary["total_invoiceable_subtotal_net"], self.TAXABLE)
+
+    def test_invoice_level_discount_is_netted(self):
+        """Wizard-style invoice: gross lines + invoice-level discount."""
+        self._make_invoice(subtotal=self.SUBTOTAL, discount=self.DISCOUNT)
+        summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
+        self.assertEqual(summary["total_invoiced_subtotal_net"], self.TAXABLE)
+        self.assertEqual(summary["remaining_subtotal_net"], Decimal("0.00"))
+
+    def test_line_level_discount_is_netted(self):
+        """Invoice whose lines are already discounted (e.g. delivery-order flow)."""
+        self._make_invoice(subtotal=self.TAXABLE, discount=Decimal("0.00"))
+        summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
+        self.assertEqual(summary["total_invoiced_subtotal_net"], self.TAXABLE)
+        self.assertEqual(summary["remaining_subtotal_net"], Decimal("0.00"))
+        # The gross comparison would wrongly report the discount as pending
+        self.assertEqual(summary["remaining_subtotal"], self.DISCOUNT)
+
+
 class MultiQuoteDiscountAttributionTests(_DiscountedQuoteTestBase):
     """A discount belongs to its quote: invoicing another quote's items must
     not receive a share of it (regression for invoice #751)."""

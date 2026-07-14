@@ -625,6 +625,17 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
         help_text=_("Product identifier from Arcopay (IBAN or UUID). Used in /transactions/ calls."),
     )
     is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
+    sync_from_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Sync From Date"),
+        help_text=_(
+            "Fetch bank transactions starting from this date on the next sync. "
+            "Used once: cleared automatically after a successful sync, after "
+            "which the default window (last 90 days) applies again. "
+            "Note: how far back the bank allows depends on the PSD2 consent."
+        ),
+    )
     last_known_balance = MoneyField(
         max_digits=14,
         decimal_places=2,

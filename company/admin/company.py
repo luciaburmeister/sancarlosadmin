@@ -29,7 +29,7 @@ from django.contrib.postgres.fields import ArrayField
 
 @admin.register(BankAccount)
 class BankAccountAdmin(ModelAdmin):
-    list_display = ("bank_name", "account_number", "iban", "nuek_token", "is_default", "company")
+    list_display = ("bank_name", "account_number", "iban", "nuek_token", "is_default", "sync_from_date", "company")
     search_fields = ("bank_name", "account_number", "iban")
     autocomplete_fields = ("company",)
     actions_detail = ["sync_transactions_action"]
@@ -60,7 +60,7 @@ class BankAccountAdmin(ModelAdmin):
 class BankAccountInline(StackedInline):
     model = BankAccount
     extra = 1
-    fields = ("bank_name", "holder_name", "account_number", "iban", "swift_bic", "routing_number", "is_default")
+    fields = ("bank_name", "holder_name", "account_number", "iban", "swift_bic", "routing_number", "is_default", "sync_from_date")
     tab = True
     tab_title = _("Bank Accounts")
 

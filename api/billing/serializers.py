@@ -126,16 +126,20 @@ def build_items_from_summary(summary, invoice_mode, percentage, custom_amount, s
     )
     items = []
 
+    if ratio <= 0:
+        return items
+
     for quote_data in summary["quotes"]:
         quote = quote_data["quote"]
         quote_name = quote.project_name if show_vehicle_name else "."
         for config in quote.configurations.prefetch_related("items__component").all():
             sub = Decimal(str(config.subtotal_price.amount))
-            if sub <= 0:
+            # Zero-value configs are kept as a single 0-amount line
+            if sub < 0:
                 continue
             for comp in get_config_component_lines(config):
                 comp_price = (comp["amount"] * ratio).quantize(Decimal("0.01"))
-                if comp_price <= 0:
+                if comp_price < 0:
                     continue
                 items.append({
                     "source_id": f"config_{config.id}",
@@ -148,7 +152,7 @@ def build_items_from_summary(summary, invoice_mode, percentage, custom_amount, s
 
         for item in quote.items.all():
             item_price = (item.line_total.amount * ratio).quantize(Decimal("0.01"))
-            if item_price <= 0:
+            if item_price < 0:
                 continue
             items.append({
                 "source_id": f"quote_item_{item.id}",
@@ -161,7 +165,7 @@ def build_items_from_summary(summary, invoice_mode, percentage, custom_amount, s
 
         for inv_item in quote.inventory_items.select_related("inventory_item").all():
             line_amt = inv_item.line_total.amount if inv_item.line_total else Decimal("0.00")
-            if line_amt <= 0:
+            if line_amt < 0:
                 continue
             inv_name = (
                 inv_item.inventory_item.name
@@ -180,7 +184,7 @@ def build_items_from_summary(summary, invoice_mode, percentage, custom_amount, s
     for config_data in summary.get("direct_configurations", []):
         sub = config_data["subtotal"]
         item_price = (sub * ratio).quantize(Decimal("0.01"))
-        if item_price <= 0:
+        if item_price < 0:
             continue
         items.append({
             "source_id": f"direct_{config_data['id']}",

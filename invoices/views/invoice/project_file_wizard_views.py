@@ -73,6 +73,9 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
         else:
             ratio = Decimal("0")
 
+        if ratio <= 0:
+            return []
+
         for quote_data in summary['quotes']:
             quote = quote_data['quote']
 
@@ -81,7 +84,8 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                 tot = config.total_price.amount
                 item_price = (sub * ratio).quantize(Decimal("0.01"))
                 item_tax = ((tot - sub) * ratio).quantize(Decimal("0.01"))
-                if item_price <= 0:
+                # Zero-value items are kept as 0-amount lines on the invoice
+                if item_price < 0:
                     continue
                 # ponytail: use config units/unit_price when available
                 if config.units and config.units > 0:
@@ -101,7 +105,7 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
 
             for item in quote.items.all():
                 item_price = (item.line_total.amount * ratio).quantize(Decimal("0.01"))
-                if item_price <= 0:
+                if item_price < 0:
                     continue
                 items_initial.append({
                     'source_id': f"quote_item_{item.id}",
@@ -121,7 +125,7 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                     if inv_item.total_with_tax
                     else Decimal("0.00")
                 )
-                if line_amt <= 0:
+                if line_amt < 0:
                     continue
                 inv_name = (
                     inv_item.inventory_item.name
@@ -142,7 +146,7 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
             tot = config_data['total']
             item_price = (sub * ratio).quantize(Decimal("0.01"))
             item_tax = ((tot - sub) * ratio).quantize(Decimal("0.01"))
-            if item_price <= 0:
+            if item_price < 0:
                 continue
             # ponytail: use config units/unit_price when available
             units = config_data.get('units')

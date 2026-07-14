@@ -353,15 +353,17 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
             return "—"
 
         summary = ProjectFileInvoiceService.get_invoiceable_summary(obj)
-        if summary['total_invoiceable_subtotal'] <= 0:
+        if summary['total_invoiceable_subtotal_net'] <= 0:
             return format_html(
                 '<span style="color: #6b7280;">{}</span>',
                 _("No accepted quotes or direct configurations yet.")
             )
 
-        invoiceable = summary['total_invoiceable_subtotal']
-        invoiced = summary['total_invoiced_subtotal']
-        remaining = summary['remaining_subtotal']
+        # Net-of-discount figures: comparable to invoice subtotals regardless
+        # of whether the discount was applied per-line or invoice-level.
+        invoiceable = summary['total_invoiceable_subtotal_net']
+        invoiced = summary['total_invoiced_subtotal_net']
+        remaining = summary['remaining_subtotal_net']
         pct = (
             (invoiced / invoiceable * Decimal("100")).quantize(Decimal("0.01"))
             if invoiceable > 0 else Decimal("0.00")

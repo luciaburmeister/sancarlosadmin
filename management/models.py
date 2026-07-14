@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import models
 from django.db.models import Sum, Q
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
@@ -56,7 +57,7 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         verbose_name=_("Status")
     )
     description = models.TextField(blank=True, verbose_name=_("Description"))
-    start_date = models.DateField(null=True, blank=True, verbose_name=_("Start Date"))
+    start_date = models.DateField(null=True, blank=True, verbose_name=_("Start Date"), default=timezone.localdate)
     end_date = models.DateField(null=True, blank=True, verbose_name=_("End Date"))
     notification_email = models.EmailField(
         blank=True,

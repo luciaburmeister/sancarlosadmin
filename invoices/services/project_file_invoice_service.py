@@ -54,14 +54,24 @@ class ProjectFileInvoiceService:
 
         total_invoiceable = Decimal("0.00")
         total_invoiceable_subtotal = Decimal("0.00")
+        # Net variants (after quote/invoice discounts) — used for display so
+        # pre-discount quote subtotals aren't compared against discounted
+        # invoice subtotals. The gross fields remain the ratio base for
+        # partial invoicing math.
+        total_invoiceable_subtotal_net = Decimal("0.00")
         quotes_data = []
 
         for quote in accepted_quotes:
             total_amt = Decimal(str(quote.total_price.amount))
             subtotal_amt = Decimal(str(quote.subtotal_price.amount))
             tax_amt = Decimal(str(quote.tax_amount.amount))
+            discounted_sub = (
+                Decimal(str(quote.discounted_subtotal.amount))
+                if quote.discounted_subtotal else subtotal_amt
+            )
             total_invoiceable += total_amt
             total_invoiceable_subtotal += subtotal_amt
+            total_invoiceable_subtotal_net += discounted_sub
             quotes_data.append({
                 'id': quote.id,
                 'project_name': quote.project_name,
@@ -92,6 +102,7 @@ class ProjectFileInvoiceService:
             tot = Decimal(str(config.total_price.amount))
             total_invoiceable += tot
             total_invoiceable_subtotal += sub
+            total_invoiceable_subtotal_net += sub
             direct_configs_data.append({
                 'id': config.id,
                 'name': config.name,
@@ -113,6 +124,7 @@ class ProjectFileInvoiceService:
             entry_total = Decimal(str(entry.total_price.amount))
             total_invoiceable += entry_total
             total_invoiceable_subtotal += entry_total  # work entries have no separate subtotal/tax split at this level
+            total_invoiceable_subtotal_net += entry_total
             work_entries_data.append({
                 'id': entry.id,
                 'description': entry.description,
@@ -131,13 +143,19 @@ class ProjectFileInvoiceService:
 
         total_invoiced = Decimal("0.00")
         total_invoiced_subtotal = Decimal("0.00")
+        total_invoiced_subtotal_net = Decimal("0.00")
         invoices_data = []
 
         for invoice in existing_invoices:
             inv_total = Decimal(str(invoice.total_amount.amount))
             inv_subtotal = Decimal(str(invoice.subtotal_amount.amount))
+            inv_discount = (
+                Decimal(str(invoice.discount_amount.amount))
+                if invoice.discount_amount else Decimal("0.00")
+            )
             total_invoiced += inv_total
             total_invoiced_subtotal += inv_subtotal
+            total_invoiced_subtotal_net += inv_subtotal - inv_discount
             invoices_data.append({
                 'id': invoice.id,
                 'invoice_number': invoice.invoice_number or f"Pro Forma #{invoice.id}",
@@ -156,6 +174,7 @@ class ProjectFileInvoiceService:
         seen_bulk_invoices = set()
         for item in bulk_items:
             total_invoiced_subtotal += Decimal(str(item.line_total.amount))
+            total_invoiced_subtotal_net += Decimal(str(item.line_total.amount))
             # Count total for each bulk invoice only once
             if item.invoice_id not in seen_bulk_invoices:
                 seen_bulk_invoices.add(item.invoice_id)
@@ -173,14 +192,18 @@ class ProjectFileInvoiceService:
 
         remaining = total_invoiceable - total_invoiced
         remaining_subtotal = total_invoiceable_subtotal - total_invoiced_subtotal
+        remaining_subtotal_net = total_invoiceable_subtotal_net - total_invoiced_subtotal_net
 
         return {
             'total_invoiceable': total_invoiceable,
             'total_invoiceable_subtotal': total_invoiceable_subtotal,
+            'total_invoiceable_subtotal_net': total_invoiceable_subtotal_net,
             'total_invoiced': total_invoiced,
             'total_invoiced_subtotal': total_invoiced_subtotal,
+            'total_invoiced_subtotal_net': total_invoiced_subtotal_net,
             'remaining': remaining,
             'remaining_subtotal': remaining_subtotal,
+            'remaining_subtotal_net': remaining_subtotal_net,
             'quotes': quotes_data,
             'direct_configurations': direct_configs_data,
             'work_entries': work_entries_data,
@@ -382,10 +405,13 @@ class ProjectFileInvoiceService:
         tax_agg: dict[tuple, dict] = {}
 
         from configurator.models import Configuration
-        from sales.models import QuoteInventoryItem
+        from sales.models import QuoteInventoryItem, QuoteItem
 
         config_ct = ContentType.objects.get_for_model(Configuration)
         inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
+
+        line_taxes = []  # (line_total, source_taxes, quote_id) — taxed after the discount is known
+        per_quote_invoiced: dict[int, Decimal] = {}  # quote_id → invoiced line subtotal
 
         for item_data in items_data:
             item = SalesInvoiceItem.objects.create(
@@ -400,9 +426,10 @@ class ProjectFileInvoiceService:
             line_total = item.line_total.amount
             subtotal += line_total
 
-            # Resolve the source's taxes from its source_id
+            # Resolve the source's taxes and owning quote from its source_id
             source_id = item_data.get('source_id', '')
             source_taxes = []
+            quote_id = None
 
             if source_id.startswith("config_") or source_id.startswith("direct_"):
                 obj_id = source_id.split("_", 1)[1]
@@ -411,6 +438,10 @@ class ProjectFileInvoiceService:
                         content_type=config_ct, object_id=obj_id
                     ).select_related("tax_type")
                 )
+                quote_id = (
+                    Configuration.objects.filter(pk=obj_id)
+                    .values_list("quote_id", flat=True).first()
+                )
             elif source_id.startswith("inv_item_"):
                 obj_id = source_id.split("_", 2)[2]
                 source_taxes = list(
@@ -418,14 +449,61 @@ class ProjectFileInvoiceService:
                         content_type=inv_item_ct, object_id=obj_id
                     ).select_related("tax_type")
                 )
-            # quote_item_ lines have no taxes
+                quote_id = (
+                    QuoteInventoryItem.objects.filter(pk=obj_id)
+                    .values_list("quote_id", flat=True).first()
+                )
+            elif source_id.startswith("quote_item_"):
+                # quote_item_ lines have no taxes
+                obj_id = source_id.split("_", 2)[2]
+                quote_id = (
+                    QuoteItem.objects.filter(pk=obj_id)
+                    .values_list("quote_id", flat=True).first()
+                )
 
+            if quote_id is not None:
+                per_quote_invoiced[quote_id] = (
+                    per_quote_invoiced.get(quote_id, Decimal("0")) + line_total
+                )
+            line_taxes.append((line_total, source_taxes, quote_id))
+
+        # Carry discounts from source quotes, each scaled by how much of THAT
+        # quote this invoice covers — a quote's discount must not bleed into
+        # lines invoiced from other quotes.
+        invoice_discount = Decimal("0.00")
+        invoice_discount_breakdown = []
+        quote_discount_fraction: dict[int, Decimal] = {}  # quote_id → discount / quote subtotal
+
+        for qd in summary['quotes']:
+            quote = qd['quote']
+            if not (quote.discount_amount and quote.discount_amount.amount > 0):
+                continue
+            quote_sub = Decimal(str(quote.subtotal_price.amount))
+            invoiced_for_quote = per_quote_invoiced.get(quote.id, Decimal("0"))
+            if quote_sub <= 0 or invoiced_for_quote <= 0:
+                continue
+            ratio = invoiced_for_quote / quote_sub
+            scaled = (quote.discount_amount.amount * ratio).quantize(Decimal("0.01"))
+            invoice_discount += scaled
+            quote_discount_fraction[quote.id] = quote.discount_amount.amount / quote_sub
+            for entry in (quote.discount_breakdown or []):
+                invoice_discount_breakdown.append({
+                    **entry,
+                    "amount": str((Decimal(entry["amount"]) * ratio).quantize(Decimal("0.01"))),
+                    "base": str((Decimal(entry["base"]) * ratio).quantize(Decimal("0.01"))),
+                })
+
+        # Taxes apply to the discounted base (the quote's "taxable base"),
+        # so reduce each line by its own quote's discount fraction.
+        for line_total, source_taxes, quote_id in line_taxes:
+            frac = quote_discount_fraction.get(quote_id, Decimal("0"))
+            taxable = (line_total * (Decimal("1") - frac)).quantize(Decimal("0.01"))
             for tax in source_taxes:
                 if tax.selected_percentage <= 0:
                     continue
                 key = (tax.tax_type_id, tax.tax_type.behavior, tax.selected_percentage)
                 rate = tax.selected_percentage / Decimal("100")
-                calc = (line_total * rate).quantize(Decimal("0.01"))
+                calc = (taxable * rate).quantize(Decimal("0.01"))
 
                 if key not in tax_agg:
                     tax_agg[key] = {
@@ -434,7 +512,7 @@ class ProjectFileInvoiceService:
                         "base_amount": Decimal("0.00"),
                         "calculated_amount": Decimal("0.00"),
                     }
-                tax_agg[key]["base_amount"] += line_total
+                tax_agg[key]["base_amount"] += taxable
                 tax_agg[key]["calculated_amount"] += calc
 
         # Create the aggregated AppliedTax records on the invoice
@@ -452,25 +530,6 @@ class ProjectFileInvoiceService:
                 calculated_amount=entry["calculated_amount"],
                 order=order,
             )
-
-        # ponytail: carry discount from source quotes, scaled by the invoicing ratio
-        total_quote_subtotal = summary['total_invoiceable_subtotal']
-        invoice_discount = Decimal("0.00")
-        invoice_discount_breakdown = []
-
-        if total_quote_subtotal > 0:
-            ratio = subtotal / total_quote_subtotal  # how much of total we're invoicing
-            for qd in summary['quotes']:
-                quote = qd['quote']
-                if quote.discount_amount and quote.discount_amount.amount > 0:
-                    scaled = (quote.discount_amount.amount * ratio).quantize(Decimal("0.01"))
-                    invoice_discount += scaled
-                    for entry in (quote.discount_breakdown or []):
-                        invoice_discount_breakdown.append({
-                            **entry,
-                            "amount": str((Decimal(entry["amount"]) * ratio).quantize(Decimal("0.01"))),
-                            "base": str((Decimal(entry["base"]) * ratio).quantize(Decimal("0.01"))),
-                        })
 
         invoice.subtotal_amount = subtotal
         invoice.discount_amount = invoice_discount

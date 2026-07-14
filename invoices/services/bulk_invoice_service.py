@@ -219,7 +219,8 @@ class BulkProjectFileInvoiceService:
 
             for config in quote.configurations.all():
                 sub = config.subtotal_price.amount
-                if sub <= 0:
+                # Zero-value items are kept as 0-amount lines on the invoice
+                if sub < 0:
                     continue
                 if config.units and config.units > 0:
                     qty = config.units
@@ -239,7 +240,7 @@ class BulkProjectFileInvoiceService:
 
             for item in quote.items.all():
                 line_amt = item.line_total.amount
-                if line_amt <= 0:
+                if line_amt < 0:
                     continue
                 items.append({
                     "source_id": f"quote_item_{item.id}",
@@ -253,7 +254,7 @@ class BulkProjectFileInvoiceService:
 
             for inv_item in quote.inventory_items.select_related("inventory_item").all():
                 line_amt = inv_item.line_total.amount if inv_item.line_total else Decimal("0.00")
-                if line_amt <= 0:
+                if line_amt < 0:
                     continue
                 desc = inv_item.inventory_item.name if inv_item.inventory_item else inv_item.description
                 items.append({
@@ -271,7 +272,7 @@ class BulkProjectFileInvoiceService:
             from configurator.models import Configuration
             config = Configuration.objects.get(pk=config_data["id"])
             sub = config.subtotal_price.amount
-            if sub <= 0:
+            if sub < 0:
                 continue
             if config.units and config.units > 0:
                 qty = config.units

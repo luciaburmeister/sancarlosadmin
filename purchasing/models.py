@@ -35,6 +35,13 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         related_name="purchase_orders",
         verbose_name=_("Supplier")
     )
+    external_reference = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        verbose_name=_("Provider Reference"),
+        help_text=_("External receipt/delivery note number from the provider (e.g. albarán number).")
+    )
     date_ordered = models.DateField(
         default=timezone.now,
         verbose_name=_("Date Ordered")

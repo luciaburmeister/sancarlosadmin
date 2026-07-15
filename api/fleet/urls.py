@@ -2,7 +2,7 @@ from django.urls import path
 
 from company.views.views import LocationRecordCreateView
 from assets.views import asset_transaction_imagen_view
-
+from .views.assets import DeliveryCheckView
 from .views import assets, attendance, zones
 
 urlpatterns = [
@@ -29,4 +29,6 @@ urlpatterns = [
     path("config/", zones.ConfigListView.as_view(), name="config"),
     path("portes/", attendance.PortesPlanningListView.as_view(), name="portes_planning"),
     path("portes/<int:planning_id>/submit/", attendance.PorteSubmitView.as_view(), name="porte_submit"),
+    path("assets/<int:asset_id>/delivery-check/", DeliveryCheckView.as_view(), name="asset-delivery-check"),
+
 ]

@@ -76,6 +76,7 @@ class ResourcePlanningBacklogItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
         ("company", AutocompleteSelectMultipleFilter),
         "is_reusable",
     ]
+    list_filter_submit = True
     search_fields = [
         "project_file__name",
         "project_file__reference",

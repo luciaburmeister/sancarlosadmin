@@ -16,11 +16,16 @@ from unfold.views import UnfoldModelAdminViewMixin
 from django.utils.translation import gettext_lazy as _
 
 from core.admin.company_access import get_user_companies
-from management.forms import ResourcePlanningFilterForm, _parse_resource_tokens
+from management.forms import (
+    ResourcePlanningBacklogFilterForm,
+    ResourcePlanningFilterForm,
+    _parse_resource_tokens,
+)
 from management.models import (
     ProjectFile,
     ResourcePlanning,
     ResourcePlanningBacklogItem,
+    ResourcePlanningBacklogLabel,
     ResourcePlanningBacklogStatus,
     ResourcePlanningStatus,
     ResourcePlanningType,
@@ -52,6 +57,82 @@ RESOURCE_TYPE_LABELS = {
     "machine": _("Machines"),
     "asset": _("Assets"),
 }
+
+BACKLOG_FILTER_KEYS = frozenset({
+    "backlog_planning_type",
+    "backlog_internal_label",
+    "backlog_reusable",
+})
+
+
+def _query_param_items(params, exclude=frozenset(), include_only=None):
+    items = []
+    for key in params:
+        if key in exclude:
+            continue
+        if include_only is not None and key not in include_only:
+            continue
+        for value in params.getlist(key):
+            items.append((key, value))
+    return items
+
+
+def _url_with_params(path, param_items):
+    if not param_items:
+        return path
+    return path + "?" + urlencode(param_items, doseq=True)
+
+
+def _parse_backlog_filters(GET):
+    """Parse backlog filter values from GET when the form is invalid."""
+    planning_type_ids = []
+    for planning_type_id in GET.getlist("backlog_planning_type"):
+        try:
+            planning_type_ids.append(int(planning_type_id))
+        except (TypeError, ValueError):
+            continue
+    backlog_planning_types = ResourcePlanningType.objects.filter(pk__in=planning_type_ids)
+
+    label_ids = []
+    for label_id in GET.getlist("backlog_internal_label"):
+        try:
+            label_ids.append(int(label_id))
+        except (TypeError, ValueError):
+            continue
+    backlog_internal_labels = ResourcePlanningBacklogLabel.objects.filter(pk__in=label_ids)
+
+    backlog_reusable = GET.get("backlog_reusable", "")
+    if backlog_reusable not in {"", "0", "1"}:
+        backlog_reusable = ""
+
+    return backlog_planning_types, backlog_internal_labels, backlog_reusable
+
+
+def _backlog_filters_active(backlog_planning_types, backlog_internal_labels, backlog_reusable):
+    return bool(backlog_planning_types) or bool(backlog_internal_labels) or backlog_reusable in {"0", "1"}
+
+
+def _apply_backlog_filters(
+    qs,
+    schedule_planning_types=None,
+    schedule_project_file=None,
+    backlog_planning_types=None,
+    backlog_internal_labels=None,
+    backlog_reusable="",
+):
+    if schedule_planning_types:
+        qs = qs.filter(planning_type__in=schedule_planning_types)
+    if schedule_project_file:
+        qs = qs.filter(project_file=schedule_project_file)
+    if backlog_planning_types:
+        qs = qs.filter(planning_type__in=backlog_planning_types)
+    if backlog_internal_labels:
+        qs = qs.filter(internal_labels__in=backlog_internal_labels).distinct()
+    if backlog_reusable == "1":
+        qs = qs.filter(is_reusable=True)
+    elif backlog_reusable == "0":
+        qs = qs.filter(is_reusable=False)
+    return qs
 
 # Models that can be planned, with their app_label and is_active field
 _PLANNABLE_MODELS = [
@@ -227,6 +308,25 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
         resources_raw = GET.get("resources", "")
         selected_keys = {(ct.id, pk) for ct, pk in resource_pairs} or None
 
+        backlog_filter_form = ResourcePlanningBacklogFilterForm(
+            GET or None,
+            company=selected_company,
+            user_companies=user_companies,
+        )
+        if backlog_filter_form.is_valid():
+            backlog_planning_types = backlog_filter_form.cleaned_data.get("backlog_planning_type")
+            backlog_internal_labels = backlog_filter_form.cleaned_data.get("backlog_internal_label")
+            backlog_reusable = backlog_filter_form.cleaned_data.get("backlog_reusable") or ""
+        else:
+            backlog_planning_types, backlog_internal_labels, backlog_reusable = (
+                _parse_backlog_filters(GET)
+            )
+        backlog_filters_active = _backlog_filters_active(
+            backlog_planning_types, backlog_internal_labels, backlog_reusable,
+        )
+        schedule_planning_type_filter = planning_types
+        schedule_project_file_filter = project_file
+
         # ── Build columns ─────────────────────────────────────────────
         columns_meta = _build_day_columns(anchor, num_days)
         window_start = columns_meta[0]["start_dt"]
@@ -255,6 +355,16 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
                 params["resources"] = resources_raw
             if only_with_plans:
                 params["only_with_plans"] = "on"
+            if backlog_planning_types:
+                params["backlog_planning_type"] = [
+                    str(pt.pk) for pt in backlog_planning_types
+                ]
+            if backlog_internal_labels:
+                params["backlog_internal_label"] = [
+                    str(label.pk) for label in backlog_internal_labels
+                ]
+            if backlog_reusable in {"0", "1"}:
+                params["backlog_reusable"] = backlog_reusable
             return "?" + urlencode(params, doseq=True)
 
         prev_url = _nav_url(anchor - timedelta(days=num_days))
@@ -379,7 +489,7 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
         # ── Filter options for legend ─────────────────────────────────
         pt_qs = ResourcePlanningType.objects.filter(is_active=True)
         pt_qs = pt_qs.filter(company__in=company_scope)
-        planning_types = list(pt_qs.order_by("name"))
+        planning_types_legend = list(pt_qs.order_by("name"))
 
         # ── Add URL for click-to-create ───────────────────────────────
         add_url = reverse("admin:management_resourceplanning_bulk_add")
@@ -391,17 +501,34 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
         })
 
         # ── Backlog side panel ────────────────────────────────────────
-        backlog_items = list(
+        backlog_qs = (
             ResourcePlanningBacklogItem.objects
             .filter(company__in=company_scope, status=ResourcePlanningBacklogStatus.PENDING)
             .select_related("project_file", "planning_type")
             .prefetch_related("internal_labels")
-            .order_by("priority", "created_at")[:100]
         )
+        backlog_qs = _apply_backlog_filters(
+            backlog_qs,
+            schedule_planning_types=schedule_planning_type_filter,
+            schedule_project_file=schedule_project_file_filter,
+            backlog_planning_types=backlog_planning_types,
+            backlog_internal_labels=backlog_internal_labels,
+            backlog_reusable=backlog_reusable,
+        )
+        backlog_items = list(backlog_qs.order_by("priority", "created_at")[:100])
+
+        preserved_schedule_params = _query_param_items(GET, exclude=BACKLOG_FILTER_KEYS)
+        preserved_backlog_params = _query_param_items(GET, include_only=BACKLOG_FILTER_KEYS)
+        backlog_reset_url = _url_with_params(self.request.path, preserved_schedule_params)
 
         ctx.update(
             backlog_items=backlog_items,
             backlog_count=len(backlog_items),
+            backlog_filter_form=backlog_filter_form,
+            backlog_filters_active=backlog_filters_active,
+            preserved_schedule_params=preserved_schedule_params,
+            preserved_backlog_params=preserved_backlog_params,
+            backlog_reset_url=backlog_reset_url,
             can_plan_backlog=user.has_perm("management.add_resourceplanning"),
             backlog_changelist_url=reverse(
                 "admin:management_resourceplanningbacklogitem_changelist"
@@ -413,7 +540,7 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             resource_groups=resource_groups,
             resource_labels_json=resource_labels_json,
             has_data=bool(resource_groups),
-            planning_types=planning_types,
+            planning_types=planning_types_legend,
             companies=companies,
             selected_company=selected_company,
             show_company_filter=len(companies) > 1,

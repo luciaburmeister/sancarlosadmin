@@ -21,6 +21,9 @@ from company.models import Company, Employee
 from management.models import (
     ProjectFile,
     ResourcePlanning,
+    ResourcePlanningBacklogItem,
+    ResourcePlanningBacklogLabel,
+    ResourcePlanningBacklogStatus,
     ResourcePlanningGroup,
     ResourcePlanningStatus,
     ResourcePlanningType,
@@ -710,6 +713,136 @@ class TestScheduleFilters(_ViewBase):
         ]
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["name"], str(self.employee))
+
+
+class TestScheduleBacklogFilters(_ViewBase):
+    @property
+    def schedule_url(self):
+        return reverse("admin:management_resourceplanning_schedule")
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.other_planning_type = ResourcePlanningType.objects.create(
+            company=cls.company, name="Maintenance", color="#FF0000",
+        )
+        cls.urgent_label = ResourcePlanningBacklogLabel.objects.create(
+            name="Urgent", color="#EF4444",
+        )
+        cls.waiting_label = ResourcePlanningBacklogLabel.objects.create(
+            name="Waiting", color="#F59E0B",
+        )
+        cls.install_backlog = ResourcePlanningBacklogItem.objects.create(
+            company=cls.company,
+            project_file=cls.project_file,
+            planning_type=cls.planning_type,
+            estimated_days=2,
+            is_reusable=True,
+        )
+        cls.install_backlog.internal_labels.add(cls.urgent_label)
+        cls.maintenance_backlog = ResourcePlanningBacklogItem.objects.create(
+            company=cls.company,
+            project_file=cls.project_file,
+            planning_type=cls.other_planning_type,
+            estimated_days=1,
+            is_reusable=False,
+        )
+        cls.maintenance_backlog.internal_labels.add(cls.waiting_label)
+
+    def test_backlog_planning_type_filter(self):
+        response = self.http.get(
+            self.schedule_url,
+            {
+                "day": "2026-07-06",
+                "num_days": "7",
+                "company": [str(self.company.pk)],
+                "backlog_planning_type": [str(self.planning_type.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        backlog_items = response.context["backlog_items"]
+        self.assertEqual(len(backlog_items), 1)
+        self.assertEqual(backlog_items[0].pk, self.install_backlog.pk)
+        self.assertTrue(response.context["backlog_filters_active"])
+
+    def test_backlog_internal_label_filter(self):
+        response = self.http.get(
+            self.schedule_url,
+            {
+                "day": "2026-07-06",
+                "num_days": "7",
+                "company": [str(self.company.pk)],
+                "backlog_internal_label": [str(self.waiting_label.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        backlog_items = response.context["backlog_items"]
+        self.assertEqual(len(backlog_items), 1)
+        self.assertEqual(backlog_items[0].pk, self.maintenance_backlog.pk)
+
+    def test_backlog_reusable_filter(self):
+        response = self.http.get(
+            self.schedule_url,
+            {
+                "day": "2026-07-06",
+                "num_days": "7",
+                "company": [str(self.company.pk)],
+                "backlog_reusable": "1",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        backlog_items = response.context["backlog_items"]
+        self.assertEqual(len(backlog_items), 1)
+        self.assertTrue(backlog_items[0].is_reusable)
+
+    def test_top_planning_type_filter_also_filters_backlog(self):
+        response = self.http.get(
+            self.schedule_url,
+            {
+                "day": "2026-07-06",
+                "num_days": "7",
+                "company": [str(self.company.pk)],
+                "planning_type": [str(self.other_planning_type.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        backlog_items = response.context["backlog_items"]
+        self.assertEqual(len(backlog_items), 1)
+        self.assertEqual(backlog_items[0].pk, self.maintenance_backlog.pk)
+
+    def test_top_project_file_filter_also_filters_backlog(self):
+        other_project = ProjectFile.objects.create(
+            company=self.company,
+            reference="EXP-00002",
+            name="Other Project",
+            status="open",
+            client=self.client_obj,
+        )
+        other_backlog = ResourcePlanningBacklogItem.objects.create(
+            company=self.company,
+            project_file=other_project,
+            planning_type=self.planning_type,
+            estimated_days=1,
+        )
+
+        response = self.http.get(
+            self.schedule_url,
+            {
+                "day": "2026-07-06",
+                "num_days": "7",
+                "company": [str(self.company.pk)],
+                "project_file": str(other_project.pk),
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        backlog_items = response.context["backlog_items"]
+        self.assertEqual(len(backlog_items), 1)
+        self.assertEqual(backlog_items[0].pk, other_backlog.pk)
 
 
 # ── Repetition series ─────────────────────────────────────────────────────────

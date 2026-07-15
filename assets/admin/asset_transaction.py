@@ -75,6 +75,7 @@ class AssetTransactionAdmin(ModelAdmin):
         ("to_zone", AutocompleteSelectMultipleFilter),
         ("date",RangeDateTimeFilter),
         ("performed_by", AutocompleteSelectMultipleFilter),
+        ("asset", AutocompleteSelectMultipleFilter)
     )
     search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes")
     autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file"]

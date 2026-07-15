@@ -43,12 +43,25 @@ def find_zone_within_radius(latitude, longitude, company, radius_metres=MAX_ZONE
             return zone, distance
     return None, None
 
-def find_zones_within_radius(latitude, longitude, company, radius_metres=MAX_ZONE_RADIUS_M):
+
+def find_zones_within_radius(
+    latitude, longitude, company,
+    radius_metres=MAX_ZONE_RADIUS_M,
+    zone_type=None,
+    zone_types=None
+):
     """
-    Returns ALL zones within radius, sorted by distance (closest first).
-    Unlike find_zone_within_radius, this doesn't stop at the first match.
+    Returns all zones within radius sorted by distance (closest first).
+
+    zone_type: filter to a single zone type (e.g. WorkingZone.ZoneType.VERTEDERO)
+    zone_types: filter to a list of zone types (e.g. [OBRA, ALMACEN])
+                preferred over zone_type when both are provided
     """
     zones = WorkingZone.objects.filter(company=company, is_active=True)
+    if zone_types is not None:
+        zones = zones.filter(zone_type__in=zone_types)
+    elif zone_type is not None:
+        zones = zones.filter(zone_type=zone_type)
     results = []
     for zone in zones:
         zone_lat, zone_lon = get_zone_coordinates(zone)

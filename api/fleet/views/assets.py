@@ -2,8 +2,10 @@ import base64
 import io
 import json
 import uuid
+import logging
 
 import qrcode
+from company.models import WorkingZone
 from django.core.files.base import ContentFile
 from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt
 from core.tasks import send_asset_transaction_email_task
@@ -47,11 +49,6 @@ def get_asset_status(last_transaction):
 
 
 def get_asset_receipt(asset):
-    """
-    True if the cuba has already been emptied since its most
-    recent recogida. Used by the app to grey out the Verteo button so
-    workers can't register it twice for the same pickup.
-    """
     last_movement = (
         AssetTransaction.objects.filter(
             asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT
@@ -81,7 +78,7 @@ def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
         "code": asset.name,
         "description": asset.asset_type.name if asset.asset_type else "",
         "status": get_asset_status(last_tx),
-        "asset_receipt": asset.has_pending_receipt,   # ← now a model property
+        "asset_receipt": asset.has_pending_receipt,
         "last_location": str(zone) if zone else None,
         "last_updated": last_tx.date.strftime("%d/%m/%Y %H:%M") if last_tx else None,
         "zone_address": f"{zone.street_address}, {zone.city}, {zone.postal_code}" if zone else None,
@@ -188,12 +185,6 @@ class AssetQRView(APIView):
 
 
 class BaseTransactionStrategy:
-    """
-    Base class for all transaction strategies.
-    Handles saving firma and imagen — shared by movement and delivery.
-    Receipt does not use firma/imagen so it does not call these.
-    """
-
     def __init__(self, data: dict, asset: Asset, employee, user):
         self.data = data
         self.asset = asset
@@ -201,7 +192,6 @@ class BaseTransactionStrategy:
         self.user = user
 
     def _save_firma_and_imagen(self, transaction):
-        """Attach firma (base64 text) and imagen (image file) to the transaction."""
         firma = self.data.get("firma", "")
         imagen = self.data.get("imagen", "")
         if firma:
@@ -215,12 +205,6 @@ class BaseTransactionStrategy:
 
 
 class MovementStrategy(BaseTransactionStrategy):
-    """
-    Handles MOVEMENT transactions (recogida — picking up a cuba).
-    Validates GPS distance to the cuba's current zone, or detects the zone
-    from GPS if the cuba has no zone yet. Supports multiple-zone selection.
-    """
-
     def execute(self) -> JsonResponse:
         data = self.data
         asset = self.asset
@@ -236,7 +220,6 @@ class MovementStrategy(BaseTransactionStrategy):
         chosen_zone_id = data.get("zone_id")
 
         if chosen_zone_id:
-            from company.models import WorkingZone
             try:
                 detected_zone = WorkingZone.objects.get(id=chosen_zone_id, company=asset.company)
                 asset.current_working_zone = detected_zone
@@ -288,11 +271,6 @@ class MovementStrategy(BaseTransactionStrategy):
 
 
 class DeliveryStrategy(BaseTransactionStrategy):
-    """
-    Handles DELIVERY transactions (entrega — dropping off a cuba).
-    Finds the destination zone from GPS. Supports multiple-zone selection.
-    """
-
     def execute(self) -> JsonResponse:
         data = self.data
         asset = self.asset
@@ -308,7 +286,6 @@ class DeliveryStrategy(BaseTransactionStrategy):
         chosen_zone_id = data.get("zone_id")
 
         if chosen_zone_id:
-            from company.models import WorkingZone
             try:
                 destination_zone = WorkingZone.objects.get(id=chosen_zone_id, company=asset.company)
                 distance = 0
@@ -347,14 +324,6 @@ class DeliveryStrategy(BaseTransactionStrategy):
 
 
 class ReceiptStrategy(BaseTransactionStrategy):
-    """
-    Handles RECEIPT transactions (verteo — emptying a cuba at the dump).
-    Does not use firma/imagen. Saves peso_neto and material_vertido on the
-    AssetTransactionReceipt model. Detects the dump zone from GPS.
-    Supports multiple-zone selection. Links back to the original MOVEMENT
-    (recogida) transaction.
-    """
-
     def execute(self) -> JsonResponse:
         data = self.data
         asset = self.asset
@@ -371,18 +340,19 @@ class ReceiptStrategy(BaseTransactionStrategy):
         if not nro_albaran:
             return JsonResponse({"error": "El numero de albaran es obligatorio."}, status=400)
 
-        # Detect which vertedero (dump zone) the driver is at
         vertedero_zone = None
         chosen_zone_id = data.get("zone_id")
 
         if chosen_zone_id:
-            from company.models import WorkingZone
             try:
                 vertedero_zone = WorkingZone.objects.get(id=chosen_zone_id, company=asset.company)
             except WorkingZone.DoesNotExist:
                 pass
         elif latitude is not None and longitude is not None:
-            nearby_zones = find_zones_within_radius(latitude, longitude, asset.company)
+            nearby_zones = find_zones_within_radius(
+                latitude, longitude, asset.company,
+                zone_type=WorkingZone.ZoneType.VERTEDERO
+            )
             if len(nearby_zones) > 1:
                 return JsonResponse({
                     "multiple_zones": True,
@@ -391,19 +361,19 @@ class ReceiptStrategy(BaseTransactionStrategy):
             elif len(nearby_zones) == 1:
                 vertedero_zone, _ = nearby_zones[0]
 
-        # Link back to the original recogida
+        # Link verteo to the original obra pickup, not the almacen pickup
         movement_tx = (
             AssetTransaction.objects.filter(
                 asset=asset,
                 transaction_type=TransactionTypeChoices.MOVEMENT,
+                from_zone__zone_type=WorkingZone.ZoneType.OBRA,
             )
             .order_by("-date")
             .first()
         )
 
         form_data = {k: v for k, v in data.items() if k not in (
-            "transaction_type", "latitude", "longitude", "zone_id",
-             "foto_albaran",
+            "transaction_type", "latitude", "longitude", "zone_id", "foto_albaran",
         )}
 
         transaction = AssetTransaction(
@@ -441,8 +411,6 @@ class ReceiptStrategy(BaseTransactionStrategy):
         })
 
 
-# Map transaction_type values to their strategy classes.
-# This replaces the if/elif chain in the view — clean and easy to extend.
 TRANSACTION_STRATEGY_MAP = {
     TransactionTypeChoices.MOVEMENT: MovementStrategy,
     TransactionTypeChoices.DELIVERY: DeliveryStrategy,
@@ -451,26 +419,15 @@ TRANSACTION_STRATEGY_MAP = {
 
 
 class AssetTransactionView(APIView):
-    """
-    Generic transaction endpoint.
-    POST /en/api/assets/<id>/transaction/
-
-    The serializer validates transaction_type against TransactionTypeChoices
-    automatically — no hardcoded strings in the view.
-    The correct strategy class is looked up from TRANSACTION_STRATEGY_MAP
-    and executed.
-    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request, asset_id):
         user = request.user
-
         try:
             raw = json.loads(request.body)
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
 
-        # Validate transaction_type using the serializer
         serializer = AssetTransactionSerializer(data=raw)
         if not serializer.is_valid():
             return JsonResponse(serializer.errors, status=400)
@@ -486,12 +443,161 @@ class AssetTransactionView(APIView):
         if employee is None:
             return JsonResponse({"error": "No employee profile found"}, status=400)
 
-        # Look up and run the strategy for this transaction type
         strategy_class = TRANSACTION_STRATEGY_MAP.get(transaction_type)
         if strategy_class is None:
             return JsonResponse({"error": "Unsupported transaction type."}, status=400)
 
         return strategy_class(raw, asset, employee, user).execute()
+
+
+class DeliveryCheckView(APIView):
+    """
+    GET /en/api/assets/<asset_id>/delivery-check/
+
+    Called by the app before the driver opens any form (Recoger, Dejar, Verteo).
+
+    Optional query params:
+      ?lat=<float>&lon=<float>&action=<verteo|recoger|dejar>
+
+    - verteo: only searches vertedero zones; blocks if none found
+    - recoger/dejar: excludes vertedero zones; if zero found, checks if
+      driver is at a vertedero and blocks dejar with at_vertedero=True
+    - verteo_required is checked against the last obra pickup only,
+      so almacen intermediate stops don't reset the verteo requirement
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, asset_id):
+        employee = get_current_employee(request.user)
+        if employee is None:
+            return JsonResponse({"error": "Employee not found"}, status=403)
+
+        try:
+            asset = Asset.objects.select_related("current_working_zone").get(
+                id=asset_id,
+                company=employee.company
+            )
+        except Asset.DoesNotExist:
+            return JsonResponse({"error": "Asset not found"}, status=404)
+
+        multiple_zones = False
+        zones_data = []
+        detected_zone_id = None
+        nearby_zones = []
+
+        lat_param = request.query_params.get("lat")
+        lon_param = request.query_params.get("lon")
+        action = request.query_params.get("action", "")
+
+        if lat_param is not None and lon_param is not None:
+            try:
+                latitude = float(lat_param)
+                longitude = float(lon_param)
+
+                if action == "verteo":
+                    zone_type_filter = WorkingZone.ZoneType.VERTEDERO
+                elif action in ("recoger", "dejar"):
+                    zone_type_filter = None
+                else:
+                    zone_type_filter = None
+
+                nearby_zones = find_zones_within_radius(
+                    latitude, longitude, asset.company,
+                    zone_type=zone_type_filter,
+                    zone_types=[WorkingZone.ZoneType.OBRA, WorkingZone.ZoneType.ALMACEN] if action in ("recoger", "dejar") else None
+                )
+
+                if len(nearby_zones) > 1:
+                    multiple_zones = True
+                    zones_data = [
+                        {"id": z.id, "name": str(z), "zone_type": z.zone_type}
+                        for z, _ in nearby_zones
+                    ]
+                elif len(nearby_zones) == 1:
+                    detected_zone_id = nearby_zones[0][0].id
+                elif len(nearby_zones) == 0 and action == "verteo":
+                    return JsonResponse({
+                        "can_deliver": False,
+                        "verteo_required": False,
+                        "is_almacen": False,
+                        "multiple_zones": False,
+                        "not_near_vertedero": True,
+                        "at_vertedero": False,
+                    })
+                elif len(nearby_zones) == 0 and action == "dejar":
+                    # No obra/almacen nearby — check if driver is at a vertedero
+                    vertedero_zones = find_zones_within_radius(
+                        latitude, longitude, asset.company,
+                        zone_type=WorkingZone.ZoneType.VERTEDERO
+                    )
+                    if len(vertedero_zones) > 0:
+                        return JsonResponse({
+                            "can_deliver": False,
+                            "verteo_required": False,
+                            "is_almacen": False,
+                            "multiple_zones": False,
+                            "not_near_vertedero": False,
+                            "at_vertedero": True,
+                        })
+
+            except (ValueError, TypeError):
+                pass
+
+        # is_almacen based on destination zone only when GPS provided
+        if lat_param is not None and lon_param is not None:
+            if len(nearby_zones) == 1:
+                is_almacen = nearby_zones[0][0].zone_type == WorkingZone.ZoneType.ALMACEN
+            else:
+                is_almacen = False
+        else:
+            is_almacen = (
+                asset.current_working_zone is not None
+                and asset.current_working_zone.zone_type == WorkingZone.ZoneType.ALMACEN
+            )
+
+        # Check verteo requirement against last obra pickup only —
+        # almacen intermediate pickups don't reset the verteo requirement
+        last_movement = (
+            AssetTransaction.objects.filter(
+                asset=asset,
+                transaction_type=TransactionTypeChoices.MOVEMENT,
+                from_zone__zone_type=WorkingZone.ZoneType.OBRA,
+            )
+            .order_by("-date")
+            .first()
+        )
+
+        verteo_required = False
+        if last_movement is not None:
+            vertedero_value = last_movement.data.get("vertedero", "")
+            verteo_required = bool(vertedero_value and vertedero_value.strip())
+
+        if verteo_required and last_movement is not None:
+            already_done = AssetTransaction.objects.filter(
+                asset=asset,
+                transaction_type=TransactionTypeChoices.RECEIPT,
+                date__gt=last_movement.date,
+            ).exists()
+            if already_done:
+                verteo_required = False
+
+        can_deliver = not verteo_required or is_almacen
+
+        response_data = {
+            "verteo_required": verteo_required,
+            "is_almacen": is_almacen,
+            "can_deliver": can_deliver,
+            "not_near_vertedero": False,
+            "at_vertedero": False,
+        }
+
+        if lat_param is not None and lon_param is not None:
+            response_data["multiple_zones"] = multiple_zones
+            response_data["detected_zone_id"] = detected_zone_id
+            if multiple_zones:
+                response_data["zones"] = zones_data
+
+        return JsonResponse(response_data)
 
 
 class AssetCheckDeliveryLocationView(APIView):

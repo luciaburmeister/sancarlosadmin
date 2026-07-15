@@ -1,3 +1,4 @@
+from unfold.contrib.filters.admin import RangeDateTimeFilter
 from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
 from unfold.contrib.filters.admin.autocomplete_filters import AutocompleteSelectMultipleFilter
 from django.contrib import admin, messages
@@ -72,6 +73,8 @@ class AssetTransactionAdmin(ModelAdmin):
         ("asset__client", AutocompleteSelectMultipleFilter),
         ("from_zone", AutocompleteSelectMultipleFilter),
         ("to_zone", AutocompleteSelectMultipleFilter),
+        ("date",RangeDateTimeFilter),
+        ("performed_by", AutocompleteSelectMultipleFilter),
     )
     search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes")
     autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file"]

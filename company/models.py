@@ -480,15 +480,16 @@ class CompanyEmailConfig(CompanyOwnedModel):
     def __str__(self):
         return f"{self.email_address} ({self.company})"
 
-
-class WorkingZone(CompanyOwnedModel):
-    
-    class ZoneType(models.TextChoices):
+class ZoneType(models.TextChoices):
 
         OBRA = "obra", _("Obra")
         VERTEDERO = "vertedero", _("Vertedero")
         ALMACEN = "almacen", _("Almacén")
 
+
+class WorkingZone(CompanyOwnedModel):
+    
+    
     name = models.CharField(max_length=100, verbose_name=_("Name"))
     zone_type = models.CharField(
         max_length=20,

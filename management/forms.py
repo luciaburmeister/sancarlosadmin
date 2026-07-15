@@ -46,6 +46,7 @@ from .models import (
     ProjectFile,
     ProjectFileStatus,
     ResourcePlanning,
+    ResourcePlanningBacklogLabel,
     ResourcePlanningType,
     ResourcePlanningStatus,
 )
@@ -226,6 +227,41 @@ class ResourcePlanningFilterForm(forms.Form):
             "admin/js/admin/DateTimeShortcuts.js",
             "admin/js/core.js",
         ]
+
+
+class ResourcePlanningBacklogFilterForm(forms.Form):
+    backlog_planning_type = forms.ModelMultipleChoiceField(
+        label=_("Planning Type"),
+        required=False,
+        queryset=ResourcePlanningType.objects.none(),
+        widget=forms.SelectMultiple,
+    )
+    backlog_internal_label = forms.ModelMultipleChoiceField(
+        label=_("Internal Label"),
+        required=False,
+        queryset=ResourcePlanningBacklogLabel.objects.none(),
+        widget=forms.SelectMultiple,
+    )
+    backlog_reusable = forms.ChoiceField(
+        label=_("Reusable"),
+        required=False,
+        choices=[("", _("All")), ("1", _("Yes")), ("0", _("No"))],
+        widget=UnfoldAdminSelectWidget,
+    )
+
+    def __init__(self, *args, company=None, user_companies=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        pt_qs = ResourcePlanningType.objects.filter(is_active=True).order_by("name")
+        if company:
+            pt_qs = pt_qs.filter(company=company)
+        elif user_companies is not None:
+            pt_qs = pt_qs.filter(company__in=user_companies)
+        self.fields["backlog_planning_type"].queryset = pt_qs
+
+        self.fields["backlog_internal_label"].queryset = (
+            ResourcePlanningBacklogLabel.objects.filter(is_active=True).order_by("name")
+        )
 
 
 # Apple-calendar-style repeat options

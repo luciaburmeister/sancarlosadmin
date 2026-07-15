@@ -15,7 +15,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
 from django.test import TestCase, Client as HttpClient, override_settings
 from django.urls import reverse
-from django.utils import timezone
+from django.utils import timezone, translation
 
 from company.models import Company, Employee
 from management.models import (
@@ -79,6 +79,12 @@ class _ViewBase(TestCase):
         cls.employee_ct = ContentType.objects.get(app_label="company", model="employee")
 
     def setUp(self):
+        # Admin URLs live under i18n_patterns, so reverse() and request locale
+        # depend on the active language. Other tests (e.g. fleet API tests
+        # hitting /en/...) leave English active for the rest of the process;
+        # pin Spanish so date inputs parse as dd/mm/yyyy regardless of order.
+        translation.activate("es")
+        self.addCleanup(translation.deactivate)
         self.http = HttpClient()
         self.http.force_login(self.superuser)
 

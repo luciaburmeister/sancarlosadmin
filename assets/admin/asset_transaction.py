@@ -1,3 +1,4 @@
+from company.models import WorkingZone
 from unfold.contrib.filters.admin import RangeDateTimeFilter
 from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
 from unfold.contrib.filters.admin.autocomplete_filters import AutocompleteSelectMultipleFilter

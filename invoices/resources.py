@@ -302,6 +302,8 @@ class SalesInvoiceResource(resources.ModelResource):
         widget=ForeignKeyWidget(Client, 'name')
     )
     client_tax_identifier = fields.Field(column_name=_('Client NIF/CIF'))
+    client_email = fields.Field(column_name=_('Client Email'))
+    client_phone = fields.Field(column_name=_('Client Phone'))
     company = fields.Field(
         column_name=_('Company'),
         attribute='company',
@@ -333,6 +335,8 @@ class SalesInvoiceResource(resources.ModelResource):
             'due_date',
             'client',
             'client_tax_identifier',
+            'client_email',
+            'client_phone',
             'company',
             'company_tax_identifier',
             'subtotal_amount_value',
@@ -395,6 +399,12 @@ class SalesInvoiceResource(resources.ModelResource):
 
     def dehydrate_client_tax_identifier(self, invoice):
         return invoice.client.tax_identifier if invoice.client and invoice.client.tax_identifier else ""
+
+    def dehydrate_client_email(self, invoice):
+        return invoice.client.email if invoice.client and invoice.client.email else ""
+
+    def dehydrate_client_phone(self, invoice):
+        return invoice.client.phone if invoice.client and invoice.client.phone else ""
 
     def dehydrate_company_tax_identifier(self, invoice):
         return invoice.company.tax_identifier if invoice.company and invoice.company.tax_identifier else ""

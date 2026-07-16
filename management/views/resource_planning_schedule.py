@@ -36,7 +36,7 @@ from management.models import (
 class CellBlock:
     __slots__ = ("id", "label", "color", "status", "start", "end",
                  "project_file_name", "planning_type_name", "company_id",
-                 "notes", "asset_type_name")
+                 "notes", "asset_type_name", "not_done")
 
     def __init__(self, p, start, end, asset_type_name=""):
         self.id = p.id
@@ -53,6 +53,7 @@ class CellBlock:
         self.planning_type_name = str(p.planning_type) if p.planning_type else "—"
         self.notes = p.notes or ""
         self.asset_type_name = asset_type_name
+        self.not_done = p.not_done
 
 
 RESOURCE_TYPE_LABELS = {

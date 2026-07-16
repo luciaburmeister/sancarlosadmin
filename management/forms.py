@@ -404,6 +404,13 @@ class ResourcePlanningBulkForm(forms.Form):
         help_text=_("Label these plannings with the planning type instead of the project file name in the schedule view."),
         widget=UnfoldBooleanSwitchWidget,
     )
+    not_done = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="No realizado",
+        help_text="Resalta este plan en rojo en la vista de planificación porque no se hizo como se esperaba.",
+        widget=UnfoldBooleanSwitchWidget,
+    )
     shift_following = forms.BooleanField(
         required=False,
         initial=False,
@@ -656,6 +663,13 @@ class ResourcePlanningSeriesForm(forms.Form):
     show_planning_type = forms.BooleanField(
         required=False,
         label=_("Show planning type"),
+        widget=UnfoldBooleanSwitchWidget,
+    )
+    not_done = forms.BooleanField(
+        required=False,
+        initial=False,
+        label="No realizado",
+        help_text="Resalta estos planes en rojo en la vista de planificación porque no se hicieron como se esperaba.",
         widget=UnfoldBooleanSwitchWidget,
     )
     notes = forms.CharField(

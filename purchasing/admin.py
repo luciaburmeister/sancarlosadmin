@@ -69,13 +69,13 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     fieldsets = (
         (_("General Information"), {
             "fields": (
-                "number",
-                "company",
-                "provider",
-                "requested_by",
-                "date_ordered",
-                "status",
-                "file",
+                ("number",
+                "company"),
+                ("provider",
+                "requested_by"),
+                ("date_ordered",
+                "status"),
+                ("external_reference","file")
             )
         }),
         (_("Financials & Approval"), {

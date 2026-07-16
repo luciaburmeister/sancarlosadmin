@@ -11,8 +11,11 @@ from django.http import HttpRequest
 from assets.models import AssetTransaction, AssetTransactionReceipt
 from django.contrib.contenttypes.models import ContentType
 from assets.models import AssetTransaction, BillingStatus
+from assets.resources import AssetTransactionResource
 from assets.views import AssetTransactionExportView
+from import_export.admin import ExportMixin
 from unfold.admin import ModelAdmin
+from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from unfold.admin import GenericTabularInline as _GenericTabularInline,TabularInline
 from unfold.decorators import action, display
 from django_json_widget.widgets import JSONEditorWidget
@@ -20,6 +23,7 @@ from django.utils.translation import gettext_lazy as _
 from company.models import EmailLog
 from core.tasks import send_asset_transaction_email_task
 import logging
+from import_export.admin import ImportExportModelAdmin
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +68,9 @@ class AssetTransactionReceiptInline(TabularInline):
 
 
 @admin.register(AssetTransaction)
-class AssetTransactionAdmin(ModelAdmin):
+class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
+    resource_classes = [AssetTransactionResource]
+    export_form_class = SelectableFieldsExportForm
     list_display = ("asset", "transaction_type", "from_zone", "to_zone", "project_file", "date", "get_employee", "has_firma", "billing_status_badge", "company", "imagen")
     list_filter = (
         ("company", AutocompleteSelectMultipleFilter),

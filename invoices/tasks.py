@@ -239,3 +239,22 @@ def process_manual_invoice(invoice_id: int):
         if temp_file_path and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
 
+
+@shared_task(name="invoices.tasks.build_invoice_pdf_zip")
+def build_invoice_pdf_zip_task(kind: str, invoice_ids: list[int], user_id: int | None = None):
+    """
+    Build a ZIP of sales or purchase invoice PDFs in the background and store
+    it for later download from the admin status page.
+    """
+    from invoices.services.invoice_pdf_download import InvoicePdfDownloadService
+
+    logger.info(
+        "Building invoice PDF zip kind=%s count=%s user_id=%s",
+        kind, len(invoice_ids or []), user_id,
+    )
+    return InvoicePdfDownloadService.build_and_store_zip(
+        kind=kind,
+        invoice_ids=list(invoice_ids or []),
+        user_id=user_id,
+    )
+

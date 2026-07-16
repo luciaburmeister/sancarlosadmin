@@ -32,8 +32,17 @@ from invoices.models import (
 from invoices.views.invoice.aging_export_view import AgingExportView
 from payments.models import PaymentAllocation
 from django.utils import timezone
-from invoices.views.sales_invoice_pdf import SalesInvoicePdfView
+from invoices.services.invoice_pdf_download import InvoicePdfDownloadService
+from invoices.tasks import build_invoice_pdf_zip_task
+from invoices.views.invoice_pdf_zip_status import (
+    InvoicePdfZipDownloadView,
+    InvoicePdfZipStatusAPIView,
+    InvoicePdfZipStatusPageView,
+    redirect_to_pdf_zip_status,
+)
 from invoices.views.invoice.wizard_views import SalesInvoiceWizardView
+from invoices.views.invoice.download_invoice_file import PurchaseInvoiceFileDownloadView
+from invoices.views.sales_invoice_pdf import SalesInvoicePdfDownloadView, SalesInvoicePdfView
 from invoices.views.invoice.import_sales_invoice import SalesInvoiceImportAdminView
 from invoices.views.invoice.bulk_mark_paid import BulkMarkPaidAdminView
 from invoices.views.invoice.bulk_mark_invoice_paid import BulkMarkInvoicePaidAdminView
@@ -324,13 +333,81 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
         PaymentAllocationInline,
     ]
 
-    actions = ["send_to_process", "classify_accounts", "journalize_selected", "export_a3_purchase_invoices", "import_from_excel", "run_matcher_bulk", "bulk_mark_as_paid"]
-    actions_row = ["review_invoice_row_action", "view_journal_entry_row_action"]
-    actions_detail = ["view_journal_entry_detail_action", "register_payment_detail_action", "run_invoice_matcher_detail_action"]
+    actions = [
+        "download_pdf",
+        "send_to_process",
+        "classify_accounts",
+        "journalize_selected",
+        "export_a3_purchase_invoices",
+        "import_from_excel",
+        "run_matcher_bulk",
+        "bulk_mark_as_paid",
+    ]
+    actions_row = [
+        "review_invoice_row_action",
+        "download_pdf_row_action",
+        "view_journal_entry_row_action",
+    ]
+    actions_detail = [
+        "download_pdf_detail_action",
+        "view_journal_entry_detail_action",
+        "register_payment_detail_action",
+        "run_invoice_matcher_detail_action",
+    ]
 
     @action(description=_("Review"), icon="rate_review")
     def review_invoice_row_action(self, request, object_id):
         return redirect(reverse("admin:invoices_invoice_review", args=[object_id]))
+
+    @action(description=_("Download PDF"), icon="download")
+    def download_pdf_row_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_invoice_download_pdf", args=[object_id]))
+
+    @action(description=_("Download PDF"), icon="download")
+    def download_pdf_detail_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_invoice_download_pdf", args=[object_id]))
+
+    @admin.action(description=_("Download PDF"))
+    def download_pdf(self, request, queryset):
+        invoice_ids = list(queryset.values_list("pk", flat=True))
+        if not invoice_ids:
+            self.message_user(
+                request,
+                _("Select at least one invoice."),
+                level=messages.ERROR,
+            )
+            return None
+
+        # Single selection: download immediately. Multiple: Celery + status page.
+        if len(invoice_ids) == 1:
+            invoice = queryset.first()
+            content = InvoicePdfDownloadService.read_purchase_invoice_file(invoice)
+            if content is None:
+                self.message_user(
+                    request,
+                    _("This invoice has no attached file."),
+                    level=messages.ERROR,
+                )
+                return None
+            filename = InvoicePdfDownloadService.purchase_invoice_filename(invoice)
+            lower = filename.lower()
+            content_type = "application/pdf"
+            if lower.endswith(".png"):
+                content_type = "image/png"
+            elif lower.endswith(".jpg") or lower.endswith(".jpeg"):
+                content_type = "image/jpeg"
+            return InvoicePdfDownloadService.pdf_attachment_response(
+                content, filename, content_type=content_type
+            )
+
+        result = build_invoice_pdf_zip_task.delay(
+            "purchase", invoice_ids, user_id=request.user.id
+        )
+        return redirect_to_pdf_zip_status(
+            request,
+            result.id,
+            reverse("admin:invoices_invoice_changelist"),
+        )
 
     @action(description=_("Run Matcher"), url_path="run-matcher", icon="compare_arrows")
     def run_invoice_matcher_detail_action(self, request, object_id):
@@ -456,11 +533,39 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
                 name="invoices_invoice_import",
             ),
             path(
+                "pdf-zip-status/",
+                self.admin_site.admin_view(
+                    InvoicePdfZipStatusPageView.as_view(model_admin=self)
+                ),
+                name="invoices_pdf_zip_status",
+            ),
+            path(
+                "pdf-zip-status/<str:task_id>/api/",
+                self.admin_site.admin_view(
+                    InvoicePdfZipStatusAPIView.as_view(model_admin=self)
+                ),
+                name="invoices_pdf_zip_status_api",
+            ),
+            path(
+                "pdf-zip-status/<str:task_id>/download/",
+                self.admin_site.admin_view(
+                    InvoicePdfZipDownloadView.as_view(model_admin=self)
+                ),
+                name="invoices_pdf_zip_download",
+            ),
+            path(
             "<int:object_id>/review/",
             self.admin_site.admin_view(
                 InvoiceReviewAdminView.as_view(model_admin=self)
             ),
             name="invoices_invoice_review",
+            ),
+            path(
+                "<int:object_id>/download-pdf/",
+                self.admin_site.admin_view(
+                    PurchaseInvoiceFileDownloadView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_download_pdf",
             ),
             path(
                 "<int:object_id>/register-payment/",
@@ -809,6 +914,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     actions = ["download_pdf", "finalize_invoice_action", "mark_as_paid", "bulk_mark_as_paid", "import_from_excel","run_matcher_bulk"]
     actions_row = [
         "view_pdf_row_action",
+        "download_pdf_row_action",
         "finalize_invoice_row_action",
         "send_email_row_action",
         "submit_aeat_row_action",
@@ -820,6 +926,7 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
             "title": _("Invoice Actions"),
             "items": [
                 "view_pdf_detail_action",
+                "download_pdf_detail_action",
                 "finalize_invoice_detail_action",
                 "send_email_detail_action",
                 "register_payment_detail_action",
@@ -848,6 +955,14 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
     def view_pdf_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_salesinvoice_pdf", args=[object_id]))
+
+    @action(description=_("Download PDF"), icon="download")
+    def download_pdf_row_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_salesinvoice_download_pdf", args=[object_id]))
+
+    @action(description=_("Download PDF"), icon="download")
+    def download_pdf_detail_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_salesinvoice_download_pdf", args=[object_id]))
 
     @action(description=_("Finalize"), icon="gavel")
     def finalize_invoice_row_action(self, request, object_id):
@@ -906,15 +1021,42 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
         count = queryset.update(payment_status=InvoicePaymentStatus.PAID)
         self.message_user(request, _("Marked %d invoices as paid.") % count)
 
+    @admin.action(description=_("Download PDF"))
     def download_pdf(self, request, queryset):
-        if queryset.count() != 1:
-            self.message_user(request, _("Please select only one invoice to download."), level="error")
-            return
-        
-        invoice = queryset.first()
-        return redirect(reverse("admin:invoices_salesinvoice_pdf", args=[invoice.id]))
+        invoice_ids = list(queryset.values_list("pk", flat=True))
+        if not invoice_ids:
+            self.message_user(
+                request,
+                _("Select at least one invoice."),
+                level=messages.ERROR,
+            )
+            return None
 
-    download_pdf.short_description = _("Download PDF")
+        if len(invoice_ids) == 1:
+            invoice = queryset.select_related(
+                "company", "client", "configuration"
+            ).first()
+            pdf_bytes = InvoicePdfDownloadService.render_sales_invoice_pdf(invoice)
+            if not pdf_bytes:
+                self.message_user(
+                    request,
+                    _("No PDF could be generated for the selected invoice."),
+                    level=messages.ERROR,
+                )
+                return None
+            return InvoicePdfDownloadService.pdf_attachment_response(
+                pdf_bytes,
+                InvoicePdfDownloadService.sales_invoice_pdf_filename(invoice),
+            )
+
+        result = build_invoice_pdf_zip_task.delay(
+            "sales", invoice_ids, user_id=request.user.id
+        )
+        return redirect_to_pdf_zip_status(
+            request,
+            result.id,
+            reverse("admin:invoices_salesinvoice_changelist"),
+        )
 
     def get_urls(self):
         urls = super().get_urls()
@@ -942,6 +1084,13 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
                 "<int:object_id>/pdf/",
                 self.admin_site.admin_view(SalesInvoicePdfView.as_view(model_admin=self)),
                 name="invoices_salesinvoice_pdf",
+            ),
+            path(
+                "<int:object_id>/download-pdf/",
+                self.admin_site.admin_view(
+                    SalesInvoicePdfDownloadView.as_view(model_admin=self)
+                ),
+                name="invoices_salesinvoice_download_pdf",
             ),
             path(
                 "<int:object_id>/register-payment/",

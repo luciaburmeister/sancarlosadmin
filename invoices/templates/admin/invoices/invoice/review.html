@@ -5,15 +5,24 @@
 <div style="display:flex; gap:24px; height:calc(100vh - 160px);">
 
   <!-- LEFT: Invoice file -->
-  <div class="w-1/2 min-w-0 border border-base-200 rounded-default overflow-hidden bg-base-50">
+  <div class="w-1/2 min-w-0 border border-base-200 rounded-default overflow-hidden bg-base-50 flex flex-col">
     {% if invoice.file %}
-      {% with invoice.file.name|lower as fname %}
-        {% if ".pdf" in fname %}
-          <iframe src="{{ invoice.file.url }}" width="100%" height="100%" style="border:none; display:block;"></iframe>
-        {% else %}
-          <img src="{{ invoice.file.url }}" style="width:100%; height:100%; object-fit:contain; display:block;" />
-        {% endif %}
-      {% endwith %}
+      <div class="flex items-center justify-end gap-2 px-3 py-2 border-b border-base-200 bg-white">
+        <a href="{% url 'admin:invoices_invoice_download_pdf' invoice.pk %}"
+           class="inline-flex items-center gap-1.5 rounded-default border border-base-200 px-3 py-1.5 text-sm font-medium hover:bg-base-50">
+          <span class="material-symbols-outlined" style="font-size:18px;">download</span>
+          {% trans "Download PDF" %}
+        </a>
+      </div>
+      <div class="min-h-0 flex-1">
+        {% with invoice.file.name|lower as fname %}
+          {% if ".pdf" in fname %}
+            <iframe src="{{ invoice.file.url }}" width="100%" height="100%" style="border:none; display:block;"></iframe>
+          {% else %}
+            <img src="{{ invoice.file.url }}" style="width:100%; height:100%; object-fit:contain; display:block;" />
+          {% endif %}
+        {% endwith %}
+      </div>
     {% else %}
       <p class="p-6 text-base-400">No file attached to this invoice.</p>
     {% endif %}

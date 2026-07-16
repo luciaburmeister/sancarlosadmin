@@ -84,6 +84,17 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
             )
         ]
 
+    @property
+    def resolved_project_file(self):
+        """The ticket's expediente, falling back to the source configuration's
+        quote when the FK was never set (legacy tickets)."""
+        if self.project_file is not None:
+            return self.project_file
+        try:
+            return self.source_object.quote.project_file
+        except Exception:
+            return None
+
     def get_stage_order(self):
         source = self.source_object
         product = getattr(source, "product", None) if source else None
@@ -318,10 +329,26 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
         verbose_name=_("Production Stages Order"),
     )
 
+    priority = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=_("Manual ordering set by supervisors in the terminal; lower is more urgent. Items without priority sort last."),
+        verbose_name=_("Priority"),
+    )
+
     class Meta:
         indexes = [
             GinIndex(fields=["planning"]),
         ]
+        permissions = [
+            ("can_reorder_items", _("Can reorder production items")),
+        ]
+
+    def can_finish_pending(self) -> bool:
+        """A never-started stage may be closed directly only when the item's
+        expediente is fully invoiced (leftover task cleanup)."""
+        project_file = self.ticket.resolved_project_file if self.ticket_id else None
+        return project_file is not None and project_file.is_fully_invoiced
 
     def get_ordered_planning(self):
         """

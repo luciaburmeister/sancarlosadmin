@@ -127,4 +127,9 @@ urlpatterns = [
         terminal.SupervisorUpdateConfigNotesView.as_view(),
         name="terminal_supervisor_update_config_notes",
     ),
+    path(
+        "production/items/reorder/",
+        terminal.ReorderItemsView.as_view(),
+        name="terminal_items_reorder",
+    ),
 ]

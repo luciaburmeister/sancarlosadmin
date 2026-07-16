@@ -113,6 +113,16 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         ref = self.reference or f"#{self.pk}"
         return f"[{ref}] {self.name} - {self.client}"
 
+    @property
+    def is_fully_invoiced(self) -> bool:
+        """True when the expediente is invoiced at (practically) 100%.
+
+        Uses the cached totals so no extra queries are needed.
+        """
+        total = getattr(self.total_amount, "amount", self.total_amount)
+        pct = self.percentage_invoiced or Decimal("0.00")
+        return bool(total and total > 0 and pct >= Decimal("99.99"))
+
     def recalculate_total_amount(self):
         """
         Recompute total_amount, total_invoiced, and percentage_invoiced.

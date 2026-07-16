@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from django.urls import reverse_lazy, reverse
 from django.utils.functional import lazy
 import os
+import sys
 from django.utils.translation import gettext_lazy as _
 from django.templatetags.static import static
 from datetime import timedelta
@@ -177,6 +178,19 @@ else:
         },
         "staticfiles": {
             "BACKEND": "django.contrib.staticfiles.storage.ManifestStaticFilesStorage",
+        },
+    }
+
+# During tests, use in-memory file storage (no S3 credentials needed) and
+# plain static storage (no collectstatic manifest needed).
+TESTING = "test" in sys.argv
+if TESTING:
+    STORAGES = {
+        "default": {
+            "BACKEND": "django.core.files.storage.InMemoryStorage",
+        },
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
         },
     }
 

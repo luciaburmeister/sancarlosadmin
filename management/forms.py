@@ -6,12 +6,12 @@ from django.contrib.admin.widgets import AutocompleteSelect
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from unfold.contrib.forms.widgets import WysiwygWidget
 from unfold.widgets import (
     UnfoldAdminDateWidget,
     UnfoldAdminSelect2MultipleWidget,
     UnfoldAdminSelectWidget,
     UnfoldAdminIntegerFieldWidget,
-    UnfoldAdminTextareaWidget,
     UnfoldAdminTimeWidget,
     UnfoldBooleanSwitchWidget,
 )
@@ -165,6 +165,13 @@ class ResourcePlanningFilterForm(forms.Form):
         required=False,
         initial=False,
         widget=UnfoldBooleanSwitchWidget,
+    )
+    show_more_info = forms.BooleanField(
+        label="Enseñar más información",
+        required=False,
+        initial=False,
+        widget=UnfoldBooleanSwitchWidget,
+        help_text="Muestra el tipo de planificación, el tipo de activo y las notas de cada plan.",
     )
     resources = forms.CharField(
         label=_("Resources"),
@@ -333,7 +340,7 @@ class ResourcePlanningBulkForm(forms.Form):
     notes = forms.CharField(
         required=False,
         label=_("Notes"),
-        widget=UnfoldAdminTextareaWidget(attrs={"rows": 3}),
+        widget=WysiwygWidget,
     )
     resources = forms.CharField(
         label=_("Resources"),
@@ -548,7 +555,7 @@ class ResourcePlanningMultiLineForm(forms.Form):
     notes = forms.CharField(
         required=False,
         label=_("Notes"),
-        widget=UnfoldAdminTextareaWidget(attrs={"rows": 2}),
+        widget=WysiwygWidget,
     )
     repeat = forms.ChoiceField(
         choices=REPEAT_CHOICES,
@@ -654,7 +661,7 @@ class ResourcePlanningSeriesForm(forms.Form):
     notes = forms.CharField(
         required=False,
         label=_("Notes"),
-        widget=UnfoldAdminTextareaWidget(attrs={"rows": 3}),
+        widget=WysiwygWidget,
     )
 
     def __init__(self, *args, user_companies=None, **kwargs):

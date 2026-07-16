@@ -45,6 +45,12 @@
         left: 0;
         z-index: 30;
       }
+
+      /* Notes come from the WYSIWYG editor as HTML — keep them compact */
+      .planning-block-notes div,
+      .planning-block-notes p {
+        margin: 0;
+      }
     </style>
 {% endblock %}
 
@@ -90,15 +96,16 @@
       <div class="flex flex-wrap items-end gap-4">
 
         {% for field in filter_form %}
-          {% if field.name != "resources" and field.name != "only_with_plans" %}
+          {% if field.name != "resources" and field.name != "only_with_plans" and field.name != "show_more_info" %}
             {% include "unfold/helpers/field.html" with field=field %}
           {% endif %}
         {% endfor %}
 
       </div>
 
-      <div class="flex flex-wrap items-center gap-4">
+      <div class="flex flex-col items-start gap-3">
         {% include "unfold/helpers/field.html" with field=filter_form.only_with_plans %}
+        {% include "unfold/helpers/field.html" with field=filter_form.show_more_info %}
       </div>
 
       {# Resource picker — restrict the schedule to hand-picked employees/machines/assets #}
@@ -311,6 +318,23 @@
                         <span class="font-semibold truncate">{{ b.label }}</span>
                         <span class="opacity-80 text-[10px] ml-1 shrink-0">{{ b.start|date:"H:i" }}–{{ b.end|date:"H:i" }}</span>
                       </a>
+                      {% if show_more_info %}
+                        <div class="mt-0.5 rounded-md border border-base-200 bg-base-50 px-2 py-1 text-[10px] leading-snug text-base-600 flex flex-col gap-0.5 dark:border-base-700 dark:bg-base-800 dark:text-base-300">
+                          <div>
+                            <span class="font-semibold">Tipo de planificación:</span>
+                            {{ b.planning_type_name }}
+                          </div>
+                          {% if b.asset_type_name %}
+                            <div>
+                              <span class="font-semibold">Tipo de activo:</span>
+                              {{ b.asset_type_name }}
+                            </div>
+                          {% endif %}
+                          {% if b.notes %}
+                            <div class="planning-block-notes">{{ b.notes|safe }}</div>
+                          {% endif %}
+                        </div>
+                      {% endif %}
                       <form method="post"
                             action="{% url 'admin:management_resourceplanning_delete_day' b.id %}"
                             x-show="hovered"

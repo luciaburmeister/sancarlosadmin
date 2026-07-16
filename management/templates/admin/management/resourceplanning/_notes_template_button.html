@@ -1,0 +1,53 @@
+<script>
+  // "Añadir template" button injected above every notes WYSIWYG (Trix)
+  // editor. Clicking it appends the notes template inside the same editor.
+  // Uses the trix-initialize event so it also covers editors added
+  // dynamically (e.g. new lines in the multi-planning formset).
+  (function () {
+    const TEMPLATE_HTML =
+      "<div><strong>Dirección:</strong></div><div><strong>Tamaño de la cuba:</strong></div><div><strong>Notas:</strong></div>";
+
+    function isNotesEditor(editorEl) {
+      const inputId = editorEl.getAttribute("input") || "";
+      return /notes$/.test(inputId);
+    }
+
+    function insertTemplate(editorEl) {
+      const editor = editorEl.editor;
+      if (!editor) return;
+      const end = editor.getDocument().getLength() - 1;
+      editor.setSelectedRange([end, end]);
+      if (end > 0) editor.insertHTML("<br>");
+      editor.insertHTML(TEMPLATE_HTML);
+      editorEl.focus();
+    }
+
+    function addTemplateButton(editorEl) {
+      if (!isNotesEditor(editorEl) || editorEl.dataset.notesTemplateButton)
+        return;
+      editorEl.dataset.notesTemplateButton = "1";
+
+      const anchor = editorEl.toolbarElement || editorEl;
+      const bar = document.createElement("div");
+      bar.className = "flex justify-start mb-1.5";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className =
+        "inline-flex items-center gap-1 px-2.5 py-1 rounded-default text-xs font-medium border border-base-200 dark:border-base-700 text-important bg-white dark:bg-transparent hover:bg-base-50 dark:hover:bg-base-800 transition-colors";
+      btn.innerHTML =
+        '<span class="material-symbols-outlined" style="font-size:14px;">post_add</span> Añadir template';
+      btn.addEventListener("click", function () {
+        insertTemplate(editorEl);
+      });
+      bar.appendChild(btn);
+      anchor.parentNode.insertBefore(bar, anchor);
+    }
+
+    document.addEventListener("trix-initialize", function (e) {
+      addTemplateButton(e.target);
+    });
+
+    // Editors that initialized before this script ran
+    document.querySelectorAll("trix-editor").forEach(addTemplateButton);
+  })();
+</script>

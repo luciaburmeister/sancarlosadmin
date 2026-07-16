@@ -476,6 +476,13 @@
       bindRemove(row);
       copyFromPreviousLine(row);
 
+      // The trix editor initialized on insert (before values were copied) —
+      // reload it from its now-populated hidden input.
+      row.querySelectorAll('trix-editor').forEach(ed => {
+        const input = document.getElementById(ed.getAttribute('input'));
+        if (ed.editor && input) ed.editor.loadHTML(input.value || '');
+      });
+
       // Init select2 on the new row's autocomplete selects (after copying
       // values, so the copied selection is rendered)
       if (window.django && django.jQuery && django.jQuery.fn.djangoAdminSelect2) {
@@ -509,4 +516,5 @@
     });
   })();
   </script>
+  {% include "admin/management/resourceplanning/_notes_template_button.html" %}
 {% endblock %}

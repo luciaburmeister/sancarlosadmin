@@ -354,6 +354,11 @@ class ResourcePlanning(Timestampable, CompanyOwnedModel):
         verbose_name=_("Show planning type"),
         help_text=_("Label this planning with its planning type instead of the project file name in the schedule view."),
     )
+    not_done = models.BooleanField(
+        default=False,
+        verbose_name=_("Not done"),
+        help_text=_("Mark this planning as not done as expected; it is highlighted in red in the schedule view."),
+    )
 
     class Meta:
         verbose_name = _("Resource Planning")

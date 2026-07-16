@@ -43,6 +43,7 @@ class ResourcePlanningService:
         exclude_weekends: bool,
         group: "ResourcePlanningGroup | None",
         show_planning_type: bool = False,
+        not_done: bool = False,
     ) -> list["ResourcePlanning"]:
         from management.models import ResourcePlanning
 
@@ -58,6 +59,7 @@ class ResourcePlanningService:
                 exclude_weekends=exclude_weekends,
                 group=group,
                 show_planning_type=show_planning_type,
+                not_done=not_done,
                 resource_content_type=ct,
                 resource_object_id=obj_id,
                 start=start_dt,
@@ -259,6 +261,7 @@ class ResourcePlanningService:
         exclude_weekends: bool = True,
         is_group: bool = False,
         show_planning_type: bool = False,
+        not_done: bool = False,
         shift_following: bool = False,
         repeat: str = "never",
         repeat_until: "date | None" = None,
@@ -292,6 +295,7 @@ class ResourcePlanningService:
                     daily_start=daily_start, daily_end=daily_end,
                     exclude_weekends=exclude_weekends, group=group,
                     show_planning_type=show_planning_type,
+                    not_done=not_done,
                 )
             if shift_following:
                 cls._shift_following_plannings(plannings)
@@ -400,6 +404,7 @@ class ResourcePlanningService:
         daily_end: datetime.time,
         exclude_weekends: bool = True,
         show_planning_type: bool = False,
+        not_done: bool = False,
     ) -> list["ResourcePlanning"]:
         from management.models import ResourcePlanning, ResourcePlanningGroup
 
@@ -416,6 +421,7 @@ class ResourcePlanningService:
                 daily_start=daily_start, daily_end=daily_end,
                 exclude_weekends=exclude_weekends, group=group,
                 show_planning_type=show_planning_type,
+                not_done=not_done,
             )
             cls._validate_no_overlaps(plannings, exclude_pks=old_pks)
             group.plannings.all().delete()
@@ -433,6 +439,7 @@ class ResourcePlanningService:
         status: str,
         notes: str = "",
         show_planning_type: bool = False,
+        not_done: bool = False,
         daily_start: datetime.time,
         daily_end: datetime.time,
     ) -> list["ResourcePlanning"]:
@@ -456,6 +463,7 @@ class ResourcePlanningService:
                 p.status = status
                 p.notes = notes
                 p.show_planning_type = show_planning_type
+                p.not_done = not_done
                 p.start = timezone.make_aware(datetime.datetime.combine(
                     timezone.localtime(p.start).date(), daily_start
                 ))
@@ -583,6 +591,7 @@ class ResourcePlanningService:
                     planning_type=planning.planning_type,
                     status=planning.status,
                     notes=planning.notes,
+                    not_done=planning.not_done,
                     exclude_weekends=planning.exclude_weekends,
                     group=None,
                     resource_content_type=planning.resource_content_type,

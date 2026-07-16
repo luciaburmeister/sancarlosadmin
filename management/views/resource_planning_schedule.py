@@ -35,9 +35,10 @@ from management.models import (
 # ponytail: plain class, no dataclass overhead
 class CellBlock:
     __slots__ = ("id", "label", "color", "status", "start", "end",
-                 "project_file_name", "planning_type_name", "company_id")
+                 "project_file_name", "planning_type_name", "company_id",
+                 "notes", "asset_type_name", "not_done")
 
-    def __init__(self, p, start, end):
+    def __init__(self, p, start, end, asset_type_name=""):
         self.id = p.id
         self.company_id = p.company_id
         if p.show_planning_type and p.planning_type:
@@ -50,6 +51,9 @@ class CellBlock:
         self.end = end
         self.project_file_name = str(p.project_file) if p.project_file else "—"
         self.planning_type_name = str(p.planning_type) if p.planning_type else "—"
+        self.notes = p.notes or ""
+        self.asset_type_name = asset_type_name
+        self.not_done = p.not_done
 
 
 RESOURCE_TYPE_LABELS = {
@@ -245,6 +249,7 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             asset_types = filter_form.cleaned_data.get("asset_type")
             resource_pairs = filter_form.cleaned_data.get("resources") or []
             only_with_plans = filter_form.cleaned_data.get("only_with_plans") or False
+            show_more_info = filter_form.cleaned_data.get("show_more_info") or False
         else:
             day_raw = GET.get("day", "")
             anchor = timezone.localdate()
@@ -300,6 +305,7 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             asset_types = asset_type_ids
             resource_pairs = _parse_resource_tokens(GET.get("resources", ""))
             only_with_plans = GET.get("only_with_plans") in {"1", "true", "True", "on"}
+            show_more_info = GET.get("show_more_info") in {"1", "true", "True", "on"}
 
         if selected_companies:
             company_scope = user_companies.filter(pk__in=selected_companies)
@@ -355,6 +361,8 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
                 params["resources"] = resources_raw
             if only_with_plans:
                 params["only_with_plans"] = "on"
+            if show_more_info:
+                params["show_more_info"] = "on"
             if backlog_planning_types:
                 params["backlog_planning_type"] = [
                     str(pt.pk) for pt in backlog_planning_types
@@ -400,6 +408,22 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
                 p for p in plannings
                 if (p.resource_content_type_id, p.resource_object_id) in selected_keys
             ]
+
+        # ── Asset type per planning (for the "show more info" mode) ───
+        asset_type_names: dict[int, str] = {}
+        if show_more_info:
+            from assets.models import Asset
+            asset_ct_id = ContentType.objects.get(app_label="assets", model="asset").id
+            asset_ids = {
+                p.resource_object_id for p in plannings
+                if p.resource_content_type_id == asset_ct_id
+            }
+            if asset_ids:
+                asset_type_names = {
+                    pk: name or ""
+                    for pk, name in Asset.objects.filter(pk__in=asset_ids)
+                    .values_list("pk", "asset_type__name")
+                }
 
         # ── Seed resource_map with active resources ────────────────────
         # When specific resources are selected, seed exactly those (so an
@@ -451,7 +475,13 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
                     continue
                 if p.start < col["end_dt"] and p.end > col["start_dt"]:
                     resource_map[key]["cells"][col["key"]].append(
-                        CellBlock(p, max(p.start, col["start_dt"]), min(p.end, col["end_dt"]))
+                        CellBlock(
+                            p,
+                            max(p.start, col["start_dt"]),
+                            min(p.end, col["end_dt"]),
+                            asset_type_name=asset_type_names.get(obj_id, "")
+                            if ct_cache[ct_id] == "asset" else "",
+                        )
                     )
 
         if only_with_plans:
@@ -547,6 +577,7 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             prev_url=prev_url,
             next_url=next_url,
             add_url=add_url,
+            show_more_info=show_more_info,
             show_cell_create_buttons=not only_with_plans,
             schedule_return_url=self.request.get_full_path(),
         )

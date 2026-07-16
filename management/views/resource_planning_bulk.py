@@ -54,7 +54,7 @@ class _PlanningFormMixin:
     FIELDSETS = [
         (_("Planning"), {"fields": ("company", "project_file", "planning_type", "status")}),
         (_("Schedule"), {"fields": (("date_from", "date_to"), ("daily_start", "daily_end"), "exclude_weekends")}),
-        (_("Options"), {"fields": ("is_group", "show_planning_type", "notes")}),
+        (_("Options"), {"fields": ("is_group", "show_planning_type", "not_done", "notes")}),
     ]
 
     RESOURCE_MODEL_MAP = {
@@ -244,6 +244,7 @@ class ResourcePlanningAddView(_PlanningFormMixin, UnfoldModelAdminViewMixin, Vie
                         exclude_weekends=cd["exclude_weekends"],
                         is_group=cd.get("is_group", False),
                         show_planning_type=cd.get("show_planning_type", False),
+                        not_done=cd.get("not_done", False),
                         shift_following=cd.get("shift_following", False),
                         repeat=cd.get("repeat", "never"),
                         repeat_until=cd.get("repeat_until"),
@@ -467,6 +468,7 @@ class ResourcePlanningGroupChangeView(_PlanningFormMixin, UnfoldModelAdminViewMi
             "exclude_weekends": first.exclude_weekends,
             "is_group": True,
             "show_planning_type": first.show_planning_type,
+            "not_done": first.not_done,
         }
 
     # ── Series editor (repetition groups) ─────────────────────────────────────
@@ -474,7 +476,7 @@ class ResourcePlanningGroupChangeView(_PlanningFormMixin, UnfoldModelAdminViewMi
     SERIES_FIELDSETS = [
         (_("Planning"), {"fields": ("project_file", "planning_type", "status")}),
         (_("Daily hours"), {"fields": (("daily_start", "daily_end"),)}),
-        (_("Options"), {"fields": ("show_planning_type", "notes")}),
+        (_("Options"), {"fields": ("show_planning_type", "not_done", "notes")}),
     ]
 
     def _get_series_form(self, request, data=None, initial=None) -> ResourcePlanningSeriesForm:
@@ -494,6 +496,7 @@ class ResourcePlanningGroupChangeView(_PlanningFormMixin, UnfoldModelAdminViewMi
             "status": first.status,
             "notes": first.notes,
             "show_planning_type": first.show_planning_type,
+            "not_done": first.not_done,
             "daily_start": tz.localtime(first.start).time(),
             "daily_end": tz.localtime(first.end).time(),
         }
@@ -564,6 +567,7 @@ class ResourcePlanningGroupChangeView(_PlanningFormMixin, UnfoldModelAdminViewMi
                     status=cd["status"],
                     notes=cd.get("notes", ""),
                     show_planning_type=cd.get("show_planning_type", False),
+                    not_done=cd.get("not_done", False),
                     daily_start=cd["daily_start"],
                     daily_end=cd["daily_end"],
                 )
@@ -625,6 +629,7 @@ class ResourcePlanningGroupChangeView(_PlanningFormMixin, UnfoldModelAdminViewMi
                     daily_end=cd["daily_end"],
                     exclude_weekends=cd["exclude_weekends"],
                     show_planning_type=cd.get("show_planning_type", False),
+                    not_done=cd.get("not_done", False),
                 )
                 if not is_group:
                     dissolve_group(group.pk)
@@ -685,6 +690,7 @@ class ResourcePlanningIndividualChangeView(_PlanningFormMixin, UnfoldModelAdminV
             "exclude_weekends": p.exclude_weekends,
             "is_group": False,
             "show_planning_type": p.show_planning_type,
+            "not_done": p.not_done,
         }
 
     def get(self, request, *args, **kwargs):
@@ -750,6 +756,7 @@ class ResourcePlanningIndividualChangeView(_PlanningFormMixin, UnfoldModelAdminV
                             exclude_weekends=cd["exclude_weekends"],
                             is_group=is_group,
                             show_planning_type=cd.get("show_planning_type", False),
+                            not_done=cd.get("not_done", False),
                         )
                     if "_addanother" in request.POST:
                         return HttpResponseRedirect(add_url)
@@ -787,6 +794,7 @@ class ResourcePlanningIndividualChangeView(_PlanningFormMixin, UnfoldModelAdminV
                     notes=cd.get("notes", ""),
                     exclude_weekends=cd["exclude_weekends"],
                     show_planning_type=cd.get("show_planning_type", False),
+                    not_done=cd.get("not_done", False),
                     resource_content_type=ct,
                     resource_object_id=obj_id,
                     start=start_dt,

@@ -349,11 +349,14 @@ def _sort_production_items_stable(items):
     return sorted(items, key=sort_key)
 
 
-def active_ticket_items(ticket):
+def active_ticket_items(ticket, config_item_ids: set[int] | None = None):
     """Return ProductionItems that still belong to the current configuration BOM.
 
     If the ticket source is not a Configuration (or cannot be resolved), return all
     ticket items to preserve backward-compatible behavior.
+
+    Pass *config_item_ids* when you already loaded BOM ids for the source configuration
+    (avoids one query per ticket in bulk endpoints).
     """
     items = list(
         ticket.items.prefetch_related("assigned_employees").order_by("id")
@@ -362,7 +365,11 @@ def active_ticket_items(ticket):
     if source is None or not hasattr(source, "items"):
         return _sort_production_items_stable(items)
 
-    current_config_item_ids = set(source.items.values_list("id", flat=True))
+    if config_item_ids is None:
+        current_config_item_ids = set(source.items.values_list("id", flat=True))
+    else:
+        current_config_item_ids = config_item_ids
+
     if not current_config_item_ids:
         return []
 
@@ -396,6 +403,44 @@ def _ordered_stage_names(item) -> list[str]:
             return (1, name)
 
     return sorted(names, key=sort_key)
+
+
+def planning_stage_status(item, stage_name_nfc: str) -> str:
+    """Return pending / in_progress / done for a stage on an item's planning."""
+    for k, v in (item.planning or {}).items():
+        if unicodedata.normalize("NFC", k) == stage_name_nfc:
+            if isinstance(v, dict):
+                return v.get("status") or "pending"
+            break
+    return "pending"
+
+
+def config_item_ids_by_config(config_ids: list[int]) -> dict[int, set[int]]:
+    """BOM line ids keyed by configuration id (one query for many configs)."""
+    from collections import defaultdict
+
+    from configurator.models import ConfigurationItem
+
+    by_config: dict[int, set[int]] = defaultdict(set)
+    if not config_ids:
+        return by_config
+    for config_id, item_id in ConfigurationItem.objects.filter(
+        configuration_id__in=config_ids,
+    ).values_list("configuration_id", "id"):
+        by_config[config_id].add(item_id)
+    return by_config
+
+
+def workers_by_item_stage(
+    rows,
+) -> dict[tuple[int, str], set[int]]:
+    """Group session rows into {(item_id, stage_nfc): {employee_id, ...}}."""
+    from collections import defaultdict
+
+    workers: dict[tuple[int, str], set[int]] = defaultdict(set)
+    for item_id, stage, emp_id in rows:
+        workers[(item_id, unicodedata.normalize("NFC", stage or ""))].add(emp_id)
+    return workers
 
 
 def serialize_production_items_with_stages(ticket, items=None, employee=None) -> list[dict]:

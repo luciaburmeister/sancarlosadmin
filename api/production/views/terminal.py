@@ -17,6 +17,7 @@ from django.utils import timezone
 
 from api._serializers import active_ticket_items, _ordered_stage_names
 from api._utils import SharedTerminalAPIView
+from api.production.serializers import ReorderItemsSerializer
 from company.models import Employee
 from configurator.models import Configuration, ConfigurationStatus
 from management.models import ProjectFileStatus
@@ -29,6 +30,16 @@ from production.models import (
     ProductionTicketStatus,
 )
 from production.services.stages_to_sessions import StagesToSessionsService
+
+
+def _sort_entries_by_priority(entries: list[dict], stage_key: str) -> None:
+    """Stable in-place sort: supervisor-prioritised items first (lower = more urgent)."""
+    entries.sort(
+        key=lambda e: (
+            e[stage_key].get("priority") is None,
+            e[stage_key].get("priority") or 0,
+        )
+    )
 
 
 # ─── Employee list ────────────────────────────────────────────────────────────
@@ -60,11 +71,6 @@ class TerminalEmployeeListView(SharedTerminalAPIView):
 
 
 # ─── Task list for a given employee ──────────────────────────────────────────
-
-
-def _employee_can_work_stage(employee: Employee, stage_name_nfc: str) -> bool:
-    allowed = [_uc.normalize("NFC", s) for s in (employee.production_stages or [])]
-    return not allowed or stage_name_nfc in allowed
 
 
 def _build_stage_history_indexes(item_ids) -> tuple[dict[tuple, list[dict]], dict[tuple, list]]:
@@ -217,15 +223,12 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
 
         items = active_ticket_items(ticket)
 
-        project_file = ticket.project_file
-        if project_file is None:
-            try:
-                project_file = config.quote.project_file
-            except Exception:
-                project_file = None
+        project_file = ticket.resolved_project_file
 
         if project_file is not None and project_file.status == ProjectFileStatus.CANCELLED:
             continue
+
+        fully_invoiced = project_file is not None and project_file.is_fully_invoiced
 
         if search and project_file:
             client_name = project_file.client.name if project_file.client else ""
@@ -243,7 +246,7 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
                 str(item.component) if getattr(item, "component_id", None) else "—"
             )
             for jj, stage_name in enumerate(_ordered_stage_names(item)):
-                if not _employee_can_work_stage(employee, stage_name):
+                if not employee.can_work_stage(stage_name):
                     continue
                 raw = {}
                 for k, v in (item.planning or {}).items():
@@ -262,6 +265,7 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
                     "status": status,
                     "component_label": component_label,
                     "is_assigned": is_assigned,
+                    "priority": item.priority,
                     "pause_reason": raw.get("pause_reason") if isinstance(raw, dict) else None,
                 })
 
@@ -333,10 +337,20 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
                     ),
                     "is_assigned": stage_p["is_assigned"],
                     "session_comments": stage_comments,
+                    # Expediente fully invoiced but this stage not closed yet:
+                    # the terminal highlights it and allows closing directly.
+                    # Only shown to employees assigned to the task.
+                    "billing_pending": (
+                        fully_invoiced
+                        and stage_p["status"] != "done"
+                        and stage_p["is_assigned"]
+                    ),
+                    "priority": stage_p["priority"],
                     "pause_reason": stage_p["pause_reason"],
                 },
             })
 
+    _sort_entries_by_priority(results, "next_stage")
     return results
 
 
@@ -488,10 +502,18 @@ class TerminalStageLeaveView(_TerminalStageActionView):
 
 class TerminalStageFinishView(_TerminalStageActionView):
     def _run(self, *, stage_name, item, employee, body):
+        # Closing a stage that never started is only allowed when the app
+        # explicitly asks for it and the service confirms the expediente
+        # is fully invoiced.
+        allow_pending = (
+            bool(body.get("allow_pending"))
+            and item.can_finish_pending()
+        )
         return StagesToSessionsService.finish_activity(
             stage_name=stage_name,
             items=[item],
             employee=employee,
+            allow_pending=allow_pending,
         )
 
 
@@ -594,12 +616,7 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
 
         items = active_ticket_items(ticket)
 
-        project_file = ticket.project_file
-        if project_file is None:
-            try:
-                project_file = config.quote.project_file
-            except Exception:
-                project_file = None
+        project_file = ticket.resolved_project_file
 
         if project_file is not None and project_file.status == ProjectFileStatus.CANCELLED:
             continue
@@ -653,7 +670,7 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
                 assigned_emps = [
                     {"id": e.id, "full_name": e.full_name}
                     for e in item.assigned_employees.all()
-                    if _employee_can_work_stage(e, stage_name_n)
+                    if e.can_work_stage(stage_name_n)
                 ]
 
                 entry = {
@@ -669,6 +686,7 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
                         "session_events": _stage_events(
                             sessions_index.get((item.id, stage_name_n), []), status
                         ),
+                        "priority": item.priority,
                         "pause_reason": raw.get("pause_reason") if isinstance(raw, dict) else None,
                     },
                 }
@@ -684,6 +702,9 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
                     assigned.append(entry)
                 else:
                     pending.append(entry)
+
+    for section in (active, paused, assigned, pending, done):
+        _sort_entries_by_priority(section, "stage")
 
     return {
         "active": active,
@@ -799,12 +820,7 @@ def _build_production_hours_results(company) -> list[dict]:
         if config is None or ticket is None:
             continue
 
-        project_file = ticket.project_file
-        if project_file is None:
-            try:
-                project_file = config.quote.project_file
-            except Exception:
-                project_file = None
+        project_file = ticket.resolved_project_file
 
         if project_file is not None and project_file.status == ProjectFileStatus.CANCELLED:
             continue
@@ -945,7 +961,7 @@ class ItemAssignableEmployeesView(SharedTerminalAPIView):
         result = []
         for emp in employees:
             workable = sorted(
-                s for s in item_stages if _employee_can_work_stage(emp, s)
+                s for s in item_stages if emp.can_work_stage(s)
             )
             if not workable:
                 continue
@@ -1047,6 +1063,48 @@ class SupervisorStartEmployeeStageView(SharedTerminalAPIView):
                 status=400,
             )
         return JsonResponse({"success": True, "count": count})
+
+
+# ─── Reorder items by priority ────────────────────────────────────────────────
+
+class ReorderItemsView(SharedTerminalAPIView):
+    """
+    Persists the manual priority order dragged in the terminal.
+    Body: {employee_id, item_ids: [id, ...]} — first is most urgent.
+    Requires production.can_reorder_items on the acting employee's User.
+    Priorities are assigned as 1..N; items not included keep their priority.
+    """
+
+    def post(self, request):
+        serializer = ReorderItemsSerializer(
+            data=request.data, context={"company": self.company}
+        )
+        if not serializer.is_valid():
+            return JsonResponse(
+                {"error": "Datos no válidos.", "details": serializer.errors},
+                status=400,
+            )
+        item_ids = serializer.validated_data["item_ids"]
+
+        items = {
+            item.id: item
+            for item in ProductionItem.objects.filter(
+                id__in=item_ids, company=self.company
+            )
+        }
+
+        updated = []
+        for idx, item_id in enumerate(item_ids, start=1):
+            item = items.get(item_id)
+            if item is None or item.priority == idx:
+                continue
+            item.priority = idx
+            updated.append(item)
+
+        if updated:
+            ProductionItem.objects.bulk_update(updated, ["priority"])
+
+        return JsonResponse({"success": True, "count": len(updated)})
 
 
 # ─── Supervisor: update configuration notes ────────────────────────────────────

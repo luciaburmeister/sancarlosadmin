@@ -11,11 +11,6 @@ from production.models import (
 from company.models import Employee
 from production.exceptions import StageHasActiveWorkersError
 from django.utils.translation import gettext_lazy as _
-from django.contrib import messages
-from django.shortcuts import redirect
-from django.urls import reverse
-
-
 
 import unicodedata
 
@@ -237,10 +232,27 @@ class StagesToSessionsService:
         return workers
 
     @classmethod
-    def finish_activity(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
+    def finish_activity(
+        cls,
+        *,
+        stage_name: str,
+        items: list[ProductionItem],
+        employee: Employee,
+        allow_pending: bool = False,
+    ) -> int:
+        """Mark a stage as done, closing this employee's open sessions.
+
+        With ``allow_pending=True`` a stage that never started can also be
+        closed directly (used by the terminal to close leftover tasks on
+        fully-invoiced expedientes).
+        """
         stage_name = unicodedata.normalize("NFC", stage_name)
         now = timezone.now()
         count = 0
+
+        allowed_statuses = {ProductionItemStatus.IN_PROGRESS}
+        if allow_pending:
+            allowed_statuses.add(ProductionItemStatus.PENDING)
 
         for item in items:
             current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
@@ -248,7 +260,7 @@ class StagesToSessionsService:
                 continue
 
             status = (stage_info.get("status") or ProductionItemStatus.PENDING)
-            if status != ProductionItemStatus.IN_PROGRESS:
+            if status not in allowed_statuses:
                 continue
 
             others = cls._other_active_workers_on_stage(item, stage_name, employee)

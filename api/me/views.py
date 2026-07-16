@@ -20,13 +20,6 @@ from production.models import (
 )
 
 
-def _employee_can_work_stage(employee, stage_name_nfc: str) -> bool:
-    allowed = [_uc.normalize("NFC", s) for s in (employee.production_stages or [])]
-    if not allowed:
-        return True
-    return stage_name_nfc in allowed
-
-
 def _task_pairs_capability_model(employee, active_items):
     pairs = []
     for ii, item in enumerate(active_items):
@@ -35,7 +28,7 @@ def _task_pairs_capability_model(employee, active_items):
             str(item.component) if getattr(item, "component_id", None) else "—"
         )
         for jj, stage_name in enumerate(_ordered_stage_names(item)):
-            if not _employee_can_work_stage(employee, stage_name):
+            if not employee.can_work_stage(stage_name):
                 continue
 
             raw = {}

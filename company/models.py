@@ -1,3 +1,5 @@
+import unicodedata
+
 from django.contrib.auth.hashers import make_password
 from django.db import models
 from django.utils.translation import gettext_lazy as _  
@@ -229,7 +231,7 @@ class EmployeeType(CompanyOwnedModel):
         return self.type
 
 class Employee(CompanyOwnedModel):
-    
+
     user = models.OneToOneField(
         User,
         on_delete=models.SET_NULL,
@@ -375,7 +377,13 @@ class Employee(CompanyOwnedModel):
     @property
     def full_name(self):
         return f"{self.first_name} {self.last_name}"
-    
+
+    def can_work_stage(self, stage_name: str) -> bool:
+        """True when the employee's allowed stages include this one (or are unrestricted)."""
+        stage_nfc = unicodedata.normalize("NFC", stage_name)
+        allowed = [unicodedata.normalize("NFC", s) for s in (self.production_stages or [])]
+        return not allowed or stage_nfc in allowed
+
     def clean(self):
         super().clean()
 

@@ -5,7 +5,9 @@
       "Bash(python -c ' *)",
       "Bash(python manage.py shell -c ' *)",
       "Bash(ls /Users/joangaes/Documents/Scalewave/fistex/alumniniooerp | head -30; ls /Users/joangaes/Documents/Scalewave/fistex/alumniniooerp/.venv/bin/python 2>/dev/null || which python3)",
-      "Read(//opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/bin/**)"
+      "Read(//opt/homebrew/Cellar/python@3.14/3.14.5/Frameworks/Python.framework/Versions/3.14/bin/**)",
+      "Bash(DEBUG=False .venv/bin/python manage.py test)",
+      "Bash(.venv/bin/python manage.py shell -c ' *)"
     ]
   }
 }

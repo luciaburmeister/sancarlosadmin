@@ -1410,6 +1410,38 @@ class QuotePhoto(models.Model):
         return f"Photo [{cat}] – Quote #{self.quote_id}"
 
 
+class ShippingAgency(Timestampable, CompanyOwnedModel):
+    name = models.CharField(max_length=255, verbose_name=_("Name"))
+    phone = models.CharField(max_length=50, blank=True, verbose_name=_("Phone"))
+    email = models.EmailField(blank=True, verbose_name=_("Email"))
+    website = models.URLField(max_length=500, blank=True, verbose_name=_("Website"))
+    tracking_url_template = models.CharField(
+        max_length=500,
+        blank=True,
+        verbose_name=_("Tracking URL Template"),
+        help_text=_(
+            "URL used to build the tracking link for a shipment. "
+            "Use {shipment_number} as placeholder, e.g. "
+            "https://agency.com/track?ref={shipment_number}"
+        ),
+    )
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Shipping Agency")
+        verbose_name_plural = _("Shipping Agencies")
+        ordering = ["name"]
+        unique_together = ["company", "name"]
+
+    def __str__(self):
+        return self.name
+
+    def build_tracking_url(self, shipment_number):
+        if not (self.tracking_url_template and shipment_number):
+            return ""
+        return self.tracking_url_template.replace("{shipment_number}", shipment_number)
+
+
 class DeliveryOrderStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")
     SENT = "sent", _("Sent")
@@ -1466,6 +1498,35 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
     )
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
 
+    # Shipping information
+    package_count = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("Number of Packages"),
+    )
+    shipping_agency = models.ForeignKey(
+        ShippingAgency,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delivery_orders",
+        verbose_name=_("Shipping Agency"),
+    )
+    shipment_number = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Shipment Number"),
+    )
+    tracking_url = models.URLField(
+        max_length=500,
+        blank=True,
+        verbose_name=_("Tracking URL"),
+        help_text=_(
+            "Link to follow up the shipment. If left empty, it is built from "
+            "the agency's tracking URL template and the shipment number."
+        ),
+    )
+
     class Meta:
         verbose_name = _("Delivery Order")
         verbose_name_plural = _("Delivery Orders")
@@ -1489,6 +1550,15 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
             self.number = f"{prefix}{next_id:05d}"
             self.incremental_id = next_id
         super().save(*args, **kwargs)
+
+    @property
+    def tracking_link(self):
+        """Explicit tracking URL, or one built from the agency's template."""
+        if self.tracking_url:
+            return self.tracking_url
+        if self.shipping_agency:
+            return self.shipping_agency.build_tracking_url(self.shipment_number)
+        return ""
 
     def recalculate_subtotal(self, save=True):
         """Recompute subtotal_amount from item line_totals."""

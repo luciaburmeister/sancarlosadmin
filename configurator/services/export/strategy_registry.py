@@ -1,0 +1,35 @@
+"""
+Shared registry mapping model class → export strategy class.
+
+Mirrors kind_registry.py: lazy imports avoid circular imports at module
+level. New exportable documents only need one entry here.
+"""
+
+from .configuration import ConfigurationExportStrategy
+from .production_item import ProductionItemExportStrategy
+from .sales_invoice import SalesInvoiceExportStrategy
+from .quote import QuoteExportStrategy
+from .receival_slip import ReceivalSlipExportStrategy
+from .asset_transaction import AssetTransactionExportStrategy
+from .delivery_order import DeliveryOrderExportStrategy
+
+
+def get_strategy_map():
+    """
+    Returns a dict of ModelClass → ExportStrategyClass.
+    """
+    from configurator.models import Configuration, ReceivalSlip
+    from production.models import ProductionItem
+    from invoices.models import SalesInvoice
+    from sales.models import Quote, DeliveryOrder
+    from assets.models import AssetTransaction
+
+    return {
+        Configuration:    ConfigurationExportStrategy,
+        ProductionItem:   ProductionItemExportStrategy,
+        SalesInvoice:     SalesInvoiceExportStrategy,
+        Quote:            QuoteExportStrategy,
+        ReceivalSlip:     ReceivalSlipExportStrategy,
+        AssetTransaction: AssetTransactionExportStrategy,
+        DeliveryOrder:    DeliveryOrderExportStrategy,
+    }

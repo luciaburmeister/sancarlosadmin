@@ -1582,6 +1582,7 @@ class ExportTemplateKind(models.TextChoices):
     CONSOLIDATED_QUOTATION = "consolidated_quotation", _("Consolidated Quotation")
     RECEIVAL_SLIP = "receival_slip", _("Receival Slip")
     ASSET_TRANSACTION = "asset_transaction", _("Asset Transaction")
+    DELIVERY_ORDER = "delivery_order", _("Delivery Order")
 
 
 class ConfigurationExportTemplate(CompanyOwnedModel):

@@ -1,5 +1,6 @@
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-from unfold.contrib.filters.admin import RadioFilter
+from unfold.contrib.filters.admin import DropdownFilter, RadioFilter
 from django.contrib.contenttypes.models import ContentType
 
 class HasItemsFilter(RadioFilter):
@@ -39,7 +40,26 @@ class ItemsMissingAccountFilter(RadioFilter):
             return queryset.exclude(items__account__isnull=True, items__isnull=False)
         return queryset
 
-class IsReconciledFilter(RadioFilter):
+class DueDatePassedFilter(DropdownFilter):
+    title = _("due date passed")
+    parameter_name = "due_date_passed"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", _("Overdue")),
+            ("no", _("Not overdue")),
+        )
+
+    def queryset(self, request, queryset):
+        today = timezone.localdate()
+        if self.value() == "yes":
+            return queryset.filter(due_date__lt=today)
+        if self.value() == "no":
+            return queryset.exclude(due_date__lt=today)
+        return queryset
+
+
+class IsReconciledFilter(DropdownFilter):
     title = _("bank reconciled")
     parameter_name = "is_reconciled"
 

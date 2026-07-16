@@ -1,0 +1,190 @@
+from django.contrib import admin
+from django.shortcuts import redirect
+from django.urls import reverse, path
+from django.utils.translation import gettext_lazy as _
+from unfold.admin import ModelAdmin, StackedInline, TabularInline
+from unfold.decorators import action, display
+from unfold.contrib.filters.admin import (
+    AutocompleteSelectMultipleFilter,
+    MultipleChoicesDropdownFilter,
+    RangeDateFilter,
+)
+
+from core.admin.company_admin import CompanyRestrictedAdmin
+from core.admin.email_log import EmailLogInline
+from inventory.models import ItemIdentityCode
+from sales.models import (
+    DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
+)
+from sales.views.delivery_order_export_view import DeliveryOrderExportView
+from sales.views.delivery_order_send_email_view import DeliveryOrderSendEmailView
+
+
+class IdentityCodeDeliveryInline(TabularInline):
+    model = ItemIdentityCode
+    extra = 0
+    verbose_name = _("Identity Code")
+    verbose_name_plural = _("Identity Codes")
+    fields = ("code", "item", "delivered_at")
+    readonly_fields = ("code", "item", "delivered_at")
+    tab=True
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class DeliveryOrderItemInline(StackedInline):
+    model = DeliveryOrderItem
+    extra = 0
+    tab = True
+    name = _("Items")
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("item_number", "description", "reference"),
+                ("quantity", "unit_price"),
+                ("discount_percentage", "line_total"),
+                ("source_object"),
+            )
+        }),
+    )
+    readonly_fields = ["item_number", "line_total","source_object"]
+
+
+@admin.register(DeliveryOrder)
+class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ["number", "get_status_label", "client", "date", "subtotal_amount", "get_invoiced_label","company"]
+    list_filter = [("company",AutocompleteSelectMultipleFilter), ("status",MultipleChoicesDropdownFilter), ("date",RangeDateFilter)]
+    search_fields = ["number", "client__name", "shipment_number", "shipping_agency__name"]
+    autocomplete_fields = ["company", "client", "sales_invoice", "configuration", "project_file", "shipping_agency"]
+    inlines = [DeliveryOrderItemInline, EmailLogInline]
+    readonly_fields = ["number", "date", "subtotal_amount"]
+    list_filter_submit = True
+
+    fieldsets = (
+        (_("General"), {
+            "classes": ["tab"],
+            "fields": (
+                ("number", "date"),
+                ("company", "client"),
+                ("project_file"),
+                ("status", "subtotal_amount"),
+                "sales_invoice",
+                "notes",
+            )
+        }),
+        (_("Shipping"), {
+            "classes": ["tab"],
+            "fields": (
+                ("package_count", "shipping_agency"),
+                ("shipment_number", "tracking_url"),
+            )
+        }),
+    )
+
+    actions_row = ["create_invoice_from_do_row_action", "export_delivery_order_action", "send_email_row_action"]
+    actions_detail = ["create_invoice_from_do_detail_action", "export_delivery_order_detail_action", "send_email_detail_action"]
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "<int:delivery_order_id>/export/",
+                self.admin_site.admin_view(DeliveryOrderExportView.as_view(model_admin=self)),
+                name="sales_deliveryorder_export",
+            ),
+            path(
+                "<int:delivery_order_id>/send-email/",
+                self.admin_site.admin_view(DeliveryOrderSendEmailView.as_view(model_admin=self)),
+                name="sales_deliveryorder_send_email",
+            ),
+        ]
+        return custom + urls
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            _(DeliveryOrderStatus.DRAFT): "warning",
+            _(DeliveryOrderStatus.DELIVERED): "success",
+            _(DeliveryOrderStatus.SENT): "info",
+            _(DeliveryOrderStatus.CANCELLED): "danger",
+        },
+    )
+    def get_status_label(self, obj):
+        return obj.status
+
+    @display(
+        description=_("Invoiced"),
+        label={
+            _("Yes"): "success",
+            _("No"): "warning",
+        },
+    )
+    def get_invoiced_label(self, obj):
+        return _("Yes") if obj.sales_invoice_id else _("No")
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        form.instance.recalculate_subtotal()
+
+    @action(description=_("Create Invoice"), icon="receipt_long")
+    def create_invoice_from_do_row_action(self, request, object_id):
+        from invoices.services.delivery_order_service import DeliveryOrderService
+        from django.utils import timezone
+        from django.contrib import messages as django_messages
+
+        do = DeliveryOrder.objects.select_related("client", "company", "project_file").get(pk=object_id)
+
+        if do.sales_invoice_id:
+            django_messages.warning(request, _("This delivery order is already linked to an invoice."))
+            return redirect(reverse("admin:sales_deliveryorder_changelist"))
+
+        try:
+            invoice = DeliveryOrderService.create_invoice_from_delivery_orders(
+                delivery_orders=[do],
+                company=do.company,
+                client=do.client,
+                date_issued=timezone.now().date(),
+            )
+            django_messages.success(
+                request,
+                _("Invoice created from Delivery Order %(number)s.") % {"number": do.number},
+            )
+            return redirect(reverse("admin:invoices_salesinvoice_change", args=[invoice.id]))
+        except Exception as e:
+            django_messages.error(request, str(e))
+            return redirect(reverse("admin:sales_deliveryorder_changelist"))
+
+    @action(description=_("Create Invoice"), icon="receipt_long")
+    def create_invoice_from_do_detail_action(self, request, object_id):
+        return self.create_invoice_from_do_row_action(request, object_id)
+
+    @action(description=_("Export"), icon="picture_as_pdf", attrs={"target": "_blank"})
+    def export_delivery_order_action(self, request, object_id: int):
+        return redirect(reverse("admin:sales_deliveryorder_export", args=[object_id]))
+
+    @action(description=_("Export"), icon="picture_as_pdf")
+    def export_delivery_order_detail_action(self, request, object_id: int):
+        return redirect(reverse("admin:sales_deliveryorder_export", args=[object_id]))
+
+    @action(description=_("Send Email"), icon="mail")
+    def send_email_row_action(self, request, object_id):
+        url = reverse("admin:sales_deliveryorder_send_email", args=[object_id])
+        return redirect(f"{url}?redirect_to=changelist")
+
+    @action(description=_("Send Email"), icon="mail")
+    def send_email_detail_action(self, request, object_id):
+        return redirect(reverse("admin:sales_deliveryorder_send_email", args=[object_id]))
+
+
+@admin.register(DeliveryOrderItem)
+class DeliveryOrderItemAdmin(ModelAdmin):
+    list_display = ["item_number", "description", "quantity", "delivery_order"]
+    search_fields = ["item_number", "description", "delivery_order__number"]
+    autocomplete_fields = ["delivery_order"]
+    readonly_fields = ["item_number", "line_total"]
+    inlines = [IdentityCodeDeliveryInline]

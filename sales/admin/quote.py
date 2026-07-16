@@ -1,486 +1,44 @@
-from unfold.contrib.filters.admin import RangeDateFilter
-from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
 from decimal import Decimal
-from djmoney.money import Money
 
 from django.contrib import admin
-from django.utils.html import format_html
-from django.utils.translation import gettext_lazy as _
-from unfold.admin import ModelAdmin
-from unfold.decorators import display
-from .models import (
-    Client, Order, DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
-    Quote, QuoteItem, QuoteInventoryItem, SaleZone, ClientAddress, ClientContact, ClientBankAccount,
-    QuoteStatus, QuoteConfigurationGroup, QuotePhoto, QuotePhotoCategory,
-    DiscountPolicy, DiscountRule, CommissionistAgent,
-)
-from inventory.models import ItemIdentityCode
-from unfold.admin import TabularInline, StackedInline
-from import_export.admin import ImportExportModelAdmin
-from core.admin.xlsx_export import FormattedXlsxExportMixin
-from .forms import (
-    ClientImportForm, ClientExportForm,
-     ClientConfirmImportForm,
-    QuoteItemImportForm, QuoteItemConfirmImportForm,
-)
-from invoices.models import AppliedTax
-from unfold.contrib.filters.admin import (
-    AutocompleteSelectMultipleFilter
-)
-from unfold.contrib.import_export.forms import  ImportForm, SelectableFieldsExportForm
-from configurator.models import Configuration
-from configurator.admin.configuration import AppliedTaxInline
 from django.shortcuts import redirect
 from django.urls import reverse, path
-from unfold.decorators import action
-from core.admin.company_admin import CompanyRestrictedAdmin
-from core.admin.company_access import get_user_companies
-from .resources import ClientResource, QuoteItemImportResource, QuoteExportResource
-from .views_analysis import ConversionAnalysisView
-from management.views import QuoteAcceptanceWizardView
-from .views.quote_export_view import QuoteExportView
-from .views.quote_dashboard_view import QuoteDashboardView
-from core.tasks import send_quote_email_task
-from sales.views.quote_send_email_view import QuoteSendEmailView
-from company.models import EmailLog
+from django.utils.html import format_html
+from django.utils.translation import gettext_lazy as _
+from djmoney.money import Money
+from import_export.admin import ImportExportModelAdmin
+from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.admin import GenericTabularInline as _GenericTabularInline
+from unfold.decorators import action, display
+from unfold.contrib.filters.admin import (
+    AutocompleteSelectMultipleFilter,
+    MultipleChoicesDropdownFilter,
+    RangeDateFilter,
+)
+from unfold.contrib.import_export.forms import ImportForm, SelectableFieldsExportForm
+
+from configurator.admin.configuration import AppliedTaxInline
 from configurator.commission.admin import QuoteCommissionInline
 from configurator.commission.services import CommissionService
+from configurator.models import Configuration
+from core.admin.company_admin import CompanyRestrictedAdmin
+from core.admin.email_log import EmailLogInline
+from core.admin.xlsx_export import FormattedXlsxExportMixin
+from invoices.models import AppliedTax
+from management.views import QuoteAcceptanceWizardView
+from sales.forms import QuoteItemImportForm, QuoteItemConfirmImportForm
+from sales.models import (
+    Quote, QuoteItem, QuoteInventoryItem, QuoteStatus,
+    QuoteConfigurationGroup, QuotePhoto, QuotePhotoCategory,
+)
+from sales.resources import QuoteItemImportResource, QuoteExportResource
+from sales.views.quote_dashboard_view import QuoteDashboardView
+from sales.views.quote_export_view import QuoteExportView
+from sales.views.quote_send_email_view import QuoteSendEmailView
+from sales.views_analysis import ConversionAnalysisView
 
-class _CompanyImportMixin:
+from .mixins import _CompanyImportMixin
 
-    def get_import_form_kwargs(self, request):
-        kwargs = super().get_import_form_kwargs(request)
-        kwargs["companies"] = get_user_companies(request.user)
-        kwargs["request"] = request
-        return kwargs
-
-    def get_confirm_form_initial(self, request, import_form):
-        initial = super().get_confirm_form_initial(request, import_form)
-        if import_form and hasattr(import_form, "cleaned_data"):
-            company = import_form.cleaned_data.get("company")
-            if company:
-                initial["company"] = str(company.pk)
-        return initial
-
-    def get_import_resource_kwargs(self, request, **kwargs):
-        from company.models import Company as CompanyModel
-        result = super().get_import_resource_kwargs(request, **kwargs)
-        form = kwargs.get("form")
-        company = None
-        if form and hasattr(form, "cleaned_data"):
-            raw = form.cleaned_data.get("company")
-            if raw:
-                if hasattr(raw, "pk"):
-                    company = raw
-                else:
-                    try:
-                        company = CompanyModel.objects.get(pk=raw)
-                    except CompanyModel.DoesNotExist:
-                        pass
-        if company:
-            result["default_company"] = company
-        else:
-            companies = get_user_companies(request.user)
-            if companies.count() == 1:
-                result["default_company"] = companies.first()
-        return result
-
-@admin.register(SaleZone)
-class SaleZoneAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["name", "company"]
-    search_fields = ["name"]
-    autocomplete_fields = ["company"]
-
-
-@admin.register(CommissionistAgent)
-class CommissionistAgentAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["name", "tax_identifier", "commission_percentage", "is_active", "company"]
-    list_filter = ["is_active", "company"]
-    search_fields = ["name", "tax_identifier", "email"]
-    autocomplete_fields = ["company"]
-    fieldsets = (
-        (_("Agent Information"), {
-            "fields": (
-                ("name", "company"),
-                ("tax_identifier", "commission_percentage"),
-                ("email", "phone"),
-                "is_active",
-            ),
-        }),
-    )
-
-
-class DiscountRuleInline(StackedInline):
-    model = DiscountRule
-    extra = 0
-    hide_ordering_field = True
-    ordering_field = "order"
-    fieldsets = (
-        (None, {
-            "fields": (
-                ("name", "is_active"),
-                ("percentage", "mode", "level"),
-                "condition",
-            )
-        }),
-    )
-
-
-@admin.register(DiscountPolicy)
-class DiscountPolicyAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["name", "is_active", "auto_apply", "company"]
-    list_filter = ["is_active", "auto_apply", "company"]
-    search_fields = ["name"]
-    autocomplete_fields = ["company"]
-    inlines = [DiscountRuleInline]
-
-@admin.register(ClientBankAccount)
-class ClientBankAccountAdmin(CompanyRestrictedAdmin,ModelAdmin):
-    list_display = ["bank_name", "account_number", "client"]
-    search_fields = ["bank_name", "account_number", "iban"]
-    autocomplete_fields = ["client"]
-
-@admin.register(ClientAddress)
-class ClientAddressAdmin(CompanyRestrictedAdmin,ModelAdmin):
-    list_display = ["street", "city", "province", "country", "client"]
-    search_fields = ["street", "city", "postal_code", "province", "country", "client__name"]
-    autocomplete_fields = ["client"]
-
-class ClientAddressInline(StackedInline):
-    model = ClientAddress
-    extra = 0
-    tab = True
-    tab_title = _("Addresses")
-    fieldsets = (
-        (None, {
-            "fields": (
-                ("address_type", "is_default"),
-                "country",
-                ("province", "city", "postal_code"),
-                "street",
-            ),
-        }),
-    )
-
-class ClientContactInline(StackedInline):
-    model = ClientContact
-    extra = 0
-    tab = True
-    tab_title = _("Contacts")
-    autocomplete_fields = ["address"]
-    fieldsets = (
-        (None, {
-            "fields": (
-                ("name", "position"),
-                ("role", "department"),
-                ("email", "phone", "mobile_phone"),
-                ("preferred_contact_method", "address"),
-                "notes",
-            ),
-        }),
-    )
-
-class ClientBankAccountInline(StackedInline):
-    model = ClientBankAccount
-    extra = 0
-    tab = True
-    tab_title = _("Bank Accounts")
-    fieldsets = (
-        (None, {
-            "fields": (
-                ("bank_name", "holder_name"),
-                ("iban", "swift_bic"),
-                ("account_number", "routing_number"),
-                ("country", "is_default"),
-            ),
-        }),
-    )
-
-class ClientAppliedTaxInline(_GenericTabularInline):
-    model = AppliedTax
-    extra = 0
-    autocomplete_fields = ("tax_type",)
-    ordering = ("order",)
-    fields = ("tax_type", "selected_percentage", "order")
-    verbose_name = _("Default tax")
-    verbose_name_plural = _("Default taxes")
-    tab = True
-
-@admin.register(Client)
-class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
-    resource_classes = [ClientResource]
-    import_form_class = ClientImportForm
-    export_form_class = ClientExportForm
-
-    list_display = ["name", "commercial_name", "tax_identifier", "industry_identifier", "phone", "address_truncated", "company",  "has_signed_terms"]
-    search_fields = [
-        "name", "commercial_name", "tax_identifier", "industry_identifier", "email", "phone", "address",
-        "contacts__name", "contacts__email", "contacts__phone", "contacts__mobile_phone", "contacts__department",
-    ]
-    list_filter = ["sale_zone", "is_insured", "company", "contacts__role"]
-    autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account","discount_policies","default_client_bank_account"]
-
-    def get_list_filter(self, request):
-        return self.list_filter
-
-    def get_confirm_form_class(self, request):
-        return ClientConfirmImportForm
-
-    @display(description=_("Address"))
-    def address_truncated(self, obj):
-        if not obj.address or obj.address == "-":
-            return "-"
-        return obj.address if len(obj.address) <= 40 else obj.address[:40] + "…"
-
-    
-
-    inlines = [ClientAddressInline, ClientContactInline, ClientBankAccountInline, ClientAppliedTaxInline]
-
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "default_client_bank_account":
-            import re
-            match = re.search(r'/admin/sales/client/(\d+)/change/', request.path)
-            if match:
-                client_id = match.group(1)
-                kwargs["queryset"] = ClientBankAccount.objects.filter(client_id=client_id)
-            else:
-                kwargs["queryset"] = ClientBankAccount.objects.none()
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
-
-    @display(
-        description=_("T&C firmados"),
-        label={
-            _("Sí"): "success",
-            _("No"): "danger",
-        },
-    )
-    def has_signed_terms(self, obj):
-        return _("Sí") if obj.terms_signature else _("No")
-
-    @display(description=_("Firma"))
-    def terms_signature_preview(self, obj):
-        if obj.terms_signature:
-            return format_html(
-                '<img src="{}" style="width:400px;height:150px;object-fit:contain;border:1px solid #ccc;background:white;" />',
-                obj.terms_signature.url,
-            )
-        return _("Sin firma")
-
-    fieldsets = (
-        (_("Basic Information"), {
-            "classes": ["tab"],
-            "fields": (
-                ("name", "commercial_name"),
-                ("company",),
-                ("tax_identifier", "industry_identifier"),
-                ("phone", "email"),
-                "address"
-            )
-        }),
-        (_("Sales & Territory"), {
-            "classes": ["tab"],
-            "fields": (
-                ("sale_zone", "agent"),
-                "discount_policies",
-            )
-        }),
-        (_("Financial & Insurance"), {
-            "classes": ["tab"],
-            "fields": (
-                ("is_insured", "max_risk", "current_risk"),
-                ("payment_method", "our_bank_account"),
-                "default_client_bank_account",
-            )
-        }),
-        (_("Términos y Condiciones"), {
-            "classes": ["tab"],
-            "fields": (
-                "has_signed_terms",
-                "terms_accepted_at",
-                "accepted_terms_company",
-                "terms_version_display",
-                "terms_signature_preview",
-            )
-        }),
-    )
-    readonly_fields = [
-        "address",
-        "has_signed_terms",
-        "terms_accepted_at",
-        "accepted_terms_company",
-        "terms_version_display",
-        "terms_signature_preview",
-    ]
-
-    @display(description=_("Versión T&C"))
-    def terms_version_display(self, obj):
-        return obj.terms_version or "—"
-
-@admin.register(Order)
-class OrderAdmin(ModelAdmin):
-    list_display = [
-        "project_name",
-        "client",
-        "status",
-        "deadline_date",
-        "final_price_display"
-    ]
-    list_filter = ["status", "date_created", "deadline_date"]
-    search_fields = ["project_name", "client__name"]
-    autocomplete_fields = ["client"]
-    readonly_fields = ["date_created", "final_price_display","total_cost_material","total_cost_labor"]
-    fieldsets = (
-        ("Project Details", {
-            "fields": (
-                ("project_name", "status"),
-                "client",
-                ("date_created", "deadline_date")
-            )
-        }),
-        ("Financial Summary", {
-            "classes": ("collapse",),
-            "description": "Calculated costs based on the manufacturing items associated with this order.",
-            "fields": (
-                ("total_cost_material", "total_cost_labor"),
-                "final_price"
-            )
-        }),
-    )
-
-    def final_price_display(self, instance):
-        return f"{instance.final_price:.2f} €"
-    final_price_display.short_description = "Total Price"
-    final_price_display.admin_order_field = "final_price"
-
-
-class IdentityCodeDeliveryInline(TabularInline):
-    model = ItemIdentityCode
-    extra = 0
-    verbose_name = _("Identity Code")
-    verbose_name_plural = _("Identity Codes")
-    fields = ("code", "item", "delivered_at")
-    readonly_fields = ("code", "item", "delivered_at")
-    tab=True
-
-    def has_add_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
-
-
-class DeliveryOrderItemInline(StackedInline):
-    model = DeliveryOrderItem
-    extra = 0
-    tab = True
-    name = _("Items")
-    fieldsets = (
-        (None, {
-            "fields": (
-                ("item_number", "description", "reference"),
-                ("quantity", "unit_price"),
-                ("discount_percentage", "line_total"),
-                ("source_object"),
-            )
-        }),
-    )
-    readonly_fields = ["item_number", "line_total","source_object"]
-
-
-@admin.register(DeliveryOrder)
-class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["number", "get_status_label", "client", "date", "subtotal_amount", "get_invoiced_label","company"]
-    list_filter = [("company",AutocompleteSelectMultipleFilter), ("status",MultipleChoicesDropdownFilter), ("date",RangeDateFilter)]
-    search_fields = ["number", "client__name"]
-    autocomplete_fields = ["company", "client", "sales_invoice", "configuration", "project_file"]
-    inlines = [DeliveryOrderItemInline]
-    readonly_fields = ["number", "date", "subtotal_amount"]
-    list_filter_submit = True
-
-    fieldsets = (
-        (None, {
-            "fields": (
-                ("number", "date"),
-                ("company", "client"),
-                ("project_file"),
-                ("status", "subtotal_amount"),
-                "sales_invoice",
-                "notes",
-            )
-        }),
-    )
-
-    actions_row = ["create_invoice_from_do_row_action"]
-    actions_detail = ["create_invoice_from_do_detail_action"]
-
-    @display(
-        description=_("Status"),
-        ordering="status",
-        label={
-            _(DeliveryOrderStatus.DRAFT): "warning",
-            _(DeliveryOrderStatus.DELIVERED): "success",
-            _(DeliveryOrderStatus.SENT): "info",
-            _(DeliveryOrderStatus.CANCELLED): "danger",
-        },
-    )
-    def get_status_label(self, obj):
-        return obj.status
-
-    @display(
-        description=_("Invoiced"),
-        label={
-            _("Yes"): "success",
-            _("No"): "warning",
-        },
-    )
-    def get_invoiced_label(self, obj):
-        return _("Yes") if obj.sales_invoice_id else _("No")
-
-    def save_related(self, request, form, formsets, change):
-        super().save_related(request, form, formsets, change)
-        form.instance.recalculate_subtotal()
-
-    @action(description=_("Create Invoice"), icon="receipt_long")
-    def create_invoice_from_do_row_action(self, request, object_id):
-        from invoices.services.delivery_order_service import DeliveryOrderService
-        from django.utils import timezone
-        from django.contrib import messages as django_messages
-
-        do = DeliveryOrder.objects.select_related("client", "company", "project_file").get(pk=object_id)
-
-        if do.sales_invoice_id:
-            django_messages.warning(request, _("This delivery order is already linked to an invoice."))
-            return redirect(reverse("admin:sales_deliveryorder_changelist"))
-
-        try:
-            invoice = DeliveryOrderService.create_invoice_from_delivery_orders(
-                delivery_orders=[do],
-                company=do.company,
-                client=do.client,
-                date_issued=timezone.now().date(),
-            )
-            django_messages.success(
-                request,
-                _("Invoice created from Delivery Order %(number)s.") % {"number": do.number},
-            )
-            return redirect(reverse("admin:invoices_salesinvoice_change", args=[invoice.id]))
-        except Exception as e:
-            django_messages.error(request, str(e))
-            return redirect(reverse("admin:sales_deliveryorder_changelist"))
-
-    @action(description=_("Create Invoice"), icon="receipt_long")
-    def create_invoice_from_do_detail_action(self, request, object_id):
-        return self.create_invoice_from_do_row_action(request, object_id)
-
-
-@admin.register(DeliveryOrderItem)
-class DeliveryOrderItemAdmin(ModelAdmin):
-    list_display = ["item_number", "description", "quantity", "delivery_order"]
-    search_fields = ["item_number", "description", "delivery_order__number"]
-    autocomplete_fields = ["delivery_order"]
-    readonly_fields = ["item_number", "line_total"]
-    inlines = [IdentityCodeDeliveryInline]
 
 class QuotePhotoInline(TabularInline):
     model = QuotePhoto
@@ -621,12 +179,12 @@ class ConfigurationReadOnlyInline(TabularInline):
     extra = 0
     tab = True
     readonly_fields = [
-        "config_link", "status", 
+        "config_link", "status",
         "cost_display", "margin_display", "margin_pct_display","subtotal_price", "total_price_display",
     ]
     fields = [
         "config_link", "status", "quote_group",
-        "cost_display", 
+        "cost_display",
         "margin_display", "margin_pct_display",
         "subtotal_price", "total_price_display",
     ]
@@ -648,7 +206,6 @@ class ConfigurationReadOnlyInline(TabularInline):
 
     @display(description=_("Name"))
     def config_link(self, obj):
-        from django.utils.html import format_html
         url = reverse("admin:configurator_configuration_change", args=[obj.pk])
         return format_html('<a href="{}" target="_blank">{}</a>', url, obj.name)
 
@@ -676,19 +233,6 @@ class ConfigurationReadOnlyInline(TabularInline):
         return "—"
 
 
-class QuoteEmailLogInline(_GenericTabularInline):
-    model = EmailLog
-    extra = 0
-    tab = True
-    verbose_name = _("Email Sent")
-    verbose_name_plural = _("Emails Sent")
-    fields = ("to_email", "subject", "sent_at", "status", "error_message")
-    readonly_fields = ("to_email", "subject", "sent_at", "status", "error_message")
-    can_delete = False
-
-    def has_add_permission(self, request, obj=None):
-        return False
-
 @admin.register(Quote)
 class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportModelAdmin, ModelAdmin):
     resource_classes = [QuoteExportResource]
@@ -696,8 +240,8 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
     export_form_class = SelectableFieldsExportForm
     list_display = ["id", "project_name", "client", "date_sent","date_accepted", "project_file", "show_status_customized_color", "total_price_display", "company"]
     list_filter = [
-        ("status",MultipleChoicesDropdownFilter), 
-        ("company",AutocompleteSelectMultipleFilter), 
+        ("status",MultipleChoicesDropdownFilter),
+        ("company",AutocompleteSelectMultipleFilter),
         ("created_at",RangeDateFilter),
         ("date_sent", RangeDateFilter),
         ("date_accepted",RangeDateFilter)]
@@ -714,13 +258,13 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
     list_filter_submit = True
     change_form_outer_after_template = "sales/quote_preset_picker.html"
 
-    inlines = [ConfigurationReadOnlyInline, 
+    inlines = [ConfigurationReadOnlyInline,
     QuoteInventoryItemInline,
     QuoteCommissionInline,
-    QuoteConfigurationGroupInline, 
-    AppliedTaxInline, 
-    QuoteEmailLogInline,
-    QuotePhotoInline, 
+    QuoteConfigurationGroupInline,
+    AppliedTaxInline,
+    EmailLogInline,
+    QuotePhotoInline,
     ]
 
 
@@ -878,22 +422,6 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
         extra_context["preset_picker_form"] = QuotePresetPickerForm()
         return super().change_view(request, object_id, form_url, extra_context)
 
-    @action(description=_("Export Quote"), attrs={"target": "_blank"})
-    def export_quote_action(self, request, object_id: int):
-        return redirect(reverse("admin:sales_quote_export", args=[object_id]))
-
-    @action(
-        description=_("Quote Dashboard"),
-        url_path="quote-dashboard-action",
-        permissions=["quote_dashboard"],
-        icon="bar_chart",
-    )
-    def quote_dashboard_action(self, request):
-        return redirect(reverse("admin:sales_quote_dashboard"))
-
-    def has_quote_dashboard_permission(self, request):
-        return request.user.has_perm("sales.can_view_quote_dashboard")
-
     def get_urls(self):
         urls = super().get_urls()
         custom = [
@@ -928,7 +456,6 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
             ),
         ]
         return custom + urls
-
 
     @action(description=_("Export Quote"), attrs={"target": "_blank"})
     def export_quote_action(self, request, object_id: int):

@@ -3,7 +3,7 @@ from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.contrib.filters.admin.dropdown_filters import MultipleChoicesDropdownFilter
 
 from decimal import Decimal
-from management.models import ProjectFile, ResourcePlanning, ResourcePlanningBacklogItem
+from management.models import ProjectFile, ProjectFileStatus, ResourcePlanning, ResourcePlanningBacklogItem
 from management.resources import ProjectFileResource
 from django.contrib import admin, messages
 from django.shortcuts import redirect
@@ -202,7 +202,7 @@ class WorkEntryInline(TabularInline):
 class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     resource_classes = [ProjectFileResource]
     export_form_class = SelectableFieldsExportForm
-    list_display = ["reference", "name", "client", "status", "total_amount", "total_invoiced", "start_date", "invoicing_status", "company"]
+    list_display = ["reference", "name", "client", "show_status_customized_color", "total_amount", "total_invoiced", "start_date", "invoicing_status", "company"]
     list_filter = [("client", AutocompleteSelectMultipleFilter), ("status", MultipleChoicesDropdownFilter), ("company", AutocompleteSelectMultipleFilter), ("created_at", RangeDateFilter)]
     search_fields = ["reference", "name", "client__name"]
     autocomplete_fields = ["client", "company"]
@@ -323,6 +323,20 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
 
         request.session["bulk_invoice_pf_ids"] = [pf.pk for pf in pf_list]
         return redirect(reverse("admin:management_projectfile_bulk_invoice"))
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            _(ProjectFileStatus.NEW.label): "info",  # blue
+            _(ProjectFileStatus.ACTIVE.label): "success",  # green
+            _(ProjectFileStatus.ON_HOLD.label): "warning",  # orange
+            _(ProjectFileStatus.COMPLETED.label): "primary",  # purple
+            _(ProjectFileStatus.CANCELLED.label): "danger",  # red
+        },
+    )
+    def show_status_customized_color(self, obj):
+        return _(obj.get_status_display())
 
     @display(description=_("Invoicing"))
     def invoicing_status(self, obj):

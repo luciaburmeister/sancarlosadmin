@@ -15,7 +15,7 @@ def _get_kind_model_map():
     from configurator.models import Configuration, ReceivalSlip
     from production.models import ProductionItem
     from invoices.models import SalesInvoice
-    from sales.models import Quote
+    from sales.models import Quote, DeliveryOrder
     from assets.models import AssetTransaction
 
     return {
@@ -26,6 +26,7 @@ def _get_kind_model_map():
         "consolidated_quotation": (Quote,           None),
         "receival_slip":          (ReceivalSlip,    "configuration__product"),
         "asset_transaction":      (AssetTransaction, None),
+        "delivery_order":         (DeliveryOrder,   "configuration__product"),
     }
 
 

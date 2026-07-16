@@ -10,12 +10,6 @@ from django.template import engines
 from configurator.utils import safe_eval
 from .helpers import strip_wrappers, strip_css_wrappers, clean_final_html
 from .base import BaseExportStrategy
-from .configuration import ConfigurationExportStrategy
-from .production_item import ProductionItemExportStrategy
-from .sales_invoice import SalesInvoiceExportStrategy
-from .quote import QuoteExportStrategy
-from .receival_slip import ReceivalSlipExportStrategy
-from .asset_transaction import AssetTransactionExportStrategy
 import re
 from django.db.models.fields.files import FieldFile
 from django_countries.fields import Country
@@ -86,29 +80,11 @@ class ConfigurationExportService:
 
     @staticmethod
     def get_strategy(obj: Any) -> BaseExportStrategy:
-        from configurator.models import Configuration
-        from production.models import ProductionItem
-        from invoices.models import SalesInvoice
-        from sales.models import Quote
+        from .strategy_registry import get_strategy_map
 
-        if isinstance(obj, Configuration):
-            return ConfigurationExportStrategy(obj)
-        elif isinstance(obj, ProductionItem):
-            return ProductionItemExportStrategy(obj)
-        
-        if isinstance(obj, SalesInvoice):
-            return SalesInvoiceExportStrategy(obj)
-            
-        if isinstance(obj, Quote):
-            return QuoteExportStrategy(obj)
-        
-        from configurator.models import ReceivalSlip
-        if isinstance(obj, ReceivalSlip):
-            return ReceivalSlipExportStrategy(obj)
-
-        from assets.models import AssetTransaction
-        if isinstance(obj, AssetTransaction):
-            return AssetTransactionExportStrategy(obj)
+        for model_cls, strategy_cls in get_strategy_map().items():
+            if isinstance(obj, model_cls):
+                return strategy_cls(obj)
 
         raise ValueError(f"No export strategy found for object type: {type(obj)}")
 

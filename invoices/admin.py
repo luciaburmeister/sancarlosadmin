@@ -1,3 +1,4 @@
+from unfold.contrib.filters.admin import BooleanRadioFilter
 import logging
 
 from assets import urls
@@ -59,7 +60,7 @@ from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter
 )
 from unfold.widgets import UnfoldAdminTextareaWidget
-from .filters import ItemsMissingAccountFilter, BalanceStatusFilter, IsReconciledFilter
+from .filters import ItemsMissingAccountFilter, BalanceStatusFilter, IsReconciledFilter, DueDatePassedFilter
 from import_export.admin import  ExportActionModelAdmin
 from unfold.contrib.import_export.forms import  ImportForm, SelectableFieldsExportForm
 from .resources import (
@@ -200,13 +201,21 @@ class PaymentAllocationInline(GenericTabularInline):
     tab = True
     verbose_name = _("Payment")
     verbose_name_plural = _("Payments")
-    fields = ("get_payment_date", "get_method", "get_reference", "amount_applied", "get_status")
-    readonly_fields = ("get_payment_date", "get_method", "get_reference", "amount_applied", "get_status")
+    fields = ("get_payment_date", "get_method", "get_reference", "amount_applied", "get_status", "get_payment_link")
+    readonly_fields = ("get_payment_date", "get_method", "get_reference", "amount_applied", "get_status", "get_payment_link")
     can_delete = False
 
     def get_payment_date(self, obj):
         return obj.payment.payment_date
     get_payment_date.short_description = _("Payment Date")
+
+    def get_payment_link(self, obj):
+        from payments.models import PaymentCreatedBy
+
+        url = reverse("admin:payments_payment_change", args=[obj.payment_id])
+        label = _("Edit") if obj.payment.created_by == PaymentCreatedBy.MANUAL else _("View")
+        return format_html('<a href="{}" class="text-primary-600 underline">{}</a>', url, label)
+    get_payment_link.short_description = _("Payment")
 
     def get_method(self, obj):
         return obj.payment.get_method_display()
@@ -219,6 +228,9 @@ class PaymentAllocationInline(GenericTabularInline):
     def get_status(self, obj):
         return obj.payment.get_status_display()
     get_status.short_description = _("Status")
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("payment")
 
 
 class InvoiceItemInline(StackedInline):
@@ -261,15 +273,20 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     )
 
     list_filter = (
-        ItemsMissingAccountFilter,
-        BalanceStatusFilter,
-        IsReconciledFilter,
-        ("payment_status", ChoicesDropdownFilter),
-        ("payment_method",ChoicesDropdownFilter),
+        # Who / when
+        ("company", AutocompleteSelectMultipleFilter),
+        ("provider", AutocompleteSelectMultipleFilter),
+        ("date_issued", RangeDateFilter),
+        # Document state
         ("confirmation_status", ChoicesDropdownFilter),
-        ("company",AutocompleteSelectMultipleFilter),
-        ("provider",AutocompleteSelectMultipleFilter),
-        ("date_issued",RangeDateFilter),
+        # Payment
+        ("payment_status", ChoicesDropdownFilter),
+        DueDatePassedFilter,
+        ("payment_method", ChoicesDropdownFilter),
+        IsReconciledFilter,
+        # Accounting diagnostics
+        BalanceStatusFilter,
+        ItemsMissingAccountFilter,
     )
 
     search_fields = (
@@ -689,15 +706,19 @@ class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdm
     )
     list_display = ("invoice_number", "get_status_label", "get_payment_status_label", "get_external_label", "company", "client", "date_issued", "total_amount")
     list_filter = (
-        IsReconciledFilter,
-        ("status",ChoicesDropdownFilter),
-        ("company",AutocompleteSelectMultipleFilter),
+        # Who / when
+        ("company", AutocompleteSelectMultipleFilter),
+        ("client", AutocompleteSelectMultipleFilter),
+        ("date_issued", RangeDateFilter),
+        # Document state
+        ("status", ChoicesDropdownFilter),
+        ("is_external", BooleanRadioFilter),
+        # Payment
+        ("payment_status", ChoicesDropdownFilter),
+        DueDatePassedFilter,
         ("payment_method", ChoicesDropdownFilter),
-        ("client",AutocompleteSelectMultipleFilter),
-        ('is_external'),
-        ('status'),
-        ('payment_status'),
-        ("date_issued",RangeDateFilter),)
+        IsReconciledFilter,
+    )
     search_fields = ("invoice_number", "client__name")
     autocomplete_fields = ("company", "client", "configuration", "project_file")
     inlines = [SalesInvoiceItemInline, AppliedTaxInline, PaymentAllocationInline, EmailLogInline, EInvoicingSubmissionInline]

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(.venv/bin/python manage.py migrate sales)",
+      "Bash(python -c ' *)",
+      "Bash(python manage.py shell -c ' *)"
+    ]
+  }
+}

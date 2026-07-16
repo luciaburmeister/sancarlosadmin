@@ -15,9 +15,9 @@
   <ul class="flex flex-wrap items-center gap-x-1 text-sm text-font-subtle-light dark:text-font-subtle-dark list-none p-0 m-0">
     <li><a href="{% url 'admin:index' %}" class="hover:text-primary-600 dark:hover:text-primary-400 transition-colors no-underline">{% trans "Home" %}</a></li>
     <li class="mx-1">/</li>
-    <li><a href="{% url 'admin:sales_quote_changelist' %}" class="hover:text-primary-600 dark:hover:text-primary-400 transition-colors no-underline">{% trans "Quotes" %}</a></li>
+    <li><a href="{{ changelist_url }}" class="hover:text-primary-600 dark:hover:text-primary-400 transition-colors no-underline">{{ opts.verbose_name_plural|capfirst }}</a></li>
     <li class="mx-1">/</li>
-    <li><a href="{{ cancel_url }}" class="hover:text-primary-600 dark:hover:text-primary-400 transition-colors no-underline">{{ quote }}</a></li>
+    <li><a href="{{ cancel_url }}" class="hover:text-primary-600 dark:hover:text-primary-400 transition-colors no-underline">{{ document }}</a></li>
     <li class="mx-1">/</li>
     <li class="font-semibold text-font-important-light dark:text-font-important-dark">{% trans "Send Email" %}</li>
   </ul>
@@ -31,9 +31,9 @@
     </div>
     <div>
       <h1 class="text-xl font-bold text-font-important-light dark:text-font-important-dark m-0 leading-tight">{{ title }}</h1>
-      {% if quote.client %}
+      {% if client %}
       <p class="text-sm text-font-subtle-light dark:text-font-subtle-dark m-0 mt-1">
-        {% trans "Client" %}: <span class="font-semibold text-font-default-light dark:text-font-default-dark">{{ quote.client.name }}</span>
+        {% trans "Client" %}: <span class="font-semibold text-font-default-light dark:text-font-default-dark">{{ client.name }}</span>
       </p>
       {% endif %}
     </div>
@@ -73,7 +73,7 @@
           {% trans "Select Recipients" %}
         </h2>
         <p class="text-sm text-font-subtle-light dark:text-font-subtle-dark m-0 mt-1">
-          {% trans "Choose who should receive this quote email." %}
+          {% trans "Choose who should receive this email." %}
         </p>
       </div>
 

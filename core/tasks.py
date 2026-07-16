@@ -58,6 +58,37 @@ def send_quote_email_task(
     }
 
 
+@shared_task(name="core.tasks.send_delivery_order_email_task")
+def send_delivery_order_email_task(
+    delivery_order_id: int,
+    to_emails: list[str] | None = None,
+    cc_emails: list[str] | None = None,
+):
+    """
+    Celery task to send a DeliveryOrder email with PDF attachment.
+    Runs asynchronously so the admin UI doesn't block.
+    """
+    from sales.models import DeliveryOrder
+    from sales.services.delivery_order_email_service import DeliveryOrderEmailService
+
+    try:
+        delivery_order = DeliveryOrder.objects.select_related("client", "company").get(pk=delivery_order_id)
+    except DeliveryOrder.DoesNotExist:
+        logger.error("send_delivery_order_email_task: DeliveryOrder %s not found", delivery_order_id)
+        return {"task": "send_delivery_order_email", "delivery_order_id": delivery_order_id, "status": "error", "detail": "not found"}
+
+    ok = DeliveryOrderEmailService.send_delivery_order_email(
+        delivery_order, to_emails=to_emails, cc_emails=cc_emails,
+    )
+    return {
+        "task": "send_delivery_order_email",
+        "delivery_order_id": delivery_order_id,
+        "to": to_emails or str(delivery_order.client),
+        "cc": cc_emails or [],
+        "status": "ok" if ok else "error",
+    }
+
+
 @shared_task(name="core.tasks.send_client_terms_email_task")
 def send_client_terms_email_task(client_id: int, to_email: str | None = None):
     """

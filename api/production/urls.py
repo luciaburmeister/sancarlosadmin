@@ -118,6 +118,11 @@ urlpatterns = [
         name="terminal_supervisor_start_employee_stage",
     ),
     path(
+        "production/supervisor/finish-stage/",
+        terminal.SupervisorFinishStageView.as_view(),
+        name="terminal_supervisor_finish_stage",
+    ),
+    path(
         "production/items/<int:item_id>/stages/<str:stage_name>/timeline/",
         terminal.StageTimelineView.as_view(),
         name="terminal_stage_timeline",

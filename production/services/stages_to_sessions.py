@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 
@@ -230,6 +232,100 @@ class StagesToSessionsService:
             seen.add(emp.id)
             workers.append({"id": emp.id, "full_name": emp.full_name})
         return workers
+
+    @classmethod
+    def _finish_open_session(cls, session: ProductionItemSession, completed_by: Employee) -> None:
+        if session.kind == ProductionItemSessionKind.ACTIVITY_STARTED:
+            session.kind = ProductionItemSessionKind.ACTIVITY_FINISHED
+        elif session.kind == ProductionItemSessionKind.SESSION_STARTED:
+            session.kind = ProductionItemSessionKind.SESSION_FINISHED
+        session.finish(completed_by=completed_by)
+
+    @classmethod
+    def supervisor_finish_activity(
+        cls,
+        *,
+        stage_name: str,
+        item: ProductionItem,
+        attributions: list[tuple[Employee, int]],
+    ) -> int:
+        """Close a stage on behalf of supervisors, recording who worked and how long."""
+        stage_name = unicodedata.normalize("NFC", stage_name)
+        now = timezone.now()
+
+        if not attributions:
+            raise ValidationError(_("Debe indicar al menos un empleado con tiempo trabajado."))
+
+        seen_ids: set[int] = set()
+        for employee, worked_seconds in attributions:
+            if employee.id in seen_ids:
+                raise ValidationError(_("Cada empleado solo puede aparecer una vez."))
+            seen_ids.add(employee.id)
+            if worked_seconds < 60:
+                raise ValidationError(_("El tiempo mínimo es 1 minuto por empleado."))
+            if not employee.can_work_stage(stage_name):
+                raise ValidationError(
+                    _("%(name)s no puede trabajar en esta etapa.")
+                    % {"name": employee.full_name}
+                )
+
+        current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)
+        if current_stage != stage_name or stage_info is None:
+            raise ValidationError(_("Etapa no encontrada en este artículo."))
+
+        status = stage_info.get("status") or ProductionItemStatus.PENDING
+        if status in (ProductionItemStatus.DONE, ProductionItemStatus.CANCELLED):
+            raise ValidationError(_("La etapa ya está cerrada."))
+
+        attributed_ids = seen_ids
+
+        for sess in cls._open_sessions_for_stage(item, stage_name):
+            emp = sess.created_by
+            if emp and emp.id not in attributed_ids:
+                cls._finish_open_session(sess, completed_by=emp)
+
+        for employee, worked_seconds in attributions:
+            open_sess = (
+                ProductionItemSession.objects.filter(
+                    production_item=item,
+                    production_stage=stage_name,
+                    created_by=employee,
+                    status=ProductionItemSessionStatus.IN_PROGRESS,
+                    end_time__isnull=True,
+                )
+                .order_by("-start_time")
+                .first()
+            )
+            if open_sess:
+                open_sess.kind = ProductionItemSessionKind.ACTIVITY_FINISHED
+                open_sess.finish_with_duration(
+                    completed_by=employee,
+                    worked_seconds=worked_seconds,
+                )
+            else:
+                end = now
+                start = now - timedelta(seconds=worked_seconds)
+                ProductionItemSession.objects.create(
+                    production_item=item,
+                    production_stage=stage_name,
+                    status=ProductionItemSessionStatus.DONE,
+                    start_time=start,
+                    end_time=end,
+                    created_by=employee,
+                    completed_by=employee,
+                    kind=ProductionItemSessionKind.ACTIVITY_FINISHED,
+                )
+
+        for sess in cls._open_sessions_for_stage(item, stage_name):
+            emp = sess.created_by
+            if emp:
+                cls._finish_open_session(sess, completed_by=emp)
+
+        stage_info["status"] = ProductionItemStatus.DONE
+        stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
+        stage_info["completed_at"] = now.isoformat()
+        cls._save_planning(item, stage_name, stage_info)
+        return 1
 
     @classmethod
     def finish_activity(

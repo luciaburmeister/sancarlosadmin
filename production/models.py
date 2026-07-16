@@ -513,6 +513,29 @@ class ProductionItemSession(Timestampable, CompanyOwnedModel):
         self.completed_by = completed_by
         self.save()
 
+    def finish_with_duration(self, completed_by: Employee, worked_seconds: int):
+        """Close an open session using an explicit worked duration (supervisor close)."""
+        from datetime import timedelta
+
+        if self.status not in {
+            ProductionItemSessionStatus.IN_PROGRESS,
+            ProductionItemSessionStatus.PENDING,
+        }:
+            raise ValidationError(_("Only active sessions can be finished"))
+
+        if worked_seconds < 60:
+            raise ValidationError(_("Worked time must be at least 1 minute."))
+
+        now = timezone.now()
+        if self.start_time:
+            self.end_time = self.start_time + timedelta(seconds=worked_seconds)
+        else:
+            self.end_time = now
+            self.start_time = now - timedelta(seconds=worked_seconds)
+        self.status = ProductionItemSessionStatus.DONE
+        self.completed_by = completed_by
+        self.save()
+
 class ProductionResource(Timestampable,CompanyOwnedModel):
     content_type = models.ForeignKey(
         ContentType,

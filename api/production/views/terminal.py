@@ -628,6 +628,8 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
             else (getattr(config, "name", None) or "")
         )
 
+        fully_invoiced = project_file is not None and project_file.is_fully_invoiced
+
         expediente_data = None
         if project_file:
             start_date = project_file.start_date
@@ -687,6 +689,7 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
                             sessions_index.get((item.id, stage_name_n), []), status
                         ),
                         "priority": item.priority,
+                        "billing_pending": fully_invoiced and status != "done",
                         "pause_reason": raw.get("pause_reason") if isinstance(raw, dict) else None,
                     },
                 }
@@ -1062,6 +1065,72 @@ class SupervisorStartEmployeeStageView(SharedTerminalAPIView):
                 {"error": "No se pudo activar la etapa (puede que ya esté activa o completada)."},
                 status=400,
             )
+        return JsonResponse({"success": True, "count": count})
+
+
+# ─── Supervisor: close a stage with worker time attribution ───────────────────
+
+class SupervisorFinishStageView(SharedTerminalAPIView):
+    def post(self, request):
+        body = json.loads(request.body or b"{}")
+        supervisor_id = body.get("supervisor_id")
+        item_id = body.get("item_id")
+        stage_name = body.get("stage_name", "")
+        workers_payload = body.get("workers") or []
+
+        try:
+            Employee.objects.get(
+                id=supervisor_id,
+                company=self.company,
+                is_production_supervisor=True,
+                is_active=True,
+            )
+        except Employee.DoesNotExist:
+            return JsonResponse({"error": "Supervisor no válido."}, status=403)
+
+        if not isinstance(workers_payload, list) or not workers_payload:
+            return JsonResponse(
+                {"error": "Debe indicar al menos un empleado con tiempo trabajado."},
+                status=400,
+            )
+
+        item = get_object_or_404(ProductionItem, id=item_id, company=self.company)
+        stage_name_n = _uc.normalize("NFC", stage_name)
+
+        attributions: list[tuple[Employee, int]] = []
+        seen_ids: set[int] = set()
+        for entry in workers_payload:
+            if not isinstance(entry, dict):
+                return JsonResponse({"error": "Formato de empleados no válido."}, status=400)
+            try:
+                employee_id = int(entry.get("employee_id"))
+                worked_seconds = int(entry.get("worked_seconds"))
+            except (TypeError, ValueError):
+                return JsonResponse({"error": "Formato de empleados no válido."}, status=400)
+            if employee_id in seen_ids:
+                return JsonResponse(
+                    {"error": "Cada empleado solo puede aparecer una vez."},
+                    status=400,
+                )
+            seen_ids.add(employee_id)
+            employee = get_object_or_404(
+                Employee,
+                id=employee_id,
+                company=self.company,
+                can_work_on_production=True,
+                is_active=True,
+            )
+            attributions.append((employee, worked_seconds))
+
+        try:
+            count = StagesToSessionsService.supervisor_finish_activity(
+                stage_name=stage_name_n,
+                item=item,
+                attributions=attributions,
+            )
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=400)
+
         return JsonResponse({"success": True, "count": count})
 
 

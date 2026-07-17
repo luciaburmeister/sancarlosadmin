@@ -12,7 +12,7 @@ from django.urls import path, reverse
 logger = logging.getLogger(__name__)
 from django.utils.translation import gettext_lazy as _
 from datetime import timedelta
-from unfold.admin import ModelAdmin, GenericTabularInline
+from unfold.admin import ModelAdmin, GenericTabularInline, TabularInline
 from django.utils.html import format_html
 from django.db import models
 from invoices.views.invoice.aging_export_view import AgingExportView
@@ -27,7 +27,8 @@ from invoices.models import (
     SalesInvoice,
     SalesInvoiceItem,
     SalesInvoiceStatus,
-    InvoiceItem
+    InvoiceItem,
+    InvoicePOAllocation
 )
 from invoices.views.invoice.aging_export_view import AgingExportView
 from payments.models import PaymentAllocation
@@ -262,6 +263,37 @@ class InvoiceItemInline(StackedInline):
         ),
     )
 
+class InvoicePOAllocationInline(TabularInline):
+    model = InvoicePOAllocation
+    fk_name = "invoice"
+    extra = 0
+    tab = True
+    verbose_name = _("PO Allocation")
+    verbose_name_plural = _("Purchase Orders")
+    fields = ("invoice_item", "po_item", "receipt_item", "quantity")
+    autocomplete_fields = ("po_item", "receipt_item")
+
+    def get_formset(self, request, obj=None, **kwargs):
+        # Stash the parent invoice so invoice_item choices can be scoped to it.
+        self._parent_invoice = obj
+        return super().get_formset(request, obj, **kwargs)
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "invoice_item":
+            parent = getattr(self, "_parent_invoice", None)
+            kwargs["queryset"] = (
+                InvoiceItem.objects.filter(invoice=parent)
+                if parent
+                else InvoiceItem.objects.none()
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            "invoice_item", "po_item__purchase_order", "receipt_item"
+        )
+
+
 @admin.register(Invoice)
 class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     resource_classes = [InvoiceResource, InvoiceItemResource]
@@ -330,6 +362,7 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     inlines = [
         AppliedTaxInline,
         InvoiceItemInline,
+        InvoicePOAllocationInline,
         PaymentAllocationInline,
     ]
 

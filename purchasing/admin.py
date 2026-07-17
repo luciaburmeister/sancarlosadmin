@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.db.models import Sum
+from django.utils.html import format_html_join
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 from unfold.admin import ModelAdmin, TabularInline
@@ -17,13 +19,15 @@ class PurchaseOrderItemInline(TabularInline):
     extra = 1
     tab = True
     autocomplete_fields = ["inventory_item"]
-    readonly_fields = ["line_total","formatted_received", "formatted_pending"]
+    readonly_fields = ["line_total","formatted_received", "formatted_pending", "formatted_invoiced", "formatted_pending_invoice"]
     fields = [
         "inventory_item",
         "quantity",
         "unit",
         "formatted_received",
         "formatted_pending",
+        "formatted_invoiced",
+        "formatted_pending_invoice",
         "unit_price",
         "line_total",
         "description",
@@ -43,6 +47,18 @@ class PurchaseOrderItemInline(TabularInline):
             return obj.quantity - obj.received_quantity
         return "-"
 
+    @display(description=_("Invoiced"))
+    def formatted_invoiced(self, obj):
+        if obj.pk:
+            return obj.invoiced_quantity
+        return "-"
+
+    @display(description=_("Pending to Invoice"))
+    def formatted_pending_invoice(self, obj):
+        if obj.pk:
+            return obj.pending_invoice_quantity
+        return "-"
+
     def has_add_permission(self, request, obj=None):
         if obj and obj.status != PurchaseOrderStatus.DRAFT:
             return False
@@ -60,12 +76,12 @@ class PurchaseOrderItemInline(TabularInline):
 
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["number", "provider", "requested_by", "get_status_label", "date_ordered", "total_amount", "company"]
+    list_display = ["number", "provider", "requested_by", "get_status_label", "date_ordered", "total_amount", "get_billing_label", "company"]
     list_filter = ["status", "date_ordered", "company"]
     search_fields = ["number", "provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name"]
     autocomplete_fields = ["provider", "company", "approved_by", "requested_by"]
-    readonly_fields = ["number", "total_amount", "approved_at", "approved_by", "requested_by", "status"]
-    
+    readonly_fields = ["number", "total_amount", "approved_at", "approved_by", "requested_by", "status", "linked_invoices_display"]
+
     fieldsets = (
         (_("General Information"), {
             "fields": (
@@ -82,6 +98,7 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
             "fields": (
                 "total_amount",
                 ("approved_by", "approved_at"),
+                "linked_invoices_display",
             )
         }),
         (_("Notes"), {
@@ -110,6 +127,54 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
     def get_status_label(self, obj):
         return obj.status
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).annotate(
+            _total_qty=Sum("items__quantity"),
+            _total_invoiced=Sum("items__invoiced_quantity"),
+        )
+
+    @display(
+        description=_("Billing"),
+        label={
+            "not_invoiced": "warning",
+            "partially_invoiced": "info",
+            "fully_invoiced": "success",
+        },
+    )
+    def get_billing_label(self, obj):
+        total = getattr(obj, "_total_qty", None)
+        invoiced = getattr(obj, "_total_invoiced", None)
+        if total is None or invoiced is None:
+            return obj.billing_status
+        if not total or invoiced <= 0:
+            return "not_invoiced"
+        if invoiced >= total:
+            return "fully_invoiced"
+        return "partially_invoiced"
+
+    @display(description=_("Linked Invoices"))
+    def linked_invoices_display(self, obj):
+        if not obj.pk:
+            return "-"
+        from django.apps import apps
+        Invoice = apps.get_model("invoices", "Invoice")
+        invoices = Invoice.objects.filter(
+            po_allocations__po_item__purchase_order=obj
+        ).distinct()
+        if not invoices:
+            return "-"
+        return format_html_join(
+            ", ",
+            '<a href="{}" class="text-primary-600 underline">{}</a>',
+            (
+                (
+                    reverse("admin:invoices_invoice_change", args=[inv.pk]),
+                    inv.invoice_number or f"ID {inv.pk}",
+                )
+                for inv in invoices
+            ),
+        )
 
     def save_model(self, request, obj, form, change):
         if not getattr(obj, "requested_by", None):
@@ -205,7 +270,7 @@ class PurchaseOrderReceiptAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
 @admin.register(PurchaseOrderItem)
 class PurchaseOrderItemAdmin(ModelAdmin):
-    list_display = ["inventory_item", "purchase_order", "quantity", "received_quantity"]
+    list_display = ["inventory_item", "purchase_order", "quantity", "received_quantity", "invoiced_quantity"]
     search_fields = ["inventory_item__name", "purchase_order__number"]
     autocomplete_fields = ["inventory_item", "purchase_order"]
 

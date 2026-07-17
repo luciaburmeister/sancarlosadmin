@@ -1,5 +1,9 @@
-from django.db import models
-from django.db.models import Sum
+from django.db import models, transaction
+from django.db.models import Sum, Q
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
+from django.apps import apps
+from django.core.exceptions import ValidationError
 from company.models import  CompanyEmailConfig, CompanyOwnedModel
 from timestamps.models import Timestampable
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -372,6 +376,15 @@ class Invoice(Timestampable, Payable):
             total = result["total_amount"]
 
         return total
+
+    def linked_purchase_orders(self):
+        """
+        Purchase orders billed by this invoice, derived from line-level allocations.
+        """
+        PurchaseOrder = apps.get_model("purchasing", "PurchaseOrder")
+        return PurchaseOrder.objects.filter(
+            items__invoice_allocations__invoice=self
+        ).distinct()
 
  
 class A3TaxGroup(models.TextChoices):
@@ -1132,3 +1145,150 @@ class InvoiceItem(models.Model):
     class Meta:
         verbose_name = "Invoice Item"
         verbose_name_plural = "Invoice Items"
+
+
+class InvoicePOAllocation(Timestampable):
+    """
+    Line-level link between a purchase invoice line and a purchase order line,
+    optionally pinned to the delivered receipt line (albarán) for 3-way matching.
+    Quantities are the source of truth; PurchaseOrderItem.invoiced_quantity is
+    recalculated from the DB on every change (PaymentAllocation pattern).
+    """
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.CASCADE,
+        related_name="po_allocations",
+        verbose_name=_("Invoice"),
+        help_text=_("Always derived from the invoice line; set automatically."),
+    )
+    invoice_item = models.ForeignKey(
+        InvoiceItem,
+        on_delete=models.CASCADE,
+        related_name="po_allocations",
+        verbose_name=_("Invoice Line"),
+    )
+    po_item = models.ForeignKey(
+        'purchasing.PurchaseOrderItem',
+        on_delete=models.PROTECT,
+        related_name="invoice_allocations",
+        verbose_name=_("PO Line"),
+    )
+    receipt_item = models.ForeignKey(
+        'purchasing.PurchaseOrderReceiptItem',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invoice_allocations",
+        verbose_name=_("Receipt Line"),
+        help_text=_("Optional: the delivered albarán line this invoice line bills."),
+    )
+    quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        validators=[MinValueValidator(Decimal("0.001"))],
+        verbose_name=_("Quantity"),
+    )
+
+    class Meta:
+        verbose_name = _("PO Allocation")
+        verbose_name_plural = _("PO Allocations")
+        constraints = [
+            models.CheckConstraint(
+                check=Q(quantity__gt=0),
+                name="invoicepoalloc_qty_positive",
+            ),
+            models.UniqueConstraint(
+                fields=["invoice_item", "po_item", "receipt_item"],
+                name="uniq_invoice_item_po_item_receipt",
+            ),
+            models.UniqueConstraint(
+                fields=["invoice_item", "po_item"],
+                condition=Q(receipt_item__isnull=True),
+                name="uniq_invoice_item_po_item_no_receipt",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.invoice_item} → {self.po_item} ({self.quantity})"
+
+    @property
+    def allocated_amount(self):
+        if self.invoice_item_id and self.invoice_item.unit_price is not None:
+            return self.invoice_item.unit_price * self.quantity
+        return None
+
+    def clean(self):
+        super().clean()
+        if not self.invoice_item_id or not self.po_item_id:
+            return
+
+        from purchasing.models import PurchaseOrderStatus
+
+        invoice = self.invoice_item.invoice
+        po = self.po_item.purchase_order
+        errors = {}
+
+        if po.status not in (PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.CLOSED):
+            errors["po_item"] = _("Only approved or closed purchase orders can be invoiced.")
+
+        if invoice.provider_id and invoice.provider_id != po.provider_id:
+            errors["po_item"] = _("The purchase order belongs to a different provider than the invoice.")
+
+        if invoice.company_id and po.company_id and invoice.company_id != po.company_id:
+            errors["po_item"] = _("The purchase order belongs to a different company than the invoice.")
+
+        if self.receipt_item_id and self.receipt_item.po_item_id != self.po_item_id:
+            errors["receipt_item"] = _("The receipt line does not belong to the selected PO line.")
+
+        if self.quantity is not None and self.quantity > 0:
+            already_allocated = (
+                InvoicePOAllocation.objects.filter(po_item_id=self.po_item_id)
+                .exclude(pk=self.pk)
+                .aggregate(total=Sum("quantity"))["total"]
+                or Decimal("0")
+            )
+            if already_allocated + self.quantity > self.po_item.quantity:
+                errors["quantity"] = _(
+                    "Cannot allocate %(qty)s: %(allocated)s of %(ordered)s already invoiced on this PO line."
+                ) % {
+                    "qty": self.quantity,
+                    "allocated": already_allocated,
+                    "ordered": self.po_item.quantity,
+                }
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if self.invoice_item_id:
+            self.invoice = self.invoice_item.invoice
+        self.full_clean()
+
+        with transaction.atomic():
+            old_po_item_id = None
+            if self.pk:
+                old_po_item_id = (
+                    InvoicePOAllocation.objects.filter(pk=self.pk)
+                    .values_list("po_item_id", flat=True)
+                    .first()
+                )
+            super().save(*args, **kwargs)
+            self.po_item.recalculate_invoiced_quantity()
+            if old_po_item_id and old_po_item_id != self.po_item_id:
+                PurchaseOrderItem = apps.get_model("purchasing", "PurchaseOrderItem")
+                old_po_item = PurchaseOrderItem.objects.filter(pk=old_po_item_id).first()
+                if old_po_item:
+                    old_po_item.recalculate_invoiced_quantity()
+
+
+@receiver(post_delete, sender=InvoicePOAllocation)
+def _resync_po_item_on_allocation_delete(sender, instance, **kwargs):
+    """
+    Keeps invoiced_quantity in sync also on cascade deletes (Invoice/InvoiceItem),
+    which bypass InvoicePOAllocation.delete().
+    """
+    if instance.po_item_id:
+        PurchaseOrderItem = apps.get_model("purchasing", "PurchaseOrderItem")
+        po_item = PurchaseOrderItem.objects.filter(pk=instance.po_item_id).first()
+        if po_item:
+            po_item.recalculate_invoiced_quantity()

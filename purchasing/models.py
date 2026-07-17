@@ -128,6 +128,24 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         self.total_amount = total
         self.save(update_fields=["total_amount"])
 
+    @property
+    def billing_status(self):
+        """
+        Derived billing progress: not_invoiced / partially_invoiced / fully_invoiced.
+        Sum comparison is valid because per-line over-allocation is blocked.
+        """
+        totals = self.items.aggregate(
+            ordered=models.Sum("quantity"),
+            invoiced=models.Sum("invoiced_quantity"),
+        )
+        ordered = totals["ordered"] or Decimal("0")
+        invoiced = totals["invoiced"] or Decimal("0")
+        if not ordered or invoiced <= 0:
+            return "not_invoiced"
+        if invoiced >= ordered:
+            return "fully_invoiced"
+        return "partially_invoiced"
+
     def check_and_update_status(self):
         """
         Closes the PO if all items are fully received. 
@@ -200,6 +218,12 @@ class PurchaseOrderItem(Timestampable):
         default=0,
         verbose_name=_("Received Quantity")
     )
+    invoiced_quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        default=0,
+        verbose_name=_("Invoiced Quantity")
+    )
 
     class Meta:
         verbose_name = _("PO Item")
@@ -207,6 +231,21 @@ class PurchaseOrderItem(Timestampable):
 
     def __str__(self):
         return f"{self.inventory_item.name} ({self.quantity} {self.unit})"
+
+    def recalculate_invoiced_quantity(self):
+        """
+        Recomputes invoiced_quantity from invoice allocations (self-healing,
+        mirrors Payment.recalculate_pending_allocation()).
+        """
+        total = self.invoice_allocations.aggregate(total=models.Sum("quantity"))["total"] or Decimal("0")
+        self.invoiced_quantity = total
+        # Queryset update to skip PurchaseOrderItem.save() side effects
+        # (PO total recalculation, inventory cost price sync).
+        PurchaseOrderItem.objects.filter(pk=self.pk).update(invoiced_quantity=total)
+
+    @property
+    def pending_invoice_quantity(self):
+        return self.quantity - self.invoiced_quantity
 
     def save(self, *args, **kwargs):
         if not self.description:

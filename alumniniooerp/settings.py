@@ -111,6 +111,7 @@ INSTALLED_APPS = [
     'banking',
     "finance",
     "payroll",
+    "loans",
 ]
 
 MIDDLEWARE = [

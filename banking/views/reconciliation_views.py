@@ -1,4 +1,3 @@
-"""Reconciliation review view — approve / switch / skip suggestions."""
 import logging
 from decimal import Decimal
 
@@ -309,11 +308,13 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
 
     @staticmethod
     def _get_candidate_documents(txn: BankTransaction) -> list:
-        """Return unpaid invoices or sales invoices for this transaction's company."""
+        """Return unpaid invoices, sales invoices, or loan installments for this transaction's company."""
         Invoice = apps.get_model("invoices", "Invoice")
         SalesInvoice = apps.get_model("invoices", "SalesInvoice")
+        LoanInstallment = apps.get_model("loans", "LoanInstallment")
 
         direction = PaymentDirection.INBOUND if txn.amount.amount > 0 else PaymentDirection.OUTBOUND
+        results = []
 
         if direction == PaymentDirection.OUTBOUND:
             qs = Invoice.objects.filter(
@@ -321,6 +322,37 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                 payment_status__in=["unpaid", "partial"],
                 date_issued__lte=txn.transaction_date,
             ).select_related("provider").order_by("-date_issued")
+
+            ct = ContentType.objects.get_for_model(Invoice)
+            for doc in qs:
+                results.append({
+                    "content_type": ct.model,
+                    "object_id": doc.pk,
+                    "form_value": f"{ct.model}:{doc.pk}",
+                    "number": getattr(doc, "invoice_number", str(doc)),
+                    "date": getattr(doc, "date_issued", None),
+                    "counterparty": str(getattr(doc, "provider", None) or "—"),
+                    "remaining": doc.amount_remaining_decimal,
+                })
+
+            installment_qs = LoanInstallment.objects.filter(
+                loan__company=txn.company,
+                loan__bank_account=txn.bank_account,
+                payment_status__in=["unpaid", "partial"],
+                due_date__lte=txn.transaction_date,
+            ).select_related("loan", "loan__bank").order_by("due_date")
+
+            ict = ContentType.objects.get_for_model(LoanInstallment)
+            for installment in installment_qs:
+                results.append({
+                    "content_type": ict.model,
+                    "object_id": installment.pk,
+                    "form_value": f"{ict.model}:{installment.pk}",
+                    "number": str(installment),
+                    "date": installment.due_date,
+                    "counterparty": str(installment.loan.bank),
+                    "remaining": installment.amount_remaining_decimal,
+                })
         else:
             qs = SalesInvoice.objects.filter(
                 company=txn.company,
@@ -328,22 +360,18 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                 date_issued__lte=txn.transaction_date,
             ).select_related("client").order_by("-date_issued")
 
-        ct = ContentType.objects.get_for_model(qs.model)
-        results = []
-        for doc in qs:
-            results.append({
-                "content_type": ct.model,
-                "object_id": doc.pk,
-                "form_value": f"{ct.model}:{doc.pk}",
-                "number": getattr(doc, "invoice_number", str(doc)),
-                "date": getattr(doc, "date_issued", None),
-                "counterparty": str(
-                    getattr(doc, "client", None)
-                    or getattr(doc, "provider", None)
-                    or "—"
-                ),
-                "remaining": doc.amount_remaining_decimal,
-            })
+            ct = ContentType.objects.get_for_model(SalesInvoice)
+            for doc in qs:
+                results.append({
+                    "content_type": ct.model,
+                    "object_id": doc.pk,
+                    "form_value": f"{ct.model}:{doc.pk}",
+                    "number": getattr(doc, "invoice_number", str(doc)),
+                    "date": getattr(doc, "date_issued", None),
+                    "counterparty": str(getattr(doc, "client", None) or "—"),
+                    "remaining": doc.amount_remaining_decimal,
+                })
+
         return results
 
 

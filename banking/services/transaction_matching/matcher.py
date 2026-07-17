@@ -201,6 +201,8 @@ class TransactionMatcher:
         """
         Invoice = apps.get_model("invoices", "Invoice")
         SalesInvoice = apps.get_model("invoices", "SalesInvoice")
+        LoanInstallment = apps.get_model("loans", "LoanInstallment")
+        LoanEvent = apps.get_model("loans", "LoanEvent")
         txn_date = self.transaction.transaction_date
 
         if self.direction == PaymentDirection.OUTBOUND:
@@ -211,7 +213,29 @@ class TransactionMatcher:
             )
             if self.counterparty:
                 qs = qs.filter(provider=self.counterparty)
-            return list(qs)
+
+            installment_qs = LoanInstallment.objects.filter(
+                loan__company=self.transaction.company,
+                loan__bank_account=self.transaction.bank_account,
+                payment_status__in=["unpaid", "partial"],
+                due_date__lte=txn_date,
+            )
+
+            # LoanEvents (early repayments) that haven't been reconciled yet
+            from django.contrib.contenttypes.models import ContentType
+            from payments.models import PaymentAllocation
+            ct = ContentType.objects.get_for_model(LoanEvent)
+            reconciled_event_ids = PaymentAllocation.objects.filter(
+                content_type=ct
+            ).values_list("object_id", flat=True)
+            event_qs = LoanEvent.objects.filter(
+                parent_loan__bank_account=self.transaction.bank_account,
+                parent_loan__company=self.transaction.company,
+                event_type="early_repayment",
+                date__lte=txn_date,
+            ).exclude(pk__in=reconciled_event_ids)
+
+            return list(qs) + list(installment_qs) + list(event_qs)
 
         qs = SalesInvoice.objects.filter(
             company=self.transaction.company,

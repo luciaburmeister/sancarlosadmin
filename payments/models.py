@@ -179,13 +179,14 @@ class PaymentAllocation(models.Model):
 
 def _recalculate_invoice_payment_status(content_type, object_id):
     """
-    If the allocated object is a SalesInvoice or Invoice, trigger recalculate_payment_status().
-    Uses apps.get_model to avoid circular imports.
+    If the allocated object is a SalesInvoice, Invoice, or LoanInstallment,
+    trigger its recalculate_payment_status(). Uses apps.get_model to avoid circular imports.
     """
     from django.apps import apps
 
     SalesInvoice = apps.get_model("invoices", "SalesInvoice")
     Invoice = apps.get_model("invoices", "Invoice")
+    LoanInstallment = apps.get_model("loans", "LoanInstallment")
     model_class = content_type.model_class()
 
     if model_class is SalesInvoice:
@@ -199,4 +200,10 @@ def _recalculate_invoice_payment_status(content_type, object_id):
             invoice = Invoice.objects.get(pk=object_id)
             invoice.recalculate_payment_status()
         except Invoice.DoesNotExist:
+            pass
+    elif model_class is LoanInstallment:
+        try:
+            installment = LoanInstallment.objects.get(pk=object_id)
+            installment.recalculate_payment_status()
+        except LoanInstallment.DoesNotExist:
             pass

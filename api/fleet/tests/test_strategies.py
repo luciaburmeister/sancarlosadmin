@@ -106,7 +106,7 @@ class MovementStrategyTests(TestCase):
         self.assertEqual(tx.data.get("matricula"), "1234ABC")
         self.assertEqual(tx.data.get("tipo_camion"), "Volquete")
         self.assertEqual(tx.data.get("implemento"), "Gancho")
-        self.assertEqual(tx.data.get("cliente"), "Cliente Test")
+        self.assertEqual(tx.data.get("cliente"), "")  # filled from zone.client; test zone has no client
         self.assertEqual(tx.data.get("obra"), "Obra Test")
         self.assertEqual(tx.data.get("trabajo"), "Recogida")
         self.assertEqual(tx.data.get("tipo_cuba"), "6m3")

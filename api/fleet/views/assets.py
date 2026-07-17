@@ -221,7 +221,9 @@ class MovementStrategy(BaseTransactionStrategy):
 
         if chosen_zone_id:
             try:
-                detected_zone = WorkingZone.objects.get(id=chosen_zone_id, company=asset.company)
+                detected_zone = WorkingZone.objects.select_related("client").get(
+                    id=chosen_zone_id, company=asset.company
+                )
                 asset.current_working_zone = detected_zone
                 asset.save(update_fields=["current_working_zone"])
             except WorkingZone.DoesNotExist:
@@ -250,6 +252,18 @@ class MovementStrategy(BaseTransactionStrategy):
                 detected_zone, distance = nearby_zones[0]
                 asset.current_working_zone = detected_zone
                 asset.save(update_fields=["current_working_zone"])
+
+        # Inject client from the detected zone — driver no longer picks this manually.
+        # current_working_zone was just set above in all branches.
+        zone = asset.current_working_zone
+        if zone:
+            # If zone came from find_zones_within_radius it may not have client
+            # prefetched, so do a targeted select_related fetch when needed.
+            if zone.client_id and not hasattr(zone, '_client_cache'):
+                zone = WorkingZone.objects.select_related("client").get(pk=zone.pk)
+            form_data["cliente"] = zone.client.name if zone.client else ""
+        else:
+            form_data["cliente"] = ""
 
         distance_note = f"Distancia: {int(distance)}m" if distance is not None else "Sin zona asignada"
         transaction = AssetTransaction(
@@ -287,7 +301,9 @@ class DeliveryStrategy(BaseTransactionStrategy):
 
         if chosen_zone_id:
             try:
-                destination_zone = WorkingZone.objects.get(id=chosen_zone_id, company=asset.company)
+                destination_zone = WorkingZone.objects.select_related("client").get(
+                    id=chosen_zone_id, company=asset.company
+                )
                 distance = 0
             except WorkingZone.DoesNotExist:
                 return JsonResponse({"error": "Zona no encontrada."}, status=400)
@@ -302,6 +318,12 @@ class DeliveryStrategy(BaseTransactionStrategy):
                 }, status=200)
             else:
                 destination_zone, distance = nearby_zones[0]
+
+        # Inject client from the destination zone — driver no longer picks this manually.
+        # If zone came from find_zones_within_radius it may not have client prefetched.
+        if destination_zone.client_id and not hasattr(destination_zone, '_client_cache'):
+            destination_zone = WorkingZone.objects.select_related("client").get(pk=destination_zone.pk)
+        form_data["cliente"] = destination_zone.client.name if destination_zone.client else ""
 
         transaction = AssetTransaction(
             asset=asset,

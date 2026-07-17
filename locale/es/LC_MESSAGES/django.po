@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-16 10:42+0200\n"
+"POT-Creation-Date: 2026-07-17 17:59+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -4902,6 +4902,38 @@ msgstr "Inventario ajustado en %(sign)s%(qty)d para %(item)s en %(wh)s."
 msgid "Adjust Stock — %s"
 msgstr "Ajustar Stock — %s"
 
+msgid "Edit"
+msgstr "Editar"
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "PO Allocation"
+msgstr "Método de Pago"
+
+msgid "Purchase Order"
+msgstr "Orden de Compra"
+
+
+msgid "Invoice Actions"
+msgstr "Acciones de facturación"
+
+msgid "Accounting"
+msgstr "Contabilidad"
+
+
+msgid "Match Purchase Order"
+msgstr "Emparejar Orden de Compra"
+
+msgid "Download PDF"
+msgstr "Descargar PDF"
+
+
+msgid "Select at least one invoice."
+msgstr "Seleccione al menos una factura."
+
+msgid "This invoice has no attached file."
+msgstr "Esta factura no tiene ningún archivo adjunto."
+
 msgid "Invoice Info"
 msgstr "Información de factura"
 
@@ -5003,18 +5035,8 @@ msgstr ""
 "registrado de la factura (%(manual)s). Se guardó de todos modos; por favor "
 "revisa los conceptos y los impuestos."
 
-#, fuzzy
-#| msgid "Invoice File"
-msgid "Invoice Actions"
-msgstr "Archivo de factura"
-
 msgid "AEAT / Verifactu"
 msgstr "AEAT / Verifactu"
-
-#, fuzzy
-#| msgid "Bank Account"
-msgid "Accounting"
-msgstr "Cuenta de Banco"
 
 msgid "View PDF"
 msgstr "Ver PDF"
@@ -5047,11 +5069,10 @@ msgstr "— Seleccionar factura —"
 msgid "Marked %d invoices as paid."
 msgstr "¡Todas las facturas están pagadas!"
 
-msgid "Please select only one invoice to download."
-msgstr "Por favor, selecciona solo una factura para descargar."
-
-msgid "Download PDF"
-msgstr "Descargar PDF"
+#, fuzzy
+#| msgid "No accepted quotes found for this project file."
+msgid "No PDF could be generated for the selected invoice."
+msgstr "No se han encontrado presupuestos aceptados para este expediente."
 
 msgid "Client has no email address."
 msgstr "El cliente no tiene una dirección de correo electrónico."
@@ -5111,10 +5132,8 @@ msgstr "tiene artículos"
 msgid "items missing account"
 msgstr "artículos sin cuenta"
 
-
 msgid "due date passed"
 msgstr "Fecha de vencimiento vencida"
-
 
 msgid "Not overdue"
 msgstr "No vencido"
@@ -5122,14 +5141,11 @@ msgstr "No vencido"
 msgid "bank reconciled"
 msgstr "Reconciliado"
 
-
 msgid "Partially reconciled"
 msgstr "Parcialmente reconciliado"
 
-
 msgid "Not reconciled"
 msgstr "No Reconciliado"
-
 
 msgid "total balanced"
 msgstr "Total equilibrado"
@@ -5142,7 +5158,6 @@ msgstr "Descuento (%)"
 
 msgid "Mark as Paid"
 msgstr "Marcar como pagado"
-
 
 msgid "Mark as Unpaid"
 msgstr "Marcar como no pagado"
@@ -5547,7 +5562,6 @@ msgstr ""
 "Método de pago esperado para esta factura (instantánea al momento de "
 "emisión)."
 
-
 msgid "External Invoice"
 msgstr "Facturas Externas"
 
@@ -5610,6 +5624,46 @@ msgstr "No se pueden editar elementos en una factura finalizada."
 msgid "Gross Total"
 msgstr "Total Bruto"
 
+msgid "Always derived from the invoice line; set automatically."
+msgstr ""
+"Siempre derivado de la línea de la factura; se establece automáticamente."
+
+#, fuzzy
+#| msgid "Invoice File"
+msgid "Invoice Line"
+msgstr "Archivo de factura"
+
+#, fuzzy
+#| msgid "Line Item"
+msgid "PO Line"
+msgstr "Item"
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "PO Allocations"
+msgstr "Método de Pago"
+
+#, fuzzy
+#| msgid "Only pending sessions can be started"
+msgid "Only approved or closed purchase orders can be invoiced."
+msgstr "Solo se pueden iniciar sesiones pendientes."
+
+msgid "The purchase order belongs to a different provider than the invoice."
+msgstr ""
+"La orden de compra pertenece a un proveedor diferente al de la factura."
+
+msgid "The purchase order belongs to a different company than the invoice."
+msgstr ""
+"La orden de compra pertenece a una empresa diferente a la de la factura."
+
+#, python-format
+msgid ""
+"Cannot allocate %(qty)s: %(allocated)s of %(ordered)s already invoiced on "
+"this PO line."
+msgstr ""
+"No se puede asignar %(qty)s: %(allocated)s de %(ordered)s ya ha sido "
+"facturado en esta línea de la OC."
+
 #, fuzzy
 #| msgid "Provider"
 msgid "Provider NIF/CIF"
@@ -5633,6 +5687,16 @@ msgstr "Fecha de Pago"
 #, fuzzy
 #| msgid "Client"
 msgid "Client NIF/CIF"
+msgstr "Cliente"
+
+#, fuzzy
+#| msgid "Send Email"
+msgid "Client Email"
+msgstr "Enviar correo electrónico"
+
+#, fuzzy
+#| msgid "Client"
+msgid "Client Phone"
 msgstr "Cliente"
 
 #, fuzzy
@@ -5803,17 +5867,66 @@ msgid "No pending invoices for this company."
 msgstr "No hay facturas pendientes para esta empresa."
 
 #, fuzzy
-#| msgid "Bank Accounts"
+#| msgid "Unknown product"
+msgid "Unknown provider"
+msgstr "Producto desconocido"
+
+#, fuzzy
+#| msgid "Aggregated from purchase invoices"
+msgid "Suggested purchase orders"
+msgstr "Agrupado desde facturas de compra"
+
+#, fuzzy
+#| msgid "Pending Invoices"
+msgid "Pending to Invoice"
+msgstr "Facturas pendientes"
+
+msgid ""
+"No matching purchase orders found for this invoice's provider with "
+"quantities pending to invoice."
+msgstr ""
+"No se encontraron órdenes de compra coincidentes para el proveedor de esta "
+"factura con cantidades pendientes de facturar."
+
+msgid "Back to Invoice"
+msgstr "Volver a la factura"
+
+
+msgid "Matching against"
+msgstr "Emparejando contra"
+
+msgid "Choose another PO"
+msgstr "Elige otro PO"
+
+msgid "Unmatched"
+msgstr "Sin emparejar"
+
+msgid "Match Qty"
+msgstr "Cantidad a emparejar"
+
+msgid "— skip —"
+msgstr "— omitir —"
+
+msgid "pending"
+msgstr "Pendiente"
+
+
+msgid "Fully matched"
+msgstr "Emparejados"
+
+msgid "Confirm Match"
+msgstr "Confirmar emparejamiento"
+
+
 msgid "Bank Account Balances"
-msgstr "Cuenta de banco"
+msgstr "Balance de Cuenta de banco"
 
 msgid "ago"
 msgstr "hace"
 
-#, fuzzy
-#| msgid "Register Payment"
+
 msgid "Pending sync"
-msgstr "Registrar Pago"
+msgstr "Sincronización Pendiente"
 
 msgid "Sales Invoicing"
 msgstr "Factura de venta"
@@ -5824,10 +5937,9 @@ msgstr "Resumen Facturas de ventas"
 msgid "Finalized (Subtotal)"
 msgstr "Finalizadas (Subtotal)"
 
-#, fuzzy
-#| msgid "Custom Amount (Subtotal)"
+
 msgid "Pro Forma (Subtotal)"
-msgstr "Monto Personalizado (Subtotal)"
+msgstr "Pro Forma (Subtotal)"
 
 msgid "Grand Total (Subtotal)"
 msgstr "Gran Total (Subtotal)"
@@ -5845,10 +5957,9 @@ msgstr "Pro Forma"
 msgid "Collection Status"
 msgstr "Etapas de Producción"
 
-#, fuzzy
-#| msgid "Invoice File"
+
 msgid "Invoiced (With Taxes)"
-msgstr "Archivo de factura"
+msgstr "Facturado (Con impuestos)"
 
 msgid "Collected"
 msgstr "Cobrado"
@@ -6232,6 +6343,47 @@ msgstr ""
 "Cargue el archivo de factura. Después de guardar, volverá a la lista de "
 "facturas."
 
+msgid "file(s)"
+msgstr "archivo(s)"
+
+#, fuzzy
+#| msgid "Skipped"
+msgid "skipped"
+msgstr "Omitido"
+
+msgid "Preparing PDF download"
+msgstr "Preparando descarga de PDF"
+
+msgid "Preparing PDF download…"
+msgstr "Preparando la descarga del PDF…"
+
+#, fuzzy
+#| msgid ""
+#| "This may take a few seconds. You will be redirected automatically."
+msgid ""
+"This may take a moment for large selections. The download will start "
+"automatically when ready."
+msgstr "Esto puede tardar unos segundos. Serás redirigido automáticamente."
+
+msgid "ZIP ready"
+msgstr "ZIP listo"
+
+#, fuzzy
+#| msgid "Download PDF"
+msgid "Download ZIP"
+msgstr "Descargar PDF"
+
+msgid "Go back"
+msgstr "Regresar"
+
+#, fuzzy
+#| msgid "Download PDF"
+msgid "Download failed"
+msgstr "Descargar PDF"
+
+msgid "The ZIP could not be prepared."
+msgstr "No se pudo preparar el ZIP."
+
 #, fuzzy
 #| msgid "Create Invoice from Project File"
 msgid "Import Sales Invoices from Excel"
@@ -6468,6 +6620,21 @@ msgstr ""
 "%(count)d facturas importadas tienen un total que no coincide con su base + "
 "IVA - retención. Verifica los detalles de la fila a continuación."
 
+#, fuzzy
+#| msgid "Collected"
+msgid "No purchase order was selected."
+msgstr "Cobrado"
+
+#, fuzzy
+#| msgid "No quantities were entered. No receipt was created."
+msgid "No lines were selected. Nothing was matched."
+msgstr "No se ingresaron cantidades. No se creó ningún recibo."
+
+#, fuzzy, python-format
+#| msgid "No pending invoices for this company."
+msgid "%(count)d line(s) matched to purchase order %(number)s."
+msgstr "No hay facturas pendientes para esta empresa."
+
 msgid "Create Invoice from Project File"
 msgstr "Crear factura desde expediente"
 
@@ -6510,6 +6677,377 @@ msgstr ""
 "Fusionado en \"%(target)s\": se reasignaron %(updated)d registros, se "
 "eliminaron %(deleted)d duplicados, se eliminaron %(sources)d tipos de "
 "impuestos (%(names)s)."
+
+msgid "Sync banks from Arcopay"
+msgstr "Sincronizar bancos desde Arcopay"
+
+#, python-format
+msgid "%(count)d banks synced."
+msgstr "Se sincronizaron %(count)d bancos."
+
+#, fuzzy
+#| msgid "Bank Transfer"
+msgid "Tranche"
+msgstr "Transferencia Bancaria"
+
+#, fuzzy
+#| msgid "Bank Transfer"
+msgid "Tranches"
+msgstr "Transferencia Bancaria"
+
+msgid "#"
+msgstr "¡Hola! ¿En qué puedo ayudarte hoy con la traducción al español?"
+
+msgid "Outstanding"
+msgstr "Excepcional"
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "Early Repayment"
+msgstr "Método de Pago"
+
+#, fuzzy
+#| msgid "Machine cost"
+msgid "Repayment History"
+msgstr "Costo de la máquina"
+
+msgid "Event"
+msgstr "Evento"
+
+#, fuzzy
+#| msgid "Amount Applied"
+msgid "Amount paid"
+msgstr "Monto Aplicado"
+
+#, fuzzy
+#| msgid "Purchase Order"
+msgid "Payment History"
+msgstr "Orden de Compra"
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "Partial payment"
+msgstr "Método de Pago"
+
+msgid "Term"
+msgstr "Término"
+
+#, fuzzy
+#| msgid "Total price"
+msgid "Total installment"
+msgstr "Precio total"
+
+#, fuzzy
+#| msgid "T&C company reference"
+msgid "Bank and reference"
+msgstr "Referencia de T&C de la empresa"
+
+msgid "Parent loan created. Now add the first tranche."
+msgstr "Préstamo parental creado. Ahora añade la primera tanda."
+
+msgid "Loan"
+msgstr "Préstamo"
+
+#, fuzzy
+#| msgid "Add item"
+msgid "Add tranche"
+msgstr "Agregar línea"
+
+msgid ""
+"This loan already has an active tranche. Settle it first or register an "
+"early repayment."
+msgstr ""
+"Este préstamo ya tiene una porción activa. Realízalo primero o registra un "
+"pago anticipado."
+
+#, fuzzy
+#| msgid "Register Payment"
+msgid "Register early repayment"
+msgstr "Registrar Pago"
+
+#, fuzzy
+#| msgid "No pending invoices for this company."
+msgid "No active tranche found for this loan."
+msgstr "No hay facturas pendientes para esta empresa."
+
+#, fuzzy
+#| msgid "Financial & Insurance"
+msgid "Financial terms"
+msgstr "Finanzas y Seguro"
+
+#, fuzzy
+#| msgid "items missing account"
+msgid "Status and account"
+msgstr "artículos sin cuenta"
+
+msgid ""
+"Loans must be created from a Parent Loan. Please create or select a Parent "
+"Loan first."
+msgstr ""
+"Los préstamos deben crearse a partir de un Préstamo Principal. Por favor, "
+"crea o selecciona primero un Préstamo Principal."
+
+#, fuzzy
+#| msgid "Payment Date"
+msgid "Parent Loan"
+msgstr "Fecha de Pago"
+
+msgid ""
+"You changed financial terms on a loan with already-paid installments. The "
+"schedule was NOT regenerated automatically — review it manually if needed."
+msgstr ""
+"Has cambiado los términos financieros de un préstamo con cuotas ya pagadas. "
+"El cronograma NO se regeneró automáticamente; revísalo manualmente si es "
+"necesario."
+
+msgid "Generate payment schedule"
+msgstr "Generar calendario de pagos"
+
+#, fuzzy
+#| msgid "No stages defined for this item"
+msgid "Payment schedule generated."
+msgstr "No hay etapas definidas para este elemento"
+
+#, fuzzy
+#| msgid "Bank Transactions"
+msgid "Check bank transactions"
+msgstr "Transacciónes bancarias"
+
+msgid "Fixed"
+msgstr "Fijo"
+
+#, fuzzy
+#| msgid "Variable Name"
+msgid "Variable"
+msgstr "Nombre de Variable"
+
+msgid "French (constant installment)"
+msgstr "Francés (cuota constante)"
+
+msgid "German (constant principal)"
+msgstr "Alemán (principal constante)"
+
+msgid "Bullet (interest-only)"
+msgstr "Interés solamente (bullet)"
+
+msgid "ACT/360"
+msgstr "ACT/360"
+
+msgid "30/360"
+msgstr "30/360"
+
+msgid "Monthly"
+msgstr "Mensual"
+
+msgid "Quarterly"
+msgstr "Trimestral"
+
+#, fuzzy
+#| msgid "Annual leave"
+msgid "Annual"
+msgstr "Vacaciones"
+
+msgid "Settled"
+msgstr "Resuelto"
+
+#, fuzzy
+#| msgid "Is Default"
+msgid "Defaulted"
+msgstr "Es default"
+
+msgid "Penalty"
+msgstr "Penalización"
+
+msgid "Restructure"
+msgstr "Reestructurar"
+
+#, fuzzy
+#| msgid "Measurements"
+msgid "Disbursement"
+msgstr "Medidas"
+
+msgid "Arcopay Service Code"
+msgstr "Código de Servicio de Arcopay"
+
+#, fuzzy
+#| msgid "SWIFT/BIC code"
+msgid "SWIFT/BIC"
+msgstr "código SWIFT/BIC"
+
+#, fuzzy
+#| msgid "Logo"
+msgid "Logo URL"
+msgstr "Logotipo"
+
+#, fuzzy
+#| msgid "Bank"
+msgid "Banks"
+msgstr "Banco"
+
+msgid "Company account this loan is disbursed to / paid from."
+msgstr ""
+"Cuenta de la empresa a la que se desembolsa este préstamo / de la que se "
+"paga."
+
+msgid "Optional label, e.g. 'Leasing máquina 1'."
+msgstr "Etiqueta opcional, p. ej. 'Leasing máquina 1'."
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "Parent Loans"
+msgstr "Método de Pago"
+
+msgid "Optional label to identify this loan, e.g. 'Leasing máquina 1'."
+msgstr ""
+"Etiqueta opcional para identificar este préstamo, p. ej. 'Leasing máquina "
+"1'."
+
+#, fuzzy
+#| msgid "Line Total Amount"
+msgid "Principal Amount"
+msgstr "Total de linea"
+
+#, fuzzy
+#| msgid "Internal Data"
+msgid "Interest Rate"
+msgstr "Datos Internos"
+
+msgid ""
+"Choose annual nominal rate, e.g. 5 for 5%. Annual rate = Monthly rate × 12."
+msgstr ""
+"Elija la tasa nominal anual, por ejemplo, 5 para 5%. Tasa anual = Tasa "
+"mensual × 12."
+
+#, fuzzy
+#| msgid "Contract Type"
+msgid "Interest Rate Type"
+msgstr "Tipo de contrato"
+
+msgid "Amortization Method"
+msgstr "Método de Amortización"
+
+msgid "Interest Day Count"
+msgstr "Día de Contado de Interés"
+
+msgid ""
+"ACT/360: calculated on actual days between payments, standard used by most "
+"Spanish banks. | 30/360: assumes every month has 30 days. Use ONLY if your "
+"contract explicitly states it."
+msgstr ""
+"ACT/360: calculado en días reales entre pagos, estándar utilizado por la "
+"mayoría de los bancos españoles. | 30/360: asume que cada mes tiene 30 días."
+" Úselo SOLAMENTE si su contrato lo establece explícitamente."
+
+#, fuzzy
+#| msgid "Every month"
+msgid "Term (months)"
+msgstr "Cada mes"
+
+msgid "Payment Frequency"
+msgstr "Frecuencia de pago"
+
+msgid "Loans"
+msgstr "Préstamos"
+
+#, fuzzy
+#| msgid "Components"
+msgid "Event Type"
+msgstr "Componentes"
+
+msgid "Capital amount paid. Leave blank for restructure events."
+msgstr ""
+"Monto de capital pagado. Deje en blanco para eventos de reestructuración."
+
+msgid "Loan Event"
+msgstr "Evento de Préstamo"
+
+msgid "Loan Events"
+msgstr "Eventos de Préstamo"
+
+#, fuzzy
+#| msgid "Last Name"
+msgid "Installment Number"
+msgstr "Apellido"
+
+msgid "Principal Due"
+msgstr "Principal Vencido"
+
+msgid "Interest Due"
+msgstr "Interés Vencido"
+
+msgid ""
+"Maintained automatically from PaymentAllocation. Not manually editable."
+msgstr ""
+"Mantenido automáticamente desde PaymentAllocation. No editable manualmente."
+
+#, fuzzy
+#| msgid "Total price"
+msgid "Outstanding Principal"
+msgstr "Precio total"
+
+msgid "Loan Installment"
+msgstr "Cuota del préstamo"
+
+msgid "Loan Installments"
+msgstr "Cuotas del préstamo"
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "Extra principal payment"
+msgstr "Método de Pago"
+
+msgid ""
+"Amount of extra capital you are paying to the bank on top of the regular "
+"installment. This will close the current tranche and open a new one with the"
+" remaining balance minus this amount."
+msgstr ""
+"Monto de capital extra que estás pagando al banco además de la cuota "
+"regular. Esto cerrará el tramo actual y abrirá uno nuevo con el saldo "
+"restante menos este monto."
+
+#, fuzzy
+#| msgid "Payment Date"
+msgid "Repayment date"
+msgstr "Fecha de Pago"
+
+msgid ""
+"Date the extra payment was made. Used as the start date of the new tranche."
+msgstr ""
+"Fecha en la que se realizó el pago extra. Se utiliza como la fecha de inicio"
+" del nuevo tramo."
+
+#, fuzzy
+#| msgid "Register Payment"
+msgid "Register Early Repayment"
+msgstr "Registrar Pago"
+
+#, python-format
+msgid ""
+"Extra payment (%(extra)s) must be less than the outstanding principal "
+"(%(outstanding)s)."
+msgstr ""
+"El pago extra (%(extra)s) debe ser menor que el principal pendiente "
+"(%(outstanding)s)."
+
+msgid "No remaining installments after the repayment date."
+msgstr "No quedan cuotas pendientes después de la fecha de pago."
+
+msgid ""
+"Auto-created early repayment event. Reconcile against the bank transaction "
+"to confirm."
+msgstr ""
+"Evento de pago anticipado creado automáticamente. Concíliate con la "
+"transacción bancaria para confirmar."
+
+#, python-format
+msgid ""
+"Early repayment registered. Tranche #%(old)d settled. New tranche #%(new)d "
+"created with principal %(principal)s %(currency)s over %(months)d months. "
+"Reconcile the bank transaction to confirm the payment."
+msgstr ""
+"Repago anticipado registrado. Tramo #%(old)d liquidado. Nuevo tramo #%(new)d"
+" creado con un principal de %(principal)s %(currency)s durante %(months)d "
+"meses. Reconciliar la transacción bancaria para confirmar el pago."
 
 #, fuzzy
 #| msgid "Back to ticket"
@@ -6996,6 +7534,22 @@ msgstr ""
 " del archivo del proyecto en la vista del cronograma."
 
 #, fuzzy
+#| msgid "In production"
+msgid "Not done"
+msgstr "En producción"
+
+#, fuzzy
+#| msgid ""
+#| "Label this planning with its planning type instead of the project file name "
+#| "in the schedule view."
+msgid ""
+"Mark this planning as not done as expected; it is highlighted in red in the "
+"schedule view."
+msgstr ""
+"Etiquete esta planificación con su tipo de planificación en lugar del nombre"
+" del archivo del proyecto en la vista del cronograma."
+
+#, fuzzy
 #| msgid "Process Planning"
 msgid "Resource Plannings"
 msgstr "Planificación del Proceso"
@@ -7381,9 +7935,6 @@ msgstr "Expediente"
 #| msgid "Activo"
 msgid "Actions"
 msgstr "Activo"
-
-msgid "Edit"
-msgstr "Editar"
 
 msgid "No occurrences."
 msgstr "Sin ocurrencias."
@@ -8222,17 +8773,11 @@ msgstr "Categoría profesional"
 msgid "SS contribution group (1-11)"
 msgstr "Grupo de contribución SS (1-11)"
 
-msgid "Monthly"
-msgstr "Mensual"
-
 msgid "Weekly"
 msgstr "Semanal"
 
 msgid "Bi-weekly"
 msgstr "Quincenal"
-
-msgid "Payment Frequency"
-msgstr "Frecuencia de pago"
 
 msgid "Multiple Employment"
 msgstr "Pluriempleo"
@@ -8302,11 +8847,6 @@ msgstr "Ingresos anuales"
 
 msgid "Number of Children"
 msgstr "Número de Niños"
-
-#, fuzzy
-#| msgid "SWIFT/BIC code"
-msgid "SWIFT/BIC"
-msgstr "código SWIFT/BIC"
 
 msgid "Employee Payroll Profile"
 msgstr "Perfil de Nómina del Empleado"
@@ -8759,9 +9299,6 @@ msgstr "Empleados en el archivo"
 msgid "Matched"
 msgstr "Emparejados"
 
-msgid "Unmatched"
-msgstr "Sin emparejar"
-
 msgid "Net total (matched)"
 msgstr "Total neto (emparejados)"
 
@@ -9042,6 +9579,19 @@ msgstr "Orden de etapa estable derivado de la lista de materiales (BOM)"
 msgid "Production Stages Order"
 msgstr "Etapas de Producción"
 
+msgid ""
+"Manual ordering set by supervisors in the terminal; lower is more urgent. "
+"Items without priority sort last."
+msgstr ""
+"Ordenamiento manual establecido por los supervisores en la terminal; un "
+"número más bajo significa mayor urgencia. Los elementos sin prioridad se "
+"ordenan al final."
+
+#, fuzzy
+#| msgid "Can work on production stages"
+msgid "Can reorder production items"
+msgstr "Trabaja en Etapas de Producción"
+
 msgid "Activity started"
 msgstr "Actividad iniciada"
 
@@ -9104,6 +9654,11 @@ msgstr "La sesión ya ha comenzado"
 
 msgid "Only active sessions can be finished"
 msgstr "Solo se pueden finalizar las sesiones activas."
+
+#, fuzzy
+#| msgid "End date must be after start date."
+msgid "Worked time must be at least 1 minute."
+msgstr "La fecha de inicio debe ser antes de la fecha de fin."
 
 msgid "Unsupported resource type"
 msgstr "Tipo de recurso no soportado"
@@ -9174,6 +9729,25 @@ msgstr "No se puede validar el motivo de pausa sin empresa."
 
 msgid "Motivo de pausa no válido para esta empresa."
 msgstr "Motivo de pausa no válido para esta empresa."
+
+msgid "Debe indicar al menos un empleado con tiempo trabajado."
+msgstr "Debe indicar al menos un empleado con tiempo laborado."
+
+msgid "Cada empleado solo puede aparecer una vez."
+msgstr "Cada empleado solo puede aparecer una vez."
+
+msgid "El tiempo mínimo es 1 minuto por empleado."
+msgstr "El tiempo mínimo es 1 minuto por empleado."
+
+#, python-format
+msgid "%(name)s no puede trabajar en esta etapa."
+msgstr "%(name)s can’t work at this stage."
+
+msgid "Etapa no encontrada en este artículo."
+msgstr "Etapa no encontrada en este artículo."
+
+msgid "La etapa ya está cerrada."
+msgstr "La etapa ya está cerrada."
 
 msgid ""
 "You already have an active session elsewhere. End it before starting a new "
@@ -9585,6 +10159,11 @@ msgstr "Volver a las etapas"
 msgid "Financials & Approval"
 msgstr "Finanzas y Seguro"
 
+#, fuzzy
+#| msgid "Received Invoices"
+msgid "Linked Invoices"
+msgstr "Facturas de compra"
+
 msgid "Send to Approval"
 msgstr "Mandar a aprobación"
 
@@ -9607,6 +10186,11 @@ msgstr "Solo se pueden mandar a aprobar las ordenes de compra pendientes."
 #| msgid "Register Payment"
 msgid "Register Identity Codes"
 msgstr "Registrar Pago"
+
+#, fuzzy
+#| msgid "Create Invoice"
+msgid "Match Invoice"
+msgstr "Crear factura"
 
 msgid "Receive items directly"
 msgstr "Recibir articulos"
@@ -9650,9 +10234,6 @@ msgstr "Archivo del proveedor"
 msgid "Upload the quote from the provider to support approval."
 msgstr "Subir la cotización del proveedor para respaldar la aprobación."
 
-msgid "Purchase Order"
-msgstr "Orden de Compra"
-
 msgid "Can approve Purchase Orders"
 msgstr "Puedes aprobar Ordenes de Compra"
 
@@ -9665,6 +10246,11 @@ msgid "DRAFT"
 msgstr "BORRADOR"
 
 msgid "Received Quantity"
+msgstr "Cantidad Recibida"
+
+#, fuzzy
+#| msgid "Received Quantity"
+msgid "Invoiced Quantity"
 msgstr "Cantidad Recibida"
 
 msgid "PO Item"
@@ -9752,6 +10338,54 @@ msgid "Save Identity Codes"
 msgstr "Guardar Códigos de Identidad"
 
 #, fuzzy
+#| msgid "Invoice Info"
+msgid "Match Invoice for PO"
+msgstr "Información de factura"
+
+#, fuzzy
+#| msgid "Payment Method"
+msgid "Suggested invoices"
+msgstr "Método de Pago"
+
+#, fuzzy
+#| msgid "Unmatched"
+msgid "Unmatched Lines"
+msgstr "Sin emparejar"
+
+#, fuzzy
+#| msgid "Component"
+msgid "Unknown"
+msgstr "Componente"
+
+#, fuzzy
+#| msgid "No accepted quotes found for this project file."
+msgid "No candidate invoices found for this provider with unmatched lines."
+msgstr "No se han encontrado presupuestos aceptados para este expediente."
+
+#, fuzzy
+#| msgid "Back to list"
+msgid "Back to PO"
+msgstr "Volver a la lista"
+
+msgid "Matching against invoice"
+msgstr "Coincidencia con la factura"
+
+#, fuzzy
+#| msgid "Create Invoice"
+msgid "Choose another invoice"
+msgstr "Crear factura"
+
+#, fuzzy
+#| msgid "Unmatched"
+msgid "unmatched"
+msgstr "Sin emparejar"
+
+#, fuzzy
+#| msgid "invoiced"
+msgid "Fully invoiced"
+msgstr "Factura"
+
+#, fuzzy
 #| msgid "Receival Slip Items"
 msgid "Receive Items Directly"
 msgstr "Artículos del Recibo de Entrega"
@@ -9773,6 +10407,21 @@ msgstr "%(count)d códigos de identidad registrados."
 
 msgid "No new identity codes were added."
 msgstr "No se agregaron nuevos códigos de identidad."
+
+msgid "Only approved or closed purchase orders can be matched to invoices."
+msgstr ""
+"Solo las órdenes de compra aprobadas o cerradas pueden ser emparejadas con "
+"facturas."
+
+#, fuzzy
+#| msgid "Collected"
+msgid "No invoice was selected."
+msgstr "Cobrado"
+
+#, fuzzy, python-format
+#| msgid "Started %(count)d items across all tickets."
+msgid "%(count)d line(s) matched to invoice %(number)s."
+msgstr "Se empezaron %(count)d elementos en todos los tickets."
 
 #, fuzzy
 #| msgid "Address"
@@ -10438,16 +11087,6 @@ msgid "Umbrales de Conversión"
 msgstr "Umbrales de Conversión"
 
 #, fuzzy
-#| msgid "Send Email"
-msgid "Client Email"
-msgstr "Enviar correo electrónico"
-
-#, fuzzy
-#| msgid "Client"
-msgid "Client Phone"
-msgstr "Cliente"
-
-#, fuzzy
 #| msgid "Line Total Currency"
 msgid "Subtotal Currency"
 msgstr "Moneda del total"
@@ -10545,6 +11184,68 @@ msgstr "Plantilla no disponible para esta cotización"
 #| msgid "Work Email"
 msgid "Send Quote Email"
 msgstr "Correo electrónico"
+
+#, fuzzy
+#| msgid "Vacation request"
+msgid "Bad request"
+msgstr "Solicitud de vacaciones"
+
+msgid "That request didn't work"
+msgstr "Esa solicitud no funcionó."
+
+msgid ""
+"The server couldn't process your request. It may be malformed or contain "
+"invalid data. Please go back and try again."
+msgstr ""
+"El servidor no pudo procesar tu solicitud. Puede que esté mal formada o "
+"contenga datos inválidos. Por favor, vuelve y prueba de nuevo."
+
+msgid "Access restricted"
+msgstr "Acceso restringido"
+
+msgid ""
+"You don't have permission to view this page. If you believe you should have "
+"access, contact your administrator to request it."
+msgstr ""
+"No tienes permiso para ver esta página. Si crees que deberías tener acceso, "
+"contacta a tu administrador para solicitarlo."
+
+#, fuzzy
+#| msgid "Quote not found"
+msgid "Page not found"
+msgstr "Presupuesto no encontrado"
+
+msgid "We can't find that page"
+msgstr "No podemos encontrar esa página."
+
+msgid ""
+"The page you are looking for may have been moved, renamed, or no longer "
+"exists. Check the address or head back to the home page."
+msgstr ""
+"La página que estás buscando puede haber sido movida, renombrada o ya no "
+"existe. Verifica la dirección o regresa a la página de inicio."
+
+#, fuzzy
+#| msgid "Matched employee"
+msgid "Server error"
+msgstr "Empleado emparejado"
+
+msgid "Something went wrong"
+msgstr "Algo salió mal"
+
+msgid ""
+"An unexpected error occurred on our side. Our team has been notified and is "
+"working to fix it as soon as possible."
+msgstr ""
+"Ocurrió un error inesperado de nuestro lado. Nuestro equipo ha sido "
+"notificado y está trabajando para solucionarlo lo antes posible."
+
+msgid ""
+"Please try again in a few minutes. If the problem persists, contact your "
+"administrator."
+msgstr ""
+"Por favor, inténtalo de nuevo en unos minutos. Si el problema persiste, "
+"contacta a tu administrador."
 
 msgid ""
 "Select your bank below. You will be redirected to your bank's website to "
@@ -10668,9 +11369,6 @@ msgid ""
 msgstr ""
 "No se encontraron combinaciones que coincidieran para esta transacción."
 
-msgid "Go back"
-msgstr "Regresar"
-
 #, fuzzy
 #| msgid "Matched employee"
 msgid "Matcher error"
@@ -10696,11 +11394,6 @@ msgstr "Opciones"
 #| msgid "Transaction"
 msgid "transaction(s)"
 msgstr "Transacción"
-
-#, fuzzy
-#| msgid "Back to ticket"
-msgid "Back to Invoice"
-msgstr "Volver al ticket"
 
 #, fuzzy
 #| msgid "Approved by"
@@ -10776,6 +11469,34 @@ msgstr "Este exportador exportará los siguientes campos:"
 msgid "This importer will import the following fields: "
 msgstr "Este importador importará los siguientes campos:"
 
+#, fuzzy
+#| msgid "worker(s) currently active"
+msgid "Current active tranche"
+msgstr "trabajador(es) actualmente activo(s)"
+
+#, fuzzy
+#| msgid "Remaining"
+msgid "Remaining Months"
+msgstr "Restante"
+
+msgid ""
+"This will settle the current tranche and create a new one with the remaining"
+" balance. The amortization schedule of the new tranche will be generated "
+"automatically."
+msgstr ""
+"Esto liquidará la presente tramo y creará uno nuevo con el saldo restante. "
+"El calendario de amortización del nuevo tramo será generado automáticamente."
+
+#, fuzzy
+#| msgid "Payment Status"
+msgid "Early repayment details"
+msgstr "Estado de pago"
+
+#, fuzzy
+#| msgid "Confirmed"
+msgid "Confirm Early Repayment"
+msgstr "Confirmado"
+
 msgid "Análisis de Conversión de Ventas"
 msgstr "Análisis de Conversión de Ventas"
 
@@ -10799,6 +11520,14 @@ msgstr "Sin datos"
 
 msgid "Selecciona una empresa para ver el análisis."
 msgstr "Selecciona una empresa para ver el análisis."
+
+#, fuzzy
+#| msgid "Back to ticket"
+msgid "Back to home"
+msgstr "Volver al ticket"
+
+msgid "If the problem persists, contact your administrator."
+msgstr "Si el problema persiste, contacta a tu administrador."
 
 #, fuzzy
 #| msgid "Vacation movements"
@@ -11053,6 +11782,9 @@ msgstr "Ausencias pasadas"
 msgid "No past absences."
 msgstr "No hay ausencias pasadas"
 
+#~ msgid "Please select only one invoice to download."
+#~ msgstr "Por favor, selecciona solo una factura para descargar."
+
 #, fuzzy
 #~ msgid "Select agents and product templates"
 #~ msgstr "Selecciona empleados y plantillas de productos"
@@ -11129,9 +11861,6 @@ msgstr "No hay ausencias pasadas"
 
 #~ msgid "paid"
 #~ msgstr "Pagado"
-
-#~ msgid "pending"
-#~ msgstr "Pendiente"
 
 #~ msgid "Providers with Debt"
 #~ msgstr "Proveedores con Deuda"

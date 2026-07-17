@@ -385,11 +385,21 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
         "view_journal_entry_row_action",
     ]
     actions_detail = [
-        "download_pdf_detail_action",
-        "view_journal_entry_detail_action",
-        "register_payment_detail_action",
-        "run_invoice_matcher_detail_action",
-        "match_po_detail_action",
+        {
+            "title": _("Invoice Actions"),
+            "items": [
+                "download_pdf_detail_action",
+                "register_payment_detail_action",
+                "run_invoice_matcher_detail_action",
+                "match_po_detail_action",
+            ],
+        },
+        {
+            "title": _("Accounting"),
+            "items": [
+                "view_journal_entry_detail_action",
+            ],
+        },
     ]
 
     @action(description=_("Match Purchase Order"), icon="link")

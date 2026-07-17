@@ -58,6 +58,20 @@ class A3PurchaseExportService:
             return ""
         return str(doc_number)[:10]
 
+    def _get_tax_base(self, tax, fallback_base):
+        """
+        Returns the base over which this specific tax was applied.
+        Falls back to deriving it from the quota and percentage, and
+        finally to the invoice total base.
+        """
+        if tax.base_amount is not None:
+            return self._to_float(tax.base_amount)
+        pct = self._to_float(tax.selected_percentage)
+        quota = self._to_float(tax.calculated_amount)
+        if pct and quota:
+            return round(quota / (pct / 100.0), 2)
+        return fallback_base
+
     def _get_concept(self, invoice):
         """
         Generates a standardized concept for the invoice.
@@ -145,7 +159,7 @@ class A3PurchaseExportService:
                         concept,
                         inv.provider.tax_identifier if inv.provider else "",
                         inv.provider.name if inv.provider else "PROVEEDOR DESCONOCIDO",
-                        base_amount,
+                        self._get_tax_base(tax, base_amount),
                         self._to_float(tax.selected_percentage),
                         self._to_float(tax.calculated_amount),
                         re_pct,
@@ -154,8 +168,6 @@ class A3PurchaseExportService:
                         account_code,
                         expense_account_code
                     ])
-
-        return sheet
 
         return sheet
 

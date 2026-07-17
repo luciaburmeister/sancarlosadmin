@@ -11,7 +11,8 @@
       "Bash(python manage.py test invoices.tests.test_po_matching -v 2)",
       "Bash(python manage.py test invoices purchasing accounting)",
       "Bash(python manage.py makemigrations invoices)",
-      "Bash(python manage.py migrate invoices)"
+      "Bash(python manage.py migrate invoices)",
+      "Bash(python manage.py test invoices.tests.test_po_matching)"
     ]
   }
 }

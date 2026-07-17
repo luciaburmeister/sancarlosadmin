@@ -41,7 +41,10 @@ class InvoiceMatchPOView(UnfoldModelAdminViewMixin, TemplateView):
             "opts": Invoice._meta,
         })
         if po is None:
-            context["candidates"] = POInvoiceMatchService.candidate_pos_for_invoice(invoice)
+            candidates = POInvoiceMatchService.candidate_pos_for_invoice(invoice)
+            for candidate in candidates:
+                candidate.items_with_pending = POInvoiceMatchService.po_items_with_pending(candidate)
+            context["candidates"] = candidates
         else:
             suggestions = POInvoiceMatchService.suggest_pairs_for_invoice(invoice, po)
             rows = []

@@ -5964,8 +5964,7 @@ msgstr "Facturado (Con impuestos)"
 msgid "Collected"
 msgstr "Cobrado"
 
-#, fuzzy
-#| msgid "All invoices are paid!"
+
 msgid "invoice(s) fully paid"
 msgstr "¡Todas las facturas están pagadas!"
 

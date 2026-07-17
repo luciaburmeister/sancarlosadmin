@@ -68,11 +68,10 @@ class InvoicePOAllocationTest(TestCase):
             unit_price=Money("5.00", "EUR"),
         )
 
-    def _allocate(self, quantity, invoice_item=None, po_item=None, receipt_item=None):
+    def _allocate(self, quantity, invoice_item=None, po_item=None):
         return InvoicePOAllocation.objects.create(
             invoice_item=invoice_item or self.invoice_item,
             po_item=po_item or self.po_item,
-            receipt_item=receipt_item,
             quantity=Decimal(quantity),
         )
 
@@ -132,21 +131,6 @@ class InvoicePOAllocationTest(TestCase):
             self._allocate("0")
         with self.assertRaises(ValidationError):
             self._allocate("-1")
-
-    def test_receipt_item_must_match_po_item(self):
-        other_po_item = PurchaseOrderItem.objects.create(
-            purchase_order=self.po,
-            inventory_item=self.inventory_item,
-            quantity=Decimal("5"),
-            unit_price=Money("5.00", "EUR"),
-        )
-        with self.assertRaises(ValidationError):
-            self._allocate("2", po_item=other_po_item, receipt_item=self.receipt_item)
-
-    def test_receipt_item_accepted_when_matching(self):
-        alloc = self._allocate("4", receipt_item=self.receipt_item)
-        self.assertEqual(alloc.receipt_item, self.receipt_item)
-        self.assertEqual(self._invoiced(), Decimal("4"))
 
     def test_provider_mismatch_blocked(self):
         other_provider = Provider.objects.create(company=self.company, name="Otro Proveedor")

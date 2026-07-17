@@ -1149,8 +1149,7 @@ class InvoiceItem(models.Model):
 
 class InvoicePOAllocation(Timestampable):
     """
-    Line-level link between a purchase invoice line and a purchase order line,
-    optionally pinned to the delivered receipt line (albarán) for 3-way matching.
+    Line-level link between a purchase invoice line and a purchase order line.
     Quantities are the source of truth; PurchaseOrderItem.invoiced_quantity is
     recalculated from the DB on every change (PaymentAllocation pattern).
     """
@@ -1173,15 +1172,6 @@ class InvoicePOAllocation(Timestampable):
         related_name="invoice_allocations",
         verbose_name=_("PO Line"),
     )
-    receipt_item = models.ForeignKey(
-        'purchasing.PurchaseOrderReceiptItem',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="invoice_allocations",
-        verbose_name=_("Receipt Line"),
-        help_text=_("Optional: the delivered albarán line this invoice line bills."),
-    )
     quantity = models.DecimalField(
         max_digits=10,
         decimal_places=3,
@@ -1198,13 +1188,8 @@ class InvoicePOAllocation(Timestampable):
                 name="invoicepoalloc_qty_positive",
             ),
             models.UniqueConstraint(
-                fields=["invoice_item", "po_item", "receipt_item"],
-                name="uniq_invoice_item_po_item_receipt",
-            ),
-            models.UniqueConstraint(
                 fields=["invoice_item", "po_item"],
-                condition=Q(receipt_item__isnull=True),
-                name="uniq_invoice_item_po_item_no_receipt",
+                name="uniq_invoice_item_po_item",
             ),
         ]
 
@@ -1236,9 +1221,6 @@ class InvoicePOAllocation(Timestampable):
 
         if invoice.company_id and po.company_id and invoice.company_id != po.company_id:
             errors["po_item"] = _("The purchase order belongs to a different company than the invoice.")
-
-        if self.receipt_item_id and self.receipt_item.po_item_id != self.po_item_id:
-            errors["receipt_item"] = _("The receipt line does not belong to the selected PO line.")
 
         if self.quantity is not None and self.quantity > 0:
             already_allocated = (

@@ -50,6 +50,7 @@ from invoices.views.invoice.bulk_mark_invoice_paid import BulkMarkInvoicePaidAdm
 from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
 from invoices.views.sales_invoice_register_payment import RegisterPaymentView
 from invoices.views.invoice.review_invoice import InvoiceReviewAdminView
+from invoices.views.invoice.match_po import InvoiceMatchPOView
 from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from invoices.views.invoice.import_invoice import InvoiceImportAdminView
 from invoices.views.invoice_register_payment import InvoiceRegisterPaymentView
@@ -264,33 +265,35 @@ class InvoiceItemInline(StackedInline):
     )
 
 class InvoicePOAllocationInline(TabularInline):
+    """
+    Read-only overview of PO matches. Allocations are created via the
+    "Match Purchase Order" action (matcher flow); deleting here is the
+    escape hatch to undo a wrong match.
+    """
     model = InvoicePOAllocation
     fk_name = "invoice"
     extra = 0
     tab = True
     verbose_name = _("PO Allocation")
     verbose_name_plural = _("Purchase Orders")
-    fields = ("invoice_item", "po_item", "receipt_item", "quantity")
-    autocomplete_fields = ("po_item", "receipt_item")
+    fields = ("invoice_item", "get_purchase_order", "po_item", "quantity")
+    readonly_fields = ("invoice_item", "get_purchase_order", "po_item", "quantity")
 
-    def get_formset(self, request, obj=None, **kwargs):
-        # Stash the parent invoice so invoice_item choices can be scoped to it.
-        self._parent_invoice = obj
-        return super().get_formset(request, obj, **kwargs)
+    def has_add_permission(self, request, obj=None):
+        return False
 
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "invoice_item":
-            parent = getattr(self, "_parent_invoice", None)
-            kwargs["queryset"] = (
-                InvoiceItem.objects.filter(invoice=parent)
-                if parent
-                else InvoiceItem.objects.none()
-            )
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    @display(description=_("Purchase Order"))
+    def get_purchase_order(self, obj):
+        po = obj.po_item.purchase_order
+        url = reverse("admin:purchasing_purchaseorder_change", args=[po.pk])
+        return format_html('<a href="{}" class="text-primary-600 underline">{}</a>', url, po.number)
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related(
-            "invoice_item", "po_item__purchase_order", "receipt_item"
+            "invoice_item", "po_item__purchase_order"
         )
 
 
@@ -386,7 +389,12 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
         "view_journal_entry_detail_action",
         "register_payment_detail_action",
         "run_invoice_matcher_detail_action",
+        "match_po_detail_action",
     ]
+
+    @action(description=_("Match Purchase Order"), icon="link")
+    def match_po_detail_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_invoice_match_po", args=[object_id]))
 
     @action(description=_("Review"), icon="rate_review")
     def review_invoice_row_action(self, request, object_id):
@@ -606,6 +614,13 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
                     InvoiceRegisterPaymentView.as_view(model_admin=self)
                 ),
                 name="invoices_invoice_register_payment",
+            ),
+            path(
+                "<int:object_id>/match-po/",
+                self.admin_site.admin_view(
+                    InvoiceMatchPOView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_match_po",
             ),
             path(
                 "bulk-mark-paid/",

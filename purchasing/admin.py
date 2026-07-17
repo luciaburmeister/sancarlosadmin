@@ -112,7 +112,7 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     inlines = [PurchaseOrderItemInline]
     
     actions_row = ["send_to_approval", "approve_po", "receive_directly"]
-    actions_detail = ["register_identity_codes"]
+    actions_detail = ["register_identity_codes", "match_invoice_detail_action"]
 
     @display(
         description=_("Status"),
@@ -218,10 +218,19 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def register_identity_codes(self, request, object_id: int):
         return redirect(reverse("admin:purchasing_purchaseorder_identity_codes", args=[object_id]))
 
+    @action(description=_("Match Invoice"), icon="link")
+    def match_invoice_detail_action(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_purchaseorder_match_invoice", args=[object_id]))
+
     def get_urls(self):
-        from .views import DirectReceiptView, IdentityCodesView
+        from .views import DirectReceiptView, IdentityCodesView, POMatchInvoiceView
         urls = super().get_urls()
         custom_urls = [
+            path(
+                "<int:po_id>/match-invoice/",
+                self.admin_site.admin_view(POMatchInvoiceView.as_view(model_admin=self)),
+                name="purchasing_purchaseorder_match_invoice",
+            ),
             path(
                 "<int:po_id>/receive-directly",
                 self.admin_site.admin_view(DirectReceiptView.as_view(model_admin=self)),

@@ -84,6 +84,38 @@ class POInvoiceMatchServiceTest(POMatchingTestBase):
         candidates = POInvoiceMatchService.candidate_pos_for_invoice(self.invoice)
         self.assertEqual(candidates, [])
 
+    def test_candidate_pos_excludes_dates_outside_window(self):
+        old_po = PurchaseOrder.objects.create(
+            company=self.company,
+            provider=self.provider,
+            date_ordered=date(2025, 6, 1),
+            status=PurchaseOrderStatus.APPROVED,
+        )
+        self._make_po_line(old_po, self.item_profile, "5", "5.00")
+
+        candidates = POInvoiceMatchService.candidate_pos_for_invoice(self.invoice)
+        self.assertEqual([po.pk for po in candidates], [self.po.pk])
+
+    def test_candidate_invoices_excludes_dates_outside_window_keeps_undated(self):
+        old_invoice = Invoice.objects.create(
+            company=self.company,
+            provider=self.provider,
+            invoice_number="F-OLD",
+            date_issued=date(2025, 6, 20),
+        )
+        self._make_invoice_line(old_invoice, "Perfil viejo", "2", "5.00")
+        undated_invoice = Invoice.objects.create(
+            company=self.company,
+            provider=self.provider,
+            invoice_number="F-NODATE",
+        )
+        self._make_invoice_line(undated_invoice, "Pendiente OCR", "1", "1.00")
+
+        pks = {inv.pk for inv in POInvoiceMatchService.candidate_invoices_for_po(self.po)}
+        self.assertNotIn(old_invoice.pk, pks)
+        self.assertIn(undated_invoice.pk, pks)
+        self.assertIn(self.invoice.pk, pks)
+
     def test_candidate_invoices_for_po(self):
         matched_invoice = self._make_invoice("F-FULL")
         line = self._make_invoice_line(matched_invoice, "Perfil", "3", "5.00")

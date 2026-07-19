@@ -7,6 +7,7 @@ Confirming creates InvoicePOAllocation rows; all business validation
 (over-allocation, provider/company/status) lives on the model itself.
 """
 import re
+from datetime import timedelta
 from decimal import Decimal
 
 from django.apps import apps
@@ -22,6 +23,9 @@ def _tokens(text):
 
 class POInvoiceMatchService:
     MAX_CANDIDATES = 20
+    # Candidates whose date is further than this from the document being
+    # matched are not suggested — an invoice rarely bills a PO that old.
+    MAX_DATE_DELTA_DAYS = 90
 
     # ------------------------------------------------------------------
     # Candidates (step 1 of the wizard)
@@ -43,6 +47,12 @@ class POInvoiceMatchService:
             qs = qs.filter(company_id=invoice.company_id)
         if invoice.provider_id:
             qs = qs.filter(provider_id=invoice.provider_id)
+        if invoice.date_issued:
+            delta = timedelta(days=cls.MAX_DATE_DELTA_DAYS)
+            qs = qs.filter(
+                date_ordered__gte=invoice.date_issued - delta,
+                date_ordered__lte=invoice.date_issued + delta,
+            )
         qs = (
             qs.annotate(
                 _ordered=Sum("items__quantity"),
@@ -76,6 +86,16 @@ class POInvoiceMatchService:
             .prefetch_related("items__po_allocations")
             .order_by("-date_issued")
         )
+        if po.date_ordered:
+            delta = timedelta(days=cls.MAX_DATE_DELTA_DAYS)
+            qs = qs.filter(
+                # Invoices still awaiting OCR have no issue date yet — keep them.
+                Q(date_issued__isnull=True)
+                | Q(
+                    date_issued__gte=po.date_ordered - delta,
+                    date_issued__lte=po.date_ordered + delta,
+                )
+            )
 
         result = []
         for inv in qs[:100]:

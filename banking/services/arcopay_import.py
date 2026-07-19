@@ -9,7 +9,7 @@ import hashlib
 import logging
 from dataclasses import asdict, dataclass, field
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import requests
 from django.conf import settings
@@ -477,25 +477,35 @@ class ArcopayService:
     def _update_account_balance(bank_account: BankAccount) -> None:
         """Update last_known_balance from the latest BankTransaction for this specific account.
 
-        Previously this used the ``balance`` field from the Arcopay product
-        response, but that value is shared across all accounts under the same
-        consent/token, causing every connected account to show the same balance.
-        Now we derive the balance from the most recent imported transaction.
+        The product-level ``balance`` in the Arcopay response is shared across
+        all accounts under the same consent/token, so it can't be used per
+        account. Instead we take the per-transaction running ``balance`` from
+        the most recent imported transaction's raw payload.
         """
         from django.utils import timezone as tz
 
         latest_txn = (
             BankTransaction.objects
             .filter(bank_account=bank_account)
+            .exclude(raw_data__balance__isnull=True)
             .order_by("-transaction_date", "-imported_at")
-            .values_list("amount", "amount_currency")
+            .values_list("raw_data__balance", "amount_currency")
             .first()
         )
         if latest_txn is None:
             return
 
-        amount, currency = latest_txn
-        bank_account.last_known_balance = Money(amount, currency)
+        balance, currency = latest_txn
+        try:
+            balance = Decimal(str(balance))
+        except (InvalidOperation, ValueError):
+            logger.warning(
+                "BankAccount %s: latest transaction has unparseable balance %r; skipping balance update.",
+                bank_account.pk, balance,
+            )
+            return
+
+        bank_account.last_known_balance = Money(balance, currency)
         bank_account.last_balance_updated_at = tz.now()
         bank_account.save(update_fields=["last_known_balance", "last_known_balance_currency", "last_balance_updated_at"])
 

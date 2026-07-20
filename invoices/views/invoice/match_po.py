@@ -22,7 +22,13 @@ class InvoiceMatchPOView(UnfoldModelAdminViewMixin, TemplateView):
     permission_required = ("invoices.add_invoicepoallocation",)
 
     def get_invoice(self):
-        return get_object_or_404(Invoice, pk=self.kwargs["object_id"])
+        return get_object_or_404(
+            Invoice.objects.prefetch_related(
+                "items__po_allocations__po_item__inventory_item",
+                "items__po_allocations__po_item__purchase_order",
+            ),
+            pk=self.kwargs["object_id"],
+        )
 
     def get_selected_po(self):
         po_id = self.request.GET.get("po") or self.request.POST.get("po")
@@ -50,14 +56,34 @@ class InvoiceMatchPOView(UnfoldModelAdminViewMixin, TemplateView):
             rows = []
             for item, remaining in POInvoiceMatchService.invoice_items_with_remaining(invoice):
                 suggestion = suggestions.get(item.pk, {})
+                allocations = list(item.po_allocations.all())
+                allocated_qty = item.quantity - remaining
+                is_matched = remaining <= 0
+                remaining_amount = item.unit_price * remaining if item.unit_price is not None else None
+                if not allocations:
+                    matched_summary = None
+                elif len(allocations) == 1:
+                    po_item = allocations[0].po_item
+                    matched_summary = po_item.inventory_item.name if po_item.inventory_item_id else po_item.description
+                else:
+                    matched_summary = _("%(count)d PO lines") % {"count": len(allocations)}
                 rows.append({
                     "item": item,
                     "remaining": remaining,
+                    "is_matched": is_matched,
+                    "remaining_amount": remaining_amount,
+                    "gap_amount": remaining_amount,
+                    "line_amount": item.unit_price * item.quantity if item.unit_price is not None else None,
+                    "allocations": allocations,
+                    "matched_amount": item.unit_price * allocated_qty if item.unit_price is not None else None,
+                    "matched_summary": matched_summary,
                     "suggested_target": suggestion.get("target_id"),
                     "suggested_qty": suggestion.get("quantity") or "",
                 })
             context["rows"] = rows
             context["target_lines"] = POInvoiceMatchService.po_items_with_pending(po)
+            currency = invoice.total_amount.currency if invoice.total_amount else "EUR"
+            context["progress"] = POInvoiceMatchService.progress_summary(rows, currency)
         return context
 
     def post(self, request, *args, **kwargs):

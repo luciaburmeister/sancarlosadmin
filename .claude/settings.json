@@ -12,7 +12,10 @@
       "Bash(python manage.py test invoices purchasing accounting)",
       "Bash(python manage.py makemigrations invoices)",
       "Bash(python manage.py migrate invoices)",
-      "Bash(python manage.py test invoices.tests.test_po_matching)"
+      "Bash(python manage.py test invoices.tests.test_po_matching)",
+      "Bash(python /private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/2a83fb23-5eb5-448d-9caa-9879013dd8a6/scratchpad/test_render.py)",
+      "Bash(python -m py_compile invoices/views/invoice/match_po.py purchasing/views/match_invoice.py invoices/services/po_matching.py)",
+      "Bash(git checkout *)"
     ]
   }
 }

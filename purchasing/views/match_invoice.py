@@ -60,14 +60,32 @@ class POMatchInvoiceView(UnfoldModelAdminViewMixin, TemplateView):
             rows = []
             for po_item, pending in POInvoiceMatchService.po_items_with_pending(po):
                 suggestion = suggestions.get(po_item.pk, {})
+                allocations = list(po_item.invoice_allocations.all())
+                is_matched = pending <= 0
+                pending_amount = po_item.unit_price * pending if po_item.unit_price is not None else None
+                if not allocations:
+                    matched_summary = None
+                elif len(allocations) == 1:
+                    matched_summary = allocations[0].invoice_item.description
+                else:
+                    matched_summary = _("%(count)d invoice lines") % {"count": len(allocations)}
                 rows.append({
                     "item": po_item,
                     "pending": pending,
+                    "is_matched": is_matched,
+                    "pending_amount": pending_amount,
+                    "gap_amount": pending_amount,
+                    "line_amount": po_item.unit_price * po_item.quantity if po_item.unit_price is not None else None,
+                    "allocations": allocations,
+                    "matched_amount": po_item.unit_price * po_item.invoiced_quantity if po_item.unit_price is not None else None,
+                    "matched_summary": matched_summary,
                     "suggested_target": suggestion.get("target_id"),
                     "suggested_qty": suggestion.get("quantity") or "",
                 })
             context["rows"] = rows
             context["target_lines"] = POInvoiceMatchService.invoice_items_with_remaining(invoice)
+            currency = po.total_amount.currency if po.total_amount else "EUR"
+            context["progress"] = POInvoiceMatchService.progress_summary(rows, currency)
         return context
 
     def post(self, request, *args, **kwargs):

@@ -13,6 +13,7 @@ from decimal import Decimal
 from django.apps import apps
 from django.db import transaction
 from django.db.models import F, Q, Sum
+from djmoney.money import Money
 
 from invoices.models import Invoice, InvoicePOAllocation
 
@@ -126,7 +127,9 @@ class POInvoiceMatchService:
         """Returns [(PurchaseOrderItem, pending_invoice_quantity)]."""
         return [
             (pi, pi.pending_invoice_quantity)
-            for pi in po.items.select_related("inventory_item")
+            for pi in po.items.select_related("inventory_item").prefetch_related(
+                "invoice_allocations__invoice_item__invoice"
+            )
         ]
 
     @classmethod
@@ -160,6 +163,35 @@ class POInvoiceMatchService:
             for item, remaining in cls.invoice_items_with_remaining(invoice)
         ]
         return cls._suggest(sources, targets)
+
+    # ------------------------------------------------------------------
+    # Review-step progress (checklist header)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def progress_summary(rows, currency="EUR"):
+        """
+        rows: dicts with "is_matched" (bool), "matched_amount" (Money|None) and
+        "gap_amount" (Money|None, the not-yet-matched amount for that line).
+        Used to render the "N of M lines matched" checklist header.
+        """
+        total_count = len(rows)
+        matched_count = sum(1 for r in rows if r["is_matched"])
+        matched_total = Decimal("0")
+        attention_total = Decimal("0")
+        for r in rows:
+            if r.get("matched_amount") is not None:
+                matched_total += r["matched_amount"].amount
+            if not r["is_matched"] and r.get("gap_amount") is not None:
+                attention_total += r["gap_amount"].amount
+        return {
+            "matched_count": matched_count,
+            "total_count": total_count,
+            "unresolved_count": total_count - matched_count,
+            "percent": round(matched_count / total_count * 100) if total_count else 0,
+            "matched_total": Money(matched_total, currency),
+            "attention_total": Money(attention_total, currency),
+        }
 
     # ------------------------------------------------------------------
     # Confirmation

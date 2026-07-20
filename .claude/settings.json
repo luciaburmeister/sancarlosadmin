@@ -25,7 +25,9 @@
       "Bash(git add *)",
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('apps/expenses/services/expense_ticket_service.py'\\).read\\(\\)\\)\")",
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('apps/expenses/services/ocr_services/gemini_ocr.py'\\).read\\(\\)\\)\")",
-      "Bash(python3 -c \"import ast; ast.parse\\(open\\('apps/expenses/services/ocr_services/__init__.py'\\).read\\(\\)\\)\")"
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('apps/expenses/services/ocr_services/__init__.py'\\).read\\(\\)\\)\")",
+      "Bash(grep -rln \"interest_paid\" /Users/joangaes/Documents/Scalewave/fistex/alumniniooerp -g '*.py')",
+      "Bash(python manage.py test loans.tests -v 2)"
     ]
   }
 }

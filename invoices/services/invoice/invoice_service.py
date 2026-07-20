@@ -33,12 +33,13 @@ from company.models import Company
 class InvoiceProcessingResult:
     """Container for processing results and metadata"""
     
-    def __init__(self, invoice: Optional[Invoice], success: bool, messages: list, needs_review: bool = False, is_duplicate: bool = False):
+    def __init__(self, invoice: Optional[Invoice], success: bool, messages: list, needs_review: bool = False, is_duplicate: bool = False, duplicate_of: Optional[Invoice] = None):
         self.invoice = invoice
         self.success = success
         self.messages = messages  # List of processing messages/warnings
         self.needs_review = needs_review  # Provider matching failed or other issues
         self.is_duplicate = is_duplicate
+        self.duplicate_of = duplicate_of  # The existing invoice this one conflicts with, if any
         
     def __str__(self):
         status = "SUCCESS" if self.success else "FAILED"
@@ -89,7 +90,7 @@ class InvoiceService:
             
             if duplicate_result.is_duplicate:
                 raise DuplicateInvoiceError(
-                    duplicate_result.similar_invoice, 
+                    duplicate_result.similar_object,
                     duplicate_result.similarity_distance
                 )
             messages.append("No duplicates found - proceeding with processing")
@@ -229,16 +230,17 @@ class InvoiceService:
 
                 invoice_num = extracted_data.invoice_number or invoice.invoice_number or "UNKNOWN"
                 
-                # Check for conflict with ANOTHER invoice (not itself)
-                if provider and invoice_num != 'UNKNOWN':
-                    conflict = Invoice.objects.filter(provider=provider, invoice_number=invoice_num).exclude(pk=invoice.pk).first()
+                # Check for conflict with ANOTHER invoice (not itself), scoped to the same company
+                if company and provider and invoice_num != 'UNKNOWN':
+                    conflict = Invoice.objects.filter(company=company, provider=provider, invoice_number=invoice_num).exclude(pk=invoice.pk).first()
                     if conflict:
                         return InvoiceProcessingResult(
                             invoice=invoice,
                             success=False,
-                            messages=messages + [f"Conflict detected: another invoice ({conflict.id}) already has number {invoice_num} for this provider."],
+                            messages=messages + [f"Conflict detected: another invoice ({conflict.id}) already has number {invoice_num} for this provider and company."],
                             needs_review=True,
-                            is_duplicate=True
+                            is_duplicate=True,
+                            duplicate_of=conflict,
                         )
 
                 invoice.invoice_number = invoice_num

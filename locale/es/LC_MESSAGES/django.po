@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-20 18:44+0200\n"
+"POT-Creation-Date: 2026-07-20 19:25+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -273,6 +273,17 @@ msgstr "Facturas de Ventas"
 msgid "Received Invoices"
 msgstr "Facturas de compra"
 
+msgid "Expenses"
+msgstr "Gastos"
+
+
+msgid "Expense Claims"
+msgstr "Reclamaciones de gastos"
+
+
+msgid "Expense Tickets"
+msgstr "Tickets de gastos"
+
 msgid "Finance"
 msgstr "Finanzas"
 
@@ -536,6 +547,342 @@ msgstr "Resumen Facturas de ventas"
 msgid "E-Invoicing Submissions"
 msgstr "Resumen Facturas de ventas"
 
+msgid "Ticket"
+msgstr "Ticket"
+
+msgid "Linked Tickets"
+msgstr "Tickets Vinculados"
+
+msgid "You don't have access to any company yet - contact an admin."
+msgstr "Todavía no tienes acceso a ninguna empresa - contacta a un administrador."
+
+
+msgid "Add Ticket"
+msgstr "Agregar Ticket"
+
+msgid "Submit Claim"
+msgstr "Enviar Reclamación"
+
+msgid "Claim submitted for approval."
+msgstr "Reclamación enviada para aprobación."
+
+
+msgid "Approve"
+msgstr "Aprobar"
+
+
+msgid "Claim approved."
+msgstr "Reclamación aprobada."
+
+msgid "Reject"
+msgstr "Rechazar"
+
+
+msgid "Reject Claim"
+msgstr "Rechazar Reclamación"
+
+msgid "Please provide a reason for rejecting this claim."
+msgstr "Por favor, proporciona una razón para rechazar este reclamo."
+
+
+msgid "Claim rejected."
+msgstr "Reclamación rechazada."
+
+msgid "Revise Claim"
+msgstr "Revisar Reclamación"
+
+msgid "Claim reopened as a draft. You can now edit it and resubmit."
+msgstr ""
+"Reclamación reabierta como un borrador. Ahora puedes editarla y volver a "
+"enviarla."
+
+#, fuzzy
+#| msgid "Line Total Currency"
+msgid "From Currency"
+msgstr "Moneda del total"
+
+#, fuzzy
+#| msgid "Line Total Currency"
+msgid "To Currency"
+msgstr "Moneda del total"
+
+#, fuzzy
+#| msgid "Start Date"
+msgid "Rate Date"
+msgstr "Fecha de Inicio"
+
+msgid "Rate"
+msgstr "Calificación"
+
+msgid "manually overridden"
+msgstr "sobrescrito manualmente"
+
+msgid "Receipt"
+msgstr "Recibo"
+
+msgid "Vendor"
+msgstr "Vendedor"
+
+msgid "Amount"
+msgstr "Cantidad"
+
+msgid "OCR"
+msgstr "OCR"
+
+msgid "Process selected tickets with AI"
+msgstr "Procesar tickets seleccionados con IA"
+
+#, python-format
+msgid "Started OCR processing for %(n)d ticket(s)."
+msgstr "Inició el procesamiento de OCR para %(n)d ticket(s)."
+
+#, fuzzy
+#| msgid "Create Invoice from Project File"
+msgid "Create claim from selected tickets"
+msgstr "Crear factura desde expediente"
+
+#, python-format
+msgid "%(n)d ticket(s) already belong to a claim and were skipped."
+msgstr "%(n)d ticket(s) ya pertenecen a una reclamación y fueron omitidos."
+
+#, python-format
+msgid "Claim #%(pk)d created with %(n)d ticket(s)."
+msgstr "Reclamo #%(pk)d creado con %(n)d boleto(s)."
+
+msgid "Run OCR"
+msgstr "Ejecutar OCR"
+
+msgid "OCR processing queued."
+msgstr "El procesamiento de OCR está en cola."
+
+#, fuzzy
+#| msgid "Created at"
+msgid "Create Claim"
+msgstr "Creado en"
+
+#, python-format
+msgid "This ticket already belongs to Claim #%(pk)d."
+msgstr "Este ticket ya pertenece a la reclamación #%(pk)d."
+
+#, python-format
+msgid "Claim #%(pk)d created."
+msgstr "Reclamo #%(pk)d creado."
+
+msgid "Override Exchange Rate"
+msgstr "Sobrescribir Tasa de Cambio"
+
+msgid ""
+"Set a manual rate for this ticket's conversion. Other tickets using the "
+"fetched rate are unaffected."
+msgstr ""
+"Establecer una tarifa manual para la conversión de este ticket. Otros "
+"tickets que utilizan la tarifa obtenida no se verán afectados."
+
+#, fuzzy
+#| msgid "Save"
+msgid "Save Rate"
+msgstr "Guardar"
+
+msgid "Exchange rate overridden."
+msgstr "Tasa de cambio sobreescrita."
+
+#, fuzzy
+#| msgid "Status"
+msgid "OCR Status"
+msgstr "Estado"
+
+#, fuzzy
+#| msgid "Ticket"
+msgid "Tickets"
+msgstr "Ticket"
+
+#, fuzzy
+#| msgid "Termination Reason"
+msgid "Rejection Reason"
+msgstr "Motivo de baja"
+
+msgid "New Rate"
+msgstr "Nueva tarifa"
+
+#, fuzzy
+#| msgid ""
+#| "How many units of the component are needed per 1 unit of the parent."
+msgid ""
+"How many units of the 'To' currency equal 1 unit of the 'From' currency."
+msgstr "¿Cuántas unidades del componente se necesitan por 1 unidad del padre?"
+
+msgid "Frankfurter API"
+msgstr "API de Frankfurter"
+
+msgid "Fawaz Ahmed Currency API"
+msgstr "API de Moneda de Fawaz Ahmed"
+
+#, fuzzy
+#| msgid "Price Override"
+msgid "Manual Override"
+msgstr "Override del precio"
+
+msgid "Exchange Rate"
+msgstr "Tasa de Cambio"
+
+msgid "Source"
+msgstr "Origén"
+
+msgid "Manually Overridden"
+msgstr "Sobrescrito manualmente"
+
+msgid "Exchange Rates"
+msgstr "Tipos de Cambio"
+
+#, fuzzy
+#| msgid "Approved by"
+msgid "Approved"
+msgstr "Aprobado por"
+
+msgid "Reimbursed"
+msgstr "Reembolsado"
+
+#, fuzzy
+#| msgid "Submit form"
+msgid "Submitted By"
+msgstr "Enviar formulario"
+
+#, fuzzy
+#| msgid "Total price"
+msgid "Total Claimed"
+msgstr "Precio total"
+
+#, fuzzy
+#| msgid "Total price"
+msgid "Total Reimbursed"
+msgstr "Precio total"
+
+#, fuzzy
+#| msgid "Expense"
+msgid "Expense Claim"
+msgstr "Gasto"
+
+#, python-format
+msgid ""
+"Reimbursed amount (%(reimbursed)s) cannot exceed total claimed "
+"(%(claimed)s)."
+msgstr ""
+"El monto reembolsado (%(reimbursed)s) no puede exceder el total reclamado "
+"(%(claimed)s)."
+
+#, fuzzy
+#| msgid "An expression is required when rule type is Custom."
+msgid "A rejection reason is required when rejecting a claim."
+msgstr "Se requiere una expresión cuando el tipo de regla es Personalizado."
+
+#, python-format
+msgid "Cannot transition from '%(current)s' to '%(new)s'."
+msgstr "No se puede transitar de '%(current)s' a '%(new)s'."
+
+#, fuzzy
+#| msgid "Photos"
+msgid "Photo"
+msgstr "Fotos"
+
+#, fuzzy
+#| msgid "Date of Birth"
+msgid "Date of Purchase"
+msgstr "Fecha de Nacimiento"
+
+#, fuzzy
+#| msgid "Last Name"
+msgid "Vendor Name"
+msgstr "Apellido"
+
+#, fuzzy
+#| msgid "Tax ID"
+msgid "Vendor Tax ID"
+msgstr "ID de impuesto"
+
+#, fuzzy
+#| msgid "Client Address"
+msgid "Vendor Address"
+msgstr "Dirección"
+
+msgid "Vendor City"
+msgstr "Ciudad del proveedor"
+
+#, fuzzy
+#| msgid "Birth Country"
+msgid "Vendor Country"
+msgstr "País Constituyente"
+
+#, fuzzy
+#| msgid "Line Total Amount"
+msgid "Original Amount"
+msgstr "Total de linea"
+
+#, fuzzy
+#| msgid "Converted to Quote"
+msgid "Converted Amount"
+msgstr "Convertido a Cotización"
+
+
+msgid "Expense Ticket"
+msgstr "Gasto"
+
+msgid "Cannot edit a ticket that belongs to a submitted claim."
+msgstr "No se puede editar un ticket que pertenece a una reclamación enviada."
+
+msgid "Add Ticket to Claim"
+msgstr "Agregar Ticket a la Reclamación"
+
+#, python-format
+msgid "Select unclaimed tickets to attach to Claim #%(pk)s."
+msgstr ""
+"Selecciona los boletos no reclamados para adjuntar a la reclamación #%(pk)s."
+
+msgid "There are no unclaimed tickets available to add."
+msgstr "No hay boletos no reclamados disponibles para agregar."
+
+#, fuzzy
+#| msgid "Select"
+msgid "Add Selected"
+msgstr "Seleccionar"
+
+msgid "Upload Expense Receipt"
+msgstr "Cargar recibo de gasto"
+
+msgid ""
+"Upload a photo or scan of your receipt. The information will be extracted "
+"automatically."
+msgstr ""
+"Sube una foto o escanear de tu recibo. La información se extraerá "
+"automáticamente."
+
+#, fuzzy
+#| msgid "Choose file..."
+msgid "Click to choose a file"
+msgstr "Elige un archivo..."
+
+msgid "or drag and drop here"
+msgstr "o arrastra y suelta aquí"
+
+#, fuzzy
+#| msgid "Approved at"
+msgid "Upload"
+msgstr "Aprobado el"
+
+msgid "Tickets can only be added to a claim while it is still a draft."
+msgstr ""
+"Los tickets solo pueden ser agregados a un reclamo mientras este aún sea un "
+"borrador."
+
+#, python-format
+msgid "%(n)d ticket(s) added to the claim."
+msgstr "%(n)d ticket(s) añadidos a la reclamación."
+
+msgid ""
+"Receipt uploaded. We're extracting the information with AI in the "
+"background."
+msgstr ""
+"Recibo subido. Estamos extrayendo la información con IA en segundo plano."
+
 msgid "Transaction"
 msgstr "Transacción"
 
@@ -714,9 +1061,6 @@ msgstr "Regresar"
 #| msgid "Components"
 msgid "Movement"
 msgstr "Componentes"
-
-msgid "Receipt"
-msgstr "Recibo"
 
 #, fuzzy
 #| msgid "Movement type"
@@ -934,9 +1278,6 @@ msgstr "Documentos de Activos"
 #| msgid "Country"
 msgid "Counterparty"
 msgstr "País"
-
-msgid "Amount"
-msgstr "Cantidad"
 
 #, fuzzy
 #| msgid "Reconciled"
@@ -4872,9 +5213,6 @@ msgstr "Stock Entrante"
 msgid "Confirm Receipt"
 msgstr "Confirmado"
 
-msgid "Source"
-msgstr "Origén"
-
 msgid "Quantity & Notes"
 msgstr "Cantidad & Notas"
 
@@ -4955,11 +5293,6 @@ msgstr ""
 "Advertencia: el total calculado (%(calculated)s) no coincide con el total "
 "registrado de la factura (%(manual)s). Guardado de todos modos — por favor "
 "revisa los artículos, los impuestos o el monto bruto."
-
-#, fuzzy
-#| msgid "Status"
-msgid "OCR Status"
-msgstr "Estado"
 
 #, fuzzy
 #| msgid "Off Balance"
@@ -5149,6 +5482,24 @@ msgstr "No Reconciliado"
 
 msgid "total balanced"
 msgstr "Total equilibrado"
+
+#, fuzzy
+#| msgid "Status"
+msgid "OCR status"
+msgstr "Estado"
+
+#, fuzzy
+#| msgid "Blocking errors"
+msgid "Processing"
+msgstr "Errores bloqueantes"
+
+msgid "OK"
+msgstr "OK"
+
+#, fuzzy
+#| msgid "Session already started"
+msgid "Not started"
+msgstr "La sesión ya ha comenzado"
 
 msgid "Unit Price"
 msgstr "Precio Unitario"
@@ -5345,11 +5696,6 @@ msgstr "SEPA - Domiciliación bancaria"
 #| msgid "Confirmed"
 msgid "Confirming"
 msgstr "Confirmado"
-
-#, fuzzy
-#| msgid "Approved by"
-msgid "Approved"
-msgstr "Aprobado por"
 
 #, fuzzy
 #| msgid "Pending"
@@ -6253,6 +6599,55 @@ msgid "Accounts Payable — Aging"
 msgstr "Cuentas por pagar"
 
 #, fuzzy
+#| msgid "Credit"
+msgid "Loans & Credit"
+msgstr "Crédito"
+
+#, fuzzy
+#| msgid "Total price"
+msgid "Total Financial Debt"
+msgstr "Precio total"
+
+#, fuzzy
+#| msgid "active workers"
+msgid "active loan(s)"
+msgstr "trabajadores activos"
+
+msgid "6-Month Debt"
+msgstr "Deuda a 6 meses"
+
+#, fuzzy
+#| msgid "Total price"
+msgid "installment(s)"
+msgstr "Precio total"
+
+#, fuzzy
+#| msgid "Loan Installments"
+msgid "Overdue Installments"
+msgstr "Cuotas del préstamo"
+
+#, fuzzy
+#| msgid "Due in 0–30 days"
+msgid "Due in next 30 days"
+msgstr "Vencimiento en 0–30 días"
+
+msgid "Loan"
+msgstr "Préstamo"
+
+#, fuzzy
+#| msgid "Bank Account"
+msgid "Bank / Account"
+msgstr "Cuenta de Banco"
+
+msgid "Outstanding"
+msgstr "Excepcional"
+
+#, fuzzy
+#| msgid "Due Date"
+msgid "Next due date"
+msgstr "Fecha de vencimiento"
+
+#, fuzzy
 #| msgid "Production Stages"
 msgid "Production Costs"
 msgstr "Etapas de Producción"
@@ -6749,9 +7144,6 @@ msgstr "Transferencia Bancaria"
 msgid "#"
 msgstr "¡Hola! ¿En qué puedo ayudarte hoy con la traducción al español?"
 
-msgid "Outstanding"
-msgstr "Excepcional"
-
 #, fuzzy
 #| msgid "Payment Method"
 msgid "Early Repayment"
@@ -6795,9 +7187,6 @@ msgstr "Referencia de T&C de la empresa"
 
 msgid "Parent loan created. Now add the first tranche."
 msgstr "Préstamo parental creado. Ahora añade la primera tanda."
-
-msgid "Loan"
-msgstr "Préstamo"
 
 #, fuzzy
 #| msgid "Add item"
@@ -7114,9 +7503,6 @@ msgstr "Este PF"
 #| msgid "Invoice File"
 msgid "Invoice Total"
 msgstr "Archivo de factura"
-
-msgid "Expenses"
-msgstr "Gastos"
 
 msgid "Direct Work"
 msgstr "Trabajo directo"
@@ -9380,9 +9766,6 @@ msgstr "Nombre en archivo"
 msgid "Matched employee"
 msgstr "Empleado emparejado"
 
-msgid "OK"
-msgstr "OK"
-
 msgid "Pending match"
 msgstr "Pendiente de emparejar"
 
@@ -9545,11 +9928,6 @@ msgstr "Minutos"
 #| msgid "Configuration"
 msgid "Execution"
 msgstr "Configuración"
-
-#, fuzzy
-#| msgid "Ticket"
-msgid "Tickets"
-msgstr "Ticket"
 
 msgid "Incomplete stage"
 msgstr "Etapa incompleta"
@@ -9924,9 +10302,6 @@ msgstr "Vista en vivo de empleados activos."
 
 msgid "active workers"
 msgstr "trabajadores activos"
-
-msgid "Ticket"
-msgstr "Ticket"
 
 msgid "Toggle details"
 msgstr "Activar/desactivar detalles"
@@ -11468,11 +11843,6 @@ msgid "transaction(s)"
 msgstr "Transacción"
 
 #, fuzzy
-#| msgid "Approved by"
-msgid "Approve"
-msgstr "Aprobado por"
-
-#, fuzzy
 #| msgid "No matching combinations were found for this transaction."
 msgid "No matching bank transactions were found for this invoice."
 msgstr ""
@@ -12014,9 +12384,6 @@ msgstr "No hay ausencias pasadas"
 #~ msgid "No accepted quotes yet."
 #~ msgstr "No hay cotizaciones aceptadas aún."
 
-#~ msgid "Converted to Quote"
-#~ msgstr "Convertido a Cotización"
-
 #~ msgid "PENDING"
 #~ msgstr "PENDIENTE"
 
@@ -12029,17 +12396,11 @@ msgstr "No hay ausencias pasadas"
 #~ msgid "Finish activity"
 #~ msgstr "Finalizar actividad"
 
-#~ msgid "Created at"
-#~ msgstr "Creado en"
-
 #~ msgid "You cannot create stock movements for services."
 #~ msgstr "No puedes crear movimientos de stock para servicios."
 
 #~ msgid "Warehouse must belong to the same company as the item."
 #~ msgstr "El almacén debe pertenecer a la misma empresa."
-
-#~ msgid "Tax ID"
-#~ msgstr "ID de impuesto"
 
 #~ msgid "employees in the file could not be matched."
 #~ msgstr "No se pudieron emparejar %(counter)s empleados del archivo."

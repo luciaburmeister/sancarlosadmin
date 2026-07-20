@@ -349,6 +349,7 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
         "total_amount",
         "gemini_account_response",
         "ocr_raw_response",
+        "ocr_error",
         "amount_paid",
         "amount_remaining",
     )
@@ -530,6 +531,7 @@ class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
                 "fields": (
                     "gemini_account_response",
                     "ocr_raw_response",
+                    "ocr_error",
                 )
             },
         ),

@@ -1,0 +1,126 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n admin_urls unfold %}
+
+{% block content %}
+<div class="max-w-4xl">
+    {% component "unfold/components/card.html" with title=custom_title action=custom_action %}
+
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+            <h1 class="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+                {% trans "Upload Expense Receipt" %}
+            </h1>
+            <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+                {% trans "Upload a photo or scan of your receipt. The information will be extracted automatically." %}
+            </p>
+        </div>
+
+        <form method="post" enctype="multipart/form-data" novalidate>
+            {% csrf_token %}
+
+            <div class="px-6 py-4">
+                {% if form.errors %}
+                    <div class="mb-4 p-4 bg-red-50 border border-red-200 rounded-md">
+                        <div class="text-sm text-red-600">
+                            {% for error in form.errors.values %}
+                                {% for e in error %}
+                                    <p>{{ e|safe }}</p>
+                                {% endfor %}
+                            {% endfor %}
+                        </div>
+                    </div>
+                {% endif %}
+
+                <div class="space-y-4">
+                    <label for="{{ form.photo.id_for_label }}"
+                           id="drop-zone"
+                           class="flex flex-col items-center justify-center gap-3 w-full border-2 border-dashed border-base-300 dark:border-base-700 rounded-default p-10 cursor-pointer hover:border-primary-500 dark:hover:border-primary-500 transition-colors bg-base-50 dark:bg-base-900">
+
+                        <span class="material-symbols-outlined text-5xl text-base-400 dark:text-base-500">upload_file</span>
+
+                        <div class="text-center">
+                            <p class="font-semibold text-font-important-light dark:text-font-important-dark">
+                                {% trans "Click to choose a file" %}
+                            </p>
+                            <p class="text-sm text-font-subtle-light dark:text-font-subtle-dark mt-1">
+                                {% trans "or drag and drop here" %}
+                            </p>
+                            <p class="text-xs text-font-subtle-light dark:text-font-subtle-dark mt-2">
+                                PDF, PNG, JPG, JPEG
+                            </p>
+                        </div>
+
+                        <div id="file-name-display" class="hidden items-center gap-2 px-4 py-2 rounded-default bg-primary-50 dark:bg-primary-950 text-primary-700 dark:text-primary-300 text-sm font-medium">
+                            <span class="material-symbols-outlined text-base">check_circle</span>
+                            <span id="file-name-text"></span>
+                        </div>
+
+                        <input type="file"
+                               id="{{ form.photo.id_for_label }}"
+                               name="{{ form.photo.html_name }}"
+                               accept=".pdf,.png,.jpg,.jpeg"
+                               class="hidden">
+                    </label>
+
+                    {% if form.photo.errors %}
+                        <div class="text-sm text-red-600 dark:text-red-400 mt-1">
+                            {% for error in form.photo.errors %}<p>{{ error }}</p>{% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
+
+                <script>
+                    (function () {
+                        const input = document.getElementById("{{ form.photo.id_for_label }}");
+                        const zone = document.getElementById("drop-zone");
+                        const display = document.getElementById("file-name-display");
+                        const nameText = document.getElementById("file-name-text");
+
+                        function showFile(file) {
+                            nameText.textContent = file.name;
+                            display.classList.remove("hidden");
+                            display.classList.add("flex");
+                        }
+
+                        input.addEventListener("change", function () {
+                            if (this.files[0]) showFile(this.files[0]);
+                        });
+
+                        zone.addEventListener("dragover", function (e) {
+                            e.preventDefault();
+                            this.classList.add("border-primary-500", "bg-primary-50", "dark:bg-primary-950");
+                        });
+
+                        zone.addEventListener("dragleave", function () {
+                            this.classList.remove("border-primary-500", "bg-primary-50", "dark:bg-primary-950");
+                        });
+
+                        zone.addEventListener("drop", function (e) {
+                            e.preventDefault();
+                            this.classList.remove("border-primary-500", "bg-primary-50", "dark:bg-primary-950");
+                            const file = e.dataTransfer.files[0];
+                            if (file) {
+                                const dt = new DataTransfer();
+                                dt.items.add(file);
+                                input.files = dt.files;
+                                showFile(file);
+                            }
+                        });
+                    })();
+                </script>
+            </div>
+
+            <div class="px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">
+                <a href="{% url 'admin:expenses_expenseticket_changelist' %}"
+                   class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                    {% trans "Cancel" %}
+                </a>
+
+                {% component "unfold/components/button.html" with submit=1 %}
+                    {% trans "Upload" %}
+                {% endcomponent %}
+            </div>
+        </form>
+
+    {% endcomponent %}
+</div>
+{% endblock %}

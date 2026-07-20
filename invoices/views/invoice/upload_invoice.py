@@ -19,6 +19,7 @@ class InvoiceUploadAdminView(UnfoldModelAdminViewMixin,FormView):
 
 
     def form_valid(self, form):
+        form.instance.uploaded_by = self.request.user
         form.save()
         invoice = form.instance
         process_manual_invoice.delay(invoice.id)

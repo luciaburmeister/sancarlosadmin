@@ -111,6 +111,7 @@ INSTALLED_APPS = [
     'banking',
     "finance",
     "payroll",
+    "apps.expenses",
     "loans",
 ]
 
@@ -651,6 +652,29 @@ UNFOLD = {
                         "link": reverse_lazy("admin:invoices_invoice_changelist"),
                         "permission": lambda request: request.user.has_perm(
                             "invoices.view_invoice"
+                        ),
+                    },
+                ],
+            },
+            {
+                "title": _("Expenses"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Expense Claims"),
+                        "icon": "receipt_long",
+                        "link": reverse_lazy("admin:expenses_expenseclaim_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "expenses.view_expenseclaim"
+                        ),
+                    },
+                    {
+                        "title": _("Expense Tickets"),
+                        "icon": "receipt",
+                        "link": reverse_lazy("admin:expenses_expenseticket_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "expenses.view_expenseticket"
                         ),
                     },
                 ],

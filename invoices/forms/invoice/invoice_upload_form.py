@@ -38,7 +38,7 @@ class InvoiceUploadForm(forms.ModelForm):
             raise ValidationError(f"Could not read PDF for duplicate check: {e}")
         
         if result.is_duplicate:
-            existing = result.similar_invoice
+            existing = result.similar_object
             url = reverse("admin:invoices_invoice_change", args=[existing.pk])
 
             raise ValidationError(

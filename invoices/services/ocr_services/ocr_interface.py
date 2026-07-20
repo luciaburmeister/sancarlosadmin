@@ -16,6 +16,8 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass
 from decimal import Decimal
 
+from core.services.tax_id_service import normalize_tax_id
+
 @dataclass
 class LineItem:
     """Represents a single line item on an invoice"""
@@ -79,18 +81,4 @@ class OcrInterface(ABC):
         raise NotImplementedError("Subclasses must implement extract_data method")
 
     def normalize_tax_id(self, tax_id: Optional[str]) -> Optional[str]:
-        """
-        Normalize tax ID by removing non-alphanumeric characters and converting to uppercase.
-        Also removes 'ES' prefix if present.
-        """
-        if tax_id is None:
-            return None
-            
-        # Remove non-alphanumeric and uppercase
-        clean_tax_id = "".join(filter(str.isalnum, tax_id)).upper()
-        
-        # Remove ES prefix if present (Spanish country code)
-        if clean_tax_id.startswith("ES"):
-            clean_tax_id = clean_tax_id[2:]
-            
-        return clean_tax_id
+        return normalize_tax_id(tax_id)

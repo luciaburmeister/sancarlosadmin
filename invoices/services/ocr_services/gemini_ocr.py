@@ -2,28 +2,21 @@
 Maps raw responses to extracted_dataclass structure
 """
 
-import google.genai as genai
-from google.genai import types
-import json
 from typing import Dict, Optional
 from decimal import Decimal
 from datetime import datetime
 
+from core.services.gemini_extraction_service import BaseGeminiExtractor, GeminiJSONParseError
 from .ocr_interface import OcrInterface, InvoiceData, LineItem, TaxItem
 
-
-class GeminiJSONParseError(Exception):
-    """Gemini returned text that isn't valid JSON. Carries the raw text so
-    callers can persist it (e.g. to Invoice.ocr_raw_response) for debugging."""
-
-    def __init__(self, message: str, raw_text: str):
-        super().__init__(message)
-        self.raw_text = raw_text
+__all__ = ["GeminiInvoiceProcessor", "GeminiJSONParseError"]
 
 
-class GeminiInvoiceProcessor(OcrInterface):
+class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
 
-    INVOICE_SCHEMA = {
+    MODEL_NAME = "gemini-3-flash-preview"
+
+    SCHEMA = {
     "type": "OBJECT",
     "required": [
         "document_type",
@@ -134,28 +127,7 @@ class GeminiInvoiceProcessor(OcrInterface):
 }
 
 
-    def __init__(self, api_key: str):
-        """
-        Initialize the processor.
-        """
-        self.client = genai.Client(api_key=api_key)
-        self.model_name = "gemini-3-flash-preview"
-        self.fallback_model_name = "gemini-2.5-flash"
-
-    def extract_data(self, file_path: str) -> InvoiceData:
-        """
-        Extract invoice data from a file (PDF, PNG, JPG).
-        """
-
-        mime_type = self._get_mime_type(file_path)
-
-        uploaded_file = self.client.files.upload(
-            file=file_path,
-        )
-
-        print(f"File uploaded: {uploaded_file.uri}")
-
-        prompt = """
+    PROMPT = """
         Extract ALL information from this document.
 
         FIRST — classify the document_type:
@@ -199,55 +171,15 @@ class GeminiInvoiceProcessor(OcrInterface):
 
         """
 
-        models_to_try = [self.model_name, self.fallback_model_name]
-        data = None
-        for i, model_name in enumerate(models_to_try):
-            try:
-                data = self._call_model(model_name, uploaded_file, prompt)
-                break
-            except Exception as e:
-                is_last = i == len(models_to_try) - 1
-                if is_last:
-                    raise
-
-        invoice_data = self._convert_to_dataclass(data, raw_response=data)
+    def extract_data(self, file_path: str) -> InvoiceData:
+        invoice_data = super().extract_data(file_path)
         return self._adjust_tax_inclusive_prices(invoice_data)
-
-    def _call_model(self, model_name: str, uploaded_file, prompt: str) -> Dict:
-        """
-        Call the given Gemini model with the uploaded file + prompt and parse its JSON response.
-        """
-        response = self.client.models.generate_content(
-            model=model_name,
-            contents=[
-                uploaded_file,
-                prompt,
-            ],
-            config=types.GenerateContentConfig(
-                response_mime_type="application/json",
-                response_schema=self.INVOICE_SCHEMA,
-                temperature=0.0,
-            ),
-        )
-        part = response.candidates[0].content.parts[0]
-
-        raw = json.loads(part.json())["text"]
-
-        if isinstance(raw, str):
-            try:
-                return json.loads(raw)
-            except json.JSONDecodeError as e:
-                raise GeminiJSONParseError(f"Gemini returned invalid JSON: {e}", raw_text=raw) from e
-        elif isinstance(raw, dict):
-            return raw
-        else:
-            raise TypeError(f"Unexpected Gemini JSON type: {type(raw)}")
 
     # =========================
     # CONVERSION
     # =========================
 
-    def _convert_to_dataclass(self, data: Dict, raw_response: Optional[Dict] = None) -> InvoiceData:
+    def _to_dataclass(self, data: Dict) -> InvoiceData:
         """
         Convert raw dictionary to InvoiceData dataclass.
         """
@@ -290,7 +222,7 @@ class GeminiInvoiceProcessor(OcrInterface):
             ),
             line_items=line_items,
             taxes=taxes,
-            raw_response=raw_response,
+            raw_response=data,
         )
 
     def _adjust_tax_inclusive_prices(self, data: InvoiceData) -> InvoiceData:
@@ -337,15 +269,6 @@ class GeminiInvoiceProcessor(OcrInterface):
     # =========================
     # HELPERS
     # =========================
-
-    def _get_mime_type(self, file_path: str) -> str:
-        ext = file_path.lower().split(".")[-1]
-        return {
-            "pdf": "application/pdf",
-            "png": "image/png",
-            "jpg": "image/jpeg",
-            "jpeg": "image/jpeg",
-        }.get(ext, "application/pdf")
 
     def _normalize_payment_method(self, method: Optional[str]) -> Optional[str]:
         if not method:

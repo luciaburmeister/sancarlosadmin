@@ -1,8 +1,10 @@
 from celery import shared_task
 from django.conf import settings
+from django.urls import reverse
 from .models import IncomingInvoice, Invoice
 from invoices.services.invoice.invoice_service import InvoiceService
 from invoices.services.ocr_services.gemini_ocr import GeminiInvoiceProcessor
+from core.services.email_service import EmailService
 from google.genai.errors import ClientError
 import logging
 import tempfile
@@ -210,7 +212,23 @@ def process_manual_invoice(invoice_id: int):
             return {"task": "process_manual_invoice", "invoice_id": invoice_id, "status": "ok"}
         else:
             if getattr(result, 'is_duplicate', False):
-                logger.warning(f"Deleting duplicate MANUAL invoice {invoice.id}")
+                duplicate_of = getattr(result, 'duplicate_of', None)
+                logger.warning(f"Duplicate MANUAL invoice {invoice.id}: {result.messages}")
+
+                if invoice.uploaded_by and invoice.uploaded_by.email and duplicate_of:
+                    original_link = f"{settings.BACKEND_URL.rstrip('/')}{reverse('admin:invoices_invoice_change', args=[duplicate_of.pk])}"
+                    EmailService.send_email(
+                        to=[invoice.uploaded_by.email],
+                        subject=f"Duplicate invoice detected: {invoice.file.name}",
+                        body_html=(
+                            f"<p>The invoice you uploaded ({invoice.file.name}) is a duplicate of an "
+                            f"invoice that already exists in the system and has been deleted.</p>"
+                            f"<p><a href=\"{original_link}\">View the original invoice</a></p>"
+                        ),
+                        related_object=duplicate_of,
+                        company=duplicate_of.company,
+                    )
+
                 invoice_id_for_log = invoice.id
                 invoice.delete()
                 return {"task": "process_manual_invoice", "invoice_id": invoice_id_for_log, "status": "duplicate_deleted"}

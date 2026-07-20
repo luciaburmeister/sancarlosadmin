@@ -1,3 +1,4 @@
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from unfold.contrib.filters.admin import DropdownFilter, RadioFilter
@@ -120,4 +121,32 @@ class BalanceStatusFilter(RadioFilter):
             return queryset.filter(is_total_balanced=True)
         if self.value() == "no":
             return queryset.filter(is_total_balanced=False)
+        return queryset
+
+
+class OcrStatusFilter(RadioFilter):
+    title = _("OCR status")
+    parameter_name = "ocr_status"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("processing", _("Processing")),
+            ("ok", _("OK")),
+            ("error", _("Error")),
+            ("not_started", _("Not started")),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "processing":
+            return queryset.filter(ocr_processing=True)
+        if self.value() == "ok":
+            return queryset.filter(ocr_processed=True).filter(
+                Q(ocr_error__isnull=True) | Q(ocr_error="")
+            )
+        if self.value() == "error":
+            return queryset.exclude(Q(ocr_error__isnull=True) | Q(ocr_error=""))
+        if self.value() == "not_started":
+            return queryset.filter(ocr_processing=False, ocr_processed=False).filter(
+                Q(ocr_error__isnull=True) | Q(ocr_error="")
+            )
         return queryset

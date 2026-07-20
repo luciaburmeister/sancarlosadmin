@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Sum, Q
 from django.db.models.signals import post_delete
@@ -207,8 +208,17 @@ class Invoice(Timestampable, Payable):
         help_text="Check if the sum of line items and taxes matches the total_amount"
     )
 
+    uploaded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="uploaded_invoices",
+        help_text="User who manually uploaded this invoice (empty for invoices ingested automatically from email).",
+    )
+
     class Meta:
-        unique_together = ['provider','invoice_number']
+        unique_together = ['company', 'provider', 'invoice_number']
         ordering = ['-date_issued']
         verbose_name = _("Invoice")
         verbose_name_plural = _("Invoices")

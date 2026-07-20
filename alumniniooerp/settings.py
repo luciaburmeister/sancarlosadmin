@@ -687,6 +687,21 @@ UNFOLD = {
                 ],
             },
             {
+                "title": _("Loans"),
+                "separator": True,
+                "collapsible": True,
+                "items": [
+                    {
+                        "title": _("Loans"),
+                        "icon": "account_balance",
+                        "link": reverse_lazy("admin:loans_parentloan_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "loans.view_parentloan"
+                        ),
+                    },
+                ],
+            },
+            {
                 "title": _("Inventory"),
                 "separator": True,
                 "collapsible": True,

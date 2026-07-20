@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-17 17:59+0200\n"
+"POT-Creation-Date: 2026-07-20 18:44+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -284,6 +284,9 @@ msgstr "Conciliaciones"
 
 msgid "Connect Bank"
 msgstr "Conectar Banco"
+
+msgid "Loans"
+msgstr "Préstamos"
 
 msgid "Inventory"
 msgstr "Inventario"
@@ -4913,20 +4916,17 @@ msgstr "Método de Pago"
 msgid "Purchase Order"
 msgstr "Orden de Compra"
 
-
 msgid "Invoice Actions"
 msgstr "Acciones de facturación"
 
 msgid "Accounting"
 msgstr "Contabilidad"
 
-
 msgid "Match Purchase Order"
 msgstr "Emparejar Orden de Compra"
 
 msgid "Download PDF"
 msgstr "Descargar PDF"
-
 
 msgid "Select at least one invoice."
 msgstr "Seleccione al menos una factura."
@@ -5867,9 +5867,28 @@ msgid "No pending invoices for this company."
 msgstr "No hay facturas pendientes para esta empresa."
 
 #, fuzzy
+#| msgid "Create Invoice"
+msgid "Match Invoice Lines"
+msgstr "Crear factura"
+
+#, fuzzy
 #| msgid "Unknown product"
 msgid "Unknown provider"
 msgstr "Producto desconocido"
+
+#, fuzzy
+#| msgid "Is Default"
+msgid "excl. tax"
+msgstr "Es default"
+
+msgid "incl. tax"
+msgstr "incl. impuestos"
+
+msgid "Matching against"
+msgstr "Emparejando contra"
+
+msgid "Choose another PO"
+msgstr "Elige otro PO"
 
 #, fuzzy
 #| msgid "Aggregated from purchase invoices"
@@ -5881,6 +5900,14 @@ msgstr "Agrupado desde facturas de compra"
 msgid "Pending to Invoice"
 msgstr "Facturas pendientes"
 
+#, fuzzy
+#| msgid "Line Item"
+msgid "View items"
+msgstr "Item"
+
+msgid "Ordered"
+msgstr "Pedido"
+
 msgid ""
 "No matching purchase orders found for this invoice's provider with "
 "quantities pending to invoice."
@@ -5891,39 +5918,62 @@ msgstr ""
 msgid "Back to Invoice"
 msgstr "Volver a la factura"
 
+#, python-format
+msgid "%(matched)s of %(total)s lines matched"
+msgstr "%(matched)s de %(total)s líneas coincidentes"
 
-msgid "Matching against"
-msgstr "Emparejando contra"
+msgid "Matched"
+msgstr "Emparejados"
 
-msgid "Choose another PO"
-msgstr "Elige otro PO"
+#, fuzzy
+#| msgid "Description"
+msgid "Needs Attention"
+msgstr "Descripción"
 
-msgid "Unmatched"
-msgstr "Sin emparejar"
+msgid "Needs a PO line match"
+msgstr "Se necesita una coincidencia de línea de PO."
 
-msgid "Match Qty"
-msgstr "Cantidad a emparejar"
+#, fuzzy
+#| msgid "Create Invoice"
+msgid "Match to PO Line"
+msgstr "Crear factura"
 
-msgid "— skip —"
-msgstr "— omitir —"
+msgid "— No matching PO line —"
+msgstr "— No hay línea de PO que coincida —"
 
 msgid "pending"
 msgstr "Pendiente"
 
+msgid "Qty to Match"
+msgstr "Cantidad a Igualar"
 
-msgid "Fully matched"
+msgid "Already partially matched"
+msgstr "Ya coincide parcialmente"
+
+#, fuzzy, python-format
+#| msgid "%(counter)s employee in the file could not be matched."
+#| msgid_plural ""
+#| "%(counter)s employees in the file could not be matched."
+msgid "%(counter)s line still needs a PO match."
+msgid_plural "%(counter)s line(s) still need a PO match."
+msgstr[0] "%(counter)s empleado del archivo no se pudo emparejar."
+msgstr[1] "%(counter)s empleados del archivo no se pudieron emparejar."
+
+#, fuzzy
+#| msgid "Fully matched"
+msgid "All lines matched."
 msgstr "Emparejados"
 
-msgid "Confirm Match"
+#, fuzzy
+#| msgid "Confirm Match"
+msgid "Confirm Matching"
 msgstr "Confirmar emparejamiento"
-
 
 msgid "Bank Account Balances"
 msgstr "Balance de Cuenta de banco"
 
 msgid "ago"
 msgstr "hace"
-
 
 msgid "Pending sync"
 msgstr "Sincronización Pendiente"
@@ -5936,7 +5986,6 @@ msgstr "Resumen Facturas de ventas"
 
 msgid "Finalized (Subtotal)"
 msgstr "Finalizadas (Subtotal)"
-
 
 msgid "Pro Forma (Subtotal)"
 msgstr "Pro Forma (Subtotal)"
@@ -5957,13 +6006,11 @@ msgstr "Pro Forma"
 msgid "Collection Status"
 msgstr "Etapas de Producción"
 
-
 msgid "Invoiced (With Taxes)"
 msgstr "Facturado (Con impuestos)"
 
 msgid "Collected"
 msgstr "Cobrado"
-
 
 msgid "invoice(s) fully paid"
 msgstr "¡Todas las facturas están pagadas!"
@@ -6619,6 +6666,11 @@ msgstr ""
 "%(count)d facturas importadas tienen un total que no coincide con su base + "
 "IVA - retención. Verifica los detalles de la fila a continuación."
 
+#, fuzzy, python-format
+#| msgid "%(count)d banks synced."
+msgid "%(count)d PO lines"
+msgstr "Se sincronizaron %(count)d bancos."
+
 #, fuzzy
 #| msgid "Collected"
 msgid "No purchase order was selected."
@@ -6944,9 +6996,6 @@ msgstr "Cada mes"
 
 msgid "Payment Frequency"
 msgstr "Frecuencia de pago"
-
-msgid "Loans"
-msgstr "Préstamos"
 
 #, fuzzy
 #| msgid "Components"
@@ -9295,8 +9344,8 @@ msgstr "Validar archivo"
 msgid "Employees in file"
 msgstr "Empleados en el archivo"
 
-msgid "Matched"
-msgstr "Emparejados"
+msgid "Unmatched"
+msgstr "Sin emparejar"
 
 msgid "Net total (matched)"
 msgstr "Total neto (emparejados)"
@@ -10309,9 +10358,6 @@ msgstr "Elige un archivo..."
 msgid "Upload photo or scan of the provider's delivery note"
 msgstr "Cargue una foto o escaneo del comprobante de entrega del proveedor."
 
-msgid "Ordered"
-msgstr "Pedido"
-
 #, fuzzy
 #| msgid "Receiving"
 msgid "Receiving Now"
@@ -10337,14 +10383,29 @@ msgid "Save Identity Codes"
 msgstr "Guardar Códigos de Identidad"
 
 #, fuzzy
+#| msgid "Machine"
+msgid "Match PO Lines"
+msgstr "Máquina"
+
+#, fuzzy
 #| msgid "Invoice Info"
 msgid "Match Invoice for PO"
 msgstr "Información de factura"
 
 #, fuzzy
+#| msgid "Create Invoice"
+msgid "Choose another invoice"
+msgstr "Crear factura"
+
+#, fuzzy
 #| msgid "Payment Method"
 msgid "Suggested invoices"
 msgstr "Método de Pago"
+
+#, fuzzy
+#| msgid "Total price (after tax)"
+msgid "Total (excl. tax)"
+msgstr "Precio total"
 
 #, fuzzy
 #| msgid "Unmatched"
@@ -10366,23 +10427,30 @@ msgstr "No se han encontrado presupuestos aceptados para este expediente."
 msgid "Back to PO"
 msgstr "Volver a la lista"
 
-msgid "Matching against invoice"
-msgstr "Coincidencia con la factura"
+msgid "Needs an invoice line match"
+msgstr "Necesita una coincidencia de línea de factura"
 
 #, fuzzy
 #| msgid "Create Invoice"
-msgid "Choose another invoice"
+msgid "Match to Invoice Line"
 msgstr "Crear factura"
+
+msgid "— No matching invoice line —"
+msgstr "— No hay línea de factura que coincida —"
 
 #, fuzzy
 #| msgid "Unmatched"
 msgid "unmatched"
 msgstr "Sin emparejar"
 
-#, fuzzy
-#| msgid "invoiced"
-msgid "Fully invoiced"
-msgstr "Factura"
+#, fuzzy, python-format
+#| msgid "%(counter)s employee in the file could not be matched."
+#| msgid_plural ""
+#| "%(counter)s employees in the file could not be matched."
+msgid "%(counter)s line still needs an invoice match."
+msgid_plural "%(counter)s line(s) still need an invoice match."
+msgstr[0] "%(counter)s empleado del archivo no se pudo emparejar."
+msgstr[1] "%(counter)s empleados del archivo no se pudieron emparejar."
 
 #, fuzzy
 #| msgid "Receival Slip Items"
@@ -10411,6 +10479,11 @@ msgid "Only approved or closed purchase orders can be matched to invoices."
 msgstr ""
 "Solo las órdenes de compra aprobadas o cerradas pueden ser emparejadas con "
 "facturas."
+
+#, fuzzy, python-format
+#| msgid "Started %(count)d items across all tickets."
+msgid "%(count)d invoice lines"
+msgstr "Se empezaron %(count)d elementos en todos los tickets."
 
 #, fuzzy
 #| msgid "Collected"
@@ -11780,6 +11853,19 @@ msgstr "Ausencias pasadas"
 
 msgid "No past absences."
 msgstr "No hay ausencias pasadas"
+
+#~ msgid "Match Qty"
+#~ msgstr "Cantidad a emparejar"
+
+#~ msgid "— skip —"
+#~ msgstr "— omitir —"
+
+#~ msgid "Matching against invoice"
+#~ msgstr "Coincidencia con la factura"
+
+#, fuzzy
+#~ msgid "Fully invoiced"
+#~ msgstr "Factura"
 
 #~ msgid "Please select only one invoice to download."
 #~ msgstr "Por favor, selecciona solo una factura para descargar."

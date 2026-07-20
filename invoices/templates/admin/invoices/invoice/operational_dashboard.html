@@ -861,6 +861,82 @@
   <hr class="od-divider">
 
   <!-- ═══════════════════════════════════════════════════════════════ -->
+  <!-- LOANS & CREDIT                                                  -->
+  <!-- ═══════════════════════════════════════════════════════════════ -->
+  {% if loans %}
+  <div class="od-section">
+    <div class="od-section-title"><span class="icon">🏦</span> {% trans "Loans & Credit" %}</div>
+
+    <!-- KPI row: 4 KPIs -->
+    <div class="od-kpi-grid od-kpi-grid--4">
+      <div class="od-kpi od-kpi--slate">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Total Financial Debt" %}</div>
+        <div class="od-kpi-value">€{{ loans.outstanding_balance|euro_format }}</div>
+        <div class="od-kpi-sub">{{ loans.active_loans|length }} {% trans "active loan(s)" %}</div>
+      </div>
+      <div class="od-kpi od-kpi--blue">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "6-Month Debt" %}</div>
+        <div class="od-kpi-value">{% if loans.upcoming_180_count > 0 %}€{{ loans.upcoming_180_total|euro_format }}{% else %}—{% endif %}</div>
+        <div class="od-kpi-sub">{{ loans.upcoming_180_count }} {% trans "installment(s)" %}</div>
+      </div>
+      <div class="od-kpi {% if loans.overdue_count > 0 %}od-kpi--rose{% else %}od-kpi--emerald{% endif %}">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Overdue Installments" %}</div>
+        <div class="od-kpi-value">{% if loans.overdue_count > 0 %}€{{ loans.overdue_total|euro_format }}{% else %}—{% endif %}</div>
+        <div class="od-kpi-sub">{{ loans.overdue_count }} {% trans "installment(s)" %}</div>
+      </div>
+      <div class="od-kpi od-kpi--amber">
+        <div class="od-kpi-accent"></div>
+        <div class="od-kpi-label">{% trans "Due in next 30 days" %}</div>
+        <div class="od-kpi-value">{% if loans.upcoming_30_count > 0 %}€{{ loans.upcoming_30_total|euro_format }}{% else %}—{% endif %}</div>
+        <div class="od-kpi-sub">{{ loans.upcoming_30_count }} {% trans "installment(s)" %}</div>
+      </div>
+    </div>
+
+    <!-- Per-loan breakdown table -->
+    {% if loans.active_loans %}
+    <div style="margin-top: 1.5rem; overflow-x: auto;">
+      <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+        <thead>
+          <tr style="border-bottom: 2px solid rgb(var(--color-base-200));">
+            <th style="text-align:left; padding: 0.5rem 1rem; font-weight:600; color: rgb(var(--color-font-subtle-light));">{% trans "Loan" %}</th>
+            <th style="text-align:left; padding: 0.5rem 1rem; font-weight:600; color: rgb(var(--color-font-subtle-light));">{% trans "Bank / Account" %}</th>
+            <th style="text-align:right; padding: 0.5rem 1rem; font-weight:600; color: rgb(var(--color-font-subtle-light));">{% trans "Outstanding" %}</th>
+            <th style="text-align:right; padding: 0.5rem 1rem; font-weight:600; color: rgb(var(--color-font-subtle-light));">{% trans "Next due date" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for loan in loans.active_loans %}
+          <tr style="border-bottom: 1px solid rgb(var(--color-base-100));">
+            <td style="padding: 0.6rem 1rem; font-weight:500;">{{ loan.name }}</td>
+            <td style="padding: 0.6rem 1rem; color: rgb(var(--color-font-subtle-light));">
+              {{ loan.bank }}{% if loan.iban_suffix %} <span style="font-family:monospace; font-size:0.8rem;">{{ loan.iban_suffix }}</span>{% endif %}
+            </td>
+            <td style="padding: 0.6rem 1rem; text-align:right; font-weight:600;">{{ loan.outstanding }}</td>
+            <td style="padding: 0.6rem 1rem; text-align:right; color: rgb(var(--color-font-subtle-light));">
+              {% if loan.next_due %}{{ loan.next_due }}{% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          <!-- Totals row -->
+          <tr style="border-top: 2px solid rgb(var(--color-base-200)); background: rgb(var(--color-base-50));">
+            <td style="padding: 0.6rem 1rem; font-weight:700;">{% trans "Total" %}</td>
+            <td></td>
+            <td style="padding: 0.6rem 1rem; text-align:right; font-weight:700;">€{{ loans.outstanding_balance|euro_format }}</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+
+  <hr class="od-divider">
+  {% endif %}
+
+  <!-- ═══════════════════════════════════════════════════════════════ -->
   <!-- PRODUCTION COSTS                                                -->
   <!-- ═══════════════════════════════════════════════════════════════ -->
   <div class="od-section">

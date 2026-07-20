@@ -88,7 +88,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         cached = cache.get(cache_key)
 
         if cached:
-            invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data, bank_balances_data = cached
+            invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data, bank_balances_data, loan_data = cached
         else:
             invoicing_data = self._compute_invoicing(selected_company, date_from, date_to)
             production_data = self._compute_production_costs(selected_company, date_from, date_to)
@@ -98,7 +98,8 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             ar_aging_data = self._compute_ar_aging(selected_company)
             ap_aging_data = self._compute_ap_aging(selected_company)
             bank_balances_data = self._compute_bank_balances(selected_company)
-            cache.set(cache_key, (invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data, bank_balances_data), _CACHE_TTL)
+            loan_data = self._compute_loan_data(selected_company)
+            cache.set(cache_key, (invoicing_data, production_data, tax_data, payment_data, cash_data, ar_aging_data, ap_aging_data, bank_balances_data, loan_data), _CACHE_TTL)
 
         ctx.update({
             "title": _("Operational Dashboard"),
@@ -113,6 +114,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "payment": payment_data,
             "tax_periods": cash_data,
             "bank_balances": bank_balances_data,
+            "loans": loan_data,
             "today": today,
         })
         return ctx
@@ -699,6 +701,111 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "bucket_30_count": b30["count"],
             "bucket_60_count": b60["count"],
             "bucket_90_count": b90["count"],
+        }
+
+    # ── Loan & credit helpers ─────────────────────────────────────
+
+    @staticmethod
+    def _compute_loan_data(company):
+        """
+        Loan debt summary for the selected company:
+        - outstanding_balance: total outstanding across active loans
+        - overdue: installments past due date, unpaid/partial
+        - upcoming_30: installments due in next 30 days
+        - upcoming_180: installments due in next 6 months (total financial debt horizon)
+        - active_loans: per-loan breakdown with IBAN last 4 digits
+        """
+        if not company:
+            return {
+                "outstanding_balance": Decimal("0.00"),
+                "overdue_total": Decimal("0.00"),
+                "overdue_count": 0,
+                "upcoming_30_total": Decimal("0.00"),
+                "upcoming_30_count": 0,
+                "upcoming_180_total": Decimal("0.00"),
+                "upcoming_180_count": 0,
+                "active_loans": [],
+            }
+
+        from loans.models import Loan, LoanInstallment, LoanInstallmentPaymentStatus, LoanStatus
+
+        today = timezone.now().date()
+        zero = Value(Decimal("0.00"))
+        field = DecimalField(max_digits=14, decimal_places=2)
+
+        active_loans = Loan.objects.filter(
+            company=company,
+            status=LoanStatus.ACTIVE,
+        ).select_related("bank", "bank_account", "parent_loan")
+
+        outstanding_balance = Decimal("0.00")
+        active_loans_list = []
+        for loan in active_loans:
+            outstanding = loan.outstanding_principal
+            amount = outstanding.amount if hasattr(outstanding, "amount") else Decimal(str(outstanding))
+            outstanding_balance += amount
+
+            # Last 4 digits of IBAN for identification
+            iban = loan.bank_account.iban if loan.bank_account_id else ""
+            iban_suffix = f"•••• {iban[-4:]}" if len(iban) >= 4 else ""
+
+            active_loans_list.append({
+                "name": loan.name or loan.reference or f"#{loan.pk}",
+                "bank": str(loan.bank),
+                "iban_suffix": iban_suffix,
+                "outstanding": outstanding,
+                "next_due": loan.installments.filter(
+                    payment_status__in=["unpaid", "partial"]
+                ).order_by("due_date").values_list("due_date", flat=True).first(),
+            })
+
+        # Sort by next due date ascending — most urgent first
+        active_loans_list.sort(key=lambda x: x["next_due"] or date(9999, 12, 31))
+
+        # Overdue installments
+        overdue_qs = LoanInstallment.objects.filter(
+            loan__company=company,
+            loan__status=LoanStatus.ACTIVE,
+            payment_status__in=[LoanInstallmentPaymentStatus.UNPAID, LoanInstallmentPaymentStatus.PARTIAL],
+            due_date__lt=today,
+        ).aggregate(
+            total=Coalesce(Sum("total_due"), zero, output_field=field),
+            count=Count("id"),
+        )
+
+        # Upcoming 0-30 days
+        upcoming_30_qs = LoanInstallment.objects.filter(
+            loan__company=company,
+            loan__status=LoanStatus.ACTIVE,
+            payment_status__in=[LoanInstallmentPaymentStatus.UNPAID, LoanInstallmentPaymentStatus.PARTIAL],
+            due_date__gte=today,
+            due_date__lte=today + timedelta(days=30),
+        ).aggregate(
+            total=Coalesce(Sum("total_due"), zero, output_field=field),
+            count=Count("id"),
+        )
+
+        # Upcoming 6 months (0-180 days) — total financial debt horizon
+        upcoming_180_qs = LoanInstallment.objects.filter(
+            loan__company=company,
+            loan__status=LoanStatus.ACTIVE,
+            payment_status__in=[LoanInstallmentPaymentStatus.UNPAID, LoanInstallmentPaymentStatus.PARTIAL],
+            due_date__gte=today,
+            due_date__lte=today + timedelta(days=180),
+        ).aggregate(
+            total=Coalesce(Sum("total_due"), zero, output_field=field),
+            count=Count("id"),
+        )
+
+        return {
+            "outstanding_balance": outstanding_balance,
+            "overdue_total": overdue_qs["total"],
+            "overdue_count": overdue_qs["count"],
+            "upcoming_30_total": upcoming_30_qs["total"],
+            "upcoming_30_count": upcoming_30_qs["count"],
+            "upcoming_180_total": upcoming_180_qs["total"],
+            "upcoming_180_count": upcoming_180_qs["count"],
+            "active_loans": active_loans_list,
         }
 
     # ── Bank balance helpers ───────────────────────────────────────

@@ -195,6 +195,15 @@ if TESTING:
             "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
         },
     }
+    # Tests deliberately exercise error-handling paths (rate limits, missing
+    # tokens, missing PDF templates, ...) which log warnings/errors. Silence
+    # them here so `manage.py test` output isn't drowned out; assertions
+    # still catch real regressions regardless of logging.
+    LOGGING = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "root": {"level": "CRITICAL"},
+    }
 
 
 INTERNAL_IPS = ["127.0.0.1", "localhost:8000"]
@@ -629,6 +638,14 @@ UNFOLD = {
                         "link": reverse_lazy("admin:purchasing_purchaseorderreceipt_changelist"),
                         "permission": lambda request: request.user.has_perm(
                             "purchasing.view_purchaseorderreceipt"
+                        ),
+                    },
+                    {
+                        "title": _("Providers"),
+                        "icon": "storefront",
+                        "link": reverse_lazy("admin:materials_provider_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "materials.view_provider"
                         ),
                     },
                 ],

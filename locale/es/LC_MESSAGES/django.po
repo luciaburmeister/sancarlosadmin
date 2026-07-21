@@ -6634,23 +6634,18 @@ msgstr "Vencimiento en 0–30 días"
 msgid "Loan"
 msgstr "Préstamo"
 
-#, fuzzy
-#| msgid "Bank Account"
 msgid "Bank / Account"
 msgstr "Cuenta de Banco"
 
 msgid "Outstanding"
-msgstr "Excepcional"
+msgstr "Pendiente"
 
-#, fuzzy
-#| msgid "Due Date"
 msgid "Next due date"
 msgstr "Fecha de vencimiento"
 
-#, fuzzy
-#| msgid "Production Stages"
+
 msgid "Production Costs"
-msgstr "Etapas de Producción"
+msgstr "Costos de producción"
 
 msgid "Total Production Cost"
 msgstr "Costo Total de Producción"
@@ -6678,20 +6673,17 @@ msgstr "Precio por unidad"
 msgid "Total Tickets"
 msgstr "Precio total"
 
-#, fuzzy
-#| msgid "Final price"
+
 msgid "Finalized"
-msgstr "Precio final"
+msgstr "Finalizado"
 
-#, fuzzy
-#| msgid "Amount"
+
 msgid "Due Amount"
-msgstr "Cantidad"
+msgstr "Monto pendiente"
 
-#, fuzzy
-#| msgid "Production Stages"
+
 msgid "Production Cost"
-msgstr "Etapas de Producción"
+msgstr "Costos de producción"
 
 #, fuzzy
 #| msgid "Create Invoice from Project File"
@@ -6723,46 +6715,39 @@ msgstr "Nombre del proveedor (utilizado si se crea automáticamente)"
 msgid "Line item description / concept"
 msgstr "Descripción del concepto del artículo"
 
-#, fuzzy
-#| msgid "Please enter a valid amount."
-msgid "Base taxable amount"
-msgstr "Por favor, ingrese una cantidad válida."
 
-#, fuzzy
-#| msgid "Production Stage"
+msgid "Base taxable amount"
+msgstr "Base imponible"
+
+
 msgid "IVA percentage (e.g. 21)"
-msgstr "Etapas de Producción"
+msgstr "Porcentaje de IVA (ej. 21)"
 
 msgid "IVA amount (calculated if missing)"
 msgstr "Monto del IVA (calculado si falta)"
 
-#, fuzzy
-#| msgid "IRPF Withholding Amount"
+
 msgid "IRPF retention amount"
 msgstr "Monto de retención del IRPF"
 
-#, fuzzy
-#| msgid "Total Invoiceable"
+
 msgid "Total invoice amount"
-msgstr "Total Facturable"
+msgstr "Total factura"
 
 msgid "Company name to assign invoice to"
 msgstr "Nombre de la empresa para asignar la factura a"
 
-#, fuzzy
-#| msgid "Import Metadata"
+
 msgid "Import Results"
-msgstr "Importar metadatos"
+msgstr "Importar resultados"
 
-#, fuzzy
-#| msgid "Total cost"
+
 msgid "Total Rows"
-msgstr "Costo total"
+msgstr "Filas totales"
 
-#, fuzzy
-#| msgid "Created at"
+
 msgid "Created"
-msgstr "Creado en"
+msgstr "Creado"
 
 msgid "Errors"
 msgstr "Errores"
@@ -6773,10 +6758,9 @@ msgstr "Fila"
 msgid "CIF"
 msgstr "CIF"
 
-#, fuzzy
-#| msgid "Incoming Invoice"
+
 msgid "Upload Invoice"
-msgstr "Factura Entrante"
+msgstr "Subir factura"
 
 msgid ""
 "Upload the invoice file. After saving, you'll return to the invoice list."
@@ -6787,8 +6771,7 @@ msgstr ""
 msgid "file(s)"
 msgstr "archivo(s)"
 
-#, fuzzy
-#| msgid "Skipped"
+
 msgid "skipped"
 msgstr "Omitido"
 

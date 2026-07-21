@@ -28,7 +28,7 @@ from unfold.widgets import (
 from django.contrib.postgres.fields import ArrayField
 
 @admin.register(BankAccount)
-class BankAccountAdmin(ModelAdmin):
+class BankAccountAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ("bank_name", "account_number", "iban", "nuek_token", "is_default", "sync_from_date", "company")
     search_fields = ("bank_name", "account_number", "iban")
     autocomplete_fields = ("company",)

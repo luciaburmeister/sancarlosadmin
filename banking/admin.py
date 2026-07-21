@@ -1,4 +1,5 @@
 """Banking admin — BankTransaction and BankReconciliation."""
+from core.admin.company_admin import CompanyRestrictedAdmin
 from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
 from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
@@ -159,7 +160,7 @@ class PaymentAllocationInline(NonrelatedTabularInline):
 
 
 @admin.register(BankTransaction)
-class BankTransactionAdmin(ModelAdmin):
+class BankTransactionAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = (
         "id",
         "transaction_date",

@@ -1,5 +1,8 @@
 from django.contrib import admin
+from django.urls import reverse
+from django.utils.html import format_html
 from unfold.admin import ModelAdmin
+from unfold.decorators import display
 from materials.models import (
     Category, MaterialFamily, Material, Provider,
     Component, ComponentPriceRule, PriceSheet, PriceSheetItem,
@@ -20,6 +23,7 @@ from unfold.contrib.import_export.forms import (
     SelectableFieldsExportForm,
 )
 from materials.resources import MaterialResource, PriceSheetItemResource
+from payments.mixins import annotate_outstanding_balance
 
 class ComponentPriceRuleInline(TabularInline):
     model = ComponentPriceRule
@@ -165,20 +169,63 @@ class MaterialAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
 
 @admin.register(Provider)
 class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ("name", "contact", "phone", "email", "tax_identifier", "account", "company")
+    list_display = ("name", "contact", "phone", "email", "tax_identifier", "account", "company", "balance_owed_display")
     search_fields = ("name", "contact", "phone", "email", "tax_identifier", "associated_emails")
     list_select_related = ["company", "account"]
     autocomplete_fields = ["company", "account"]
-    
+
     formfield_overrides = {
         ArrayField: {
             "widget": ArrayWidget,
         }
     }
-    
+
+    def get_queryset(self, request):
+        from invoices.models import Invoice
+        qs = super().get_queryset(request)
+        return annotate_outstanding_balance(qs, Invoice, "provider", "balance_owed")
+
+    @staticmethod
+    def _pending_invoices_url(obj):
+        return (
+            reverse("admin:invoices_invoice_changelist")
+            + f"?provider__id__exact={obj.pk}&payment_status__in=unpaid,partial"
+        )
+
+    @display(description=_("Balance owed"))
+    def balance_owed_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        amount = getattr(obj, "balance_owed", None)
+        if not amount:
+            return "—"
+        return format_html(
+            '<a href="{}" target="_blank" rel="noopener" style="color:#dc2626;font-weight:600;">{} €</a>',
+            self._pending_invoices_url(obj), amount,
+        )
+    balance_owed_display.admin_order_field = "balance_owed"
+
+    @display(description=_("Balance owed"))
+    def balance_owed_detail_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        amount = getattr(obj, "balance_owed", None)
+        if not amount:
+            return "—"
+        return format_html(
+            '<span style="color:#dc2626;font-weight:600;">{} €</span> '
+            '<a href="{}" target="_blank" rel="noopener" '
+            'style="display:inline-block;margin-left:10px;padding:4px 12px;border-radius:6px;'
+            'background:#dc2626;color:#fff;font-weight:600;text-decoration:none;white-space:nowrap;">'
+            '{}</a>',
+            amount, self._pending_invoices_url(obj), _("See pending invoices"),
+        )
+
+    readonly_fields = ["balance_owed_detail_display"]
+
     fieldsets = (
         (_("General Information"), {
-            "fields": ("name","company")
+            "fields": (("name", "company", "balance_owed_detail_display"),)
         }),
         (_("Contact Details"), {
             "fields": ("contact", ("phone", "email"), "associated_emails")

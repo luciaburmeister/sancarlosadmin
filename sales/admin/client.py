@@ -6,8 +6,11 @@ from unfold.admin import GenericTabularInline as _GenericTabularInline
 from unfold.decorators import display
 from import_export.admin import ImportExportModelAdmin
 
+from django.urls import reverse
+
 from core.admin.company_admin import CompanyRestrictedAdmin
-from invoices.models import AppliedTax
+from invoices.models import AppliedTax, SalesInvoice
+from payments.mixins import annotate_outstanding_balance
 from sales.models import Client, ClientAddress, ClientContact, ClientBankAccount
 from sales.forms import ClientImportForm, ClientExportForm, ClientConfirmImportForm
 from sales.resources import ClientResource
@@ -93,16 +96,59 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
     import_form_class = ClientImportForm
     export_form_class = ClientExportForm
 
-    list_display = ["name", "commercial_name", "tax_identifier", "industry_identifier", "phone", "address_truncated", "company",  "has_signed_terms"]
+    list_display = ["name", "commercial_name", "tax_identifier", "industry_identifier", "phone", "address_truncated", "company",  "has_signed_terms", "balance_owed_display"]
     search_fields = [
         "name", "commercial_name", "tax_identifier", "industry_identifier", "email", "phone", "address",
         "contacts__name", "contacts__email", "contacts__phone", "contacts__mobile_phone", "contacts__department",
     ]
     list_filter = ["sale_zone", "is_insured", "company", "contacts__role"]
     autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account","discount_policies","default_client_bank_account"]
+    list_select_related = ["company"]
+    
+
 
     def get_list_filter(self, request):
         return self.list_filter
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return annotate_outstanding_balance(qs, SalesInvoice, "client", "balance_owed")
+
+    @staticmethod
+    def _pending_invoices_url(obj):
+        return (
+            reverse("admin:invoices_salesinvoice_changelist")
+            + f"?client__id__exact={obj.pk}&payment_status__in=unpaid,partial"
+        )
+
+    @display(description=_("Balance owed"))
+    def balance_owed_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        amount = getattr(obj, "balance_owed", None)
+        if not amount:
+            return "—"
+        return format_html(
+            '<a href="{}" target="_blank" rel="noopener" style="color:#16a34a;font-weight:600;">{} €</a>',
+            self._pending_invoices_url(obj), amount,
+        )
+    balance_owed_display.admin_order_field = "balance_owed"
+
+    @display(description=_("Balance owed (they owe us)"))
+    def balance_owed_detail_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        amount = getattr(obj, "balance_owed", None)
+        if not amount:
+            return "—"
+        return format_html(
+            '<span style="color:#16a34a;font-weight:600;">{} €</span> '
+            '<a href="{}" target="_blank" rel="noopener" '
+            'style="display:inline-block;margin-left:10px;padding:4px 12px;border-radius:6px;'
+            'background:#16a34a;color:#fff;font-weight:600;text-decoration:none;white-space:nowrap;">'
+            '{}</a>',
+            amount, self._pending_invoices_url(obj), _("See pending invoices"),
+        )
 
     def get_confirm_form_class(self, request):
         return ClientConfirmImportForm
@@ -149,10 +195,11 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
         (_("Basic Information"), {
             "classes": ["tab"],
             "fields": (
-                ("name", "commercial_name"),
+                ("name", "commercial_name", ),
                 ("company",),
                 ("tax_identifier", "industry_identifier"),
                 ("phone", "email"),
+                "balance_owed_detail_display",
                 "address"
             )
         }),
@@ -189,6 +236,7 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
         "accepted_terms_company",
         "terms_version_display",
         "terms_signature_preview",
+        "balance_owed_detail_display",
     ]
 
     @display(description=_("Versión T&C"))

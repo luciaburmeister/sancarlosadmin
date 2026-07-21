@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-20 19:25+0200\n"
+"POT-Creation-Date: 2026-07-21 13:25+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -276,10 +276,8 @@ msgstr "Facturas de compra"
 msgid "Expenses"
 msgstr "Gastos"
 
-
 msgid "Expense Claims"
 msgstr "Reclamaciones de gastos"
-
 
 msgid "Expense Tickets"
 msgstr "Tickets de gastos"
@@ -554,8 +552,8 @@ msgid "Linked Tickets"
 msgstr "Tickets Vinculados"
 
 msgid "You don't have access to any company yet - contact an admin."
-msgstr "Todavía no tienes acceso a ninguna empresa - contacta a un administrador."
-
+msgstr ""
+"Todavía no tienes acceso a ninguna empresa - contacta a un administrador."
 
 msgid "Add Ticket"
 msgstr "Agregar Ticket"
@@ -566,10 +564,8 @@ msgstr "Enviar Reclamación"
 msgid "Claim submitted for approval."
 msgstr "Reclamación enviada para aprobación."
 
-
 msgid "Approve"
 msgstr "Aprobar"
-
 
 msgid "Claim approved."
 msgstr "Reclamación aprobada."
@@ -577,13 +573,11 @@ msgstr "Reclamación aprobada."
 msgid "Reject"
 msgstr "Rechazar"
 
-
 msgid "Reject Claim"
 msgstr "Rechazar Reclamación"
 
 msgid "Please provide a reason for rejecting this claim."
 msgstr "Por favor, proporciona una razón para rechazar este reclamo."
-
 
 msgid "Claim rejected."
 msgstr "Reclamación rechazada."
@@ -821,7 +815,6 @@ msgstr "Total de linea"
 #| msgid "Converted to Quote"
 msgid "Converted Amount"
 msgstr "Convertido a Cotización"
-
 
 msgid "Expense Ticket"
 msgstr "Gasto"
@@ -6643,7 +6636,6 @@ msgstr "Pendiente"
 msgid "Next due date"
 msgstr "Fecha de vencimiento"
 
-
 msgid "Production Costs"
 msgstr "Costos de producción"
 
@@ -6673,14 +6665,11 @@ msgstr "Precio por unidad"
 msgid "Total Tickets"
 msgstr "Precio total"
 
-
 msgid "Finalized"
 msgstr "Finalizado"
 
-
 msgid "Due Amount"
 msgstr "Monto pendiente"
-
 
 msgid "Production Cost"
 msgstr "Costos de producción"
@@ -6715,10 +6704,8 @@ msgstr "Nombre del proveedor (utilizado si se crea automáticamente)"
 msgid "Line item description / concept"
 msgstr "Descripción del concepto del artículo"
 
-
 msgid "Base taxable amount"
 msgstr "Base imponible"
-
 
 msgid "IVA percentage (e.g. 21)"
 msgstr "Porcentaje de IVA (ej. 21)"
@@ -6726,10 +6713,8 @@ msgstr "Porcentaje de IVA (ej. 21)"
 msgid "IVA amount (calculated if missing)"
 msgstr "Monto del IVA (calculado si falta)"
 
-
 msgid "IRPF retention amount"
 msgstr "Monto de retención del IRPF"
-
 
 msgid "Total invoice amount"
 msgstr "Total factura"
@@ -6737,14 +6722,11 @@ msgstr "Total factura"
 msgid "Company name to assign invoice to"
 msgstr "Nombre de la empresa para asignar la factura a"
 
-
 msgid "Import Results"
 msgstr "Importar resultados"
 
-
 msgid "Total Rows"
 msgstr "Filas totales"
-
 
 msgid "Created"
 msgstr "Creado"
@@ -6758,7 +6740,6 @@ msgstr "Fila"
 msgid "CIF"
 msgstr "CIF"
 
-
 msgid "Upload Invoice"
 msgstr "Subir factura"
 
@@ -6770,7 +6751,6 @@ msgstr ""
 
 msgid "file(s)"
 msgstr "archivo(s)"
-
 
 msgid "skipped"
 msgstr "Omitido"
@@ -8543,6 +8523,16 @@ msgstr "Componente A"
 #| msgid "Component A"
 msgid "Component price rules"
 msgstr "Componente A"
+
+#, fuzzy
+#| msgid "Off Balance"
+msgid "Balance owed"
+msgstr "Fuera de balance"
+
+#, fuzzy
+#| msgid "Pending Invoices"
+msgid "See pending invoices"
+msgstr "Facturas pendientes"
 
 msgid "Contact Details"
 msgstr "Detalles de contacto"
@@ -10872,6 +10862,9 @@ msgstr "Es default"
 #| msgid "Default Value"
 msgid "Default taxes"
 msgstr "Valor predeterminado"
+
+msgid "Balance owed (they owe us)"
+msgstr "Saldo adeudado (nos deben)"
 
 msgid "T&C firmados"
 msgstr "T&C firmados"

@@ -8524,28 +8524,22 @@ msgstr "Componente A"
 msgid "Component price rules"
 msgstr "Componente A"
 
-#, fuzzy
-#| msgid "Off Balance"
 msgid "Balance owed"
-msgstr "Fuera de balance"
+msgstr "Balance pendiente"
 
-#, fuzzy
-#| msgid "Pending Invoices"
+
 msgid "See pending invoices"
-msgstr "Facturas pendientes"
+msgstr "Ver facturas pendientes"
 
 msgid "Contact Details"
 msgstr "Detalles de contacto"
 
-#, fuzzy
-#| msgid "Contexto"
-msgid "Contact"
-msgstr "Contexto"
 
-#, fuzzy
-#| msgid "Assigned Employees"
+msgid "Contact"
+msgstr "Contacto"
+
 msgid "Associated Emails"
-msgstr "Empleados Asignados"
+msgstr "Emails asociados"
 
 msgid ""
 "List of email addresses from which invoices for this provider are received. "
@@ -8559,15 +8553,13 @@ msgstr ""
 msgid "Accounting Account"
 msgstr "Cuenta de Banco"
 
-#, fuzzy
-#| msgid "Client Bank Account"
-msgid "Provider Bank Account"
-msgstr "Cuenta de Banco del cliente"
 
-#, fuzzy
-#| msgid "Client Bank Accounts"
+msgid "Provider Bank Account"
+msgstr "Cuenta de Banco del proveedor"
+
+
 msgid "Provider Bank Accounts"
-msgstr "Cuentas de banco del cliente"
+msgstr "Cuentas de banco del proveedor"
 
 msgid "Reference code"
 msgstr "Código de referencia"

@@ -225,7 +225,7 @@ class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     fieldsets = (
         (_("General Information"), {
-            "fields": (("name", "company", "balance_owed_detail_display"),)
+            "fields": (("name", "company"),"balance_owed_detail_display")
         }),
         (_("Contact Details"), {
             "fields": ("contact", ("phone", "email"), "associated_emails")

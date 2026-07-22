@@ -1,3 +1,5 @@
+import calendar
+import datetime
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
@@ -18,21 +20,62 @@ def _round(value: Decimal) -> Decimal:
     return value.quantize(TWO_PLACES, rounding=ROUND_HALF_UP)
 
 
-def _add_months(date, months):
+def _last_day_of_month(year, month):
+    return calendar.monthrange(year, month)[1]
+
+
+def _is_last_day_of_month(date: "datetime.date") -> bool:
+    return date.day == _last_day_of_month(date.year, date.month)
+
+
+def _add_months(d, months):
+    """Add months preserving day, falling back to last day if month is shorter."""
+    month = d.month - 1 + months
+    year = d.year + month // 12
+    month = month % 12 + 1
+    day = min(d.day, _last_day_of_month(year, month))
+    return d.replace(year=year, month=month, day=day)
+
+
+def _add_months_with_eom_handling(date: "datetime.date", months: int, end_of_month: bool, target_day: int) -> "datetime.date":
+    """
+    Add months to a date with end-of-month handling.
+    end_of_month=True: always land on last day of month (first payment was EOM).
+    end_of_month=False: land on target_day, fall back to last day if month is shorter,
+                        then return to target_day when month is long enough again.
+    """
     month = date.month - 1 + months
     year = date.year + month // 12
     month = month % 12 + 1
-    day = min(date.day, [31, 29 if year % 4 == 0 and (year % 100 != 0 or year % 400 == 0) else 28,
-                         31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1])
+    day = _last_day_of_month(year, month) if end_of_month else min(target_day, _last_day_of_month(year, month))
     return date.replace(year=year, month=month, day=day)
 
 
 def _generate_due_dates(start_date, num_installments, months_per_period):
+    """Original: generates due dates as start_date + N periods."""
     due_dates = []
     d = start_date
     for _ in range(num_installments):
         d = _add_months(d, months_per_period)
         due_dates.append(d)
+    return due_dates
+
+
+def _generate_due_dates_from_first(first_payment_date, num_installments, months_per_period):
+    """
+    Generates due dates when first_payment_date is explicitly set.
+    Handles end-of-month snapping: if first payment is last day of its month,
+    all subsequent payments are also last day of their month.
+    If first payment is a fixed day (e.g. 30), that day is preserved with
+    fallback to last available day when the month is shorter (e.g. Feb).
+    """
+    snap_to_end_of_month = _is_last_day_of_month(first_payment_date)
+    target_day = first_payment_date.day
+    due_dates = [first_payment_date]
+    current_date = first_payment_date
+    for _ in range(num_installments - 1):
+        current_date = _add_months_with_eom_handling(current_date, months_per_period, snap_to_end_of_month, target_day)
+        due_dates.append(current_date)
     return due_dates
 
 
@@ -51,21 +94,30 @@ def generate_schedule(loan, force=False):
     num_installments, period_rate, months_per_period, annual_rate = _schedule_params(loan)
     currency = loan.principal_amount_currency
     principal = Decimal(str(loan.principal_amount.amount))
-    due_dates = _generate_due_dates(loan.start_date, num_installments, months_per_period)
+    due_dates = (
+        _generate_due_dates_from_first(loan.first_payment_date, num_installments, months_per_period)
+        if loan.first_payment_date
+        else _generate_due_dates(loan.start_date, num_installments, months_per_period)
+    )
+    act360_base = (
+        _add_months(loan.first_payment_date, -months_per_period)
+        if loan.first_payment_date
+        else loan.start_date
+    )
+
     use_act360 = loan.interest_day_count == InterestDayCount.ACT_360
 
     if loan.amortization_method == AmortizationMethod.FRENCH:
         if use_act360:
-            rows = _french_act360(principal, annual_rate, due_dates, loan.start_date)
+            rows = _french_act360(principal, annual_rate, due_dates, act360_base)
         else:
             rows = _french_30360(principal, period_rate, due_dates)
     elif loan.amortization_method == AmortizationMethod.GERMAN:
         if use_act360:
-            rows = _german_act360(principal, annual_rate, due_dates, loan.start_date)
+            rows = _german_act360(principal, annual_rate, due_dates, act360_base)
         else:
             rows = _german_30360(principal, period_rate, due_dates)
     else:
-        # Bullet: day count convention doesn't affect the structure
         rows = _bullet(principal, period_rate, due_dates)
 
     with transaction.atomic():

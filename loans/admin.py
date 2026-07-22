@@ -331,6 +331,7 @@ class ParentLoanAdmin(ModelAdmin, CompanyRestrictedAdmin):
         "total_outstanding_display",
         "tranche_count",
         "active_status",
+        "contract_pdf_link",
         "company",
     )
     list_filter = (
@@ -348,7 +349,7 @@ class ParentLoanAdmin(ModelAdmin, CompanyRestrictedAdmin):
             "fields": (("company", "bank"), ("name", "reference")),
         }),
         (_("Account"), {
-            "fields": ("bank_account", "notes"),
+            "fields": ("bank_account", "contract_pdf", "notes"),
         }),
     )
 
@@ -380,6 +381,12 @@ class ParentLoanAdmin(ModelAdmin, CompanyRestrictedAdmin):
             return "—"
         iban = obj.bank_account.iban or ""
         return f"•••• {iban[-4:]}" if len(iban) >= 4 else iban or "—"
+
+    @admin.display(description=_("Contract"))
+    def contract_pdf_link(self, obj):
+        if not obj.contract_pdf:
+            return "—"
+        return format_html('<a href="{}" target="_blank">📄 PDF</a>', obj.contract_pdf.url)
 
     @admin.display(description=_("Outstanding"))
     def total_outstanding_display(self, obj):
@@ -497,7 +504,10 @@ class LoanAdmin(ModelAdmin, CompanyRestrictedAdmin):
             ),
         }),
         (_("Schedule"), {
-            "fields": (("start_date", "term_months", "payment_frequency"),),
+            "fields": (
+                ("start_date", "first_payment_date"),
+                ("term_months", "payment_frequency"),
+            ),
         }),
         (_("Status and account"), {
             "fields": (("status", "bank_account"), "notes"),
@@ -537,11 +547,66 @@ class LoanAdmin(ModelAdmin, CompanyRestrictedAdmin):
             pass
         return initial
 
-    def get_readonly_fields(self, request, obj=None):
-        readonly = list(super().get_readonly_fields(request, obj) or [])
-        if not obj and request.GET.get("parent_loan"):
-            readonly += ["company", "bank", "bank_account", "parent_loan"]
-        return readonly
+    def get_form(self, request, obj=None, **kwargs):
+        base_form = super().get_form(request, obj, **kwargs)
+        parent_loan_id = request.GET.get("parent_loan") or request.POST.get("_parent_loan_id")
+        if obj or not parent_loan_id:
+            return base_form
+
+        from django import forms as django_forms
+
+        disabled_fields = ["company", "bank", "bank_account", "parent_loan"]
+
+        class TrancheForm(base_form):
+            def __init__(self, *args, **kw):
+                super().__init__(*args, **kw)
+                for field_name in disabled_fields:
+                    if field_name in self.fields:
+                        self.fields[field_name].disabled = True
+                try:
+                    parent = ParentLoan.objects.select_related(
+                        "bank", "bank_account", "company"
+                    ).get(pk=parent_loan_id)
+                except ParentLoan.DoesNotExist:
+                    return
+                # Set on self.initial (not just base_fields) so disabled fields
+                # resolve correctly on POST too, where Django's admin does NOT
+                # pass initial= to the form and relies on self.initial instead.
+                self.initial["company"] = parent.company_id
+                self.initial["bank"] = parent.bank_id
+                self.initial["bank_account"] = parent.bank_account_id
+                self.initial["parent_loan"] = parent.pk
+
+        TrancheForm.base_fields["_parent_loan_id"] = django_forms.CharField(
+            widget=django_forms.HiddenInput(),
+            initial=parent_loan_id,
+            required=False,
+        )
+        return TrancheForm
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            parent_loan_id = request.POST.get("_parent_loan_id")
+            if parent_loan_id:
+                try:
+                    parent = ParentLoan.objects.select_related(
+                        "bank", "bank_account", "company"
+                    ).get(pk=parent_loan_id)
+                    obj.parent_loan = parent
+                    obj.company = parent.company
+                    obj.bank = parent.bank
+                    obj.bank_account = parent.bank_account
+                except ParentLoan.DoesNotExist:
+                    pass
+        super().save_model(request, obj, form, change)
+        if getattr(obj, "_pending_stale_schedule_warning", False):
+            messages.warning(
+                request,
+                _(
+                    "You changed financial terms on a loan with already-paid installments. "
+                    "The schedule was NOT regenerated automatically — review it manually if needed."
+                ),
+            )
 
     @admin.display(description=_("Loan"), ordering="name")
     def display_name(self, obj):
@@ -581,18 +646,6 @@ class LoanAdmin(ModelAdmin, CompanyRestrictedAdmin):
         return obj.status
 
     def save_model(self, request, obj, form, change):
-        if not change and request.GET.get("parent_loan"):
-            try:
-                parent = ParentLoan.objects.select_related(
-                    "bank", "bank_account", "company"
-                ).get(pk=request.GET["parent_loan"])
-                obj.parent_loan_id = parent.pk
-                obj.company_id = parent.company_id
-                obj.bank_id = parent.bank_id
-                obj.bank_account_id = parent.bank_account_id
-            except ParentLoan.DoesNotExist:
-                pass
-
         super().save_model(request, obj, form, change)
         if getattr(obj, "_pending_stale_schedule_warning", False):
             messages.warning(

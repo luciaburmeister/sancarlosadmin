@@ -99,6 +99,13 @@ class ParentLoan(CompanyOwnedModel, Timestampable):
     reference = models.CharField(
         max_length=100, blank=True, null=True, verbose_name=_("Reference"),
     )
+    contract_pdf = models.FileField(
+        upload_to="loans/contracts/",
+        null=True,
+        blank=True,
+        verbose_name=_("Contract PDF"),
+        help_text=_("Upload the signed loan contract for reference."),
+    )
     notes = models.TextField(blank=True, null=True, verbose_name=_("Notes"))
 
     class Meta:
@@ -126,7 +133,7 @@ class Loan(CompanyOwnedModel, Timestampable):
     FINANCIAL_FIELDS = (
         "principal_amount", "principal_amount_currency", "interest_rate",
         "amortization_method", "interest_day_count", "term_months",
-        "payment_frequency", "start_date",
+        "payment_frequency", "start_date", "first_payment_date",
     )
 
     parent_loan = models.ForeignKey(
@@ -179,7 +186,18 @@ class Loan(CompanyOwnedModel, Timestampable):
             "Use ONLY if your contract explicitly states it."
         ),
     )
-    start_date = models.DateField(verbose_name=_("Start Date"))
+    start_date = models.DateField(
+        verbose_name=_("Start Date"),
+        help_text=_("Contract signing date. Informational only."),
+    )
+    first_payment_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("First Payment Date"),
+        help_text=_(
+            "Date of the first installment. If left blank, defaults to Start Date + 1 period."
+        ),
+    )
     term_months = models.PositiveIntegerField(verbose_name=_("Term (months)"))
     payment_frequency = models.CharField(
         max_length=10, choices=PaymentFrequency.choices,
@@ -239,6 +257,17 @@ class Loan(CompanyOwnedModel, Timestampable):
     def save(self, *args, **kwargs):
         update_fields = kwargs.get("update_fields")
         is_new = self._state.adding
+
+        # When creating a new tranche linked to a parent loan,
+        # inherit bank, bank_account and company from the parent.
+        if is_new and self.parent_loan_id and not update_fields:
+            parent = self.parent_loan
+            if not self.bank_id:
+                self.bank = parent.bank
+            if not self.bank_account_id:
+                self.bank_account = parent.bank_account
+            if not self.company_id:
+                self.company = parent.company
 
         changed_financial_fields = False
         if not is_new:

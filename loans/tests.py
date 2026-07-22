@@ -17,8 +17,12 @@ class LoanModelTests(SimpleTestCase):
 
 
 class LoanInstallmentModelTests(SimpleTestCase):
-    def test_amount_paid_field_defaults_to_zero(self):
+    def test_payment_split_fields_default_to_zero(self):
         self.assertEqual(
-            LoanInstallment._meta.get_field("amount_paid").default,
+            LoanInstallment._meta.get_field("interest_paid").default,
+            Money(0, "EUR"),
+        )
+        self.assertEqual(
+            LoanInstallment._meta.get_field("principal_paid").default,
             Money(0, "EUR"),
         )

@@ -29,6 +29,14 @@ class ShopConfigurationWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
             
         return super().dispatch(request, *args, **kwargs)
 
+    def get(self, request, *args, **kwargs):
+        response = super().get(request, *args, **kwargs)
+        # The wizard form posts to "." without the query string; keep the
+        # originating expediente in the storage so Cancel can return to it.
+        if request.GET.get("project_file_id"):
+            self.storage.extra_data["project_file_id"] = request.GET["project_file_id"]
+        return response
+
     def get_form_kwargs(self, step):
         kwargs = super().get_form_kwargs(step)
         kwargs["product"] = self.product
@@ -39,6 +47,14 @@ class ShopConfigurationWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
 
     def get_form_initial(self, step):
         initial = super().get_form_initial(step)
+        if step == 'project_selection' and not self.instance:
+            # Allow preselecting the expediente (e.g. reception button on ProjectFileAdmin)
+            project_file_id = self.request.GET.get("project_file_id")
+            if project_file_id:
+                from management.models import ProjectFile
+                initial['project_file'] = ProjectFile.objects.filter(
+                    pk=project_file_id
+                ).first()
         if step == 'project_selection' and self.instance:
             from production.models import ProductionTicket
             from django.contrib.contenttypes.models import ContentType
@@ -55,12 +71,21 @@ class ShopConfigurationWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["product"] = self.product
-        
+
         if self.steps.current == "project_selection":
             context["helper"] = ProjectFileSelectionFormHelper()
         elif self.steps.current == "measures":
             context["helper"] = ConfigurationFormHelper(self.get_form(step=self.steps.current))
 
+        # Cancel returns to the expediente this wizard was launched from.
+        project_file_id = (
+            self.storage.extra_data.get("project_file_id")
+            or self.request.GET.get("project_file_id")
+        )
+        if project_file_id:
+            context["cancel_url"] = reverse(
+                "admin:management_projectfile_change", args=[project_file_id]
+            )
         return context
 
     def done(self, form_list, **kwargs):
@@ -77,26 +102,46 @@ class ShopConfigurationWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
         if project_file and config.project_file_id != project_file.pk:
             config.project_file = project_file
             config.save(update_fields=['project_file'])
-        
+
+        # Tie the configuration to the expediente's asset (e.g. the vehicle
+        # being received) so exports can show which asset it refers to.
+        if project_file and project_file.asset_id and config.asset_id != project_file.asset_id:
+            config.asset_id = project_file.asset_id
+            config.save(update_fields=['asset'])
+
         # If we are NOT editing, do the automation stuff
         if not self.instance:
             config.status = ConfigurationStatus.SHOP
             config.save(update_fields=['status'])
-            
+
             config.copy_default_pricing_rules_from_product()
             config.copy_default_taxes_from_product()
             config.copy_taxes_from_client()
-            
-            # 2. Automatically generate Production Ticket linked to ProjectFile
-            ConfigurationToProductionService.create_ticket(config, project_file=project_file)
 
-            # 3. Create Receival Slip (Empty items as requested)
-            slip = ReceivalSlipService.create_from_configuration(config)
-            
-            url = reverse(
-                "admin:configurator_receivalslip_change",
-                args=[slip.id]
-            )
+            if self.product.exclude_from_invoicing:
+                # Internal work (e.g. vehicle reception): no production ticket,
+                # no receival slip — go back to the expediente.
+                if project_file:
+                    url = reverse(
+                        "admin:management_projectfile_change",
+                        args=[project_file.pk]
+                    )
+                else:
+                    url = reverse(
+                        "admin:configurator_configuration_change",
+                        args=[config.pk]
+                    )
+            else:
+                # 2. Automatically generate Production Ticket linked to ProjectFile
+                ConfigurationToProductionService.create_ticket(config, project_file=project_file)
+
+                # 3. Create Receival Slip (Empty items as requested)
+                slip = ReceivalSlipService.create_from_configuration(config)
+
+                url = reverse(
+                    "admin:configurator_receivalslip_change",
+                    args=[slip.id]
+                )
         else:
             # If editing, just redirect back to config
             url = reverse(

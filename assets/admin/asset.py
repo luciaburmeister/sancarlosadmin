@@ -7,7 +7,9 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django_json_widget.widgets import JSONEditorWidget
 from assets.models import Asset, AssetIdentifier, AssetTransaction, AssetDocument, AssetDocumentType
+from assets.forms import AssetForm, AssetAddForm, build_asset_data_form_fields, DATA_FIELD_PREFIX
 from unfold.widgets import UnfoldAdminSelectWidget
+from django.shortcuts import redirect
 from django.urls import resolve, path, reverse
 from django.utils.html import format_html
 from django.http import HttpResponse, HttpResponseRedirect
@@ -52,19 +54,19 @@ class AssetIdentifierInline(TabularInline):
     tab = True
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
+        # Only rendered on the change form, where the asset type is known:
+        # type with labels -> restricted select; without labels -> free text
+        # (clean() doesn't restrict either).
         if db_field.name == "label":
             labels = []
             try:
                 resolved = resolve(request.path_info)
                 object_id = resolved.kwargs.get("object_id")
                 if object_id:
-                    asset = Asset.objects.select_related("company").get(pk=object_id)
-                    labels = asset.company.asset_identifier_labels
-                else:
-                    from core.admin.company_access import get_user_companies
-                    companies = get_user_companies(request.user)
-                    if companies.count() == 1:
-                        labels = companies.first().asset_identifier_labels
+                    asset = Asset.objects.select_related(
+                        "asset_type", "company"
+                    ).get(pk=object_id)
+                    labels = asset.asset_type.get_identifier_labels()
             except Exception:
                 pass
 
@@ -106,9 +108,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     search_fields = ("name", "identifiers__value")
     inlines = [AssetIdentifierInline, AssetTransactionInline, AssetDocumentInline]
     actions = ["download_qr_grid"]
-    formfield_overrides = {
-        models.JSONField: {"widget": JSONEditorWidget},
-    }
+    form = AssetForm
     list_editable = ("is_active",)
     list_filter_submit = True
     autocomplete_fields = [
@@ -130,7 +130,6 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
                     ("assigned_to", "provider"),
                     ("current_working_zone", "is_active"),
                     "description",
-                    "data",
                 )
             },
         ),
@@ -141,6 +140,58 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
             },
         ),
     )
+
+    def get_form(self, request, obj=None, **kwargs):
+        if obj is None:
+            kwargs["form"] = AssetAddForm
+            kwargs["fields"] = None
+            return super().get_form(request, obj, **kwargs)
+        dynamic_fields = build_asset_data_form_fields(obj.asset_type)
+        kwargs["form"] = type(f"Dynamic{self.form.__name__}", (self.form,), dynamic_fields)
+        return super().get_form(request, obj, **kwargs)
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = list(super().get_fieldsets(request, obj))
+        if obj is None:
+            return fieldsets
+        data_fields = [
+            f"{DATA_FIELD_PREFIX}{spec.name}" for spec in obj.asset_type.fields.all()
+        ]
+        if data_fields:
+            fieldsets.insert(
+                1,
+                (
+                    _("%(type)s data") % {"type": obj.asset_type.name},
+                    {"fields": data_fields},
+                ),
+            )
+        return fieldsets
+
+    def get_inlines(self, request, obj=None):
+        # The add form is intentionally minimal: identifiers and type-specific
+        # fields are filled on the change form, where the type is known.
+        return [] if obj is None else super().get_inlines(request, obj)
+
+    def get_urls(self):
+        from assets.views.asset_wizard import AssetCreateWizardView
+
+        urls = super().get_urls()
+        custom = [
+            path(
+                "wizard/",
+                self.admin_site.admin_view(
+                    AssetCreateWizardView.as_view(model_admin=self)
+                ),
+                name="assets_asset_wizard",
+            ),
+        ]
+        return custom + urls
+
+    def add_view(self, request, form_url="", extra_context=None):
+        url = reverse("admin:assets_asset_wizard")
+        if request.GET:
+            url = f"{url}?{request.GET.urlencode()}"
+        return redirect(url)
 
     def qr_code_preview(self, obj):
         """Shows the QR code image directly in the asset detail page."""

@@ -143,7 +143,9 @@ class WizardZeroValueItemsTests(_ZeroValueItemsTestBase):
         )
         if calculated_subtotal is None:
             calculated_subtotal = self.summary["remaining_subtotal"]
-        view = ProjectFileInvoiceWizardView()
+        # model_admin is required by UnfoldModelAdminViewMixin; None is fine
+        # here because we only exercise _build_items_initial (no admin UI).
+        view = ProjectFileInvoiceWizardView(model_admin=None)
         view.invoicing_summary = self.summary
         view.get_cleaned_data_for_step = lambda step: {
             "invoice_mode": "percentage",

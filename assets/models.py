@@ -1,3 +1,4 @@
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
@@ -8,6 +9,7 @@ from timestamps.models import Timestampable
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from materials.models import Provider
+from core.forms.dynamic_fields import json_schema_fragment
 User = get_user_model()
 
 
@@ -18,6 +20,16 @@ class AssetType(CompanyOwnedModel):
         default=dict,
         blank=True,
         help_text=_("JSON Schema to validate asset data (optional)")
+    )
+    identifier_labels = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        verbose_name=_("Identifier labels"),
+        help_text=_(
+            "Identifier labels for this asset type (e.g. Matrícula, Bastidor). "
+            "Leave empty to fall back to the company-wide labels."
+        ),
     )
 
     class Meta:
@@ -30,6 +42,110 @@ class AssetType(CompanyOwnedModel):
 
     def __str__(self):
         return self.name
+
+    def get_identifier_labels(self):
+        """Labels for this type, falling back to the company-wide list."""
+        if self.identifier_labels:
+            return self.identifier_labels
+        if self.company_id and self.company.asset_identifier_labels:
+            return self.company.asset_identifier_labels
+        return []
+
+    def build_data_schema_from_fields(self):
+        """
+        Build a JSON schema compatible with this type's AssetTypeField
+        definitions. This keeps schema as the machine-readable contract while
+        admins edit field rows.
+        """
+        properties = {}
+        required = []
+        # Reading current rows from DB to build the schema.
+        field_specs = AssetTypeField.objects.filter(asset_type_id=self.pk).order_by(
+            "order", "id"
+        )
+        for spec in field_specs:
+            prop = {"title": spec.label, **json_schema_fragment(spec.type, options=spec.options)}
+            properties[spec.name] = prop
+            if spec.required:
+                required.append(spec.name)
+
+        schema = {
+            "type": "object",
+            "properties": properties,
+            "additionalProperties": True,
+        }
+        if required:
+            schema["required"] = required
+        return schema
+
+    def sync_schema_from_fields(self):
+        """Persist schema generated from current AssetTypeField rows."""
+        schema = self.build_data_schema_from_fields()
+        type(self).objects.filter(pk=self.pk).update(schema=schema)
+        self.schema = schema
+
+
+class AssetFieldType(models.TextChoices):
+    NUMBER = "number", _("Number")
+    TEXT = "text", _("Text")
+    BOOLEAN = "boolean", _("Boolean")
+    SELECT = "select", _("Select")
+    DATE = "date", _("Date")
+
+
+class AssetTypeField(models.Model):
+    """
+    Field definition for an asset type. Values captured through the dynamic
+    asset form are stored in Asset.data keyed by `name`.
+    """
+    asset_type = models.ForeignKey(
+        AssetType,
+        on_delete=models.CASCADE,
+        related_name="fields",
+        verbose_name=_("Asset Type"),
+    )
+    name = models.SlugField(
+        max_length=100,
+        verbose_name=_("Key"),
+        help_text=_("Key stored in the asset data (e.g. marca, modelo). Lowercase, no spaces."),
+    )
+    label = models.CharField(max_length=100, verbose_name=_("Label"))
+    type = models.CharField(
+        max_length=20,
+        choices=AssetFieldType.choices,
+        default=AssetFieldType.TEXT,
+        verbose_name=_("Type"),
+    )
+    options = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name=_("Options"),
+        help_text=_('Choices for "Select" fields, e.g. ["Rojo", "Azul"]'),
+    )
+    required = models.BooleanField(default=False, verbose_name=_("Required"))
+    order = models.PositiveIntegerField(default=0, db_index=True, verbose_name=_("Order"))
+
+    class Meta:
+        verbose_name = _("Asset type field")
+        verbose_name_plural = _("Asset type fields")
+        ordering = ["order", "id"]
+        unique_together = ("asset_type", "name")
+
+    def save(self, *args, **kwargs):
+        # Same key normalization as Asset.save() so schema keys match data keys.
+        self.name = self.name.strip().lower().replace(" ", "_").replace("-", "_")
+        super().save(*args, **kwargs)
+        if self.asset_type_id:
+            self.asset_type.sync_schema_from_fields()
+
+    def delete(self, *args, **kwargs):
+        asset_type = self.asset_type if self.asset_type_id else None
+        super().delete(*args, **kwargs)
+        if asset_type and asset_type.pk:
+            asset_type.sync_schema_from_fields()
+
+    def __str__(self):
+        return f"{self.label} ({self.asset_type.name})"
 
 
 class Asset(CompanyOwnedModel):
@@ -158,11 +274,11 @@ class AssetIdentifier(models.Model):
 
     def clean(self):
         super().clean()
-        if self.asset and self.asset.company:
-            labels = self.asset.company.asset_identifier_labels
+        if self.asset_id and self.asset.asset_type_id:
+            labels = self.asset.asset_type.get_identifier_labels()
             if labels and self.label not in labels:
                 raise ValidationError({
-                    'label': _("This label is not allowed for this company. Allowed: %(labels)s") % {'labels': ", ".join(labels)}
+                    'label': _("This label is not allowed for this asset type. Allowed: %(labels)s") % {'labels': ", ".join(labels)}
                 })
 
 

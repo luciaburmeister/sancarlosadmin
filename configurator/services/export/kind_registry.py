@@ -17,6 +17,7 @@ def _get_kind_model_map():
     from invoices.models import SalesInvoice
     from sales.models import Quote, DeliveryOrder
     from assets.models import AssetTransaction
+    from management.models import ProjectFile
 
     return {
         "quotation":              (Configuration,   "product"),
@@ -27,6 +28,7 @@ def _get_kind_model_map():
         "receival_slip":          (ReceivalSlip,    "configuration__product"),
         "asset_transaction":      (AssetTransaction, None),
         "delivery_order":         (DeliveryOrder,   "configuration__product"),
+        "repair_order":           (ProjectFile,     None),
     }
 
 

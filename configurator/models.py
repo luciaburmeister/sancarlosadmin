@@ -127,6 +127,15 @@ class ProductTemplate(CompanyOwnedModel):
         default=ProductFlowKind.QUOTABLE,
         verbose_name=_("Flow Kind"),
     )
+    exclude_from_invoicing = models.BooleanField(
+        default=False,
+        verbose_name=_("Exclude from invoicing"),
+        help_text=_(
+            "Configurations of this product are never included in the project file "
+            "invoiceable summary or invoices (e.g. vehicle reception). They also skip "
+            "production ticket and receival slip creation in the shop flow."
+        ),
+    )
     unit_price_variable = models.CharField(
         max_length=100,
         blank=True,
@@ -1583,6 +1592,7 @@ class ExportTemplateKind(models.TextChoices):
     RECEIVAL_SLIP = "receival_slip", _("Receival Slip")
     ASSET_TRANSACTION = "asset_transaction", _("Asset Transaction")
     DELIVERY_ORDER = "delivery_order", _("Delivery Order")
+    REPAIR_ORDER = "repair_order", _("Repair Order")
 
 
 class ConfigurationExportTemplate(CompanyOwnedModel):

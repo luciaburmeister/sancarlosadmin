@@ -4,6 +4,7 @@ from unfold.contrib.filters.admin.dropdown_filters import MultipleChoicesDropdow
 
 from decimal import Decimal
 from management.models import ProjectFile, ProjectFileStatus, ResourcePlanning, ResourcePlanningBacklogItem
+from management.forms import ProjectFileAdminForm
 from management.resources import ProjectFileResource
 from django.contrib import admin, messages
 from django.shortcuts import redirect
@@ -22,6 +23,7 @@ from invoices.views.invoice.project_file_wizard_views import ProjectFileInvoiceW
 from invoices.views.invoice.delivery_order_wizard_views import DeliveryOrderWizardView
 from invoices.views.invoice.bulk_invoice_views import BulkInvoiceConfirmView
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
+from management.views.project_file_export import ProjectFileRepairOrderExportView
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.models import Configuration, ConfigurationStatus
 from management.models import WorkEntry
@@ -205,7 +207,8 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
     list_display = ["reference", "name", "client", "show_status_customized_color", "total_amount", "total_invoiced", "start_date", "invoicing_status", "company"]
     list_filter = [("client", AutocompleteSelectMultipleFilter), ("status", MultipleChoicesDropdownFilter), ("company", AutocompleteSelectMultipleFilter), ("created_at", RangeDateFilter)]
     search_fields = ["reference", "name", "client__name"]
-    autocomplete_fields = ["client", "company"]
+    autocomplete_fields = ["client", "company", "asset"]
+    form = ProjectFileAdminForm
     list_select_related = ["client","company"]
     list_filter_submit = True
     readonly_fields = ["reference", "incremental_id", "invoicing_summary_display"]
@@ -223,8 +226,8 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         ResourcePlanningBacklogInline,
     ]
 
-    actions_row = ["create_invoice_row_action", "create_delivery_order_row_action"]
-    actions_detail = ["create_invoice_detail_action", "create_delivery_order_detail_action"]
+    actions_row = ["create_invoice_row_action", "create_delivery_order_row_action", "repair_order_row_action"]
+    actions_detail = ["create_invoice_detail_action", "create_delivery_order_detail_action", "asset_reception_detail_action", "repair_order_detail_action"]
     actions = ["create_bulk_invoice"]
 
     fieldsets = (
@@ -232,7 +235,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
             "fields": (
                 ("reference", "company"),
                 ("name", "client"),
-                "status",
+                ("asset", "status"),
                 "description",
                 "notification_email",
             )
@@ -258,6 +261,14 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
     def get_queryset(self, request):
         return super().get_queryset(request)
 
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        # Adopt orphan assets: linking one to an expediente ties it to the client.
+        asset = obj.asset
+        if asset and not asset.client_id and obj.client_id:
+            asset.client_id = obj.client_id
+            asset.save(update_fields=["client"])
+
     def get_urls(self):
         urls = super().get_urls()
         custom = [
@@ -281,6 +292,13 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
                     BulkInvoiceConfirmView.as_view(model_admin=self)
                 ),
                 name="management_projectfile_bulk_invoice",
+            ),
+            path(
+                "<int:project_file_id>/repair-order/",
+                self.admin_site.admin_view(
+                    ProjectFileRepairOrderExportView.as_view(model_admin=self)
+                ),
+                name="management_projectfile_repair_order",
             ),
         ]
         return custom + urls
@@ -308,6 +326,36 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         return redirect(
             reverse("admin:management_projectfile_create_delivery_order", args=[object_id])
         )
+
+    @action(description=_("Repair Order"), icon="build", attrs={"target": "_blank"})
+    def repair_order_row_action(self, request, object_id):
+        return redirect(
+            reverse("admin:management_projectfile_repair_order", args=[object_id])
+        )
+
+    @action(description=_("Repair Order"), icon="build", attrs={"target": "_blank"})
+    def repair_order_detail_action(self, request, object_id):
+        return redirect(
+            reverse("admin:management_projectfile_repair_order", args=[object_id])
+        )
+
+    @action(description=_("Asset Reception"), icon="garage")
+    def asset_reception_detail_action(self, request, object_id):
+        pf = ProjectFile.objects.select_related("company").get(pk=object_id)
+        product = pf.company.asset_reception_product if pf.company else None
+        if not product:
+            messages.warning(
+                request,
+                _("This company has no asset reception product configured. "
+                  "Set it on the company settings first."),
+            )
+            return redirect(
+                reverse("admin:management_projectfile_change", args=[object_id])
+            )
+        url = reverse(
+            "admin:configurator_configuration_wizard_form", args=[product.pk]
+        )
+        return redirect(f"{url}?project_file_id={object_id}")
 
     @action(description=_("Create Bulk Invoice"), icon="receipt_long")
     def create_bulk_invoice(self, request, queryset):

@@ -173,6 +173,8 @@ class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     search_fields = ("name", "contact", "phone", "email", "tax_identifier", "associated_emails")
     list_select_related = ["company", "account"]
     autocomplete_fields = ["company", "account"]
+    list_filter = [("company",AutocompleteSelectMultipleFilter)]
+    list_filter_submit = True
 
     formfield_overrides = {
         ArrayField: {

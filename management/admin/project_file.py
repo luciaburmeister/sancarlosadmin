@@ -189,13 +189,37 @@ class WorkEntryInline(TabularInline):
     extra = 0
     tab = True
     tab_title = _("Work Entries")
-    fields = ["entry_type", "description", "quantity", "unit_price", "total_price", "total_with_tax", "date"]
-    readonly_fields = ["total_price", "total_with_tax"]
+    fields = ["entry_type", "description", "quantity", "unit_price", "total_price", "total_with_tax", "date", "source_link", "movement_link"]
+    readonly_fields = ["total_price", "total_with_tax", "source_link", "movement_link"]
     autocomplete_fields = ["entry_type"]
     inlines = [WorkEntryAppliedTaxInline]
 
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related("entry_type")
+        return super().get_queryset(request).select_related("entry_type", "source_content_type")
+
+    @admin.display(description=_("Source Transaction"))
+    def source_link(self, obj):
+        from assets.models import AssetTransaction
+
+        source = obj.source
+        if not isinstance(source, AssetTransaction):
+            return "—"
+        url = reverse("admin:assets_assettransaction_change", args=[source.pk])
+        return format_html('<a href="{}">{}</a>', url, source)
+
+    @admin.display(description=_("Related Movement"))
+    def movement_link(self, obj):
+        from assets.models import AssetTransaction
+        from assets.services.movement_context import get_related_movement
+
+        source = obj.source
+        if not isinstance(source, AssetTransaction):
+            return "—"
+        movement = get_related_movement(source)
+        if not movement:
+            return "—"
+        url = reverse("admin:assets_assettransaction_change", args=[movement.pk])
+        return format_html('<a href="{}">{}</a>', url, movement)
 
 
 @admin.register(ProjectFile)

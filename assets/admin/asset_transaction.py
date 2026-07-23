@@ -67,6 +67,31 @@ class AssetTransactionReceiptInline(TabularInline):
         return "Sin foto"
 
 
+class RelatedMovementReceiptInline(TabularInline):
+    """Shows receipts filed elsewhere that reference this transaction as the original movement."""
+    model = AssetTransactionReceipt
+    fk_name = "movement_transaction"
+    extra = 0
+    fields = ("transaction", "nro_albaran", "data", "foto_preview", "created_at")
+    readonly_fields = ("transaction", "nro_albaran", "data", "foto_preview", "created_at")
+    can_delete = False
+    verbose_name = "Recibo del Movimiento"
+    verbose_name_plural = "Recibos del Movimiento"
+    tab = True
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Foto")
+    def foto_preview(self, obj):
+        if obj.foto:
+            return format_html(
+                '<a href="{0}" target="_blank"><img src="{0}" style="width:150px; height:100px; object-fit:cover; border:1px solid #ccc;" /></a>',
+                obj.foto.url
+            )
+        return "Sin foto"
+
+
 @admin.register(AssetTransaction)
 class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
     resource_classes = [AssetTransactionResource]
@@ -90,7 +115,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
     readonly_fields = ["firma_preview", "imagen_link", "performed_by", "material_vertido_display", "peso_neto_display"]
     list_select_related = ["from_zone__company", "to_zone__company", "company", "performed_by__company", "asset__asset_type"]
     list_filter_submit = True
-    inlines = [AssetTransactionEmailLogInline, AssetTransactionReceiptInline]
+    inlines = [AssetTransactionEmailLogInline, AssetTransactionReceiptInline, RelatedMovementReceiptInline]
 
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},

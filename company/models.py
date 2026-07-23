@@ -133,6 +133,26 @@ class Company(models.Model):
             "Default: INV-{year}-{number}"
         ),
     )
+    require_asset_on_project_file = models.BooleanField(
+        default=False,
+        verbose_name=_("Require asset on project files"),
+        help_text=_(
+            "When enabled, new project files must have an asset (e.g. the vehicle "
+            "entering the workshop) linked before they can be saved."
+        ),
+    )
+    asset_reception_product = models.ForeignKey(
+        "configurator.ProductTemplate",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("Asset reception product"),
+        help_text=_(
+            "Shop-flow product template (price 0, excluded from invoicing) used to "
+            "register asset receptions from a project file."
+        ),
+    )
 
     def __str__(self):
         return self.name

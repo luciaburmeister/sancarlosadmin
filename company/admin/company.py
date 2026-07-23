@@ -250,6 +250,7 @@ class CompanyAdminForm(ModelForm):
 class CompanyAdmin(ModelAdmin):
     form = CompanyAdminForm
     readonly_fields = ("terms_import_hint",)
+    autocomplete_fields = ("asset_reception_product",)
     inlines = [BankAccountInline, CompanyDocumentInline, CompanyScheduleSlotInline, CompanyDefaultTaxInline]
     list_display = ("name", "is_active")
     list_filter = ("is_active",)
@@ -282,6 +283,8 @@ class CompanyAdmin(ModelAdmin):
                 "bulk_emit_copy_quote_observations",
                 ("document_reminder_emails"),
                 "invoice_number_format",
+                "require_asset_on_project_file",
+                "asset_reception_product",
             ),
             "classes": ["tab"]
         }),

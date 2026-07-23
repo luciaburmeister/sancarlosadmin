@@ -12,6 +12,7 @@ from .quote import QuoteExportStrategy
 from .receival_slip import ReceivalSlipExportStrategy
 from .asset_transaction import AssetTransactionExportStrategy
 from .delivery_order import DeliveryOrderExportStrategy
+from .project_file import ProjectFileExportStrategy
 
 
 def get_strategy_map():
@@ -23,6 +24,7 @@ def get_strategy_map():
     from invoices.models import SalesInvoice
     from sales.models import Quote, DeliveryOrder
     from assets.models import AssetTransaction
+    from management.models import ProjectFile
 
     return {
         Configuration:    ConfigurationExportStrategy,
@@ -32,4 +34,5 @@ def get_strategy_map():
         ReceivalSlip:     ReceivalSlipExportStrategy,
         AssetTransaction: AssetTransactionExportStrategy,
         DeliveryOrder:    DeliveryOrderExportStrategy,
+        ProjectFile:      ProjectFileExportStrategy,
     }

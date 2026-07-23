@@ -1,10 +1,6 @@
 from django import forms
 from configurator.models import ParameterType,Configuration,ConfigurationStatus,ConfigurationParameterValue
-from unfold.widgets import (
-    UnfoldAdminDecimalFieldWidget,
-    UnfoldAdminTextInputWidget,
-    UnfoldAdminSelectWidget,
-)
+from core.forms.dynamic_fields import DynamicFieldBuilder
 from crispy_forms.helper import FormHelper
 from crispy_forms.layout import Layout, Field, Row, Column,HTML
 from django.forms import CheckboxInput
@@ -93,6 +89,11 @@ class ConfigurationForm(forms.Form):
     Dynamically builds fields based on the product's parameters.
     """
 
+    # Configurator parameters cap text at 200 chars and skip the blank
+    # "---------" choice; see assets.forms for the other DynamicFieldBuilder
+    # using this same per-type dispatch.
+    field_builder = DynamicFieldBuilder(select_blank_choice=False)
+
     def __init__(self, *args, product=None, instance=None, **kwargs):
         self.product = product
         self.instance = instance
@@ -121,51 +122,13 @@ class ConfigurationForm(forms.Form):
             
             initial_value = existing_values.get(field_name, param.default_value)
 
-            if param.type == ParameterType.NUMBER:
-                field = forms.FloatField(
-                    label=param.label,
-                    required=param.required,
-                    initial=initial_value,
-                    widget=UnfoldAdminDecimalFieldWidget(),
-                )
-
-            elif param.type == ParameterType.TEXT:
-                field = forms.CharField(
-                    label=param.label,
-                    required=param.required,
-                    initial=initial_value,
-                    max_length=200,
-                    widget=UnfoldAdminTextInputWidget(),
-                )
-
-            elif param.type == ParameterType.BOOLEAN:
-                # Convert string 'true'/'false' to boolean if needed
-                val = initial_value
-                if isinstance(val, str):
-                    val = val.lower() == 'true'
-                else:
-                    val = bool(val)
-
-                field = forms.BooleanField(
-                    label=param.label,
-                    required=False,
-                    initial=val,
-                )
-
-            elif param.type == ParameterType.SELECT:
-                if isinstance(param.options, list):
-                    choices = [(o, o) for o in param.options]
-                else:
-                    choices = list(param.options.items()) if param.options else []
-
-                field = forms.ChoiceField(
-                    label=param.label,
-                    required=param.required,
-                    initial=initial_value,
-                    choices=choices,
-                    widget=UnfoldAdminSelectWidget(),
-                )
-            
+            field = self.field_builder.build(
+                field_type=param.type,
+                label=param.label,
+                required=param.required,
+                options=param.options,
+                initial=initial_value,
+            )
 
             field.parameter_group = param.parameter_group or _("General")
             self.fields[field_name] = field

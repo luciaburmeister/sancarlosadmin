@@ -49,10 +49,17 @@
                     {% trans "Previous" %}
                 </button>
                 {% else %}
-                <a href="{% url 'admin:configurator_agentcommissionrule_changelist' %}"
+                {% if is_popup %}
+                <a href="#" onclick="window.close(); return false;"
                     class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:text-gray-900 shadow-sm transition-all text-sm font-medium dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300">
                     {% trans "Cancel" %}
                 </a>
+                {% else %}
+                <a href="{% if cancel_url %}{{ cancel_url }}{% else %}{% url 'admin:configurator_agentcommissionrule_changelist' %}{% endif %}"
+                    class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:text-gray-900 shadow-sm transition-all text-sm font-medium dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300">
+                    {% trans "Cancel" %}
+                </a>
+                {% endif %}
                 {% endif %}
             </div>
 

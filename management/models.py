@@ -50,6 +50,15 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         related_name="project_files",
         verbose_name=_("Client")
     )
+    asset = models.ForeignKey(
+        "assets.Asset",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="project_files",
+        verbose_name=_("Asset / Vehicle"),
+        help_text=_("Asset (e.g. vehicle) this project file manages."),
+    )
     status = models.CharField(
         max_length=20,
         choices=ProjectFileStatus.choices,
@@ -151,7 +160,9 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
                 project_file=self,
                 quote__isnull=True,
                 status__in=["shop", "completed", "converted", "production_done"],
-            ).aggregate(total=Sum("subtotal_price"))["total"]
+            )
+            .exclude(product__exclude_from_invoicing=True)
+            .aggregate(total=Sum("subtotal_price"))["total"]
             or Decimal("0.00")
         )
         if hasattr(config_subtotal, "amount"):

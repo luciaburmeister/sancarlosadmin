@@ -94,7 +94,7 @@ class ProjectFileInvoiceService:
                 ConfigurationStatus.CONVERTED,
                 ConfigurationStatus.PRODUCTION_DONE,
             ],
-        )
+        ).exclude(product__exclude_from_invoicing=True)
 
         direct_configs_data = []
         for config in direct_configs:
@@ -281,7 +281,7 @@ class ProjectFileInvoiceService:
                     ConfigurationStatus.CONVERTED,
                     ConfigurationStatus.PRODUCTION_DONE,
                 ],
-            ).values_list('id', flat=True)
+            ).exclude(product__exclude_from_invoicing=True).values_list('id', flat=True)
         )
 
         all_config_ids = config_ids + direct_config_ids
@@ -598,7 +598,7 @@ class ProjectFileInvoiceService:
                     ConfigurationStatus.CONVERTED,
                     ConfigurationStatus.PRODUCTION_DONE,
                 ],
-            ).values_list('id', flat=True)
+            ).exclude(product__exclude_from_invoicing=True).values_list('id', flat=True)
         )
 
         all_config_ids = quote_config_ids + direct_config_ids

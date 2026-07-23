@@ -51,6 +51,34 @@ from .models import (
     ResourcePlanningStatus,
 )
 
+class ProjectFileAdminForm(forms.ModelForm):
+    class Meta:
+        model = ProjectFile
+        fields = "__all__"
+
+    def clean(self):
+        cleaned = super().clean()
+        company = cleaned.get("company")
+        client = cleaned.get("client")
+        asset = cleaned.get("asset")
+        is_new = self.instance._state.adding
+
+        if is_new and company and company.require_asset_on_project_file and not asset:
+            self.add_error(
+                "asset",
+                _("This company requires an asset (vehicle) linked to the project file."),
+            )
+        if asset and company and asset.company_id and asset.company_id != company.pk:
+            self.add_error("asset", _("The asset belongs to another company."))
+        if asset and client and asset.client_id and asset.client_id != client.pk:
+            self.add_error(
+                "asset",
+                _("The asset belongs to another client (%(client)s).")
+                % {"client": asset.client},
+            )
+        return cleaned
+
+
 class LinkProjectFileForm(forms.Form):
     CHOICES = [
         ('existing', _('Link to an existing Expediente')),

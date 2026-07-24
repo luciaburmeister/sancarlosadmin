@@ -173,10 +173,11 @@
     }, [0, 0]);
     map.setView(centroid, bounds.length === 1 ? 10 : 8);
     if (bounds.length > 1) {
-      // fitBounds overrides the setView above with its own tightly-computed
-      // zoom (padding barely matters once markers are close together), so
-      // cap it explicitly to keep the initial view zoomed out.
-      map.fitBounds(bounds, { padding: [120, 120], maxZoom: 9 });
+      // Zoom is always computed from the actual spread of the markers here
+      // (no fixed cap): a hard maxZoom that looks fine for two nearby points
+      // forces maps with many spread-out zones to zoom out far past what's
+      // needed, collapsing nearby markers on top of each other.
+      map.fitBounds(bounds, { padding: [80, 80] });
     }
   } else {
     map.setView([40.4168, -3.7038], 4);

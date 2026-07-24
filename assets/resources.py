@@ -2,7 +2,7 @@ from django.utils.translation import gettext_lazy as _
 from import_export import resources, fields
 from import_export.widgets import ForeignKeyWidget
 
-from assets.models import Asset, AssetTransaction, AssetType
+from assets.models import Asset, AssetTransaction, AssetType, AssetTypeField
 from company.models import Company, WorkingZone, Employee
 from management.models import ProjectFile
 from materials.models import Provider
@@ -59,6 +59,22 @@ class AssetResource(resources.ModelResource):
         )
         export_order = fields
         import_id_fields = ("id",)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Append one column per distinct schema field defined across all asset
+        # types, reading its value straight out of Asset.data. Export-only:
+        # fields are readonly so import doesn't try to write into `data`.
+        seen_names = set()
+        for spec in AssetTypeField.objects.order_by("order", "name"):
+            if spec.name in seen_names:
+                continue
+            seen_names.add(spec.name)
+            self.fields[f"schema_{spec.name}"] = fields.Field(
+                attribute=f"data__{spec.name}",
+                column_name=spec.label,
+                readonly=True,
+            )
 
     def dehydrate_zone_client(self, asset):
         if asset.current_working_zone and asset.current_working_zone.client:

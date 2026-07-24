@@ -818,6 +818,14 @@ UNFOLD = {
                             "assets.view_assettransaction"
                         ),
                     },
+                    {
+                        "title": _("Maps"),
+                        "icon": "map",
+                        "link": reverse_lazy("admin:assets_assetmap_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_assetmap"
+                        ),
+                    },
                 ],
             },
             {

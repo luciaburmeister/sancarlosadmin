@@ -554,6 +554,22 @@ class WorkingZone(CompanyOwnedModel):
     def __str__(self):
         return f"{self.name} ({self.company})"
 
+    def get_coordinates(self):
+        """Returns (lat, lng) parsed from `location`, or (None, None) if unset/invalid."""
+        try:
+            loc = self.location
+            if hasattr(loc, "x") and hasattr(loc, "y"):
+                return loc.y, loc.x
+            point_str = str(loc)
+            if ";" in point_str:
+                point_str = point_str.split(";")[1]
+            coords = point_str.strip().replace("POINT (", "").replace("POINT(", "").replace(")", "").split()
+            lon = float(coords[0])
+            lat = float(coords[1])
+            return lat, lon
+        except Exception:
+            return None, None
+
 class WeekdayChoices(models.IntegerChoices):
     MONDAY = 0, _("Monday")
     TUESDAY = 1, _("Tuesday")

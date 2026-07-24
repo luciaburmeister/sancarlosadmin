@@ -282,6 +282,31 @@ class AssetIdentifier(models.Model):
                 })
 
 
+class AssetMap(CompanyOwnedModel, Timestampable):
+    """
+    A named, reusable selection of assets to visualize together on a map.
+    Marker position is not stored here: it's always resolved live from each
+    asset's `current_working_zone`.
+    """
+    name = models.CharField(max_length=150, verbose_name=_("Name"))
+    description = models.TextField(blank=True, verbose_name=_("Description"))
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+    assets = models.ManyToManyField(
+        Asset,
+        related_name="maps",
+        blank=True,
+        verbose_name=_("Assets"),
+    )
+
+    class Meta:
+        verbose_name = _("Asset map")
+        verbose_name_plural = _("Asset maps")
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
 class TransactionTypeChoices(models.TextChoices):
     DELIVERY = "delivery", _("Delivery")
     RETURN = "return", _("Return")

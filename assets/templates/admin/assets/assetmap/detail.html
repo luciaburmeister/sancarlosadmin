@@ -1,0 +1,157 @@
+{% extends "admin/base.html" %}
+{% load i18n static %}
+
+{% block title %}{{ asset_map.name }} - {% trans "Asset Map" %}{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'location_field/leaflet/leaflet.css' %}">
+<style>
+  .am-wrap { max-width: 1400px; margin: 0 auto; }
+  .am-header { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 1rem; }
+  .am-header h1 { margin: 0; font-size: 1.5rem; }
+  .am-map-container { position: relative; }
+  .am-map { width: 100%; height: 70vh; min-height: 420px; border-radius: 12px; border: 1px solid #e5e7eb; }
+  .dark .am-map { border-color: #334155; }
+  .am-map-loading {
+    position: absolute; inset: 0; z-index: 1000; border-radius: 12px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .6rem;
+    background: #f9fafb; color: #6b7280; font-size: .875rem;
+    opacity: 1; transition: opacity .2s ease;
+  }
+  .am-map-loading.am-hidden { opacity: 0; pointer-events: none; }
+  .dark .am-map-loading { background: #1e293b; color: #94a3b8; }
+  .am-spinner {
+    width: 32px; height: 32px; border-radius: 50%;
+    border: 3px solid rgba(99, 102, 241, .25); border-top-color: #6366f1;
+    animation: am-spin .8s linear infinite;
+  }
+  @keyframes am-spin { to { transform: rotate(360deg); } }
+  .am-badge { background: #6366f1; color: #fff; border-radius: 999px; width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; border: 2px solid #fff; }
+  .am-unlocated { margin-top: 1rem; padding: 1rem 1.25rem; border-radius: 12px; background: #fff7ed; border: 1px solid #fed7aa; }
+  .dark .am-unlocated { background: #292013; border-color: #7c4a12; }
+  .am-unlocated h3 { margin: 0 0 .5rem 0; font-size: .95rem; }
+  .am-unlocated ul { margin: 0; padding-left: 1.1rem; }
+  .am-popup h4 { margin: 0 0 .35rem 0; }
+  .am-popup .am-asset { margin-bottom: .5rem; padding-bottom: .5rem; border-bottom: 1px solid #e5e7eb; }
+  .am-popup .am-asset:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+  .am-popup dl { margin: .25rem 0 0 0; font-size: 12px; }
+  .am-popup dt { font-weight: 600; float: left; clear: left; margin-right: .35rem; }
+  .am-popup dd { margin: 0; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="am-wrap">
+  <div class="am-header">
+    <h1>{{ asset_map.name }}</h1>
+  </div>
+  {% if asset_map.description %}<p>{{ asset_map.description }}</p>{% endif %}
+
+  <div class="am-map-container">
+    <div id="am-map" class="am-map"></div>
+    <div id="am-map-loading" class="am-map-loading">
+      <div class="am-spinner"></div>
+      <span>{% trans "Loading map…" %}</span>
+    </div>
+  </div>
+
+  {% if map_payload.unlocated %}
+  <div class="am-unlocated">
+    <h3>{% trans "Assets without a resolvable location" %}</h3>
+    <ul>
+      {% for asset in map_payload.unlocated %}
+      <li><a href="{{ asset.admin_url }}">{{ asset.name }}</a> ({{ asset.asset_type }})</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</div>
+
+{{ map_payload|json_script:"am-payload" }}
+<script src="{% static 'location_field/leaflet/leaflet.js' %}"></script>
+<script>
+(function () {
+  var payload = JSON.parse(document.getElementById("am-payload").textContent);
+  var markers = payload.markers || [];
+
+  var loadingEl = document.getElementById("am-map-loading");
+  function hideLoading() {
+    if (loadingEl) loadingEl.classList.add("am-hidden");
+  }
+
+  // OpenTopoMap only serves tiles up to zoom 17; anything past that returns
+  // "no data" placeholder tiles, so cap the map to match the tile source.
+  var map = L.map("am-map", { maxZoom: 17 });
+  var tileLayer = L.tileLayer("{{ tile_url|escapejs }}", {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 17,
+  }).addTo(map);
+
+  tileLayer.on("load", hideLoading);
+  setTimeout(hideLoading, 8000);
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function popupHtml(zoneName, assets) {
+    var html = '<div class="am-popup"><h4>' + escapeHtml(zoneName) + '</h4>';
+    assets.forEach(function (asset) {
+      html += '<div class="am-asset">';
+      html += '<strong><a href="' + escapeHtml(asset.admin_url) + '">' + escapeHtml(asset.name) + '</a></strong>';
+      html += ' <span>(' + escapeHtml(asset.asset_type) + ')</span>';
+      if (asset.identifiers && asset.identifiers.length) {
+        html += '<div>' + asset.identifiers.map(escapeHtml).join(' &middot; ') + '</div>';
+      }
+      if (asset.schema_fields && asset.schema_fields.length) {
+        html += '<dl>';
+        asset.schema_fields.forEach(function (field) {
+          html += '<dt>' + escapeHtml(field.label) + ':</dt><dd>' + escapeHtml(field.value) + '</dd>';
+        });
+        html += '</dl>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  var bounds = [];
+  markers.forEach(function (marker) {
+    var latLng = [marker.lat, marker.lng];
+    bounds.push(latLng);
+    var leafletMarker;
+    if (marker.assets.length > 1) {
+      leafletMarker = L.marker(latLng, {
+        icon: L.divIcon({
+          className: "",
+          html: '<div class="am-badge">' + marker.assets.length + '</div>',
+          iconSize: [26, 26],
+        }),
+      });
+    } else {
+      leafletMarker = L.marker(latLng);
+    }
+    leafletMarker.bindPopup(popupHtml(marker.zone_name, marker.assets), { maxWidth: 320 });
+    leafletMarker.addTo(map);
+  });
+
+  if (bounds.length) {
+    var centroid = bounds.reduce(function (acc, latLng) {
+      return [acc[0] + latLng[0] / bounds.length, acc[1] + latLng[1] / bounds.length];
+    }, [0, 0]);
+    map.setView(centroid, bounds.length === 1 ? 14 : 12);
+    if (bounds.length > 1) {
+      map.fitBounds(bounds, { padding: [40, 40] });
+    }
+  } else {
+    map.setView([40.4168, -3.7038], 6);
+  }
+})();
+</script>
+{% endblock %}

@@ -1,7 +1,7 @@
-"""Signals to keep ProjectFile.total_amount in sync.
+"""Signals to keep ProjectFile totals in sync.
 
-Triggers recalculation when a Quote or Configuration that belongs to a
-ProjectFile is saved (status or total_price changes) or deleted.
+Triggers recalculation when a Quote, Configuration, SalesInvoice, or
+Purchase Order that belongs to a ProjectFile is saved or deleted.
 """
 import logging
 
@@ -41,6 +41,23 @@ def configuration_deleted_update_project_file(sender, instance, **kwargs):
     if instance.project_file_id and instance.quote_id is None:
         try:
             instance.project_file.recalculate_total_amount()
+        except Exception:
+            logger.debug("ProjectFile already deleted, skipping recalculation.")
+
+
+@receiver(post_save, sender="purchasing.PurchaseOrder")
+def purchase_order_saved_update_project_file(sender, instance, **kwargs):
+    """Recalculate ProjectFile purchased cost when a Purchase Order is saved."""
+    if instance.project_file_id:
+        instance.project_file.recalculate_total_purchased()
+
+
+@receiver(post_delete, sender="purchasing.PurchaseOrder")
+def purchase_order_deleted_update_project_file(sender, instance, **kwargs):
+    """Recalculate ProjectFile purchased cost when a Purchase Order is deleted."""
+    if instance.project_file_id:
+        try:
+            instance.project_file.recalculate_total_purchased()
         except Exception:
             logger.debug("ProjectFile already deleted, skipping recalculation.")
 

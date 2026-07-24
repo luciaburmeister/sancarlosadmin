@@ -6229,20 +6229,17 @@ msgstr "Emparejando contra"
 msgid "Choose another PO"
 msgstr "Elige otro PO"
 
-#, fuzzy
-#| msgid "Aggregated from purchase invoices"
+
 msgid "Suggested purchase orders"
-msgstr "Agrupado desde facturas de compra"
+msgstr "Órdenes de compra sugeridas"
 
-#, fuzzy
-#| msgid "Pending Invoices"
+
 msgid "Pending to Invoice"
-msgstr "Facturas pendientes"
+msgstr "Pendiente de factura"
 
-#, fuzzy
-#| msgid "Line Item"
+
 msgid "View items"
-msgstr "Item"
+msgstr "Ver ítems"
 
 msgid "Ordered"
 msgstr "Pedido"

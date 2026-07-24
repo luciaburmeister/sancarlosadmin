@@ -100,6 +100,15 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         help_text=_("Cached percentage of total_amount that has been invoiced."),
     )
 
+    total_purchased = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Total Purchased"),
+        help_text=_("Cached committed cost of approved/closed Purchase Orders linked to this project file."),
+    )
+
     class Meta:
         verbose_name = _("Project File")
         verbose_name_plural = _("Project Files")
@@ -218,6 +227,30 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
             "total_invoiced", "total_invoiced_currency",
             "percentage_invoiced",
         ])
+
+    def recalculate_total_purchased(self):
+        """
+        Recompute total_purchased: committed cost of Purchase Orders linked to
+        this project file. Only APPROVED/CLOSED POs count — draft/pending/
+        cancelled POs aren't a real commitment yet, mirroring how only
+        "accepted" quotes count on the revenue side.
+        """
+        from django.apps import apps
+        from purchasing.models import PurchaseOrderStatus
+        PurchaseOrder = apps.get_model("purchasing", "PurchaseOrder")
+
+        purchased = (
+            PurchaseOrder.objects.filter(
+                project_file=self,
+                status__in=[PurchaseOrderStatus.APPROVED, PurchaseOrderStatus.CLOSED],
+            ).aggregate(total=Sum("total_amount"))["total"]
+            or Decimal("0.00")
+        )
+        if hasattr(purchased, "amount"):
+            purchased = purchased.amount
+
+        self.total_purchased = Decimal(str(purchased))
+        self.save(update_fields=["total_purchased", "total_purchased_currency"])
 
 
 class ResourcePlanningType(CompanyOwnedModel):

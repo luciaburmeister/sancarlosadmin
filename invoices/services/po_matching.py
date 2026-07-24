@@ -203,6 +203,12 @@ class POInvoiceMatchService:
         Creates one InvoicePOAllocation per pair, atomically. Each pair:
         {"invoice_item": InvoiceItem, "po_item": PurchaseOrderItem, "quantity": Decimal}.
         Model validation raises ValidationError and rolls back everything.
+
+        Also auto-links each involved invoice to its matched PO's project_file,
+        when the invoice doesn't already have one — this is what makes the
+        Purchase Order's committed cost show up as an actual expense against
+        the right project as soon as it's matched, instead of relying on the
+        invoice being tagged manually or by OCR.
         """
         created = []
         with transaction.atomic():
@@ -214,6 +220,16 @@ class POInvoiceMatchService:
                 )
                 alloc.save()
                 created.append(alloc)
+
+            linked_invoices = set()
+            for alloc in created:
+                if alloc.invoice_id in linked_invoices:
+                    continue
+                linked_invoices.add(alloc.invoice_id)
+                po_project_file_id = alloc.po_item.purchase_order.project_file_id
+                if po_project_file_id and not alloc.invoice.project_file_id:
+                    alloc.invoice.project_file_id = po_project_file_id
+                    alloc.invoice.save(update_fields=["project_file"])
         return created
 
     # ------------------------------------------------------------------

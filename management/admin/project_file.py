@@ -19,6 +19,7 @@ from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from sales.models import Quote, QuoteStatus, DeliveryOrder
 from production.models import ProductionTicket
 from invoices.models import SalesInvoice, Invoice, AppliedTax
+from purchasing.models import PurchaseOrder
 from invoices.views.invoice.project_file_wizard_views import ProjectFileInvoiceWizardView
 from invoices.views.invoice.delivery_order_wizard_views import DeliveryOrderWizardView
 from invoices.views.invoice.bulk_invoice_views import BulkInvoiceConfirmView
@@ -122,6 +123,19 @@ class PurchaseInvoiceInline(TabularInline):
     fields = ["invoice_number", "provider", "total_amount", "date_issued"]
     readonly_fields = ["invoice_number", "provider", "total_amount", "date_issued"]
     show_change_link = True
+
+class PurchaseOrderInline(TabularInline):
+    model = PurchaseOrder
+    extra = 0
+    tab = True
+    tab_title = _("Purchase Orders")
+    fields = ["number", "provider", "get_status_label", "total_amount", "date_ordered"]
+    readonly_fields = ["number", "provider", "get_status_label", "total_amount", "date_ordered"]
+    show_change_link = True
+
+    @display(description=_("Status"))
+    def get_status_label(self, obj):
+        return obj.get_status_display()
 
 class DirectConfigurationInline(TabularInline):
     model = Configuration
@@ -228,7 +242,7 @@ class WorkEntryInline(TabularInline):
 class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     resource_classes = [ProjectFileResource]
     export_form_class = SelectableFieldsExportForm
-    list_display = ["reference", "name", "client", "show_status_customized_color", "total_amount", "total_invoiced", "start_date", "invoicing_status", "company"]
+    list_display = ["reference", "name", "client", "show_status_customized_color", "total_amount", "total_invoiced", "total_purchased", "start_date", "invoicing_status", "company"]
     list_filter = [("client", AutocompleteSelectMultipleFilter), ("status", MultipleChoicesDropdownFilter), ("company", AutocompleteSelectMultipleFilter), ("created_at", RangeDateFilter)]
     search_fields = ["reference", "name", "client__name"]
     autocomplete_fields = ["client", "company", "asset"]
@@ -245,6 +259,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         BulkSalesInvoiceInline,
         ProductionTicketInline,
         DeliveryOrderInline,
+        PurchaseOrderInline,
         PurchaseInvoiceInline,
         ResourcePlanningInline,
         ResourcePlanningBacklogInline,

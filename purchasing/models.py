@@ -35,6 +35,15 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         related_name="purchase_orders",
         verbose_name=_("Supplier")
     )
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=False,
+        related_name="purchase_orders",
+        verbose_name=_("Project File"),
+        help_text=_(""),
+    )
     external_reference = models.CharField(
         max_length=100,
         blank=True,

@@ -3,7 +3,7 @@ from django.db.models import Sum
 from django.utils.html import format_html_join
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
-from unfold.admin import ModelAdmin, TabularInline
+from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.decorators import action, display
 from core.admin.company_admin import CompanyRestrictedAdmin
 from django.urls import path, reverse
@@ -14,26 +14,22 @@ from .models import (
 from inventory.models import ItemIdentityCode
 from django.shortcuts import redirect
 
-class PurchaseOrderItemInline(TabularInline):
+class PurchaseOrderItemInline(StackedInline):
     model = PurchaseOrderItem
     extra = 1
     tab = True
     autocomplete_fields = ["inventory_item"]
     readonly_fields = ["line_total","formatted_received", "formatted_pending", "formatted_invoiced", "formatted_pending_invoice"]
-    fields = [
-        "inventory_item",
-        "quantity",
-        "unit",
-        "formatted_received",
-        "formatted_pending",
-        "formatted_invoiced",
-        "formatted_pending_invoice",
-        "unit_price",
-        "line_total",
-        "description",
-    ]
-
-
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("inventory_item","unit"),
+                ("quantity", "unit_price", ),
+                ("line_total","description"),
+                ("formatted_received", "formatted_pending", "formatted_invoiced", "formatted_pending_invoice"),
+            )
+        }),
+    )
 
     @display(description=_("Received"))
     def formatted_received(self, obj):
@@ -76,10 +72,10 @@ class PurchaseOrderItemInline(TabularInline):
 
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["number", "provider","external_reference", "requested_by", "get_status_label", "date_ordered", "total_amount", "get_billing_label", "company"]
-    list_filter = ["status", "date_ordered", "company"]
-    search_fields = ["number", "provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name"]
-    autocomplete_fields = ["provider", "company", "approved_by", "requested_by"]
+    list_display = ["number", "provider","external_reference", "project_file", "requested_by", "get_status_label", "date_ordered", "total_amount", "get_billing_label", "company"]
+    list_filter = ["status", "date_ordered", "company", "project_file"]
+    search_fields = ["number", "provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name"]
+    autocomplete_fields = ["provider", "company", "approved_by", "requested_by", "project_file"]
     readonly_fields = ["number", "total_amount", "approved_at", "approved_by", "requested_by", "status", "linked_invoices_display"]
 
     fieldsets = (
@@ -91,6 +87,7 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 "requested_by"),
                 ("date_ordered",
                 "status"),
+                "project_file",
                 ("external_reference","file")
             )
         }),

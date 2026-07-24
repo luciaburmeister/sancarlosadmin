@@ -8,6 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from django_json_widget.widgets import JSONEditorWidget
 from assets.models import Asset, AssetIdentifier, AssetTransaction, AssetDocument, AssetDocumentType
 from assets.forms import AssetForm, AssetAddForm, build_asset_data_form_fields, DATA_FIELD_PREFIX
+from assets.resources import AssetResource
 from unfold.widgets import UnfoldAdminSelectWidget
 from django.shortcuts import redirect
 from django.urls import resolve, path, reverse
@@ -16,6 +17,8 @@ from django.http import HttpResponse, HttpResponseRedirect
 from assets.utils import generate_asset_qr_grid
 from company.forms import BaseDocumentForm
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
+from import_export.admin import ImportExportModelAdmin
+from unfold.contrib.import_export.forms import ImportForm, SelectableFieldsExportForm
 
 
 class AssetDocumentForm(BaseDocumentForm):
@@ -102,8 +105,11 @@ class AssetTransactionInline(StackedInline):
 
 
 @admin.register(Asset)
-class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
-    list_display = ("name", "asset_type", "client", "provider", "assigned_to", "qr_link", "get_identifiers","is_active")
+class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportExportModelAdmin):
+    resource_classes = [AssetResource]
+    import_form_class = ImportForm
+    export_form_class = SelectableFieldsExportForm
+    list_display = ("name", "asset_type", "client", "current_working_zone", "zone_client", "provider", "assigned_to", "qr_link", "get_identifiers","is_active")
     list_filter = (("asset_type",AutocompleteSelectMultipleFilter), ("client",AutocompleteSelectMultipleFilter), ("provider",AutocompleteSelectMultipleFilter), ("assigned_to",AutocompleteSelectMultipleFilter),("company",AutocompleteSelectMultipleFilter),"is_active")
     search_fields = ("name", "identifiers__value")
     inlines = [AssetIdentifierInline, AssetTransactionInline, AssetDocumentInline]
@@ -112,14 +118,14 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     list_editable = ("is_active",)
     list_filter_submit = True
     autocomplete_fields = [
-        "asset_type", 
-        "client", 
-        "company", 
-        "current_working_zone", 
-        "assigned_to", 
+        "asset_type",
+        "client",
+        "company",
+        "current_working_zone",
+        "assigned_to",
         "provider"]
     readonly_fields = ("qr_code_preview",)
-    list_select_related = ["asset_type","client","provider","assigned_to","current_working_zone","company",]
+    list_select_related = ["asset_type","client","provider","assigned_to","current_working_zone","current_working_zone__client","company",]
     fieldsets = (
         (
             _("Asset"),
@@ -218,6 +224,10 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     def get_identifiers(self, obj):
         return ", ".join([f"{i.label}: {i.value}" for i in obj.identifiers.all()])
     get_identifiers.short_description = _("Identifiers")
+
+    def zone_client(self, obj):
+        return obj.current_working_zone.client if obj.current_working_zone else None
+    zone_client.short_description = _("Zone Client")
 
     @admin.action(description=_("Download QR Grid"))
     def download_qr_grid(self, request, queryset):

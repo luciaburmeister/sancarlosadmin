@@ -25,5 +25,6 @@ class AssetMapDetailView(UnfoldModelAdminViewMixin, TemplateView):
         ctx = super().get_context_data(**kwargs)
         ctx["asset_map"] = self.asset_map
         ctx["map_payload"] = AssetMapService.build_map_payload(self.asset_map)
+        ctx["zone_type_legend"] = AssetMapService.zone_type_legend()
         ctx["tile_url"] = settings.LOCATION_FIELD["provider.openstreetmap.tiles"]
         return ctx

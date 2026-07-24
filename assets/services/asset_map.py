@@ -1,8 +1,29 @@
 from django.urls import reverse
 
+from company.models import WorkingZone
+
 
 class AssetMapService:
     """Builds the marker payload used to render an AssetMap on a Leaflet map."""
+
+    ZONE_TYPE_COLORS = {
+        WorkingZone.ZoneType.OBRA: "#f59e0b",
+        WorkingZone.ZoneType.VERTEDERO: "#ef4444",
+        WorkingZone.ZoneType.ALMACEN: "#6366f1",
+    }
+    DEFAULT_ZONE_COLOR = "#6b7280"
+
+    @classmethod
+    def zone_color(cls, zone_type):
+        return cls.ZONE_TYPE_COLORS.get(zone_type, cls.DEFAULT_ZONE_COLOR)
+
+    @classmethod
+    def zone_type_legend(cls):
+        """List of {value, label, color} for every zone type, for a map legend."""
+        return [
+            {"value": value, "label": str(label), "color": cls.zone_color(value)}
+            for value, label in WorkingZone.ZoneType.choices
+        ]
 
     @staticmethod
     def _serialize_asset(asset):
@@ -30,9 +51,9 @@ class AssetMapService:
         the same zone.
 
         Returns {"markers": [...], "unlocated": [...]}: `markers` has one entry
-        per zone with resolvable coordinates ({zone_id, zone_name, lat, lng,
-        assets}); `unlocated` lists assets with no zone, or a zone with no
-        resolvable location.
+        per zone with resolvable coordinates ({zone_id, zone_name, zone_type,
+        zone_type_label, color, lat, lng, assets}); `unlocated` lists assets
+        with no zone, or a zone with no resolvable location.
         """
         assets = (
             asset_map.assets
@@ -53,7 +74,16 @@ class AssetMapService:
                 continue
             bucket = zones_by_id.setdefault(
                 zone.id,
-                {"zone_id": zone.id, "zone_name": zone.name, "lat": lat, "lng": lng, "assets": []},
+                {
+                    "zone_id": zone.id,
+                    "zone_name": zone.name,
+                    "zone_type": zone.zone_type,
+                    "zone_type_label": zone.get_zone_type_display(),
+                    "color": cls.zone_color(zone.zone_type),
+                    "lat": lat,
+                    "lng": lng,
+                    "assets": [],
+                },
             )
             bucket["assets"].append(cls._serialize_asset(asset))
 

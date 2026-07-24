@@ -23,7 +23,7 @@ def _tokens(text):
 
 
 class POInvoiceMatchService:
-    MAX_CANDIDATES = 20
+    MAX_CANDIDATES = 30
     # Candidates whose date is further than this from the document being
     # matched are not suggested — an invoice rarely bills a PO that old.
     MAX_DATE_DELTA_DAYS = 90

@@ -555,17 +555,29 @@ class WorkingZone(CompanyOwnedModel):
         return f"{self.name} ({self.company})"
 
     def get_coordinates(self):
-        """Returns (lat, lng) parsed from `location`, or (None, None) if unset/invalid."""
+        """
+        Returns (lat, lng) parsed from `location`, or (None, None) if unset/invalid.
+
+        Longitude is normalized into [-180, 180): some stored points have
+        picked up extra +/-360deg laps (e.g. from repeated location-picker
+        searches), which is mathematically the same point but breaks any
+        code that assumes a bounded coordinate range (bounding-box/zoom
+        calculations blow up otherwise).
+        """
         try:
             loc = self.location
             if hasattr(loc, "x") and hasattr(loc, "y"):
-                return loc.y, loc.x
-            point_str = str(loc)
-            if ";" in point_str:
-                point_str = point_str.split(";")[1]
-            coords = point_str.strip().replace("POINT (", "").replace("POINT(", "").replace(")", "").split()
-            lon = float(coords[0])
-            lat = float(coords[1])
+                lat, lon = loc.y, loc.x
+            else:
+                point_str = str(loc)
+                if ";" in point_str:
+                    point_str = point_str.split(";")[1]
+                coords = point_str.strip().replace("POINT (", "").replace("POINT(", "").replace(")", "").split()
+                lon = float(coords[0])
+                lat = float(coords[1])
+            lon = ((lon + 180) % 360) - 180
+            if not (-90 <= lat <= 90):
+                return None, None
             return lat, lon
         except Exception:
             return None, None

@@ -41,7 +41,8 @@
   .dark .am-unlocated { background: #292013; border-color: #7c4a12; }
   .am-unlocated h3 { margin: 0 0 .5rem 0; font-size: .95rem; }
   .am-unlocated ul { margin: 0; padding-left: 1.1rem; }
-  .am-popup h4 { margin: 0 0 .35rem 0; }
+  .am-popup h4 { margin: .75rem 0 .35rem 0; }
+  .am-popup h4:first-child { margin-top: 0; }
   .am-popup .am-zone-type { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; margin-bottom: .5rem; }
   .am-popup .am-asset { margin-bottom: .5rem; padding-bottom: .5rem; border-bottom: 1px solid #e5e7eb; }
   .am-popup .am-asset:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
@@ -167,18 +168,15 @@
     leafletMarker.addTo(map);
   });
 
-  if (bounds.length) {
-    var centroid = bounds.reduce(function (acc, latLng) {
-      return [acc[0] + latLng[0] / bounds.length, acc[1] + latLng[1] / bounds.length];
-    }, [0, 0]);
-    map.setView(centroid, bounds.length === 1 ? 10 : 8);
-    if (bounds.length > 1) {
-      // Zoom is always computed from the actual spread of the markers here
-      // (no fixed cap): a hard maxZoom that looks fine for two nearby points
-      // forces maps with many spread-out zones to zoom out far past what's
-      // needed, collapsing nearby markers on top of each other.
-      map.fitBounds(bounds, { padding: [80, 80] });
-    }
+  if (bounds.length === 1) {
+    map.setView(bounds[0], 9);
+  } else if (bounds.length > 1) {
+    // fitBounds always recomputes its own center *and* zoom from the actual
+    // bounds, overriding any prior setView -- padding alone barely zooms it
+    // out further when the markers are genuinely close together, so cap the
+    // zoom directly. Safe now that get_coordinates() normalizes longitude,
+    // so a bad point can no longer blow the bounds up to the whole planet.
+    map.fitBounds(bounds, { padding: [80, 80], maxZoom: 10 });
   } else {
     map.setView([40.4168, -3.7038], 4);
   }

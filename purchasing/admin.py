@@ -76,7 +76,7 @@ class PurchaseOrderItemInline(TabularInline):
 
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["number", "provider", "requested_by", "get_status_label", "date_ordered", "total_amount", "get_billing_label", "company"]
+    list_display = ["number", "provider","external_reference", "requested_by", "get_status_label", "date_ordered", "total_amount", "get_billing_label", "company"]
     list_filter = ["status", "date_ordered", "company"]
     search_fields = ["number", "provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name"]
     autocomplete_fields = ["provider", "company", "approved_by", "requested_by"]

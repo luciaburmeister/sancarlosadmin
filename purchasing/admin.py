@@ -124,7 +124,7 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         },
     )
     def get_status_label(self, obj):
-        return obj.status
+        return obj.status, obj.get_status_display()
 
     def get_queryset(self, request):
         return super().get_queryset(request).annotate(
@@ -144,12 +144,20 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         total = getattr(obj, "_total_qty", None)
         invoiced = getattr(obj, "_total_invoiced", None)
         if total is None or invoiced is None:
-            return obj.billing_status
-        if not total or invoiced <= 0:
-            return "not_invoiced"
-        if invoiced >= total:
-            return "fully_invoiced"
-        return "partially_invoiced"
+            status = obj.billing_status
+        elif not total or invoiced <= 0:
+            status = "not_invoiced"
+        elif invoiced >= total:
+            status = "fully_invoiced"
+        else:
+            status = "partially_invoiced"
+
+        labels = {
+            "not_invoiced": _("Not Invoiced"),
+            "partially_invoiced": _("Partially Invoiced"),
+            "fully_invoiced": _("Fully Invoiced"),
+        }
+        return status, labels[status]
 
     @display(description=_("Linked Invoices"))
     def linked_invoices_display(self, obj):

@@ -91,6 +91,16 @@
   tileLayer.on("load", hideLoading);
   setTimeout(hideLoading, 8000);
 
+  // The container's real size isn't final at construction time (sidebar/
+  // layout reflow, fonts loading, etc.), so Leaflet can lock in the wrong
+  // size and only paint tiles for that stale area. Keep it in sync.
+  var mapEl = document.getElementById("am-map");
+  if (window.ResizeObserver) {
+    new ResizeObserver(function () { map.invalidateSize(); }).observe(mapEl);
+  } else {
+    window.addEventListener("resize", function () { map.invalidateSize(); });
+  }
+
   function escapeHtml(value) {
     return String(value)
       .replace(/&/g, "&amp;")

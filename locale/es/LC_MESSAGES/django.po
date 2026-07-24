@@ -10539,15 +10539,13 @@ msgstr "Error de validación: {}"
 msgid "Return to Stages"
 msgstr "Volver a las etapas"
 
-#, fuzzy
-#| msgid "Financial & Insurance"
-msgid "Financials & Approval"
-msgstr "Finanzas y Seguro"
 
-#, fuzzy
-#| msgid "Received Invoices"
+msgid "Financials & Approval"
+msgstr "Finanzas y Aprobaciones"
+
+
 msgid "Linked Invoices"
-msgstr "Facturas de compra"
+msgstr "Facturas relacionadas"
 
 msgid "Send to Approval"
 msgstr "Mandar a aprobación"

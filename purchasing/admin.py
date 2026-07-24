@@ -1,3 +1,8 @@
+from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
+from django_filters.filters import MultipleChoiceFilter
+from django.forms import MultipleChoiceField
+from unfold.contrib.filters.admin import RangeDateFilter
+from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 from django.contrib import admin
 from django.db.models import Sum
 from django.utils.html import format_html_join
@@ -73,12 +78,12 @@ class PurchaseOrderItemInline(StackedInline):
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ["number", "provider","external_reference", "project_file", "requested_by", "get_status_label", "date_ordered", "total_amount", "get_billing_label", "company"]
-    list_filter = ["status", "date_ordered", "company", "project_file"]
+    list_filter = [("status",MultipleChoicesDropdownFilter), ("date_ordered",RangeDateFilter), ("company",AutocompleteSelectMultipleFilter), ("project_file",AutocompleteSelectMultipleFilter)]
     search_fields = ["number", "provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name"]
     autocomplete_fields = ["provider", "company", "approved_by", "requested_by", "project_file"]
     readonly_fields = ["number", "total_amount", "approved_at", "approved_by", "requested_by", "status", "linked_invoices_display"]
     list_select_related = ["provider", "company", "requested_by", "project_file"]
-
+    list_filter_submit = True
     fieldsets = (
         (_("General Information"), {
             "fields": (

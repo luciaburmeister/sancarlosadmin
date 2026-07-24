@@ -79,7 +79,7 @@ class PurchaseOrderItemInline(StackedInline):
 class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ["number", "provider","external_reference", "project_file", "requested_by", "get_status_label", "date_ordered", "total_amount", "get_billing_label", "company"]
     list_filter = [("status",MultipleChoicesDropdownFilter), ("date_ordered",RangeDateFilter), ("company",AutocompleteSelectMultipleFilter), ("project_file",AutocompleteSelectMultipleFilter)]
-    search_fields = ["number", "provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name"]
+    search_fields = ["number", "external_reference","provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name"]
     autocomplete_fields = ["provider", "company", "approved_by", "requested_by", "project_file"]
     readonly_fields = ["number", "total_amount", "approved_at", "approved_by", "requested_by", "status", "linked_invoices_display"]
     list_select_related = ["provider", "company", "requested_by", "project_file"]

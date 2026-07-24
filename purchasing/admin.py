@@ -77,6 +77,7 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     search_fields = ["number", "provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name"]
     autocomplete_fields = ["provider", "company", "approved_by", "requested_by", "project_file"]
     readonly_fields = ["number", "total_amount", "approved_at", "approved_by", "requested_by", "status", "linked_invoices_display"]
+    list_select_related = ["provider", "company", "requested_by", "project_file"]
 
     fieldsets = (
         (_("General Information"), {

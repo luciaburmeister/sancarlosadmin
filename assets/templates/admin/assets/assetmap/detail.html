@@ -49,6 +49,8 @@
   .am-popup dl { margin: .25rem 0 0 0; font-size: 12px; }
   .am-popup dt { font-weight: 600; float: left; clear: left; margin-right: .35rem; }
   .am-popup dd { margin: 0; }
+  .am-popup .am-zone-changed { margin-top: .35rem; font-size: 11px; color: #6b7280; }
+  .dark .am-popup .am-zone-changed { color: #94a3b8; }
 </style>
 {% endblock %}
 
@@ -94,6 +96,7 @@
 (function () {
   var payload = JSON.parse(document.getElementById("am-payload").textContent);
   var markers = payload.markers || [];
+  var zoneSinceLabel = "{% trans "Zone since" %}";
 
   var loadingEl = document.getElementById("am-map-loading");
   function hideLoading() {
@@ -145,6 +148,9 @@
           html += '<dt>' + escapeHtml(field.label) + ':</dt><dd>' + escapeHtml(field.value) + '</dd>';
         });
         html += '</dl>';
+      }
+      if (asset.zone_changed_at) {
+        html += '<div class="am-zone-changed">' + zoneSinceLabel + ': ' + escapeHtml(asset.zone_changed_at) + '</div>';
       }
       html += '</div>';
     });

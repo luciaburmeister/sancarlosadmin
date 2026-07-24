@@ -179,6 +179,13 @@ class Asset(CompanyOwnedModel):
         related_name="current_assets",
         verbose_name=_("Current Working Zone")
     )
+    zone_changed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name=_("Zone changed at"),
+        help_text=_("When current_working_zone last actually changed."),
+    )
     provider = models.ForeignKey(
         Provider,
         on_delete=models.SET_NULL,
@@ -205,6 +212,16 @@ class Asset(CompanyOwnedModel):
                 k.strip().lower().replace(" ", "_"): v
                 for k, v in self.data.items()
             }
+        if self.pk:
+            old_zone_id = (
+                Asset.objects.filter(pk=self.pk)
+                .values_list("current_working_zone_id", flat=True)
+                .first()
+            )
+            if old_zone_id != self.current_working_zone_id:
+                self.zone_changed_at = timezone.now()
+        elif self.current_working_zone_id:
+            self.zone_changed_at = timezone.now()
         super().save(*args, **kwargs)
 
     @property

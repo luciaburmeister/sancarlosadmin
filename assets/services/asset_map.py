@@ -1,4 +1,5 @@
 from django.urls import reverse
+from django.utils.formats import date_format
 
 from company.models import WorkingZone
 
@@ -40,6 +41,11 @@ class AssetMapService:
             "admin_url": reverse("admin:assets_asset_change", args=[asset.id]),
             "identifiers": identifiers,
             "schema_fields": schema_fields,
+            "zone_changed_at": (
+                date_format(asset.zone_changed_at, "SHORT_DATETIME_FORMAT")
+                if asset.zone_changed_at
+                else None
+            ),
         }
 
     @classmethod

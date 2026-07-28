@@ -26,6 +26,7 @@ from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from invoices.services.invoice.invoice_duplicate_service import InvoiceDuplicateService, DuplicateInvoiceError
 from company.models import Company
+from core.services.provider_service import get_or_create_provider
 
 
 
@@ -115,12 +116,14 @@ class InvoiceService:
             with transaction.atomic():
                 # Match company and provider
                 company = self._find_company(extracted_data.company_tax_id)
-                provider = self._get_or_create_provider(
-                    extracted_data.vendor_tax_id, 
-                    extracted_data.vendor_name, 
+                provider = get_or_create_provider(
+                    extracted_data.vendor_tax_id,
+                    extracted_data.vendor_name,
                     company,
                     sender_email
                 )
+                if not provider:
+                    messages.append("No tax ID extracted — provider not linked, needs manual review.")
 
                 # Check for existing invoice by number/provider (metadata duplicate)
                 invoice_number = extracted_data.invoice_number or 'UNKNOWN'
@@ -222,11 +225,13 @@ class InvoiceService:
             with transaction.atomic():
                 # Match company and provider
                 company = self._find_company(extracted_data.company_tax_id)
-                provider = self._get_or_create_provider(
-                    extracted_data.vendor_tax_id, 
-                    extracted_data.vendor_name, 
+                provider = get_or_create_provider(
+                    extracted_data.vendor_tax_id,
+                    extracted_data.vendor_name,
                     company
                 )
+                if not provider:
+                    messages.append("No tax ID extracted — provider not linked, needs manual review.")
 
                 invoice_num = extracted_data.invoice_number or invoice.invoice_number or "UNKNOWN"
                 
@@ -451,35 +456,3 @@ class InvoiceService:
         if not clean_tax_id:
             return None
         return Company.objects.filter(tax_identifier__iexact=clean_tax_id).first()
-
-    def _get_or_create_provider(self, vendor_tax_id: Optional[str], vendor_name: Optional[str], company: Optional[Company], sender_email: Optional[str] = None) -> Optional[Provider]:
-        """
-        Lookup provider by email or tax ID and company.
-        If not found, create a new one with the extracted vendor details.
-        """
-        if sender_email and company:
-            provider_by_email = Provider.objects.filter(
-                associated_emails__contains=[sender_email],
-                company=company
-            ).first()
-            if provider_by_email:
-                return provider_by_email
-
-        if not vendor_tax_id:
-            return None
-        
-        clean_tax_id = vendor_tax_id.strip()
-        
-        provider = Provider.objects.filter(
-            tax_identifier__iexact=clean_tax_id,
-            company=company
-        ).first()
-
-        if not provider and company:
-            provider = Provider.objects.create(
-                name=vendor_name or f"New Provider {clean_tax_id}",
-                tax_identifier=clean_tax_id,
-                company=company
-            )
-            
-        return provider

@@ -1,28 +1,33 @@
 from django import forms
 from django.core.exceptions import ValidationError
+from unfold.widgets import UnfoldAdminSelectWidget
 from apps.expenses.models import ExpenseTicket
 from apps.expenses.services.expense_ticket_duplicate_service import ExpenseTicketDuplicateService, ExpenseTicketHashError
+from core.admin.company_access import get_user_companies
 
 
 class ExpenseTicketUploadForm(forms.ModelForm):
     class Meta:
         model = ExpenseTicket
-        fields = ("photo",)
+        fields = ("company", "photo")
+        widgets = {"company": UnfoldAdminSelectWidget}
+
+    def __init__(self, *args, user=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if user is not None:
+            self.fields["company"].queryset = get_user_companies(user)
 
     def clean(self):
         cleaned_data = super().clean()
         f = cleaned_data.get("photo")
+        company = cleaned_data.get("company")
 
-        if not f:
+        if not f or not company:
             return cleaned_data
-
-        company_id = self.instance.company_id
-        if not company_id and hasattr(self, 'initial'):
-            company_id = self.initial.get('company_id')
 
         duplicate_service = ExpenseTicketDuplicateService()
         try:
-            result = duplicate_service.check_for_duplicate_file(f, company_id)
+            result = duplicate_service.check_for_duplicate_file(f, company.id)
         except ExpenseTicketHashError as e:
             raise ValidationError(f"Could not read file for duplicate check: {e}")
 

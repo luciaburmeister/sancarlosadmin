@@ -13,6 +13,7 @@ from djmoney.money import Money
 from apps.expenses.models import ExpenseTicket
 from apps.expenses.services.ocr_services.ocr_interface import TicketOcrInterface
 from apps.expenses.services.ocr_services import GeminiJSONParseError
+from core.services.provider_service import get_or_create_provider
 
 
 class TicketProcessingResult:
@@ -54,8 +55,10 @@ class ExpenseTicketService:
             messages.append("OCR completed.")
 
             # Check for conflict with ANOTHER ticket (not itself), scoped to the same
-            # company. Tickets have no equivalent of an invoice number, so identity is
-            # the closest available combination: vendor + date + amount.
+            # company. Identity is vendor + date + amount, plus ticket_number when the
+            # receipt has one — vendor/date/amount alone can coincide for two genuinely
+            # separate purchases (e.g. two toll charges from the same vendor on the same
+            # day), so a differing ticket_number rules out a conflict even if the rest match.
             purchase_date = self._parse_date(extracted.date_of_purchase)
             if extracted.amount is not None and purchase_date is not None:
                 vendor_filter = (
@@ -64,17 +67,21 @@ class ExpenseTicketService:
                     else {"vendor_name": extracted.vendor_name}
                 )
                 if vendor_filter.get("vendor_tax_id") or vendor_filter.get("vendor_name"):
-                    conflict = ExpenseTicket.objects.filter(
-                        company=ticket.company,
-                        date_of_purchase=purchase_date,
-                        original_amount=Money(extracted.amount, extracted.currency or "EUR"),
+                    conflict_filter = {
+                        "company": ticket.company,
+                        "date_of_purchase": purchase_date,
+                        "original_amount": Money(extracted.amount, extracted.currency or "EUR"),
                         **vendor_filter,
-                    ).exclude(pk=ticket.pk).first()
+                    }
+                    if extracted.ticket_number:
+                        conflict_filter["ticket_number"] = extracted.ticket_number
+
+                    conflict = ExpenseTicket.objects.filter(**conflict_filter).exclude(pk=ticket.pk).first()
                     if conflict:
                         return TicketProcessingResult(
                             ticket=ticket,
                             success=False,
-                            messages=messages + [f"Conflict detected: another ticket ({conflict.id}) already has the same vendor, date, and amount for this company."],
+                            messages=messages + [f"Conflict detected: another ticket ({conflict.id}) already has the same vendor, date, amount{', and ticket number' if extracted.ticket_number else ''} for this company."],
                             is_duplicate=True,
                             duplicate_of=conflict,
                         )
@@ -86,6 +93,20 @@ class ExpenseTicketService:
                 ticket.vendor_city    = extracted.vendor_city or ticket.vendor_city
                 ticket.vendor_country = extracted.vendor_country or ticket.vendor_country
                 ticket.date_of_purchase = self._parse_date(extracted.date_of_purchase) or ticket.date_of_purchase
+                ticket.ticket_number = extracted.ticket_number or ticket.ticket_number
+
+                # Auto-link the ticket to a real Provider record, matched by tax ID
+                # and scoped to the ticket's company. Same lookup/create logic the
+                # invoices module uses, so a vendor is represented identically
+                # whether it comes in through an invoice or an expense ticket.
+                matched_provider = get_or_create_provider(
+                    ticket.vendor_tax_id,
+                    ticket.vendor_name,
+                    ticket.company,
+                )
+                if not matched_provider and not ticket.provider:
+                    messages.append("No tax ID extracted — provider not linked, needs manual review.")
+                ticket.provider = matched_provider or ticket.provider
 
                 if extracted.amount is not None:
                     ticket.original_amount = extracted.amount
@@ -99,7 +120,7 @@ class ExpenseTicketService:
 
                 ticket.save(update_fields=[
                     "vendor_name", "vendor_tax_id", "vendor_address", "vendor_city",
-                    "vendor_country", "date_of_purchase",
+                    "vendor_country", "date_of_purchase", "ticket_number", "provider",
                     "original_amount", "original_amount_currency",
                     "ocr_raw_response", "ocr_processing", "ocr_processed",
                     "ocr_error", "needs_manual_review",

@@ -28,6 +28,7 @@ class GeminiExpenseProcessor(BaseGeminiExtractor, TicketOcrInterface):
             "date_of_purchase",
             "amount",
             "currency",
+            "ticket_number",
         ],
         "properties": {
             "vendor_name":    {"type": "STRING", "nullable": True},
@@ -54,6 +55,16 @@ class GeminiExpenseProcessor(BaseGeminiExtractor, TicketOcrInterface):
                 "nullable": True,
                 "description": "ISO 4217 currency code, e.g. EUR, USD",
             },
+            "ticket_number": {
+                "type": "STRING",
+                "nullable": True,
+                "description": (
+                    "The receipt's own transaction/ticket/receipt number, distinct from "
+                    "the customer or vendor tax ID. Look for labels like 'Trans:', "
+                    "'Ticket No.', 'Folio', 'Nº ticket', 'Receipt No.', or the number on "
+                    "a simplified invoice. Null if none is printed."
+                ),
+            },
         },
     }
 
@@ -71,6 +82,11 @@ class GeminiExpenseProcessor(BaseGeminiExtractor, TicketOcrInterface):
     - amount is the final total the customer paid (including taxes).
     - currency is the ISO 4217 code. Default to EUR if not stated but context is Spain.
     - vendor_tax_id is the CIF/NIF/VAT number of the shop or vendor, NOT the customer.
+    - ticket_number is the receipt's own transaction/ticket/receipt/folio number
+      (e.g. "Trans: 1593295"), NOT the vendor's tax ID and NOT the customer's card
+      number. Two receipts from the same vendor on the same day for the same
+      amount (e.g. two toll charges) will have DIFFERENT ticket numbers — extract
+      exactly what is printed, do not invent one.
     """
 
     def _to_dataclass(self, data: Dict) -> TicketData:
@@ -83,6 +99,7 @@ class GeminiExpenseProcessor(BaseGeminiExtractor, TicketOcrInterface):
             date_of_purchase=self._parse_date(data.get("date_of_purchase")),
             amount=self._to_decimal(data.get("amount")),
             currency=(data.get("currency") or "EUR").upper(),
+            ticket_number=data.get("ticket_number"),
             raw_response=data,
         )
 

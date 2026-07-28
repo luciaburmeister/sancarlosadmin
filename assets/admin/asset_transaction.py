@@ -50,6 +50,7 @@ class AssetTransactionReceiptInline(TabularInline):
     fields = ("nro_albaran", "data", "movement_transaction", "foto_preview", "created_at")
     readonly_fields = ("foto_preview", "created_at", "movement_transaction","nro_albaran","data")
     can_delete = False
+    show_change_link = True
     verbose_name = "Albaran"
     verbose_name_plural = "Albaranes"
     tab=True
@@ -75,6 +76,7 @@ class RelatedMovementReceiptInline(TabularInline):
     fields = ("transaction", "nro_albaran", "data", "foto_preview", "created_at")
     readonly_fields = ("transaction", "nro_albaran", "data", "foto_preview", "created_at")
     can_delete = False
+    show_change_link = True
     verbose_name = "Recibo del Movimiento"
     verbose_name_plural = "Recibos del Movimiento"
     tab = True
@@ -87,6 +89,54 @@ class RelatedMovementReceiptInline(TabularInline):
         if obj.foto:
             return format_html(
                 '<a href="{0}" target="_blank"><img src="{0}" style="width:150px; height:100px; object-fit:cover; border:1px solid #ccc;" /></a>',
+                obj.foto.url
+            )
+        return "Sin foto"
+
+
+@admin.register(AssetTransactionReceipt)
+class AssetTransactionReceiptAdmin(ModelAdmin):
+    list_display = ("nro_albaran", "transaction", "movement_transaction", "foto_thumbnail", "created_at")
+    list_filter = (
+        ("transaction__asset", AutocompleteSelectMultipleFilter),
+        ("created_at", RangeDateTimeFilter),
+    )
+    search_fields = ("nro_albaran", "transaction__asset__name", "movement_transaction__asset__name")
+    autocomplete_fields = ["transaction", "movement_transaction"]
+    readonly_fields = ["foto_preview", "created_at"]
+    list_select_related = ["transaction__asset", "movement_transaction__asset"]
+    formfield_overrides = {
+        models.JSONField: {"widget": JSONEditorWidget},
+    }
+
+    fieldsets = (
+        (None, {
+            "fields": (
+                "transaction",
+                "movement_transaction",
+                "nro_albaran",
+                "foto",
+                "foto_preview",
+                "data",
+                "created_at",
+            )
+        }),
+    )
+
+    @admin.display(description="Foto")
+    def foto_thumbnail(self, obj):
+        if obj.foto:
+            return format_html(
+                '<a href="{0}" target="_blank"><img src="{0}" style="width:60px; height:40px; object-fit:cover; border:1px solid #ccc;" /></a>',
+                obj.foto.url
+            )
+        return "Sin foto"
+
+    @admin.display(description="Foto")
+    def foto_preview(self, obj):
+        if obj.foto:
+            return format_html(
+                '<a href="{0}" target="_blank"><img src="{0}" style="width:400px; height:300px; object-fit:contain; border:1px solid #ccc;" /></a>',
                 obj.foto.url
             )
         return "Sin foto"

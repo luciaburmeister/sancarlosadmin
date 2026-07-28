@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-07-24 21:42+0200\n"
+"POT-Creation-Date: 2026-07-28 09:38+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -9894,13 +9894,14 @@ msgid "Financials & Approval"
 msgstr "Finanzas y Aprobaciones"
 
 
+msgid "Approval"
+msgstr "Aprobación"
+
 msgid "Not Invoiced"
 msgstr "No Facturado"
 
-
 msgid "Partially Invoiced"
 msgstr "Parcialmente Facturado"
-
 
 msgid "Fully Invoiced"
 msgstr "Facturado"
@@ -9908,17 +9909,14 @@ msgstr "Facturado"
 msgid "Linked Invoices"
 msgstr "Facturas relacionadas"
 
-msgid "Send to Approval"
-msgstr "Mandar a aprobación"
-
 msgid "Purchase Order sent for approval."
 msgstr "Ordén de compra mandada a aprobación."
 
 msgid "Only Draft POs can be sent for approval."
 msgstr "Solo se pueden iniciar ordenes de compra pendientes."
 
-msgid "Approve PO"
-msgstr "Aprobar OC"
+msgid "Send to Approval"
+msgstr "Mandar a aprobación"
 
 msgid "Purchase Order approved successfully."
 msgstr "Orden de Compra generada con éxito."
@@ -9926,15 +9924,16 @@ msgstr "Orden de Compra generada con éxito."
 msgid "Only Pending POs can be approved."
 msgstr "Solo se pueden mandar a aprobar las ordenes de compra pendientes."
 
-#, fuzzy
-#| msgid "Register Payment"
-msgid "Register Identity Codes"
-msgstr "Registrar Pago"
+msgid "Approve PO"
+msgstr "Aprobar OC"
 
-#, fuzzy
-#| msgid "Create Invoice"
+
+msgid "Register Identity Codes"
+msgstr "Registrar Codigo"
+
+
 msgid "Match Invoice"
-msgstr "Crear factura"
+msgstr "Emparejar Factura"
 
 msgid "Receive items directly"
 msgstr "Recibir articulos"

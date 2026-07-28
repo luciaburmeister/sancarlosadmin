@@ -297,8 +297,25 @@ class InvoicePOAllocationInline(TabularInline):
         )
 
 
+class LineItemExportMixin:
+    """
+    Export resources registered alongside the header resource may target a
+    line-item model (e.g. InvoiceItem, SalesInvoiceItem) instead of this
+    admin's own model. django-import-export always builds the export
+    queryset from the admin's model, so when an item resource is chosen we
+    need to swap in the matching item queryset via its `invoice` FK.
+    """
+
+    def get_data_for_export(self, request, queryset, **kwargs):
+        export_form = kwargs.get("export_form")
+        export_class = self.choose_export_resource_class(export_form, request)
+        if export_class._meta.model is not self.model:
+            queryset = export_class._meta.model.objects.filter(invoice__in=queryset)
+        return super().get_data_for_export(request, queryset, **kwargs)
+
+
 @admin.register(Invoice)
-class InvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
+class InvoiceAdmin(LineItemExportMixin, ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     resource_classes = [InvoiceResource, InvoiceItemResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
@@ -858,7 +875,7 @@ class EmailLogInline(GenericTabularInline):
         return False
 
 @admin.register(SalesInvoice)
-class SalesInvoiceAdmin(ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
+class SalesInvoiceAdmin(LineItemExportMixin, ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     resource_classes = [SalesInvoiceResource, SalesInvoiceItemResource]
     export_form_class = SelectableFieldsExportForm
 

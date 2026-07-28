@@ -115,7 +115,15 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     inlines = [PurchaseOrderItemInline]
     
     actions_row = ["send_to_approval", "approve_po", "receive_directly"]
-    actions_detail = ["register_identity_codes", "match_invoice_detail_action"]
+    actions_detail = [
+        {
+            "title": _("Approval"),
+            "icon": "task_alt",
+            "items": ["send_to_approval_detail_action", "approve_po_detail_action"],
+        },
+        "register_identity_codes",
+        "match_invoice_detail_action",
+    ]
 
     @display(
         description=_("Status"),
@@ -194,24 +202,35 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         if obj and obj.status != PurchaseOrderStatus.DRAFT:
-            # If not in draft, everything is readonly
             return [f.name for f in self.model._meta.fields if f.name != "id"] + list(self.readonly_fields)
         return super().get_readonly_fields(request, obj)
 
-    @action(description=_("Send to Approval"))
-    def send_to_approval(self, request, object_id: int):
-        po = PurchaseOrder.objects.get(pk=object_id)
+    def _send_to_approval(self, request, po):
         if po.status == PurchaseOrderStatus.DRAFT:
             po.status = PurchaseOrderStatus.PENDING_APPROVAL
             po.save()
             self.message_user(request, _("Purchase Order sent for approval."))
         else:
             self.message_user(request, _("Only Draft POs can be sent for approval."), level="error")
+
+    @action(description=_("Send to Approval"))
+    def send_to_approval(self, request, object_id: int):
+        po = PurchaseOrder.objects.get(pk=object_id)
+        self._send_to_approval(request, po)
         return redirect("admin:purchasing_purchaseorder_changelist")
 
-    @action(description=_("Approve PO"), permissions=["can_approve_purchase_order"])
-    def approve_po(self, request, object_id: int):
+    @action(description=_("Send to Approval"), permissions=["po_is_draft"])
+    def send_to_approval_detail_action(self, request, object_id: int):
         po = PurchaseOrder.objects.get(pk=object_id)
+        self._send_to_approval(request, po)
+        return redirect(reverse("admin:purchasing_purchaseorder_change", args=[object_id]))
+
+    def has_po_is_draft_permission(self, request, object_id=None):
+        if not object_id:
+            return True
+        return PurchaseOrder.objects.filter(pk=object_id, status=PurchaseOrderStatus.DRAFT).exists()
+
+    def _approve_po(self, request, po):
         if po.status == PurchaseOrderStatus.PENDING_APPROVAL:
             po.status = PurchaseOrderStatus.APPROVED
             po.approved_by = request.user
@@ -220,10 +239,26 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
             self.message_user(request, _("Purchase Order approved successfully."))
         else:
             self.message_user(request, _("Only Pending POs can be approved."), level="error")
+
+    @action(description=_("Approve PO"), permissions=["can_approve_purchase_order"])
+    def approve_po(self, request, object_id: int):
+        po = PurchaseOrder.objects.get(pk=object_id)
+        self._approve_po(request, po)
         return redirect("admin:purchasing_purchaseorder_changelist")
 
-    def has_can_approve_purchase_order_permission(self, request, obj=None):
+    @action(description=_("Approve PO"), permissions=["can_approve_purchase_order", "po_is_pending_approval"])
+    def approve_po_detail_action(self, request, object_id: int):
+        po = PurchaseOrder.objects.get(pk=object_id)
+        self._approve_po(request, po)
+        return redirect(reverse("admin:purchasing_purchaseorder_change", args=[object_id]))
+
+    def has_can_approve_purchase_order_permission(self, request, object_id=None):
         return request.user.has_perm("purchasing.can_approve_purchase_order")
+
+    def has_po_is_pending_approval_permission(self, request, object_id=None):
+        if not object_id:
+            return True
+        return PurchaseOrder.objects.filter(pk=object_id, status=PurchaseOrderStatus.PENDING_APPROVAL).exists()
 
     @action(description=_("Register Identity Codes"), icon="qr_code_2")
     def register_identity_codes(self, request, object_id: int):

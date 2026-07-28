@@ -10045,23 +10045,20 @@ msgstr "Elige un archivo..."
 msgid "Upload photo or scan of the provider's delivery note"
 msgstr "Cargue una foto o escaneo del comprobante de entrega del proveedor."
 
-#, fuzzy
-#| msgid "Receiving"
+
 msgid "Receiving Now"
 msgstr "Recibiendo"
 
-#, fuzzy
-#| msgid "Confirmed"
+
 msgid "Confirm Reception"
-msgstr "Confirmado"
+msgstr "Confirmar Recepción"
 
 msgid "No items have been received yet for this Purchase Order."
 msgstr "No se han recibido artículos aún para esta Orden de Compra."
 
-#, fuzzy
-#| msgid "Reference code"
+
 msgid "Registered codes"
-msgstr "Código de referencia"
+msgstr "Registrar códigos"
 
 msgid "Add new codes (one per line)"
 msgstr "Agregar nuevos códigos (uno por línea)"
@@ -10069,33 +10066,25 @@ msgstr "Agregar nuevos códigos (uno por línea)"
 msgid "Save Identity Codes"
 msgstr "Guardar Códigos de Identidad"
 
-#, fuzzy
-#| msgid "Machine"
+
 msgid "Match PO Lines"
-msgstr "Máquina"
+msgstr "Emparejar lineas OC"
 
-#, fuzzy
-#| msgid "Invoice Info"
+
 msgid "Match Invoice for PO"
-msgstr "Información de factura"
+msgstr "Emparejar factura para OC"
 
-#, fuzzy
-#| msgid "Create Invoice"
 msgid "Choose another invoice"
-msgstr "Crear factura"
+msgstr "Escoger otra factura"
 
-#, fuzzy
-#| msgid "Payment Method"
+
 msgid "Suggested invoices"
-msgstr "Método de Pago"
+msgstr "Facturas sugeridas"
 
-#, fuzzy
-#| msgid "Total price (after tax)"
+
 msgid "Total (excl. tax)"
-msgstr "Precio total"
+msgstr "Total (excl. Impuestos)"
 
-#, fuzzy
-#| msgid "Unmatched"
 msgid "Unmatched Lines"
 msgstr "Sin emparejar"
 
@@ -10109,24 +10098,21 @@ msgstr "Componente"
 msgid "No candidate invoices found for this provider with unmatched lines."
 msgstr "No se han encontrado presupuestos aceptados para este expediente."
 
-#, fuzzy
-#| msgid "Back to list"
+
 msgid "Back to PO"
-msgstr "Volver a la lista"
+msgstr "Volver a O.C."
 
 msgid "Needs an invoice line match"
 msgstr "Necesita una coincidencia de línea de factura"
 
-#, fuzzy
-#| msgid "Create Invoice"
+
 msgid "Match to Invoice Line"
-msgstr "Crear factura"
+msgstr "Emparejar con línea de factura"
 
 msgid "— No matching invoice line —"
 msgstr "— No hay línea de factura que coincida —"
 
-#, fuzzy
-#| msgid "Unmatched"
+
 msgid "unmatched"
 msgstr "Sin emparejar"
 
@@ -10138,10 +10124,9 @@ msgid_plural "%(counter)s line(s) still need an invoice match."
 msgstr[0] "%(counter)s empleado del archivo no se pudo emparejar."
 msgstr[1] "%(counter)s empleados del archivo no se pudieron emparejar."
 
-#, fuzzy
-#| msgid "Receival Slip Items"
+
 msgid "Receive Items Directly"
-msgstr "Artículos del Recibo de Entrega"
+msgstr "Recibir artículos directamente"
 
 #, python-format
 msgid "Receipt %(number)s created successfully with %(count)d items."
@@ -10169,35 +10154,30 @@ msgstr "Solo las órdenes de compra aprobadas o cerradas pueden ser emparejadas 
 msgid "%(count)d invoice lines"
 msgstr "Se empezaron %(count)d elementos en todos los tickets."
 
-#, fuzzy
-#| msgid "Collected"
+
 msgid "No invoice was selected."
-msgstr "Cobrado"
+msgstr "No se seleccionó ninguna factura."
 
 #, fuzzy, python-format
 #| msgid "Started %(count)d items across all tickets."
 msgid "%(count)d line(s) matched to invoice %(number)s."
 msgstr "Se empezaron %(count)d elementos en todos los tickets."
 
-#, fuzzy
-#| msgid "Address"
+
 msgid "Addresses"
-msgstr "Dirección"
+msgstr "Direcciónes"
 
-#, fuzzy
-#| msgid "Contexto"
+
 msgid "Contacts"
-msgstr "Contexto"
+msgstr "Contactos"
 
-#, fuzzy
-#| msgid "Is Default"
+
 msgid "Default tax"
-msgstr "Es default"
+msgstr "Impuesto predeterminado"
 
-#, fuzzy
-#| msgid "Default Value"
+
 msgid "Default taxes"
-msgstr "Valor predeterminado"
+msgstr "Impuestos predeterminados"
 
 msgid "Balance owed (they owe us)"
 msgstr "Saldo adeudado (nos deben)"
@@ -10205,10 +10185,9 @@ msgstr "Saldo adeudado (nos deben)"
 msgid "T&C firmados"
 msgstr "T&C firmados"
 
-#, fuzzy
-#| msgid "Confirmed"
+
 msgid "Sin firma"
-msgstr "Confirmado"
+msgstr "Sin firma"
 
 msgid "Sales & Territory"
 msgstr "Ventas y Territorio"
@@ -10219,10 +10198,9 @@ msgstr "Finanzas y Seguro"
 msgid "Versión T&C"
 msgstr "Versión T&C"
 
-#, fuzzy
-#| msgid "General Information"
+
 msgid "Agent Information"
-msgstr "Información General"
+msgstr "Información del Agente"
 
 msgid "Shipping"
 msgstr "Envío"

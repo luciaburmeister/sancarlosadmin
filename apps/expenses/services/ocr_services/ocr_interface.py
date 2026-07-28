@@ -22,6 +22,7 @@ class TicketData:
     date_of_purchase: Optional[str] # YYYY-MM-DD
     amount: Optional[Decimal]
     currency: Optional[str]         # ISO 4217 code, e.g. "EUR"
+    ticket_number: Optional[str] = None  # transaction/ticket/receipt number printed on the ticket
     raw_response: Optional[Dict] = None
 
 

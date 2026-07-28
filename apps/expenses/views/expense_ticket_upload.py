@@ -17,13 +17,21 @@ class ExpenseTicketUploadAdminView(UnfoldModelAdminViewMixin, FormView):
     permission_required = ("expenses.add_expenseticket",)
     template_name = "admin/expenses/expenseticket_upload.html"
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["user"] = self.request.user
+        return kwargs
+
+    def get_initial(self):
+        initial = super().get_initial()
+        company = get_user_companies(self.request.user).first()
+        if company:
+            initial["company"] = company.pk
+        return initial
+
     def get_form(self, form_class=None):
         form = super().get_form(form_class)
-        # Pre-set company and submitted_by on the instance so clean() can
-        # use company_id for the duplicate check before the form is saved.
         form.instance.submitted_by = self.request.user
-        company = get_user_companies(self.request.user).first()
-        form.instance.company = company
         return form
 
     def form_valid(self, form):

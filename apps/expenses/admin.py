@@ -248,12 +248,13 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "submitted_by",
         "date_of_purchase",
         "original_amount",
+        "ticket_number",
         "claim",
         "ocr_status",
     )
     list_filter = ("company","date_of_purchase","claim", "needs_manual_review", "ocr_processed")
-    search_fields = ("vendor_name", "vendor_tax_id", "submitted_by__email")
-    autocomplete_fields = ("company", "submitted_by")
+    search_fields = ("vendor_name", "vendor_tax_id", "ticket_number", "submitted_by__email")
+    autocomplete_fields = ("company", "submitted_by", "provider")
     readonly_fields = (
         "claim",
         "file_hash",
@@ -314,6 +315,7 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
             _("Vendor"),
             {
                 "fields": (
+                    "provider",
                     "vendor_name",
                     "vendor_tax_id",
                     ("vendor_address", "vendor_city", "vendor_country"),

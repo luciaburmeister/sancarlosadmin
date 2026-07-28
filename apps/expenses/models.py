@@ -290,8 +290,24 @@ class ExpenseTicket(CompanyOwnedModel):
         verbose_name=_("Date of Purchase"),
         help_text="Date printed on the ticket, filled by OCR"
     )
+    ticket_number = models.CharField(
+        max_length=100,
+        blank=True,
+        default='',
+        verbose_name=_("Ticket Number"),
+        help_text="Transaction/ticket/receipt number printed on the ticket, filled by OCR"
+    )
 
     # --- Vendor fields ---
+    provider = models.ForeignKey(
+        'materials.Provider',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='expense_tickets',
+        verbose_name=_("Provider"),
+        help_text="Linked Provider record, auto-matched by tax ID during OCR (or set manually)."
+    )
     vendor_name = models.CharField(
         max_length=255,
         blank=True,

@@ -1,0 +1,161 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{% trans "Tracking de conductores" %}</h1>
+</div>
+
+{# ── Filtros ── #}
+<form method="get" class="flex flex-wrap gap-4 items-end mb-8">
+    <div>
+        <label for="employee" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            {% trans "Conductor" %}
+        </label>
+        <select name="employee" id="employee"
+            class="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white min-w-48">
+            <option value="">— {% trans "Todos" %} —</option>
+            {% for driver in drivers %}
+                <option value="{{ driver.id }}" {% if selected_employee == driver.id|stringformat:"s" %}selected{% endif %}>
+                    {{ driver.full_name }}
+                </option>
+            {% endfor %}
+        </select>
+    </div>
+    <div>
+        <label for="date" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            {% trans "Fecha" %}
+        </label>
+        <input type="date" name="date" id="date"
+            value="{{ selected_date|default:'' }}"
+            class="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+    </div>
+    <button type="submit"
+        class="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-md">
+        {% trans "Filtrar" %}
+    </button>
+    {% if selected_employee or selected_date %}
+    <a href="?"
+        class="px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
+        {% trans "Limpiar" %}
+    </a>
+    {% endif %}
+</form>
+
+{# ── Mapa ── #}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<div class="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden mb-8">
+    <div id="map" style="height:480px;width:100%;"></div>
+</div>
+
+<script>
+const locations = {{ locations_json|safe }};
+
+const map = L.map('map').setView(
+    locations.length > 0 ? [locations[0].lat, locations[0].lon] : [40.416775, -3.703790],
+    locations.length > 0 ? 13 : 6
+);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors'
+}).addTo(map);
+
+const driverColors = {};
+const palette = ['#2563eb','#dc2626','#16a34a','#d97706','#7c3aed','#db2777'];
+let colorIndex = 0;
+
+function getColor(name) {
+    if (!driverColors[name]) driverColors[name] = palette[colorIndex++ % palette.length];
+    return driverColors[name];
+}
+
+function makeIcon(color) {
+    return L.divIcon({
+        html: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">
+            <circle cx="7" cy="7" r="6" fill="${color}" stroke="white" stroke-width="2"/></svg>`,
+        className: '', iconSize: [14,14], iconAnchor: [7,7], popupAnchor: [0,-10]
+    });
+}
+
+const bounds = [];
+const pointsByDriver = {};
+
+locations.forEach(loc => {
+    const color = getColor(loc.driver);
+    L.marker([loc.lat, loc.lon], { icon: makeIcon(color) })
+        .addTo(map)
+        .bindPopup(`<strong>${loc.driver}</strong><br>${loc.timestamp}<br>
+            <span style="color:#666;font-size:12px">${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}</span>`);
+    bounds.push([loc.lat, loc.lon]);
+    if (!pointsByDriver[loc.driver]) pointsByDriver[loc.driver] = [];
+    pointsByDriver[loc.driver].push([loc.lat, loc.lon]);
+});
+
+if (bounds.length > 1) map.fitBounds(bounds, { padding: [30,30] });
+
+Object.entries(pointsByDriver).forEach(([driver, points]) => {
+    if (points.length > 1)
+        L.polyline(points, { color: getColor(driver), weight: 2, opacity: 0.5, dashArray: '5,5' }).addTo(map);
+});
+
+function focusPoint(lat, lon) {
+    map.setView([lat, lon], 16);
+    map.eachLayer(layer => {
+        if (layer instanceof L.Marker) {
+            const p = layer.getLatLng();
+            if (Math.abs(p.lat - lat) < 0.00001 && Math.abs(p.lng - lon) < 0.00001)
+                layer.openPopup();
+        }
+    });
+    document.getElementById('map').scrollIntoView({ behavior: 'smooth' });
+}
+</script>
+
+{# ── Tabla ── #}
+<div class="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+        <h2 class="text-base font-semibold text-gray-900 dark:text-white">
+            {% trans "Registros" %}
+            {% if logs %}
+                <span class="ml-2 text-sm font-normal text-gray-500">({{ logs|length }} pings)</span>
+            {% endif %}
+        </h2>
+    </div>
+    {% if logs %}
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 dark:bg-gray-800 text-left">
+                <tr>
+                    <th class="px-6 py-3 font-medium text-gray-500 dark:text-gray-400">{% trans "Conductor" %}</th>
+                    <th class="px-6 py-3 font-medium text-gray-500 dark:text-gray-400">{% trans "Fecha y hora" %}</th>
+                    <th class="px-6 py-3 font-medium text-gray-500 dark:text-gray-400">{% trans "Latitud" %}</th>
+                    <th class="px-6 py-3 font-medium text-gray-500 dark:text-gray-400">{% trans "Longitud" %}</th>
+                    <th class="px-6 py-3"></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
+                {% for log in logs %}
+                <tr class="hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <td class="px-6 py-3 font-medium text-gray-900 dark:text-white">{{ log.employee.full_name }}</td>
+                    <td class="px-6 py-3 text-gray-600 dark:text-gray-300">{{ log.recorded_at|date:"d/m/Y H:i" }}</td>
+                    <td class="px-6 py-3 font-mono text-gray-600 dark:text-gray-300">{{ log.latitude }}</td>
+                    <td class="px-6 py-3 font-mono text-gray-600 dark:text-gray-300">{{ log.longitude }}</td>
+                    <td class="px-6 py-3">
+                        <button onclick="focusPoint({{ log.latitude }}, {{ log.longitude }})"
+                            class="px-3 py-1 text-xs font-medium bg-primary-600 hover:bg-primary-700 text-white rounded">
+                            {% trans "Ver" %}
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="px-6 py-8 text-center text-gray-500 dark:text-gray-400 text-sm">
+        {% trans "No hay registros para los filtros seleccionados." %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

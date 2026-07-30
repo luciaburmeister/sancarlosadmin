@@ -8,7 +8,7 @@ from django.db import models
 from django.urls import path, reverse
 from django.shortcuts import redirect
 from django.http import HttpRequest
-from assets.models import AssetTransaction, AssetTransactionReceipt
+from assets.models import AssetTransaction, AssetTransactionReceipt, AssetTransactionPhoto
 from django.contrib.contenttypes.models import ContentType
 from assets.models import AssetTransaction, BillingStatus
 from assets.resources import AssetTransactionResource
@@ -16,7 +16,7 @@ from assets.views import AssetTransactionExportView
 from import_export.admin import ExportMixin
 from unfold.admin import ModelAdmin
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
-from unfold.admin import GenericTabularInline as _GenericTabularInline,TabularInline
+from unfold.admin import GenericTabularInline as _GenericTabularInline, TabularInline
 from unfold.decorators import action, display
 from django_json_widget.widgets import JSONEditorWidget
 from django.utils.translation import gettext_lazy as _
@@ -43,17 +43,16 @@ class AssetTransactionEmailLogInline(_GenericTabularInline):
 
 
 class AssetTransactionReceiptInline(TabularInline):
-    """Shows receipts (albaranes) attached to this transaction."""
     model = AssetTransactionReceipt
     fk_name = "transaction"
     extra = 0
     fields = ("nro_albaran", "data", "movement_transaction", "foto_preview", "created_at")
-    readonly_fields = ("foto_preview", "created_at", "movement_transaction","nro_albaran","data")
+    readonly_fields = ("foto_preview", "created_at", "movement_transaction", "nro_albaran", "data")
     can_delete = False
     show_change_link = True
     verbose_name = "Albaran"
     verbose_name_plural = "Albaranes"
-    tab=True
+    tab = True
 
     def has_add_permission(self, request, obj=None):
         return False
@@ -64,6 +63,29 @@ class AssetTransactionReceiptInline(TabularInline):
             return format_html(
                 '<a href="{0}" target="_blank"><img src="{0}" style="width:150px; height:100px; object-fit:cover; border:1px solid #ccc;" /></a>',
                 obj.foto.url
+            )
+        return "Sin foto"
+
+
+class AssetTransactionPhotoInline(TabularInline):
+    model = AssetTransactionPhoto
+    extra = 0
+    tab = True
+    verbose_name = _("Photo")
+    verbose_name_plural = _("Photos")
+    fields = ("photo_type", "photo_preview", "created_at")
+    readonly_fields = ("photo_preview", "created_at", "photo_type")
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description="Photo")
+    def photo_preview(self, obj):
+        if obj.photo:
+            return format_html(
+                '<a href="{}" target="_blank"><img src="{}" style="width:200px; height:150px; object-fit:cover; border:1px solid #ccc;" /></a>',
+                obj.photo.url, obj.photo.url
             )
         return "Sin foto"
 
@@ -155,7 +177,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         ("asset__client", AutocompleteSelectMultipleFilter),
         ("from_zone", AutocompleteSelectMultipleFilter),
         ("to_zone", AutocompleteSelectMultipleFilter),
-        ("date",RangeDateTimeFilter),
+        ("date", RangeDateTimeFilter),
         ("performed_by", AutocompleteSelectMultipleFilter),
         ("asset", AutocompleteSelectMultipleFilter)
     )
@@ -165,7 +187,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
     readonly_fields = ["firma_preview", "imagen_link", "performed_by", "material_vertido_display", "peso_neto_display"]
     list_select_related = ["from_zone__company", "to_zone__company", "company", "performed_by__company", "asset__asset_type"]
     list_filter_submit = True
-    inlines = [AssetTransactionEmailLogInline, AssetTransactionReceiptInline, RelatedMovementReceiptInline]
+    inlines = [AssetTransactionEmailLogInline, AssetTransactionReceiptInline, AssetTransactionPhotoInline, RelatedMovementReceiptInline]
 
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
@@ -203,10 +225,11 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         if obj.performed_by:
             return obj.performed_by.full_name
         return "—"
+
     @admin.display(boolean=True, description="Firma")
     def has_firma(self, obj):
         return bool(obj.firma) or bool(obj.firma_image)
-    
+
     @admin.display(description="Firma")
     def firma_preview(self, obj):
         if obj.firma_image:
@@ -303,7 +326,6 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         if receipt and receipt.data:
             return receipt.data.get("peso_neto", "—")
         return "—"
-    # --- Billing status ---
 
     @display(
         description=_("Billing"),
@@ -318,10 +340,8 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
     def billing_status_badge(self, obj):
         return obj.get_billing_status_display()
 
-
     @action(description=_("Create Work Entry"), icon="add_task")
     def create_work_entry_row_action(self, request, object_id):
-        """Create work entries from this transaction for all missing expected types."""
         from management.services.work_entry import WorkEntryService
 
         transaction = AssetTransaction.objects.select_related(
@@ -360,7 +380,6 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
                     "Failed to create entry '%(name)s': %(error)s"
                 ) % {"name": wtype.name, "error": str(e)})
 
-        # Update billing status on the transaction
         if errors and not created:
             transaction.billing_status = BillingStatus.FAILED
         elif errors:
@@ -380,7 +399,6 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
 
     @action(description=_("Generate All Work Entries"))
     def generate_all_work_entries(self, request, queryset):
-        """Bulk action: dispatch work entry generation to Celery."""
         from core.tasks import generate_work_entries_task
 
         transaction_ids = list(queryset.values_list("pk", flat=True))

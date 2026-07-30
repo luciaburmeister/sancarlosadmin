@@ -6,7 +6,7 @@ from simple_history.admin import SimpleHistoryAdmin
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django_json_widget.widgets import JSONEditorWidget
-from assets.models import Asset, AssetIdentifier, AssetTransaction, AssetDocument, AssetDocumentType
+from assets.models import Asset, AssetIdentifier, AssetTransaction, AssetDocument, AssetDocumentType, MachinePermission
 from assets.forms import AssetForm, AssetAddForm, build_asset_data_form_fields, DATA_FIELD_PREFIX
 from assets.resources import AssetResource
 from unfold.widgets import UnfoldAdminSelectWidget
@@ -17,8 +17,10 @@ from django.http import HttpResponse, HttpResponseRedirect
 from assets.utils import generate_asset_qr_grid
 from company.forms import BaseDocumentForm
 from unfold.contrib.filters.admin import AutocompleteSelectFilter
+from django.forms import Textarea
 from import_export.admin import ImportExportModelAdmin
 from unfold.contrib.import_export.forms import ImportForm, SelectableFieldsExportForm
+
 
 
 class AssetDocumentForm(BaseDocumentForm):
@@ -38,18 +40,21 @@ class AssetDocumentInline(StackedInline):
     fieldsets = (
         (None, {
             "fields": (
-                ("document_type",  "file"),
-                ("does_not_expire","is_active"),
+                ("document_type", "file"),
+                ("does_not_expire", "is_active"),
                 ("issue_date", "expiry_date"),
                 "notes",
             )
         }),
     )
+
+
 @admin.register(AssetDocumentType)
-class AssetDocumentTypeAdmin(CompanyRestrictedAdmin,ModelAdmin):
+class AssetDocumentTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ("name", "company")
     search_fields = ("name",)
     autocomplete_fields = ["company"]
+
 
 class AssetIdentifierInline(TabularInline):
     model = AssetIdentifier
@@ -101,7 +106,30 @@ class AssetTransactionInline(StackedInline):
             },
         ),
     )
-    
+
+
+class MachinePermissionInline(TabularInline):
+    model = MachinePermission
+    extra = 1
+    tab = True
+    verbose_name = _("Authorized Employee")
+    verbose_name_plural = _("Authorized Employees")
+    fields = ("employee", "notes", "granted_at")
+    readonly_fields = ("granted_at",)
+    autocomplete_fields = ["employee"]
+    exclude = ["company"]
+    formfield_overrides = {
+        models.TextField: {"widget": Textarea(attrs={"rows": 2, "cols": 30, "style": "border: 1px solid #ccc; border-radius: 4px; padding: 4px;"})},
+    }
+
+    def save_new_objects(self, form, commit=True):
+        obj = super().save_new_objects(form, commit=False)
+        return obj
+
+    def save_model(self, request, obj, form, change):
+        if obj.asset and obj.asset.company:
+            obj.company = obj.asset.company
+        super().save_model(request, obj, form, change)
 
 
 @admin.register(Asset)
@@ -112,7 +140,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
     list_display = ("name", "asset_type", "client", "current_working_zone", "zone_client", "provider", "assigned_to", "qr_link", "get_identifiers","is_active")
     list_filter = (("asset_type",AutocompleteSelectMultipleFilter), ("client",AutocompleteSelectMultipleFilter), ("provider",AutocompleteSelectMultipleFilter), ("assigned_to",AutocompleteSelectMultipleFilter),("company",AutocompleteSelectMultipleFilter),"is_active")
     search_fields = ("name", "identifiers__value")
-    inlines = [AssetIdentifierInline, AssetTransactionInline, AssetDocumentInline]
+    inlines = [AssetIdentifierInline, AssetTransactionInline, AssetDocumentInline, MachinePermissionInline]
     actions = ["download_qr_grid"]
     form = AssetForm
     list_editable = ("is_active",)
@@ -200,7 +228,6 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
         return redirect(url)
 
     def qr_code_preview(self, obj):
-        """Shows the QR code image directly in the asset detail page."""
         if obj.pk:
             url = f"/api/assets/{obj.pk}/qr/"
             return format_html(
@@ -214,7 +241,6 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
     qr_code_preview.short_description = _("QR Code")
 
     def qr_link(self, obj):
-        """Shows a small QR link in the asset list."""
         if obj.pk:
             url = f"/api/assets/{obj.pk}/qr/"
             return format_html('<a href="{}" target="_blank"> QR</a>', url)
@@ -231,17 +257,15 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
 
     @admin.action(description=_("Download QR Grid"))
     def download_qr_grid(self, request, queryset):
-        """Action to download a grid of QR codes for the selected assets."""
         buffer = generate_asset_qr_grid(queryset)
         if not buffer:
             self.message_user(request, _("No selected assets for generation."), level="error")
             return None
-            
         response = HttpResponse(buffer.getvalue(), content_type="image/png")
         response["Content-Disposition"] = 'attachment; filename="assets_qr_grid.png"'
         return response
 
-    def get_queryset(self,request):
+    def get_queryset(self, request):
         qs = super().get_queryset(request)
         qs = qs.prefetch_related("identifiers")
         return qs

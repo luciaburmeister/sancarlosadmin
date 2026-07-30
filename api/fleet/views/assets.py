@@ -3,17 +3,16 @@ import io
 import json
 import uuid
 import logging
-
+from datetime import datetime
 import qrcode
-from company.models import WorkingZone
+from company.models import WorkingZone, WorkingZoneAuthorization
 from django.core.files.base import ContentFile
-from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt
+from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission
 from core.tasks import send_asset_transaction_email_task
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
-
 from api.constants import MAX_ZONE_RADIUS_M
 from api.fleet.serializers import AssetTransactionSerializer
 from api.fleet.utils import find_zone_within_radius, get_zone_coordinates, haversine_distance, find_zones_within_radius
@@ -30,6 +29,71 @@ def _base64_to_image_file(b64_string):
         return ContentFile(image_data, name=f"{uuid.uuid4()}.jpg")
     except Exception:
         return None
+
+
+def _save_transaction_photo(transaction, b64_string, photo_type):
+    photo_file = _base64_to_image_file(b64_string)
+    if photo_file:
+        try:
+            photo = AssetTransactionPhoto(transaction=transaction, photo_type=photo_type)
+            photo.photo.save(photo_file.name, photo_file, save=True)
+        except Exception:
+            pass
+
+
+def _now_iso():
+    return timezone.now().isoformat()
+
+
+def _today_str():
+    return str(timezone.now().date())
+
+
+def _parse_dt(iso_str):
+    if not iso_str:
+        return None
+    try:
+        return datetime.fromisoformat(iso_str)
+    except Exception:
+        return None
+
+
+def _format_time(iso_str):
+    dt = _parse_dt(iso_str)
+    return dt.strftime("%H:%M") if dt else None
+
+
+# ── QuerySet helpers using has_key (confirmed working) ────────────────────────
+
+def _open_machine_qs(asset, employee, today):
+    qs = AssetTransaction.objects.filter(
+        performed_by=employee,
+        transaction_type=TransactionTypeChoices.MACHINE_HOURS,
+        data__machine_start_time__startswith=today,
+    ).exclude(data__has_key='machine_end_time')
+    if asset is not None:
+        qs = qs.filter(asset=asset)
+    return qs
+
+
+def _closed_machine_qs(asset, employee, today):
+    qs = AssetTransaction.objects.filter(
+        performed_by=employee,
+        transaction_type=TransactionTypeChoices.MACHINE_HOURS,
+        data__machine_start_time__startswith=today,
+        data__has_key='machine_end_time',
+    )
+    if asset is not None:
+        qs = qs.filter(asset=asset)
+    return qs
+
+
+def _open_laborer_qs(employee, today):
+    return AssetTransaction.objects.filter(
+        performed_by=employee,
+        transaction_type=TransactionTypeChoices.LABORER_HOURS,
+        data__laborer_start_time__startswith=today,
+    ).exclude(data__has_key='laborer_end_time')
 
 
 def get_asset_status(last_transaction):
@@ -49,26 +113,12 @@ def get_asset_status(last_transaction):
 
 
 def get_asset_receipt(asset):
-    last_movement = (
-        AssetTransaction.objects.filter(
-            asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT
-        )
-        .order_by("-date")
-        .first()
-    )
+    last_movement = AssetTransaction.objects.filter(asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT).order_by("-date").first()
     if last_movement is None:
         return False
-
-    last_receipt = (
-        AssetTransaction.objects.filter(
-            asset=asset, transaction_type=TransactionTypeChoices.RECEIPT
-        )
-        .order_by("-date")
-        .first()
-    )
+    last_receipt = AssetTransaction.objects.filter(asset=asset, transaction_type=TransactionTypeChoices.RECEIPT).order_by("-date").first()
     if last_receipt is None:
         return False
-
     return last_receipt.date > last_movement.date
 
 
@@ -94,10 +144,8 @@ def asset_transaction_imagen_view(request, transaction_id):
         transaction = AssetTransaction.objects.get(id=transaction_id)
     except AssetTransaction.DoesNotExist:
         return HttpResponse("Not found", status=404)
-
     if not transaction.imagen:
         return HttpResponse("No image", status=404)
-
     image_data = base64.b64decode(transaction.imagen)
     return HttpResponse(image_data, content_type="image/jpeg")
 
@@ -109,9 +157,7 @@ class AssetsListView(APIView):
         employee = get_current_employee(request.user)
         if employee is None:
             return JsonResponse({"assets": []})
-        assets = Asset.objects.select_related("asset_type", "current_working_zone").filter(
-            assigned_to=employee
-        )
+        assets = Asset.objects.select_related("asset_type", "current_working_zone").filter(assigned_to=employee)
         data = []
         for asset in assets:
             last_tx = asset.transactions.order_by("-date").first()
@@ -210,73 +256,47 @@ class MovementStrategy(BaseTransactionStrategy):
         asset = self.asset
         employee = self.employee
         user = self.user
-
         latitude = data.get("latitude", 0)
         longitude = data.get("longitude", 0)
-        form_data = {k: v for k, v in data.items() if k not in (
-            "transaction_type", "latitude", "longitude", "firma", "imagen", "zone_id"
-        )}
+        form_data = {k: v for k, v in data.items() if k not in ("transaction_type", "latitude", "longitude", "firma", "imagen", "zone_id")}
         distance = None
         chosen_zone_id = data.get("zone_id")
-
         if chosen_zone_id:
             try:
-                detected_zone = WorkingZone.objects.select_related("client").get(
-                    id=chosen_zone_id, company=asset.company
-                )
+                detected_zone = WorkingZone.objects.select_related("client").get(id=chosen_zone_id, company=asset.company)
                 asset.current_working_zone = detected_zone
                 asset.save(update_fields=["current_working_zone"])
             except WorkingZone.DoesNotExist:
                 return JsonResponse({"error": "Zona no encontrada."}, status=400)
-
         elif asset.current_working_zone is not None:
             zone_lat, zone_lon = get_zone_coordinates(asset.current_working_zone)
             if zone_lat is not None:
                 distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
                 if distance > MAX_ZONE_RADIUS_M:
-                    return JsonResponse({
-                        "error": f"Estas demasiado lejos de {asset.current_working_zone}. "
-                                 f"Estas a {int(distance)}m. Debes estar a menos de {MAX_ZONE_RADIUS_M}m."
-                    }, status=400)
-
+                    return JsonResponse({"error": f"Estas demasiado lejos de {asset.current_working_zone}. Estas a {int(distance)}m. Debes estar a menos de {MAX_ZONE_RADIUS_M}m."}, status=400)
         else:
             nearby_zones = find_zones_within_radius(latitude, longitude, asset.company)
             if len(nearby_zones) == 0:
                 return JsonResponse({"error": "No estas cerca de ninguna zona conocida."}, status=400)
             elif len(nearby_zones) > 1:
-                return JsonResponse({
-                    "multiple_zones": True,
-                    "zones": [{"id": z.id, "name": str(z)} for z, d in nearby_zones]
-                }, status=200)
+                return JsonResponse({"multiple_zones": True, "zones": [{"id": z.id, "name": str(z)} for z, d in nearby_zones]}, status=200)
             else:
                 detected_zone, distance = nearby_zones[0]
                 asset.current_working_zone = detected_zone
                 asset.save(update_fields=["current_working_zone"])
-
-        # Inject client from the detected zone — driver no longer picks this manually.
-        # current_working_zone was just set above in all branches.
         zone = asset.current_working_zone
         if zone:
-            # If zone came from find_zones_within_radius it may not have client
-            # prefetched, so do a targeted select_related fetch when needed.
             if zone.client_id and not hasattr(zone, '_client_cache'):
                 zone = WorkingZone.objects.select_related("client").get(pk=zone.pk)
             form_data["cliente"] = zone.client.name if zone.client else ""
         else:
             form_data["cliente"] = ""
-
         distance_note = f"Distancia: {int(distance)}m" if distance is not None else "Sin zona asignada"
         transaction = AssetTransaction(
-            asset=asset,
-            company=asset.company,
-            from_zone=asset.current_working_zone,
-            to_zone=None,
-            transaction_type=TransactionTypeChoices.MOVEMENT,
-            date=timezone.now(),
-            performed_by=employee,
+            asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=None,
+            transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(), performed_by=employee,
             project_file=asset.current_working_zone.project_file if asset.current_working_zone else None,
-            notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. {distance_note}",
-            data=form_data,
+            notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. {distance_note}", data=form_data,
         )
         self._save_firma_and_imagen(transaction)
         transaction.save()
@@ -290,20 +310,13 @@ class DeliveryStrategy(BaseTransactionStrategy):
         asset = self.asset
         employee = self.employee
         user = self.user
-
         latitude = data.get("latitude", 0)
         longitude = data.get("longitude", 0)
-        form_data = {k: v for k, v in data.items() if k not in (
-            "transaction_type", "latitude", "longitude", "firma", "imagen", "zone_id"
-        )}
-
+        form_data = {k: v for k, v in data.items() if k not in ("transaction_type", "latitude", "longitude", "firma", "imagen", "zone_id")}
         chosen_zone_id = data.get("zone_id")
-
         if chosen_zone_id:
             try:
-                destination_zone = WorkingZone.objects.select_related("client").get(
-                    id=chosen_zone_id, company=asset.company
-                )
+                destination_zone = WorkingZone.objects.select_related("client").get(id=chosen_zone_id, company=asset.company)
                 distance = 0
             except WorkingZone.DoesNotExist:
                 return JsonResponse({"error": "Zona no encontrada."}, status=400)
@@ -312,27 +325,15 @@ class DeliveryStrategy(BaseTransactionStrategy):
             if len(nearby_zones) == 0:
                 return JsonResponse({"error": "No estas cerca de ninguna zona de entrega conocida."}, status=400)
             elif len(nearby_zones) > 1:
-                return JsonResponse({
-                    "multiple_zones": True,
-                    "zones": [{"id": z.id, "name": str(z)} for z, d in nearby_zones]
-                }, status=200)
+                return JsonResponse({"multiple_zones": True, "zones": [{"id": z.id, "name": str(z)} for z, d in nearby_zones]}, status=200)
             else:
                 destination_zone, distance = nearby_zones[0]
-
-        # Inject client from the destination zone — driver no longer picks this manually.
-        # If zone came from find_zones_within_radius it may not have client prefetched.
         if destination_zone.client_id and not hasattr(destination_zone, '_client_cache'):
             destination_zone = WorkingZone.objects.select_related("client").get(pk=destination_zone.pk)
         form_data["cliente"] = destination_zone.client.name if destination_zone.client else ""
-
         transaction = AssetTransaction(
-            asset=asset,
-            company=asset.company,
-            from_zone=asset.current_working_zone,
-            to_zone=destination_zone,
-            transaction_type=TransactionTypeChoices.DELIVERY,
-            date=timezone.now(),
-            performed_by=employee,
+            asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=destination_zone,
+            transaction_type=TransactionTypeChoices.DELIVERY, date=timezone.now(), performed_by=employee,
             project_file=destination_zone.project_file if destination_zone else None,
             notes=f"Entregado por {user.username} en {destination_zone}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
             data=form_data,
@@ -351,92 +352,364 @@ class ReceiptStrategy(BaseTransactionStrategy):
         asset = self.asset
         employee = self.employee
         user = self.user
-
         nro_albaran = data.get("nro_albaran", "").strip()
         foto_b64 = data.get("foto_albaran", "")
         latitude = data.get("latitude")
         longitude = data.get("longitude")
         peso_neto = data.get("peso_neto", "")
         material_vertido = data.get("material_vertido", "")
-
         if not nro_albaran:
             return JsonResponse({"error": "El numero de albaran es obligatorio."}, status=400)
-
         vertedero_zone = None
         chosen_zone_id = data.get("zone_id")
-
         if chosen_zone_id:
             try:
                 vertedero_zone = WorkingZone.objects.get(id=chosen_zone_id, company=asset.company)
             except WorkingZone.DoesNotExist:
                 pass
         elif latitude is not None and longitude is not None:
-            nearby_zones = find_zones_within_radius(
-                latitude, longitude, asset.company,
-                zone_type=WorkingZone.ZoneType.VERTEDERO
-            )
+            nearby_zones = find_zones_within_radius(latitude, longitude, asset.company, zone_type=WorkingZone.ZoneType.VERTEDERO)
             if len(nearby_zones) > 1:
-                return JsonResponse({
-                    "multiple_zones": True,
-                    "zones": [{"id": z.id, "name": str(z)} for z, d in nearby_zones]
-                }, status=200)
+                return JsonResponse({"multiple_zones": True, "zones": [{"id": z.id, "name": str(z)} for z, d in nearby_zones]}, status=200)
             elif len(nearby_zones) == 1:
                 vertedero_zone, _ = nearby_zones[0]
-
-        # Link verteo to the original obra pickup, not the almacen pickup
-        movement_tx = (
-            AssetTransaction.objects.filter(
-                asset=asset,
-                transaction_type=TransactionTypeChoices.MOVEMENT,
-                from_zone__zone_type=WorkingZone.ZoneType.OBRA,
-            )
-            .order_by("-date")
-            .first()
-        )
-
-        form_data = {k: v for k, v in data.items() if k not in (
-            "transaction_type", "latitude", "longitude", "zone_id", "foto_albaran",
-        )}
-
+        movement_tx = AssetTransaction.objects.filter(
+            asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT, from_zone__zone_type=WorkingZone.ZoneType.OBRA,
+        ).order_by("-date").first()
+        form_data = {k: v for k, v in data.items() if k not in ("transaction_type", "latitude", "longitude", "zone_id", "foto_albaran")}
         transaction = AssetTransaction(
-            asset=asset,
-            company=asset.company,
-            from_zone=asset.current_working_zone,
-            to_zone=vertedero_zone,
-            transaction_type=TransactionTypeChoices.RECEIPT,
-            date=timezone.now(),
-            performed_by=employee,
+            asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=vertedero_zone,
+            transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(), performed_by=employee,
             notes=f"Verteo registrado por {user.username}. Albaran: {nro_albaran}. Material: {material_vertido}. Peso: {peso_neto}kg.",
             data=form_data,
         )
         transaction.save()
-
         receipt = AssetTransactionReceipt(
-            transaction=transaction,
-            nro_albaran=nro_albaran,
-            data={
-                "peso_neto": peso_neto,
-                "material_vertido": material_vertido,
-            },
+            transaction=transaction, nro_albaran=nro_albaran,
+            data={"peso_neto": peso_neto, "material_vertido": material_vertido},
             movement_transaction=movement_tx,
         )
         foto_file = _base64_to_image_file(foto_b64)
         if foto_file:
             receipt.foto.save(foto_file.name, foto_file, save=False)
         receipt.save()
+        return JsonResponse({"success": True, "message": "Verteo registrado correctamente.", "transaction_id": transaction.id, "receipt_id": receipt.id})
 
-        return JsonResponse({
-            "success": True,
-            "message": "Verteo registrado correctamente.",
-            "transaction_id": transaction.id,
-            "receipt_id": receipt.id,
-        })
+
+def _validate_zone(asset, latitude, longitude, chosen_zone_id):
+    if chosen_zone_id:
+        try:
+            zone = WorkingZone.objects.get(id=chosen_zone_id, company=asset.company)
+            return zone, None
+        except WorkingZone.DoesNotExist:
+            return None, JsonResponse({"error": "Zona no encontrada."}, status=400)
+    if asset.current_working_zone is not None:
+        zone_lat, zone_lon = get_zone_coordinates(asset.current_working_zone)
+        if zone_lat is not None and latitude != 0 and longitude != 0:
+            distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
+            if distance > MAX_ZONE_RADIUS_M:
+                return None, JsonResponse({"error": f"Estas demasiado lejos de {asset.current_working_zone}. Estas a {int(distance)}m. Debes estar a menos de {MAX_ZONE_RADIUS_M}m."}, status=400)
+        return asset.current_working_zone, None
+    nearby_zones = find_zones_within_radius(latitude, longitude, asset.company, zone_types=[WorkingZone.ZoneType.OBRA])
+    if len(nearby_zones) == 0:
+        return None, JsonResponse({"error": "No estas cerca de ninguna obra conocida."}, status=400)
+    elif len(nearby_zones) > 1:
+        return None, JsonResponse({"multiple_zones": True, "zones": [{"id": z.id, "name": str(z)} for z, _ in nearby_zones]}, status=200)
+    else:
+        detected_zone, _ = nearby_zones[0]
+        return detected_zone, None
+
+
+class MachineHoursStrategy(BaseTransactionStrategy):
+
+    def execute(self) -> JsonResponse:
+        action = self.data.get("action", "").strip()
+        if action == "start":
+            return self._handle_start()
+        elif action == "pause":
+            return self._handle_pause()
+        elif action == "resume":
+            return self._handle_resume()
+        elif action == "end":
+            return self._handle_end()
+        else:
+            return JsonResponse({"error": "action must be: start, pause, resume, or end."}, status=400)
+
+    def _now_str(self):
+        return timezone.now().strftime("%H:%M:%S")
+
+    def _handle_start(self) -> JsonResponse:
+        asset = self.asset
+        employee = self.employee
+        user = self.user
+        today = _today_str()
+        latitude = self.data.get("latitude", 0)
+        longitude = self.data.get("longitude", 0)
+        photo_b64 = self.data.get("photo_start", "")
+        chosen_zone_id = self.data.get("zone_id")
+        planning_id = self.data.get("planning_id")
+
+        already_open = _open_machine_qs(asset, employee, today).exists()
+        if already_open:
+            return JsonResponse({"error": "Ya tienes un fichaje abierto hoy para esta maquina. Pausa o finaliza primero."}, status=400)
+
+        detected_zone, err = _validate_zone(asset, latitude, longitude, chosen_zone_id)
+        if err:
+            return err
+
+        now_str = self._now_str()
+
+        existing_tx = _closed_machine_qs(asset, employee, today).order_by("-data__machine_start_time").first()
+        if existing_tx:
+            intervals = existing_tx.data.get("intervals", [])
+            intervals.append({"start": now_str, "end": None})
+            existing_tx.data["intervals"] = intervals
+            existing_tx.data.pop("machine_end_time", None)
+            existing_tx.notes += f" | Reabierto por {user.username} a las {now_str}."
+            existing_tx.save(update_fields=["data", "notes"])
+            _save_transaction_photo(existing_tx, photo_b64, AssetTransactionPhoto.PhotoType.START)
+            return JsonResponse({"success": True, "message": "Jornada reanudada.", "transaction_id": existing_tx.id})
+
+        transaction = AssetTransaction(
+            asset=asset, company=asset.company, from_zone=detected_zone, to_zone=None,
+            transaction_type=TransactionTypeChoices.MACHINE_HOURS, date=timezone.now(), performed_by=employee,
+            project_file=detected_zone.project_file if detected_zone else None,
+            notes=f"Inicio de maquina por {user.username}. GPS: {latitude}, {longitude}.",
+            data={
+                "planning_id": planning_id,
+                "machine_start_time": _now_iso(),
+                "intervals": [{"start": now_str, "end": None}],
+            },
+        )
+        transaction.save()
+        _save_transaction_photo(transaction, photo_b64, AssetTransactionPhoto.PhotoType.START)
+        return JsonResponse({"success": True, "message": "Inicio de maquina registrado.", "transaction_id": transaction.id})
+
+    def _handle_pause(self) -> JsonResponse:
+        asset = self.asset
+        employee = self.employee
+        user = self.user
+        today = _today_str()
+        tx = _open_machine_qs(asset, employee, today).first()
+        if not tx:
+            return JsonResponse({"error": "No hay ningún fichaje abierto para pausar."}, status=404)
+        intervals = tx.data.get("intervals", [])
+        if not intervals or intervals[-1].get("end") is not None:
+            return JsonResponse({"error": "La maquina ya esta pausada."}, status=400)
+        intervals[-1]["end"] = self._now_str()
+        tx.data["intervals"] = intervals
+        tx.notes += f" | Pausa por {user.username} a las {intervals[-1]['end']}."
+        tx.save(update_fields=["data", "notes"])
+        return JsonResponse({"success": True, "message": "Pausa registrada."})
+
+    def _handle_resume(self) -> JsonResponse:
+        asset = self.asset
+        employee = self.employee
+        user = self.user
+        today = _today_str()
+        latitude = self.data.get("latitude", 0)
+        longitude = self.data.get("longitude", 0)
+        chosen_zone_id = self.data.get("zone_id")
+        tx = _open_machine_qs(asset, employee, today).first()
+        if not tx:
+            return JsonResponse({"error": "No hay ningún fichaje abierto para reanudar."}, status=404)
+        intervals = tx.data.get("intervals", [])
+        if intervals and intervals[-1].get("end") is None:
+            return JsonResponse({"error": "La maquina ya esta en marcha."}, status=400)
+        _, err = _validate_zone(asset, latitude, longitude, chosen_zone_id)
+        if err:
+            return err
+        now_str = self._now_str()
+        intervals.append({"start": now_str, "end": None})
+        tx.data["intervals"] = intervals
+        tx.notes += f" | Reanudado por {user.username} a las {now_str}."
+        tx.save(update_fields=["data", "notes"])
+        return JsonResponse({"success": True, "message": "Reanudado correctamente."})
+
+    def _handle_end(self) -> JsonResponse:
+        asset = self.asset
+        employee = self.employee
+        user = self.user
+        today = _today_str()
+        latitude = self.data.get("latitude", 0)
+        longitude = self.data.get("longitude", 0)
+        photo_b64 = self.data.get("photo_end", "")
+        chosen_zone_id = self.data.get("zone_id")
+        planning_id = self.data.get("planning_id")
+
+        qs = _open_machine_qs(asset, employee, today)
+        try:
+            tx = qs.get()
+        except AssetTransaction.DoesNotExist:
+            return JsonResponse({"error": "No hay ningún fichaje abierto hoy para esta maquina."}, status=404)
+        except AssetTransaction.MultipleObjectsReturned:
+            tx = qs.order_by("-data__machine_start_time").first()
+
+        _, err = _validate_zone(asset, latitude, longitude, chosen_zone_id)
+        if err:
+            return err
+
+        now_str = self._now_str()
+        intervals = tx.data.get("intervals", [])
+        if intervals and intervals[-1].get("end") is None:
+            intervals[-1]["end"] = now_str
+        tx.data["intervals"] = intervals
+        tx.data["machine_end_time"] = _now_iso()
+        tx.notes += f" | Fin registrado por {user.username}. GPS: {latitude}, {longitude}."
+        tx.save(update_fields=["data", "notes"])
+        _save_transaction_photo(tx, photo_b64, AssetTransactionPhoto.PhotoType.END)
+
+        if planning_id:
+            try:
+                AssetPlanning.objects.filter(id=planning_id).update(status="delivered")
+            except Exception:
+                pass
+
+        return JsonResponse({"success": True, "message": "Fin de maquina registrado.", "transaction_id": tx.id})
+
+
+class LaborerHoursStrategy:
+    def __init__(self, data: dict, employee, user):
+        self.data = data
+        self.employee = employee
+        self.user = user
+
+    def _now_str(self):
+        return timezone.now().strftime("%H:%M:%S")
+
+    def execute(self) -> JsonResponse:
+        action = self.data.get("action", "").strip()
+        if action == "start":
+            return self._handle_start()
+        elif action == "pause":
+            return self._handle_pause()
+        elif action == "resume":
+            return self._handle_resume()
+        elif action == "end":
+            return self._handle_end()
+        else:
+            return JsonResponse({"error": "action must be: start, pause, resume, or end."}, status=400)
+
+    def _handle_start(self) -> JsonResponse:
+        employee = self.employee
+        user = self.user
+        today = _today_str()
+        zone_id = self.data.get("zone_id")
+        latitude = self.data.get("latitude", 0)
+        longitude = self.data.get("longitude", 0)
+
+        if not zone_id:
+            return JsonResponse({"error": "zone_id is required."}, status=400)
+        try:
+            zone = WorkingZone.objects.get(pk=zone_id, company=employee.company)
+        except WorkingZone.DoesNotExist:
+            return JsonResponse({"error": "Zona no encontrada."}, status=404)
+
+        is_authorized = WorkingZoneAuthorization.objects.filter(working_zone=zone, employee=employee).exists()
+        if not is_authorized:
+            return JsonResponse({"error": "No tienes autorización para fichar en esta obra."}, status=403)
+
+        already_open = _open_laborer_qs(employee, today).exists()
+        if already_open:
+            return JsonResponse({"error": "Ya tienes un fichaje de peón abierto hoy. Pausa o finaliza primero."}, status=400)
+
+        now_str = self._now_str()
+
+        existing_tx = AssetTransaction.objects.filter(
+            performed_by=employee,
+            transaction_type=TransactionTypeChoices.LABORER_HOURS,
+            data__laborer_start_time__startswith=today,
+            data__has_key='laborer_end_time',
+            to_zone=zone,
+        ).order_by("-data__laborer_start_time").first()
+
+        if existing_tx:
+            intervals = existing_tx.data.get("intervals", [])
+            intervals.append({"start": now_str, "end": None})
+            existing_tx.data["intervals"] = intervals
+            existing_tx.data.pop("laborer_end_time", None)
+            existing_tx.notes += f" | Reabierto por {user.username} a las {now_str}."
+            existing_tx.save(update_fields=["data", "notes"])
+            return JsonResponse({"success": True, "message": "Fichaje reanudado.", "transaction_id": existing_tx.id, "status": "started", "zone_name": zone.name})
+
+        transaction = AssetTransaction(
+            asset=None, company=employee.company, to_zone=zone,
+            transaction_type=TransactionTypeChoices.LABORER_HOURS, date=timezone.now(), performed_by=employee,
+            project_file=zone.project_file if zone else None,
+            notes=f"Inicio hora de peón por {user.username} en {zone}. GPS: {latitude}, {longitude}.",
+            data={
+                "laborer_start_time": _now_iso(),
+                "intervals": [{"start": now_str, "end": None}],
+                "latitude": latitude,
+                "longitude": longitude,
+            },
+        )
+        transaction.save()
+        return JsonResponse({"success": True, "message": "Fichaje de peón iniciado.", "transaction_id": transaction.id, "status": "started", "zone_name": zone.name})
+
+    def _handle_pause(self) -> JsonResponse:
+        employee = self.employee
+        user = self.user
+        today = _today_str()
+        tx = _open_laborer_qs(employee, today).first()
+        if not tx:
+            return JsonResponse({"error": "No hay ningún fichaje de peón abierto para pausar."}, status=404)
+        intervals = tx.data.get("intervals", [])
+        if not intervals or intervals[-1].get("end") is not None:
+            return JsonResponse({"error": "El fichaje ya está pausado."}, status=400)
+        now_str = self._now_str()
+        intervals[-1]["end"] = now_str
+        tx.data["intervals"] = intervals
+        tx.notes += f" | Pausa por {user.username} a las {now_str}."
+        tx.save(update_fields=["data", "notes"])
+        return JsonResponse({"success": True, "message": "Pausa registrada.", "status": "paused"})
+
+    def _handle_resume(self) -> JsonResponse:
+        employee = self.employee
+        user = self.user
+        today = _today_str()
+        tx = _open_laborer_qs(employee, today).first()
+        if not tx:
+            return JsonResponse({"error": "No hay ningún fichaje de peón abierto para reanudar."}, status=404)
+        intervals = tx.data.get("intervals", [])
+        if intervals and intervals[-1].get("end") is None:
+            return JsonResponse({"error": "El fichaje ya está en marcha."}, status=400)
+        now_str = self._now_str()
+        intervals.append({"start": now_str, "end": None})
+        tx.data["intervals"] = intervals
+        tx.notes += f" | Reanudado por {user.username} a las {now_str}."
+        tx.save(update_fields=["data", "notes"])
+        return JsonResponse({"success": True, "message": "Reanudado correctamente.", "status": "started"})
+
+    def _handle_end(self) -> JsonResponse:
+        employee = self.employee
+        user = self.user
+        today = _today_str()
+        latitude = self.data.get("latitude", 0)
+        longitude = self.data.get("longitude", 0)
+        qs = _open_laborer_qs(employee, today)
+        try:
+            tx = qs.get()
+        except AssetTransaction.DoesNotExist:
+            return JsonResponse({"error": "No hay ningún fichaje de peón abierto hoy."}, status=404)
+        except AssetTransaction.MultipleObjectsReturned:
+            tx = qs.order_by("-data__laborer_start_time").first()
+        now_str = self._now_str()
+        intervals = tx.data.get("intervals", [])
+        if intervals and intervals[-1].get("end") is None:
+            intervals[-1]["end"] = now_str
+        tx.data["intervals"] = intervals
+        tx.data["laborer_end_time"] = _now_iso()
+        tx.notes += f" | Fin registrado por {user.username}. GPS: {latitude}, {longitude}."
+        tx.save(update_fields=["data", "notes"])
+        return JsonResponse({"success": True, "message": "Fichaje de peón finalizado.", "transaction_id": tx.id, "status": "ended"})
 
 
 TRANSACTION_STRATEGY_MAP = {
     TransactionTypeChoices.MOVEMENT: MovementStrategy,
     TransactionTypeChoices.DELIVERY: DeliveryStrategy,
     TransactionTypeChoices.RECEIPT: ReceiptStrategy,
+    TransactionTypeChoices.MACHINE_HOURS: MachineHoursStrategy,
 }
 
 
@@ -449,176 +722,88 @@ class AssetTransactionView(APIView):
             raw = json.loads(request.body)
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
-
         serializer = AssetTransactionSerializer(data=raw)
         if not serializer.is_valid():
             return JsonResponse(serializer.errors, status=400)
-
         transaction_type = serializer.validated_data["transaction_type"]
-
         try:
             asset = Asset.objects.get(id=asset_id)
         except Asset.DoesNotExist:
             return JsonResponse({"error": "Asset not found"}, status=404)
-
         employee = get_current_employee(user)
         if employee is None:
             return JsonResponse({"error": "No employee profile found"}, status=400)
-
         strategy_class = TRANSACTION_STRATEGY_MAP.get(transaction_type)
         if strategy_class is None:
             return JsonResponse({"error": "Unsupported transaction type."}, status=400)
-
         return strategy_class(raw, asset, employee, user).execute()
 
 
 class DeliveryCheckView(APIView):
-    """
-    GET /en/api/assets/<asset_id>/delivery-check/
-
-    Called by the app before the driver opens any form (Recoger, Dejar, Verteo).
-
-    Optional query params:
-      ?lat=<float>&lon=<float>&action=<verteo|recoger|dejar>
-
-    - verteo: only searches vertedero zones; blocks if none found
-    - recoger/dejar: excludes vertedero zones; if zero found, checks if
-      driver is at a vertedero and blocks dejar with at_vertedero=True
-    - verteo_required is checked against the last obra pickup only,
-      so almacen intermediate stops don't reset the verteo requirement
-    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request, asset_id):
         employee = get_current_employee(request.user)
         if employee is None:
             return JsonResponse({"error": "Employee not found"}, status=403)
-
         try:
-            asset = Asset.objects.select_related("current_working_zone").get(
-                id=asset_id,
-                company=employee.company
-            )
+            asset = Asset.objects.select_related("current_working_zone").get(id=asset_id, company=employee.company)
         except Asset.DoesNotExist:
             return JsonResponse({"error": "Asset not found"}, status=404)
-
         multiple_zones = False
         zones_data = []
         detected_zone_id = None
         nearby_zones = []
-
         lat_param = request.query_params.get("lat")
         lon_param = request.query_params.get("lon")
         action = request.query_params.get("action", "")
-
         if lat_param is not None and lon_param is not None:
             try:
                 latitude = float(lat_param)
                 longitude = float(lon_param)
-
                 if action == "verteo":
                     zone_type_filter = WorkingZone.ZoneType.VERTEDERO
-                elif action in ("recoger", "dejar"):
-                    zone_type_filter = None
                 else:
                     zone_type_filter = None
-
                 nearby_zones = find_zones_within_radius(
-                    latitude, longitude, asset.company,
-                    zone_type=zone_type_filter,
+                    latitude, longitude, asset.company, zone_type=zone_type_filter,
                     zone_types=[WorkingZone.ZoneType.OBRA, WorkingZone.ZoneType.ALMACEN] if action in ("recoger", "dejar") else None
                 )
-
                 if len(nearby_zones) > 1:
                     multiple_zones = True
-                    zones_data = [
-                        {"id": z.id, "name": str(z), "zone_type": z.zone_type}
-                        for z, _ in nearby_zones
-                    ]
+                    zones_data = [{"id": z.id, "name": str(z), "zone_type": z.zone_type} for z, _ in nearby_zones]
                 elif len(nearby_zones) == 1:
                     detected_zone_id = nearby_zones[0][0].id
                 elif len(nearby_zones) == 0 and action == "verteo":
-                    return JsonResponse({
-                        "can_deliver": False,
-                        "verteo_required": False,
-                        "is_almacen": False,
-                        "multiple_zones": False,
-                        "not_near_vertedero": True,
-                        "at_vertedero": False,
-                    })
+                    return JsonResponse({"can_deliver": False, "verteo_required": False, "is_almacen": False, "multiple_zones": False, "not_near_vertedero": True, "at_vertedero": False})
                 elif len(nearby_zones) == 0 and action == "dejar":
-                    # No obra/almacen nearby — check if driver is at a vertedero
-                    vertedero_zones = find_zones_within_radius(
-                        latitude, longitude, asset.company,
-                        zone_type=WorkingZone.ZoneType.VERTEDERO
-                    )
+                    vertedero_zones = find_zones_within_radius(latitude, longitude, asset.company, zone_type=WorkingZone.ZoneType.VERTEDERO)
                     if len(vertedero_zones) > 0:
-                        return JsonResponse({
-                            "can_deliver": False,
-                            "verteo_required": False,
-                            "is_almacen": False,
-                            "multiple_zones": False,
-                            "not_near_vertedero": False,
-                            "at_vertedero": True,
-                        })
-
+                        return JsonResponse({"can_deliver": False, "verteo_required": False, "is_almacen": False, "multiple_zones": False, "not_near_vertedero": False, "at_vertedero": True})
             except (ValueError, TypeError):
                 pass
-
-        # is_almacen based on destination zone only when GPS provided
         if lat_param is not None and lon_param is not None:
-            if len(nearby_zones) == 1:
-                is_almacen = nearby_zones[0][0].zone_type == WorkingZone.ZoneType.ALMACEN
-            else:
-                is_almacen = False
+            is_almacen = nearby_zones[0][0].zone_type == WorkingZone.ZoneType.ALMACEN if len(nearby_zones) == 1 else False
         else:
-            is_almacen = (
-                asset.current_working_zone is not None
-                and asset.current_working_zone.zone_type == WorkingZone.ZoneType.ALMACEN
-            )
-
-        # Check verteo requirement against last obra pickup only —
-        # almacen intermediate pickups don't reset the verteo requirement
-        last_movement = (
-            AssetTransaction.objects.filter(
-                asset=asset,
-                transaction_type=TransactionTypeChoices.MOVEMENT,
-                from_zone__zone_type=WorkingZone.ZoneType.OBRA,
-            )
-            .order_by("-date")
-            .first()
-        )
-
+            is_almacen = asset.current_working_zone is not None and asset.current_working_zone.zone_type == WorkingZone.ZoneType.ALMACEN
+        last_movement = AssetTransaction.objects.filter(
+            asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT, from_zone__zone_type=WorkingZone.ZoneType.OBRA,
+        ).order_by("-date").first()
         verteo_required = False
         if last_movement is not None:
             vertedero_value = last_movement.data.get("vertedero", "")
             verteo_required = bool(vertedero_value and vertedero_value.strip())
-
         if verteo_required and last_movement is not None:
-            already_done = AssetTransaction.objects.filter(
-                asset=asset,
-                transaction_type=TransactionTypeChoices.RECEIPT,
-                date__gt=last_movement.date,
-            ).exists()
+            already_done = AssetTransaction.objects.filter(asset=asset, transaction_type=TransactionTypeChoices.RECEIPT, date__gt=last_movement.date).exists()
             if already_done:
                 verteo_required = False
-
         can_deliver = not verteo_required or is_almacen
-
-        response_data = {
-            "verteo_required": verteo_required,
-            "is_almacen": is_almacen,
-            "can_deliver": can_deliver,
-            "not_near_vertedero": False,
-            "at_vertedero": False,
-        }
-
+        response_data = {"verteo_required": verteo_required, "is_almacen": is_almacen, "can_deliver": can_deliver, "not_near_vertedero": False, "at_vertedero": False}
         if lat_param is not None and lon_param is not None:
             response_data["multiple_zones"] = multiple_zones
             response_data["detected_zone_id"] = detected_zone_id
             if multiple_zones:
                 response_data["zones"] = zones_data
-
         return JsonResponse(response_data)
 
 
@@ -632,17 +817,193 @@ class AssetCheckDeliveryLocationView(APIView):
             longitude = data.get("longitude", 0)
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
-
         try:
             asset = Asset.objects.get(id=asset_id)
         except Asset.DoesNotExist:
             return JsonResponse({"error": "Asset not found"}, status=404)
-
         destination_zone, _distance = find_zone_within_radius(latitude, longitude, asset.company)
         if destination_zone is None:
-            return JsonResponse({
-                "allowed": False,
-                "error": "No estás cerca de ninguna zona de entrega. Acércate más.",
-            }, status=200)
-
+            return JsonResponse({"allowed": False, "error": "No estás cerca de ninguna zona de entrega. Acércate más."}, status=200)
         return JsonResponse({"allowed": True})
+
+
+class MachineCheckView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, asset_id):
+        employee = get_current_employee(request.user)
+        if employee is None:
+            return JsonResponse({"error": "No employee profile found"}, status=400)
+        try:
+            asset = Asset.objects.select_related("asset_type", "current_working_zone").get(id=asset_id, company=employee.company)
+        except Asset.DoesNotExist:
+            return JsonResponse({"error": "Maquina no encontrada."}, status=404)
+        has_permission = MachinePermission.objects.filter(employee=employee, asset=asset).exists()
+        if not has_permission:
+            return JsonResponse({"error": "No tienes permiso para operar esta maquina."}, status=403)
+        today = _today_str()
+        open_tx = _open_machine_qs(asset, employee, today).first()
+        completed_tx = _closed_machine_qs(asset, employee, today).order_by("-data__machine_start_time").first()
+        if open_tx:
+            intervals = open_tx.data.get("intervals", [])
+            last = intervals[-1] if intervals else None
+            estado = "working" if (last and last.get("end") is None) else "paused"
+            tx = open_tx
+        elif completed_tx:
+            estado = "none"
+            tx = completed_tx
+        else:
+            estado = "none"
+            tx = None
+        intervals = [{"start": iv.get("start"), "end": iv.get("end")} for iv in tx.data.get("intervals", [])] if tx else []
+        return JsonResponse({
+            "asset_id": asset.id,
+            "asset_name": asset.name,
+            "asset_type": asset.asset_type.name if asset.asset_type else "",
+            "obra": str(asset.current_working_zone) if asset.current_working_zone else "",
+            "planning_id": None,
+            "estado": estado,
+            "real_start_time": _format_time(open_tx.data.get("machine_start_time")) if open_tx else None,
+            "real_end_time": None,
+            "intervals": intervals if open_tx else [],
+        })
+
+
+class MachineHoursListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        employee = get_current_employee(request.user)
+        if employee is None:
+            return JsonResponse({"machines": []})
+        today = _today_str()
+        machines = []
+        seen_asset_ids = set()
+
+        plannings = AssetPlanning.objects.select_related(
+            "asset", "asset__asset_type", "asset__current_working_zone"
+        ).filter(assigned_to=employee, planning_type="machine_hours", scheduled_date=timezone.now().date(), status__in=["pending", "in_transit"])
+
+        for planning in plannings:
+            asset = planning.asset
+            seen_asset_ids.add(asset.id)
+            open_tx = _open_machine_qs(asset, employee, today).filter(data__planning_id=planning.id).first()
+            completed_tx = _closed_machine_qs(asset, employee, today).filter(data__planning_id=planning.id).first()
+            if completed_tx:
+                estado = "completed"
+            elif open_tx:
+                intervals = open_tx.data.get("intervals", [])
+                last_interval = intervals[-1] if intervals else None
+                estado = "working" if (last_interval and last_interval.get("end") is None) else "paused"
+            else:
+                estado = "none"
+            ref_tx = open_tx or completed_tx
+            machines.append({
+                "planning_id": planning.id,
+                "asset_id": asset.id,
+                "asset_name": asset.name,
+                "asset_type": asset.asset_type.name if asset.asset_type else "",
+                "obra": str(asset.current_working_zone) if asset.current_working_zone else "",
+                "estado": estado,
+                "real_start_time": _format_time(ref_tx.data.get("machine_start_time")) if ref_tx else None,
+                "real_end_time": _format_time(completed_tx.data.get("machine_end_time")) if completed_tx else None,
+                "intervals": [{"start": iv.get("start"), "end": iv.get("end")} for iv in ref_tx.data.get("intervals", [])] if ref_tx else [],
+            })
+
+        qr_open_txs = list(
+            _open_machine_qs(None, employee, today)
+            .select_related("asset", "asset__asset_type", "asset__current_working_zone")
+            .exclude(asset__isnull=True)
+        )
+        # Filter in Python — data__planning_id=None doesn't work reliably in JSONField
+        qr_open_txs = [tx for tx in qr_open_txs if tx.data.get('planning_id') is None]
+
+        for tx in qr_open_txs:
+            asset = tx.asset
+            if asset.id in seen_asset_ids:
+                continue
+            seen_asset_ids.add(asset.id)
+            intervals = tx.data.get("intervals", [])
+            last_interval = intervals[-1] if intervals else None
+            estado = "working" if (last_interval and last_interval.get("end") is None) else "paused"
+            machines.append({
+                "planning_id": None,
+                "asset_id": asset.id,
+                "asset_name": asset.name,
+                "asset_type": asset.asset_type.name if asset.asset_type else "",
+                "obra": str(asset.current_working_zone) if asset.current_working_zone else "",
+                "estado": estado,
+                "real_start_time": _format_time(tx.data.get("machine_start_time")),
+                "real_end_time": None,
+                "intervals": [{"start": iv.get("start"), "end": iv.get("end")} for iv in intervals],
+            })
+
+        return JsonResponse({"machines": machines})
+
+
+class LaborerZonesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        employee = get_current_employee(request.user)
+        if employee is None:
+            return JsonResponse({"error": "No employee profile found"}, status=403)
+        try:
+            latitude = float(request.query_params.get("latitude"))
+            longitude = float(request.query_params.get("longitude"))
+        except (TypeError, ValueError):
+            return JsonResponse({"error": "latitude and longitude are required"}, status=400)
+        authorized_zone_ids = WorkingZoneAuthorization.objects.filter(
+            employee=employee, working_zone__company=employee.company, working_zone__is_active=True,
+        ).values_list("working_zone_id", flat=True)
+        zones = WorkingZone.objects.filter(pk__in=authorized_zone_ids)
+        nearby = []
+        for zone in zones:
+            zone_lat, zone_lon = get_zone_coordinates(zone)
+            if zone_lat is None:
+                continue
+            distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
+            if distance <= MAX_ZONE_RADIUS_M:
+                nearby.append({"id": zone.pk, "name": zone.name, "distance_m": round(distance)})
+        if not nearby:
+            return JsonResponse({"error": "No estás cerca de ninguna obra en la que estés autorizado a trabajar."}, status=403)
+        return JsonResponse({"zones": nearby})
+
+
+class LaborerHoursView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            data = json.loads(request.body)
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON"}, status=400)
+        employee = get_current_employee(request.user)
+        if employee is None:
+            return JsonResponse({"error": "No employee profile found"}, status=400)
+        strategy = LaborerHoursStrategy(data, employee, request.user)
+        return strategy.execute()
+
+
+class LaborerHoursStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        employee = get_current_employee(request.user)
+        if employee is None:
+            return JsonResponse({"error": "No employee profile found"}, status=403)
+        today = _today_str()
+        open_tx = _open_laborer_qs(employee, today).select_related("to_zone").first()
+        if not open_tx:
+            return JsonResponse({"active": False})
+        intervals = open_tx.data.get("intervals", [])
+        last = intervals[-1] if intervals else None
+        current_status = "started" if (last and last.get("end") is None) else "paused"
+        return JsonResponse({
+            "active": True,
+            "transaction_id": open_tx.pk,
+            "status": current_status,
+            "zone_id": open_tx.to_zone_id,
+            "zone_name": open_tx.to_zone.name if open_tx.to_zone else None,
+            "intervals": intervals,
+        })

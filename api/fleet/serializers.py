@@ -42,3 +42,11 @@ class AssetTransactionSerializer(serializers.Serializer):
 
     # Zone override — sent when driver picks from the multiple-zones dialog
     zone_id = serializers.IntegerField(required=False, default=None, allow_null=True)
+
+    # Machine hours fields
+    action = serializers.ChoiceField(
+        choices=["start", "pause", "resume", "end"],
+        required=False,
+        allow_null=True,
+        default=None,
+    )

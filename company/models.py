@@ -69,10 +69,10 @@ class Company(models.Model):
         verbose_name=_("Asset Identifier Labels"),
     )
     business_activity_description = models.TextField(
-    blank=True,
-    null=True,
-    verbose_name=_("Business Activity"),
-    help_text=_("Description of what the company does"),
+        blank=True,
+        null=True,
+        verbose_name=_("Business Activity"),
+        help_text=_("Description of what the company does"),
     )
     document_reminder_emails = ArrayField(
         base_field=models.EmailField(),
@@ -262,8 +262,8 @@ class Employee(CompanyOwnedModel):
     )
     
     can_work_on_production = models.BooleanField(
-    default=False,
-    verbose_name=_("Can work on production stages"),
+        default=False,
+        verbose_name=_("Can work on production stages"),
     )
 
     first_name = models.CharField(
@@ -302,12 +302,12 @@ class Employee(CompanyOwnedModel):
     )
 
     work_calendar = models.ForeignKey(
-    "vacations.WorkCalendar",
-    on_delete=models.SET_NULL,
-    null=True,
-    blank=True,
-    related_name="employees",
-    verbose_name=_("Work Calendar"),
+        "vacations.WorkCalendar",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="employees",
+        verbose_name=_("Work Calendar"),
     )
 
     identification_number = models.CharField(max_length=20,verbose_name=_("Identification Number"),null=True)
@@ -389,7 +389,6 @@ class Employee(CompanyOwnedModel):
         verbose_name_plural = _("Employees")
         ordering = ["last_name", "first_name"]
         unique_together = ("company", "identification_number")
-        
 
     def __str__(self):
         return f"{self.first_name} {self.last_name}"
@@ -417,6 +416,7 @@ class Employee(CompanyOwnedModel):
                         "These stages are not allowed for the selected company: %(stages)s"
                     ) % {"stages": ", ".join(invalid)}
                 })
+
     def save(self, *args, **kwargs):
         if self.work_pin and self.work_pin.isdigit() and len(self.work_pin) == 4:
             self.work_pin = make_password(self.work_pin)
@@ -432,6 +432,7 @@ class Employee(CompanyOwnedModel):
             if calendar:
                 self.work_calendar = calendar
         super().save(*args, **kwargs)
+
     
 class MachineType(CompanyOwnedModel):
     type = models.CharField(max_length=50, verbose_name=_("Machine Type"))
@@ -497,7 +498,7 @@ class CompanyEmailConfig(CompanyOwnedModel):
     imap_server = models.CharField(max_length=255, verbose_name=_("IMAP Server"))
     imap_port = models.PositiveIntegerField(default=993, verbose_name=_("IMAP Port"))
     imap_user = models.CharField(max_length=255, verbose_name=_("IMAP User"))
-    imap_password = models.CharField(max_length=255, verbose_name=_("IMAP Password"))  # TODO: Encrypt this
+    imap_password = models.CharField(max_length=255, verbose_name=_("IMAP Password"))
     use_ssl = models.BooleanField(default=True, verbose_name=_("Use SSL"))
     last_checked = models.DateTimeField(null=True, blank=True, verbose_name=_("Last Checked"))
 
@@ -539,12 +540,12 @@ class WorkingZone(CompanyOwnedModel):
     )
 
     client = models.ForeignKey(
-    'sales.Client',
-    on_delete=models.SET_NULL,
-    null=True,
-    blank=True,
-    related_name="working_zones",
-    verbose_name=_("Client")
+        'sales.Client',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="working_zones",
+        verbose_name=_("Client")
     )
 
     class Meta:
@@ -581,6 +582,34 @@ class WorkingZone(CompanyOwnedModel):
             return lat, lon
         except Exception:
             return None, None
+
+
+class WorkingZoneAuthorization(CompanyOwnedModel):
+    """
+    Which employees are authorized to fichar at a given WorkingZone.
+    """
+    working_zone = models.ForeignKey(
+        WorkingZone,
+        on_delete=models.CASCADE,
+        related_name="authorizations",
+        verbose_name=_("Working Zone"),
+    )
+    employee = models.ForeignKey(
+        "company.Employee",
+        on_delete=models.CASCADE,
+        related_name="zone_authorizations",
+        verbose_name=_("Employee"),
+    )
+
+    class Meta:
+        verbose_name = _("Zone Authorization")
+        verbose_name_plural = _("Zone Authorizations")
+        unique_together = ("working_zone", "employee")
+        ordering = ["employee__last_name", "employee__first_name"]
+
+    def __str__(self):
+        return f"{self.employee} → {self.working_zone}"
+
 
 class WeekdayChoices(models.IntegerChoices):
     MONDAY = 0, _("Monday")
@@ -627,7 +656,6 @@ class CompanyScheduleSlot(models.Model):
                 "end_time": _("End time must be after start time.")
             })
 
-        # Prevent overlaps in the same company and weekday
         qs = CompanyScheduleSlot.objects.filter(
             company=self.company,
             weekday=self.weekday,
@@ -721,32 +749,17 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
 
     @classmethod
     def upsert_from_arcopay(cls, company, product_data: dict, token: str, consent_id: str = ""):
-        """Create or update a BankAccount from an Arcopay product dict.
-
-        Looks up by company + IBAN (or product_id for banks like Revolut
-        that use UUIDs instead of IBANs).
-
-        Returns (bank_account, created).
-        """
         product_name = product_data.get("product", "")
-
-        # The real IBAN may be in a dedicated 'iban' field (e.g. Revolut),
-        # or in 'product' for traditional banks.
         iban = product_data.get("iban", "")
         if not iban and len(product_name) >= 15 and not product_name.startswith("{"):
             iban = product_name
-
-        # Extract holder name from holders array
         holders = product_data.get("holders", [])
         holder_name = ""
         if holders and isinstance(holders, list) and isinstance(holders[0], dict):
             holder_name = holders[0].get("name", "")
-
-        # Build a descriptive bank name
         bank_type = product_data.get("type", "Bank")
         description = product_data.get("description", "")
         bank_name = f"{bank_type} - {description}" if description else bank_type
-
         lookup = {"company": company, "iban": iban} if iban else {"company": company, "nuek_product_id": product_name}
         defaults = {
             "nuek_token": token,
@@ -758,7 +771,6 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
             defaults["holder_name"] = holder_name
         if bank_name:
             defaults["bank_name"] = bank_name
-
         return cls.objects.update_or_create(**lookup, defaults=defaults)
 
 class WorkAttendance(CompanyOwnedModel, Timestampable):
@@ -1005,12 +1017,6 @@ class EmailLog(CompanyOwnedModel):
 class ConfigurationList(CompanyOwnedModel):
     """
     Generic key-value list for company-specific configuration.
-    Used to store dynamic option lists that can be managed from the admin
-    without touching code.
-
-    Examples:
-      key="cuba_material_types"  values=["Agua", "Pladur", "RCD Limpio", ...]
-
     """
     key = models.CharField(
         max_length=100,

@@ -9,6 +9,7 @@ from assets.models import AssetPlanning, AssetPlanningStop
 
 
 class AssetPlanningStopInline(TabularInline):
+    
     model = AssetPlanningStop
     extra = 1
     fields = ("sequence", "zone", "notes")
@@ -31,37 +32,33 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "origin__name",
         "destination__name",
         "transport_asset__name",
-        "transport_asset__name",
     )
-    autocomplete_fields = ["asset", "origin", "destination", "assigned_to", "transport_asset"]
     autocomplete_fields = ["asset", "origin", "destination", "assigned_to", "transport_asset"]
     exclude = ["company"]
     inlines = [AssetPlanningStopInline]
     actions_list = ["optimize_daily_routes_action"]
-    inlines = [AssetPlanningStopInline]
-    actions_list = ["optimize_daily_routes_action"]
     fieldsets = (
-    (_("Asset"), {
-        "fields": (
-            "asset",
-        )
-    }),
-    (_("Route"), {
-        "fields": (
-            ("origin", "destination"),
-            "scheduled_date",
-        )
-    }),
-    (_("Assignment"), {
-        "fields": (
-            ("assigned_to", "transport_asset"),
-            ("status", "route_order"),
-            ("planning_type",),
-            "load_description",
-            "notes",
-        )
-    }),
-)
+        (_("Asset"), {
+            "fields": (
+                "asset",
+            )
+        }),
+        (_("Route"), {
+            "fields": (
+                ("origin", "destination"),
+                "scheduled_date",
+            )
+        }),
+        (_("Assignment"), {
+            "fields": (
+                ("assigned_to", "transport_asset"),
+                ("status", "route_order"),
+                ("planning_type",),
+                "load_description",
+                "notes",
+            )
+        }),
+    )
 
     def save_model(self, request, obj, form, change):
         if obj.asset and obj.asset.company:

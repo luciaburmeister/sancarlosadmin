@@ -16,11 +16,7 @@ User = get_user_model()
 class AssetType(CompanyOwnedModel):
     name = models.CharField(max_length=100, verbose_name=_("Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
-    schema = models.JSONField(
-        default=dict,
-        blank=True,
-        help_text=_("JSON Schema to validate asset data (optional)")
-    )
+    schema = models.JSONField(default=dict, blank=True, help_text=_("JSON Schema to validate asset data (optional)"))
     identifier_labels = ArrayField(
         base_field=models.CharField(max_length=50),
         default=list,
@@ -36,9 +32,7 @@ class AssetType(CompanyOwnedModel):
         verbose_name = _("Asset type")
         verbose_name_plural = _("Asset types")
         ordering = ["name"]
-        indexes = [
-            models.Index(fields=["name", "company"]),
-        ]
+        indexes = [models.Index(fields=["name", "company"])]
 
     def __str__(self):
         return self.name
@@ -149,36 +143,12 @@ class AssetTypeField(models.Model):
 
 
 class Asset(CompanyOwnedModel):
-    asset_type = models.ForeignKey(
-        AssetType,
-        on_delete=models.PROTECT,
-        related_name="assets",
-        verbose_name=_("Asset Type")
-    )
-    client = models.ForeignKey(
-        Client,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="assets",
-        verbose_name=_("Owner/Client")
-    )
+    asset_type = models.ForeignKey(AssetType, on_delete=models.PROTECT, related_name="assets", verbose_name=_("Asset Type"))
+    client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True, related_name="assets", verbose_name=_("Owner/Client"))
     name = models.CharField(max_length=200, verbose_name=_("Name/Label"))
     is_active = models.BooleanField(default=True, verbose_name=_("Active"))
-    data = models.JSONField(
-        default=dict,
-        blank=True,
-        verbose_name=_("Flexible Data"),
-        help_text=_("Schema-less data for this specific asset type.")
-    )
-    current_working_zone = models.ForeignKey(
-        WorkingZone,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="current_assets",
-        verbose_name=_("Current Working Zone")
-    )
+    data = models.JSONField(default=dict, blank=True, verbose_name=_("Flexible Data"))
+    current_working_zone = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="current_assets", verbose_name=_("Current Working Zone"))
     zone_changed_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -186,32 +156,14 @@ class Asset(CompanyOwnedModel):
         verbose_name=_("Zone changed at"),
         help_text=_("When current_working_zone last actually changed."),
     )
-    provider = models.ForeignKey(
-        Provider,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="assets",
-        verbose_name=_("Provider")
-    )
+    provider = models.ForeignKey(Provider, on_delete=models.SET_NULL, null=True, blank=True, related_name="assets", verbose_name=_("Provider"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
-    assigned_to = models.ForeignKey(
-        'company.Employee',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="assigned_assets",
-        verbose_name=_("Assigned To")
-    )
-
+    assigned_to = models.ForeignKey('company.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_assets", verbose_name=_("Assigned To"))
     history = HistoricalRecords()
 
     def save(self, *args, **kwargs):
         if self.data:
-            self.data = {
-                k.strip().lower().replace(" ", "_"): v
-                for k, v in self.data.items()
-            }
+            self.data = {k.strip().lower().replace(" ", "_"): v for k, v in self.data.items()}
         if self.pk:
             old_zone_id = (
                 Asset.objects.filter(pk=self.pk)
@@ -226,34 +178,12 @@ class Asset(CompanyOwnedModel):
 
     @property
     def has_pending_receipt(self) -> bool:
-        """
-        Returns True if the cuba has already been emptied (verteo'd) since
-        its most recent recogida (MOVEMENT transaction).
-
-        Used by the app to grey out the Verteo button so workers cannot
-        register a second verteo for the same pickup.
-
-        Logic: a receipt is "pending" (already done) when the most recent
-        RECEIPT transaction is newer than the most recent MOVEMENT transaction.
-        """
-        last_movement = (
-            self.transactions
-            .filter(transaction_type=TransactionTypeChoices.MOVEMENT)
-            .order_by("-date")
-            .first()
-        )
+        last_movement = self.transactions.filter(transaction_type=TransactionTypeChoices.MOVEMENT).order_by("-date").first()
         if last_movement is None:
             return False
-
-        last_receipt = (
-            self.transactions
-            .filter(transaction_type=TransactionTypeChoices.RECEIPT)
-            .order_by("-date")
-            .first()
-        )
+        last_receipt = self.transactions.filter(transaction_type=TransactionTypeChoices.RECEIPT).order_by("-date").first()
         if last_receipt is None:
             return False
-
         return last_receipt.date > last_movement.date
 
     class Meta:
@@ -265,22 +195,9 @@ class Asset(CompanyOwnedModel):
 
 
 class AssetIdentifier(models.Model):
-    asset = models.ForeignKey(
-        Asset,
-        on_delete=models.CASCADE,
-        related_name="identifiers",
-        verbose_name=_("Asset")
-    )
-    label = models.CharField(
-        max_length=50,
-        verbose_name=_("Label"),
-        help_text=_("e.g., VIN, Plate Number, SN")
-    )
-    value = models.CharField(
-        max_length=100,
-        verbose_name=_("Value"),
-        db_index=True
-    )
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name="identifiers", verbose_name=_("Asset"))
+    label = models.CharField(max_length=50, verbose_name=_("Label"))
+    value = models.CharField(max_length=100, verbose_name=_("Value"), db_index=True)
 
     class Meta:
         verbose_name = _("Asset identifier")
@@ -294,9 +211,7 @@ class AssetIdentifier(models.Model):
         if self.asset_id and self.asset.asset_type_id:
             labels = self.asset.asset_type.get_identifier_labels()
             if labels and self.label not in labels:
-                raise ValidationError({
-                    'label': _("This label is not allowed for this asset type. Allowed: %(labels)s") % {'labels': ", ".join(labels)}
-                })
+                raise ValidationError({'label': _("This label is not allowed for this asset type. Allowed: %(labels)s") % {'labels': ", ".join(labels)}})
 
 
 class AssetMap(CompanyOwnedModel, Timestampable):
@@ -331,8 +246,8 @@ class TransactionTypeChoices(models.TextChoices):
     RECEIPT = "receipt", _("Receipt")
     PORTE_MOVEMENT = "porte_movement", _("Movement Porte")
     PORTE_DELIVERY = "porte_delivery", _("Delivery Porte")
-
-
+    MACHINE_HOURS = "machine_hours", _("Machine Hours")
+    LABORER_HOURS = "laborer_hours", _("Laborer Hours")
 
 
 class BillingStatus(models.TextChoices):
@@ -343,117 +258,90 @@ class BillingStatus(models.TextChoices):
 
 
 class AssetTransaction(CompanyOwnedModel, Timestampable):
-    asset = models.ForeignKey(
-        Asset,
-        on_delete=models.CASCADE,
-        related_name="transactions",
-        verbose_name=_("Asset")
-    )
-    from_zone = models.ForeignKey(
-        WorkingZone,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="transactions_from",
-        verbose_name=_("From Zone")
-    )
-    to_zone = models.ForeignKey(
-        WorkingZone,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="transactions_to",
-        verbose_name=_("To Zone")
-    )
-    transaction_type = models.CharField(
-        max_length=20,
-        choices=TransactionTypeChoices.choices,
-        verbose_name=_("Transaction Type")
-    )
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, null=True, blank=True, related_name="transactions", verbose_name=_("Asset"))
+    from_zone = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="transactions_from", verbose_name=_("From Zone"))
+    to_zone = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="transactions_to", verbose_name=_("To Zone"))
+    transaction_type = models.CharField(max_length=20, choices=TransactionTypeChoices.choices, verbose_name=_("Transaction Type"))
     date = models.DateTimeField(default=timezone.now, verbose_name=_("Date"))
     data = models.JSONField(default=dict, blank=True, verbose_name=_("Flexible Data"))
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
     firma = models.TextField(blank=True, null=True, verbose_name=_("Signature"))
-    firma_image = models.ImageField(
-        upload_to="asset_transactions/firmas/",
-        blank=True,
-        null=True,
-        verbose_name=_("Signature Image")
-    )
-    imagen = models.ImageField(
-        upload_to="asset_transactions/images/",
-        blank=True,
-        null=True,
-        verbose_name=_("Image")
-    )
-    project_file = models.ForeignKey(
-        "management.ProjectFile",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="asset_transactions",
-        verbose_name=_("Project File"),
-    )
-    performed_by = models.ForeignKey(
-        "company.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="performed_transactions"
-    )
-    billing_status = models.CharField(
-        max_length=10,
-        choices=BillingStatus.choices,
-        default=BillingStatus.NONE,
-        db_index=True,
-        verbose_name=_("Billing Status"),
-    )
+    firma_image = models.ImageField(upload_to="asset_transactions/firmas/", blank=True, null=True, verbose_name=_("Signature Image"))
+    imagen = models.ImageField(upload_to="asset_transactions/images/", blank=True, null=True, verbose_name=_("Image"))
+    project_file = models.ForeignKey("management.ProjectFile", on_delete=models.SET_NULL, null=True, blank=True, related_name="asset_transactions", verbose_name=_("Project File"))
+    performed_by = models.ForeignKey("company.Employee", on_delete=models.SET_NULL, null=True, blank=True, related_name="performed_transactions")
+    billing_status = models.CharField(max_length=10, choices=BillingStatus.choices, default=BillingStatus.NONE, db_index=True, verbose_name=_("Billing Status"))
 
     class Meta:
         verbose_name = _("Asset transaction")
         verbose_name_plural = _("Asset transactions")
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                models.expressions.RawSQL("(data->>'machine_start_time')", []),
+                name="asset_tx_machine_start_idx",
+            ),
+            models.Index(
+                models.expressions.RawSQL("(data->>'machine_end_time')", []),
+                name="asset_tx_machine_end_idx",
+            ),
+            models.Index(
+                models.expressions.RawSQL("(data->>'laborer_start_time')", []),
+                name="asset_tx_laborer_start_idx",
+            ),
+            models.Index(
+                models.expressions.RawSQL("(data->>'laborer_end_time')", []),
+                name="asset_tx_laborer_end_idx",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.get_transaction_type_display()} - {self.asset} ({self.from_zone} -> {self.to_zone})"
 
 
+class AssetTransactionPhoto(models.Model):
+    class PhotoType(models.TextChoices):
+        START = "start", _("Start")
+        END = "end", _("End")
+        PAUSE = "pause", _("Pause")
+        RESUME = "resume", _("Resume")
+        OTHER = "other", _("Other")
+
+    transaction = models.ForeignKey(AssetTransaction, on_delete=models.CASCADE, related_name="photos", verbose_name=_("Transaction"))
+    photo = models.ImageField(upload_to="asset_transactions/photos/", verbose_name=_("Photo"))
+    photo_type = models.CharField(max_length=20, choices=PhotoType.choices, verbose_name=_("Photo Type"))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
+
+    class Meta:
+        verbose_name = _("Transaction Photo")
+        verbose_name_plural = _("Transaction Photos")
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.get_photo_type_display()} - {self.transaction}"
+
+
+class MachinePermission(CompanyOwnedModel):
+    employee = models.ForeignKey("company.Employee", on_delete=models.CASCADE, related_name="machine_permissions", verbose_name=_("Employee"))
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name="machine_permissions", verbose_name=_("Machine"))
+    granted_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Granted At"))
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+
+    class Meta:
+        verbose_name = _("Machine Permission")
+        verbose_name_plural = _("Machine Permissions")
+        constraints = [models.UniqueConstraint(fields=["employee", "asset"], name="unique_machine_permission")]
+
+    def __str__(self):
+        return f"{self.employee} → {self.asset}"
+
+
 class AssetTransactionReceipt(models.Model):
-    """
-    Generic receipt attached to any AssetTransaction.
-    Used to store paper receipts (albaranes) from external parties,
-    e.g. a dump receipt when a cuba is emptied at a vertedero.
-    """
-    transaction = models.ForeignKey(
-        AssetTransaction,
-        on_delete=models.CASCADE,
-        related_name="receipts",
-        verbose_name=_("Transaction"),
-    )
-    foto = models.ImageField(
-        upload_to="transaction_receipts/",
-        blank=True,
-        null=True,
-        verbose_name=_("Foto del Albaran"),
-    )
-    nro_albaran = models.CharField(
-        max_length=100,
-        verbose_name=_("Nro de Albaran"),
-    )
-    data = models.JSONField(
-        default=dict,
-        blank=True,
-        verbose_name=_("Flexible Data"),
-        help_text=_("Schema-less data for this receipt (e.g. peso_neto, material_vertido)."),
-    )
-    movement_transaction = models.ForeignKey(
-        AssetTransaction,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="receipt_links",
-        verbose_name=_("Original Movement"),
-    )
+    transaction = models.ForeignKey(AssetTransaction, on_delete=models.CASCADE, related_name="receipts", verbose_name=_("Transaction"))
+    foto = models.ImageField(upload_to="transaction_receipts/", blank=True, null=True, verbose_name=_("Foto del Albaran"))
+    nro_albaran = models.CharField(max_length=100, verbose_name=_("Nro de Albaran"))
+    data = models.JSONField(default=dict, blank=True, verbose_name=_("Flexible Data"))
+    movement_transaction = models.ForeignKey(AssetTransaction, on_delete=models.SET_NULL, null=True, blank=True, related_name="receipt_links", verbose_name=_("Original Movement"))
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
 
     class Meta:
@@ -466,74 +354,19 @@ class AssetTransactionReceipt(models.Model):
 
 
 class AssetPlanning(CompanyOwnedModel, Timestampable):
-    STATUS_CHOICES = [
-        ('pending', _('Pending')),
-        ('in_transit', _('In Transit')),
-        ('delivered', _('Delivered')),
-        ('cancelled', _('Cancelled')),
-    ]
-    PLANNING_CHOICES = [
-        ('cuba', _('Container Movement')),
-        ('porte', _('Transport')),
-    ]
+    STATUS_CHOICES = [('pending', _('Pending')), ('in_transit', _('In Transit')), ('delivered', _('Delivered')), ('cancelled', _('Cancelled'))]
+    PLANNING_CHOICES = [('cuba', _('Container Movement')), ('porte', _('Transport')), ('machine_hours', _('Machine Hours'))]
 
-    asset = models.ForeignKey(
-        Asset,
-        on_delete=models.PROTECT,
-        related_name="plannings",
-        verbose_name=_("Asset")
-    )
-    origin = models.ForeignKey(
-        WorkingZone,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name="plannings_origin",
-        verbose_name=_("From Zone")
-    )
-    destination = models.ForeignKey(
-        WorkingZone,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name="plannings_destination",
-        verbose_name=_("To Zone")
-    )
-    assigned_to = models.ForeignKey(
-        'company.Employee',
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name="asset_plannings",
-        verbose_name=_("Assigned To")
-    )
-    transport_asset = models.ForeignKey(
-        Asset,
-        on_delete=models.SET_NULL,
-        null=True, blank=True,
-        related_name="transport_plannings",
-        verbose_name=_("Transport Asset"),
-        help_text=_("Vehicle or tool needed to perform this movement"),
-    )
+    asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name="plannings", verbose_name=_("Asset"))
+    origin = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="plannings_origin", verbose_name=_("From Zone"))
+    destination = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="plannings_destination", verbose_name=_("To Zone"))
+    assigned_to = models.ForeignKey('company.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name="asset_plannings", verbose_name=_("Assigned To"))
+    transport_asset = models.ForeignKey(Asset, on_delete=models.SET_NULL, null=True, blank=True, related_name="transport_plannings", verbose_name=_("Transport Asset"))
     scheduled_date = models.DateField(verbose_name=_("Scheduled Date"))
-    status = models.CharField(
-        max_length=20,
-        choices=STATUS_CHOICES,
-        default='pending',
-        verbose_name=_("Status")
-    )
-    route_order = models.PositiveSmallIntegerField(
-        null=True, blank=True,
-        verbose_name=_("Route Order"),
-        help_text=_("Execution order within the employee's daily route"),
-    )
-    planning_type = models.CharField(
-        max_length=10,
-        choices=PLANNING_CHOICES,
-        default='cuba',
-        verbose_name=_("Planning Type")
-    )
-    load_description = models.TextField(
-        blank=True,
-        verbose_name=_("Load Description"),
-    )
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name=_("Status"))
+    route_order = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name=_("Route Order"))
+    planning_type = models.CharField(max_length=20, choices=PLANNING_CHOICES, default='cuba', verbose_name=_("Planning Type"))
+    load_description = models.TextField(blank=True, verbose_name=_("Load Description"))
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
     history = HistoricalRecords()
 
@@ -541,74 +374,39 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         verbose_name = _("Asset Planning")
         verbose_name_plural = _("Asset Plannings")
         ordering = ["-scheduled_date"]
-        indexes = [
-            models.Index(fields=["assigned_to", "scheduled_date"]),
-        ]
+        indexes = [models.Index(fields=["assigned_to", "scheduled_date"])]
 
     def __str__(self):
         return f"{self.asset.name} → {self.destination} ({self.scheduled_date})"
 
 
 class ZoneDistanceCache(models.Model):
-    """Cache Google Routes API distances between zone pairs."""
-    from_zone = models.ForeignKey(
-        WorkingZone,
-        on_delete=models.CASCADE,
-        related_name="+",
-        verbose_name=_("From Zone"),
-    )
-    to_zone = models.ForeignKey(
-        WorkingZone,
-        on_delete=models.CASCADE,
-        related_name="+",
-        verbose_name=_("To Zone"),
-    )
-    distance_meters = models.PositiveIntegerField(verbose_name=_("Distance (m)"))
-    duration_seconds = models.PositiveIntegerField(verbose_name=_("Duration (s)"))
-    fetched_at = models.DateTimeField(auto_now=True, verbose_name=_("Fetched At"))
+    from_zone = models.ForeignKey(WorkingZone, on_delete=models.CASCADE, related_name="+")
+    to_zone = models.ForeignKey(WorkingZone, on_delete=models.CASCADE, related_name="+")
+    distance_meters = models.PositiveIntegerField()
+    duration_seconds = models.PositiveIntegerField()
+    fetched_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = _("Zone Distance Cache")
         verbose_name_plural = _("Zone Distance Cache")
-        constraints = [
-            models.UniqueConstraint(
-                fields=["from_zone", "to_zone"],
-                name="unique_zone_pair",
-            ),
-        ]
+        constraints = [models.UniqueConstraint(fields=["from_zone", "to_zone"], name="unique_zone_pair")]
 
     def __str__(self):
         return f"{self.from_zone} → {self.to_zone}: {self.distance_meters}m"
 
 
 class AssetPlanningStop(models.Model):
-    """Ordered intermediate stop between origin and destination."""
-    planning = models.ForeignKey(
-        AssetPlanning,
-        on_delete=models.CASCADE,
-        related_name="stops",
-        verbose_name=_("Planning"),
-    )
-    zone = models.ForeignKey(
-        WorkingZone,
-        on_delete=models.PROTECT,
-        verbose_name=_("Zone"),
-    )
-    sequence = models.PositiveSmallIntegerField(
-        verbose_name=_("Sequence"),
-    )
-    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+    planning = models.ForeignKey(AssetPlanning, on_delete=models.CASCADE, related_name="stops")
+    zone = models.ForeignKey(WorkingZone, on_delete=models.PROTECT)
+    sequence = models.PositiveSmallIntegerField()
+    notes = models.TextField(blank=True)
 
     class Meta:
         verbose_name = _("Planning Stop")
         verbose_name_plural = _("Planning Stops")
         ordering = ["sequence"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["planning", "sequence"],
-                name="unique_stop_sequence",
-            ),
-        ]
+        constraints = [models.UniqueConstraint(fields=["planning", "sequence"], name="unique_stop_sequence")]
 
     def __str__(self):
         return f"Stop {self.sequence}: {self.zone}"
@@ -621,18 +419,8 @@ class AssetDocumentType(BaseDocumentType):
 
 
 class AssetDocument(BaseDocument):
-    asset = models.ForeignKey(
-        Asset,
-        on_delete=models.CASCADE,
-        related_name="documents",
-        verbose_name=_("Asset")
-    )
-    document_type = models.ForeignKey(
-        AssetDocumentType,
-        on_delete=models.PROTECT,
-        related_name="documents",
-        verbose_name=_("Document Type")
-    )
+    asset = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name="documents")
+    document_type = models.ForeignKey(AssetDocumentType, on_delete=models.PROTECT, related_name="documents")
 
     class Meta:
         verbose_name = _("Asset Document")

@@ -2,7 +2,8 @@ from django.urls import path
 
 from company.views.views import LocationRecordCreateView
 from assets.views import asset_transaction_imagen_view
-from .views.assets import DeliveryCheckView
+from .views.assets import DeliveryCheckView, MachineHoursListView, MachineCheckView, LaborerZonesView, LaborerHoursView, LaborerHoursStatusView
+from .views.attendance import MachineHoursHistorialView
 from .views import assets, attendance, zones
 
 urlpatterns = [
@@ -16,6 +17,7 @@ urlpatterns = [
         assets.AssetCheckDeliveryLocationView.as_view(),
         name="check_delivery_location",
     ),
+    path("assets/<int:asset_id>/machine-check/", MachineCheckView.as_view(), name="machine_check"),
     path("assets/transaction/<int:transaction_id>/imagen/", asset_transaction_imagen_view, name="transaction_imagen"),
     path("attendance/clock-in/", attendance.AttendanceClockInView.as_view(), name="clock_in"),
     path("attendance/clock-out/", attendance.AttendanceClockOutView.as_view(), name="clock_out"),
@@ -30,5 +32,9 @@ urlpatterns = [
     path("portes/", attendance.PortesPlanningListView.as_view(), name="portes_planning"),
     path("portes/<int:planning_id>/submit/", attendance.PorteSubmitView.as_view(), name="porte_submit"),
     path("assets/<int:asset_id>/delivery-check/", DeliveryCheckView.as_view(), name="asset-delivery-check"),
-
+    path("machine-hours/", MachineHoursListView.as_view(), name="machine_hours_list"),
+    path("machine-hours/history/", MachineHoursHistorialView.as_view(), name="machine_hours_history"),  
+    path("laborer/zones/", LaborerZonesView.as_view(), name="laborer_zones"),
+    path("laborer/transaction/", LaborerHoursView.as_view(), name="laborer_transaction"),
+    path("laborer/status/", LaborerHoursStatusView.as_view(), name="laborer_status"),
 ]

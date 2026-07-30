@@ -282,22 +282,26 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
         payment = reconciliation.payment
         txn = reconciliation.bank_transaction
 
+        current_unmatched = reconciliation.unmatched_amount.amount
         total_new = Decimal("0")
         for allocation in confirmed_allocations:
+            budget = current_unmatched - total_new
+            if budget <= 0:
+                break
             ct = ContentType.objects.get(model=allocation["content_type"])
             doc = ct.get_object_for_this_type(pk=allocation["object_id"])
             remaining = doc.amount_remaining_decimal
             if remaining <= 0:
                 continue
+            amount_to_apply = min(remaining, budget)
             PaymentAllocation.objects.create(
                 payment=payment,
                 content_type=ct,
                 object_id=allocation["object_id"],
-                amount_applied=remaining,
+                amount_applied=amount_to_apply,
             )
-            total_new += remaining
+            total_new += amount_to_apply
 
-        current_unmatched = reconciliation.unmatched_amount.amount
         new_unmatched = max(Decimal("0"), current_unmatched - total_new)
         reconciliation.unmatched_amount = Money(new_unmatched, txn.amount_currency)
         reconciliation.save(update_fields=["unmatched_amount"])

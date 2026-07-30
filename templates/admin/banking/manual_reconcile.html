@@ -303,6 +303,9 @@
             <span id="overLimitWarning" style="display:none; color:#dc2626; font-size:0.8rem; font-weight:600;">
                 {% trans "Selection exceeds transaction amount" %}
             </span>
+            <span id="partialNote" style="display:none; color:#0f766e; font-size:0.8rem; font-weight:600;">
+                {% trans "This invoice will be marked as partially paid with this amount" %}
+            </span>
         </div>
 
         <div class="doc-table-wrapper">
@@ -372,21 +375,40 @@
         let total = 0;
         checked.forEach(cb => total += parseFloat(cb.dataset.amount || 0));
 
-        const isOver = total > txnAmount + 0.01;
+        // A single selected invoice whose own remaining balance is bigger than
+        // the transaction is a partial-payment case (e.g. an invoice paid in
+        // installments): it will be capped and left partially paid, not blocked.
+        const oversizedSelected = checked.length === 1
+            && parseFloat(checked[0].dataset.amount || 0) > txnAmount + 0.01;
+
+        const isOver = total > txnAmount + 0.01 && !oversizedSelected;
         const isMatch = Math.abs(total - txnAmount) < 0.01;
 
         const el = document.getElementById('runningTotal');
         el.textContent = total.toFixed(2) + ' €';
-        el.className = 'running-total-value' + (isOver ? ' over' : (isMatch ? ' match' : ''));
+        el.className = 'running-total-value' + (isOver ? ' over' : ((isMatch || oversizedSelected) ? ' match' : ''));
 
         document.getElementById('overLimitWarning').style.display = isOver ? 'inline' : 'none';
+        document.getElementById('partialNote').style.display = oversizedSelected ? 'inline' : 'none';
         document.getElementById('confirmBtn').disabled = checked.length === 0 || isOver;
 
-        // Disable unchecked boxes whose amount would push the total over the limit
         document.querySelectorAll('.doc-checkbox:not(:checked)').forEach(cb => {
-            const wouldExceed = total + parseFloat(cb.dataset.amount || 0) > txnAmount + 0.01;
-            cb.disabled = wouldExceed;
-            cb.closest('tr').style.opacity = wouldExceed ? '0.4' : '1';
+            const amount = parseFloat(cb.dataset.amount || 0);
+            let disable;
+            if (oversizedSelected) {
+                // A partial-payment invoice is already selected — block combining
+                // it with anything else, since the split would be ambiguous.
+                disable = true;
+            } else if (amount > txnAmount + 0.01) {
+                // This invoice alone exceeds the transaction amount: allow
+                // selecting it for a partial payment, but only on its own.
+                disable = checked.length > 0;
+            } else {
+                // Disable boxes whose amount would push the total over the limit
+                disable = total + amount > txnAmount + 0.01;
+            }
+            cb.disabled = disable;
+            cb.closest('tr').style.opacity = disable ? '0.4' : '1';
         });
 
         // Always keep checked boxes enabled so they can be unchecked

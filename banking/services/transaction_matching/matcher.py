@@ -148,23 +148,31 @@ class TransactionMatcher:
         #   Check the real-time remaining amount at confirmation time.
         #   Another reconciliation may have been confirmed in between,
         #   reducing or zeroing the remaining balance.
+        #   Each allocation is capped at what's left of the transaction's
+        #   own amount, so a document whose remaining balance is larger
+        #   than the transaction (e.g. an invoice paid in installments)
+        #   gets partially applied instead of over-allocated.
+        txn_amount = abs(txn.amount.amount)
         total_allocated = Decimal("0")
         for allocation in confirmed_allocations:
+            budget = txn_amount - total_allocated
+            if budget <= 0:
+                break
             ct = ContentType.objects.get(model=allocation["content_type"])
             doc = ct.get_object_for_this_type(pk=allocation["object_id"])
             remaining = doc.amount_remaining_decimal
             if remaining <= 0:
                 continue  # Already fully paid by another reconciliation
+            amount_to_apply = min(remaining, budget)
             PaymentAllocation.objects.create(
                 payment=payment,
                 content_type=ct,
                 object_id=allocation["object_id"],
-                amount_applied=remaining,
+                amount_applied=amount_to_apply,
             )
-            total_allocated += remaining
+            total_allocated += amount_to_apply
 
         # Step 4 — Update the BankReconciliation
-        txn_amount = abs(txn.amount.amount)
         actual_unmatched = max(Decimal("0"), txn_amount - total_allocated)
         reconciliation.payment = payment
         reconciliation.is_confirmed = True

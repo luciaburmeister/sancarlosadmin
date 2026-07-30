@@ -1,5 +1,6 @@
 """Banking admin — BankTransaction and BankReconciliation."""
 from core.admin.company_admin import CompanyRestrictedAdmin
+from core.admin.company_access import get_user_companies
 from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
 from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
@@ -11,11 +12,20 @@ from django.contrib import messages
 from django.urls import path, reverse
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
+from import_export.admin import ImportExportModelAdmin
 from unfold.admin import ModelAdmin, StackedInline
+from unfold.contrib.import_export.forms import ImportForm, SelectableFieldsExportForm
 from unfold.contrib.inlines.admin import NonrelatedTabularInline
 from unfold.decorators import action, display
 
-from banking.models import BankReconciliation, BankTransaction, InvoiceReconciliationSuggestion, ReconciliationStatus
+from banking.models import (
+    BankReconciliation,
+    BankTransaction,
+    BankTransactionCategory,
+    InvoiceReconciliationSuggestion,
+    ReconciliationStatus,
+)
+from banking.resources import BankTransactionCategoryResource
 from banking.views import (
     ConnectBankView,
     ConsentDoneView,
@@ -159,6 +169,20 @@ class PaymentAllocationInline(NonrelatedTabularInline):
         )
 
 
+@admin.register(BankTransactionCategory)
+class BankTransactionCategoryAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
+    resource_classes = [BankTransactionCategoryResource]
+    import_form_class = ImportForm
+    export_form_class = SelectableFieldsExportForm
+
+    list_display = ("name", "company")
+    list_filter = (("company", AutocompleteSelectMultipleFilter),)
+    list_filter_submit = True
+    search_fields = ("name",)
+    autocomplete_fields = ("company",)
+    ordering = ("company__name", "name")
+
+
 @admin.register(BankTransaction)
 class BankTransactionAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = (
@@ -168,11 +192,13 @@ class BankTransactionAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "counterparty_name",
         "description_short",
         "get_reconciliation_label",
+        "category",
         "bank_account",
     )
     list_filter = (
         ("reconciliation_status",MultipleChoicesDropdownFilter),
         ("bank_account",AutocompleteSelectMultipleFilter),
+        ("category",AutocompleteSelectMultipleFilter),
         ("transaction_date",RangeDateFilter),
         ("company",AutocompleteSelectMultipleFilter)
     )
@@ -188,12 +214,35 @@ class BankTransactionAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "raw_data",
         "imported_at",
     )
-    list_select_related = ("bank_account",)
+    list_select_related = ("bank_account", "category")
     ordering = ("-transaction_date", "-imported_at")
     list_per_page = 30
 
     actions_detail = ["run_matcher_detail_action", "review_suggestion_action", "manual_reconcile_action"]
     inlines = [BankReconciliationInline, PaymentAllocationInline]
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """
+        The category dropdown (plain select, no autocomplete) only lists
+        categories belonging to this transaction's own company, sorted by name.
+        """
+        if db_field.name == "category":
+            object_id = request.resolver_match.kwargs.get("object_id") if request.resolver_match else None
+            if object_id:
+                txn = BankTransaction.objects.filter(pk=object_id).only("company_id").first()
+                if txn and txn.company_id:
+                    kwargs["queryset"] = BankTransactionCategory.objects.filter(
+                        company_id=txn.company_id
+                    ).order_by("name")
+                else:
+                    kwargs["queryset"] = BankTransactionCategory.objects.none()
+            else:
+                qs = BankTransactionCategory.objects.all()
+                if not request.user.is_superuser:
+                    qs = qs.filter(company__in=get_user_companies(request.user))
+                kwargs["queryset"] = qs.order_by("company__name", "name")
+
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def get_urls(self):
         custom_urls = [

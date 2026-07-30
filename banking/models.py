@@ -20,6 +20,30 @@ class ReconciliationMethod(models.TextChoices):
     MANUAL = "manual", _("Manual")
 
 
+class BankTransactionCategory(CompanyOwnedModel):
+    """
+    Per-company label for grouping bank transactions (e.g. Rent, Payroll, Utilities).
+    """
+    name = models.CharField(
+        max_length=150,
+        verbose_name=_("Name"),
+    )
+
+    class Meta:
+        verbose_name = _("Bank Transaction Category")
+        verbose_name_plural = _("Bank Transaction Categories")
+        ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "name"],
+                name="unique_banktransactioncategory_company_name",
+            ),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class BankTransaction(CompanyOwnedModel):
     """
     Raw bank statement line imported from Nuek.
@@ -93,6 +117,15 @@ class BankTransaction(CompanyOwnedModel):
         verbose_name=_("Imported At"),
         help_text=_("Timestamp when this transaction was imported into the system.")
     )
+    category = models.ForeignKey(
+        BankTransactionCategory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="transactions",
+        verbose_name=_("Category"),
+        help_text=_("Category assigned for reporting/bookkeeping purposes. Scoped to this transaction's company.")
+    )
 
     class Meta:
         verbose_name = _("Bank Transaction")
@@ -102,6 +135,7 @@ class BankTransaction(CompanyOwnedModel):
         indexes = [
             models.Index(fields=["bank_account", "transaction_date"]),
             models.Index(fields=["reconciliation_status", "transaction_date"]),
+            models.Index(fields=["category", "transaction_date"]),
         ]
 
     def __str__(self):

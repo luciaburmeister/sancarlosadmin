@@ -78,13 +78,11 @@ class TaxScheduleRule(Timestampable, CompanyOwnedModel):
     def __str__(self):
         return f"{self.name} ({self.company})"
 
-    # Fields that trigger a full regeneration of OPEN periods when changed
     REGEN_FIELDS = {"start_date", "period_length", "period_unit", "payment_day", "meses_hasta_vencimiento"}
 
     def save(self, *args, **kwargs):
         is_new = self.pk is None
 
-        # Detect changed fields before saving
         changed = set()
         if not is_new:
             try:
@@ -98,7 +96,6 @@ class TaxScheduleRule(Timestampable, CompanyOwnedModel):
         if not self.is_active:
             return
 
-        # On create or key field change: wipe OPEN periods and regenerate
         if is_new or (changed & self.REGEN_FIELDS):
             TaxPeriod.objects.filter(
                 rule=self,
@@ -233,7 +230,6 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
 
         tax_type = self.rule.tax_type
 
-        # Tax collected — final sales invoices only (proforma excluded as not fiscally valid)
         from invoices.models import SalesInvoiceStatus
         sales_ct = ContentType.objects.get_for_model(SalesInvoice)
         sales_ids = list(SalesInvoice.objects.filter(
@@ -255,7 +251,6 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
             if result is not None:
                 collected = Decimal(str(result.amount if hasattr(result, "amount") else result))
 
-        # Tax paid — all received purchase invoices
         purchase_ct = ContentType.objects.get_for_model(Invoice)
         purchase_ids = list(Invoice.objects.filter(
             company=self.company,
@@ -279,9 +274,6 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
         self.tax_paid = paid
         self.tax_net = collected - paid
 
-        # ── Saldo a compensar acumulado ────────────────────────────────────
-        # Accumulate all negative tax_net from ALL prior periods of the same
-        # rule, with no year boundary — credit carries forward indefinitely.
         prior_periods = TaxPeriod.objects.filter(
             rule=self.rule,
             date_from__lt=self.date_from,
@@ -295,7 +287,7 @@ class TaxPeriod(Timestampable, CompanyOwnedModel):
 
         self.accumulated_credit = accumulated
         net_val = collected - paid
-        net_after = net_val - accumulated  # positive = pay to Hacienda, negative = carry forward
+        net_after = net_val - accumulated
         self.net_after_credit = net_after
 
         if save:
@@ -332,12 +324,23 @@ class TaxPayment(Timestampable, CompanyOwnedModel):
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
-        # Auto-mark period as paid if total payments cover the net
         from django.db.models import Sum
         total = TaxPayment.objects.filter(period=self.period).aggregate(t=Sum("amount_paid"))["t"] or 0
         if total >= self.period.tax_net.amount:
             self.period.status = TaxPeriodStatus.PAID
             self.period.save(update_fields=["status"])
+
+
+class PaymentCalendar(TaxPeriod):
+    """
+    Proxy model with no table of its own — exists only so 'Calendario de
+    Pagos' shows up as its own row in the Finance admin index, next to
+    Tax Payments / Tax Periods / Tax Schedule Rules.
+    """
+    class Meta:
+        proxy = True
+        verbose_name = _("Calendario de Pagos")
+        verbose_name_plural = _("Calendario de Pagos")
 
 
 def advance_all_rules():

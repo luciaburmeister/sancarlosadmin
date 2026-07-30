@@ -1,0 +1,190 @@
+{% extends "admin/base.html" %}
+{% load i18n unfold %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <script src="{% url 'admin:jsi18n' %}"></script>
+  {{ form.media }}
+  <style>[x-cloak] { display: none !important; }</style>
+{% endblock %}
+
+{% block content %}
+<div class="p-4">
+
+  {# ── Filtros ─────────────────────────────────────────────────────────── #}
+  {% component "unfold/components/card.html" %}
+    <form method="get" class="p-4">
+      <div class="grid gap-4 mb-4" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+        <div>{% include "unfold/helpers/field.html" with field=form.company %}</div>
+        <div>{% include "unfold/helpers/field.html" with field=form.bank_accounts %}</div>
+        <div>{% include "unfold/helpers/field.html" with field=form.date_from %}</div>
+        <div>{% include "unfold/helpers/field.html" with field=form.date_to %}</div>
+      </div>
+      <div class="flex flex-wrap items-center justify-between gap-3 pt-3" style="border-top: 1px solid var(--color-border, #e5e7eb);">
+        {% component "unfold/components/button.html" with submit=True variant="default" %}
+          {% trans "Filtrar" %}
+        {% endcomponent %}
+
+        <div class="flex items-center gap-3">
+          {% component "unfold/components/button.html" with href=prev_week_url variant="default" %}
+            ← {% trans "Anterior" %}
+          {% endcomponent %}
+          {% component "unfold/components/button.html" with href=today_url variant="default" %}
+            {% trans "Hoy" %}
+          {% endcomponent %}
+          {% component "unfold/components/button.html" with href=next_week_url variant="default" %}
+            {% trans "Siguiente" %} →
+          {% endcomponent %}
+        </div>
+      </div>
+    </form>
+  {% endcomponent %}
+
+  <div class="mt-4">
+
+  {% if range_was_truncated %}
+  <p class="text-sm mb-4" style="color: var(--color-font-secondary, #6b7280);">
+    {% blocktrans %}El rango máximo visible es de {{ max_window_days }} días — se ajustó automáticamente.{% endblocktrans %}
+  </p>
+  {% endif %}
+
+  {# ── Calendario ──────────────────────────────────────────────────────── #}
+  {% component "unfold/components/card.html" %}
+    {% if matrix %}
+    <table style="width: 100%; border-collapse: collapse; font-size: .8125rem;">
+
+      <thead>
+        <tr style="border-bottom: 1px solid var(--color-border, #e5e7eb);">
+          <th style="text-align: left; padding: .625rem; color: var(--color-font-secondary, #6b7280);"></th>
+          {% for day in matrix.days %}
+          <th style="text-align: right; padding: .625rem; color: var(--color-font-secondary, #6b7280);
+                     {% if day == today %}background: color-mix(in srgb, var(--color-primary, #0d9488) 10%, transparent); border-bottom: 2px solid var(--color-primary, #0d9488);{% endif %}">
+            {{ day|date:"D d/m" }}
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+
+      <tbody>
+        <tr style="border-bottom: 1px solid var(--color-border, #e5e7eb); font-weight: 700;">
+          <td style="padding: .625rem; color: var(--color-font-important, #111827);">{% trans "SALDO BANCO" %}</td>
+          {% for cell in matrix.saldo_cells %}
+          <td style="text-align: right; padding: .625rem; color: var(--color-font-important, #111827);
+                     {% if cell.day == today %}background: color-mix(in srgb, var(--color-primary, #0d9488) 10%, transparent);{% endif %}">
+            {{ cell.value }} €
+          </td>
+          {% endfor %}
+        </tr>
+
+        <tr style="background: var(--color-bg-secondary, #f9fafb); font-weight: 700;">
+          <td style="padding: .625rem; color: var(--color-font-important, #111827);">{% trans "SALIDAS" %}</td>
+          {% for cell in matrix.salidas_cells %}
+          <td style="text-align: right; padding: .625rem; color: #dc2626;
+                     {% if cell.day == today %}background: color-mix(in srgb, var(--color-primary, #0d9488) 10%, transparent);{% endif %}">
+            {% if cell.value %}-{{ cell.value }} €{% else %}—{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+      </tbody>
+
+      {% for row in matrix.salida_rows %}
+      <tbody x-data="{ open: false }">
+        <tr style="border-bottom: 1px solid var(--color-border, #f3f4f6); cursor: pointer;" @click="open = !open">
+          <td style="padding: .625rem .625rem .625rem 1.5rem; color: var(--color-font-secondary, #374151);">
+            <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 1rem; color: var(--color-font-secondary, #9ca3af);"></span>
+            {{ row.label }}
+          </td>
+          {% for cell in row.cells %}
+          <td style="text-align: right; padding: .625rem; color: var(--color-font-secondary, #374151);
+                     {% if cell.day == today %}background: color-mix(in srgb, var(--color-primary, #0d9488) 10%, transparent);{% endif %}">
+            {% if cell.value %}-{{ cell.value }} €{% else %}—{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        <tr x-show="open" x-cloak>
+          <td style="padding: 0; background: var(--color-bg-secondary, #f9fafb);"></td>
+          {% for day_entries in row.detail_cells %}
+          <td style="vertical-align: top; padding: .375rem; background: var(--color-bg-secondary, #f9fafb); border-left: 1px solid var(--color-border, #e5e7eb);">
+            {% for entry in day_entries %}
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+                        background: var(--color-base-50, #ffffff); border: 1px solid var(--color-border, #e5e7eb);
+                        border-radius: .375rem; padding: .25rem .5rem; margin-bottom: .25rem;">
+              {% if entry.admin_url %}
+              <a href="{{ entry.admin_url }}" target="_blank" rel="noopener" style="color: var(--color-primary, #0d9488); text-decoration: none; white-space: nowrap;" title="{{ entry.description }}">
+                {{ entry.description|truncatechars:22 }}
+              </a>
+              {% else %}
+              <span style="color: var(--color-font-secondary, #6b7280); white-space: nowrap;" title="{{ entry.description }}">
+                {{ entry.description|truncatechars:22 }}
+              </span>
+              {% endif %}
+              <span style="color: #dc2626; white-space: nowrap;">-{{ entry.amount }} €</span>
+            </div>
+            {% endfor %}
+          </td>
+          {% endfor %}
+        </tr>
+      </tbody>
+      {% endfor %}
+
+      <tbody>
+        <tr style="background: var(--color-bg-secondary, #f9fafb); font-weight: 700;">
+          <td style="padding: .625rem; color: var(--color-font-important, #111827);">{% trans "ENTRADAS" %}</td>
+          {% for cell in matrix.entradas_cells %}
+          <td style="text-align: right; padding: .625rem; color: #16a34a;
+                     {% if cell.day == today %}background: color-mix(in srgb, var(--color-primary, #0d9488) 10%, transparent);{% endif %}">
+            {% if cell.value %}{{ cell.value }} €{% else %}—{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+      </tbody>
+
+      {% for row in matrix.entrada_rows %}
+      <tbody x-data="{ open: false }">
+        <tr style="border-bottom: 1px solid var(--color-border, #f3f4f6); cursor: pointer;" @click="open = !open">
+          <td style="padding: .625rem .625rem .625rem 1.5rem; color: var(--color-font-secondary, #374151);">
+            <span x-text="open ? '▾' : '▸'" style="display: inline-block; width: 1rem; color: var(--color-font-secondary, #9ca3af);"></span>
+            {{ row.label }}
+          </td>
+          {% for cell in row.cells %}
+          <td style="text-align: right; padding: .625rem; color: var(--color-font-secondary, #374151);
+                     {% if cell.day == today %}background: color-mix(in srgb, var(--color-primary, #0d9488) 10%, transparent);{% endif %}">
+            {% if cell.value %}{{ cell.value }} €{% else %}—{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        <tr x-show="open" x-cloak>
+          <td style="padding: 0; background: var(--color-bg-secondary, #f9fafb);"></td>
+          {% for day_entries in row.detail_cells %}
+          <td style="vertical-align: top; padding: .375rem; background: var(--color-bg-secondary, #f9fafb); border-left: 1px solid var(--color-border, #e5e7eb);">
+            {% for entry in day_entries %}
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+                        background: var(--color-base-50, #ffffff); border: 1px solid var(--color-border, #e5e7eb);
+                        border-radius: .375rem; padding: .25rem .5rem; margin-bottom: .25rem;">
+              {% if entry.admin_url %}
+              <a href="{{ entry.admin_url }}" target="_blank" rel="noopener" style="color: var(--color-primary, #0d9488); text-decoration: none; white-space: nowrap;" title="{{ entry.description }}">
+                {{ entry.description|truncatechars:22 }}
+              </a>
+              {% else %}
+              <span style="color: var(--color-font-secondary, #6b7280); white-space: nowrap;" title="{{ entry.description }}">
+                {{ entry.description|truncatechars:22 }}
+              </span>
+              {% endif %}
+              <span style="color: #16a34a; white-space: nowrap;">{{ entry.amount }} €</span>
+            </div>
+            {% endfor %}
+          </td>
+          {% endfor %}
+        </tr>
+      </tbody>
+      {% endfor %}
+
+    </table>
+    {% else %}
+    <p style="padding: 1rem; color: var(--color-font-secondary, #6b7280);">{% trans "Selecciona una empresa." %}</p>
+    {% endif %}
+  {% endcomponent %}
+  </div>
+
+</div>
+{% endblock %}

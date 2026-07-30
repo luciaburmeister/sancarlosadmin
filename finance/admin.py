@@ -13,7 +13,7 @@ from unfold.contrib.filters.admin import (
 )
 from core.admin.company_admin import CompanyRestrictedAdmin
 
-from .models import TaxScheduleRule, TaxPeriod, TaxPayment, TaxPeriodStatus
+from .models import TaxScheduleRule, TaxPeriod, TaxPayment, TaxPeriodStatus, PaymentCalendar
 from .models import advance_all_rules
 
 
@@ -165,8 +165,6 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     @action(description=_("Export"), icon="download")
     def export_excel_action(self, request):
-        # Same caveat as compute_all_action: actions_list links carry no
-        # querystring, so we recover the filters from the Referer header.
         params = ""
         referer = request.META.get("HTTP_REFERER")
         if referer:
@@ -185,10 +183,6 @@ class TaxPeriodAdmin(CompanyRestrictedAdmin, ModelAdmin):
             total += rule.periods.count()
         self.message_user(request, _(f"All {total} periods computed in chronological order."))
 
-        # Unfold's actions_list links don't carry the current querystring
-        # (they're plain reverse() hrefs), so request.GET is always empty here.
-        # The Referer header is what actually has the filtered URL the user
-        # was on when they clicked the button.
         referer = request.META.get("HTTP_REFERER")
         if referer:
             return redirect(referer)
@@ -217,3 +211,21 @@ class TaxPaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
             ),
         }),
     )
+
+
+@admin.register(PaymentCalendar)
+class PaymentCalendarAdmin(CompanyRestrictedAdmin, ModelAdmin):
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def changelist_view(self, request, extra_context=None):
+        from .views_calendar import PaymentCalendarView
+        view = PaymentCalendarView.as_view(model_admin=self)
+        return view(request)

@@ -285,33 +285,33 @@ class MovementsExcludesMachineHoursTest(MachineHoursBaseTest):
 class MachineHoursHistorialViewTest(MachineHoursBaseTest):
     def test_returns_completed_transactions(self):
         make_completed_tx(self.asset, self.employee, self.company, planning_id=1)
-        response = self.client.get("/en/api/machine-hours/historial/")
+        response = self.client.get("/en/api/machine-hours/history/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)
 
     def test_excludes_open_transactions(self):
         make_open_tx(self.asset, self.employee, self.company, planning_id=1, zone=self.zone)
-        response = self.client.get("/en/api/machine-hours/historial/")
+        response = self.client.get("/en/api/machine-hours/history/")
         self.assertEqual(response.json()["count"], 0)
 
     def test_date_from_filter(self):
         make_completed_tx(self.asset, self.employee, self.company, planning_id=1, days_ago=5)
         make_completed_tx(self.asset, self.employee, self.company, planning_id=2, days_ago=1)
         date_from = (date.today() - timedelta(days=2)).strftime("%Y-%m-%d")
-        response = self.client.get(f"/en/api/machine-hours/historial/?date_from={date_from}")
+        response = self.client.get(f"/en/api/machine-hours/history/?date_from={date_from}")
         self.assertEqual(response.json()["count"], 1)
 
     def test_date_to_filter(self):
         make_completed_tx(self.asset, self.employee, self.company, planning_id=1, days_ago=5)
         make_completed_tx(self.asset, self.employee, self.company, planning_id=2, days_ago=1)
         date_to = (date.today() - timedelta(days=3)).strftime("%Y-%m-%d")
-        response = self.client.get(f"/en/api/machine-hours/historial/?date_to={date_to}")
+        response = self.client.get(f"/en/api/machine-hours/history/?date_to={date_to}")
         self.assertEqual(response.json()["count"], 1)
 
     def test_pagination(self):
         for i in range(25):
             make_completed_tx(self.asset, self.employee, self.company, planning_id=i)
-        response = self.client.get("/en/api/machine-hours/historial/")
+        response = self.client.get("/en/api/machine-hours/history/")
         data = response.json()
         self.assertEqual(len(data["results"]), 20)
         self.assertIsNotNone(data["next"])
@@ -320,12 +320,12 @@ class MachineHoursHistorialViewTest(MachineHoursBaseTest):
         other_user = make_user(username="other")
         other_employee = make_employee(self.company, other_user)
         make_completed_tx(self.asset, other_employee, self.company, planning_id=99)
-        response = self.client.get("/en/api/machine-hours/historial/")
+        response = self.client.get("/en/api/machine-hours/history/")
         self.assertEqual(response.json()["count"], 0)
 
     def test_intervals_order_start_before_end(self):
         make_completed_tx(self.asset, self.employee, self.company, planning_id=1)
-        response = self.client.get("/en/api/machine-hours/historial/")
+        response = self.client.get("/en/api/machine-hours/history/")
         interval = response.json()["results"][0]["intervals"][0]
         keys = list(interval.keys())
         self.assertEqual(keys[0], "start")

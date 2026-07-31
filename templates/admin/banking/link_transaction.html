@@ -1,5 +1,5 @@
 {% extends "admin/base_site.html" %}
-{% load i18n %}
+{% load i18n l10n %}
 
 {% block title %}{% trans "Link Bank Transaction" %}{% endblock %}
 
@@ -299,14 +299,14 @@
                 <tbody>
                     {% for txn in transactions %}
                     <tr onclick="selectRow(this)"
-                        data-amount="{{ txn.effective_amount }}"
+                        data-amount="{{ txn.effective_amount|unlocalize }}"
                         data-search="{{ txn.description|lower }} {{ txn.counterparty|lower }} {{ txn.bank_account|lower }}">
                         <td>
                             <input type="radio"
                                    name="selected_txn"
                                    value="{{ txn.pk }}"
                                    class="txn-radio"
-                                   data-amount="{{ txn.effective_amount }}"
+                                   data-amount="{{ txn.effective_amount|unlocalize }}"
                                    onclick="event.stopPropagation();"
                                    onchange="onRadioChange(this)">
                         </td>
@@ -356,7 +356,7 @@
 </div>
 
 <script>
-    const paymentAmount = parseFloat("{{ payment_amount }}");
+    const paymentAmount = parseFloat("{{ payment_amount|unlocalize }}");
 
     function onRadioChange(radio) {
         const amount = parseFloat(radio.dataset.amount || 0);

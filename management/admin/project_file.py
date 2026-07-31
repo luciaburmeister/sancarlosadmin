@@ -12,11 +12,10 @@ from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin, TabularInline
-from unfold.admin import GenericTabularInline
 from unfold.decorators import action, display
 from import_export.admin import ExportActionModelAdmin
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
-from sales.models import Quote, QuoteStatus, DeliveryOrder
+from sales.models import Quote, DeliveryOrder
 from production.models import ProductionTicket
 from invoices.models import SalesInvoice, Invoice, AppliedTax
 from purchasing.models import PurchaseOrder
@@ -26,7 +25,7 @@ from invoices.views.invoice.bulk_invoice_views import BulkInvoiceConfirmView
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from management.views.project_file_export import ProjectFileRepairOrderExportView
 from core.admin.company_admin import CompanyRestrictedAdmin
-from configurator.models import Configuration, ConfigurationStatus
+from configurator.models import Configuration
 from management.models import WorkEntry
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter

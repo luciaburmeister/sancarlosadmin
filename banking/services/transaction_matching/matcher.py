@@ -10,6 +10,7 @@ from djmoney.money import Money
 from banking.models import (
     BankReconciliation,
     BankTransaction,
+    BankTransactionCategory,
     ReconciliationMethod,
     ReconciliationStatus,
 )
@@ -106,12 +107,18 @@ class TransactionMatcher:
         reconciliation: BankReconciliation,
         confirmed_allocations: list,
         user,
+        category: BankTransactionCategory | None = None,
     ) -> BankReconciliation:
         """
         Confirm (or modify) a matcher suggestion and create the Payment.
 
         confirmed_allocations is a list of dicts:
             [{"content_type": "invoice", "object_id": 5}, ...]
+
+        If `category` is given, it's assigned to the bank transaction so
+        confirming a reconciliation (manual or automatic) also categorizes
+        it. Leaving it None keeps whatever category the transaction already
+        had.
 
         Idempotent — if the reconciliation is already confirmed, returns it.
         """
@@ -182,12 +189,16 @@ class TransactionMatcher:
         reconciliation.unmatched_amount = Money(actual_unmatched, txn.amount_currency)
         reconciliation.save()
 
-        # Step 5 — Update BankTransaction reconciliation status
+        # Step 5 — Update BankTransaction reconciliation status (+ category)
         is_partial = confirmed_allocations and total_allocated < txn_amount
         txn.reconciliation_status = (
             ReconciliationStatus.PARTIAL if is_partial else ReconciliationStatus.RECONCILED
         )
-        txn.save(update_fields=["reconciliation_status"])
+        update_fields = ["reconciliation_status"]
+        if category is not None:
+            txn.category = category
+            update_fields.append("category")
+        txn.save(update_fields=update_fields)
 
         return reconciliation
 

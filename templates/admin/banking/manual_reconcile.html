@@ -1,5 +1,5 @@
 {% extends "admin/base_site.html" %}
-{% load i18n %}
+{% load i18n l10n %}
 
 {% block title %}{% if is_partial %}{% trans "Add Allocations" %}{% else %}{% trans "Reconcile Manually" %}{% endif %}{% endblock %}
 
@@ -79,6 +79,31 @@
         outline: none;
         border-color: var(--primary-400, oklch(65% .125 190));
         box-shadow: 0 0 0 3px oklch(57% .125 190 / 0.1);
+    }
+
+    /* ── Category select ────────────────────────────── */
+    .category-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+    }
+
+    .category-bar label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--font-subtle-light, #888);
+        white-space: nowrap;
+    }
+
+    .category-bar select {
+        flex: 0 1 260px;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 8px;
+        font-size: 0.9rem;
+        background: var(--bg-primary, #fff);
+        color: var(--font-default-light, #333);
     }
 
     /* ── Document table ─────────────────────────────── */
@@ -291,6 +316,18 @@
                    oninput="filterDocs(this.value)">
         </div>
 
+        {% if categories %}
+        <div class="category-bar">
+            <label for="categorySelect">{% trans "Category" %}</label>
+            <select name="category" id="categorySelect">
+                <option value="">{% trans "— No category —" %}</option>
+                {% for cat in categories %}
+                <option value="{{ cat.pk }}"{% if txn.category_id == cat.pk %} selected{% endif %}>{{ cat.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+
         <!-- Running total -->
         <div class="running-total">
             {% if is_partial %}
@@ -327,7 +364,7 @@
                                    name="selected_docs"
                                    value="{{ doc.form_value }}"
                                    class="doc-checkbox"
-                                   data-amount="{{ doc.remaining }}"
+                                   data-amount="{{ doc.remaining|unlocalize }}"
                                    onclick="event.stopPropagation();">
                         </td>
                         <td>{{ doc.number }}</td>
@@ -368,7 +405,7 @@
 </div>
 
 <script>
-    const txnAmount = parseFloat("{{ txn_amount }}");
+    const txnAmount = parseFloat("{{ txn_amount|unlocalize }}");
 
     function updateTotal() {
         const checked = document.querySelectorAll('.doc-checkbox:checked');

@@ -4,6 +4,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
 from unfold.views import UnfoldModelAdminViewMixin
 
+from company.forms import DriverTrackingFilterForm
 from company.models import LocationRecord, Employee
 
 
@@ -21,24 +22,28 @@ class DriverTrackingView(UnfoldModelAdminViewMixin, TemplateView):
             .order_by("last_name", "first_name")
         )
 
-        employee_id = self.request.GET.get("employee")
-        date_str = self.request.GET.get("date")
+        filter_form = DriverTrackingFilterForm(self.request.GET or None, drivers=drivers)
 
         logs = LocationRecord.objects.select_related("employee")
+        employee = None
+        start_dt = None
+        end_dt = None
 
-        if employee_id:
-            logs = logs.filter(employee_id=employee_id)
+        if filter_form.is_valid():
+            employee = filter_form.cleaned_data.get("employee")
+            start_dt = filter_form.cleaned_data.get("start")
+            end_dt = filter_form.cleaned_data.get("end")
 
-        if date_str:
-            try:
-                from datetime import datetime
-                date = datetime.strptime(date_str, "%Y-%m-%d").date()
-                logs = logs.filter(recorded_at__date=date)
-            except ValueError:
-                pass
+            if employee:
+                logs = logs.filter(employee=employee)
+            if start_dt:
+                logs = logs.filter(recorded_at__gte=start_dt)
+            if end_dt:
+                logs = logs.filter(recorded_at__lte=end_dt)
 
         logs = logs.order_by("recorded_at")
 
+        ctx["filter_form"] = filter_form
         ctx["drivers"] = drivers
         ctx["logs"] = logs
         ctx["locations_json"] = json.dumps([
@@ -50,6 +55,7 @@ class DriverTrackingView(UnfoldModelAdminViewMixin, TemplateView):
             }
             for log in logs
         ])
-        ctx["selected_employee"] = employee_id
-        ctx["selected_date"] = date_str
+        ctx["selected_employee"] = employee.pk if employee else None
+        ctx["selected_start"] = start_dt
+        ctx["selected_end"] = end_dt
         return ctx

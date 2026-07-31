@@ -1,5 +1,11 @@
 {% extends "admin/base_site.html" %}
-{% load i18n %}
+{% load i18n unfold %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <script src="{% url 'admin:jsi18n' %}"></script>
+    {{ filter_form.media }}
+{% endblock %}
 
 {% block content %}
 <div class="mb-6">
@@ -7,39 +13,23 @@
 </div>
 
 {# ── Filtros ── #}
-<form method="get" class="flex flex-wrap gap-4 items-end mb-8">
-    <div>
-        <label for="employee" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            {% trans "Conductor" %}
-        </label>
-        <select name="employee" id="employee"
-            class="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white min-w-48">
-            <option value="">— {% trans "Todos" %} —</option>
-            {% for driver in drivers %}
-                <option value="{{ driver.id }}" {% if selected_employee == driver.id|stringformat:"s" %}selected{% endif %}>
-                    {{ driver.full_name }}
-                </option>
-            {% endfor %}
-        </select>
+<form method="get" novalidate>
+    <div class="aligned border border-base-200 mb-4 rounded-default pt-3 px-3 shadow-sm dark:border-base-800">
+        {% for field in filter_form %}
+            {% include "unfold/helpers/field.html" with field=field %}
+        {% endfor %}
     </div>
-    <div>
-        <label for="date" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-            {% trans "Fecha" %}
-        </label>
-        <input type="date" name="date" id="date"
-            value="{{ selected_date|default:'' }}"
-            class="border border-gray-300 dark:border-gray-600 rounded-md px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-white">
+
+    <div class="flex gap-2 mb-8">
+        {% component "unfold/components/button.html" with submit=1 %}
+            {% trans "Filtrar" %}
+        {% endcomponent %}
+        {% if selected_employee or selected_start or selected_end %}
+            {% component "unfold/components/button.html" with href="?" variant="default" %}
+                {% trans "Limpiar" %}
+            {% endcomponent %}
+        {% endif %}
     </div>
-    <button type="submit"
-        class="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium rounded-md">
-        {% trans "Filtrar" %}
-    </button>
-    {% if selected_employee or selected_date %}
-    <a href="?"
-        class="px-4 py-2 border border-gray-300 dark:border-gray-600 text-sm rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700">
-        {% trans "Limpiar" %}
-    </a>
-    {% endif %}
 </form>
 
 {# ── Mapa ── #}
@@ -47,57 +37,87 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <div class="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden mb-8">
-    <div id="map" style="height:480px;width:100%;"></div>
+    <div id="map" style="height:480px;width:100%;position:relative;isolation:isolate;z-index:0;"></div>
 </div>
 
 <script>
 const locations = {{ locations_json|safe }};
+const isSingleDriverRange = {{ selected_employee|yesno:"true,false" }};
 
-const map = L.map('map').setView(
-    locations.length > 0 ? [locations[0].lat, locations[0].lon] : [40.416775, -3.703790],
-    locations.length > 0 ? 13 : 6
-);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap contributors'
-}).addTo(map);
+let map;
 
-const driverColors = {};
-const palette = ['#2563eb','#dc2626','#16a34a','#d97706','#7c3aed','#db2777'];
-let colorIndex = 0;
+function initDriverMap() {
+    map = L.map('map').setView(
+        locations.length > 0 ? [locations[0].lat, locations[0].lon] : [40.416775, -3.703790],
+        locations.length > 0 ? 13 : 6
+    );
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
 
-function getColor(name) {
-    if (!driverColors[name]) driverColors[name] = palette[colorIndex++ % palette.length];
-    return driverColors[name];
-}
+    const driverColors = {};
+    const palette = ['#2563eb','#dc2626','#16a34a','#d97706','#7c3aed','#db2777'];
+    let colorIndex = 0;
 
-function makeIcon(color) {
-    return L.divIcon({
-        html: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">
-            <circle cx="7" cy="7" r="6" fill="${color}" stroke="white" stroke-width="2"/></svg>`,
-        className: '', iconSize: [14,14], iconAnchor: [7,7], popupAnchor: [0,-10]
+    function getColor(name) {
+        if (!driverColors[name]) driverColors[name] = palette[colorIndex++ % palette.length];
+        return driverColors[name];
+    }
+
+    function makeIcon(color) {
+        return L.divIcon({
+            html: `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14">
+                <circle cx="7" cy="7" r="6" fill="${color}" stroke="white" stroke-width="2"/></svg>`,
+            className: '', iconSize: [14,14], iconAnchor: [7,7], popupAnchor: [0,-10]
+        });
+    }
+
+    const bounds = [];
+    const pointsByDriver = {};
+
+    locations.forEach(loc => {
+        const color = getColor(loc.driver);
+        L.marker([loc.lat, loc.lon], { icon: makeIcon(color) })
+            .addTo(map)
+            .bindPopup(`<strong>${loc.driver}</strong><br>${loc.timestamp}<br>
+                <span style="color:#666;font-size:12px">${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}</span>`);
+        bounds.push([loc.lat, loc.lon]);
+        if (!pointsByDriver[loc.driver]) pointsByDriver[loc.driver] = [];
+        pointsByDriver[loc.driver].push([loc.lat, loc.lon]);
     });
+
+    if (bounds.length > 1) map.fitBounds(bounds, { padding: [30,30] });
+
+    // When a single driver is filtered, draw the chronological path as a solid,
+    // prominent line so the route can actually be followed instead of just dots.
+    Object.entries(pointsByDriver).forEach(([driver, points]) => {
+        if (points.length > 1) {
+            L.polyline(points, {
+                color: getColor(driver),
+                weight: isSingleDriverRange ? 4 : 2,
+                opacity: isSingleDriverRange ? 0.9 : 0.5,
+                dashArray: isSingleDriverRange ? null : '5,5',
+            }).addTo(map);
+        }
+    });
+
+    window.__driverTrackingMap = map;
+
+    // The page's <html> carries Alpine's x-cloak (display:none) until Alpine
+    // finishes loading (it's deferred), so Leaflet can initialize against a
+    // 0x0 container. Re-measure once the page is actually visible/laid out.
+    requestAnimationFrame(() => {
+        map.invalidateSize();
+        if (bounds.length > 1) map.fitBounds(bounds, { padding: [30,30] });
+    });
+    window.addEventListener('load', () => map.invalidateSize());
 }
 
-const bounds = [];
-const pointsByDriver = {};
-
-locations.forEach(loc => {
-    const color = getColor(loc.driver);
-    L.marker([loc.lat, loc.lon], { icon: makeIcon(color) })
-        .addTo(map)
-        .bindPopup(`<strong>${loc.driver}</strong><br>${loc.timestamp}<br>
-            <span style="color:#666;font-size:12px">${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}</span>`);
-    bounds.push([loc.lat, loc.lon]);
-    if (!pointsByDriver[loc.driver]) pointsByDriver[loc.driver] = [];
-    pointsByDriver[loc.driver].push([loc.lat, loc.lon]);
-});
-
-if (bounds.length > 1) map.fitBounds(bounds, { padding: [30,30] });
-
-Object.entries(pointsByDriver).forEach(([driver, points]) => {
-    if (points.length > 1)
-        L.polyline(points, { color: getColor(driver), weight: 2, opacity: 0.5, dashArray: '5,5' }).addTo(map);
-});
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDriverMap);
+} else {
+    initDriverMap();
+}
 
 function focusPoint(lat, lon) {
     map.setView([lat, lon], 16);

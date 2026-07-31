@@ -826,6 +826,15 @@ UNFOLD = {
                             "assets.view_assetmap"
                         ),
                     },
+                    {
+                    "title": _("Driver Tracking"),
+                    "icon": "location_on",
+                    "link": reverse_lazy("admin:company_locationrecord_driver_tracking"),
+                    "permission": lambda request: request.user.has_perm(
+                        "company.view_locationrecord"
+                    ),
+                },
+
                 ],
             },
             {

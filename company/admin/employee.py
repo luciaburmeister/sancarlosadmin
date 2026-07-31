@@ -33,6 +33,7 @@ from decimal import Decimal
 from django.db.models import Sum
 
 
+
 class EmployeeDocumentForm(BaseDocumentForm):
     class Meta:
         model = EmployeeDocument
@@ -331,16 +332,23 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
                 _("Skipped %(count)d employee(s) that already had a resource.") % {"count": skipped_count},
             )
 
-    def get_urls(self):
-        return [
-            path(
-                "<int:employee_id>/sessions/",
-                self.admin_site.admin_view(
-                    EmployeeSessionsView.as_view(model_admin=self)
+        def get_urls(self):
+            return [
+                path(
+                    "<int:employee_id>/sessions/",
+                    self.admin_site.admin_view(
+                        EmployeeSessionsView.as_view(model_admin=self)
+                    ),
+                    name="company_employee_sessions",
                 ),
-                name="company_employee_sessions",
-            ),
-        ] + super().get_urls()
+                path(
+                    "driver-tracking/",
+                    self.admin_site.admin_view(
+                        DriverTrackingView.as_view(model_admin=self)
+                    ),
+                    name="company_employee_driver_tracking",
+                ),
+            ] + super().get_urls()
 
     def get_inline_instances(self, request, obj=None):
         instances = super().get_inline_instances(request, obj)

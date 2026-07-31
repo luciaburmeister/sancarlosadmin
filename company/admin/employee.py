@@ -26,6 +26,7 @@ from core.admin.company_access import get_user_companies
 from core.admin.company_admin import CompanyRestrictedAdmin
 from company.models import Employee, EmployeeType
 from company.views.employeesessions import EmployeeSessionsView
+from company.views.driver_tracking import DriverTrackingView
 
 from company.forms import BaseDocumentForm
 from vacations.models import VacationWallet, VacationRequest, VacationRequestStatus
@@ -332,23 +333,23 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
                 _("Skipped %(count)d employee(s) that already had a resource.") % {"count": skipped_count},
             )
 
-        def get_urls(self):
-            return [
-                path(
-                    "<int:employee_id>/sessions/",
-                    self.admin_site.admin_view(
-                        EmployeeSessionsView.as_view(model_admin=self)
-                    ),
-                    name="company_employee_sessions",
+    def get_urls(self):
+        return [
+            path(
+                "<int:employee_id>/sessions/",
+                self.admin_site.admin_view(
+                    EmployeeSessionsView.as_view(model_admin=self)
                 ),
-                path(
-                    "driver-tracking/",
-                    self.admin_site.admin_view(
-                        DriverTrackingView.as_view(model_admin=self)
-                    ),
-                    name="company_employee_driver_tracking",
+                name="company_employee_sessions",
+            ),
+            path(
+                "driver-tracking/",
+                self.admin_site.admin_view(
+                    DriverTrackingView.as_view(model_admin=self)
                 ),
-            ] + super().get_urls()
+                name="company_employee_driver_tracking",
+            ),
+        ] + super().get_urls()
 
     def get_inline_instances(self, request, obj=None):
         instances = super().get_inline_instances(request, obj)

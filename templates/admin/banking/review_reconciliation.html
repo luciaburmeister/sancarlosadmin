@@ -456,17 +456,21 @@
         </div>
 
         {% if not recon.is_confirmed %}
-        {% if categories %}
         <div class="category-bar">
-            <label for="categorySelect">{% trans "Category" %}</label>
-            <select name="category" id="categorySelect">
-                <option value="">{% trans "— No category —" %}</option>
+            <label for="categorySelect">{% trans "Category" %} <span style="color:#dc2626;">*</span></label>
+            {% if categories %}
+            <select name="category" id="categorySelect" required>
+                <option value="" disabled {% if not txn.category_id %}selected{% endif %}>{% trans "— Select a category —" %}</option>
                 {% for cat in categories %}
                 <option value="{{ cat.pk }}"{% if txn.category_id == cat.pk %} selected{% endif %}>{{ cat.name }}</option>
                 {% endfor %}
             </select>
+            {% else %}
+            <span style="color:#dc2626; font-size:0.85rem;">
+                {% trans "No categories configured for this company yet. Add one before confirming a match." %}
+            </span>
+            {% endif %}
         </div>
-        {% endif %}
         <div class="review-actions">
             <div style="display: flex; gap: 0.75rem;">
                 <a href="{{ back_url }}" class="btn btn-back">
@@ -480,7 +484,7 @@
                     <span class="material-symbols-outlined" style="font-size: 18px;">close</span>
                     {% trans "Skip" %}
                 </button>
-                <button type="submit" class="btn btn-approve">
+                <button type="submit" class="btn btn-approve" {% if not categories %}disabled{% endif %}>
                     <span class="material-symbols-outlined" style="font-size: 18px;">check</span>
                     {% trans "Approve" %}
                 </button>

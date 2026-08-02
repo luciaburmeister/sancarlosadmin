@@ -5,7 +5,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from djmoney.money import Money
 
-from banking.models import BankTransaction, ReconciliationStatus
+from banking.models import BankTransaction, BankTransactionCategory, ReconciliationStatus
 from banking.services.transaction_matching.matcher import TransactionMatcher
 from company.models import BankAccount, Company
 from invoices.models import Invoice
@@ -28,6 +28,9 @@ class PartialManualReconciliationTests(TestCase):
             iban="ES0000000000000000000001",
         )
         self.provider = Provider.objects.create(company=self.company, name="SAN CARLOS")
+        self.category = BankTransactionCategory.objects.create(
+            company=self.company, name="Purchases",
+        )
         self.invoice = Invoice.objects.create(
             company=self.company,
             provider=self.provider,
@@ -51,6 +54,7 @@ class PartialManualReconciliationTests(TestCase):
             reconciliation=recon,
             confirmed_allocations=[{"content_type": "invoice", "object_id": self.invoice.pk}],
             user=None,
+            category=self.category,
         )
 
     def test_partial_charge_is_capped_not_overallocated(self):

@@ -152,6 +152,13 @@ class ReviewReconciliationView(UnfoldModelAdminViewMixin, FormView):
                 pk=category_id, company_id=recon.bank_transaction.company_id
             ).first()
 
+        if category is None:
+            messages.error(
+                self.request,
+                _("Please select a category before confirming this reconciliation."),
+            )
+            return redirect(self.request.path)
+
         try:
             TransactionMatcher.confirm(
                 reconciliation=recon,
@@ -268,6 +275,13 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
             category = BankTransactionCategory.objects.filter(
                 pk=category_id, company_id=txn.company_id
             ).first()
+
+        if category is None:
+            messages.error(
+                request,
+                _("Please select a category before confirming this reconciliation."),
+            )
+            return redirect(reverse("admin:banking_banktransaction_manual_reconcile", args=[pk]))
 
         is_partial = txn.reconciliation_status == ReconciliationStatus.PARTIAL
         existing_recon = None

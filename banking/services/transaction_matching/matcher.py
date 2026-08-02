@@ -127,6 +127,9 @@ class TransactionMatcher:
 
         txn = reconciliation.bank_transaction
 
+        if category is None and txn.category_id is None:
+            raise ValueError("A category is required to confirm a reconciliation.")
+
         # Step 1 — Did the human change the suggestion?
         method = TransactionMatcher._determine_method(
             reconciliation.suggested_allocations, confirmed_allocations,

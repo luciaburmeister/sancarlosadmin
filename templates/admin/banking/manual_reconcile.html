@@ -316,17 +316,21 @@
                    oninput="filterDocs(this.value)">
         </div>
 
-        {% if categories %}
         <div class="category-bar">
-            <label for="categorySelect">{% trans "Category" %}</label>
-            <select name="category" id="categorySelect">
-                <option value="">{% trans "— No category —" %}</option>
+            <label for="categorySelect">{% trans "Category" %} <span style="color:#dc2626;">*</span></label>
+            {% if categories %}
+            <select name="category" id="categorySelect" required>
+                <option value="" disabled {% if not txn.category_id %}selected{% endif %}>{% trans "— Select a category —" %}</option>
                 {% for cat in categories %}
                 <option value="{{ cat.pk }}"{% if txn.category_id == cat.pk %} selected{% endif %}>{{ cat.name }}</option>
                 {% endfor %}
             </select>
+            {% else %}
+            <span style="color:#dc2626; font-size:0.85rem;">
+                {% trans "No categories configured for this company yet. Add one before confirming a match." %}
+            </span>
+            {% endif %}
         </div>
-        {% endif %}
 
         <!-- Running total -->
         <div class="running-total">
@@ -406,6 +410,7 @@
 
 <script>
     const txnAmount = parseFloat("{{ txn_amount|unlocalize }}");
+    const hasCategories = {% if categories %}true{% else %}false{% endif %};
 
     function updateTotal() {
         const checked = document.querySelectorAll('.doc-checkbox:checked');
@@ -427,7 +432,7 @@
 
         document.getElementById('overLimitWarning').style.display = isOver ? 'inline' : 'none';
         document.getElementById('partialNote').style.display = oversizedSelected ? 'inline' : 'none';
-        document.getElementById('confirmBtn').disabled = checked.length === 0 || isOver;
+        document.getElementById('confirmBtn').disabled = checked.length === 0 || isOver || !hasCategories;
 
         document.querySelectorAll('.doc-checkbox:not(:checked)').forEach(cb => {
             const amount = parseFloat(cb.dataset.amount || 0);

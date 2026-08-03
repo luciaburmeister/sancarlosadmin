@@ -13,6 +13,7 @@ from djmoney.money import Money
 from banking.models import (
     BankReconciliation,
     BankTransaction,
+    BankTransactionCategory,
     InvoiceReconciliationSuggestion,
     ReconciliationMethod,
     ReconciliationStatus,
@@ -44,7 +45,7 @@ class InvoiceMatcher:
     Usage:
         matcher = InvoiceMatcher(invoice)
         suggestion = matcher.run()   # creates InvoiceReconciliationSuggestion
-        InvoiceMatcher.confirm(suggestion, selected_combo, user)  # creates Payment etc.
+        InvoiceMatcher.confirm(suggestion, selected_combo, user, category=category)  # creates Payment etc.
     """
 
     def __init__(self, invoice):
@@ -82,6 +83,7 @@ class InvoiceMatcher:
         suggestion: InvoiceReconciliationSuggestion,
         selected_combo: dict,
         user,
+        category: BankTransactionCategory | None = None,
     ) -> None:
         """
         Confirm a suggestion.
@@ -95,10 +97,16 @@ class InvoiceMatcher:
           create only the BankReconciliation to link it to the bank transaction.
           No new Payment is created.
 
+        `category` is required and is assigned to every BankTransaction
+        reconciled as part of this confirmation.
+
         Idempotent — skips if suggestion is already confirmed.
         """
         if suggestion.is_confirmed:
             return
+
+        if category is None:
+            raise ValueError("A category is required to confirm a reconciliation.")
 
         invoice = suggestion.invoice
         invoice_ct = ContentType.objects.get_for_model(invoice)
@@ -163,7 +171,8 @@ class InvoiceMatcher:
                     if unmatched <= Decimal("0.01")
                     else ReconciliationStatus.PARTIAL
                 )
-                txn.save(update_fields=["reconciliation_status"])
+                txn.category = category
+                txn.save(update_fields=["reconciliation_status", "category"])
                 continue
 
             # Invoice has remaining balance — standard flow: create new Payment.
@@ -231,7 +240,8 @@ class InvoiceMatcher:
                 if new_unmatched <= Decimal("0.01")
                 else ReconciliationStatus.PARTIAL
             )
-            txn.save(update_fields=["reconciliation_status"])
+            txn.category = category
+            txn.save(update_fields=["reconciliation_status", "category"])
 
             invoice_remaining -= amount_to_apply
 

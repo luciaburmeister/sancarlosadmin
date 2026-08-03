@@ -13,9 +13,9 @@ from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
-from api.constants import MAX_ZONE_RADIUS_M
+from api.constants import MAX_ZONE_RADIUS_M, FIRST_TRANSACTION_RADIUS_M
 from api.fleet.serializers import AssetTransactionSerializer
-from api.fleet.utils import find_zone_within_radius, get_zone_coordinates, haversine_distance, find_zones_within_radius
+from api.fleet.utils import find_zone_within_radius, get_zone_coordinates, haversine_distance, find_zones_within_radius, confirm_zone_location
 from company.utils import get_current_employee
 
 
@@ -271,11 +271,17 @@ class MovementStrategy(BaseTransactionStrategy):
         elif asset.current_working_zone is not None:
             zone_lat, zone_lon = get_zone_coordinates(asset.current_working_zone)
             if zone_lat is not None:
+                radius = MAX_ZONE_RADIUS_M if asset.current_working_zone.location_confirmed_at else FIRST_TRANSACTION_RADIUS_M
                 distance = haversine_distance(latitude, longitude, zone_lat, zone_lon)
-                if distance > MAX_ZONE_RADIUS_M:
-                    return JsonResponse({"error": f"Estas demasiado lejos de {asset.current_working_zone}. Estas a {int(distance)}m. Debes estar a menos de {MAX_ZONE_RADIUS_M}m."}, status=400)
+                if distance > radius:
+                    return JsonResponse({"error": f"Estas demasiado lejos de {asset.current_working_zone}. Estas a {int(distance)}m. Debes estar a menos de {radius}m."}, status=400)
         else:
             nearby_zones = find_zones_within_radius(latitude, longitude, asset.company)
+            if len(nearby_zones) == 0:
+                nearby_zones = find_zones_within_radius(
+                    latitude, longitude, asset.company,
+                    radius_metres=FIRST_TRANSACTION_RADIUS_M, unconfirmed_only=True,
+                )
             if len(nearby_zones) == 0:
                 return JsonResponse({"error": "No estas cerca de ninguna zona conocida."}, status=400)
             elif len(nearby_zones) > 1:
@@ -285,6 +291,8 @@ class MovementStrategy(BaseTransactionStrategy):
                 asset.current_working_zone = detected_zone
                 asset.save(update_fields=["current_working_zone"])
         zone = asset.current_working_zone
+        if zone is not None and zone.location_confirmed_at is None and latitude and longitude:
+            confirm_zone_location(zone, latitude, longitude)
         if zone:
             if zone.client_id and not hasattr(zone, '_client_cache'):
                 zone = WorkingZone.objects.select_related("client").get(pk=zone.pk)
@@ -323,6 +331,11 @@ class DeliveryStrategy(BaseTransactionStrategy):
         else:
             nearby_zones = find_zones_within_radius(latitude, longitude, asset.company)
             if len(nearby_zones) == 0:
+                nearby_zones = find_zones_within_radius(
+                    latitude, longitude, asset.company,
+                    radius_metres=FIRST_TRANSACTION_RADIUS_M, unconfirmed_only=True,
+                )
+            if len(nearby_zones) == 0:
                 return JsonResponse({"error": "No estas cerca de ninguna zona de entrega conocida."}, status=400)
             elif len(nearby_zones) > 1:
                 return JsonResponse({"multiple_zones": True, "zones": [{"id": z.id, "name": str(z)} for z, d in nearby_zones]}, status=200)
@@ -330,6 +343,8 @@ class DeliveryStrategy(BaseTransactionStrategy):
                 destination_zone, distance = nearby_zones[0]
         if destination_zone.client_id and not hasattr(destination_zone, '_client_cache'):
             destination_zone = WorkingZone.objects.select_related("client").get(pk=destination_zone.pk)
+        if destination_zone.location_confirmed_at is None and latitude and longitude:
+            confirm_zone_location(destination_zone, latitude, longitude)
         form_data["cliente"] = destination_zone.client.name if destination_zone.client else ""
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=destination_zone,

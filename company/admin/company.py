@@ -284,6 +284,7 @@ class CompanyAdmin(ModelAdmin):
                 ("document_reminder_emails"),
                 "invoice_number_format",
                 "require_asset_on_project_file",
+                "require_working_zone_on_project_file",
                 "asset_reception_product",
             ),
             "classes": ["tab"]

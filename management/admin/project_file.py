@@ -11,7 +11,7 @@ from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html
-from unfold.admin import ModelAdmin, TabularInline
+from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.decorators import action, display
 from import_export.admin import ExportActionModelAdmin
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
@@ -26,6 +26,7 @@ from invoices.services.project_file_invoice_service import ProjectFileInvoiceSer
 from management.views.project_file_export import ProjectFileRepairOrderExportView
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.models import Configuration
+from company.models import WorkingZone
 from management.models import WorkEntry
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter
@@ -149,6 +150,35 @@ class DirectConfigurationInline(TabularInline):
     def get_queryset(self, request):
         return super().get_queryset(request).filter(quote__isnull=True)
 
+class ProjectFileWorkingZoneInline(StackedInline):
+    model = WorkingZone
+    fk_name = "project_file"
+    extra = 1
+    tab = True
+    tab_title = _("Working Zones")
+    fields = ["name", "zone_type", "street_address", "city", "postal_code", "province", "country", "location", "is_active"]
+    readonly_fields = ["location_confirmed_at"]
+    validate_min = True
+
+    def get_min_num(self, request, obj=None, **kwargs):
+        # Only require a zone when creating a brand-new ProjectFile — existing
+        # records (or ones created before this flag existed) must stay
+        # editable even with zero zones, matching require_asset_on_project_file.
+        if obj and obj.pk:
+            return 0
+        company = self._company_from_request(request)
+        if company and company.require_working_zone_on_project_file:
+            return 1
+        return 0
+
+    def _company_from_request(self, request):
+        company_id = request.POST.get("company") or request.GET.get("company")
+        if not company_id:
+            return None
+        from company.models import Company
+        return Company.objects.filter(pk=company_id).first()
+
+
 class ResourcePlanningInline(TabularInline):
     model = ResourcePlanning
     extra = 0
@@ -252,6 +282,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
 
     inlines = [
         QuoteInline,
+        ProjectFileWorkingZoneInline,
         DirectConfigurationInline,
         WorkEntryInline,
         SalesInvoiceInline,
@@ -306,6 +337,18 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         if asset and not asset.client_id and obj.client_id:
             asset.client_id = obj.client_id
             asset.save(update_fields=["client"])
+
+    def save_formset(self, request, form, formset, change):
+        if formset.model is WorkingZone:
+            instances = formset.save(commit=False)
+            for obj in formset.deleted_objects:
+                obj.delete()
+            for instance in instances:
+                instance.client = form.instance.client
+                instance.save()
+            formset.save_m2m()
+        else:
+            formset.save()
 
     def get_urls(self):
         urls = super().get_urls()

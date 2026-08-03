@@ -11,6 +11,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from unfold.decorators import display, action
 from django.utils import timezone
 from production.tasks import run_schedule_optimization
+from configurator.models import Configuration
 from core.admin.company_admin import CompanyRestrictedAdmin
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter,
@@ -59,6 +60,24 @@ class ProductionItemInline(TabularInline):
         "data",
     )
     readonly_fields = ("planning_display",)
+
+    def get_queryset(self, request):
+        """
+        get_ordered_planning() falls back to ticket.source_object.product
+        when production_stages_order is empty, so eager-load that chain to
+        avoid a ticket + GFK + product query per row.
+        """
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("ticket__content_type")
+            .prefetch_related(
+                GenericPrefetch(
+                    "ticket__source_object",
+                    [Configuration.objects.select_related("product")],
+                )
+            )
+        )
 
     @admin.display(description=_("Production planning"))
     def planning_display(self, obj):
@@ -131,7 +150,6 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ("id", "company", "source_object", "show_status_customized_color", "last_stage_label", "created_at", "go_to_stages_display")
 
     list_filter = (
-        ("company", AutocompleteSelectMultipleFilter),
         TicketIncompleteStageFilter,
         ("company",AutocompleteSelectMultipleFilter),
         ("status",MultipleChoicesDropdownFilter),
@@ -141,7 +159,6 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
 
     search_fields = ("object_id",)
-    list_select_related = ["company"]
     actions_row = ["view_work_order", "generate_invoice_action"]
 
     inlines = [ProductionItemInline]
@@ -243,7 +260,17 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return super().changelist_view(request, extra_context=extra_context)
     
     def get_queryset(self, request):
-        return super().get_queryset(request).prefetch_related("source_object")
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("company", "content_type", "project_file")
+            .prefetch_related(
+                GenericPrefetch(
+                    "source_object",
+                    [Configuration.objects.select_related("product")],
+                )
+            )
+        )
 
     def get_urls(self):
         urls = super().get_urls()

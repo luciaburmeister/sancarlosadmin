@@ -141,6 +141,14 @@ class Company(models.Model):
             "entering the workshop) linked before they can be saved."
         ),
     )
+    require_working_zone_on_project_file = models.BooleanField(
+        default=False,
+        verbose_name=_("Require working zone on project files"),
+        help_text=_(
+            "When enabled, new project files must have at least one working zone "
+            "linked before they can be saved."
+        ),
+    )
     asset_reception_product = models.ForeignKey(
         "configurator.ProductTemplate",
         on_delete=models.SET_NULL,
@@ -529,6 +537,12 @@ class WorkingZone(CompanyOwnedModel):
     province = models.CharField(max_length=100, verbose_name=_("Province"), default="")
     country = CountryField(verbose_name=_("Country"), default="ES")
     location = LocationField(based_fields=['street_address', 'city', 'postal_code', 'province', 'country'], zoom=18, default='POINT(36.7178 4.4256)')
+    location_confirmed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Location confirmed at"),
+        help_text=_("Set the first time a real-world transaction confirms this zone's GPS location."),
+    )
     is_active = models.BooleanField(default=True, verbose_name=_("Active"))
     project_file = models.ForeignKey(
         "management.ProjectFile",

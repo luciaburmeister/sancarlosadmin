@@ -1,5 +1,6 @@
 import hashlib
 
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Max
 from django.db.models import Sum
@@ -439,6 +440,28 @@ class Client(Timestampable, CompanyOwnedModel):
 
     def __str__(self):
         return self.commercial_name or self.name
+
+    def clean(self):
+        super().clean()
+        self._validate_unique_tax_identifier()
+
+    def save(self, *args, **kwargs):
+        self._validate_unique_tax_identifier()
+        super().save(*args, **kwargs)
+
+    def _validate_unique_tax_identifier(self):
+        if not self.tax_identifier or not self.company_id:
+            return
+        duplicate = Client.objects.filter(
+            company_id=self.company_id,
+            tax_identifier__iexact=self.tax_identifier,
+        ).exclude(pk=self.pk)
+        if duplicate.exists():
+            raise ValidationError({
+                "tax_identifier": _(
+                    "Another client in this company already uses this tax identifier."
+                )
+            })
 
     @property
     def terms_version(self) -> str:

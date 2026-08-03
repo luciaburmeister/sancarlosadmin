@@ -238,7 +238,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
     resource_classes = [QuoteExportResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
-    list_display = ["id", "project_name", "client", "date_sent","date_accepted", "project_file", "show_status_customized_color", "total_price_display", "company"]
+    list_display = ["id", "project_name", "client","created_at", "date_sent","date_accepted", "project_file", "show_status_customized_color", "total_price_display", "company"]
     list_filter = [
         ("status",MultipleChoicesDropdownFilter),
         ("company",AutocompleteSelectMultipleFilter),

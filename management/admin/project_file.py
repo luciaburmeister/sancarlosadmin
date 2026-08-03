@@ -1,12 +1,15 @@
 from unfold.admin import GenericStackedInline
 from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.contrib.filters.admin.dropdown_filters import MultipleChoicesDropdownFilter
+from unfold.contrib.inlines.admin import NonrelatedTabularInline
 
 from decimal import Decimal
+from djmoney.money import Money
 from management.models import ProjectFile, ProjectFileStatus, ResourcePlanning, ResourcePlanningBacklogItem
 from management.forms import ProjectFileAdminForm
 from management.resources import ProjectFileResource
 from django.contrib import admin, messages
+from django.db.models import Q, Sum
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
@@ -42,60 +45,77 @@ class QuoteInline(TabularInline):
     readonly_fields = ["id", "project_name", "status", "discounted_subtotal", "total_price"]
     show_change_link = True
 
-class SalesInvoiceInline(TabularInline):
-    model = SalesInvoice
-    extra = 0
-    tab = True
-    tab_title = _("Sales Invoices")
-    fields = ["invoice_number", "date_issued", "total_amount", "status"]
-    readonly_fields = ["invoice_number", "date_issued", "total_amount", "status"]
-    show_change_link = True
-
-class BulkSalesInvoiceInline(TabularInline):
-    model = SalesInvoice.project_files.through
-    extra = 0
-    tab = True
-    tab_title = _("Sales Invoices")  # same tab as single-PF invoices
-    verbose_name = _("Bulk Invoice")
-    verbose_name_plural = _("Bulk Invoices")
-    fields = ["invoice_number", "date_issued", "pf_amount", "total_amount", "invoice_status"]
-    readonly_fields = ["invoice_number", "date_issued", "pf_amount", "total_amount", "invoice_status"]
-    show_change_link = False
-
-    @display(description=_("Invoice Number"))
-    def invoice_number(self, obj):
-        inv = obj.salesinvoice
-        label = inv.invoice_number or f"Pro Forma #{inv.id}"
-        url = reverse("admin:invoices_salesinvoice_change", args=[inv.pk])
-        return format_html('<a href="{}">{}</a>', url, label)
-
-    @display(description=_("Date Issued"))
-    def date_issued(self, obj):
-        return obj.salesinvoice.date_issued
-
-    @display(description=_("This PF"))
-    def pf_amount(self, obj):
-        from django.db.models import Sum
-        total = obj.salesinvoice.items.filter(
-            project_file_id=obj.projectfile_id,
-        ).aggregate(s=Sum("line_total"))["s"]
-        if total and hasattr(total, "amount"):
-            total = total.amount
-        return f"{total or 0:.2f} €"
-
-    @display(description=_("Invoice Total"))
-    def total_amount(self, obj):
-        return obj.salesinvoice.total_amount
-
-    @display(description=_("Status"))
-    def invoice_status(self, obj):
-        return obj.salesinvoice.get_status_display()
+    def save_new_instance(self, parent, instance):
+        pass
 
     def has_add_permission(self, request, obj=None):
         return False
 
+    def has_change_permission(self, request, obj=None):
+        return False
+
     def has_delete_permission(self, request, obj=None):
         return False
+
+class SalesInvoicesInline(NonrelatedTabularInline):
+    """
+    Read-only, navigation-only inline listing every sales invoice touching
+    this project file — both directly-linked (single-PF) and bulk
+    (multi-PF) invoices — consolidated into one list instead of two
+    separate inline sections.
+    """
+    model = SalesInvoice
+    extra = 0
+    max_num = 0
+    can_delete = False
+    tab = True
+    tab_title = _("Sales Invoices")
+    fields = ["invoice_link", "date_issued", "pf_amount", "total_amount", "status_display"]
+    readonly_fields = ["invoice_link", "date_issued", "pf_amount", "total_amount", "status_display"]
+
+    def get_form_queryset(self, obj):
+        self._project_file = obj
+        return SalesInvoice.objects.filter(
+            Q(project_file=obj) | Q(project_files=obj)
+        ).distinct().order_by("-date_issued")
+
+    def save_new_instance(self, parent, instance):
+        pass
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @display(description=_("Invoice Number"))
+    def invoice_link(self, obj):
+        label = obj.invoice_number or f"Pro Forma #{obj.id}"
+        url = reverse("admin:invoices_salesinvoice_change", args=[obj.pk])
+        return format_html('<a href="{}">{}</a>', url, label)
+
+    @display(description=_("This PF"))
+    def pf_amount(self, obj):
+        project_file = getattr(self, "_project_file", None)
+        total = None
+        if project_file is not None:
+            total = obj.items.filter(
+                project_file_id=project_file.pk,
+            ).aggregate(s=Sum("line_total"))["s"]
+            if total and hasattr(total, "amount"):
+                total = total.amount
+        if not total:
+            # Not item-tagged for this PF (direct single-PF invoice) — the
+            # whole invoice belongs to this project file.
+            return obj.total_amount
+        return Money(total, obj.total_amount_currency)
+
+    @display(description=_("Status"))
+    def status_display(self, obj):
+        return obj.get_status_display()
 
 class ProductionTicketInline(TabularInline):
     model = ProductionTicket
@@ -106,6 +126,18 @@ class ProductionTicketInline(TabularInline):
     readonly_fields = ["pk", "status", "created_at"]
     show_change_link = True
 
+    def save_new_instance(self, parent, instance):
+        pass
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 class DeliveryOrderInline(TabularInline):
     model = DeliveryOrder
     extra = 0
@@ -115,6 +147,18 @@ class DeliveryOrderInline(TabularInline):
     readonly_fields = ["number", "date", "status"]
     show_change_link = True
 
+    def save_new_instance(self, parent, instance):
+        pass
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
 class PurchaseInvoiceInline(TabularInline):
     model = Invoice
     extra = 0
@@ -123,6 +167,19 @@ class PurchaseInvoiceInline(TabularInline):
     fields = ["invoice_number", "provider", "total_amount", "date_issued"]
     readonly_fields = ["invoice_number", "provider", "total_amount", "date_issued"]
     show_change_link = True
+
+
+    def save_new_instance(self, parent, instance):
+        pass
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 class PurchaseOrderInline(TabularInline):
     model = PurchaseOrder
@@ -136,6 +193,18 @@ class PurchaseOrderInline(TabularInline):
     @display(description=_("Status"))
     def get_status_label(self, obj):
         return obj.get_status_display()
+
+    def save_new_instance(self, parent, instance):
+        pass
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 class DirectConfigurationInline(TabularInline):
     model = Configuration
@@ -177,29 +246,6 @@ class ProjectFileWorkingZoneInline(StackedInline):
             return None
         from company.models import Company
         return Company.objects.filter(pk=company_id).first()
-
-
-class ResourcePlanningInline(TabularInline):
-    model = ResourcePlanning
-    extra = 0
-    tab = True
-    tab_title = _("Resource Planning")
-    fields = ["planning_type", "resource_content_type", "resource_object_id", "start", "end", "status", "notes"]
-    readonly_fields = []
-    autocomplete_fields = ["planning_type","resource_content_type"]
-
-
-class ResourcePlanningBacklogInline(TabularInline):
-    model = ResourcePlanningBacklogItem
-    extra = 0
-    tab = True
-    tab_title = _("Planning Backlog")
-    fields = ["planning_type", "estimated_days", "priority", "is_reusable", "status", "notes"]
-    readonly_fields = ["status"]
-    autocomplete_fields = ["planning_type"]
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related("planning_type")
 
 
 class WorkEntryAppliedTaxInline(GenericStackedInline):
@@ -285,14 +331,11 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         ProjectFileWorkingZoneInline,
         DirectConfigurationInline,
         WorkEntryInline,
-        SalesInvoiceInline,
-        BulkSalesInvoiceInline,
+        SalesInvoicesInline,
         ProductionTicketInline,
         DeliveryOrderInline,
         PurchaseOrderInline,
         PurchaseInvoiceInline,
-        ResourcePlanningInline,
-        ResourcePlanningBacklogInline,
     ]
 
     actions_row = ["create_invoice_row_action", "create_delivery_order_row_action", "repair_order_row_action"]

@@ -233,6 +233,8 @@ class Invoice(Timestampable, Payable):
 
     def __str__(self):
         return f"{self.invoice_number} - {self.provider}"
+
+        
     
     def recalculate_totals(self, save=True):
         """

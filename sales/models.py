@@ -14,7 +14,7 @@ from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
 from invoices.models import AppliedTax, PaymentMethod
-from company.models import Company, CompanyOwnedModel, BaseBankAccount, BankAccount
+from company.models import Company, CompanyOwnedModel, BaseBankAccount, BankAccount, BaseDocumentType, BaseDocument
 from django_countries.fields import CountryField
 from configurator.utils.evaluator import validate_expression_for_safe_eval
 
@@ -1593,6 +1593,39 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
         if save:
             self.save(update_fields=["subtotal_amount", "subtotal_amount_currency"])
         return self.subtotal_amount
+
+
+class DeliveryOrderDocumentType(BaseDocumentType):
+    class Meta:
+        verbose_name = _("Delivery Order Document Type")
+        verbose_name_plural = _("Delivery Order Document Types")
+
+
+class DeliveryOrderDocument(BaseDocument):
+    delivery_order = models.ForeignKey(
+        DeliveryOrder,
+        on_delete=models.CASCADE,
+        related_name="documents",
+        verbose_name=_("Delivery Order")
+    )
+    document_type = models.ForeignKey(
+        DeliveryOrderDocumentType,
+        on_delete=models.PROTECT,
+        related_name="documents",
+        verbose_name=_("Document Type")
+    )
+
+    class Meta:
+        verbose_name = _("Delivery Order Document")
+        verbose_name_plural = _("Delivery Order Documents")
+
+    def __str__(self):
+        return f"{self.document_type.name} - {self.delivery_order}"
+
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.delivery_order_id:
+            self.company = self.delivery_order.company
+        super().save(*args, **kwargs)
 
 
 class DeliveryOrderItem(Timestampable):

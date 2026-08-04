@@ -82,7 +82,7 @@ class Invoice(Timestampable, Payable):
     accounting_date = models.DateField(blank=True, null=True, verbose_name=_("Accounting date"), help_text=_("Date used for accounting purposes. Defaults to the issued date."))
     due_date = models.DateField(blank=True, null=True,verbose_name=_("Due date")) #fecha de vencimiento
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT,blank=True, null=True,verbose_name=_("Provider")) 
-    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="invoices", null=True)
+    company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="invoices", null=True,verbose_name=_("Company"))
     
     account = models.ForeignKey(
         'accounting.CompanyAccount', 
@@ -90,7 +90,8 @@ class Invoice(Timestampable, Payable):
         null=True,
         blank=True,
         related_name='invoices',
-        help_text="Accounting account assigned by Gemini or manually overridden."
+        help_text="Accounting account assigned by Gemini or manually overridden.",
+        verbose_name = _("Account")
     )
     
     payment_method = models.CharField(
@@ -126,7 +127,8 @@ class Invoice(Timestampable, Payable):
         ],
         help_text="Upload invoice file (PDF, PNG, or JPG)",
         null=False,  
-        blank=False  
+        blank=False, 
+        verbose_name=_("File")
     )
     net_amount = MoneyField(
         max_digits=10,
@@ -135,7 +137,8 @@ class Invoice(Timestampable, Payable):
         blank=True,
         help_text="Invoice subtotal before taxes (Base Imponible)",
         default_currency='EUR',
-        default=0
+        default=0,
+        verbose_name=_("Net Amount")
     )
     total_amount = MoneyField(
         max_digits=10,
@@ -144,25 +147,29 @@ class Invoice(Timestampable, Payable):
         blank=True,
         help_text="Total invoice amount",
         default_currency='EUR',
-        default=0
+        default=0,
+        verbose_name=_("Total Amount")
     )
 
     currency = models.CharField(
         max_length=3,
         default='EUR',
-        help_text="Currency code (EUR, USD, etc.)"
+        help_text="Currency code (EUR, USD, etc.)",
+        verbose_name = _("Currency")
     )
 
     needs_manual_review = models.BooleanField(
         default=True,  # Always starts as True
-        help_text="Invoice requires manual review by user (always True initially, set to False after user review)"
+        help_text="Invoice requires manual review by user (always True initially, set to False after user review)",
+        verbose_name = _("Needs Manual Review")
     )
 
     confirmation_status = models.CharField(
         max_length=20,
         choices=ConfirmationStatus.choices,
         default=ConfirmationStatus.PENDING,
-        help_text="Review status of this invoice"
+        help_text="Review status of this invoice",
+        verbose_name = _("Confirmation Status")
     )
 
     image_hash = models.CharField(

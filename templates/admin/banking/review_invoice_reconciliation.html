@@ -1,7 +1,7 @@
 {% extends "admin/base_site.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "Review Invoice Reconciliation" %}{% endblock %}
+{% block title %}{% trans "Review Reconciliation" %}{% endblock %}
 
 {% block content %}
 <style>
@@ -287,11 +287,11 @@
     <div class="inv-header">
         <h2>
             <span class="material-symbols-outlined">receipt_long</span>
-            {% trans "Review Invoice Reconciliation" %}
+            {% trans "Review Reconciliation" %}
         </h2>
         <div class="inv-meta">
             <div class="inv-meta-item">
-                <span class="inv-meta-label">{% trans "Invoice" %}</span>
+                <span class="inv-meta-label">{% trans "Document" %}</span>
                 <span class="inv-meta-value">
                     <a href="{{ invoice_change_url }}" style="color: var(--primary-600);">
                         {{ invoice_number }}
@@ -417,7 +417,7 @@
         <div class="review-actions">
             <a href="{{ back_url }}" class="btn btn-back">
                 <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
-                {% trans "Back to Invoice" %}
+                {% trans "Back" %}
             </a>
             <button type="submit" class="btn btn-approve" {% if not categories %}disabled{% endif %}>
                 <span class="material-symbols-outlined" style="font-size: 18px;">check</span>
@@ -428,7 +428,7 @@
         <div class="review-actions">
             <a href="{{ back_url }}" class="btn btn-back">
                 <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
-                {% trans "Back to Invoice" %}
+                {% trans "Back" %}
             </a>
         </div>
         {% endif %}
@@ -437,13 +437,13 @@
     {% else %}
     <div class="empty-state">
         <span class="material-symbols-outlined">search_off</span>
-        <p>{% trans "No matching bank transactions were found for this invoice." %}</p>
+        <p>{% trans "No matching bank transactions were found for this document." %}</p>
     </div>
 
     <div class="review-actions">
         <a href="{{ back_url }}" class="btn btn-back">
             <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
-            {% trans "Back to Invoice" %}
+            {% trans "Back" %}
         </a>
     </div>
     {% endif %}

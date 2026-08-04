@@ -22,6 +22,7 @@ from banking.models import (
 )
 from banking.services.transaction_matching import InvoiceMatcher
 from invoices.models import SalesInvoice
+from apps.expenses.models import ExpenseClaim
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,8 @@ class CombinationSelectionForm(forms.Form):
 def _invoice_change_url(invoice):
     if isinstance(invoice, SalesInvoice):
         return reverse("admin:invoices_salesinvoice_change", args=[invoice.pk])
+    if isinstance(invoice, ExpenseClaim):
+        return reverse("admin:expenses_expenseclaim_change", args=[invoice.pk])
     return reverse("admin:invoices_invoice_change", args=[invoice.pk])
 
 
@@ -121,6 +124,7 @@ class ReviewInvoiceReconciliationView(UnfoldModelAdminViewMixin, FormView):
             "invoice_counterparty": str(
                 getattr(invoice, "provider", None)
                 or getattr(invoice, "client", None)
+                or getattr(invoice, "submitted_by", None)
                 or "—"
             ),
             "invoice_remaining": invoice.amount_remaining_decimal,

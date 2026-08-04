@@ -56,9 +56,9 @@ def run_matcher_for_transaction(self, bank_transaction_id: int):
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)
 def run_invoice_matcher_task(self, model_name: str, invoice_id: int):
-    """Run InvoiceMatcher for a single Invoice or SalesInvoice.
+    """Run InvoiceMatcher for a single Invoice, SalesInvoice, or ExpenseClaim.
 
-    model_name: 'invoice' or 'salesinvoice'
+    model_name: 'invoice', 'salesinvoice', or 'expenseclaim'
 
     Returns a result dict consumed by the matcher status page:
         {"status": "done",     "suggestion_id": X, "has_match": bool}
@@ -71,6 +71,7 @@ def run_invoice_matcher_task(self, model_name: str, invoice_id: int):
     model_map = {
         "invoice": "invoices.Invoice",
         "salesinvoice": "invoices.SalesInvoice",
+        "expenseclaim": "expenses.ExpenseClaim",
     }
     app_label, model = model_map[model_name].split(".")
 

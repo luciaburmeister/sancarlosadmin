@@ -62,7 +62,7 @@ class ExpenseTicketInline(TabularInline):
 
 @admin.register(ExpenseClaim)
 class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ("__str__", "submitted_by", "status", "total_claimed", "created_at")
+    list_display = ("__str__", "submitted_by", "status_badge", "total_claimed", "total_reimbursed", "created_at")
     list_filter = ("status", "company")
     search_fields = ("submitted_by__email", "submitted_by__first_name")
     autocomplete_fields = ("company", "submitted_by")
@@ -76,6 +76,7 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "approve_claim_detail_action",
         "reject_claim_detail_action",
         "revise_claim_detail_action",
+        "run_matcher_detail_action",
     ]
 
     def get_queryset(self, request):
@@ -97,6 +98,21 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
         if obj.submitted_by_id == request.user.id:
             return obj.status == ExpenseClaimStatus.DRAFT and super().has_delete_permission(request, obj)
         return False
+
+    # ── Display helpers ──────────────────────────────────────────────────────
+
+    @display(
+        description=_("Status"),
+        label={
+            ExpenseClaimStatus.DRAFT.label: "default",
+            ExpenseClaimStatus.SUBMITTED.label: "warning",
+            ExpenseClaimStatus.APPROVED.label: "info",
+            ExpenseClaimStatus.REIMBURSED.label: "success",
+            ExpenseClaimStatus.REJECTED.label: "danger",
+        },
+    )
+    def status_badge(self, obj):
+        return obj.get_status_display()
 
     def save_formset(self, request, form, formset, change):
         if formset.model is ExpenseTicket:
@@ -229,6 +245,25 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
             return False
         return request.user.is_superuser or claim.submitted_by_id == request.user.id
 
+    @action(description=_("Run Matcher"), url_path="run-matcher", icon="compare_arrows", permissions=["run_matcher_detail_action"])
+    def run_matcher_detail_action(self, request, object_id):
+        from banking.tasks import run_invoice_matcher_task
+
+        claim = self.get_object(request, object_id)
+        result = run_invoice_matcher_task.delay("expenseclaim", claim.pk)
+        back_url = reverse("admin:expenses_expenseclaim_change", args=[claim.pk])
+        status_url = (
+            reverse("admin:banking_matcher_status")
+            + f"?task_id={result.id}&task_type=expenseclaim&back_url={back_url}"
+        )
+        return redirect(status_url)
+
+    def has_run_matcher_detail_action_permission(self, request, object_id):
+        claim = self.get_object(request, object_id)
+        # Only approved claims are reimbursable — mirrors the candidate filter
+        # the transaction-side matcher already applies to expense claims.
+        return True
+
     # ── Custom URLs ──────────────────────────────────────────────────────────
 
     def get_urls(self):
@@ -254,6 +289,7 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "original_amount",
         "ticket_number",
         "claim",
+        "reimbursed_status",
         "ocr_status",
     )
     list_filter = ("company","date_of_purchase","claim", "needs_manual_review", "ocr_processed")
@@ -275,6 +311,9 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "exchange_rate_value",
         "converted_amount",
     )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("claim")
 
     def has_change_permission(self, request, obj=None):
         # Mirrors the lock in ExpenseTicket.save(): once a ticket's claim has
@@ -539,6 +578,18 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         if obj.ocr_error:
             return "Error"
         return "Pending"
+
+    @display(
+        description=_("Reimbursed"),
+        label={
+            "Reimbursed": "success",
+            "Not reimbursed": "default",
+        },
+    )
+    def reimbursed_status(self, obj):
+        if obj.claim_id and obj.claim.status == ExpenseClaimStatus.REIMBURSED:
+            return "Reimbursed"
+        return "Not reimbursed"
 
     # ── Custom URLs ──────────────────────────────────────────────────────────
 

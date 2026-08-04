@@ -136,7 +136,7 @@ class PaymentAllocationInline(NonrelatedTabularInline):
             return "—"
         ct = obj.content_type
         doc = obj.related_object
-        label = getattr(doc, "invoice_number", str(doc))
+        label = getattr(doc, "invoice_number", None) or str(doc)
         try:
             url = reverse(
                 f"admin:{ct.app_label}_{ct.model}_change",
@@ -155,7 +155,13 @@ class PaymentAllocationInline(NonrelatedTabularInline):
         if not obj.pk:
             return "—"
         doc = obj.related_object
-        return getattr(doc, "date_issued", "—")
+        date_issued = getattr(doc, "date_issued", None)
+        if date_issued is not None:
+            return date_issued
+        created_at = getattr(doc, "created_at", None)
+        if created_at is not None:
+            return created_at.date() if hasattr(created_at, "date") else created_at
+        return "—"
 
     @admin.display(description=_("Counterparty"))
     def document_counterparty(self, obj):
@@ -165,6 +171,7 @@ class PaymentAllocationInline(NonrelatedTabularInline):
         return str(
             getattr(doc, "client", None)
             or getattr(doc, "provider", None)
+            or getattr(doc, "submitted_by", None)
             or "—"
         )
 

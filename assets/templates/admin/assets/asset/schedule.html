@@ -1,0 +1,1227 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n unfold %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <script src="{% url 'admin:jsi18n' %}"></script>
+    {% if filter_form %}{{ filter_form.media }}{% endif %}
+    <style>
+      :root {
+        --sched-slot-h: 24px;
+        --sched-hour-h: 48px;
+        --sched-day-h: 480px;   /* 10h * 48px */
+        --sched-name-w: 170px;
+        --sched-ruler-w: 56px;
+      }
+
+      .schedule-filters select[multiple] {
+        min-width: 14rem;
+      }
+      .schedule-filters .select2-container {
+        min-width: 14rem !important;
+      }
+      .schedule-filters .select2-container .select2-selection--multiple {
+        min-height: 2.5rem;
+      }
+
+      .schedule-grid-scroll {
+        max-height: calc(100dvh - 15rem);
+      }
+
+      .schedule-grid-table {
+        border-collapse: separate;
+        border-spacing: 0;
+      }
+
+      .schedule-grid-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 30;
+      }
+
+      .schedule-grid-table thead th.res-name-col { left: 0; z-index: 40; }
+      .schedule-grid-table thead th.hour-ruler-col { left: var(--sched-name-w); z-index: 40; }
+
+      .schedule-grid-table td.res-name-col {
+        position: sticky;
+        left: 0;
+        z-index: 20;
+        width: var(--sched-name-w);
+        min-width: var(--sched-name-w);
+      }
+      .schedule-grid-table td.hour-ruler-col {
+        position: sticky;
+        left: var(--sched-name-w);
+        z-index: 20;
+        width: var(--sched-ruler-w);
+        min-width: var(--sched-ruler-w);
+      }
+
+      .day-col-th { min-width: 180px; }
+      .today-col { background: rgba(59, 130, 246, 0.06); }
+
+      .hour-ruler {
+        position: relative;
+        height: var(--sched-day-h);
+      }
+      .hour-ruler .hr-label {
+        position: absolute;
+        left: 0;
+        right: 4px;
+        transform: translateY(-50%);
+        text-align: right;
+        font-size: 10px;
+        color: var(--color-base-400, #9ca3af);
+        white-space: nowrap;
+      }
+
+      .day-cell {
+        position: relative;
+        height: var(--sched-day-h);
+        cursor: copy;
+        background-image:
+          repeating-linear-gradient(to bottom, rgba(0,0,0,0.10) 0, rgba(0,0,0,0.10) 1px, transparent 1px, transparent var(--sched-hour-h)),
+          repeating-linear-gradient(to bottom, rgba(0,0,0,0.045) 0, rgba(0,0,0,0.045) 1px, transparent 1px, transparent var(--sched-slot-h));
+      }
+      #sched-app.read-only-schedule .day-cell {
+        cursor: default;
+      }
+      .dark .day-cell {
+        background-image:
+          repeating-linear-gradient(to bottom, rgba(255,255,255,0.14) 0, rgba(255,255,255,0.14) 1px, transparent 1px, transparent var(--sched-hour-h)),
+          repeating-linear-gradient(to bottom, rgba(255,255,255,0.06) 0, rgba(255,255,255,0.06) 1px, transparent 1px, transparent var(--sched-slot-h));
+      }
+
+      .day-cell.drop-target {
+        background-color: rgba(59, 130, 246, 0.12);
+        box-shadow: inset 0 0 0 2px #3b82f6;
+      }
+
+      .add-preview {
+        position: absolute;
+        left: 4px;
+        right: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1.5px dashed #3b82f6;
+        border-radius: 6px;
+        background: rgba(59, 130, 246, 0.08);
+        color: #3b82f6;
+        font-size: 10px;
+        font-weight: 600;
+        pointer-events: none;
+        z-index: 5;
+        overflow: hidden;
+      }
+
+      .sched-block {
+        position: absolute;
+        left: 4px;
+        right: 4px;
+        border-radius: 6px;
+        color: #fff;
+        font-size: 11px;
+        line-height: 1.25;
+        padding: 3px 6px 4px;
+        box-shadow: 0 1px 3px rgba(0,0,0,.25);
+        cursor: grab;
+        user-select: none;
+        overflow: hidden;
+        z-index: 10;
+        transition: box-shadow .12s ease;
+      }
+      .sched-block:hover {
+        box-shadow: 0 2px 8px rgba(0,0,0,.35);
+        z-index: 30;
+        overflow: visible;
+      }
+      .sched-block.dragging { opacity: .35; }
+      .sched-block.read-only { cursor: pointer; }
+
+      .sched-block .block-label {
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sched-block .block-sublabel,
+      .sched-block .block-meta,
+      .sched-block .block-time {
+        opacity: .9;
+        font-size: 10px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sched-block .block-meta { opacity: .8; }
+      .sched-block .block-urgency {
+        display: inline-block;
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: .02em;
+        text-transform: uppercase;
+        padding: 0 4px;
+        border-radius: 3px;
+        color: #fff;
+        margin-right: 3px;
+        vertical-align: 1px;
+      }
+      .sched-block .block-chip {
+        display: inline-block;
+        font-size: 9px;
+        padding: 0 4px;
+        border-radius: 3px;
+        background: rgba(0,0,0,.18);
+        margin-right: 3px;
+      }
+
+      .sched-tooltip {
+        display: none;
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 6px);
+        min-width: 220px;
+        max-width: 280px;
+        padding: 8px 10px;
+        border-radius: 8px;
+        background: #111827;
+        color: #f9fafb;
+        font-size: 11px;
+        line-height: 1.4;
+        box-shadow: 0 8px 20px rgba(0,0,0,.35);
+        z-index: 50;
+        pointer-events: none;
+        white-space: normal;
+      }
+      .sched-block:hover .sched-tooltip { display: block; }
+      .sched-tooltip .tt-title { font-weight: 700; margin-bottom: 4px; }
+      .sched-tooltip .tt-row { margin-top: 2px; opacity: .92; }
+      .sched-tooltip .tt-label { opacity: .65; }
+      .sched-tooltip .tt-notes {
+        margin-top: 6px;
+        padding-top: 6px;
+        border-top: 1px solid rgba(255,255,255,.15);
+        opacity: .85;
+        font-style: italic;
+      }
+
+      .sched-block .block-delete {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #ef4444;
+        color: #fff;
+        border: 2px solid #fff;
+        font-size: 11px;
+        line-height: 1;
+        font-weight: 700;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 1px 4px rgba(0,0,0,.35);
+        padding: 0;
+      }
+      .sched-block:hover .block-delete { display: flex; }
+
+      .sched-block .block-duplicate {
+        position: absolute;
+        top: -6px;
+        right: 14px;
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: #3b82f6;
+        color: #fff;
+        border: 2px solid #fff;
+        font-size: 10px;
+        line-height: 1;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        box-shadow: 0 1px 4px rgba(0,0,0,.35);
+        padding: 0;
+      }
+      .sched-block:hover .block-duplicate { display: flex; }
+
+      .sched-block .block-resize-handle-top,
+      .sched-block .block-resize-handle-bottom {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 8px;
+        cursor: ns-resize;
+      }
+      .sched-block .block-resize-handle-top { top: 0; }
+      .sched-block .block-resize-handle-bottom { bottom: 0; }
+
+      .sched-block .block-resize-handle-top::after,
+      .sched-block .block-resize-handle-bottom::after {
+        content: "";
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 22px;
+        height: 3px;
+        border-radius: 2px;
+        background: rgba(255,255,255,.55);
+        opacity: 0;
+        transition: opacity .12s ease;
+      }
+      .sched-block .block-resize-handle-top::after { top: 2px; }
+      .sched-block .block-resize-handle-bottom::after { bottom: 2px; }
+      .sched-block:hover .block-resize-handle-top::after,
+      .sched-block:hover .block-resize-handle-bottom::after { opacity: 1; }
+
+      .sched-block.over-hours {
+        box-shadow: 0 0 0 2px #dc2626, 0 2px 8px rgba(0,0,0,.35);
+      }
+      .sched-block.conflict {
+        box-shadow: 0 0 0 2px #f59e0b, 0 2px 8px rgba(0,0,0,.35);
+      }
+      .sched-block.over-hours::before,
+      .sched-block.conflict::before {
+        content: "⚠";
+        position: absolute;
+        top: 1px;
+        left: 4px;
+        font-size: 10px;
+      }
+
+      .block-ghost {
+        position: fixed;
+        border-radius: 6px;
+        color: #fff;
+        font-size: 11px;
+        padding: 3px 6px;
+        pointer-events: none;
+        z-index: 1000;
+        box-shadow: 0 6px 16px rgba(0,0,0,.35);
+        opacity: .9;
+      }
+
+      .sched-backlog-scroll {
+        max-height: calc(100dvh - 15rem);
+        overflow-y: auto;
+      }
+
+      .backlog-card {
+        border-radius: 8px;
+        border: 1px solid var(--color-base-200, #e5e7eb);
+        border-left-width: 4px;
+        padding: 8px 10px;
+        cursor: grab;
+        background: #fff;
+      }
+      .dark .backlog-card { background: #1f2937; border-color: #374151; }
+      .backlog-card.dragging { opacity: .5; }
+      .backlog-card.not-draggable { cursor: pointer; border-style: dashed; }
+      .backlog-card .backlog-label { font-weight: 600; font-size: 12px; }
+      .backlog-card .backlog-sublabel { font-size: 11px; opacity: .75; margin-top: 1px; }
+      .backlog-card .backlog-row { font-size: 11px; margin-top: 3px; line-height: 1.35; }
+      .backlog-card .backlog-row .k { opacity: .55; margin-right: 3px; }
+      .backlog-card .backlog-notes {
+        font-size: 10px;
+        font-style: italic;
+        opacity: .7;
+        margin-top: 4px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .backlog-card .backlog-chip {
+        display: inline-block;
+        font-size: 9px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: #fee2e2;
+        color: #b91c1c;
+        margin-right: 4px;
+        margin-top: 4px;
+      }
+      .backlog-card .backlog-tag.urgency {
+        color: #fff;
+        font-weight: 700;
+      }
+      .backlog-card .backlog-tag {
+        display: inline-block;
+        font-size: 9px;
+        padding: 1px 6px;
+        border-radius: 999px;
+        background: #f3f4f6;
+        color: #374151;
+        margin-right: 4px;
+        margin-top: 4px;
+      }
+      .dark .backlog-card .backlog-tag { background: #374151; color: #e5e7eb; }
+
+      .legend-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-right: 4px;
+        vertical-align: 1px;
+      }
+
+      .block-status-icons { font-size: 9px; margin-right: 2px; }
+
+      #sched-toast-container {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        z-index: 1000;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        max-width: 320px;
+      }
+      .sched-toast {
+        background: #111827;
+        color: #fff;
+        font-size: 12px;
+        padding: 10px 14px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,.3);
+        border-left: 3px solid #dc2626;
+      }
+      .sched-toast.info { border-left-color: #3b82f6; }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="flex flex-col gap-4 pb-16" id="sched-app"
+     data-week-start="{{ week_start }}" data-prev-week="{{ prev_week }}" data-next-week="{{ next_week }}"
+     data-can-edit="{% if can_edit %}1{% else %}0{% endif %}"
+     x-data="{ backlogOpen: {% if backlog_count %}true{% else %}false{% endif %} }">
+
+  <div class="flex items-center justify-between flex-wrap gap-3">
+    <div>
+      <h1 class="text-xl font-bold">{% trans "Schedule" %}</h1>
+      <p class="text-sm text-base-400" id="sched-week-label"></p>
+    </div>
+    <div class="flex gap-2">
+      <a href="?week={{ prev_week }}{% if filter_querystring %}&{{ filter_querystring }}{% endif %}" class="rounded-lg border border-base-200 px-3 py-1.5 text-sm hover:bg-base-50">&larr; {% trans "Previous week" %}</a>
+      <a href="?week={{ next_week }}{% if filter_querystring %}&{{ filter_querystring }}{% endif %}" class="rounded-lg border border-base-200 px-3 py-1.5 text-sm hover:bg-base-50">{% trans "Next week" %} &rarr;</a>
+      <a href="{{ capture_url }}?week={{ week_start }}{% if filter_querystring %}&{{ filter_querystring }}{% endif %}"
+         class="rounded-lg border border-base-200 px-3 py-1.5 text-sm hover:bg-base-50">
+        {% trans "Capture view" %}
+      </a>
+      {% if can_edit %}
+      <a href="{{ add_url }}?scheduled_date={{ week_start }}" id="sched-add-link" target="_blank"
+         class="rounded-lg border border-primary-400 text-primary-600 px-3 py-1.5 text-sm hover:bg-primary-50">
+        + {% trans "Add Planning" %}
+      </a>
+      <button type="button" @click="backlogOpen = !backlogOpen"
+              class="rounded-lg border px-3 py-1.5 text-sm flex items-center gap-1.5"
+              :class="backlogOpen ? 'border-primary-400 text-primary-600' : 'border-base-200 hover:bg-base-50'">
+        {% trans "Backlog" %}
+        {% if backlog_count %}
+          <span class="inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full bg-primary-600 text-white text-[10px] font-bold px-1">{{ backlog_count }}</span>
+        {% endif %}
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if filter_form %}
+  <div class="rounded-2xl border border-base-200 bg-white p-4">
+    <form method="get" class="flex flex-col gap-4 schedule-filters">
+      <input type="hidden" name="week" value="{{ week_start }}">
+      <div class="flex flex-wrap items-end gap-4">
+        {% for field in filter_form %}
+          {% if field.name != "only_with_plans" %}
+            {% include "unfold/helpers/field.html" with field=field %}
+          {% endif %}
+        {% endfor %}
+      </div>
+      <div class="flex flex-col items-start gap-3">
+        {% include "unfold/helpers/field.html" with field=filter_form.only_with_plans %}
+      </div>
+      <div class="flex items-center gap-2">
+        {% component "unfold/components/button.html" with type="submit" variant="primary" %}
+          {% trans "Filter" %}
+        {% endcomponent %}
+        {% component "unfold/components/button.html" with href=request.path variant="default" %}
+          {% trans "Reset" %}
+        {% endcomponent %}
+        {% if filters_active %}
+          <span class="text-xs text-base-400">{% trans "Filters active" %}</span>
+        {% endif %}
+      </div>
+    </form>
+  </div>
+  {% endif %}
+
+  {% if not has_company %}
+    <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+      {% trans "No company could be determined for your user — nothing to show." %}
+    </div>
+  {% elif not people %}
+    <div class="rounded-2xl border border-base-200 bg-white p-4 text-sm text-base-500">
+      {% trans "No active employees found for this company." %}
+    </div>
+  {% endif %}
+
+  <div class="rounded-2xl border border-base-200 bg-white p-3 text-xs text-base-500 flex flex-wrap gap-x-6 gap-y-1">
+    {% if can_edit %}
+      <span><strong>{% trans "Add" %}:</strong> {% trans "click an empty cell for that person/day/hour" %}</span>
+      <span><strong>{% trans "Move" %}:</strong> {% trans "drag a block from its middle — drop it on any person/day" %}</span>
+      <span><strong>{% trans "Duration" %}:</strong> {% trans "drag the top/bottom edge" %}</span>
+      <span><strong>{% trans "Unassign" %}:</strong> {% trans "click the × on a block" %}</span>
+      <span><strong>⧉ {% trans "Duplicate" %}:</strong> {% trans "same planning, next day" %}</span>
+      <span><strong>{% trans "Backlog" %}:</strong> {% trans "drag a pending card onto the grid to schedule it (defaults to 1h, resize afterward — needs a truck assigned first)" %}</span>
+      <span><strong>{% trans "Edit" %}:</strong> {% trans "click (without dragging) a block or backlog card" %}</span>
+    {% else %}
+      <span>{% trans "Read-only — you don't have permission to edit the schedule." %}</span>
+      <span><strong>{% trans "View details" %}:</strong> {% trans "click a block" %}</span>
+    {% endif %}
+    <span><strong>⚠ {% trans "amber" %}:</strong> {% trans "overlaps another job for that person/truck" %}</span>
+    <span><strong>🤖:</strong> {% trans "auto-assigned" %}</span>
+    <span><strong>🚚:</strong> {% trans "still needs a truck" %}</span>
+    <span>
+      {% for st in service_type_legend %}
+        <span class="legend-dot" style="background:{{ st.color }}{% if not forloop.first %};margin-left:8px{% endif %}"></span>{{ st.label }}
+      {% endfor %}
+      <span class="legend-dot" style="background:#64748B;margin-left:8px"></span>{% trans "Other / unset" %}
+    </span>
+  </div>
+
+  <div class="flex gap-4 items-start">
+    <div class="schedule-grid-scroll rounded-2xl border border-base-200 bg-white overflow-auto flex-1 min-w-0">
+      <table class="schedule-grid-table w-full" id="sched-table">
+        <thead>
+          <tr class="bg-base-50" id="sched-header-row"></tr>
+        </thead>
+        <tbody id="sched-body"></tbody>
+      </table>
+    </div>
+
+    {% if can_edit %}
+    <aside x-show="backlogOpen" x-cloak
+           class="w-96 shrink-0 rounded-2xl border border-base-200 bg-white p-3 sched-backlog-scroll">
+      <h2 class="text-sm font-bold mb-2">{% trans "Backlog" %} ({{ backlog_count }})</h2>
+      <div id="sched-backlog-list" class="flex flex-col gap-2"></div>
+    </aside>
+    {% endif %}
+  </div>
+
+</div>
+
+<div id="sched-toast-container"></div>
+
+{{ people|json_script:"sched-people-data" }}
+{{ blocks|json_script:"sched-blocks-data" }}
+{{ backlog_items|json_script:"sched-backlog-data" }}
+
+<script>
+(function () {
+  "use strict";
+
+  const CSRF_TOKEN = "{{ csrf_token }}";
+  const POST_URL = window.location.pathname;
+  const CHANGE_URL_TEMPLATE = "{{ change_url_template }}"; // .../0/change/ — swap the 0 for a real pk
+  const ADD_URL = "{{ add_url }}";
+
+  // ── Config ──────────────────────────────────────────────────────────────
+  const DAY_START = 7 * 60;     // 07:00 in minutes
+  const DAY_END = 17 * 60;      // 17:00 in minutes
+  const SLOT = 30;              // minutes per grid slot
+  const SLOT_H = 24;            // px per slot
+  const CLICK_THRESHOLD = 4;    // px of movement below which a mouseup counts as a click, not a drag
+  const DAY_LABELS = [
+    "{% trans 'Monday' %}", "{% trans 'Tuesday' %}", "{% trans 'Wednesday' %}",
+    "{% trans 'Thursday' %}", "{% trans 'Friday' %}", "{% trans 'Saturday' %}", "{% trans 'Sunday' %}",
+  ];
+
+  function openChangeForm(id) {
+    window.open(CHANGE_URL_TEMPLATE.replace("/0/change/", "/" + id + "/change/"), "_blank");
+    pendingRefresh = true;
+  }
+
+  // Reload once the user comes back from a "+ Add Planning" / edit tab, so
+  // whatever they created/changed there shows up here without a manual refresh.
+  let pendingRefresh = false;
+  window.addEventListener("focus", () => {
+    if (pendingRefresh) { pendingRefresh = false; location.reload(); }
+  });
+  const addLink = document.getElementById("sched-add-link");
+  if (addLink) addLink.addEventListener("click", () => { pendingRefresh = true; });
+
+  const appEl = document.getElementById("sched-app");
+  const CAN_EDIT = appEl.dataset.canEdit === "1";
+  if (!CAN_EDIT) appEl.classList.add("read-only-schedule");
+  const WEEK_START = new Date(appEl.dataset.weekStart + "T00:00:00");
+  const weekDates = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(WEEK_START);
+    d.setDate(WEEK_START.getDate() + i);
+    return d;
+  });
+  const isSameDay = (a, b) => a.toDateString() === b.toDateString();
+  const shortDate = (d) => d.toLocaleDateString(undefined, { day: "2-digit", month: "2-digit" });
+  // NOT d.toISOString() — that converts to UTC first, which rolls local
+  // midnight back to the previous day in any positive UTC offset (e.g. ES).
+  const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  const PEOPLE = JSON.parse(document.getElementById("sched-people-data").textContent);
+  let blocks = JSON.parse(document.getElementById("sched-blocks-data").textContent);
+  let backlogItems = JSON.parse(document.getElementById("sched-backlog-data").textContent);
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
+  const snap = (min) => Math.round(min / SLOT) * SLOT;
+  const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
+  const fmt = (min) => {
+    min = ((min % 1440) + 1440) % 1440;
+    const h = Math.floor(min / 60), m = min % 60;
+    return String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
+  };
+  const topFor = (min) => ((min - DAY_START) / SLOT) * SLOT_H;
+  const heightFor = (start, end) => Math.max(((end - start) / SLOT) * SLOT_H, SLOT_H * 0.85);
+
+  // ── Toast ───────────────────────────────────────────────────────────────
+  const toastContainer = document.getElementById("sched-toast-container");
+  function showToast(message, kind) {
+    const el = document.createElement("div");
+    el.className = "sched-toast" + (kind ? " " + kind : "");
+    el.textContent = message;
+    toastContainer.appendChild(el);
+    setTimeout(() => el.remove(), 4500);
+  }
+
+  // ── Persistence ─────────────────────────────────────────────────────────
+  function persist(action, block, extra) {
+    const body = Object.assign({ action, id: block.id, start: block.start, end: block.end }, extra || {});
+    return fetch(POST_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRFToken": CSRF_TOKEN },
+      body: JSON.stringify(body),
+    }).then(async (resp) => {
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.error) throw new Error(data.error || "{% trans 'Request failed' %}");
+      return data;
+    });
+  }
+
+  // ── Conflict / out-of-hours detection (visual only — never auto-moves) ──
+  function flagConflicts() {
+    const flagged = [];
+    blocks.forEach((b) => { b.overHours = b.start < DAY_START || b.end > DAY_END; b.conflict = false; });
+    for (let i = 0; i < blocks.length; i++) {
+      for (let j = i + 1; j < blocks.length; j++) {
+        const a = blocks[i], b = blocks[j];
+        if (a.day !== b.day) continue;
+        const samePerson = a.person === b.person;
+        const sameTruck = a.truck && b.truck && a.truck === b.truck;
+        if (!samePerson && !sameTruck) continue;
+        if (a.start < b.end && b.start < a.end) {
+          a.conflict = true;
+          b.conflict = true;
+        }
+      }
+    }
+    blocks.forEach((b) => { if (b.overHours || b.conflict) flagged.push(b); });
+    return flagged;
+  }
+
+  let previousFlaggedIds = new Set();
+  function reportNewFlags(flagged) {
+    const currentIds = new Set(flagged.map((b) => b.id));
+    const newly = flagged.filter((b) => !previousFlaggedIds.has(b.id));
+    previousFlaggedIds = currentIds;
+    if (!newly.length) return;
+    const names = newly.map((b) => `"${b.label}" (${PEOPLE[b.person] ? PEOPLE[b.person].name : "?"}, ${DAY_LABELS[b.day]})`).join(", ");
+    showToast("⚠ " + "{% trans 'Needs attention' %}" + ": " + names);
+  }
+
+  // ── Rendering ───────────────────────────────────────────────────────────
+  const headerRow = document.getElementById("sched-header-row");
+  const body = document.getElementById("sched-body");
+  const weekLabel = document.getElementById("sched-week-label");
+
+  function buildHeader() {
+    const end = weekDates[6];
+    weekLabel.textContent = shortDate(weekDates[0]) + " – " + shortDate(end);
+
+    let html = `
+      <th class="res-name-col bg-base-50 px-4 py-3 text-left text-xs font-semibold text-base-600 border-b border-r border-base-200">
+        {% trans "Person" %}
+      </th>
+      <th class="hour-ruler-col bg-base-50 px-2 py-3 text-center text-xs font-semibold text-base-600 border-b border-r border-base-200">
+        {% trans "Hour" %}
+      </th>`;
+    const today = new Date();
+    weekDates.forEach((d, i) => {
+      const isToday = isSameDay(d, today);
+      html += `
+        <th class="day-col-th bg-base-50 px-3 py-3 text-center text-xs font-semibold text-base-600 border-b border-base-200${isToday ? " today-col" : ""}">
+          ${DAY_LABELS[i]}<br><span class="font-normal text-base-400">${shortDate(d)}</span>
+        </th>`;
+    });
+    headerRow.innerHTML = html;
+  }
+
+  function buildHourRuler() {
+    let html = '<div class="hour-ruler">';
+    for (let h = 7; h <= 17; h++) {
+      const top = ((h * 60 - DAY_START) / SLOT) * SLOT_H;
+      html += `<span class="hr-label" style="top:${top}px;">${String(h).padStart(2, "0")}:00</span>`;
+    }
+    html += "</div>";
+    return html;
+  }
+
+  function buildSkeleton() {
+    const today = new Date();
+    let html = "";
+    PEOPLE.forEach((person, personIdx) => {
+      html += `<tr class="hover:bg-base-50/40 transition-colors" data-person-row="${personIdx}">`;
+      html += `<td class="res-name-col bg-white px-4 py-2 border-b border-r border-base-200 align-top">
+                 <span class="text-sm font-medium">${escapeHtml(person.name)}</span>
+               </td>`;
+      html += `<td class="hour-ruler-col bg-white border-b border-r border-base-200 align-top">${buildHourRuler()}</td>`;
+      weekDates.forEach((d, dayIdx) => {
+        const isToday = isSameDay(d, today);
+        html += `<td class="border-b border-base-100 align-top p-0${isToday ? " today-col" : ""}">
+                    <div class="day-cell" data-person="${personIdx}" data-day="${dayIdx}"></div>
+                  </td>`;
+      });
+      html += "</tr>";
+    });
+    body.innerHTML = html;
+  }
+
+  function cellFor(person, day) {
+    return body.querySelector(`.day-cell[data-person="${person}"][data-day="${day}"]`);
+  }
+
+  // Traceability, right on the block: 🚚 = still needs a truck, 🤖 = auto-assigned,
+  // nothing = manually assigned. Conflicts/out-of-hours get the ring (CSS classes above).
+  function statusIcons(b) {
+    let icons = "";
+    if (!b.truck) icons += `<span title="{% trans 'Missing truck' %}">🚚</span>`;
+    else if (b.origin === "auto") icons += `<span title="{% trans 'Auto-assigned' %}">🤖</span>`;
+    return icons ? `<span class="block-status-icons">${icons}</span>` : "";
+  }
+
+  function truncate(s, n) {
+    if (!s) return "";
+    s = String(s);
+    return s.length > n ? s.slice(0, n - 1) + "…" : s;
+  }
+
+  function tooltipHtml(b) {
+    const rows = [];
+    const add = (label, value) => {
+      if (!value) return;
+      rows.push(`<div class="tt-row"><span class="tt-label">${escapeHtml(label)}:</span> ${escapeHtml(value)}</div>`);
+    };
+    add("{% trans 'From' %}", [b.origin_name, b.origin_address].filter(Boolean).join(" — "));
+    add("{% trans 'To' %}", [b.destination_name, b.destination_address].filter(Boolean).join(" — "));
+    add("{% trans 'Truck' %}", b.truck || "{% trans 'No truck assigned yet' %}");
+    add("{% trans 'Urgency' %}", b.urgency_label);
+    add("{% trans 'Type' %}", b.service_type_label || b.planning_type_label);
+    add("{% trans 'Cuba' %}", [b.cuba_operation_label, b.cuba_size_label].filter(Boolean).join(" · "));
+    add("{% trans 'Load' %}", b.load_description);
+    add("{% trans 'Status' %}", b.status_label);
+    add("{% trans 'Time' %}", `${fmt(b.start)}–${fmt(b.end)}`);
+    let notes = "";
+    if (b.notes) notes = `<div class="tt-notes">${escapeHtml(b.notes)}</div>`;
+    return `<div class="sched-tooltip"><div class="tt-title">${escapeHtml(b.label)}</div>${rows.join("")}${notes}</div>`;
+  }
+
+  function blockBodyHtml(b) {
+    const h = heightFor(b.start, b.end);
+    const urgency = b.urgency_label
+      ? `<span class="block-urgency" style="background:${escapeHtml(b.urgency_color || "#3B82F6")}">${escapeHtml(b.urgency_label)}</span>`
+      : "";
+    let html = `<div class="block-label">${statusIcons(b)}${urgency}${escapeHtml(b.label)}</div>`;
+    if (b.origin_name) {
+      html += `<div class="block-sublabel">{% trans "From" %}: ${escapeHtml(b.origin_name)}</div>`;
+    }
+    if (b.destination_name) {
+      html += `<div class="block-sublabel">{% trans "To" %}: ${escapeHtml(b.destination_name)}</div>`;
+    }
+    if (h >= 70) {
+      const chips = [];
+      if (b.truck) chips.push(`<span class="block-chip">🚚 ${escapeHtml(truncate(b.truck, 18))}</span>`);
+      if (b.cuba_size_label) chips.push(`<span class="block-chip">${escapeHtml(b.cuba_size_label)}</span>`);
+      if (b.cuba_operation_label) chips.push(`<span class="block-chip">${escapeHtml(b.cuba_operation_label)}</span>`);
+      if (chips.length) html += `<div class="block-meta">${chips.join("")}</div>`;
+    }
+    if (h >= 90 && b.load_description) {
+      html += `<div class="block-meta">${escapeHtml(truncate(b.load_description, 42))}</div>`;
+    }
+    if (h >= 108 && b.notes) {
+      html += `<div class="block-meta">📝 ${escapeHtml(truncate(b.notes, 36))}</div>`;
+    }
+    html += `<div class="block-time">${fmt(b.start)}–${fmt(b.end)}</div>`;
+    return html;
+  }
+
+  function renderBlocks() {
+    body.querySelectorAll(".day-cell").forEach((c) => (c.innerHTML = ""));
+    blocks.forEach((b) => {
+      const cell = cellFor(b.person, b.day);
+      if (!cell) return;
+      const el = document.createElement("div");
+      el.className = "sched-block" + (b.overHours ? " over-hours" : "") + (b.conflict ? " conflict" : "") + (CAN_EDIT ? "" : " read-only");
+      el.dataset.id = b.id;
+      el.style.background = b.color || "#3B82F6";
+      el.style.top = topFor(b.start) + "px";
+      el.style.height = heightFor(b.start, b.end) + "px";
+      el.innerHTML = CAN_EDIT ? `
+        <div class="block-resize-handle-top" title="{% trans 'Drag to change the start time' %}"></div>
+        ${blockBodyHtml(b)}
+        ${tooltipHtml(b)}
+        <button type="button" class="block-duplicate" title="{% trans 'Duplicate to next day' %}">⧉</button>
+        <button type="button" class="block-delete" title="{% trans 'Unassign' %}">×</button>
+        <div class="block-resize-handle-bottom" title="{% trans 'Drag to change the end time' %}"></div>
+      ` : `${blockBodyHtml(b)}${tooltipHtml(b)}`;
+      cell.appendChild(el);
+    });
+  }
+
+  function renderBacklog() {
+    const list = document.getElementById("sched-backlog-list");
+    if (!list) return;
+    if (!backlogItems.length) {
+      list.innerHTML = `<p class="text-xs text-base-400">{% trans "No pending items." %}</p>`;
+      return;
+    }
+    list.innerHTML = "";
+    backlogItems.forEach((item) => {
+      const el = document.createElement("div");
+      const draggable = Boolean(item.truck);
+      el.className = "backlog-card" + (draggable ? "" : " not-draggable");
+      el.title = draggable ? "" : "{% trans 'Assign a truck first — click to edit' %}";
+      el.dataset.id = item.id;
+      el.style.borderLeftColor = item.color || "#64748B";
+
+      const missingChips = (item.missing || []).map((m) => `<span class="backlog-chip">${escapeHtml(m)}</span>`).join("");
+      const tags = [];
+      if (item.urgency_label) {
+        tags.push(`<span class="backlog-tag urgency" style="background:${escapeHtml(item.urgency_color || "#3B82F6")}">${escapeHtml(item.urgency_label)}</span>`);
+      }
+      [item.service_type_label || item.planning_type_label, item.cuba_size_label, item.cuba_operation_label]
+        .filter(Boolean)
+        .forEach((t) => tags.push(`<span class="backlog-tag">${escapeHtml(t)}</span>`));
+      const tagsHtml = tags.join("");
+
+      const rows = [];
+      if (item.origin_name || item.origin_address) {
+        const fromVal = [item.origin_name, item.origin_address].filter(Boolean).join(" — ");
+        rows.push(`<div class="backlog-row"><span class="k">{% trans "From" %}:</span>${escapeHtml(fromVal)}</div>`);
+      }
+      if (item.destination_name || item.destination_address) {
+        const toVal = [item.destination_name, item.destination_address].filter(Boolean).join(" — ");
+        rows.push(`<div class="backlog-row"><span class="k">{% trans "To" %}:</span>${escapeHtml(toVal)}</div>`);
+      }
+      if (item.load_description) rows.push(`<div class="backlog-row"><span class="k">{% trans "Load" %}:</span>${escapeHtml(truncate(item.load_description, 80))}</div>`);
+      const metaParts = [item.date, item.driver, item.truck].filter(Boolean);
+      if (metaParts.length) rows.push(`<div class="backlog-sublabel">${metaParts.map(escapeHtml).join(" · ")}</div>`);
+
+      el.innerHTML = `
+        <div class="backlog-label">${escapeHtml(item.label)}</div>
+        ${tagsHtml ? `<div>${tagsHtml}</div>` : ""}
+        ${rows.join("")}
+        ${item.notes ? `<div class="backlog-notes">${escapeHtml(item.notes)}</div>` : ""}
+        <div>${missingChips}</div>
+      `;
+      list.appendChild(el);
+    });
+  }
+
+  function escapeHtml(s) {
+    const div = document.createElement("div");
+    div.textContent = s == null ? "" : s;
+    return div.innerHTML;
+  }
+
+  function renderAll() {
+    const flagged = flagConflicts();
+    renderBlocks();
+    return flagged;
+  }
+
+  function findBlock(id) {
+    return blocks.find((b) => String(b.id) === String(id));
+  }
+
+  function removeBlockFromView(id) {
+    blocks = blocks.filter((b) => String(b.id) !== String(id));
+    reportNewFlags(renderAll());
+  }
+
+  // ── Delete (unassign) ───────────────────────────────────────────────────
+  body.addEventListener("mousedown", (e) => {
+    const delBtn = e.target.closest(".block-delete");
+    if (!delBtn) return;
+    e.stopPropagation();
+    const blockEl = delBtn.closest(".sched-block");
+    const id = blockEl.dataset.id;
+    const block = findBlock(id);
+    if (!block) return;
+    if (!confirm("{% trans 'Unassign this job from this person? It will show up again as unassigned.' %}")) return;
+    removeBlockFromView(id);
+    persist("unassign", block)
+      .catch((err) => {
+        blocks.push(block);
+        showToast(err.message);
+        reportNewFlags(renderAll());
+      });
+  });
+
+  // ── Duplicate to next day ────────────────────────────────────────────────
+  body.addEventListener("mousedown", (e) => {
+    const dupBtn = e.target.closest(".block-duplicate");
+    if (!dupBtn) return;
+    e.stopPropagation();
+    const blockEl = dupBtn.closest(".sched-block");
+    const id = blockEl.dataset.id;
+    const block = findBlock(id);
+    if (!block) return;
+
+    dupBtn.style.pointerEvents = "none";
+    persist("duplicate_next_day", block)
+      .then((data) => {
+        dupBtn.style.pointerEvents = "";
+        const b = data.block;
+        const dayIdx = weekDates.findIndex((d) => isoDate(d) === b.date);
+        const personIdx = PEOPLE.findIndex((p) => p.pk === b.assigned_to_id);
+        if (dayIdx === -1 || personIdx === -1) {
+          showToast("{% trans 'Duplicated to' %} " + b.date + " — {% trans 'not shown here (outside this week or filtered out)' %}", "info");
+          return;
+        }
+        blocks.push({ ...b, person: personIdx, day: dayIdx, color: b.color || block.color });
+        reportNewFlags(renderAll());
+        showToast("{% trans 'Duplicated to' %} " + b.date, "info");
+      })
+      .catch((err) => {
+        dupBtn.style.pointerEvents = "";
+        showToast(err.message);
+      });
+  });
+
+  // ── Drag: move & resize ─────────────────────────────────────────────────
+  let dragState = null;
+
+  // Backlog card → grid: drag start.
+  const backlogList = document.getElementById("sched-backlog-list");
+  if (backlogList) {
+    backlogList.addEventListener("mousedown", (e) => {
+      const cardEl = e.target.closest(".backlog-card");
+      if (!cardEl) return;
+      const item = backlogItems.find((it) => String(it.id) === cardEl.dataset.id);
+      if (!item) return;
+      e.preventDefault();
+
+      const rect = cardEl.getBoundingClientRect();
+      const ghost = document.createElement("div");
+      ghost.className = "block-ghost";
+      ghost.style.background = item.color || "#3B82F6";
+      ghost.style.width = rect.width + "px";
+      ghost.innerHTML = `<div class="block-label">${escapeHtml(item.label)}</div>
+                          ${item.origin_name ? `<div class="block-sublabel">{% trans "From" %}: ${escapeHtml(item.origin_name)}</div>` : ""}
+                          ${item.destination_name ? `<div class="block-sublabel">{% trans "To" %}: ${escapeHtml(item.destination_name)}</div>` : ""}`;
+      document.body.appendChild(ghost);
+      ghost.style.left = rect.left + "px";
+      ghost.style.top = rect.top + "px";
+
+      cardEl.classList.add("dragging");
+      dragState = {
+        mode: "backlog", item, cardEl, ghost,
+        // A truck must be picked (via the editor) before a card can be
+        // scheduled by dragging — see mouseup below.
+        draggable: Boolean(item.truck),
+        grabDX: e.clientX - rect.left, grabDY: e.clientY - rect.top,
+        targetCell: null, startX: e.clientX, startY: e.clientY, moved: false,
+      };
+    });
+  }
+
+  body.addEventListener("mousedown", (e) => {
+    if (e.target.closest(".block-delete") || e.target.closest(".block-duplicate")) return;
+
+    const blockEl = e.target.closest(".sched-block");
+    if (!blockEl) return;
+    const block = findBlock(blockEl.dataset.id);
+    if (!block) return;
+
+    e.preventDefault();
+
+    if (!CAN_EDIT) {
+      openChangeForm(block.id);
+      return;
+    }
+
+    const handleTop = e.target.closest(".block-resize-handle-top");
+    const handleBottom = e.target.closest(".block-resize-handle-bottom");
+
+    if (handleTop || handleBottom) {
+      dragState = { mode: handleTop ? "resize-top" : "resize-bottom", block, blockEl };
+      blockEl.classList.add("dragging");
+      return;
+    }
+
+    const rect = blockEl.getBoundingClientRect();
+    const ghost = document.createElement("div");
+    ghost.className = "block-ghost";
+    ghost.style.background = block.color;
+    ghost.style.width = rect.width + "px";
+    ghost.style.height = rect.height + "px";
+    ghost.innerHTML = `<div class="block-label">${escapeHtml(block.label)}</div>
+                        ${block.origin_name ? `<div class="block-sublabel">{% trans "From" %}: ${escapeHtml(block.origin_name)}</div>` : ""}
+                        ${block.destination_name ? `<div class="block-sublabel">{% trans "To" %}: ${escapeHtml(block.destination_name)}</div>` : ""}
+                        <div class="block-time">${fmt(block.start)}–${fmt(block.end)}</div>`;
+    document.body.appendChild(ghost);
+    ghost.style.left = rect.left + "px";
+    ghost.style.top = rect.top + "px";
+
+    dragState = {
+      mode: "move", block, blockEl, ghost,
+      grabDX: e.clientX - rect.left, grabDY: e.clientY - rect.top,
+      targetCell: null, startX: e.clientX, startY: e.clientY, moved: false,
+    };
+    blockEl.classList.add("dragging");
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!dragState) return;
+
+    if (dragState.mode === "resize-bottom") {
+      const cell = dragState.blockEl.parentElement;
+      const cellRect = cell.getBoundingClientRect();
+      const rawEnd = DAY_START + ((e.clientY - cellRect.top) / SLOT_H) * SLOT;
+      const snapped = clamp(snap(rawEnd), dragState.block.start + SLOT, 24 * 60);
+      dragState.blockEl.style.height = heightFor(dragState.block.start, snapped) + "px";
+      dragState.previewEnd = snapped;
+      return;
+    }
+
+    if (dragState.mode === "resize-top") {
+      const cell = dragState.blockEl.parentElement;
+      const cellRect = cell.getBoundingClientRect();
+      const rawStart = DAY_START + ((e.clientY - cellRect.top) / SLOT_H) * SLOT;
+      const snapped = clamp(snap(rawStart), 0, dragState.block.end - SLOT);
+      dragState.blockEl.style.top = topFor(snapped) + "px";
+      dragState.blockEl.style.height = heightFor(snapped, dragState.block.end) + "px";
+      dragState.previewStart = snapped;
+      return;
+    }
+
+    if (Math.abs(e.clientX - dragState.startX) > CLICK_THRESHOLD || Math.abs(e.clientY - dragState.startY) > CLICK_THRESHOLD) {
+      dragState.moved = true;
+    }
+
+    dragState.ghost.style.left = e.clientX - dragState.grabDX + "px";
+    dragState.ghost.style.top = e.clientY - dragState.grabDY + "px";
+
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const cell = under && under.closest(".day-cell");
+    if (dragState.targetCell && dragState.targetCell !== cell) {
+      dragState.targetCell.classList.remove("drop-target");
+    }
+    if (cell) cell.classList.add("drop-target");
+    dragState.targetCell = cell || null;
+  });
+
+  document.addEventListener("mouseup", (e) => {
+    if (!dragState) return;
+
+    if (dragState.mode === "backlog") {
+      const wasMoved = dragState.moved;
+      const draggable = dragState.draggable;
+      dragState.ghost.remove();
+      const targetCell = dragState.targetCell;
+      targetCell && targetCell.classList.remove("drop-target");
+      dragState.cardEl.classList.remove("dragging");
+
+      const { item, grabDY } = dragState;
+      dragState = null;
+
+      if (!wasMoved) { openChangeForm(item.id); return; }
+      if (!draggable) {
+        showToast("{% trans 'Assign a truck to this planning before scheduling it — click the card (without dragging) to edit it.' %}");
+        return;
+      }
+      if (!targetCell) return;
+
+      const cellRect = targetCell.getBoundingClientRect();
+      const duration = item.minutes || 60;
+      const relY = (e.clientY - grabDY) - cellRect.top;
+      const rawStart = DAY_START + (relY / SLOT_H) * SLOT;
+      const start = clamp(snap(rawStart), 0, 24 * 60 - duration);
+      const end = start + duration;
+      const newPerson = +targetCell.dataset.person;
+      const newDay = +targetCell.dataset.day;
+      const dropDate = isoDate(weekDates[newDay]);
+
+      if (dropDate !== item.date) {
+        const confirmed = confirm(
+          "{% trans 'This planning was requested for' %} " + item.date + " — " +
+          "{% trans 'schedule it on' %} " + dropDate + " {% trans 'instead?' %}"
+        );
+        if (!confirmed) return;
+      }
+
+      // Instant: drop it on the grid and pull the card right away, save
+      // quietly in the background, only speak up if it fails.
+      backlogItems = backlogItems.filter((it) => it.id !== item.id);
+      blocks.push(Object.assign({}, item, {
+        person: newPerson, day: newDay, start, end,
+        origin: "manual",
+      }));
+      renderBacklog();
+      reportNewFlags(renderAll());
+
+      persist("move", { id: item.id, start, end }, {
+        person_id: PEOPLE[newPerson].pk,
+        day: isoDate(weekDates[newDay]),
+      }).catch((err) => {
+        blocks = blocks.filter((b) => b.id !== item.id);
+        backlogItems.push(item);
+        showToast(err.message);
+        renderBacklog();
+        reportNewFlags(renderAll());
+      });
+      return;
+    }
+
+    const { mode, block, blockEl } = dragState;
+    blockEl.classList.remove("dragging");
+
+    if (mode === "resize-bottom" || mode === "resize-top") {
+      const newEnd = dragState.previewEnd != null ? dragState.previewEnd : block.end;
+      const newStart = dragState.previewStart != null ? dragState.previewStart : block.start;
+      dragState = null;
+      if (newEnd === block.end && newStart === block.start) return;
+      const prevStart = block.start, prevEnd = block.end;
+      block.start = newStart;
+      block.end = newEnd;
+      reportNewFlags(renderAll());
+      persist("resize", block)
+        .catch((err) => {
+          block.start = prevStart; block.end = prevEnd;
+          showToast(err.message);
+          renderAll();
+        });
+      return;
+    }
+
+    if (!dragState.moved) {
+      dragState.ghost.remove();
+      dragState.targetCell && dragState.targetCell.classList.remove("drop-target");
+      dragState = null;
+      openChangeForm(block.id);
+      return;
+    }
+
+    // move
+    dragState.ghost.remove();
+    const targetCell = dragState.targetCell;
+    dragState.targetCell && dragState.targetCell.classList.remove("drop-target");
+    if (!targetCell) { dragState = null; return; }
+
+    const cellRect = targetCell.getBoundingClientRect();
+    const duration = block.end - block.start;
+    const relY = (e.clientY - dragState.grabDY) - cellRect.top;
+    const rawStart = DAY_START + (relY / SLOT_H) * SLOT;
+    const newStart = clamp(snap(rawStart), 0, 24 * 60 - duration);
+
+    const prevPerson = block.person, prevDay = block.day, prevStart = block.start, prevEnd = block.end;
+    const newPerson = +targetCell.dataset.person;
+    const newDay = +targetCell.dataset.day;
+    dragState = null;
+
+    if (newPerson === prevPerson && newDay === prevDay && newStart === prevStart) return;
+
+    block.person = newPerson;
+    block.day = newDay;
+    block.start = newStart;
+    block.end = newStart + duration;
+    // Instant: render the new position right away, save quietly in the
+    // background, only speak up (toast + revert) if the save fails.
+    reportNewFlags(renderAll());
+    persist("move", block, {
+      person_id: PEOPLE[newPerson].pk,
+      day: isoDate(weekDates[newDay]),
+    })
+      .then((data) => {
+        if (data && data.origin && data.origin !== block.origin) {
+          block.origin = data.origin;
+          renderAll();
+        }
+      })
+      .catch((err) => {
+        block.person = prevPerson; block.day = prevDay; block.start = prevStart; block.end = prevEnd;
+        showToast(err.message);
+        renderAll();
+      });
+  });
+
+  // ── Click an empty cell to create a new planning for that person/day/hour
+  // (à la ResourcePlanning) — opens the standard add form pre-filled, in a
+  // new tab; this page refreshes once you switch back to it. A dashed
+  // preview on hover is the "yes, you can click here" signal.
+  function slotStartFor(cell, clientY) {
+    const rect = cell.getBoundingClientRect();
+    const rawStart = DAY_START + ((clientY - rect.top) / SLOT_H) * SLOT;
+    return clamp(snap(rawStart), 0, 24 * 60 - 60);
+  }
+
+  let addPreviewEl = null;
+  function clearAddPreview() {
+    if (addPreviewEl) { addPreviewEl.remove(); addPreviewEl = null; }
+  }
+
+  body.addEventListener("mousemove", (e) => {
+    if (!CAN_EDIT) return;
+    if (dragState) { clearAddPreview(); return; }
+    const cell = e.target.closest(".day-cell");
+    if (!cell || e.target.closest(".sched-block")) { clearAddPreview(); return; }
+
+    const start = slotStartFor(cell, e.clientY);
+    const end = start + 60;
+    if (!addPreviewEl) {
+      addPreviewEl = document.createElement("div");
+      addPreviewEl.className = "add-preview";
+    }
+    if (addPreviewEl.parentElement !== cell) cell.appendChild(addPreviewEl);
+    addPreviewEl.style.top = topFor(start) + "px";
+    addPreviewEl.style.height = heightFor(start, end) + "px";
+    addPreviewEl.textContent = "+ " + fmt(start);
+  });
+  body.addEventListener("mouseleave", clearAddPreview);
+
+  body.addEventListener("click", (e) => {
+    if (!CAN_EDIT) return;
+    if (e.target.closest(".sched-block")) return;
+    const cell = e.target.closest(".day-cell");
+    if (!cell) return;
+    const person = +cell.dataset.person;
+    const day = +cell.dataset.day;
+    const start = slotStartFor(cell, e.clientY);
+    const params = new URLSearchParams({
+      assigned_to: PEOPLE[person].pk,
+      scheduled_date: isoDate(weekDates[day]),
+      scheduled_time: fmt(start),
+    });
+    clearAddPreview();
+    window.open(ADD_URL + "?" + params.toString(), "_blank");
+    pendingRefresh = true;
+  });
+
+  // ── Init ────────────────────────────────────────────────────────────────
+  buildHeader();
+  buildSkeleton();
+  renderBacklog();
+  previousFlaggedIds = new Set(renderAll().map((b) => b.id));
+})();
+</script>
+{% endblock %}

@@ -569,6 +569,11 @@ class WorkingZone(CompanyOwnedModel):
     def __str__(self):
         return f"{self.name} ({self.company})"
 
+    @property
+    def full_address(self) -> str:
+        parts = [p for p in [self.street_address, self.city, self.postal_code] if p]
+        return ", ".join(parts)
+
     def get_coordinates(self):
         """
         Returns (lat, lng) parsed from `location`, or (None, None) if unset/invalid.

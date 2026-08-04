@@ -1,0 +1,29 @@
+{% extends "admin/change_form.html" %} {% block extrahead %} {{ block.super }}
+<style>
+  /* Grid items default to min-width: auto, so long values push the row wider instead of truncating. */
+  body.model-assetplanningrequest .field-line {
+    min-width: 0;
+  }
+  /* The related-object wrapper centers its content instead of stretching to the column width. */
+  body.model-assetplanningrequest .field-line .related-widget-wrapper {
+    min-width: 0;
+    width: 70%;
+  }
+  body.model-assetplanningrequest .field-line .flex-col.items-center {
+    align-items: stretch;
+  }
+  body.model-assetplanningrequest .field-line .related-widget-wrapper > select,
+  body.model-assetplanningrequest
+    .field-line
+    .related-widget-wrapper
+    > .select2-container {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  body.model-assetplanningrequest .select2-selection__rendered {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+</style>
+{% endblock %}

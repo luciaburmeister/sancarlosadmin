@@ -208,6 +208,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
 
     def get_urls(self):
         from assets.views.asset_wizard import AssetCreateWizardView
+        from assets.views.asset_schedule import AssetScheduleCaptureView, AssetScheduleView
 
         urls = super().get_urls()
         custom = [
@@ -217,6 +218,20 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
                     AssetCreateWizardView.as_view(model_admin=self)
                 ),
                 name="assets_asset_wizard",
+            ),
+            path(
+                "schedule/capture/",
+                self.admin_site.admin_view(
+                    AssetScheduleCaptureView.as_view(model_admin=self)
+                ),
+                name="assets_asset_schedule_capture",
+            ),
+            path(
+                "schedule/",
+                self.admin_site.admin_view(
+                    AssetScheduleView.as_view(model_admin=self)
+                ),
+                name="assets_asset_schedule",
             ),
         ]
         return custom + urls

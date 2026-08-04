@@ -790,6 +790,10 @@ UNFOLD = {
                         "title": _("Assets"),
                         "icon": "web_asset",
                         "link": reverse_lazy("admin:assets_asset_changelist"),
+                        "active": lambda request: (
+                            reverse("admin:assets_asset_changelist") in request.path
+                            and reverse("admin:assets_asset_schedule") not in request.path
+                        ),
                         "permission": lambda request: request.user.has_perm(
                             "assets.view_asset"
                         ),
@@ -811,11 +815,27 @@ UNFOLD = {
                         ),
                     },
                     {
+                        "title": _("Request Planning"),
+                        "icon": "fact_check",
+                        "link": reverse_lazy("admin:assets_assetplanningrequest_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_assetplanningrequest"
+                        ),
+                    },
+                    {
                         "title": _("Asset Transactions"),
                         "icon": "swap_horiz",
                         "link": reverse_lazy("admin:assets_assettransaction_changelist"),
                         "permission": lambda request: request.user.has_perm(
                             "assets.view_assettransaction"
+                        ),
+                    },
+                    {
+                        "title": _("Schedule"),
+                        "icon": "calendar_view_week",
+                        "link": reverse_lazy("admin:assets_asset_schedule"),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_asset"
                         ),
                     },
                     {

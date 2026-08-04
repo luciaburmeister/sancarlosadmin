@@ -1,0 +1,385 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <style>
+    .capture-page {
+      --cap-border: #e5e7eb;
+      --cap-muted: #6b7280;
+      --cap-ink: #111827;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .capture-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+      padding: 12px;
+      border: 1px solid var(--cap-border);
+      border-radius: 12px;
+      background: #fff;
+    }
+    .capture-toolbar .filters {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .capture-toolbar a,
+    .capture-toolbar button,
+    .capture-toolbar select {
+      font-size: 13px;
+      border: 1px solid var(--cap-border);
+      border-radius: 8px;
+      padding: 6px 10px;
+      background: #fff;
+      color: var(--cap-ink);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .capture-toolbar a:hover,
+    .capture-toolbar button:hover { background: #f9fafb; }
+    .capture-toolbar a.is-active {
+      border-color: #3b82f6;
+      color: #1d4ed8;
+      background: #eff6ff;
+    }
+    .capture-toolbar .day-pills { display: flex; flex-wrap: wrap; gap: 4px; }
+    .capture-hint {
+      font-size: 12px;
+      color: var(--cap-muted);
+      margin-bottom: 1rem;
+    }
+
+    .capture-sheet {
+      background: #fff;
+      border: 1px solid var(--cap-border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+    .capture-header {
+      border-bottom: 2px solid var(--cap-ink);
+      padding-bottom: 10px;
+      margin-bottom: 16px;
+    }
+    .capture-header h1 {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--cap-ink);
+      margin: 0;
+      line-height: 1.2;
+    }
+    .capture-header .meta {
+      margin-top: 4px;
+      font-size: 13px;
+      color: var(--cap-muted);
+    }
+
+    .driver-block {
+      margin-bottom: 22px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .driver-block:last-child { margin-bottom: 0; }
+    .driver-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      padding: 8px 10px;
+      background: #111827;
+      color: #fff;
+      border-radius: 8px 8px 0 0;
+    }
+    .driver-header h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .driver-header .count {
+      font-size: 12px;
+      opacity: .8;
+    }
+    .driver-jobs {
+      border: 1px solid var(--cap-border);
+      border-top: 0;
+      border-radius: 0 0 8px 8px;
+      overflow: hidden;
+    }
+
+    .job-card {
+      padding: 12px 12px 12px 14px;
+      border-bottom: 1px solid var(--cap-border);
+      border-left: 5px solid #3b82f6;
+      background: #fff;
+    }
+    .job-card:last-child { border-bottom: 0; }
+    .job-card .job-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: flex-start;
+    }
+    .job-card .job-time {
+      font-size: 16px;
+      font-weight: 800;
+      color: var(--cap-ink);
+      white-space: nowrap;
+    }
+    .job-card .job-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--cap-ink);
+      margin: 0;
+    }
+    .job-card .job-tags {
+      margin-top: 6px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .job-card .tag {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: #f3f4f6;
+      color: #374151;
+    }
+    .job-card .tag.urgency {
+      color: #fff;
+      font-weight: 700;
+    }
+    .job-rows { margin-top: 8px; }
+    .job-row {
+      display: grid;
+      grid-template-columns: 88px 1fr;
+      gap: 6px;
+      font-size: 13px;
+      line-height: 1.35;
+      margin-top: 3px;
+    }
+    .job-row .k {
+      color: var(--cap-muted);
+      font-weight: 600;
+    }
+    .job-row .v {
+      color: var(--cap-ink);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .job-notes {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      font-size: 13px;
+      color: #92400e;
+      white-space: pre-wrap;
+    }
+
+    .empty-state {
+      padding: 28px 12px;
+      text-align: center;
+      color: var(--cap-muted);
+      font-size: 14px;
+    }
+
+    body.capture-clean .capture-toolbar,
+    body.capture-clean .capture-hint,
+    body.capture-clean nav,
+    body.capture-clean aside,
+    body.capture-clean header,
+    body.capture-clean [data-element="sidebar"],
+    body.capture-clean .md\:block {
+      /* best-effort hide chrome while screenshotting */
+    }
+    body.capture-clean .capture-toolbar,
+    body.capture-clean .capture-hint { display: none !important; }
+    body.capture-clean #nav-sidebar,
+    body.capture-clean aside.bg-white,
+    body.capture-clean header {
+      display: none !important;
+    }
+    body.capture-clean #main {
+      margin: 0 !important;
+      padding: 12px !important;
+      max-width: none !important;
+    }
+
+    @media print {
+      @page {
+        margin: 12mm;
+      }
+
+      /* Hide Unfold chrome + toolbar; only the schedule card is printed. */
+      body * {
+        visibility: hidden !important;
+      }
+      #capture-sheet,
+      #capture-sheet * {
+        visibility: visible !important;
+      }
+      #capture-sheet {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        max-width: none;
+        margin: 0;
+        padding: 0;
+        border: none !important;
+        border-radius: 0 !important;
+        background: #fff !important;
+        box-shadow: none !important;
+      }
+      .driver-block {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+      .job-card {
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+    }
+  </style>
+{% endblock %}
+
+{% block content %}
+<div class="capture-page pb-16" id="capture-app">
+  <div class="capture-toolbar no-capture">
+    <div class="filters">
+      <a href="{{ schedule_url }}">&larr; {% trans "Back to schedule" %}</a>
+      <a href="?week={{ prev_week }}&day={{ prev_week }}{% if selected_person_id %}&person={{ selected_person_id }}{% endif %}">&larr; {% trans "Prev week" %}</a>
+      <a href="?week={{ next_week }}&day={{ next_week }}{% if selected_person_id %}&person={{ selected_person_id }}{% endif %}">{% trans "Next week" %} &rarr;</a>
+      <div class="day-pills">
+        {% for d in day_options %}
+          <a href="?week={{ week_start }}&day={{ d.iso }}{% if selected_person_id %}&person={{ selected_person_id }}{% endif %}"
+             class="{% if d.selected %}is-active{% endif %}">
+            {{ d.label }}{% if d.is_today %} · {% trans "Today" %}{% endif %}
+          </a>
+        {% endfor %}
+      </div>
+      <form method="get" class="filters" style="margin:0">
+        <input type="hidden" name="week" value="{{ week_start }}">
+        <input type="hidden" name="day" value="{{ selected_day }}">
+        <select name="person" onchange="this.form.submit()">
+          <option value="">{% trans "All drivers" %}</option>
+          {% for p in people %}
+            <option value="{{ p.pk }}" {% if selected_person_id == p.pk %}selected{% endif %}>{{ p.name }}</option>
+          {% endfor %}
+        </select>
+      </form>
+    </div>
+    <div class="filters">
+      <button type="button" id="capture-clean-toggle">{% trans "Hide controls" %}</button>
+      <button type="button" onclick="window.print()">{% trans "Print / PDF" %}</button>
+    </div>
+  </div>
+
+  <p class="capture-hint no-capture">
+    {% trans "Pick a day and driver, then hide controls (or print) and take a screenshot to send to the transporter. Every field below is fully visible." %}
+  </p>
+
+  {% if not has_company %}
+    <div class="capture-sheet empty-state">
+      {% trans "No company could be determined for your user — nothing to show." %}
+    </div>
+  {% else %}
+    <div class="capture-sheet" id="capture-sheet">
+      <div class="capture-header">
+        <h1>{% trans "Transport schedule" %}{% if company_name %} — {{ company_name }}{% endif %}</h1>
+        <div class="meta">
+          {{ selected_day_label }}
+          · {{ total_jobs }} {% trans "job(s)" %}
+          {% if selected_person_id %}
+            · {% trans "Filtered driver" %}
+          {% endif %}
+        </div>
+      </div>
+
+      {% if not groups %}
+        <div class="empty-state">{% trans "No scheduled jobs for this day." %}</div>
+      {% else %}
+        {% for group in groups %}
+          <section class="driver-block">
+            <div class="driver-header">
+              <h2>{{ group.person_name }}</h2>
+              <span class="count">{{ group.job_count }} {% trans "job(s)" %}</span>
+            </div>
+            <div class="driver-jobs">
+              {% if not group.jobs %}
+                <div class="empty-state">{% trans "No jobs for this driver on this day." %}</div>
+              {% else %}
+                {% for job in group.jobs %}
+                  <article class="job-card" style="border-left-color: {{ job.color }}; --job-color: {{ job.color }};">
+                    <div class="job-top">
+                      <div>
+                        <p class="job-title">{{ job.label }}</p>
+                        <div class="job-tags">
+                          {% if job.urgency_label %}<span class="tag urgency" style="background: {{ job.urgency_color|default:'#3B82F6' }};">{{ job.urgency_label }}</span>{% endif %}
+                          {% if job.service_type_label %}<span class="tag">{{ job.service_type_label }}</span>{% endif %}
+                          {% if not job.service_type_label and job.planning_type_label %}<span class="tag">{{ job.planning_type_label }}</span>{% endif %}
+                          {% if job.cuba_operation_label %}<span class="tag">{{ job.cuba_operation_label }}</span>{% endif %}
+                          {% if job.cuba_size_label %}<span class="tag">{{ job.cuba_size_label }}</span>{% endif %}
+                          {% if job.status_label %}<span class="tag">{{ job.status_label }}</span>{% endif %}
+                        </div>
+                      </div>
+                      <div class="job-time">{{ job.time_label }}</div>
+                    </div>
+
+                    <div class="job-rows">
+                      {% if job.origin_name or job.origin_address %}
+                        <div class="job-row">
+                          <span class="k">{% trans "From" %}</span>
+                          <span class="v">{% if job.origin_name %}{{ job.origin_name }}{% endif %}{% if job.origin_name and job.origin_address %} — {% endif %}{{ job.origin_address }}</span>
+                        </div>
+                      {% endif %}
+                      {% if job.destination_name or job.destination_address %}
+                        <div class="job-row">
+                          <span class="k">{% trans "To" %}</span>
+                          <span class="v">{% if job.destination_name %}{{ job.destination_name }}{% endif %}{% if job.destination_name and job.destination_address %} — {% endif %}{{ job.destination_address }}</span>
+                        </div>
+                      {% endif %}
+                      {% if job.truck %}
+                        <div class="job-row"><span class="k">{% trans "Truck" %}</span><span class="v">{{ job.truck }}</span></div>
+                      {% endif %}
+                      {% if job.load_description %}
+                        <div class="job-row"><span class="k">{% trans "Load" %}</span><span class="v">{{ job.load_description }}</span></div>
+                      {% endif %}
+                    </div>
+
+                    {% if job.notes %}
+                      <div class="job-notes"><strong>{% trans "Notes" %}:</strong> {{ job.notes }}</div>
+                    {% endif %}
+                  </article>
+                {% endfor %}
+              {% endif %}
+            </div>
+          </section>
+        {% endfor %}
+      {% endif %}
+    </div>
+  {% endif %}
+</div>
+
+<script>
+(function () {
+  const btn = document.getElementById("capture-clean-toggle");
+  if (!btn) return;
+  const labelHide = "{% trans 'Hide controls' %}";
+  const labelShow = "{% trans 'Show controls' %}";
+  btn.addEventListener("click", () => {
+    const on = document.body.classList.toggle("capture-clean");
+    btn.textContent = on ? labelShow : labelHide;
+  });
+})();
+</script>
+{% endblock %}

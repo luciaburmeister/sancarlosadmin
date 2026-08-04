@@ -6,15 +6,41 @@ from unfold.fields import UnfoldAdminAutocompleteModelChoiceField
 from unfold.widgets import (
     UnfoldAdminTextInputWidget,
     UnfoldAdminSelectWidget,
+    UnfoldAdminSelect2MultipleWidget,
     UnfoldBooleanSwitchWidget,
 )
 
-from company.models import Company
+
+class StaticSelect2MultipleWidget(UnfoldAdminSelect2MultipleWidget):
+    """Select2 multi-select with local options (chips + search), like schedule filters.
+
+    UnfoldAdminSelect2MultipleWidget adds ``admin-autocomplete``, which triggers
+    Django's AJAX autocomplete and breaks static M2M picks in ModelAdmin forms.
+    """
+
+    def __init__(self, attrs=None, choices=()):
+        attrs = attrs or {}
+        attrs["data-theme"] = "admin-autocomplete"
+        attrs["class"] = "unfold-admin-autocomplete"
+        forms.SelectMultiple.__init__(self, attrs, choices)
+
+    class Media(UnfoldAdminSelect2MultipleWidget.Media):
+        pass
+
+from company.models import Company, Employee
 from core.admin.company_access import get_user_companies
 from core.forms.dynamic_fields import DynamicFieldBuilder
 from sales.models import Client
 
-from .models import AssetIdentifier, Asset, AssetType
+from .models import (
+    Asset,
+    AssetIdentifier,
+    AssetPlanning,
+    AssetType,
+    AssetTypeCategory,
+    PlanningUrgency,
+    ServiceType,
+)
 
 # Namespaced to Asset specifically: a generic "data__" prefix would eventually
 # collide with another model/form using the same convention.
@@ -202,3 +228,68 @@ class AssetIdentifierForm(forms.ModelForm):
                 choices=[('', '---------')] + [(l, l) for l in labels],
                 required=True
             )
+
+
+class AssetScheduleFilterForm(forms.Form):
+    """GET filters for the asset staffing calendar (Unfold Select2 widgets, like Resource Planning)."""
+
+    assigned_to = forms.ModelMultipleChoiceField(
+        label=_("Drivers"),
+        required=False,
+        queryset=Employee.objects.none(),
+        widget=UnfoldAdminSelect2MultipleWidget,
+    )
+    transport_asset = forms.ModelMultipleChoiceField(
+        label=_("Trucks"),
+        required=False,
+        queryset=Asset.objects.none(),
+        widget=UnfoldAdminSelect2MultipleWidget,
+    )
+    service_type = forms.MultipleChoiceField(
+        label=_("Service Type"),
+        required=False,
+        choices=ServiceType.choices,
+        widget=UnfoldAdminSelect2MultipleWidget,
+    )
+    status = forms.MultipleChoiceField(
+        label=_("Status"),
+        required=False,
+        choices=AssetPlanning.STATUS_CHOICES,
+        widget=UnfoldAdminSelect2MultipleWidget,
+    )
+    urgency = forms.MultipleChoiceField(
+        label=_("Urgency"),
+        required=False,
+        choices=PlanningUrgency.choices,
+        widget=UnfoldAdminSelect2MultipleWidget,
+    )
+    planning_type = forms.MultipleChoiceField(
+        label=_("Planning Type"),
+        required=False,
+        choices=AssetPlanning.PLANNING_CHOICES,
+        widget=UnfoldAdminSelect2MultipleWidget,
+    )
+    only_with_plans = forms.BooleanField(
+        label=_("Only drivers with plannings"),
+        required=False,
+        initial=False,
+        widget=UnfoldBooleanSwitchWidget,
+    )
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        employees = Employee.objects.none()
+        trucks = Asset.objects.none()
+        if company is not None:
+            employees = Employee.objects.filter(
+                company=company, is_active=True
+            ).order_by("first_name", "last_name")
+            trucks = Asset.objects.filter(
+                company=company,
+                is_active=True,
+                asset_type__category=AssetTypeCategory.TRUCK,
+            ).order_by("name")
+        self.fields["assigned_to"].queryset = employees
+        self.fields["transport_asset"].queryset = trucks
+
+

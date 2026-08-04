@@ -1,5 +1,8 @@
+from datetime import date as date_, datetime, time, timedelta
+
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
+from django.db.models import Q
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 from sales.models import Client
@@ -10,12 +13,29 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 from materials.models import Provider
 from core.forms.dynamic_fields import json_schema_fragment
+from assets.constants import (
+    SERVICE_TYPE_MAQUINA_PROPIA,
+    SERVICE_TYPE_MATERIAL_EXTERNO,
+    SERVICE_TYPE_GRUA,
+    SERVICE_TYPE_CUBA,
+    SERVICE_TYPE_PLANNING_TYPE,
+    SERVICE_TYPE_FIELDS,
+)
 User = get_user_model()
+
+
+class AssetTypeCategory(models.TextChoices):
+    MACHINE = "machine", _("Machine")
+    TRUCK = "truck", _("Truck")
 
 
 class AssetType(CompanyOwnedModel):
     name = models.CharField(max_length=100, verbose_name=_("Name"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
+    category = models.CharField(
+        max_length=20, choices=AssetTypeCategory.choices, blank=True, verbose_name=_("Category"),
+        help_text=_("Used by Asset Planning Requests to offer this type's assets as machines/trucks."),
+    )
     schema = models.JSONField(default=dict, blank=True, help_text=_("JSON Schema to validate asset data (optional)"))
     identifier_labels = ArrayField(
         base_field=models.CharField(max_length=50),
@@ -353,6 +373,67 @@ class AssetTransactionReceipt(models.Model):
         return f"Albaran {self.nro_albaran} - {self.transaction.asset}"
 
 
+class ServiceType(models.TextChoices):
+    """Maps to a backend planning_type ("cuba"/"porte") via SERVICE_TYPE_PLANNING_TYPE."""
+    PORTE_MAQUINA_PROPIA = SERVICE_TYPE_MAQUINA_PROPIA, _("Own Machine Transport")
+    PORTE_MATERIAL_EXTERNO = SERVICE_TYPE_MATERIAL_EXTERNO, _("External Material Transport")
+    SERVICIO_GRUA = SERVICE_TYPE_GRUA, _("Crane Service")
+    MOVIMIENTO_CUBA = SERVICE_TYPE_CUBA, _("Container Movement")
+
+
+class CubaOperationType(models.TextChoices):
+    PUESTA = "puesta", _("Container Drop-off")
+    RETIRADA = "retirada", _("Container Pickup")
+    CAMBIO = "cambio", _("Container Swap")
+
+
+class CubaSize(models.TextChoices):
+    M3_3 = "3m3", _("3 M3")
+    M3_7 = "7m3", _("7 M3")
+    M3_10 = "10m3", _("10 M3")
+    M3_12 = "12m3", _("12 M3")
+    M3_20 = "20m3", _("20 M3")
+    M3_30 = "30m3", _("30 M3")
+    AGUA = "agua", _("Water")
+
+
+class PlanningUrgency(models.TextChoices):
+    LOW = "low", _("Low")
+    MEDIUM = "medium", _("Medium")
+    HIGH = "high", _("High")
+    URGENT = "urgent", _("Urgent")
+
+
+class AssignmentOrigin(models.TextChoices):
+    """How assigned_to/transport_asset ended up set — driven by AssetPlanning.save()."""
+    UNASSIGNED = "unassigned", _("Unassigned")
+    MANUAL = "manual", _("Manual")
+    AUTO = "auto", _("Automatic")
+
+
+# Block fill = service type. Urgency only tints the urgency chip. Used by
+# AssetPlanning.service_type_color/urgency_color and the schedule legend.
+SERVICE_TYPE_COLORS = {
+    SERVICE_TYPE_MAQUINA_PROPIA: "#3B82F6",
+    SERVICE_TYPE_MATERIAL_EXTERNO: "#10B981",
+    SERVICE_TYPE_GRUA: "#8B5CF6",
+    SERVICE_TYPE_CUBA: "#F59E0B",
+}
+DEFAULT_SERVICE_TYPE_COLOR = "#64748B"
+URGENCY_COLORS = {
+    PlanningUrgency.LOW: "#64748B",
+    PlanningUrgency.MEDIUM: "#3B82F6",
+    PlanningUrgency.HIGH: "#F59E0B",
+    PlanningUrgency.URGENT: "#EF4444",
+}
+
+
+def _default_end_time(start: time) -> time | None:
+    """1-hour fallback duration when no end time is set; None if that would cross into the next day."""
+    combined = datetime.combine(date_.today(), start) + timedelta(hours=1)
+    return combined.time() if combined.date() == date_.today() else None
+
+
 class AssetPlanning(CompanyOwnedModel, Timestampable):
     STATUS_CHOICES = [('pending', _('Pending')), ('in_transit', _('In Transit')), ('delivered', _('Delivered')), ('cancelled', _('Cancelled'))]
     PLANNING_CHOICES = [('cuba', _('Container Movement')), ('porte', _('Transport')), ('machine_hours', _('Machine Hours'))]
@@ -362,10 +443,47 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
     destination = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="plannings_destination", verbose_name=_("To Zone"))
     assigned_to = models.ForeignKey('company.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name="asset_plannings", verbose_name=_("Assigned To"))
     transport_asset = models.ForeignKey(Asset, on_delete=models.SET_NULL, null=True, blank=True, related_name="transport_plannings", verbose_name=_("Transport Asset"))
+    suggested_trucks = models.ManyToManyField(
+        Asset, blank=True, related_name="planning_truck_suggestions", verbose_name=_("Suggested Trucks"),
+        limit_choices_to={"asset_type__category": AssetTypeCategory.TRUCK},
+        help_text=_("Optional — narrows which trucks auto-assignment may pick from; leave empty to allow any active truck."),
+    )
     scheduled_date = models.DateField(verbose_name=_("Scheduled Date"))
+    scheduled_time = models.TimeField(null=True, blank=True, verbose_name=_("Scheduled Time"))
+    scheduled_end_time = models.TimeField(
+        null=True, blank=True, verbose_name=_("Scheduled End Time"),
+        help_text=_("Ideal completion time — set by the requester or computed by auto-assignment."),
+    )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name=_("Status"))
     route_order = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name=_("Route Order"))
     planning_type = models.CharField(max_length=20, choices=PLANNING_CHOICES, default='cuba', verbose_name=_("Planning Type"))
+    urgency = models.CharField(
+        max_length=10, choices=PlanningUrgency.choices, default=PlanningUrgency.MEDIUM, verbose_name=_("Urgency"),
+    )
+    assignment_origin = models.CharField(
+        max_length=12, choices=AssignmentOrigin.choices, default=AssignmentOrigin.UNASSIGNED,
+        verbose_name=_("Assignment Origin"),
+        help_text=_("Traceability: whether the driver/truck were picked manually or by auto-assignment."),
+    )
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=False,
+        related_name="asset_plannings",
+        verbose_name=_("Project File"),
+    )
+    service_type = models.CharField(max_length=20, choices=ServiceType.choices, blank=True, verbose_name=_("Service Type"))
+    cuba_operation_type = models.CharField(max_length=20, choices=CubaOperationType.choices, blank=True, verbose_name=_("Cuba Operation Type"))
+    cuba_size = models.CharField(max_length=10, choices=CubaSize.choices, blank=True, verbose_name=_("Cuba Size"))
+    machinist_moved = models.BooleanField(
+        default=False, verbose_name=_("Machinist Moved"),
+        help_text=_("Did the machine operator(s) relocate along with it? Only relevant for Own Machine Transport."),
+    )
+    moved_employees = models.ManyToManyField(
+        'company.Employee', blank=True, related_name="machinist_moved_plannings",
+        verbose_name=_("Moved Employees"),
+    )
     load_description = models.TextField(blank=True, verbose_name=_("Load Description"))
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
     history = HistoricalRecords()
@@ -376,8 +494,279 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         ordering = ["-scheduled_date"]
         indexes = [models.Index(fields=["assigned_to", "scheduled_date"])]
 
+    def save(self, *args, **kwargs):
+        # Auto-tag assignment_origin unless the caller explicitly set it
+        # (SimpleAssigner does, to mark AUTO) — see assets/services/auto_assigner.py.
+        update_fields = kwargs.get("update_fields")
+        origin_explicit = update_fields is not None and "assignment_origin" in update_fields
+        if not origin_explicit:
+            new_origin = None
+            if not self.assigned_to_id or not self.transport_asset_id:
+                if self.assignment_origin != AssignmentOrigin.UNASSIGNED:
+                    new_origin = AssignmentOrigin.UNASSIGNED
+            else:
+                previous = (
+                    type(self).objects.filter(pk=self.pk).values("assigned_to_id", "transport_asset_id").first()
+                    if self.pk else None
+                )
+                changed = previous is None or (
+                    previous["assigned_to_id"] != self.assigned_to_id
+                    or previous["transport_asset_id"] != self.transport_asset_id
+                )
+                if changed:
+                    new_origin = AssignmentOrigin.MANUAL
+            if new_origin is not None:
+                self.assignment_origin = new_origin
+                if update_fields is not None:
+                    kwargs["update_fields"] = [*update_fields, "assignment_origin"]
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        if not self.project_file_id:
+            raise ValidationError({"project_file": _("Project File is required.")})
+        if self.project_file_id and self.company_id and self.project_file.company_id != self.company_id:
+            raise ValidationError({
+                "project_file": _("This project file belongs to a different company."),
+            })
+
+    @classmethod
+    def has_overlap(cls, *, scheduled_date, start, end, assigned_to_id=None, transport_asset_id=None, exclude_pk=None) -> bool:
+        """Does any other pending/in_transit planning for this driver/truck, same day, overlap [start, end)?
+
+        Shared by has_conflict (checks a saved planning against the rest) and
+        SimpleAssigner (checks a not-yet-saved candidate slot) — see
+        assets/services/auto_assigner.py.
+        """
+        if not (assigned_to_id or transport_asset_id):
+            return False
+        q = Q()
+        if assigned_to_id:
+            q |= Q(assigned_to_id=assigned_to_id)
+        if transport_asset_id:
+            q |= Q(transport_asset_id=transport_asset_id)
+        others = cls.objects.filter(q, scheduled_date=scheduled_date, status__in=["pending", "in_transit"])
+        if exclude_pk is not None:
+            others = others.exclude(pk=exclude_pk)
+
+        for other in others:
+            if not other.scheduled_time:
+                continue
+            other_end = other.scheduled_end_time or _default_end_time(other.scheduled_time)
+            if other_end is None:
+                continue
+            if start < other_end and other.scheduled_time < end:
+                return True
+        return False
+
+    @property
+    def has_conflict(self) -> bool:
+        """Does this (already scheduled) planning overlap another one for the same driver/truck, same day?"""
+        if not self.scheduled_time or not (self.assigned_to_id or self.transport_asset_id):
+            return False
+        end = self.scheduled_end_time or _default_end_time(self.scheduled_time)
+        if end is None:
+            return False
+        return type(self).has_overlap(
+            scheduled_date=self.scheduled_date,
+            start=self.scheduled_time,
+            end=end,
+            assigned_to_id=self.assigned_to_id,
+            transport_asset_id=self.transport_asset_id,
+            exclude_pk=self.pk,
+        )
+
+    @property
+    def traceability_label(self):
+        if not self.assigned_to_id or not self.transport_asset_id or not self.scheduled_time:
+            return _("Pending")
+        if self.has_conflict:
+            return _("Conflict")
+        if self.assignment_origin == AssignmentOrigin.AUTO:
+            return _("Auto-assigned")
+        return _("Manual")
+
+    @property
+    def service_type_color(self) -> str:
+        return SERVICE_TYPE_COLORS.get(self.service_type, DEFAULT_SERVICE_TYPE_COLOR)
+
+    @property
+    def urgency_color(self) -> str:
+        return URGENCY_COLORS.get(self.urgency, URGENCY_COLORS[PlanningUrgency.MEDIUM])
+
     def __str__(self):
         return f"{self.asset.name} → {self.destination} ({self.scheduled_date})"
+
+
+class AssetPlanningRequestStatus(models.TextChoices):
+    PENDING_REVIEW = "pending_review", _("Pending Review")
+    APPROVED = "approved", _("Approved")
+    REJECTED = "rejected", _("Rejected")
+
+
+class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
+    """Request for an AssetPlanning, reviewed and approved before it becomes one."""
+    service_type = models.CharField(max_length=20, choices=ServiceType.choices, default=SERVICE_TYPE_MAQUINA_PROPIA, verbose_name=_("Service Type"))
+    # Derived from service_type in clean().
+    planning_type = models.CharField(max_length=20, choices=AssetPlanning.PLANNING_CHOICES, default="porte", verbose_name=_("Planning Type"))
+    to_zone = models.ForeignKey(WorkingZone, on_delete=models.PROTECT, related_name="planning_requests_to", verbose_name=_("To Zone"))
+    from_zone = models.ForeignKey(WorkingZone, on_delete=models.PROTECT, null=True, blank=True, related_name="planning_requests_from", verbose_name=_("From Zone"))
+    needed_date = models.DateField(verbose_name=_("Needed Date"))
+    needed_time = models.TimeField(
+        null=True, blank=True, verbose_name=_("Needed Time"),
+        help_text=_("Optional — leave blank to let route assignment pick a time."),
+    )
+    end_time = models.TimeField(
+        null=True, blank=True, verbose_name=_("End Time"),
+        help_text=_(
+            "Optional — estimated/ideal completion time. Used to work backward to a "
+            "start time when Needed Time is left blank."
+        ),
+    )
+    urgency = models.CharField(
+        max_length=10, choices=PlanningUrgency.choices, default=PlanningUrgency.MEDIUM, verbose_name=_("Urgency"),
+        help_text=_("Drives processing priority when auto-assigning drivers/trucks."),
+    )
+    cuba_operation_type = models.CharField(max_length=20, choices=CubaOperationType.choices, blank=True, verbose_name=_("Cuba Operation Type"))
+    cuba_size = models.CharField(max_length=10, choices=CubaSize.choices, blank=True, verbose_name=_("Cuba Size"))
+    machinist_moved = models.BooleanField(
+        default=False, verbose_name=_("Machinist Moved"),
+        help_text=_("Did the machine operator(s) relocate along with it? Only relevant for Own Machine Transport."),
+    )
+    moved_employees = models.ManyToManyField(
+        'company.Employee', blank=True, related_name="machinist_moved_requests",
+        verbose_name=_("Moved Employees"),
+    )
+    load_description = models.TextField(blank=True, verbose_name=_("Load Description"))
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+    requested_by = models.ForeignKey('company.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name="asset_planning_requests", verbose_name=_("Requested By"))
+
+    status = models.CharField(max_length=20, choices=AssetPlanningRequestStatus.choices, default=AssetPlanningRequestStatus.PENDING_REVIEW, verbose_name=_("Status"))
+
+    # Suggested by the requester, confirmed/corrected by the reviewer.
+    assigned_to = models.ForeignKey(
+        'company.Employee', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="asset_planning_review_assignments", verbose_name=_("Assigned To"),
+        help_text=_("Optional — leave blank to let route assignment pick an available driver."),
+    )
+    asset = models.ForeignKey(Asset, on_delete=models.SET_NULL, null=True, blank=True, related_name="planning_requests", verbose_name=_("Asset"))
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=False,
+        related_name="asset_planning_requests",
+        verbose_name=_("Project File"),
+    )
+    suggested_trucks = models.ManyToManyField(
+        Asset, blank=True, related_name="planning_request_truck_suggestions", verbose_name=_("Suggested Trucks"),
+        limit_choices_to={"asset_type__category": AssetTypeCategory.TRUCK},
+        help_text=_("Optional — narrows which trucks route assignment may pick from; leave empty to allow any active truck."),
+    )
+    # The single truck confirmed by the reviewer out of suggested_trucks; used to create the resulting AssetPlanning.
+    transport_asset = models.ForeignKey(
+        Asset, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="planning_request_transport_selections", verbose_name=_("Transport Asset"),
+        help_text=_("Optional — leave blank to let route assignment pick an available truck."),
+    )
+
+    # Reviewer-only.
+    reviewed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+", verbose_name=_("Reviewed By"))
+    reviewed_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Reviewed At"))
+    rejection_reason = models.TextField(blank=True, verbose_name=_("Rejection Reason"))
+
+    # Set once the request is approved.
+    resulting_planning = models.OneToOneField(AssetPlanning, on_delete=models.SET_NULL, null=True, blank=True, related_name="source_request", verbose_name=_("Asset Planning"))
+
+    history = HistoricalRecords()
+
+    class Meta:
+        verbose_name = _("Asset Planning Request")
+        verbose_name_plural = _("Asset Planning Requests")
+        ordering = ["-created_at"]
+        permissions = [
+            ("approve_assetplanningrequest", "Can approve/reject asset planning requests"),
+        ]
+
+    def __str__(self):
+        return f"{self.get_service_type_display()} → {self.to_zone} ({self.needed_date})"
+
+    # Fields a reviewer acts on; editing any of these after a decision was
+    # made invalidates that decision (see save()).
+    REVIEW_TRACKED_FIELDS = [
+        "service_type", "to_zone_id", "from_zone_id", "needed_date", "needed_time", "end_time",
+        "urgency", "cuba_operation_type", "cuba_size", "machinist_moved", "load_description", "notes",
+        "assigned_to_id", "asset_id", "transport_asset_id", "project_file_id",
+    ]
+
+    def save(self, *args, **kwargs):
+        if self.pk and self.status != AssetPlanningRequestStatus.PENDING_REVIEW:
+            previous = AssetPlanningRequest.objects.filter(pk=self.pk).values(
+                "status", *self.REVIEW_TRACKED_FIELDS
+            ).first()
+            # Only auto-revert when this save doesn't already carry an explicit
+            # status change (i.e. it's a plain edit, not the approve/reject action).
+            if previous and previous["status"] == self.status and any(
+                getattr(self, field) != previous[field] for field in self.REVIEW_TRACKED_FIELDS
+            ):
+                self.status = AssetPlanningRequestStatus.PENDING_REVIEW
+                self.reviewed_by = None
+                self.reviewed_at = None
+                self.rejection_reason = ""
+        super().save(*args, **kwargs)
+
+    def clean(self):
+        super().clean()
+        self.planning_type = SERVICE_TYPE_PLANNING_TYPE.get(self.service_type, self.planning_type)
+        required = SERVICE_TYPE_FIELDS.get(self.service_type, set())
+
+        # to_zone is always present, so company is derived from it.
+        if self.to_zone_id and not self.company_id:
+            self.company = self.to_zone.company
+
+        if "from_zone" in required and not self.from_zone_id:
+            raise ValidationError({"from_zone": _("From Zone is required for this service type.")})
+        if "from_zone" not in required:
+            self.from_zone = None
+        elif self.from_zone_id and self.company_id and self.from_zone.company_id != self.company_id:
+            raise ValidationError({"from_zone": _("From Zone belongs to a different company than To Zone.")})
+
+        if "asset" in required and not self.asset_id:
+            raise ValidationError({"asset": _("Asset is required for this service type.")})
+        if "asset" not in required:
+            self.asset = None
+        elif self.asset_id and self.company_id and self.asset.company_id != self.company_id:
+            raise ValidationError({"asset": _("This asset belongs to a different company than the selected zone.")})
+
+        if "load_description" in required and not self.load_description:
+            raise ValidationError({"load_description": _("Load description is required for this service type.")})
+
+        if "cuba_operation_type" in required and not self.cuba_operation_type:
+            raise ValidationError({"cuba_operation_type": _("Cuba operation type is required for this service type.")})
+        if "cuba_operation_type" not in required:
+            self.cuba_operation_type = ""
+
+        if "cuba_size" in required and not self.cuba_size:
+            raise ValidationError({"cuba_size": _("Cuba size is required for this service type.")})
+        if "cuba_size" not in required:
+            self.cuba_size = ""
+
+        if self.service_type != SERVICE_TYPE_MAQUINA_PROPIA:
+            self.machinist_moved = False
+
+        # Optional for every service type: a suggestion the route assignment
+        # algorithm (or the reviewer) fills in or overrides if left blank.
+        if self.assigned_to_id and self.company_id and self.assigned_to.company_id != self.company_id:
+            raise ValidationError({"assigned_to": _("This employee belongs to a different company than the selected zone.")})
+
+        if not self.project_file_id:
+            raise ValidationError({"project_file": _("Project File is required.")})
+        if self.project_file_id and self.company_id and self.project_file.company_id != self.company_id:
+            raise ValidationError({"project_file": _("This project file belongs to a different company than the selected zone.")})
+
+    def get_estimated_duration(self):
+        from assets.services.route_optimizer import GoogleRouteOptimizer
+        return GoogleRouteOptimizer().estimate_duration(self.from_zone, self.to_zone)
 
 
 class ZoneDistanceCache(models.Model):

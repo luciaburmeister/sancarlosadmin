@@ -194,10 +194,11 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         if obj.status != AssetPlanningRequestStatus.PENDING_REVIEW:
             return
 
-        # transport_asset/assigned_to are intentionally not required here —
-        # auto-assignment fills them in later on the AssetPlanning changelist.
+        # transport_asset/assigned_to are filled later by auto-assignment.
+        # Asset is only required for service types that list it in SERVICE_TYPE_FIELDS.
         missing = []
-        if not obj.asset_id:
+        required = SERVICE_TYPE_FIELDS.get(obj.service_type, set())
+        if "asset" in required and not obj.asset_id:
             missing.append(_("Asset"))
         if not obj.project_file_id:
             missing.append(_("Project File"))

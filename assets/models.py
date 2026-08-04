@@ -438,7 +438,10 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
     STATUS_CHOICES = [('pending', _('Pending')), ('in_transit', _('In Transit')), ('delivered', _('Delivered')), ('cancelled', _('Cancelled'))]
     PLANNING_CHOICES = [('cuba', _('Container Movement')), ('porte', _('Transport')), ('machine_hours', _('Machine Hours'))]
 
-    asset = models.ForeignKey(Asset, on_delete=models.PROTECT, related_name="plannings", verbose_name=_("Asset"))
+    asset = models.ForeignKey(
+        Asset, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="plannings", verbose_name=_("Asset"),
+    )
     origin = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="plannings_origin", verbose_name=_("From Zone"))
     destination = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="plannings_destination", verbose_name=_("To Zone"))
     assigned_to = models.ForeignKey('company.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name="asset_plannings", verbose_name=_("Assigned To"))
@@ -529,6 +532,9 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
             raise ValidationError({
                 "project_file": _("This project file belongs to a different company."),
             })
+        required = SERVICE_TYPE_FIELDS.get(self.service_type, set())
+        if "asset" in required and not self.asset_id:
+            raise ValidationError({"asset": _("Asset is required for this service type.")})
 
     @classmethod
     def has_overlap(cls, *, scheduled_date, start, end, assigned_to_id=None, transport_asset_id=None, exclude_pk=None) -> bool:
@@ -595,7 +601,8 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         return URGENCY_COLORS.get(self.urgency, URGENCY_COLORS[PlanningUrgency.MEDIUM])
 
     def __str__(self):
-        return f"{self.asset.name} → {self.destination} ({self.scheduled_date})"
+        asset_label = self.asset.name if self.asset_id else _("Planning")
+        return f"{asset_label} → {self.destination} ({self.scheduled_date})"
 
 
 class AssetPlanningRequestStatus(models.TextChoices):

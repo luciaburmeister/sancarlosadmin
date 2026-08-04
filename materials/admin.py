@@ -1,5 +1,6 @@
 from django.contrib import admin
-from django.urls import reverse
+from django.shortcuts import redirect
+from django.urls import path, reverse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 from unfold.decorators import display
@@ -175,6 +176,7 @@ class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     autocomplete_fields = ["company", "account"]
     list_filter = [("company",AutocompleteSelectMultipleFilter)]
     list_filter_submit = True
+    actions = ["merge_providers"]
 
     formfield_overrides = {
         ArrayField: {
@@ -186,6 +188,33 @@ class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         from invoices.models import Invoice
         qs = super().get_queryset(request)
         return annotate_outstanding_balance(qs, Invoice, "provider", "balance_owed")
+
+    @admin.action(description=_("Merge selected providers (choose which to keep)"))
+    def merge_providers(self, request, queryset):
+        if queryset.count() < 2:
+            self.message_user(
+                request,
+                _("Please select at least 2 providers to merge."),
+                level="error",
+            )
+            return
+        ids = ",".join(str(i) for i in queryset.values_list("id", flat=True))
+        return redirect(reverse("admin:materials_provider_merge") + f"?ids={ids}")
+
+    def get_urls(self):
+        from materials.views import MergeProvidersView
+
+        urls = super().get_urls()
+        custom = [
+            path(
+                "merge/",
+                self.admin_site.admin_view(
+                    MergeProvidersView.as_view(model_admin=self)
+                ),
+                name="materials_provider_merge",
+            ),
+        ]
+        return custom + urls
 
     @staticmethod
     def _pending_invoices_url(obj):

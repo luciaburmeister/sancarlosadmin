@@ -12,12 +12,13 @@ from unfold.contrib.filters.admin import (
 )
 
 from core.admin.company_admin import CompanyRestrictedAdmin
+from core.admin.company_access import get_user_companies
 from core.admin.email_log import EmailLogInline
 from company.forms import BaseDocumentForm
 from inventory.models import ItemIdentityCode
 from sales.models import (
     DeliveryOrder, DeliveryOrderItem, DeliveryOrderStatus,
-    DeliveryOrderDocument, DeliveryOrderDocumentType,
+    DeliveryOrderDocument, DeliveryOrderDocumentType, ClientAddress,
 )
 from sales.views.delivery_order_export_view import DeliveryOrderExportView
 from sales.views.delivery_order_send_email_view import DeliveryOrderSendEmailView
@@ -157,6 +158,7 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         (_("Shipping"), {
             "classes": ["tab"],
             "fields": (
+                "delivery_address",
                 ("package_count", "shipping_agency"),
                 ("shipment_number", "tracking_url"),
             )
@@ -170,6 +172,32 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "send_email_detail_action",
         "link_identity_codes_detail_action",
     ]
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """
+        The delivery_address dropdown only lists addresses belonging to
+        this delivery order's own client, sorted with the default one first.
+        """
+        if db_field.name == "delivery_address":
+            object_id = request.resolver_match.kwargs.get("object_id") if request.resolver_match else None
+            client_id = None
+            if object_id:
+                do = DeliveryOrder.objects.filter(pk=object_id).only("client_id").first()
+                client_id = do.client_id if do else None
+            else:
+                client_id = request.GET.get("client")
+
+            if client_id:
+                kwargs["queryset"] = ClientAddress.objects.filter(
+                    client_id=client_id
+                ).order_by("-is_default", "address_type")
+            else:
+                qs = ClientAddress.objects.all()
+                if not request.user.is_superuser:
+                    qs = qs.filter(company__in=get_user_companies(request.user))
+                kwargs["queryset"] = qs.order_by("client__name", "-is_default")
+
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def get_urls(self):
         urls = super().get_urls()

@@ -1,9 +1,13 @@
+import os
+
 from django.contrib import admin
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 from django.http import HttpResponse
 from django.urls import path, reverse
 from django.shortcuts import redirect
 from django.utils.translation import gettext_lazy as _
+from djmoney.money import Money
 
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action, display
@@ -254,7 +258,7 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
     list_filter = ("company","date_of_purchase","claim", "needs_manual_review", "ocr_processed")
     search_fields = ("vendor_name", "vendor_tax_id", "ticket_number", "submitted_by__email")
-    autocomplete_fields = ("company", "submitted_by", "provider")
+    autocomplete_fields = ("company", "submitted_by", "provider", "invoice")
     readonly_fields = (
         "claim",
         "file_hash",
@@ -308,6 +312,7 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
                     "photo",
                     ("submitted_by", "company"),
                     "claim",
+                    "invoice",
                 )
             },
         ),
@@ -349,7 +354,12 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
 
     actions = ["send_to_process", "create_claim"]
-    actions_detail = ["send_to_process_detail_action", "create_claim_detail_action", "override_exchange_rate_detail_action"]
+    actions_detail = [
+        "send_to_process_detail_action",
+        "create_claim_detail_action",
+        "create_invoice_from_ticket_detail_action",
+        "override_exchange_rate_detail_action",
+    ]
 
     # ── List actions ────────────────────────────────────────────────────────
 
@@ -416,6 +426,52 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
         self.message_user(request, _("Claim #%(pk)d created.") % {"pk": claim.pk})
         return redirect(reverse("admin:expenses_expenseclaim_change", args=[claim.pk]))
+
+    @action(
+        description=_("Create Invoice"),
+        url_path="create-invoice",
+        icon="request_quote",
+        permissions=["create_invoice_from_ticket_detail_action"],
+    )
+    def create_invoice_from_ticket_detail_action(self, request, object_id):
+        from invoices.models import Invoice
+
+        ticket = ExpenseTicket.objects.select_related("provider", "company").get(pk=object_id)
+
+        # apply_exchange_rate() always converts into the company's base
+        # currency (EUR everywhere in this system) — original_amount stays
+        # in whatever currency was printed on the receipt.
+        if ticket.converted_amount is not None:
+            amount, currency = ticket.converted_amount.amount, "EUR"
+        else:
+            amount, currency = ticket.original_amount.amount, ticket.original_amount_currency
+
+        invoice = Invoice(
+            company=ticket.company,
+            provider=ticket.provider,
+            invoice_number=ticket.ticket_number or None,
+            date_issued=ticket.date_of_purchase,
+            net_amount=Money(amount, currency),
+            total_amount=Money(amount, currency),
+            currency=currency,
+            uploaded_by=request.user,
+            needs_manual_review=True,
+        )
+        with ticket.photo.open("rb") as f:
+            invoice.file.save(os.path.basename(ticket.photo.name), ContentFile(f.read()), save=False)
+        invoice.save()
+
+        ticket.invoice = invoice
+        ticket.save(update_fields=["invoice"])
+
+        self.message_user(request, _("Invoice created and linked to this ticket."))
+        return redirect(reverse("admin:invoices_invoice_change", args=[invoice.pk]))
+
+    def has_create_invoice_from_ticket_detail_action_permission(self, request, object_id):
+        ticket = self.get_object(request, object_id)
+        if not ticket or ticket.invoice_id or not ticket.photo or ticket.original_amount is None:
+            return False
+        return self.has_change_permission(request, ticket)
 
     @action(
         description=_("Override Exchange Rate"),

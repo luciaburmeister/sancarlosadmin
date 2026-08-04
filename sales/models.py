@@ -1505,6 +1505,15 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
         related_name="delivery_orders",
         verbose_name=_("Project File")
     )
+    delivery_address = models.ForeignKey(
+        ClientAddress,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delivery_orders",
+        verbose_name=_("Delivery Address"),
+        help_text=_("Optional. Defaults to the client's own address when left empty."),
+    )
     status = models.CharField(
         max_length=20,
         choices=DeliveryOrderStatus.choices,

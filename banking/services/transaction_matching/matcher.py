@@ -15,7 +15,10 @@ from banking.models import (
     ReconciliationStatus,
 )
 from banking.services.transaction_matching.amount_matching import match_amount
-from banking.services.transaction_matching.counterparty import find_counterparty
+from banking.services.transaction_matching.counterparty import (
+    find_counterparty,
+    find_employee_counterparty,
+)
 from banking.services.transaction_matching.types import MatchResult
 from payments.models import (
     Payment,
@@ -40,6 +43,7 @@ class TransactionMatcher:
         self.transaction = bank_transaction
         self.direction = self._get_direction()
         self.counterparty = None
+        self.employee_counterparty = None
         self.result: MatchResult | None = None
 
     def run(self) -> BankReconciliation:
@@ -52,7 +56,7 @@ class TransactionMatcher:
         self.result = match_amount(
             self.transaction,
             candidates,
-            has_counterparty=self.counterparty is not None,
+            has_counterparty=self.counterparty is not None or self.employee_counterparty is not None,
         )
 
         # Build the combined suggested_allocations structure:
@@ -225,6 +229,7 @@ class TransactionMatcher:
         SalesInvoice = apps.get_model("invoices", "SalesInvoice")
         LoanInstallment = apps.get_model("loans", "LoanInstallment")
         LoanEvent = apps.get_model("loans", "LoanEvent")
+        ExpenseClaim = apps.get_model("expenses", "ExpenseClaim")
         txn_date = self.transaction.transaction_date
 
         if self.direction == PaymentDirection.OUTBOUND:
@@ -257,7 +262,21 @@ class TransactionMatcher:
                 date__lte=txn_date,
             ).exclude(pk__in=reconciled_event_ids)
 
-            return list(qs) + list(installment_qs) + list(event_qs)
+            # Approved expense claims — reimbursement goes to the employee,
+            # not a provider, so counterparty resolution is separate from
+            # self.counterparty (which is Provider/Client-typed).
+            from apps.expenses.models import ExpenseClaimStatus
+            claim_qs = ExpenseClaim.objects.filter(
+                company=self.transaction.company,
+                status=ExpenseClaimStatus.APPROVED,
+                created_at__date__lte=txn_date,
+            )
+            employee = find_employee_counterparty(self.transaction, self.transaction.company)
+            self.employee_counterparty = employee
+            if employee and employee.user_id:
+                claim_qs = claim_qs.filter(submitted_by_id=employee.user_id)
+
+            return list(qs) + list(installment_qs) + list(event_qs) + list(claim_qs)
 
         qs = SalesInvoice.objects.filter(
             company=self.transaction.company,

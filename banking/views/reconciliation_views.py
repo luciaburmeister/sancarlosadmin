@@ -368,10 +368,12 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
 
     @staticmethod
     def _get_candidate_documents(txn: BankTransaction) -> list:
-        """Return unpaid invoices, sales invoices, or loan installments for this transaction's company."""
+        """Return unpaid invoices, sales invoices, loan installments, or
+        approved expense claims for this transaction's company."""
         Invoice = apps.get_model("invoices", "Invoice")
         SalesInvoice = apps.get_model("invoices", "SalesInvoice")
         LoanInstallment = apps.get_model("loans", "LoanInstallment")
+        ExpenseClaim = apps.get_model("expenses", "ExpenseClaim")
 
         direction = PaymentDirection.INBOUND if txn.amount.amount > 0 else PaymentDirection.OUTBOUND
         results = []
@@ -412,6 +414,27 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                     "date": installment.due_date,
                     "counterparty": str(installment.loan.bank),
                     "remaining": installment.amount_remaining_decimal,
+                })
+
+            from apps.expenses.models import ExpenseClaimStatus
+            claim_qs = ExpenseClaim.objects.filter(
+                company=txn.company,
+                status=ExpenseClaimStatus.APPROVED,
+                created_at__date__lte=txn.transaction_date,
+            ).select_related("submitted_by").order_by("-created_at")
+
+            cct = ContentType.objects.get_for_model(ExpenseClaim)
+            for claim in claim_qs:
+                if claim.amount_remaining_decimal <= 0:
+                    continue
+                results.append({
+                    "content_type": cct.model,
+                    "object_id": claim.pk,
+                    "form_value": f"{cct.model}:{claim.pk}",
+                    "number": str(claim),
+                    "date": claim.created_at.date(),
+                    "counterparty": claim.submitted_by.get_full_name() or str(claim.submitted_by),
+                    "remaining": claim.amount_remaining_decimal,
                 })
         else:
             qs = SalesInvoice.objects.filter(

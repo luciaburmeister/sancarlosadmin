@@ -57,7 +57,8 @@ class AssetScheduleViewTests(TestCase):
         self.assertEqual(blocks[0]["id"], self.planning.pk)
         self.assertEqual(blocks[0]["start"], 8 * 60)
         self.assertEqual(blocks[0]["end"], 9 * 60)
-        self.assertEqual(blocks[0]["label"], "Cuba 1")
+        self.assertEqual(blocks[0]["label"], self.planning.get_planning_type_display())
+        self.assertEqual(blocks[0]["asset"], "Cuba 1")
         self.assertEqual(blocks[0]["origin_name"], "Origin")
         self.assertEqual(blocks[0]["destination_name"], "Destination")
         self.assertNotIn("route", blocks[0])
@@ -252,6 +253,162 @@ class AssetScheduleViewTests(TestCase):
         # transport_asset is still missing, so it's tagged "unassigned" (not
         # "manual") until a truck is picked too — see AssetPlanning.save().
         self.assertEqual(planning.assignment_origin, "unassigned")
+        self.assertEqual(response.json()["truck"], "")
+        self.assertTrue(response.json()["truck_note"])
+
+    def test_move_auto_links_the_driver_s_single_assigned_truck(self):
+        self.truck.assigned_to = self.employee
+        self.truck.save(update_fields=["assigned_to"])
+        planning = AssetPlanning.objects.create(
+            company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
+            scheduled_date=TODAY,
+        )
+        response = self.client.post(
+            self.url,
+            data={
+                "action": "move", "id": planning.pk,
+                "start": 10 * 60, "end": 11 * 60,
+                "person_id": self.employee.pk, "day": TODAY.isoformat(),
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["truck"], "Truck 1")
+        self.assertIsNone(data["truck_note"])
+        planning.refresh_from_db()
+        self.assertEqual(planning.transport_asset_id, self.truck.pk)
+
+    def test_move_lists_multiple_driver_trucks_as_suggestions_without_picking_one(self):
+        truck2 = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Truck 2")
+        self.truck.assigned_to = self.employee
+        self.truck.save(update_fields=["assigned_to"])
+        truck2.assigned_to = self.employee
+        truck2.save(update_fields=["assigned_to"])
+        planning = AssetPlanning.objects.create(
+            company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
+            scheduled_date=TODAY,
+        )
+        response = self.client.post(
+            self.url,
+            data={
+                "action": "move", "id": planning.pk,
+                "start": 10 * 60, "end": 11 * 60,
+                "person_id": self.employee.pk, "day": TODAY.isoformat(),
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["truck"], "")
+        self.assertTrue(data["truck_note"])
+        planning.refresh_from_db()
+        self.assertIsNone(planning.transport_asset)
+        self.assertCountEqual(planning.suggested_trucks.all(), [self.truck, truck2])
+
+    def test_move_adds_to_suggested_trucks_instead_of_replacing_them(self):
+        # suggested_trucks is a hint for whoever assigns this later (by hand
+        # or by a future auto-assigner) — it should only ever grow here, never
+        # get wiped out by a driver drag, so a curated/previous list survives.
+        curated_truck = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Curated")
+        truck2 = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Truck 2")
+        self.truck.assigned_to = self.employee
+        self.truck.save(update_fields=["assigned_to"])
+        truck2.assigned_to = self.employee
+        truck2.save(update_fields=["assigned_to"])
+        planning = AssetPlanning.objects.create(
+            company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
+            scheduled_date=TODAY,
+        )
+        planning.suggested_trucks.add(curated_truck)
+
+        response = self.client.post(
+            self.url,
+            data={
+                "action": "move", "id": planning.pk,
+                "start": 10 * 60, "end": 11 * 60,
+                "person_id": self.employee.pk, "day": TODAY.isoformat(),
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        planning.refresh_from_db()
+        self.assertCountEqual(planning.suggested_trucks.all(), [curated_truck, self.truck, truck2])
+
+    def test_move_never_overrides_an_already_assigned_truck(self):
+        other_user = User.objects.create_user(username="other3", password="testpass123")
+        other_employee = make_employee(self.company, other_user)
+        other_truck = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Truck 2")
+        other_truck.assigned_to = other_employee
+        other_truck.save(update_fields=["assigned_to"])
+        # self.planning already has transport_asset=self.truck from setUp.
+        response = self.client.post(
+            self.url,
+            data={
+                "action": "move", "id": self.planning.pk,
+                "start": 9 * 60, "end": 10 * 60,
+                "person_id": other_employee.pk, "day": TODAY.isoformat(),
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.planning.refresh_from_db()
+        self.assertEqual(self.planning.transport_asset_id, self.truck.pk)
+
+    def test_move_swaps_the_truck_when_it_was_only_carried_over_from_the_previous_driver(self):
+        # self.employee owns self.truck; moving self.planning (auto-linked to
+        # self.truck via self.employee) to a driver with their own truck should
+        # swap it, not leave self.truck stuck on the job forever.
+        self.truck.assigned_to = self.employee
+        self.truck.save(update_fields=["assigned_to"])
+        other_user = User.objects.create_user(username="other4", password="testpass123")
+        other_employee = make_employee(self.company, other_user)
+        other_truck = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Truck 2")
+        other_truck.assigned_to = other_employee
+        other_truck.save(update_fields=["assigned_to"])
+        # self.planning already has transport_asset=self.truck from setUp — as
+        # if it had been auto-linked to self.employee's own truck earlier.
+
+        response = self.client.post(
+            self.url,
+            data={
+                "action": "move", "id": self.planning.pk,
+                "start": 9 * 60, "end": 10 * 60,
+                "person_id": other_employee.pk, "day": TODAY.isoformat(),
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["truck"], "Truck 2")
+        self.assertIsNone(data["truck_note"])
+        self.planning.refresh_from_db()
+        self.assertEqual(self.planning.transport_asset_id, other_truck.pk)
+
+    def test_move_carried_over_swap_never_clears_existing_suggested_trucks(self):
+        curated_truck = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Curated")
+        self.planning.suggested_trucks.add(curated_truck)
+        self.truck.assigned_to = self.employee
+        self.truck.save(update_fields=["assigned_to"])
+        other_user = User.objects.create_user(username="other5", password="testpass123")
+        other_employee = make_employee(self.company, other_user)
+        other_truck = Asset.objects.create(company=self.company, asset_type=self.truck_type, name="Truck 2")
+        other_truck.assigned_to = other_employee
+        other_truck.save(update_fields=["assigned_to"])
+
+        response = self.client.post(
+            self.url,
+            data={
+                "action": "move", "id": self.planning.pk,
+                "start": 9 * 60, "end": 10 * 60,
+                "person_id": other_employee.pk, "day": TODAY.isoformat(),
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.planning.refresh_from_db()
+        self.assertEqual(self.planning.transport_asset_id, other_truck.pk)
+        self.assertIn(curated_truck, self.planning.suggested_trucks.all())
 
     def test_schedule_context_exposes_capture_url(self):
         response = self.client.get(self.url)
@@ -354,7 +511,8 @@ class AssetScheduleCaptureViewTests(TestCase):
         self.assertEqual(groups[0]["person_id"], self.employee.pk)
         self.assertEqual(groups[0]["job_count"], 1)
         job = groups[0]["jobs"][0]
-        self.assertEqual(job["label"], "Cuba 1")
+        self.assertEqual(job["label"], self.planning.get_planning_type_display())
+        self.assertEqual(job["asset"], "Cuba 1")
         self.assertEqual(job["time_label"], "08:00–09:00")
         self.assertEqual(job["load_description"], "Escombros")
         self.assertEqual(job["notes"], "Llamar al encargado")

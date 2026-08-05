@@ -2099,10 +2099,9 @@ msgstr "Cuenta de Banco"
 msgid "The company bank account this transaction belongs to."
 msgstr "La cuenta bancaria de la empresa a la que pertenece esta transacción."
 
-#, fuzzy
-#| msgid "External API"
+
 msgid "External ID"
-msgstr "API externa"
+msgstr "ID Externo"
 
 msgid ""
 "Unique transaction ID assigned by Nuek or the bank. Used to prevent "

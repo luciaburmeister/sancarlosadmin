@@ -88,6 +88,13 @@ class Company(models.Model):
         verbose_name=_("Bank Summary Emails"),
         help_text=_("Emails that will receive the periodic bank accounts balance summary"),
     )
+    purchase_order_notification_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Purchase Order Notification Emails"),
+        help_text=_("Emails that will be notified whenever a new Purchase Order is created"),
+    )
     terms_text = models.TextField(
         blank=True,
         verbose_name=_("Términos y Condiciones"),

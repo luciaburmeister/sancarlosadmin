@@ -397,6 +397,30 @@ class ProductionItemSessionKind(models.TextChoices):
     SESSION_FINISHED = "session_finished", _("Session finished")
 
 
+class ProductionItemSessionQuerySet(models.QuerySet):
+    def completed(self):
+        """Sessions that represent finished, measurable work."""
+        return self.filter(
+            status=ProductionItemSessionStatus.DONE,
+            start_time__isnull=False,
+            end_time__isnull=False,
+        )
+
+    def for_product(self, product):
+        """Sessions belonging to tickets of the given ProductTemplate."""
+        from configurator.models import Configuration
+
+        config_ct = ContentType.objects.get_for_model(Configuration)
+        config_ids = Configuration.objects.filter(product=product).values_list(
+            "id", flat=True
+        )
+        ticket_ids = ProductionTicket.objects.filter(
+            content_type=config_ct,
+            object_id__in=config_ids,
+        ).values_list("id", flat=True)
+        return self.filter(production_item__ticket_id__in=ticket_ids)
+
+
 class ProductionItemSession(Timestampable, CompanyOwnedModel):
     production_item = models.ForeignKey(
         ProductionItem,
@@ -451,6 +475,8 @@ class ProductionItemSession(Timestampable, CompanyOwnedModel):
         blank=True,
         verbose_name=_("Completed by")
     )
+
+    objects = ProductionItemSessionQuerySet.as_manager()
 
     class Meta:
         indexes = [

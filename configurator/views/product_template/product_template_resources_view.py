@@ -11,6 +11,10 @@ from django.utils.translation import gettext_lazy as _
 
 from configurator.forms.stage_resources_form import StagePlanningFormSet
 from configurator.models import ProductTemplate
+from production.services.actual_stage_times import (
+    compute_actual_stage_times,
+    normalize_stage,
+)
 
 
 class ProductTemplateResourcesView(UnfoldModelAdminViewMixin, View):
@@ -20,42 +24,72 @@ class ProductTemplateResourcesView(UnfoldModelAdminViewMixin, View):
 
     def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
         self.obj = get_object_or_404(ProductTemplate, pk=kwargs["pk"])
+        self.actuals = compute_actual_stage_times(self.obj)
         return super().dispatch(request, *args, **kwargs)
 
-    def _build_outer_initial(self):
+    def _actual_for_stage(self, stage_key):
+        return self.actuals.get(normalize_stage(stage_key))
+
+    def _build_outer_initial(self, prefill_actuals=False):
         stage_keys = list(self.obj.production_stages or [])
         existing = self.obj.production_planning_resources or {}
 
         initial = []
         for key in stage_keys:
             stage = existing.get(key, {})
-            initial.append(
-                {
-                    "stage_key": key,
-                    "employee_qty": stage.get("employee_qty", 0),
-                    "machine_qty": stage.get("machine_qty", 0),
-                    "prep_time_min": stage.get("prep_time_min", 0),
-                    "work_time_min": stage.get("work_time_min", 0),
-                    "post_time_min": stage.get("post_time_min", 0),
-                }
-            )
+            row = {
+                "stage_key": key,
+                "employee_qty": stage.get("employee_qty", 0),
+                "machine_qty": stage.get("machine_qty", 0),
+                "prep_time_min": stage.get("prep_time_min", 0),
+                "work_time_min": stage.get("work_time_min", 0),
+                "post_time_min": stage.get("post_time_min", 0),
+            }
+
+            if prefill_actuals:
+                actual = self._actual_for_stage(key)
+                if actual:
+                    row["work_time_min"] = str(int(round(actual.avg_minutes)))
+                    if actual.avg_employees:
+                        row["employee_qty"] = max(1, int(round(actual.avg_employees)))
+
+            initial.append(row)
         return initial
 
     def _render(self, request, stage_formset):
+        for stage_form in stage_formset.forms:
+            key = stage_form.initial.get("stage_key") or stage_form.data.get(
+                f"{stage_form.prefix}-stage_key"
+            )
+            stage_form.actual = self._actual_for_stage(key)
+
         context = {
             **self.model_admin.admin_site.each_context(request),
             "title": _("Configure planning resources: %(name)s") % {"name": self.obj.name},
             "obj": self.obj,
             "stage_formset": stage_formset,
             "stage_blocks": stage_formset.forms,
+            "has_actuals": any(
+                self._actual_for_stage(key)
+                for key in (self.obj.production_stages or [])
+            ),
         }
         return TemplateResponse(request, self.template_name, context)
 
     def get(self, request, *args, **kwargs):
+        prefill_actuals = request.GET.get("prefill") == "actuals"
         stage_formset = StagePlanningFormSet(
-            initial=self._build_outer_initial(),
+            initial=self._build_outer_initial(prefill_actuals=prefill_actuals),
             prefix="stages",
         )
+        if prefill_actuals:
+            messages.info(
+                request,
+                _(
+                    "Times prefilled from actual production data. "
+                    "Review the values and save to apply them."
+                ),
+            )
         return self._render(request, stage_formset)
 
     def post(self, request, *args, **kwargs):

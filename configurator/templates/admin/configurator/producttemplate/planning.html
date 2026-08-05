@@ -15,6 +15,18 @@
 
   <div class="flex flex-col gap-6">
 
+    {% if has_actuals %}
+      <div class="rounded-2xl border border-primary-200 bg-primary-50 p-4 flex items-center justify-between gap-4">
+        <div class="text-sm">
+          {% trans "Actual times from completed production sessions are available for this product. You can prefill all stages with the measured averages, then review and save." %}
+        </div>
+        <a href="?prefill=actuals"
+           class="shrink-0 rounded-xl border border-primary-600 px-4 py-2 text-sm font-semibold text-primary-700 hover:bg-primary-100">
+          {% trans "Prefill from actual data" %}
+        </a>
+      </div>
+    {% endif %}
+
     {% for stage_form in stage_blocks %}
       <div class="rounded-2xl shadow-sm border border-base-200 bg-white p-6">
         {{ stage_form.non_field_errors }}
@@ -26,6 +38,34 @@
               {% trans "Stage" %}: {{ stage_name|default:"-" }}
             {% endwith %}
           </div>
+
+          {% if stage_form.actual %}
+            <div class="flex items-center gap-3 text-sm text-gray-600">
+              <span>
+                {% blocktrans with avg=stage_form.actual.avg_minutes count_orders=stage_form.actual.order_count min=stage_form.actual.min_minutes max=stage_form.actual.max_minutes %}
+                  Actual: avg {{ avg }} min over {{ count_orders }} order(s) (range {{ min }}–{{ max }} min)
+                {% endblocktrans %}
+                {% if stage_form.actual.avg_employees %}
+                  · {% blocktrans with workers=stage_form.actual.avg_employees %}~{{ workers }} worker(s){% endblocktrans %}
+                {% endif %}
+                {% if stage_form.actual.excluded_count %}
+                  · <span class="text-amber-600">{% blocktrans with excluded=stage_form.actual.excluded_count %}{{ excluded }} outlier(s) excluded{% endblocktrans %}</span>
+                {% endif %}
+              </span>
+              <button type="button"
+                      class="use-actual-btn rounded-lg border border-primary-600 px-3 py-1.5 text-xs font-semibold text-primary-700 hover:bg-primary-50"
+                      data-work-input="{{ stage_form.work_time_min.id_for_label }}"
+                      data-employee-input="{{ stage_form.employee_qty.id_for_label }}"
+                      data-avg-minutes="{{ stage_form.actual.avg_minutes|floatformat:0 }}"
+                      data-avg-employees="{% if stage_form.actual.avg_employees %}{{ stage_form.actual.avg_employees|floatformat:0 }}{% endif %}">
+                {% trans "Use actual" %}
+              </button>
+            </div>
+          {% else %}
+            <div class="text-sm text-gray-400">
+              {% trans "No production data yet" %}
+            </div>
+          {% endif %}
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -75,4 +115,21 @@
 
   </div>
 </form>
+
+<script>
+  document.addEventListener("click", function (event) {
+    const btn = event.target.closest(".use-actual-btn");
+    if (!btn) return;
+
+    const workInput = document.getElementById(btn.dataset.workInput);
+    if (workInput && btn.dataset.avgMinutes) {
+      workInput.value = btn.dataset.avgMinutes;
+    }
+
+    const employeeInput = document.getElementById(btn.dataset.employeeInput);
+    if (employeeInput && btn.dataset.avgEmployees) {
+      employeeInput.value = btn.dataset.avgEmployees;
+    }
+  });
+</script>
 {% endblock %}

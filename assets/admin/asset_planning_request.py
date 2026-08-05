@@ -13,6 +13,7 @@ from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.company_access import get_user_companies
 from company.models import Employee
 from assets.constants import SERVICE_TYPE_FIELDS, SERVICE_TYPE_MAQUINA_PROPIA
+from assets.forms import EstimatedDurationChoiceField, TimeChoiceField
 from assets.models import Asset, AssetPlanning, AssetPlanningRequest, AssetPlanningRequestStatus, AssetTypeCategory
 
 # Built from SERVICE_TYPE_FIELDS so the form and AssetPlanningRequest.clean()
@@ -30,6 +31,31 @@ CONDITIONAL_FIELDS["machinist_moved"] = f"service_type == '{SERVICE_TYPE_MAQUINA
 CONDITIONAL_FIELDS["moved_employees"] = f"service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}' && machinist_moved"
 
 
+class ChangesPendingFilter(admin.SimpleListFilter):
+    title = _("Review state")
+    parameter_name = "review_state"
+
+    def lookups(self, request, model_admin):
+        return [
+            ("changes_pending", _("Changes pending")),
+            ("first_review", _("First review")),
+        ]
+
+    def queryset(self, request, queryset):
+        value = self.value()
+        if value == "changes_pending":
+            return queryset.filter(
+                status=AssetPlanningRequestStatus.PENDING_REVIEW,
+                resulting_planning__isnull=False,
+            )
+        if value == "first_review":
+            return queryset.filter(
+                status=AssetPlanningRequestStatus.PENDING_REVIEW,
+                resulting_planning__isnull=True,
+            )
+        return queryset
+
+
 @admin.register(AssetPlanningRequest)
 class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     list_display = (
@@ -37,7 +63,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         "needed_date", "needed_time", "urgency", "show_status",
         "requested_by", "assigned_to", "asset", "company",
     )
-    list_filter = ("status", "urgency", "service_type", "company")
+    list_filter = (ChangesPendingFilter, "status", "urgency", "service_type", "company")
     search_fields = (
         "to_zone__name", "from_zone__name",
         "requested_by__first_name", "requested_by__last_name",
@@ -60,6 +86,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         "planning_type", "requested_by", "status",
         "reviewed_by", "reviewed_at",
         "resulting_planning",
+        "rereview_notice",
     ]
     actions_row = ["duplicate_action"]
     actions_submit_line = ["approve_submit_action", "reject_submit_action"]
@@ -70,7 +97,8 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
             "fields": (
                 "service_type", "planning_type",
                 ("to_zone", "from_zone"),
-                ("needed_date", "end_time"),
+                ("needed_date", "needed_time"),
+                "estimated_duration",
                 "urgency",
                 ("cuba_operation_type", "cuba_size"),
                 ("machinist_moved", "moved_employees"),
@@ -81,7 +109,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         }),
         (_("Review"), {
             "fields": (
-                "status", "requested_by",
+                "status", "rereview_notice", "requested_by",
                 ("reviewed_by", "reviewed_at"),
                 "rejection_reason",
                 "resulting_planning",
@@ -102,6 +130,20 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         # Stashed for formfield_for_foreignkey/formfield_for_manytomany below.
         request._obj_ = obj
         return super().get_form(request, obj, **kwargs)
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        if db_field.name == "estimated_duration":
+            return EstimatedDurationChoiceField(
+                label=db_field.verbose_name,
+                help_text=db_field.help_text,
+                required=True,
+            )
+        if db_field.name == "needed_time":
+            return TimeChoiceField(
+                label=db_field.verbose_name,
+                help_text=db_field.help_text,
+            )
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
 
     def _target_company(self, request):
         """Company every company-scoped field (asset, assigned_to, suggested_trucks) must agree on."""
@@ -173,12 +215,25 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         ordering="status",
         label={
             AssetPlanningRequestStatus.PENDING_REVIEW.label: "warning",
+            _("Changes pending"): "info",
             AssetPlanningRequestStatus.APPROVED.label: "success",
             AssetPlanningRequestStatus.REJECTED.label: "danger",
         },
     )
     def show_status(self, obj):
+        if obj.awaits_rereview:
+            return _("Changes pending")
         return obj.get_status_display()
+
+    @display(description=_("Notice"))
+    def rereview_notice(self, obj):
+        if not obj or not obj.awaits_rereview:
+            return "—"
+        return _(
+            "Previously approved plan still exists (see Asset Planning below) — "
+            "that is the old plan to replace. Re-approve will create a new plan "
+            "and cancel the old one."
+        )
 
     def has_approve_permission(self, request, object_id=None):
         return request.user.has_perm("assets.approve_assetplanningrequest")
@@ -204,6 +259,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
             return
 
         with transaction.atomic():
+            previous_planning = obj.resulting_planning
             planning = AssetPlanning.objects.create(
                 company=obj.company,
                 asset=obj.asset,
@@ -214,7 +270,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
                 project_file=obj.project_file,
                 scheduled_date=obj.needed_date,
                 scheduled_time=obj.needed_time,
-                scheduled_end_time=obj.end_time,
+                estimated_duration=obj.estimated_duration,
                 urgency=obj.urgency,
                 planning_type=obj.planning_type,
                 service_type=obj.service_type,
@@ -227,13 +283,24 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
             planning.suggested_trucks.set(obj.suggested_trucks.all())
             planning.moved_employees.set(obj.moved_employees.all())
 
+            if previous_planning is not None:
+                previous_planning.superseded_by = planning
+                previous_planning.status = "cancelled"
+                previous_planning.save(update_fields=["superseded_by", "status"])
+
             obj.status = AssetPlanningRequestStatus.APPROVED
             obj.reviewed_by = request.user
             obj.reviewed_at = timezone.now()
             obj.resulting_planning = planning
             obj.save()
 
-        messages.success(request, _("Request approved. Asset Planning created."))
+        if previous_planning is not None:
+            messages.success(
+                request,
+                _("Request approved. New Asset Planning created; previous plan marked as old/cancelled."),
+            )
+        else:
+            messages.success(request, _("Request approved. Asset Planning created."))
 
     @action(description=_("Reject"), icon="cancel", variant=ActionVariant.DANGER, permissions=["approve"])
     def reject_submit_action(self, request, obj):

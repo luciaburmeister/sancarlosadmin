@@ -151,7 +151,8 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
         "company",
         "current_working_zone",
         "assigned_to",
-        "provider"]
+        "provider",
+        "excluded_assets"]
     readonly_fields = ("qr_code_preview",)
     list_select_related = ["asset_type","client","provider","assigned_to","current_working_zone","current_working_zone__client","company",]
     fieldsets = (
@@ -165,6 +166,12 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
                     ("current_working_zone", "is_active"),
                     "description",
                 )
+            },
+        ),
+        (
+            _("Compatibility"),
+            {
+                "fields": ("excluded_assets",),
             },
         ),
         (

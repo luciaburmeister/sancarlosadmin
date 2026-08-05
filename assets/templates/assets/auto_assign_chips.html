@@ -1,0 +1,56 @@
+{% load i18n %}
+<div class="flex flex-wrap gap-2 mb-3" id="auto-assign-chips">
+  <button type="button" class="auto-assign-chip" data-range="today">{% trans "Today" %}</button>
+  <button type="button" class="auto-assign-chip" data-range="tomorrow">{% trans "Tomorrow" %}</button>
+  <button type="button" class="auto-assign-chip" data-range="week">{% trans "This week" %}</button>
+  <button type="button" class="auto-assign-chip" data-range="next_week">{% trans "Next week" %}</button>
+</div>
+<style>
+  .auto-assign-chip {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--color-base-200, #e5e7eb);
+    cursor: pointer;
+    background: transparent;
+    color: inherit;
+  }
+  .auto-assign-chip:hover {
+    background: var(--color-base-50, #f9fafb);
+  }
+</style>
+<script>
+(function () {
+  const container = document.getElementById("auto-assign-chips");
+  if (!container || container.dataset.bound) return;
+  container.dataset.bound = "1";
+
+  const fmt = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  container.addEventListener("click", (e) => {
+    const btn = e.target.closest(".auto-assign-chip");
+    if (!btn) return;
+
+    const today = new Date();
+    let start = new Date(today);
+    let end = new Date(today);
+
+    if (btn.dataset.range === "tomorrow") {
+      start.setDate(start.getDate() + 1);
+      end = new Date(start);
+    } else if (btn.dataset.range === "week" || btn.dataset.range === "next_week") {
+      const mondayOffset = (today.getDay() + 6) % 7; // 0 = Monday
+      start.setDate(today.getDate() - mondayOffset);
+      if (btn.dataset.range === "next_week") start.setDate(start.getDate() + 7);
+      end = new Date(start);
+      end.setDate(start.getDate() + 6);
+    }
+
+    const startInput = document.getElementById("id_start_date");
+    const endInput = document.getElementById("id_end_date");
+    if (startInput) startInput.value = fmt(start);
+    if (endInput) endInput.value = fmt(end);
+  });
+})();
+</script>

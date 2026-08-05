@@ -13,7 +13,7 @@ assets/admin/asset_planning.py.
 Run just this file:
     python manage.py test assets.tests.test_machinist_moved
 """
-from datetime import date
+from datetime import date, timedelta
 
 from django.contrib.auth import get_user_model
 from django.contrib.messages.middleware import MessageMiddleware
@@ -46,6 +46,7 @@ class MachinistMovedCleanTests(TestCase):
             needed_date=NEEDED_DATE,
             project_file=self.project_file,
             machinist_moved=True,
+            estimated_duration=timedelta(hours=1),
         )
         request.clean()
         self.assertFalse(request.machinist_moved)
@@ -62,6 +63,7 @@ class MachinistMovedCleanTests(TestCase):
             asset=asset,
             project_file=self.project_file,
             machinist_moved=True,
+            estimated_duration=timedelta(hours=1),
         )
         request.clean()
         self.assertTrue(request.machinist_moved)
@@ -89,6 +91,7 @@ class ApproveCopiesMachinistMovedTests(TestCase):
             asset=self.asset,
             project_file=self.project_file,
             machinist_moved=True,
+            estimated_duration=timedelta(hours=1),
         )
         self.request_obj.moved_employees.set([self.mover_1, self.mover_2])
 

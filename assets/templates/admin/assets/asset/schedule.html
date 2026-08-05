@@ -321,6 +321,27 @@
         text-overflow: ellipsis;
       }
 
+      .sched-block .block-request-changed {
+        display: block;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: .03em;
+        text-transform: uppercase;
+        text-align: center;
+        background: #6366f1;
+        color: #fff;
+        border-radius: 3px;
+        padding: 1px 4px;
+        margin: 0 0 3px;
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .sched-block.request-changed {
+        box-shadow: 0 0 0 2px #6366f1, 0 2px 8px rgba(0,0,0,.35);
+      }
+
       .block-ghost {
         position: fixed;
         border-radius: 6px;
@@ -387,6 +408,27 @@
         margin-top: 4px;
       }
       .dark .backlog-card .backlog-tag { background: #374151; color: #e5e7eb; }
+
+      .backlog-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        margin-top: 6px;
+      }
+      .backlog-auto-assign {
+        flex-shrink: 0;
+        font-size: 10px;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--color-primary-400, #60a5fa);
+        color: var(--color-primary-600, #2563eb);
+        background: transparent;
+        cursor: pointer;
+      }
+      .backlog-auto-assign:hover { background: rgba(59, 130, 246, 0.08); }
+      .backlog-auto-assign:disabled { opacity: .5; cursor: default; }
 
       .legend-dot {
         display: inline-block;
@@ -512,6 +554,7 @@
     <span><strong>⚠ {% trans "amber" %}:</strong> {% trans "overlaps another job for that person/truck" %}</span>
     <span><strong>🤖:</strong> {% trans "auto-assigned" %}</span>
     <span><strong style="color:#f97316">⚠ {% trans "Needs truck" %}:</strong> {% trans "orange stripe — no truck assigned yet" %}</span>
+    <span><strong style="color:#6366f1">⚠ {% trans "Old plan" %}:</strong> {% trans "replaced or awaiting re-approval of its source request" %}</span>
     <span>
       {% for st in service_type_legend %}
         <span class="legend-dot" style="background:{{ st.color }}{% if not forloop.first %};margin-left:8px{% endif %}"></span>{{ st.label }}
@@ -767,10 +810,13 @@
     const missingTruck = !b.truck
       ? `<div class="block-missing-truck" title="{% trans 'Missing truck' %}">⚠ {% trans "Needs truck" %}</div>`
       : "";
+    const requestChanged = b.is_old_plan
+      ? `<div class="block-request-changed" title="${escapeHtml(b.old_plan_label || "{% trans 'Old plan' %}")}">⚠ ${escapeHtml(b.old_plan_label || "{% trans 'Old plan' %}")}</div>`
+      : "";
     const urgency = b.urgency_label
       ? `<span class="block-urgency" style="background:${escapeHtml(b.urgency_color || "#3B82F6")}">${escapeHtml(b.urgency_label)}</span>`
       : "";
-    let html = missingTruck;
+    let html = requestChanged + missingTruck;
     html += `<div class="block-label">${statusIcons(b)}${urgency}${escapeHtml(b.label)}</div>`;
     if (b.origin_name) {
       html += `<div class="block-sublabel">{% trans "From" %}: ${escapeHtml(b.origin_name)}</div>`;
@@ -806,6 +852,7 @@
         + (b.overHours ? " over-hours" : "")
         + (b.conflict ? " conflict" : "")
         + (!b.truck ? " needs-truck" : "")
+        + (b.is_old_plan ? " request-changed" : "")
         + (CAN_EDIT ? "" : " read-only");
       el.dataset.id = b.id;
       el.style.backgroundColor = b.color || "#3B82F6";
@@ -839,6 +886,9 @@
 
       const missingChips = (item.missing || []).map((m) => `<span class="backlog-chip">${escapeHtml(m)}</span>`).join("");
       const tags = [];
+      if (item.is_old_plan) {
+        tags.push(`<span class="backlog-tag" style="background:#6366f1;color:#fff">${escapeHtml(item.old_plan_label || "{% trans 'Old plan' %}")}</span>`);
+      }
       if (item.urgency_label) {
         tags.push(`<span class="backlog-tag urgency" style="background:${escapeHtml(item.urgency_color || "#3B82F6")}">${escapeHtml(item.urgency_label)}</span>`);
       }
@@ -858,7 +908,10 @@
         rows.push(`<div class="backlog-row"><span class="k">{% trans "To" %}:</span>${escapeHtml(toVal)}</div>`);
       }
       if (item.load_description) rows.push(`<div class="backlog-row"><span class="k">{% trans "Load" %}:</span>${escapeHtml(truncate(item.load_description, 80))}</div>`);
-      const metaParts = [item.date, item.driver, item.truck].filter(Boolean);
+      const metaParts = [
+        item.time_label ? `${item.date} ${item.time_label}` : item.date,
+        item.driver, item.truck,
+      ].filter(Boolean);
       if (metaParts.length) rows.push(`<div class="backlog-sublabel">${metaParts.map(escapeHtml).join(" · ")}</div>`);
 
       el.innerHTML = `
@@ -866,7 +919,10 @@
         ${tagsHtml ? `<div>${tagsHtml}</div>` : ""}
         ${rows.join("")}
         ${item.notes ? `<div class="backlog-notes">${escapeHtml(item.notes)}</div>` : ""}
-        <div>${missingChips}</div>
+        <div class="backlog-footer">
+          <div>${missingChips}</div>
+          <button type="button" class="backlog-auto-assign" title="{% trans 'Auto-assign truck, driver and time' %}">🤖 {% trans "Auto-assign" %}</button>
+        </div>
       `;
       list.appendChild(el);
     });
@@ -950,6 +1006,7 @@
   const backlogList = document.getElementById("sched-backlog-list");
   if (backlogList) {
     backlogList.addEventListener("mousedown", (e) => {
+      if (e.target.closest(".backlog-auto-assign")) return;
       const cardEl = e.target.closest(".backlog-card");
       if (!cardEl) return;
       const item = backlogItems.find((it) => String(it.id) === cardEl.dataset.id);
@@ -974,6 +1031,40 @@
         grabDX: e.clientX - rect.left, grabDY: e.clientY - rect.top,
         targetCell: null, startX: e.clientX, startY: e.clientY, moved: false,
       };
+    });
+
+    // Backlog card → auto-assign button: pick a compatible truck, its
+    // driver, and a free time automatically, without dragging.
+    backlogList.addEventListener("mousedown", (e) => {
+      const btn = e.target.closest(".backlog-auto-assign");
+      if (!btn) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const cardEl = btn.closest(".backlog-card");
+      const item = backlogItems.find((it) => String(it.id) === cardEl.dataset.id);
+      if (!item) return;
+      if (!confirm("{% trans 'Auto-assign a truck, driver and time for' %} “" + item.label + "”?")) return;
+
+      btn.disabled = true;
+      persist("auto_assign", { id: item.id })
+        .then((data) => {
+          backlogItems = backlogItems.filter((it) => it.id !== item.id);
+          renderBacklog();
+          const b = data.block;
+          const dayIdx = weekDates.findIndex((d) => isoDate(d) === b.date);
+          const personIdx = PEOPLE.findIndex((p) => p.pk === b.assigned_to_id);
+          if (dayIdx === -1 || personIdx === -1) {
+            showToast("{% trans 'Auto-assigned' %} — {% trans 'not shown here (outside this week or filtered out)' %}", "info");
+            return;
+          }
+          blocks.push({ ...b, person: personIdx, day: dayIdx });
+          reportNewFlags(renderAll());
+          showToast("{% trans 'Auto-assigned' %}", "info");
+        })
+        .catch((err) => {
+          btn.disabled = false;
+          showToast(err.message);
+        });
     });
   }
 

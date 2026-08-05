@@ -1,4 +1,5 @@
 import datetime
+from datetime import timedelta
 
 from django import forms
 from django.utils.translation import gettext_lazy as _
@@ -26,6 +27,113 @@ class StaticSelect2MultipleWidget(UnfoldAdminSelect2MultipleWidget):
 
     class Media(UnfoldAdminSelect2MultipleWidget.Media):
         pass
+
+
+# Aligns with the schedule's 15-minute slots; covers a normal working day.
+_DURATION_PRESET_MINUTES = (
+    15, 30, 45, 60, 75, 90, 105, 120, 150, 180, 240, 300, 360, 480,
+)
+
+
+def _duration_label(minutes: int) -> str:
+    hours, mins = divmod(minutes, 60)
+    if hours and mins:
+        return _("%(hours)dh %(mins)d min") % {"hours": hours, "mins": mins}
+    if hours == 1:
+        return _("1 hour")
+    if hours:
+        return _("%(hours)d hours") % {"hours": hours}
+    return _("%(mins)d min") % {"mins": mins}
+
+
+def _duration_choices(extra_minutes=None):
+    minutes_set = set(_DURATION_PRESET_MINUTES)
+    if extra_minutes and extra_minutes > 0:
+        minutes_set.add(int(extra_minutes))
+    return [("", "---------")] + [
+        (m, _duration_label(m)) for m in sorted(minutes_set)
+    ]
+
+
+class EstimatedDurationChoiceField(forms.TypedChoiceField):
+    """Select of common durations instead of a raw hh:mm:ss DurationField input."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("choices", _duration_choices())
+        kwargs.setdefault("coerce", self._coerce)
+        kwargs.setdefault("empty_value", None)
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("widget", UnfoldAdminSelectWidget)
+        super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def _coerce(value):
+        if value in ("", None):
+            return None
+        # has_changed() runs _coerce on both the submitted data (raw minutes
+        # from the select) AND the field's initial value — which is already
+        # a timedelta straight off the model instance, not a choice string.
+        if isinstance(value, timedelta):
+            return value
+        return timedelta(minutes=int(value))
+
+    def prepare_value(self, value):
+        if isinstance(value, timedelta):
+            minutes = int(value.total_seconds() // 60)
+            if minutes > 0 and minutes not in dict(self.choices):
+                self.choices = _duration_choices(extra_minutes=minutes)
+            return minutes if minutes > 0 else ""
+        return value
+
+
+# Matches TransportAssigner's WORKING_DAY_START/END/SLOT_STEP
+# (assets/services/transport_assigner.py) — the hours it can actually search
+# a free slot within.
+_TIME_SLOT_START_MINUTES = 7 * 60
+_TIME_SLOT_END_MINUTES = 17 * 60
+_TIME_SLOT_STEP_MINUTES = 15
+
+
+def _time_choices(extra_minutes=None):
+    minutes_set = set(range(_TIME_SLOT_START_MINUTES, _TIME_SLOT_END_MINUTES + 1, _TIME_SLOT_STEP_MINUTES))
+    if extra_minutes is not None and extra_minutes >= 0:
+        minutes_set.add(int(extra_minutes))
+    return [("", "---------")] + [
+        (m, "%02d:%02d" % (m // 60, m % 60)) for m in sorted(minutes_set)
+    ]
+
+
+class TimeChoiceField(forms.TypedChoiceField):
+    """Select of common start times instead of a raw HH:MM:SS TimeField input."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("choices", _time_choices())
+        kwargs.setdefault("coerce", self._coerce)
+        kwargs.setdefault("empty_value", None)
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("widget", UnfoldAdminSelectWidget)
+        super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def _coerce(value):
+        if value in ("", None):
+            return None
+        # has_changed() runs _coerce on both the submitted data (raw minutes
+        # from the select) AND the field's initial value — which is already
+        # a time straight off the model instance, not a choice string.
+        if isinstance(value, datetime.time):
+            return value
+        minutes = int(value)
+        return datetime.time(minutes // 60, minutes % 60)
+
+    def prepare_value(self, value):
+        if isinstance(value, datetime.time):
+            minutes = value.hour * 60 + value.minute
+            if minutes not in dict(self.choices):
+                self.choices = _time_choices(extra_minutes=minutes)
+            return minutes
+        return value
+
 
 from company.models import Company, Employee
 from core.admin.company_access import get_user_companies

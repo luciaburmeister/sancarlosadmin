@@ -4,7 +4,6 @@ from django.urls import reverse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
-from django.contrib.admin.widgets import RelatedFieldWidgetWrapper
 from unfold.admin import ModelAdmin
 from unfold.decorators import action, display
 from unfold.enums import ActionVariant
@@ -14,7 +13,6 @@ from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.company_access import get_user_companies
 from company.models import Employee
 from assets.constants import SERVICE_TYPE_FIELDS, SERVICE_TYPE_MAQUINA_PROPIA
-from assets.forms import StaticSelect2MultipleWidget
 from assets.models import Asset, AssetPlanning, AssetPlanningRequest, AssetPlanningRequestStatus, AssetTypeCategory
 
 # Built from SERVICE_TYPE_FIELDS so the form and AssetPlanningRequest.clean()
@@ -28,9 +26,6 @@ CONDITIONAL_FIELDS = {
     )
     for field_name in _CONDITIONAL_FIELD_NAMES
 }
-# machinist_moved isn't in SERVICE_TYPE_FIELDS (it's optional, never required)
-# so it's wired up separately; moved_employees only makes sense once both
-# machinist_moved is checked AND the service type is Own Machine Transport.
 CONDITIONAL_FIELDS["machinist_moved"] = f"service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}'"
 CONDITIONAL_FIELDS["moved_employees"] = f"service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}' && machinist_moved"
 
@@ -49,7 +44,18 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         "assigned_to__first_name", "assigned_to__last_name",
         "asset__name",
     )
-    autocomplete_fields = ["to_zone", "from_zone", "project_file", "suggested_trucks"]
+    autocomplete_fields = [
+        "company",
+        "project_file",
+        "to_zone",
+        "from_zone",
+        "asset",
+        "assigned_to",
+        "suggested_trucks",
+        "transport_asset",
+        "moved_employees",
+        "resulting_planning",
+    ]
     readonly_fields = [
         "planning_type", "requested_by", "status",
         "reviewed_by", "reviewed_at",
@@ -58,9 +64,6 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
     actions_row = ["duplicate_action"]
     actions_submit_line = ["approve_submit_action", "reject_submit_action"]
     conditional_fields = CONDITIONAL_FIELDS
-
-    class Media(StaticSelect2MultipleWidget.Media):
-        pass
 
     fieldsets = (
         (_("Request"), {
@@ -163,16 +166,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
             if company:
                 qs = qs.filter(company=company)
             kwargs["queryset"] = qs.order_by("first_name", "last_name")
-            kwargs["widget"] = StaticSelect2MultipleWidget()
-        form_field = super().formfield_for_manytomany(db_field, request, **kwargs)
-        if db_field.name == "moved_employees" and form_field is not None:
-            widget = StaticSelect2MultipleWidget()
-            if isinstance(form_field.widget, RelatedFieldWidgetWrapper):
-                form_field.widget.widget = widget
-            else:
-                form_field.widget = widget
-            form_field.help_text = ""
-        return form_field
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
 
     @display(
         description=_("Status"),

@@ -1,5 +1,4 @@
 from django.contrib import admin
-from django.contrib.admin.widgets import RelatedFieldWidgetWrapper
 from django.db.models import Q
 from unfold.admin import ModelAdmin, TabularInline
 from core.admin.company_admin import CompanyRestrictedAdmin
@@ -9,7 +8,6 @@ from unfold.decorators import action, display
 from django.contrib import messages
 from company.models import Employee
 from assets.constants import SERVICE_TYPE_MAQUINA_PROPIA
-from assets.forms import StaticSelect2MultipleWidget
 from assets.models import Asset, AssetPlanning, AssetPlanningStop, AssetTypeCategory, AssignmentOrigin
 
 CONDITIONAL_FIELDS = {
@@ -86,14 +84,21 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "destination__name",
         "transport_asset__name",
     )
-    autocomplete_fields = ["asset", "origin", "destination", "assigned_to", "transport_asset", "suggested_trucks", "project_file"]
+    autocomplete_fields = [
+        "company",
+        "project_file",
+        "asset",
+        "origin",
+        "destination",
+        "assigned_to",
+        "transport_asset",
+        "suggested_trucks",
+        "moved_employees",
+    ]
     readonly_fields = ["assignment_origin"]
     inlines = [AssetPlanningStopInline]
     actions_list = ["auto_assign_action", "optimize_daily_routes_action"]
     conditional_fields = CONDITIONAL_FIELDS
-
-    class Media(StaticSelect2MultipleWidget.Media):
-        pass
     fieldsets = (
         (_("Company"), {
             "fields": (
@@ -144,16 +149,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
             if obj is not None and obj.company_id:
                 qs = qs.filter(company=obj.company_id)
             kwargs["queryset"] = qs.order_by("first_name", "last_name")
-            kwargs["widget"] = StaticSelect2MultipleWidget()
-        form_field = super().formfield_for_manytomany(db_field, request, **kwargs)
-        if db_field.name == "moved_employees" and form_field is not None:
-            widget = StaticSelect2MultipleWidget()
-            if isinstance(form_field.widget, RelatedFieldWidgetWrapper):
-                form_field.widget.widget = widget
-            else:
-                form_field.widget = widget
-            form_field.help_text = ""
-        return form_field
+        return super().formfield_for_manytomany(db_field, request, **kwargs)
 
     def get_form(self, request, obj=None, **kwargs):
         # Stashed for formfield_for_manytomany above.

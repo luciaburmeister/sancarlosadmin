@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 from materials.models import Provider
 from core.forms.dynamic_fields import json_schema_fragment
+from configurator.utils.evaluator import validate_expression_for_safe_eval
 from assets.constants import (
     SERVICE_TYPE_MAQUINA_PROPIA,
     SERVICE_TYPE_MATERIAL_EXTERNO,
@@ -179,6 +180,17 @@ class Asset(CompanyOwnedModel):
     provider = models.ForeignKey(Provider, on_delete=models.SET_NULL, null=True, blank=True, related_name="assets", verbose_name=_("Provider"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
     assigned_to = models.ForeignKey('company.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name="assigned_assets", verbose_name=_("Assigned To"))
+    excluded_assets = models.ManyToManyField(
+        "self",
+        blank=True,
+        verbose_name=_("Excluded Assets"),
+        help_text=_(
+            "Assets this one can never be paired with (e.g. a specific truck "
+            "that can't carry a specific cuba), regardless of what the "
+            "compatibility rules say. Manual override for one-off cases — "
+            "mutual: excluding an asset here also excludes this one from it."
+        ),
+    )
     history = HistoricalRecords()
 
     def save(self, *args, **kwargs):
@@ -232,6 +244,44 @@ class AssetIdentifier(models.Model):
             labels = self.asset.asset_type.get_identifier_labels()
             if labels and self.label not in labels:
                 raise ValidationError({'label': _("This label is not allowed for this asset type. Allowed: %(labels)s") % {'labels': ", ".join(labels)}})
+
+
+class TransportCompatibilityRule(CompanyOwnedModel):
+    """
+    A named condition a candidate truck must pass to be allowed to move a
+    given cuba. ALL active rules for the company must evaluate True for a
+    truck to be considered compatible — see assets.services.compatibility.
+    """
+    name = models.CharField(max_length=150, verbose_name=_("Name"))
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+    condition_expression = models.TextField(
+        verbose_name=_("Condition"),
+        help_text=_(
+            "Expression evaluated with safe_eval, must return True/False. "
+            "Available variables: cuba.<field>, truck.<field> (each asset's "
+            "data, plus cuba.size / cuba.operation_type from the planning). "
+            "Example: truck.carga_maxima_kg >= cuba.peso_kg and truck.gancho == cuba.tipo_gancho"
+        ),
+    )
+    order = models.PositiveIntegerField(default=0, db_index=True, verbose_name=_("Order"))
+
+    class Meta:
+        verbose_name = _("Transport compatibility rule")
+        verbose_name_plural = _("Transport compatibility rules")
+        ordering = ["order", "id"]
+
+    def __str__(self):
+        return self.name
+
+    def clean(self):
+        super().clean()
+        expr = (self.condition_expression or "").strip()
+        if not expr:
+            raise ValidationError({"condition_expression": _("Condition cannot be empty.")})
+        try:
+            validate_expression_for_safe_eval(expr)
+        except ValueError as e:
+            raise ValidationError({"condition_expression": _("Invalid expression: %(error)s") % {"error": e}})
 
 
 class AssetMap(CompanyOwnedModel, Timestampable):
@@ -453,9 +503,9 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
     )
     scheduled_date = models.DateField(verbose_name=_("Scheduled Date"))
     scheduled_time = models.TimeField(null=True, blank=True, verbose_name=_("Scheduled Time"))
-    scheduled_end_time = models.TimeField(
-        null=True, blank=True, verbose_name=_("Scheduled End Time"),
-        help_text=_("Ideal completion time — set by the requester or computed by auto-assignment."),
+    estimated_duration = models.DurationField(
+        null=True, blank=True, verbose_name=_("Estimated Duration"),
+        help_text=_("Expected job length. Added to Scheduled Time to compute the end time."),
     )
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name=_("Status"))
     route_order = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name=_("Route Order"))
@@ -487,8 +537,33 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         'company.Employee', blank=True, related_name="machinist_moved_plannings",
         verbose_name=_("Moved Employees"),
     )
+    superseded_by = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="supersedes",
+        verbose_name=_("Superseded By"),
+        help_text=_("Set when a newer planning was created from a re-approved request — this plan is the old one to replace."),
+    )
     load_description = models.TextField(blank=True, verbose_name=_("Load Description"))
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
+    skip_auto_assignment = models.BooleanField(
+        default=False, verbose_name=_("Skip Automatic Assignment"),
+        help_text=_(
+            "When enabled, automatic assignment (bulk or individual) never touches "
+            "this planning's truck, driver, or time — full manual override."
+        ),
+    )
+    time_locked = models.BooleanField(
+        default=False, verbose_name=_("Time Locked"),
+        help_text=_(
+            "When enabled, automatic assignment must fit the existing Scheduled "
+            "Time/End Time exactly — it won't shift this planning to a different "
+            "time the same day if the current slot doesn't work. Ignored while "
+            "either time is blank."
+        ),
+    )
     history = HistoricalRecords()
 
     class Meta:
@@ -499,7 +574,7 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
 
     def save(self, *args, **kwargs):
         # Auto-tag assignment_origin unless the caller explicitly set it
-        # (SimpleAssigner does, to mark AUTO) — see assets/services/auto_assigner.py.
+        # (TransportAssigner does, to mark AUTO) — see assets/services/transport_assigner.py.
         update_fields = kwargs.get("update_fields")
         origin_explicit = update_fields is not None and "assignment_origin" in update_fields
         if not origin_explicit:
@@ -536,13 +611,27 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         if "asset" in required and not self.asset_id:
             raise ValidationError({"asset": _("Asset is required for this service type.")})
 
+    @property
+    def scheduled_end_time(self) -> time | None:
+        """
+        Computed from scheduled_time + estimated_duration — not stored. Read-only:
+        there's no setter, callers set estimated_duration (and scheduled_time)
+        directly instead of an end clock-time.
+        """
+        if not self.scheduled_time or not self.estimated_duration:
+            return None
+        combined = datetime.combine(date_.today(), self.scheduled_time) + self.estimated_duration
+        if combined.date() != date_.today():
+            return None  # would cross into the next day — no valid same-day end time
+        return combined.time()
+
     @classmethod
     def has_overlap(cls, *, scheduled_date, start, end, assigned_to_id=None, transport_asset_id=None, exclude_pk=None) -> bool:
         """Does any other pending/in_transit planning for this driver/truck, same day, overlap [start, end)?
 
         Shared by has_conflict (checks a saved planning against the rest) and
-        SimpleAssigner (checks a not-yet-saved candidate slot) — see
-        assets/services/auto_assigner.py.
+        TransportAssigner (checks a not-yet-saved candidate slot) — see
+        assets/services/transport_assigner.py.
         """
         if not (assigned_to_id or transport_asset_id):
             return False
@@ -600,6 +689,24 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
     def urgency_color(self) -> str:
         return URGENCY_COLORS.get(self.urgency, URGENCY_COLORS[PlanningUrgency.MEDIUM])
 
+    @property
+    def has_pending_request_changes(self) -> bool:
+        """True when the source request was re-opened after approval (awaits re-review)."""
+        try:
+            req = self.source_request
+        except AssetPlanningRequest.DoesNotExist:
+            return False
+        return req.awaits_rereview
+
+    @property
+    def is_superseded(self) -> bool:
+        return self.superseded_by_id is not None
+
+    @property
+    def is_old_plan(self) -> bool:
+        """Plan to replace: linked request awaits re-review, or already replaced by a newer approve."""
+        return self.has_pending_request_changes or self.is_superseded
+
     def __str__(self):
         asset_label = self.asset.name if self.asset_id else _("Planning")
         return f"{asset_label} → {self.destination} ({self.scheduled_date})"
@@ -623,12 +730,9 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
         null=True, blank=True, verbose_name=_("Needed Time"),
         help_text=_("Optional — leave blank to let route assignment pick a time."),
     )
-    end_time = models.TimeField(
-        null=True, blank=True, verbose_name=_("End Time"),
-        help_text=_(
-            "Optional — estimated/ideal completion time. Used to work backward to a "
-            "start time when Needed Time is left blank."
-        ),
+    estimated_duration = models.DurationField(
+        verbose_name=_("Estimated Duration"),
+        help_text=_("Expected job length. Used with Needed Time to find a free slot."),
     )
     urgency = models.CharField(
         max_length=10, choices=PlanningUrgency.choices, default=PlanningUrgency.MEDIUM, verbose_name=_("Urgency"),
@@ -698,10 +802,18 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
     def __str__(self):
         return f"{self.get_service_type_display()} → {self.to_zone} ({self.needed_date})"
 
+    @property
+    def awaits_rereview(self) -> bool:
+        """Pending again after a prior approval — previously created plan still linked."""
+        return (
+            self.status == AssetPlanningRequestStatus.PENDING_REVIEW
+            and self.resulting_planning_id is not None
+        )
+
     # Fields a reviewer acts on; editing any of these after a decision was
     # made invalidates that decision (see save()).
     REVIEW_TRACKED_FIELDS = [
-        "service_type", "to_zone_id", "from_zone_id", "needed_date", "needed_time", "end_time",
+        "service_type", "to_zone_id", "from_zone_id", "needed_date", "needed_time", "estimated_duration",
         "urgency", "cuba_operation_type", "cuba_size", "machinist_moved", "load_description", "notes",
         "assigned_to_id", "asset_id", "transport_asset_id", "project_file_id",
     ]

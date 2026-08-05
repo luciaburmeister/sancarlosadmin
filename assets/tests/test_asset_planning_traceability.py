@@ -12,7 +12,7 @@ and assets/admin/asset_planning.py (TraceabilityFilter).
 Run just this file:
     python manage.py test assets.tests.test_asset_planning_traceability
 """
-from datetime import time
+from datetime import datetime, time, timedelta
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -25,11 +25,16 @@ from api.fleet.tests.helpers import make_asset_type, make_company, make_employee
 
 User = get_user_model()
 TODAY = timezone.localdate()
+ONE_HOUR = timedelta(hours=1)
 
 
 def make_truck(company):
     truck_type = AssetType.objects.create(company=company, name="CAMIONES", category=AssetTypeCategory.TRUCK)
     return Asset.objects.create(company=company, asset_type=truck_type, name="Truck 1")
+
+
+def _duration(start, end):
+    return datetime.combine(TODAY, end) - datetime.combine(TODAY, start)
 
 
 class AssignmentOriginTaggingTests(TestCase):
@@ -52,7 +57,7 @@ class AssignmentOriginTaggingTests(TestCase):
     def test_created_with_assignment_is_manual(self):
         planning = AssetPlanning.objects.create(
             company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
-            scheduled_date=TODAY, scheduled_time=time(8, 0), scheduled_end_time=time(9, 0),
+            scheduled_date=TODAY, scheduled_time=time(8, 0), estimated_duration=ONE_HOUR,
             assigned_to=self.driver, transport_asset=self.truck,
         )
         self.assertEqual(planning.assignment_origin, AssignmentOrigin.MANUAL)
@@ -61,7 +66,7 @@ class AssignmentOriginTaggingTests(TestCase):
     def test_editing_assignment_flips_to_manual(self):
         planning = AssetPlanning.objects.create(
             company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
-            scheduled_date=TODAY, scheduled_time=time(8, 0), scheduled_end_time=time(9, 0),
+            scheduled_date=TODAY, scheduled_time=time(8, 0), estimated_duration=ONE_HOUR,
             assigned_to=self.driver, transport_asset=self.truck,
         )
         # Seed AUTO the way SimpleAssigner actually does it — via update_fields
@@ -81,7 +86,7 @@ class AssignmentOriginTaggingTests(TestCase):
     def test_clearing_assignment_resets_to_unassigned(self):
         planning = AssetPlanning.objects.create(
             company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
-            scheduled_date=TODAY, scheduled_time=time(8, 0), scheduled_end_time=time(9, 0),
+            scheduled_date=TODAY, scheduled_time=time(8, 0), estimated_duration=ONE_HOUR,
             assigned_to=self.driver, transport_asset=self.truck,
         )
         planning.assigned_to = None
@@ -91,7 +96,7 @@ class AssignmentOriginTaggingTests(TestCase):
         self.assertEqual(planning.assignment_origin, AssignmentOrigin.UNASSIGNED)
 
     def test_explicit_update_fields_is_respected(self):
-        """SimpleAssigner sets assignment_origin=AUTO explicitly — save() must not override it."""
+        """TransportAssigner sets assignment_origin=AUTO explicitly — save() must not override it."""
         planning = AssetPlanning.objects.create(
             company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
             scheduled_date=TODAY,
@@ -99,10 +104,10 @@ class AssignmentOriginTaggingTests(TestCase):
         planning.assigned_to = self.driver
         planning.transport_asset = self.truck
         planning.scheduled_time = time(8, 0)
-        planning.scheduled_end_time = time(9, 0)
+        planning.estimated_duration = ONE_HOUR
         planning.assignment_origin = AssignmentOrigin.AUTO
         planning.save(update_fields=[
-            "assigned_to", "transport_asset", "scheduled_time", "scheduled_end_time", "assignment_origin",
+            "assigned_to", "transport_asset", "scheduled_time", "estimated_duration", "assignment_origin",
         ])
         planning.refresh_from_db()
         self.assertEqual(planning.assignment_origin, AssignmentOrigin.AUTO)
@@ -111,13 +116,13 @@ class AssignmentOriginTaggingTests(TestCase):
     def test_resize_only_save_does_not_touch_origin(self):
         planning = AssetPlanning.objects.create(
             company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
-            scheduled_date=TODAY, scheduled_time=time(8, 0), scheduled_end_time=time(9, 0),
+            scheduled_date=TODAY, scheduled_time=time(8, 0), estimated_duration=ONE_HOUR,
             assigned_to=self.driver, transport_asset=self.truck,
         )
         AssetPlanning.objects.filter(pk=planning.pk).update(assignment_origin=AssignmentOrigin.AUTO)
         planning.refresh_from_db()
-        planning.scheduled_end_time = time(10, 0)
-        planning.save(update_fields=["scheduled_end_time"])
+        planning.estimated_duration = timedelta(hours=2)
+        planning.save(update_fields=["estimated_duration"])
         planning.refresh_from_db()
         self.assertEqual(planning.assignment_origin, AssignmentOrigin.AUTO)
 
@@ -134,7 +139,7 @@ class HasConflictTests(TestCase):
     def _make(self, start, end, driver=None, truck=None):
         return AssetPlanning.objects.create(
             company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
-            scheduled_date=TODAY, scheduled_time=start, scheduled_end_time=end,
+            scheduled_date=TODAY, scheduled_time=start, estimated_duration=_duration(start, end),
             assigned_to=driver or self.driver, transport_asset=truck or self.truck,
         )
 
@@ -172,7 +177,7 @@ class TraceabilityFilterTests(TestCase):
         )
         self.manual = AssetPlanning.objects.create(
             company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
-            scheduled_date=TODAY, scheduled_time=time(8, 0), scheduled_end_time=time(9, 0),
+            scheduled_date=TODAY, scheduled_time=time(8, 0), estimated_duration=ONE_HOUR,
             assigned_to=self.driver, transport_asset=self.truck,
         )
 

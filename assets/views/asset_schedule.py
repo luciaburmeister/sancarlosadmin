@@ -54,6 +54,22 @@ def _planning_card_data(planning: AssetPlanning) -> dict:
     origin = _zone_info(planning.origin)
     destination = _zone_info(planning.destination)
     service_type_label = planning.get_service_type_display() if planning.service_type else ""
+    request_changes_pending = planning.has_pending_request_changes
+    is_old_plan = planning.is_old_plan
+    request_url = ""
+    if request_changes_pending:
+        try:
+            request_url = reverse(
+                "admin:assets_assetplanningrequest_change",
+                args=[planning.source_request.pk],
+            )
+        except Exception:
+            request_url = ""
+    old_plan_label = ""
+    if planning.is_superseded:
+        old_plan_label = str(_("Old plan"))
+    elif request_changes_pending:
+        old_plan_label = str(_("Old plan — request changed"))
     return {
         "label": service_type_label or planning.get_planning_type_display(),
         "sublabel": destination["name"] or origin["name"],
@@ -81,6 +97,11 @@ def _planning_card_data(planning: AssetPlanning) -> dict:
         "status_label": planning.get_status_display(),
         "color": planning.service_type_color,
         "urgency_color": planning.urgency_color,
+        "request_changes_pending": request_changes_pending,
+        "is_old_plan": is_old_plan,
+        "is_superseded": planning.is_superseded,
+        "old_plan_label": old_plan_label,
+        "request_url": request_url,
     }
 
 
@@ -111,7 +132,8 @@ def _apply_planning_filters(qs, filters: dict):
     if statuses:
         qs = qs.filter(status__in=statuses)
     else:
-        qs = qs.exclude(status="cancelled")
+        # Hide cancelled, but keep superseded "old plans" so reviewers can see what was replaced.
+        qs = qs.exclude(status="cancelled", superseded_by__isnull=True)
     if urgencies:
         qs = qs.filter(urgency__in=urgencies)
     if planning_types:
@@ -217,7 +239,9 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
                 scheduled_date__range=(week_dates[0], week_dates[-1]),
                 assigned_to_id__in=[e.pk for e in employees],
                 scheduled_time__isnull=False,
-            ).select_related("asset", "origin", "destination", "transport_asset")
+            ).select_related(
+                "asset", "origin", "destination", "transport_asset", "source_request", "superseded_by",
+            )
             # Person rows already limited by assigned_to; apply the rest here.
             qs = _apply_planning_filters(qs, {**filters, "assigned_to": []})
             plannings = list(qs.order_by("scheduled_date", "scheduled_time"))
@@ -285,7 +309,10 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
                 | Q(transport_asset__isnull=True)
                 | Q(scheduled_time__isnull=True)
             )
-            .select_related("asset", "origin", "destination", "assigned_to", "transport_asset")
+            .select_related(
+                "asset", "origin", "destination", "assigned_to", "transport_asset",
+                "source_request", "superseded_by",
+            )
             .order_by("scheduled_date")
         )
         backlog_filters = {**filters}
@@ -311,6 +338,7 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
                 **_planning_card_data(p),
                 "id": p.pk,
                 "date": p.scheduled_date.isoformat(),
+                "time_label": p.scheduled_time.strftime("%H:%M") if p.scheduled_time else "",
                 "missing": missing,
                 "driver": str(p.assigned_to) if p.assigned_to_id else "",
                 "minutes": max(int(duration.total_seconds() // 60), 15),
@@ -337,8 +365,8 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
             planning.assigned_to = None
             planning.transport_asset = None
             planning.scheduled_time = None
-            planning.scheduled_end_time = None
-            planning.save(update_fields=["assigned_to", "transport_asset", "scheduled_time", "scheduled_end_time"])
+            planning.estimated_duration = None
+            planning.save(update_fields=["assigned_to", "transport_asset", "scheduled_time", "estimated_duration"])
             return JsonResponse({"success": True})
 
         if action in ("move", "resize"):
@@ -350,9 +378,9 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
             if end <= start:
                 return JsonResponse({"error": _("End time must be after start time")}, status=400)
 
-            update_fields = ["scheduled_time", "scheduled_end_time"]
+            update_fields = ["scheduled_time", "estimated_duration"]
             planning.scheduled_time = start
-            planning.scheduled_end_time = end
+            planning.estimated_duration = timedelta(minutes=_time_to_minutes(end) - _time_to_minutes(start))
 
             employee = None
             previous_driver_id = planning.assigned_to_id
@@ -397,6 +425,31 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
                     "start": _time_to_minutes(clone.scheduled_time),
                     "end": _time_to_minutes(end_time),
                     "origin": clone.assignment_origin,
+                },
+            })
+
+        if action == "auto_assign":
+            from assets.services.transport_assigner import TransportAssigner
+
+            if not TransportAssigner().assign_one(planning):
+                return JsonResponse(
+                    {"error": _("Could not auto-assign — no compatible truck/driver/time available.")},
+                    status=400,
+                )
+            planning.refresh_from_db()
+            end_time = planning.scheduled_end_time or _minutes_to_time(
+                _time_to_minutes(planning.scheduled_time) + DEFAULT_BLOCK_MINUTES
+            )
+            return JsonResponse({
+                "success": True,
+                "block": {
+                    **_planning_card_data(planning),
+                    "id": planning.pk,
+                    "assigned_to_id": planning.assigned_to_id,
+                    "date": planning.scheduled_date.isoformat(),
+                    "start": _time_to_minutes(planning.scheduled_time),
+                    "end": _time_to_minutes(end_time),
+                    "origin": planning.assignment_origin,
                 },
             })
 
@@ -466,8 +519,8 @@ class AssetScheduleCaptureView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, Tem
                     assigned_to_id__in=employee_ids,
                     scheduled_time__isnull=False,
                 )
-                .exclude(status="cancelled")
-                .select_related("asset", "origin", "destination", "transport_asset", "assigned_to")
+                .exclude(status="cancelled", superseded_by__isnull=True)
+                .select_related("asset", "origin", "destination", "transport_asset", "assigned_to", "superseded_by")
                 .order_by("assigned_to__first_name", "assigned_to__last_name", "scheduled_time")
             )
 

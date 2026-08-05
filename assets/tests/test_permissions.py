@@ -12,7 +12,7 @@ Tests for the two permission boundaries added on top of asset planning:
 Run just this file:
     python manage.py test assets.tests.test_permissions
 """
-from datetime import date, time
+from datetime import date, time, timedelta
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
@@ -51,6 +51,7 @@ class ApprovePermissionTests(TestCase):
         self.request_obj = AssetPlanningRequest.objects.create(
             company=self.company, service_type="servicio_grua", to_zone=self.to_zone,
             needed_date=TODAY, asset=self.asset, project_file=self.project_file,
+            estimated_duration=timedelta(hours=1),
         )
         self.admin = AssetPlanningRequestAdmin(AssetPlanningRequest, admin_site=None)
 
@@ -149,7 +150,7 @@ class ScheduleReadOnlyPermissionTests(TestCase):
         self.planning = AssetPlanning.objects.create(
             company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
             assigned_to=self.driver, transport_asset=self.truck,
-            scheduled_date=SCHEDULE_TODAY, scheduled_time=time(8, 0), scheduled_end_time=time(9, 0),
+            scheduled_date=SCHEDULE_TODAY, scheduled_time=time(8, 0), estimated_duration=timedelta(hours=1),
         )
         # A pending/unassigned one too, so the backlog would show something *if* allowed to.
         AssetPlanning.objects.create(

@@ -4,3 +4,4 @@ from .asset_transaction import AssetTransactionAdmin, AssetTransactionReceiptAdm
 from .asset_planning import AssetPlanningAdmin
 from .asset_planning_request import AssetPlanningRequestAdmin
 from .asset_map import AssetMapAdmin
+from .transport_compatibility_rule import TransportCompatibilityRuleAdmin

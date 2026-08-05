@@ -8,6 +8,7 @@ Run just this file:
     python manage.py test assets.tests.test_asset_schedule_view
 """
 from datetime import date, time, timedelta
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -43,7 +44,7 @@ class AssetScheduleViewTests(TestCase):
             transport_asset=self.truck,
             scheduled_date=TODAY,
             scheduled_time=time(8, 0),
-            scheduled_end_time=time(9, 0),
+            estimated_duration=timedelta(hours=1),
         )
 
         self.client.force_login(self.superuser)
@@ -230,6 +231,19 @@ class AssetScheduleViewTests(TestCase):
             response = self.client.get(self.url)
             item = next(i for i in response.context["backlog_items"] if i["id"] == planning.pk)
             self.assertCountEqual(item["missing"], [gettext("driver"), gettext("truck"), gettext("time")])
+            self.assertEqual(item["time_label"], "")
+
+    def test_backlog_item_shows_time_label_when_scheduled_time_is_set(self):
+        # Missing only driver/truck — still in the backlog, but the time it
+        # already has should be visible on the card, not just "missing: []".
+        planning = AssetPlanning.objects.create(
+            company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
+            scheduled_date=TODAY, scheduled_time=time(9, 30),
+        )
+        response = self.client.get(self.url)
+        item = next(i for i in response.context["backlog_items"] if i["id"] == planning.pk)
+        self.assertEqual(item["time_label"], "09:30")
+        self.assertNotIn(gettext("time"), item["missing"])
 
     def test_move_on_backlog_item_assigns_driver_date_and_time(self):
         planning = AssetPlanning.objects.create(
@@ -410,6 +424,45 @@ class AssetScheduleViewTests(TestCase):
         self.assertEqual(self.planning.transport_asset_id, other_truck.pk)
         self.assertIn(curated_truck, self.planning.suggested_trucks.all())
 
+    @patch("assets.services.transport_assigner.GoogleRouteOptimizer.estimate_duration", return_value=timedelta(hours=1))
+    def test_auto_assign_action_resolves_a_backlog_item(self, _mock):
+        self.truck.assigned_to = self.employee
+        self.truck.save(update_fields=["assigned_to"])
+        planning = AssetPlanning.objects.create(
+            company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
+            scheduled_date=TODAY,
+        )
+        response = self.client.post(
+            self.url,
+            data={"action": "auto_assign", "id": planning.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["block"]["id"], planning.pk)
+        self.assertEqual(data["block"]["assigned_to_id"], self.employee.pk)
+        self.assertEqual(data["block"]["date"], TODAY.isoformat())
+        planning.refresh_from_db()
+        self.assertEqual(planning.transport_asset_id, self.truck.pk)
+        self.assertEqual(planning.assigned_to_id, self.employee.pk)
+        self.assertIsNotNone(planning.scheduled_time)
+
+    def test_auto_assign_action_returns_an_error_when_nothing_is_available(self):
+        # self.truck has no assigned_to and no MachinePermission holder.
+        planning = AssetPlanning.objects.create(
+            company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
+            scheduled_date=TODAY,
+        )
+        response = self.client.post(
+            self.url,
+            data={"action": "auto_assign", "id": planning.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        planning.refresh_from_db()
+        self.assertIsNone(planning.transport_asset)
+
     def test_schedule_context_exposes_capture_url(self):
         response = self.client.get(self.url)
         self.assertEqual(
@@ -429,7 +482,7 @@ class AssetScheduleViewTests(TestCase):
             transport_asset=self.truck,
             scheduled_date=TODAY,
             scheduled_time=time(10, 0),
-            scheduled_end_time=time(11, 0),
+            estimated_duration=timedelta(hours=1),
             service_type="porte_maquina",
         )
         response = self.client.get(self.url, {"service_type": "movimiento_cuba"})
@@ -494,7 +547,7 @@ class AssetScheduleCaptureViewTests(TestCase):
             transport_asset=self.truck,
             scheduled_date=TODAY,
             scheduled_time=time(8, 0),
-            scheduled_end_time=time(9, 0),
+            estimated_duration=timedelta(hours=1),
             load_description="Escombros",
             notes="Llamar al encargado",
             cuba_size="7m3",

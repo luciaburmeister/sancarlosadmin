@@ -1,6 +1,14 @@
+from datetime import timedelta
+
+from django import forms
 from django.contrib import admin
+from django.core.exceptions import ValidationError
 from django.db.models import Q
+from django.http import HttpResponse
+from django.urls import reverse
 from unfold.admin import ModelAdmin, TabularInline
+from unfold.forms import BaseDialogForm
+from core.admin.company_access import get_user_companies
 from core.admin.company_admin import CompanyRestrictedAdmin
 from simple_history.admin import SimpleHistoryAdmin
 from django.utils.translation import gettext_lazy as _
@@ -8,7 +16,31 @@ from unfold.decorators import action, display
 from django.contrib import messages
 from company.models import Employee
 from assets.constants import SERVICE_TYPE_MAQUINA_PROPIA
+from assets.forms import EstimatedDurationChoiceField, TimeChoiceField
 from assets.models import Asset, AssetPlanning, AssetPlanningStop, AssetTypeCategory, AssignmentOrigin
+
+
+class AutoAssignBulkForm(BaseDialogForm):
+    form_after_template = "assets/auto_assign_chips.html"
+
+    start_date = forms.DateField(label=_("From"), widget=forms.DateInput(attrs={"type": "date"}))
+    end_date = forms.DateField(label=_("To"), widget=forms.DateInput(attrs={"type": "date"}))
+    reassign_all = forms.BooleanField(
+        required=False, initial=False, label=_("Reassign all plans"),
+        help_text=_(
+            "Also re-run plannings that already have a truck/driver (keeps the "
+            "existing date and time, only redoes the truck/driver). Leave "
+            "unchecked to only fill in plannings still missing a truck, "
+            "driver, or time."
+        ),
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        start, end = cleaned.get("start_date"), cleaned.get("end_date")
+        if start and end and end < start:
+            raise ValidationError({"end_date": _("End date must be on or after the start date.")})
+        return cleaned
 
 CONDITIONAL_FIELDS = {
     "machinist_moved": f"service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}'",
@@ -75,7 +107,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "scheduled_date", "scheduled_time", "urgency", "show_traceability",
         "route_order", "status", "service_type", "company",
     )
-    list_filter = (TraceabilityFilter, "status", "urgency", "company", "origin", "destination", "service_type")
+    list_filter = (TraceabilityFilter, "status", "urgency", "service_type", "company", "origin", "destination")
     search_fields = (
         "asset__name",
         "assigned_to__first_name",
@@ -95,9 +127,10 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "suggested_trucks",
         "moved_employees",
     ]
-    readonly_fields = ["assignment_origin"]
+    readonly_fields = ["assignment_origin", "computed_end_time_display"]
     inlines = [AssetPlanningStopInline]
     actions_list = ["auto_assign_action", "optimize_daily_routes_action"]
+    actions_row = ["auto_assign_row_action"]
     conditional_fields = CONDITIONAL_FIELDS
     fieldsets = (
         (_("Company"), {
@@ -114,7 +147,8 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         (_("Route"), {
             "fields": (
                 ("origin", "destination"),
-                ("scheduled_date", "scheduled_time", "scheduled_end_time"),
+                ("scheduled_date", "scheduled_time"),
+                ("estimated_duration", "computed_end_time_display"),
             )
         }),
         (_("Assignment"), {
@@ -123,6 +157,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
                 "suggested_trucks",
                 ("status", "route_order", "urgency"),
                 "assignment_origin",
+                ("skip_auto_assignment", "time_locked"),
                 ("planning_type", "service_type"),
                 ("cuba_operation_type", "cuba_size"),
                 ("machinist_moved", "moved_employees"),
@@ -136,6 +171,19 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         if not obj.company_id and obj.asset and obj.asset.company_id:
             obj.company = obj.asset.company
         super().save_model(request, obj, form, change)
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        if db_field.name == "estimated_duration":
+            return EstimatedDurationChoiceField(
+                label=db_field.verbose_name,
+                help_text=db_field.help_text,
+            )
+        if db_field.name == "scheduled_time":
+            return TimeChoiceField(
+                label=db_field.verbose_name,
+                help_text=db_field.help_text,
+            )
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
 
     def formfield_for_manytomany(self, db_field, request, **kwargs):
         obj = getattr(request, "_obj_", None)
@@ -187,20 +235,30 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         description=_("Auto-assign Driver/Truck"),
         url_path="auto-assign",
         icon="auto_awesome",
+        dialog={
+            "title": _("Auto-assign plannings"),
+            "description": _(
+                "Looks for a compatible truck, its driver, and a free time for "
+                "pending plannings in the selected date range. This can't be "
+                "undone automatically."
+            ),
+            "form_class": AutoAssignBulkForm,
+            "form_submit_text": _("Auto-assign"),
+        },
     )
-    def auto_assign_action(self, request):
-        """Run the v1 greedy auto-assigner over every date currently visible in the changelist."""
-        from assets.services.auto_assigner import SimpleAssigner
+    def auto_assign_action(self, request, form):
+        """Run TransportAssigner over every date in the chosen range, for every company the user can see."""
+        from assets.services.transport_assigner import TransportAssigner
 
-        qs = self.get_queryset(request).filter(status="pending").filter(
-            Q(assigned_to__isnull=True) | Q(transport_asset__isnull=True)
-        )
-        pairs = qs.values_list("company_id", "scheduled_date").distinct()
+        start_date = form.cleaned_data["start_date"]
+        end_date = form.cleaned_data["end_date"]
+        reassign_all = form.cleaned_data["reassign_all"]
+        dates = [start_date + timedelta(days=i) for i in range((end_date - start_date).days + 1)]
 
-        assigner = SimpleAssigner()
+        assigner = TransportAssigner()
         total_assigned, total_skipped = 0, 0
-        for company_id, day in pairs:
-            result = assigner.assign_for_date(day, company_id)
+        for company_id in get_user_companies(request.user).values_list("id", flat=True):
+            result = assigner.assign_bulk(dates, company_id, reassign_all=reassign_all)
             total_assigned += len(result.assigned)
             total_skipped += len(result.skipped)
 
@@ -209,16 +267,57 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         if total_skipped:
             messages.warning(
                 request,
-                _("%(count)d planning(s) could not be auto-assigned — no driver/truck available without conflicts.")
+                _("%(count)d planning(s) could not be auto-assigned — no compatible truck/driver/time available.")
                 % {"count": total_skipped},
             )
         if not total_assigned and not total_skipped:
-            messages.info(request, _("Nothing to auto-assign — every visible planning already has a driver and truck."))
+            messages.info(request, _("Nothing to auto-assign in that date range."))
 
-        from django.shortcuts import redirect
-        return redirect(request.META.get("HTTP_REFERER", ".."))
+        # Submitted via htmx from inside the dialog modal — a real redirect
+        # gets auto-followed before htmx's JS ever sees it, so HX-Redirect
+        # must be set on a plain 200 response instead.
+        response = HttpResponse(status=200)
+        response["HX-Redirect"] = request.META.get("HTTP_REFERER", reverse("admin:assets_assetplanning_changelist"))
+        return response
 
     def has_auto_assign_action_permission(self, request):
+        return request.user.has_perm("assets.change_assetplanning")
+
+    @action(
+        description=_("Auto-assign"),
+        url_path="auto-assign-one",
+        icon="auto_awesome",
+        dialog={
+            "title": _("Auto-assign this planning?"),
+            "description": _(
+                "Looks for a compatible truck, its driver, and a free time for "
+                "this planning automatically, respecting every other planning "
+                "as-is."
+            ),
+            "form_submit_text": _("Auto-assign"),
+        },
+    )
+    def auto_assign_row_action(self, request, _form, object_id):
+        from assets.services.transport_assigner import TransportAssigner
+
+        planning = self.get_object(request, object_id)
+        if planning is None:
+            return self._get_obj_does_not_exist_redirect(request, self.opts, object_id)
+
+        if TransportAssigner().assign_one(planning):
+            messages.success(request, _("Planning auto-assigned."))
+        else:
+            messages.warning(
+                request, _("Could not auto-assign — no compatible truck/driver/time available."),
+            )
+
+        response = HttpResponse(status=200)
+        response["HX-Redirect"] = request.META.get(
+            "HTTP_REFERER", reverse("admin:assets_assetplanning_change", args=[object_id])
+        )
+        return response
+
+    def has_auto_assign_row_action_permission(self, request):
         return request.user.has_perm("assets.change_assetplanning")
 
     @display(
@@ -232,3 +331,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
     )
     def show_traceability(self, obj):
         return obj.traceability_label
+
+    def computed_end_time_display(self, obj):
+        return obj.scheduled_end_time or "—"
+    computed_end_time_display.short_description = _("Computed End Time")

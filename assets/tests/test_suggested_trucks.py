@@ -11,7 +11,7 @@ respected (or not, when empty) by SimpleAssigner. See:
 Run just this file:
     python manage.py test assets.tests.test_suggested_trucks
 """
-from datetime import date
+from datetime import date, timedelta
 
 from django.contrib.auth import get_user_model
 from django.contrib.messages.middleware import MessageMiddleware
@@ -53,6 +53,7 @@ class ApproveCopiesSuggestedTrucksTests(TestCase):
             needed_date=NEEDED_DATE,
             asset=self.asset,
             project_file=self.project_file,
+            estimated_duration=timedelta(hours=1),
         )
         self.request_obj.suggested_trucks.set([self.truck_a, self.truck_b])
 

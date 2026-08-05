@@ -60,9 +60,10 @@ jobs:
           python-version: '3.14'
 
       - name: Install GDAL
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gdal-bin libgdal-dev python3-gdal binutils libproj-dev
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: gdal-bin libgdal-dev python3-gdal binutils libproj-dev
+          version: 1.0
 
       - name: Install pipx
         run: python3 -m pip install --user pipx
@@ -71,6 +72,17 @@ jobs:
         run: |
           python3 -m pipx install poetry==${{ env.POETRY_VERSION }}
           echo "${{ env.HOME }}/.local/bin" >> $GITHUB_PATH
+
+      - name: Configure Poetry to use in-project virtualenv
+        run: poetry config virtualenvs.in-project true
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: poetry-venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            poetry-venv-${{ runner.os }}-
 
       - name: Install dependencies
         run: poetry install

@@ -389,6 +389,11 @@ class Client(Timestampable, CompanyOwnedModel):
         default=PaymentMethod.TRANSFER,
         verbose_name=_("Payment Method")
     )
+    payment_terms_days = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name=_("Payment Terms (Days)"),
+        help_text=_("Days after invoice issue date before payment is due. Used to compute invoice due dates."),
+    )
     our_bank_account = models.ForeignKey(
         BankAccount,
         on_delete=models.SET_NULL,
@@ -790,6 +795,20 @@ class Quote(Timestampable, CompanyOwnedModel):
         help_text=_("Commissionist agent for this quote. Auto-populated from the client's agent."),
     )
 
+    payment_method = models.CharField(
+        max_length=20,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.TRANSFER,
+        verbose_name=_("Payment Method"),
+        help_text=_("Auto-populated from the client's preferred payment method."),
+    )
+
+    payment_terms_days = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name=_("Payment Terms (Days)"),
+        help_text=_("Auto-populated from the client's payment terms; used to compute the invoice due date."),
+    )
+
     class Meta:
         verbose_name = _("Quote")
         verbose_name_plural = _("Quotes")
@@ -803,12 +822,20 @@ class Quote(Timestampable, CompanyOwnedModel):
 
     @transaction.atomic
     def save(self, *args, **kwargs):
+        is_new = self.pk is None
+
         if not self.internal_name and self.project_name:
             self.internal_name = self.project_name
 
         # Auto-populate agent from client when not already set
         if not self.agent_id and self.client_id and self.client.agent_id:
             self.agent = self.client.agent
+
+        # Snapshot payment method/terms from the client at creation time
+        if is_new and self.client_id:
+            if not self.payment_method or self.payment_method == PaymentMethod.TRANSFER:
+                self.payment_method = self.client.payment_method
+            self.payment_terms_days = self.client.payment_terms_days
 
         # Auto-set date fields on status transitions
         if self.status != self._original_status:

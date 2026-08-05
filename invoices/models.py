@@ -819,6 +819,11 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         verbose_name=_("Payment Method"),
         help_text=_("Expected payment method for this invoice (snapshot at issuance)."),
     )
+    payment_terms_days = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name=_("Payment Terms (Days)"),
+        help_text=_("Snapshot of payment terms at issuance; used to compute due_date."),
+    )
 
     is_external = models.BooleanField(
         default=False,

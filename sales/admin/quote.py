@@ -280,6 +280,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
                 ("status", "company"),
                 ("project_name",),
                 ("date", "expires_at"),
+                ("payment_method", "payment_terms_days"),
                 ("subtotal_price", "discount_amount"),
                 ("tax_amount", "total_price"),
                 "discount_policies",

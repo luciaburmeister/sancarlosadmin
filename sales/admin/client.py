@@ -214,7 +214,7 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
             "classes": ["tab"],
             "fields": (
                 ("is_insured", "max_risk", "current_risk"),
-                ("payment_method", "our_bank_account"),
+                ("payment_method", "payment_terms_days", "our_bank_account"),
                 "default_client_bank_account",
             )
         }),

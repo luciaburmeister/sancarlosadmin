@@ -12349,7 +12349,7 @@ msgid "Discount breakdown"
 msgstr "Desglose de precios"
 
 msgid "Discounted subtotal"
-msgstr "Descuento"
+msgstr "Subtotal con descuento"
 
 msgid "subtotal_price - discount_amount. The taxable base."
 msgstr "subtotal_price - discount_amount. La base imponible."

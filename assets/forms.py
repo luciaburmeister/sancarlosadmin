@@ -144,6 +144,7 @@ from .models import (
     Asset,
     AssetIdentifier,
     AssetPlanning,
+    AssetPlanningRequest,
     AssetType,
     AssetTypeCategory,
     PlanningUrgency,
@@ -220,6 +221,24 @@ class AssetForm(forms.ModelForm):
             obj.save()
             self.save_m2m()
         return obj
+
+
+class AssetPlanningRequestForm(forms.ModelForm):
+    """Change/add form for AssetPlanningRequest; swaps raw duration/time inputs for presets."""
+
+    estimated_duration = EstimatedDurationChoiceField(
+        label=AssetPlanningRequest._meta.get_field("estimated_duration").verbose_name,
+        help_text=AssetPlanningRequest._meta.get_field("estimated_duration").help_text,
+        required=True,
+    )
+    needed_time = TimeChoiceField(
+        label=AssetPlanningRequest._meta.get_field("needed_time").verbose_name,
+        help_text=AssetPlanningRequest._meta.get_field("needed_time").help_text,
+    )
+
+    class Meta:
+        model = AssetPlanningRequest
+        fields = "__all__"
 
 
 class AssetAddForm(forms.ModelForm):

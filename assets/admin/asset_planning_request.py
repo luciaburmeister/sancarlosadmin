@@ -13,7 +13,7 @@ from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.company_access import get_user_companies
 from company.models import Employee
 from assets.constants import SERVICE_TYPE_FIELDS, SERVICE_TYPE_MAQUINA_PROPIA
-from assets.forms import EstimatedDurationChoiceField, TimeChoiceField
+from assets.forms import AssetPlanningRequestForm
 from assets.models import Asset, AssetPlanning, AssetPlanningRequest, AssetPlanningRequestStatus, AssetTypeCategory
 
 # Built from SERVICE_TYPE_FIELDS so the form and AssetPlanningRequest.clean()
@@ -58,6 +58,7 @@ class ChangesPendingFilter(admin.SimpleListFilter):
 
 @admin.register(AssetPlanningRequest)
 class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
+    form = AssetPlanningRequestForm
     list_display = (
         "service_type", "to_zone", "from_zone",
         "needed_date", "needed_time", "urgency", "show_status",
@@ -131,20 +132,6 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         request._obj_ = obj
         return super().get_form(request, obj, **kwargs)
 
-    def formfield_for_dbfield(self, db_field, request, **kwargs):
-        if db_field.name == "estimated_duration":
-            return EstimatedDurationChoiceField(
-                label=db_field.verbose_name,
-                help_text=db_field.help_text,
-                required=True,
-            )
-        if db_field.name == "needed_time":
-            return TimeChoiceField(
-                label=db_field.verbose_name,
-                help_text=db_field.help_text,
-            )
-        return super().formfield_for_dbfield(db_field, request, **kwargs)
-
     def _target_company(self, request):
         """Company every company-scoped field (asset, assigned_to, suggested_trucks) must agree on."""
         obj = getattr(request, "_obj_", None)
@@ -164,24 +151,27 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         super().save_model(request, obj, form, change)
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        # Superusers pick company explicitly (see get_fieldsets), so their
-        # pickers aren't pre-restricted to a single company; clean() still
-        # rejects mismatched combinations on save.
-        company = None if request.user.is_superuser else self._target_company(request)
+        # Restricted to every company the user has access to (not just their
+        # "default" one) — the same set CompanyRestrictedAdmin uses for the
+        # asset/employee/project-file autocomplete search. A narrower,
+        # single-company filter here would let the autocomplete surface a
+        # choice this queryset then rejects as invalid on save. clean()
+        # still rejects mismatched company combinations.
+        companies = None if request.user.is_superuser else get_user_companies(request.user)
         if db_field.name == "asset":
             qs = Asset.objects.filter(asset_type__category=AssetTypeCategory.MACHINE, is_active=True)
-            if company:
-                qs = qs.filter(company=company)
+            if companies is not None:
+                qs = qs.filter(company__in=companies)
             kwargs["queryset"] = qs.order_by("name")
         elif db_field.name == "assigned_to":
             qs = Employee.objects.all()
-            if company:
-                qs = qs.filter(company=company)
+            if companies is not None:
+                qs = qs.filter(company__in=companies)
             kwargs["queryset"] = qs.order_by("first_name", "last_name")
         elif db_field.name == "transport_asset":
             qs = Asset.objects.filter(asset_type__category=AssetTypeCategory.TRUCK, is_active=True)
-            if company:
-                qs = qs.filter(company=company)
+            if companies is not None:
+                qs = qs.filter(company__in=companies)
             obj = getattr(request, "_obj_", None)
             if obj is not None and obj.pk:
                 suggested_ids = obj.suggested_trucks.values_list("pk", flat=True)
@@ -191,22 +181,22 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         elif db_field.name == "project_file":
             from management.models import ProjectFile
             qs = ProjectFile.objects.all()
-            if company:
-                qs = qs.filter(company=company)
+            if companies is not None:
+                qs = qs.filter(company__in=companies)
             kwargs["queryset"] = qs.order_by("reference", "name")
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def formfield_for_manytomany(self, db_field, request, **kwargs):
-        company = None if request.user.is_superuser else self._target_company(request)
+        companies = None if request.user.is_superuser else get_user_companies(request.user)
         if db_field.name == "suggested_trucks":
             qs = Asset.objects.filter(asset_type__category=AssetTypeCategory.TRUCK, is_active=True)
-            if company:
-                qs = qs.filter(company=company)
+            if companies is not None:
+                qs = qs.filter(company__in=companies)
             kwargs["queryset"] = qs.order_by("name")
         elif db_field.name == "moved_employees":
             qs = Employee.objects.filter(is_active=True)
-            if company:
-                qs = qs.filter(company=company)
+            if companies is not None:
+                qs = qs.filter(company__in=companies)
             kwargs["queryset"] = qs.order_by("first_name", "last_name")
         return super().formfield_for_manytomany(db_field, request, **kwargs)
 

@@ -166,7 +166,7 @@ def send_bank_accounts_summary():
         for account in accounts:
             if account.last_known_balance is not None:
                 balance_str = (
-                    f"{number_format(account.last_known_balance.amount, 2)} €"
+                    f"{number_format(account.last_known_balance.amount, 2, force_grouping=True)} €"
                 )
             else:
                 balance_str = "—"

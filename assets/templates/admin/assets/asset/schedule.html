@@ -284,6 +284,16 @@
       .sched-block.conflict {
         box-shadow: 0 0 0 2px #f59e0b, 0 2px 8px rgba(0,0,0,.35);
       }
+      .sched-block.needs-truck {
+        box-shadow: 0 0 0 2px #f97316, 0 2px 8px rgba(0,0,0,.35);
+        background-image: repeating-linear-gradient(
+          -45deg,
+          transparent,
+          transparent 6px,
+          rgba(0, 0, 0, 0.12) 6px,
+          rgba(0, 0, 0, 0.12) 12px
+        ) !important;
+      }
       .sched-block.over-hours::before,
       .sched-block.conflict::before {
         content: "⚠";
@@ -291,6 +301,24 @@
         top: 1px;
         left: 4px;
         font-size: 10px;
+      }
+
+      .sched-block .block-missing-truck {
+        display: block;
+        font-size: 9px;
+        font-weight: 800;
+        letter-spacing: .03em;
+        text-transform: uppercase;
+        text-align: center;
+        background: #f97316;
+        color: #fff;
+        border-radius: 3px;
+        padding: 1px 4px;
+        margin: 0 0 3px;
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
 
       .block-ghost {
@@ -320,7 +348,6 @@
       }
       .dark .backlog-card { background: #1f2937; border-color: #374151; }
       .backlog-card.dragging { opacity: .5; }
-      .backlog-card.not-draggable { cursor: pointer; border-style: dashed; }
       .backlog-card .backlog-label { font-weight: 600; font-size: 12px; }
       .backlog-card .backlog-sublabel { font-size: 11px; opacity: .75; margin-top: 1px; }
       .backlog-card .backlog-row { font-size: 11px; margin-top: 3px; line-height: 1.35; }
@@ -476,7 +503,7 @@
       <span><strong>{% trans "Duration" %}:</strong> {% trans "drag the top/bottom edge" %}</span>
       <span><strong>{% trans "Unassign" %}:</strong> {% trans "click the × on a block" %}</span>
       <span><strong>⧉ {% trans "Duplicate" %}:</strong> {% trans "same planning, next day" %}</span>
-      <span><strong>{% trans "Backlog" %}:</strong> {% trans "drag a pending card onto the grid to schedule it (defaults to 1h, resize afterward — needs a truck assigned first)" %}</span>
+      <span><strong>{% trans "Backlog" %}:</strong> {% trans "drag a pending card onto the grid to schedule it (defaults to 1h, resize afterward — truck is linked automatically from the driver when possible)" %}</span>
       <span><strong>{% trans "Edit" %}:</strong> {% trans "click (without dragging) a block or backlog card" %}</span>
     {% else %}
       <span>{% trans "Read-only — you don't have permission to edit the schedule." %}</span>
@@ -484,7 +511,7 @@
     {% endif %}
     <span><strong>⚠ {% trans "amber" %}:</strong> {% trans "overlaps another job for that person/truck" %}</span>
     <span><strong>🤖:</strong> {% trans "auto-assigned" %}</span>
-    <span><strong>🚚:</strong> {% trans "still needs a truck" %}</span>
+    <span><strong style="color:#f97316">⚠ {% trans "Needs truck" %}:</strong> {% trans "orange stripe — no truck assigned yet" %}</span>
     <span>
       {% for st in service_type_legend %}
         <span class="legend-dot" style="background:{{ st.color }}{% if not forloop.first %};margin-left:8px{% endif %}"></span>{{ st.label }}
@@ -700,13 +727,13 @@
     return body.querySelector(`.day-cell[data-person="${person}"][data-day="${day}"]`);
   }
 
-  // Traceability, right on the block: 🚚 = still needs a truck, 🤖 = auto-assigned,
-  // nothing = manually assigned. Conflicts/out-of-hours get the ring (CSS classes above).
+  // Traceability on the block: missing truck gets a banner + stripe; 🤖 = auto-assigned.
   function statusIcons(b) {
-    let icons = "";
-    if (!b.truck) icons += `<span title="{% trans 'Missing truck' %}">🚚</span>`;
-    else if (b.origin === "auto") icons += `<span title="{% trans 'Auto-assigned' %}">🤖</span>`;
-    return icons ? `<span class="block-status-icons">${icons}</span>` : "";
+    if (!b.truck) return "";
+    if (b.origin === "auto") {
+      return `<span class="block-status-icons" title="{% trans 'Auto-assigned' %}">🤖</span>`;
+    }
+    return "";
   }
 
   function truncate(s, n) {
@@ -721,11 +748,11 @@
       if (!value) return;
       rows.push(`<div class="tt-row"><span class="tt-label">${escapeHtml(label)}:</span> ${escapeHtml(value)}</div>`);
     };
+    add("{% trans 'Asset' %}", b.asset);
     add("{% trans 'From' %}", [b.origin_name, b.origin_address].filter(Boolean).join(" — "));
     add("{% trans 'To' %}", [b.destination_name, b.destination_address].filter(Boolean).join(" — "));
     add("{% trans 'Truck' %}", b.truck || "{% trans 'No truck assigned yet' %}");
     add("{% trans 'Urgency' %}", b.urgency_label);
-    add("{% trans 'Type' %}", b.service_type_label || b.planning_type_label);
     add("{% trans 'Cuba' %}", [b.cuba_operation_label, b.cuba_size_label].filter(Boolean).join(" · "));
     add("{% trans 'Load' %}", b.load_description);
     add("{% trans 'Status' %}", b.status_label);
@@ -737,10 +764,14 @@
 
   function blockBodyHtml(b) {
     const h = heightFor(b.start, b.end);
+    const missingTruck = !b.truck
+      ? `<div class="block-missing-truck" title="{% trans 'Missing truck' %}">⚠ {% trans "Needs truck" %}</div>`
+      : "";
     const urgency = b.urgency_label
       ? `<span class="block-urgency" style="background:${escapeHtml(b.urgency_color || "#3B82F6")}">${escapeHtml(b.urgency_label)}</span>`
       : "";
-    let html = `<div class="block-label">${statusIcons(b)}${urgency}${escapeHtml(b.label)}</div>`;
+    let html = missingTruck;
+    html += `<div class="block-label">${statusIcons(b)}${urgency}${escapeHtml(b.label)}</div>`;
     if (b.origin_name) {
       html += `<div class="block-sublabel">{% trans "From" %}: ${escapeHtml(b.origin_name)}</div>`;
     }
@@ -749,6 +780,7 @@
     }
     if (h >= 70) {
       const chips = [];
+      if (b.asset) chips.push(`<span class="block-chip">${escapeHtml(truncate(b.asset, 18))}</span>`);
       if (b.truck) chips.push(`<span class="block-chip">🚚 ${escapeHtml(truncate(b.truck, 18))}</span>`);
       if (b.cuba_size_label) chips.push(`<span class="block-chip">${escapeHtml(b.cuba_size_label)}</span>`);
       if (b.cuba_operation_label) chips.push(`<span class="block-chip">${escapeHtml(b.cuba_operation_label)}</span>`);
@@ -770,9 +802,13 @@
       const cell = cellFor(b.person, b.day);
       if (!cell) return;
       const el = document.createElement("div");
-      el.className = "sched-block" + (b.overHours ? " over-hours" : "") + (b.conflict ? " conflict" : "") + (CAN_EDIT ? "" : " read-only");
+      el.className = "sched-block"
+        + (b.overHours ? " over-hours" : "")
+        + (b.conflict ? " conflict" : "")
+        + (!b.truck ? " needs-truck" : "")
+        + (CAN_EDIT ? "" : " read-only");
       el.dataset.id = b.id;
-      el.style.background = b.color || "#3B82F6";
+      el.style.backgroundColor = b.color || "#3B82F6";
       el.style.top = topFor(b.start) + "px";
       el.style.height = heightFor(b.start, b.end) + "px";
       el.innerHTML = CAN_EDIT ? `
@@ -797,9 +833,7 @@
     list.innerHTML = "";
     backlogItems.forEach((item) => {
       const el = document.createElement("div");
-      const draggable = Boolean(item.truck);
-      el.className = "backlog-card" + (draggable ? "" : " not-draggable");
-      el.title = draggable ? "" : "{% trans 'Assign a truck first — click to edit' %}";
+      el.className = "backlog-card";
       el.dataset.id = item.id;
       el.style.borderLeftColor = item.color || "#64748B";
 
@@ -808,12 +842,13 @@
       if (item.urgency_label) {
         tags.push(`<span class="backlog-tag urgency" style="background:${escapeHtml(item.urgency_color || "#3B82F6")}">${escapeHtml(item.urgency_label)}</span>`);
       }
-      [item.service_type_label || item.planning_type_label, item.cuba_size_label, item.cuba_operation_label]
+      [item.cuba_size_label, item.cuba_operation_label]
         .filter(Boolean)
         .forEach((t) => tags.push(`<span class="backlog-tag">${escapeHtml(t)}</span>`));
       const tagsHtml = tags.join("");
 
       const rows = [];
+      if (item.asset) rows.push(`<div class="backlog-row"><span class="k">{% trans "Asset" %}:</span>${escapeHtml(item.asset)}</div>`);
       if (item.origin_name || item.origin_address) {
         const fromVal = [item.origin_name, item.origin_address].filter(Boolean).join(" — ");
         rows.push(`<div class="backlog-row"><span class="k">{% trans "From" %}:</span>${escapeHtml(fromVal)}</div>`);
@@ -936,9 +971,6 @@
       cardEl.classList.add("dragging");
       dragState = {
         mode: "backlog", item, cardEl, ghost,
-        // A truck must be picked (via the editor) before a card can be
-        // scheduled by dragging — see mouseup below.
-        draggable: Boolean(item.truck),
         grabDX: e.clientX - rect.left, grabDY: e.clientY - rect.top,
         targetCell: null, startX: e.clientX, startY: e.clientY, moved: false,
       };
@@ -1036,7 +1068,6 @@
 
     if (dragState.mode === "backlog") {
       const wasMoved = dragState.moved;
-      const draggable = dragState.draggable;
       dragState.ghost.remove();
       const targetCell = dragState.targetCell;
       targetCell && targetCell.classList.remove("drop-target");
@@ -1046,10 +1077,6 @@
       dragState = null;
 
       if (!wasMoved) { openChangeForm(item.id); return; }
-      if (!draggable) {
-        showToast("{% trans 'Assign a truck to this planning before scheduling it — click the card (without dragging) to edit it.' %}");
-        return;
-      }
       if (!targetCell) return;
 
       const cellRect = targetCell.getBoundingClientRect();
@@ -1073,16 +1100,24 @@
       // Instant: drop it on the grid and pull the card right away, save
       // quietly in the background, only speak up if it fails.
       backlogItems = backlogItems.filter((it) => it.id !== item.id);
-      blocks.push(Object.assign({}, item, {
+      const newBlock = Object.assign({}, item, {
         person: newPerson, day: newDay, start, end,
         origin: "manual",
-      }));
+      });
+      blocks.push(newBlock);
       renderBacklog();
       reportNewFlags(renderAll());
 
       persist("move", { id: item.id, start, end }, {
         person_id: PEOPLE[newPerson].pk,
         day: isoDate(weekDates[newDay]),
+      }).then((data) => {
+        // Truck was linked server-side from the driver's assigned asset (or
+        // left blank with a note) — reflect that on the freshly dropped block.
+        if (data && typeof data.truck === "string") newBlock.truck = data.truck;
+        if (data && data.origin) newBlock.origin = data.origin;
+        reportNewFlags(renderAll());
+        if (data && data.truck_note) showToast("⚠ " + data.truck_note);
       }).catch((err) => {
         blocks = blocks.filter((b) => b.id !== item.id);
         backlogItems.push(item);
@@ -1153,10 +1188,12 @@
       day: isoDate(weekDates[newDay]),
     })
       .then((data) => {
-        if (data && data.origin && data.origin !== block.origin) {
-          block.origin = data.origin;
-          renderAll();
-        }
+        if (!data) return;
+        let changed = false;
+        if (data.origin && data.origin !== block.origin) { block.origin = data.origin; changed = true; }
+        if (typeof data.truck === "string" && data.truck !== block.truck) { block.truck = data.truck; changed = true; }
+        if (changed) renderAll();
+        if (data.truck_note) showToast("⚠ " + data.truck_note);
       })
       .catch((err) => {
         block.person = prevPerson; block.day = prevDay; block.start = prevStart; block.end = prevEnd;

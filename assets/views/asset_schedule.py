@@ -15,7 +15,7 @@ from company.models import Employee
 from core.admin.company_access import get_user_companies
 from assets.forms import AssetScheduleFilterForm
 from assets.models import Asset, AssetPlanning, SERVICE_TYPE_COLORS, ServiceType
-from assets.services.auto_assigner import URGENCY_ORDER
+from assets.services.auto_assigner import URGENCY_ORDER, auto_link_transport
 from assets.services.route_optimizer import GoogleRouteOptimizer
 
 DEFAULT_BLOCK_MINUTES = 60
@@ -53,9 +53,11 @@ def _planning_card_data(planning: AssetPlanning) -> dict:
     """Shared display fields for grid blocks and backlog cards."""
     origin = _zone_info(planning.origin)
     destination = _zone_info(planning.destination)
+    service_type_label = planning.get_service_type_display() if planning.service_type else ""
     return {
-        "label": planning.asset.name if planning.asset_id else str(_("Planning")),
+        "label": service_type_label or planning.get_planning_type_display(),
         "sublabel": destination["name"] or origin["name"],
+        "asset": planning.asset.name if planning.asset_id else "",
         "origin_name": origin["name"],
         "origin_address": origin["address"],
         "destination_name": destination["name"],
@@ -66,7 +68,7 @@ def _planning_card_data(planning: AssetPlanning) -> dict:
         "planning_type": planning.planning_type,
         "planning_type_label": planning.get_planning_type_display(),
         "service_type": planning.service_type or "",
-        "service_type_label": planning.get_service_type_display() if planning.service_type else "",
+        "service_type_label": service_type_label,
         "cuba_size": planning.cuba_size or "",
         "cuba_size_label": planning.get_cuba_size_display() if planning.cuba_size else "",
         "cuba_operation": planning.cuba_operation_type or "",
@@ -352,6 +354,8 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
             planning.scheduled_time = start
             planning.scheduled_end_time = end
 
+            employee = None
+            previous_driver_id = planning.assigned_to_id
             if action == "move":
                 employee = get_object_or_404(Employee, pk=payload.get("person_id"), company_id=planning.company_id)
                 try:
@@ -363,7 +367,13 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
                 update_fields += ["assigned_to", "scheduled_date"]
 
             planning.save(update_fields=update_fields)
-            return JsonResponse({"success": True, "origin": planning.assignment_origin})
+            truck_note = auto_link_transport(planning, employee, previous_driver_id) if employee else None
+            return JsonResponse({
+                "success": True,
+                "origin": planning.assignment_origin,
+                "truck": planning.transport_asset.name if planning.transport_asset_id else "",
+                "truck_note": truck_note,
+            })
 
         if action == "duplicate_next_day":
             clone = AssetPlanning.objects.get(pk=planning.pk)

@@ -92,6 +92,32 @@ class ApprovePermissionTests(TestCase):
         self.assertEqual(self.request_obj.status, AssetPlanningRequestStatus.APPROVED)
         self.assertIsNotNone(self.request_obj.resulting_planning)
 
+    def test_approve_crane_without_asset_succeeds(self):
+        self.request_obj.asset = None
+        self.request_obj.save(update_fields=["asset"])
+        reviewer = User.objects.create_user(username="reviewer2", password="x", is_staff=True)
+        _grant(reviewer, "view_assetplanningrequest", "approve_assetplanningrequest")
+
+        self.admin.approve_submit_action(self._request(reviewer), self.request_obj)
+
+        self.request_obj.refresh_from_db()
+        self.assertEqual(self.request_obj.status, AssetPlanningRequestStatus.APPROVED)
+        self.assertIsNone(self.request_obj.resulting_planning.asset_id)
+
+    def test_approve_own_machine_without_asset_is_blocked(self):
+        self.request_obj.service_type = "porte_maquina"
+        self.request_obj.asset = None
+        self.request_obj.from_zone = self.to_zone
+        self.request_obj.save(update_fields=["service_type", "asset", "from_zone"])
+        reviewer = User.objects.create_user(username="reviewer3", password="x", is_staff=True)
+        _grant(reviewer, "view_assetplanningrequest", "approve_assetplanningrequest")
+
+        self.admin.approve_submit_action(self._request(reviewer), self.request_obj)
+
+        self.request_obj.refresh_from_db()
+        self.assertEqual(self.request_obj.status, AssetPlanningRequestStatus.PENDING_REVIEW)
+        self.assertIsNone(self.request_obj.resulting_planning_id)
+
     def test_a_plain_creator_can_still_create_a_request(self):
         # Sanity check: add permission alone is genuinely enough to create one —
         # this is what "can create but not approve" means in practice.

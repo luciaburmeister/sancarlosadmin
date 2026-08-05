@@ -60,10 +60,9 @@ jobs:
           python-version: '3.14'
 
       - name: Install GDAL
-        uses: awalsh128/cache-apt-pkgs-action@v1
-        with:
-          packages: gdal-bin libgdal-dev python3-gdal binutils libproj-dev
-          version: 1.0
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gdal-bin libgdal-dev python3-gdal binutils libproj-dev
 
       - name: Install pipx
         run: python3 -m pip install --user pipx

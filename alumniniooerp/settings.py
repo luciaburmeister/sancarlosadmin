@@ -315,8 +315,15 @@ CELERY_RESULT_BACKEND = 'django-db'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'Europe/Madrid'  
+CELERY_TIMEZONE = 'Europe/Madrid'
 CELERY_RESULT_EXTENDED = True
+
+if TESTING:
+    # No Redis broker is available in CI/local test runs, and an unreachable
+    # broker blocks on connect rather than failing fast. Run tasks
+    # synchronously in-process instead so `.delay()` calls never touch Redis.
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
 
 CELERY_BEAT_SCHEDULE = {
     "sync-bank-transactions": {

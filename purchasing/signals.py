@@ -15,4 +15,7 @@ def purchase_order_created_notify(sender, instance, created, **kwargs):
 
     from purchasing.tasks import send_purchase_order_created_notification
 
-    send_purchase_order_created_notification.delay(instance.pk)
+    try:
+        send_purchase_order_created_notification.delay(instance.pk)
+    except Exception:
+        logger.exception("Failed to queue PO creation notification for PO %s", instance.pk)

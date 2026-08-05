@@ -1,3 +1,4 @@
+from django import forms
 from django.contrib import admin
 from django.shortcuts import redirect
 from django.urls import path, reverse
@@ -168,8 +169,27 @@ class MaterialAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
         return request.user.has_perm("materials.can_import_materials")
 
 
+class ProviderForm(forms.ModelForm):
+    """Requires a tax identifier when a provider is created/edited by hand.
+
+    Automated import flows (invoice OCR, Cortizo import, etc.) create
+    Provider rows directly via the ORM and are unaffected by this — the
+    model field itself stays blank=True so those flows keep working even
+    before a CIF/NIF is known.
+    """
+
+    class Meta:
+        model = Provider
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["tax_identifier"].required = True
+
+
 @admin.register(Provider)
 class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    form = ProviderForm
     list_display = ("name", "contact", "phone", "email", "tax_identifier", "account", "company", "balance_owed_display")
     search_fields = ("name", "contact", "phone", "email", "tax_identifier", "associated_emails")
     list_select_related = ["company", "account"]

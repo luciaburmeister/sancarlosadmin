@@ -128,6 +128,89 @@ def sync_bank_transactions(self):
         raise self.retry(exc=exc)
 
 
+@shared_task(name="banking.tasks.send_bank_accounts_summary")
+def send_bank_accounts_summary():
+    """Periodic task: emails each company's bank account balances (last
+    known balance + when it was last synced) to that company's configured
+    recipients (Company.bank_summary_emails).
+
+    Companies with no recipients configured are skipped — this is opt-in
+    per company, unlike company.tasks.send_document_reminders which falls
+    back to company.email.
+
+    Not wired into settings.CELERY_BEAT_SCHEDULE: schedule it via a
+    django-celery-beat PeriodicTask (admin > Periodic Tasks) pointing at
+    "banking.tasks.send_bank_accounts_summary".
+    """
+    from django.template.loader import render_to_string
+    from django.utils.formats import date_format, number_format
+    from django.utils.timezone import localtime
+
+    from company.models import Company
+    from core.services.email_service import EmailService
+
+    companies = (
+        Company.objects.exclude(bank_summary_emails=[])
+        .prefetch_related("bankaccounts")
+    )
+
+    emails_sent = 0
+    errors = []
+
+    for company in companies:
+        accounts = list(company.bankaccounts.all())
+        if not accounts:
+            continue
+
+        account_rows = []
+        for account in accounts:
+            if account.last_known_balance is not None:
+                balance_str = (
+                    f"{number_format(account.last_known_balance.amount, 2)} €"
+                )
+            else:
+                balance_str = "—"
+
+            if account.last_balance_updated_at is not None:
+                synced_str = date_format(
+                    localtime(account.last_balance_updated_at),
+                    "SHORT_DATETIME_FORMAT",
+                )
+            else:
+                synced_str = "Nunca sincronizado"
+
+            account_rows.append({
+                "bank_name": account.bank_name,
+                "identifier": account.iban or account.account_number or "—",
+                "balance": balance_str,
+                "synced_at": synced_str,
+            })
+
+        try:
+            html_message = render_to_string(
+                "company/email/bank_accounts_summary.html",
+                {"company_name": company.name, "accounts": account_rows},
+            )
+            success = EmailService.send_email(
+                to=company.bank_summary_emails,
+                subject=f"Resumen de cuentas bancarias: {company.name}",
+                body_html=html_message,
+                related_object=company,
+                company=company,
+            )
+            if success:
+                emails_sent += 1
+            else:
+                errors.append(f"Failed to send summary for company {company.id} ({company.name})")
+        except Exception as e:
+            errors.append(f"Error processing company {company.id} ({company.name}): {str(e)}")
+
+    if errors:
+        raise Exception(f"Bank accounts summary task completed with errors: {'; '.join(errors)}")
+
+    return {"task": "send_bank_accounts_summary", "status": "ok", "emails_sent": emails_sent}
+
+
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)
 def sync_bank_account_task(self, bank_account_id: int):
     """On-demand task: fetch transactions for a single BankAccount."""

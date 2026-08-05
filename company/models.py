@@ -81,6 +81,13 @@ class Company(models.Model):
         verbose_name=_("Document Reminder Emails"),
         help_text=_("Emails that will receive document expiration reminders"),
     )
+    bank_summary_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Bank Summary Emails"),
+        help_text=_("Emails that will receive the periodic bank accounts balance summary"),
+    )
     terms_text = models.TextField(
         blank=True,
         verbose_name=_("Términos y Condiciones"),

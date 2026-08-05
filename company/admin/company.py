@@ -282,6 +282,7 @@ class CompanyAdmin(ModelAdmin):
                 "auto_apply_client_taxes",
                 "bulk_emit_copy_quote_observations",
                 ("document_reminder_emails"),
+                ("bank_summary_emails"),
                 "invoice_number_format",
                 "require_asset_on_project_file",
                 "require_working_zone_on_project_file",

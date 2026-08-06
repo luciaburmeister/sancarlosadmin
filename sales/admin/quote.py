@@ -20,7 +20,7 @@ from unfold.contrib.import_export.forms import ImportForm, SelectableFieldsExpor
 from configurator.admin.configuration import AppliedTaxInline
 from configurator.commission.admin import QuoteCommissionInline
 from configurator.commission.services import CommissionService
-from configurator.models import Configuration
+from configurator.models import Configuration, ConfigurationStatus
 from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.email_log import EmailLogInline
 from core.admin.xlsx_export import FormattedXlsxExportMixin
@@ -181,12 +181,14 @@ class ConfigurationReadOnlyInline(TabularInline):
     readonly_fields = [
         "config_link", "status",
         "cost_display", "margin_display", "margin_pct_display","subtotal_price", "total_price_display",
+        "convert_to_production_link",
     ]
     fields = [
         "config_link", "status", "quote_group",
         "cost_display",
         "margin_display", "margin_pct_display",
         "subtotal_price", "total_price_display",
+        "convert_to_production_link",
     ]
     autocomplete_fields = ["quote_group"]
     can_delete = True
@@ -208,6 +210,19 @@ class ConfigurationReadOnlyInline(TabularInline):
     def config_link(self, obj):
         url = reverse("admin:configurator_configuration_change", args=[obj.pk])
         return format_html('<a href="{}" target="_blank">{}</a>', url, obj.name)
+
+    @display(description=_("Production"))
+    def convert_to_production_link(self, obj):
+        if not obj.pk or obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.COMPLETED]:
+            return "-"
+        if (
+            obj.quote
+            and obj.quote.status != QuoteStatus.ACCEPTED
+            and not obj.product.allow_production_without_accepted_quote
+        ):
+            return "-"
+        url = reverse("admin:configurator_configuration_convert_to_production", args=[obj.pk])
+        return format_html('<a class="button" href="{}" target="_blank">{}</a>', url, _("Convert to production"))
 
     @display(description=_("Total price"))
     def total_price_display(self, obj):

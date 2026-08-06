@@ -172,6 +172,8 @@ class PorteWithoutAssetTests(TestCase):
 
     def test_submit_does_not_500_when_asset_is_none(self):
         """The bug from the driver's screenshot: submitting an albarán must not 500 on planning.asset.company."""
+        from assets.models import AssetTransaction
+
         planning = self._make_planning(transport_asset=self.truck)
         response = self.api_client.post(
             f"/en/api/portes/{planning.id}/submit/",
@@ -188,3 +190,38 @@ class PorteWithoutAssetTests(TestCase):
         self.assertTrue(response.json().get("success"))
         planning.refresh_from_db()
         self.assertEqual(planning.status, "in_transit")
+        tx = AssetTransaction.objects.get(data__planning_id=planning.id)
+        self.assertEqual(tx.asset_id, self.truck.id)
+
+    def test_submit_prefers_cargo_asset_over_truck(self):
+        """When both cargo and truck are set, the transaction must keep the cargo asset."""
+        from assets.models import AssetTransaction
+
+        cargo_type = make_asset_type(self.company, name="Máquina")
+        cargo = make_asset(self.company, cargo_type, employee=self.employee)
+        planning = AssetPlanning.objects.create(
+            company=self.company,
+            asset=cargo,
+            transport_asset=self.truck,
+            origin=self.origin,
+            destination=self.destination,
+            assigned_to=self.employee,
+            scheduled_date=date.today(),
+            planning_type="porte",
+            service_type="porte_maquina",
+            status="pending",
+        )
+        response = self.api_client.post(
+            f"/en/api/portes/{planning.id}/submit/",
+            data={
+                "action": "recogida",
+                "firma": TINY_PNG_B64,
+                "imagen": TINY_PNG_B64,
+                "matricula": "1234ABC",
+                "notes": "",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        tx = AssetTransaction.objects.get(data__planning_id=planning.id)
+        self.assertEqual(tx.asset_id, cargo.id)

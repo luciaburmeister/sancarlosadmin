@@ -4,6 +4,7 @@ from django.forms import MultipleChoiceField
 from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 from django.contrib import admin
+from django.db import transaction
 from django.db.models import Sum
 from django.utils.html import format_html_join
 from django.utils.translation import gettext_lazy as _
@@ -77,11 +78,11 @@ class PurchaseOrderItemInline(StackedInline):
 
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["number", "provider","external_reference", "project_file", "requested_by", "get_status_label", "date_ordered", "total_amount", "get_billing_label", "company"]
-    list_filter = [("status",MultipleChoicesDropdownFilter), ("date_ordered",RangeDateFilter), ("company",AutocompleteSelectMultipleFilter), ("project_file",AutocompleteSelectMultipleFilter)]
+    list_display = ["number", "provider","external_reference", "po_type", "project_file", "requested_by", "get_status_label", "date_ordered", "total_amount", "get_billing_label", "company"]
+    list_filter = [("status",MultipleChoicesDropdownFilter), ("po_type",MultipleChoicesDropdownFilter), ("date_ordered",RangeDateFilter), ("company",AutocompleteSelectMultipleFilter), ("project_file",AutocompleteSelectMultipleFilter)]
     search_fields = ["number", "external_reference","provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name"]
     autocomplete_fields = ["provider", "company", "approved_by", "requested_by", "project_file"]
-    readonly_fields = ["number", "total_amount", "approved_at", "approved_by", "requested_by", "status", "linked_invoices_display"]
+    readonly_fields = ["number", "total_amount", "approved_at", "approved_by", "rejected_at", "rejected_by", "rejection_reason", "requested_by", "status", "linked_invoices_display"]
     list_select_related = ["provider", "company", "requested_by", "project_file"]
     list_filter_submit = True
     fieldsets = (
@@ -93,6 +94,7 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 "requested_by"),
                 ("date_ordered",
                 "status"),
+                "po_type",
                 "project_file",
                 ("external_reference","file")
             )
@@ -101,6 +103,8 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
             "fields": (
                 "total_amount",
                 ("approved_by", "approved_at"),
+                ("rejected_by", "rejected_at"),
+                "rejection_reason",
                 "linked_invoices_display",
             )
         }),
@@ -113,13 +117,17 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
     
     inlines = [PurchaseOrderItemInline]
-    
-    actions_row = ["send_to_approval", "approve_po", "receive_directly"]
+
+    conditional_fields = {
+        "project_file": "po_type == 'PROJECT'",
+    }
+
+    actions_row = ["send_to_approval", "approve_po", "reject_po", "receive_directly"]
     actions_detail = [
         {
             "title": _("Approval"),
             "icon": "task_alt",
-            "items": ["send_to_approval_detail_action", "approve_po_detail_action"],
+            "items": ["send_to_approval_detail_action", "approve_po_detail_action", "reject_po_detail_action"],
         },
         "register_identity_codes",
         "match_invoice_detail_action",
@@ -132,6 +140,7 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
             PurchaseOrderStatus.DRAFT: "warning",
             PurchaseOrderStatus.PENDING_APPROVAL: "info",
             PurchaseOrderStatus.APPROVED: "success",
+            PurchaseOrderStatus.REJECTED: "danger",
             PurchaseOrderStatus.CLOSED: "neutral",
             PurchaseOrderStatus.CANCELLED: "danger",
         },
@@ -231,11 +240,16 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return PurchaseOrder.objects.filter(pk=object_id, status=PurchaseOrderStatus.DRAFT).exists()
 
     def _approve_po(self, request, po):
+        from purchasing.tasks import send_purchase_order_decision_notification
+
         if po.status == PurchaseOrderStatus.PENDING_APPROVAL:
             po.status = PurchaseOrderStatus.APPROVED
             po.approved_by = request.user
             po.approved_at = timezone.now()
             po.save()
+            transaction.on_commit(
+                lambda: send_purchase_order_decision_notification.delay(po.pk, "approved")
+            )
             self.message_user(request, _("Purchase Order approved successfully."))
         else:
             self.message_user(request, _("Only Pending POs can be approved."), level="error")
@@ -255,6 +269,14 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def has_can_approve_purchase_order_permission(self, request, object_id=None):
         return request.user.has_perm("purchasing.can_approve_purchase_order")
 
+    @action(description=_("Reject PO"), permissions=["can_approve_purchase_order"])
+    def reject_po(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_purchaseorder_reject", args=[object_id]))
+
+    @action(description=_("Reject PO"), permissions=["can_approve_purchase_order", "po_is_pending_approval"])
+    def reject_po_detail_action(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_purchaseorder_reject", args=[object_id]))
+
     def has_po_is_pending_approval_permission(self, request, object_id=None):
         if not object_id:
             return True
@@ -269,9 +291,14 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return redirect(reverse("admin:purchasing_purchaseorder_match_invoice", args=[object_id]))
 
     def get_urls(self):
-        from .views import DirectReceiptView, IdentityCodesView, POMatchInvoiceView
+        from .views import DirectReceiptView, IdentityCodesView, POMatchInvoiceView, RejectPurchaseOrderView
         urls = super().get_urls()
         custom_urls = [
+            path(
+                "<int:po_id>/reject/",
+                self.admin_site.admin_view(RejectPurchaseOrderView.as_view(model_admin=self)),
+                name="purchasing_purchaseorder_reject",
+            ),
             path(
                 "<int:po_id>/match-invoice/",
                 self.admin_site.admin_view(POMatchInvoiceView.as_view(model_admin=self)),

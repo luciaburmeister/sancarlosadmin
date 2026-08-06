@@ -16,10 +16,15 @@ def po_file_path(instance, filename):
     """Path: purchasing/pos/company_{id}/{filename}"""
     return f"purchasing/pos/company_{instance.company_id}/{filename}"
 
+class PurchaseOrderType(models.TextChoices):
+    PROJECT = "PROJECT", _("Project Purchase")
+    STOCK = "STOCK", _("Stock Material")
+
 class PurchaseOrderStatus(models.TextChoices):
     DRAFT = "DRAFT", _("Draft")
     PENDING_APPROVAL = "PENDING_APPROVAL", _("Pending Approval")
     APPROVED = "APPROVED", _("Approved")
+    REJECTED = "REJECTED", _("Rejected")
     CLOSED = "CLOSED", _("Closed")
     CANCELLED = "CANCELLED", _("Cancelled")
 
@@ -35,14 +40,20 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         related_name="purchase_orders",
         verbose_name=_("Supplier")
     )
+    po_type = models.CharField(
+        max_length=20,
+        choices=PurchaseOrderType.choices,
+        default=PurchaseOrderType.PROJECT,
+        verbose_name=_("Type")
+    )
     project_file = models.ForeignKey(
         "management.ProjectFile",
         on_delete=models.SET_NULL,
         null=True,
-        blank=False,
+        blank=True,
         related_name="purchase_orders",
         verbose_name=_("Project File"),
-        help_text=_(""),
+        help_text=_("Required for project purchases; not used for stock material orders."),
     )
     external_reference = models.CharField(
         max_length=100,
@@ -80,6 +91,23 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         null=True,
         blank=True,
         verbose_name=_("Approved At")
+    )
+    rejected_by = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="rejected_pos",
+        verbose_name=_("Rejected By")
+    )
+    rejected_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Rejected At")
+    )
+    rejection_reason = models.TextField(
+        blank=True,
+        verbose_name=_("Rejection Reason")
     )
     requested_by = models.ForeignKey(
         'auth.User',
@@ -121,7 +149,14 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
     def __str__(self):
         return f"{self.number or _('DRAFT')} - {self.provider.name}"
 
+    def clean(self):
+        super().clean()
+        if self.po_type == PurchaseOrderType.PROJECT and not self.project_file:
+            raise ValidationError({"project_file": _("A project file is required for project purchases.")})
+
     def save(self, *args, **kwargs):
+        if self.po_type == PurchaseOrderType.STOCK:
+            self.project_file = None
         if not self.number and self.company:
             self.number = next_scoped_code(
                 model=PurchaseOrder,

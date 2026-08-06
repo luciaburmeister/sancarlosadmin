@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-05 12:28+0200\n"
+"POT-Creation-Date: 2026-08-06 14:23+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -918,6 +918,11 @@ msgstr "Empleado Activo"
 msgid "Authorized Employees"
 msgstr "Empleado Activo"
 
+#, fuzzy
+#| msgid "Incompatibility rule"
+msgid "Compatibility"
+msgstr "Regla de incompatibilidad"
+
 msgid "QR Code"
 msgstr "Codigo QR"
 
@@ -959,6 +964,30 @@ msgstr "Mapa"
 msgid "View Map"
 msgstr "Ver todos"
 
+msgid "From"
+msgstr "Desde"
+
+msgid "To"
+msgstr "A"
+
+msgid "Reassign all plans"
+msgstr "Reasignar todos los planes"
+
+msgid ""
+"Also re-run plannings that already have a truck/driver (keeps the existing "
+"date and time, only redoes the truck/driver). Leave unchecked to only fill "
+"in plannings still missing a truck, driver, or time."
+msgstr ""
+"También vuelve a ejecutar las planificaciones que ya tienen un "
+"camión/conductor (mantiene la fecha y hora existentes, solo se rehace el "
+"camión/conductor). Deja desmarcado para llenar solo las planificaciones que "
+"aún carecen de un camión, un conductor o una hora."
+
+#, fuzzy
+#| msgid "End date must be after start date."
+msgid "End date must be on or after the start date."
+msgstr "La fecha de inicio debe ser antes de la fecha de fin."
+
 msgid "Assignment Status"
 msgstr "Estado de Asignación"
 
@@ -987,24 +1016,84 @@ msgstr "Se optimizaron %(count)d ruta(s) diaria(s)."
 msgid "Auto-assign Driver/Truck"
 msgstr "Asignar automáticamente conductor/camión"
 
+#, fuzzy
+#| msgid "Auto-assigned %(count)d planning(s)."
+msgid "Auto-assign plannings"
+msgstr "Se asignaron automáticamente %(count)d planificación(es)."
+
+msgid ""
+"Looks for a compatible truck, its driver, and a free time for pending "
+"plannings in the selected date range. This can't be undone automatically."
+msgstr ""
+"Busca un camión compatible, su conductor y un tiempo libre para "
+"planificaciones pendientes en el rango de fechas seleccionado. Esto no se "
+"puede deshacer automáticamente."
+
+#, fuzzy
+#| msgid "Auto-assigned"
+msgid "Auto-assign"
+msgstr "Asignación automática"
+
 #, python-format
 msgid "Auto-assigned %(count)d planning(s)."
 msgstr "Se asignaron automáticamente %(count)d planificación(es)."
 
-#, python-format
+#, fuzzy, python-format
+#| msgid ""
+#| "%(count)d planning(s) could not be auto-assigned — no driver/truck available"
+#| " without conflicts."
 msgid ""
-"%(count)d planning(s) could not be auto-assigned — no driver/truck available"
-" without conflicts."
+"%(count)d planning(s) could not be auto-assigned — no compatible "
+"truck/driver/time available."
 msgstr ""
 "%(count)d planificación(es) no se pudieron asignar automáticamente — no hay "
 "conductor/camión disponible sin conflictos."
 
+msgid "Nothing to auto-assign in that date range."
+msgstr "No hay nada para asignar automáticamente en ese rango de fechas."
+
+#, fuzzy
+#| msgid "Auto-assigned %(count)d planning(s)."
+msgid "Auto-assign this planning?"
+msgstr "Se asignaron automáticamente %(count)d planificación(es)."
+
 msgid ""
-"Nothing to auto-assign — every visible planning already has a driver and "
-"truck."
+"Looks for a compatible truck, its driver, and a free time for this planning "
+"automatically, respecting every other planning as-is."
 msgstr ""
-"Nada que asignar automáticamente — todas las planificaciones visibles ya "
-"tienen conductor y camión."
+"Busca un camión compatible, su conductor y un tiempo libre para esta "
+"planificación de forma automática, respetando todas las demás "
+"planificaciones tal como están."
+
+#, fuzzy
+#| msgid "auto-assigned"
+msgid "Planning auto-assigned."
+msgstr "asignado automáticamente"
+
+msgid "Could not auto-assign — no compatible truck/driver/time available."
+msgstr ""
+"No se pudo asignar automáticamente — no hay camión/conductor/hora compatible"
+" disponible."
+
+#, fuzzy
+#| msgid "Product Templates"
+msgid "Computed End Time"
+msgstr "Plantillas de Producto"
+
+#, fuzzy
+#| msgid "Reviewed At"
+msgid "Review state"
+msgstr "Revisado el"
+
+#, fuzzy
+#| msgid "pending"
+msgid "Changes pending"
+msgstr "Pendiente"
+
+#, fuzzy
+#| msgid "First Name"
+msgid "First review"
+msgstr "Nombre"
 
 msgid "Request"
 msgstr "Solicitud"
@@ -1012,12 +1101,31 @@ msgstr "Solicitud"
 msgid "Review"
 msgstr "Revisar"
 
+msgid "Notice"
+msgstr "Aviso"
+
+msgid ""
+"Previously approved plan still exists (see Asset Planning below) — that is "
+"the old plan to replace. Re-approve will create a new plan and cancel the "
+"old one."
+msgstr ""
+"El plan previamente aprobado aún existe (ver Planificación de Activos a "
+"continuación) — ese es el plan antiguo que se debe reemplazar. Re-aprobar "
+"creará un nuevo plan y cancelará el antiguo."
+
 msgid "Project File"
 msgstr "Expediente"
 
 #, python-format
 msgid "These fields are required to approve: %(fields)s"
 msgstr "Estos campos son obligatorios para aprobar: %(fields)s"
+
+#, fuzzy
+#| msgid "Request approved. Asset Planning created."
+msgid ""
+"Request approved. New Asset Planning created; previous plan marked as "
+"old/cancelled."
+msgstr "Solicitud aprobada. Planificación de Activo creada."
 
 msgid "Request approved. Asset Planning created."
 msgstr "Solicitud aprobada. Planificación de Activo creada."
@@ -1106,6 +1214,21 @@ msgstr "Error de validación: {}"
 
 msgid "Fields"
 msgstr "Campos"
+
+#, python-format
+msgid "%(hours)dh %(mins)d min"
+msgstr "%(hours)dh %(mins)d min"
+
+msgid "1 hour"
+msgstr "1 hora"
+
+#, python-format
+msgid "%(hours)d hours"
+msgstr "%(hours)d horas"
+
+#, python-format
+msgid "%(mins)d min"
+msgstr "%(mins)d min"
 
 msgid "Name/Label"
 msgstr "Etiqueta"
@@ -1260,6 +1383,22 @@ msgstr "Cuando la zona de trabajo actual cambió por última vez."
 msgid "Assigned To"
 msgstr "Asignado a"
 
+#, fuzzy
+#| msgid "Exclude weekends"
+msgid "Excluded Assets"
+msgstr "Excluir fines de semana"
+
+msgid ""
+"Assets this one can never be paired with (e.g. a specific truck that can't "
+"carry a specific cuba), regardless of what the compatibility rules say. "
+"Manual override for one-off cases — mutual: excluding an asset here also "
+"excludes this one from it."
+msgstr ""
+"Activos que nunca se pueden emparejar con este (por ejemplo, un camión "
+"específico que no puede llevar una cuba específica), independientemente de "
+"lo que digan las reglas de compatibilidad. Sobrescritura manual para casos "
+"únicos — mutuo: excluir un activo aquí también excluye este de él."
+
 msgid "Value"
 msgstr "Valor"
 
@@ -1275,6 +1414,39 @@ msgstr "Identificadores de Activos"
 msgid "This label is not allowed for this asset type. Allowed: %(labels)s"
 msgstr ""
 "Esta etiqueta no está permitida para esta empresa. Permitido: %(labels)s"
+
+msgid "Condition"
+msgstr "Condición"
+
+msgid ""
+"Expression evaluated with safe_eval, must return True/False. Available "
+"variables: cuba.<field>, truck.<field> (each asset's data, plus cuba.size / "
+"cuba.operation_type from the planning). Example: truck.carga_maxima_kg >= "
+"cuba.peso_kg and truck.gancho == cuba.tipo_gancho"
+msgstr ""
+"La expresión evaluada con safe_eval debe devolver True/False. Variables "
+"disponibles: cuba.<campo>, truck.<campo> (los datos de cada activo, además "
+"de cuba.size / cuba.operation_type de la planificación). Ejemplo: "
+"truck.carga_maxima_kg >= cuba.peso_kg y truck.gancho == cuba.tipo_gancho"
+
+#, fuzzy
+#| msgid "Incompatibility rule"
+msgid "Transport compatibility rule"
+msgstr "Regla de incompatibilidad"
+
+#, fuzzy
+#| msgid "Incompatibility rules"
+msgid "Transport compatibility rules"
+msgstr "Reglas de incompatibilidad"
+
+#, fuzzy
+#| msgid "Stage keys cannot be empty."
+msgid "Condition cannot be empty."
+msgstr "Las claves de etapa no pueden estar vacías."
+
+#, python-format
+msgid "Invalid expression: %(error)s"
+msgstr "Expresión inválida: %(error)s"
 
 #, fuzzy
 #| msgid "Unit price"
@@ -1513,14 +1685,15 @@ msgstr "Fecha programada"
 msgid "Scheduled Time"
 msgstr "Hora Programada"
 
-msgid "Scheduled End Time"
-msgstr "Hora de Finalización Programada"
+#, fuzzy
+#| msgid "Estimation"
+msgid "Estimated Duration"
+msgstr "Estimación"
 
-msgid ""
-"Ideal completion time — set by the requester or computed by auto-assignment."
+msgid "Expected job length. Added to Scheduled Time to compute the end time."
 msgstr ""
-"Hora de finalización ideal — establecida por el solicitante o calculada por "
-"la asignación automática."
+"Duración esperada del trabajo. Agregado al tiempo programado para calcular "
+"la hora de finalización."
 
 msgid "Route Order"
 msgstr "Orden de Ruta"
@@ -1554,8 +1727,46 @@ msgstr ""
 msgid "Moved Employees"
 msgstr "Empleados Trasladados"
 
+#, fuzzy
+#| msgid "Requested By"
+msgid "Superseded By"
+msgstr "Solicitado por"
+
+msgid ""
+"Set when a newer planning was created from a re-approved request — this plan"
+" is the old one to replace."
+msgstr ""
+"Establezca cuándo se creó una nueva planificación a partir de una solicitud "
+"re-aprobada — este plan es el antiguo que se va a reemplazar."
+
 msgid "Load Description"
 msgstr "Descripción de carga"
+
+msgid "Skip Automatic Assignment"
+msgstr "Omitir Asignación Automática"
+
+msgid ""
+"When enabled, automatic assignment (bulk or individual) never touches this "
+"planning's truck, driver, or time — full manual override."
+msgstr ""
+"Cuando está habilitada, la asignación automática (en masa o individual) "
+"nunca toca el camión, el conductor o el tiempo de esta planificación — total"
+" control manual."
+
+#, fuzzy
+#| msgid "Locked"
+msgid "Time Locked"
+msgstr "Bloqueado"
+
+msgid ""
+"When enabled, automatic assignment must fit the existing Scheduled Time/End "
+"Time exactly — it won't shift this planning to a different time the same day"
+" if the current slot doesn't work. Ignored while either time is blank."
+msgstr ""
+"Cuando está habilitada, la asignación automática debe ajustarse exactamente "
+"al Horario Programado/Hora de Finalización existente; no moverá esta "
+"planificación a un horario diferente el mismo día si el espacio actual no "
+"funciona. Se ignora si alguno de los horarios está en blanco."
 
 msgid "Asset Plannings"
 msgstr "Planeación de Activos"
@@ -1585,15 +1796,10 @@ msgid "Optional — leave blank to let route assignment pick a time."
 msgstr ""
 "Opcional — déjalo en blanco para que la asignación de ruta elija una hora."
 
-msgid "End Time"
-msgstr "Hora de finalización"
-
-msgid ""
-"Optional — estimated/ideal completion time. Used to work backward to a start"
-" time when Needed Time is left blank."
+msgid "Expected job length. Used with Needed Time to find a free slot."
 msgstr ""
-"Opcional — hora de finalización estimada/ideal. Se usa para calcular la hora"
-" de inicio cuando la Hora Necesaria se deja en blanco."
+"Duración esperada del trabajo. Se utiliza con el Tiempo Necesario para "
+"encontrar un espacio disponible."
 
 msgid "Drives processing priority when auto-assigning drivers/trucks."
 msgstr ""
@@ -1702,6 +1908,11 @@ msgstr ""
 msgid "%(employee)s has no truck assigned — pick one manually."
 msgstr "%(employee)s no tiene un camión asignado; elige uno manualmente."
 
+#, fuzzy
+#| msgid "Manually Overridden"
+msgid "Manually excluded"
+msgstr "Sobrescrito manualmente"
+
 msgid "Previous week"
 msgstr "Semana anterior"
 
@@ -1806,6 +2017,13 @@ msgstr "todavía necesita un camión"
 msgid "orange stripe — no truck assigned yet"
 msgstr "Aún sin camión asignado"
 
+msgid "Old plan"
+msgstr "Plan antiguo"
+
+msgid "replaced or awaiting re-approval of its source request"
+msgstr ""
+"reemplazado o a la espera de una nueva aprobación de su solicitud de origen"
+
 msgid "Other / unset"
 msgstr "Otro / sin definir"
 
@@ -1842,12 +2060,6 @@ msgstr "Persona"
 msgid "Hour"
 msgstr "Hora"
 
-msgid "From"
-msgstr "Desde"
-
-msgid "To"
-msgstr "A"
-
 msgid "No truck assigned yet"
 msgstr "Aún sin camión asignado"
 
@@ -1875,6 +2087,9 @@ msgstr "Arrastra para cambiar la hora de fin"
 msgid "No pending items."
 msgstr "No hay elementos pendientes."
 
+msgid "Auto-assign truck, driver and time"
+msgstr "Asignar automáticamente camión, conductor y hora"
+
 msgid ""
 "Unassign this job from this person? It will show up again as unassigned."
 msgstr ""
@@ -1886,6 +2101,9 @@ msgstr "Duplicado al"
 
 msgid "not shown here (outside this week or filtered out)"
 msgstr "no se muestra aquí (fuera de esta semana o excluido por los filtros)"
+
+msgid "Auto-assign a truck, driver and time for"
+msgstr "Asigna automáticamente un camión, conductor y tiempo para"
 
 msgid "This planning was requested for"
 msgstr "Esta planificación se solicitó para"
@@ -1956,6 +2174,14 @@ msgstr "Activos sin una ubicación resoluble"
 msgid "Zone since"
 msgstr "Tipo de zona"
 
+msgid "Tomorrow"
+msgstr "Mañana"
+
+#, fuzzy
+#| msgid "Previous week"
+msgid "This week"
+msgstr "Semana anterior"
+
 msgid "driver"
 msgstr "conductor"
 
@@ -1969,6 +2195,9 @@ msgstr "hora"
 #| msgid "Asset transaction"
 msgid "Asset map not found"
 msgstr "Transacción de activos"
+
+msgid "Old plan — request changed"
+msgstr "Plan antiguo — solicitud cambiada"
 
 msgid "Permission denied"
 msgstr "Permiso denegado"
@@ -2098,7 +2327,6 @@ msgstr "Cuenta de Banco"
 
 msgid "The company bank account this transaction belongs to."
 msgstr "La cuenta bancaria de la empresa a la que pertenece esta transacción."
-
 
 msgid "External ID"
 msgstr "ID Externo"
@@ -2806,6 +3034,16 @@ msgid "Emails that will receive the periodic bank accounts balance summary"
 msgstr ""
 "Correos electrónicos que recibirán el resumen periódico del saldo de las "
 "cuentas bancarias."
+
+#, fuzzy
+#| msgid "Identification Number"
+msgid "Purchase Order Notification Emails"
+msgstr "Número de identificación"
+
+msgid "Emails that will be notified whenever a new Purchase Order is created"
+msgstr ""
+"Correos electrónicos que serán notificados cada vez que se cree una nueva "
+"Orden de Compra."
 
 msgid ""
 "Texto que el cliente debe leer y firmar al registrarse. Déjalo vacío para no"
@@ -3604,9 +3842,6 @@ msgstr "Exportar HTML"
 msgid "Total price"
 msgstr "Precio total"
 
-msgid "Convert to production"
-msgstr "Convertir a producción"
-
 msgid "Cannot convert to production. The associated quote must be accepted."
 msgstr ""
 "No se puede convertir a producción. La cotización asociada debe ser "
@@ -3614,6 +3849,9 @@ msgstr ""
 
 msgid "Configuration successfully converted to production."
 msgstr "La configuración se ha convertido con éxito a producción."
+
+msgid "Convert to production"
+msgstr "Convertir a producción"
 
 msgid "Create Receival Slip"
 msgstr "Crear Nota de Recepción"
@@ -4087,10 +4325,6 @@ msgstr "Hora de publicación"
 
 msgid "This field is required."
 msgstr "Este campo es obligatorio."
-
-#, python-format
-msgid "Invalid expression: %(error)s"
-msgstr "Expresión inválida: %(error)s"
 
 msgid "Stage keys must be unique."
 msgstr "Las claves de etapa deben ser únicas."
@@ -11093,6 +11327,9 @@ msgstr "Sesiones"
 msgid "Production Item"
 msgstr "Item de Producción"
 
+msgid "End Time"
+msgstr "Hora de finalización"
+
 #, fuzzy
 #| msgid "Ordered list of possible production stages for this product"
 msgid "Ordered list of comments left on this session"
@@ -11654,6 +11891,11 @@ msgstr "Solo se pueden mandar a aprobar las ordenes de compra pendientes."
 msgid "Approve PO"
 msgstr "Aprobar OC"
 
+#, fuzzy
+#| msgid "Reject"
+msgid "Reject PO"
+msgstr "Rechazar"
+
 msgid "Register Identity Codes"
 msgstr "Registrar Codigo"
 
@@ -11677,8 +11919,28 @@ msgstr "Cantidad a recibir"
 msgid "New codes"
 msgstr "Nueva conversación"
 
+#, fuzzy
+#| msgid "Collected"
+msgid "Explain why this Purchase Order is rejected."
+msgstr "Cobrado"
+
+#, fuzzy
+#| msgid "Project Name"
+msgid "Project Purchase"
+msgstr "Nombre del proyecto"
+
+#, fuzzy
+#| msgid "Material"
+msgid "Stock Material"
+msgstr "Material"
+
 msgid "Pending Approval"
 msgstr "Pendiente"
+
+msgid "Required for project purchases; not used for stock material orders."
+msgstr ""
+"Requerido para compras de proyectos; no se usa para pedidos de material de "
+"inventario."
 
 msgid ""
 "External receipt/delivery note number from the provider (e.g. albarán "
@@ -11692,6 +11954,16 @@ msgstr "Aprobado por"
 
 msgid "Approved At"
 msgstr "Aprobado el"
+
+#, fuzzy
+#| msgid "Rejected"
+msgid "Rejected By"
+msgstr "Rechazado"
+
+#, fuzzy
+#| msgid "Rejected"
+msgid "Rejected At"
+msgstr "Rechazado"
 
 msgid "Provider Quote/File"
 msgstr "Archivo del proveedor"
@@ -11709,6 +11981,11 @@ msgstr "Recibir articulos"
 
 msgid "DRAFT"
 msgstr "BORRADOR"
+
+#, fuzzy
+#| msgid "An expression is required for custom rules."
+msgid "A project file is required for project purchases."
+msgstr "Se requiere una expresión para las reglas personalizadas."
 
 msgid "Received Quantity"
 msgstr "Cantidad Recibida"
@@ -11845,6 +12122,23 @@ msgid_plural "%(counter)s line(s) still need an invoice match."
 msgstr[0] "%(counter)s empleado del archivo no se pudo emparejar."
 msgstr[1] "%(counter)s empleados del archivo no se pudieron emparejar."
 
+#, fuzzy
+#| msgid "Purchase Order"
+msgid "Reject Purchase Order"
+msgstr "Orden de Compra"
+
+#, fuzzy
+#| msgid "Requested By"
+msgid "Requested by"
+msgstr "Solicitado por"
+
+msgid ""
+"The reason will be sent by email to the user who requested this Purchase "
+"Order."
+msgstr ""
+"La razón será enviada por correo electrónico al usuario que solicitó esta "
+"Orden de Compra."
+
 msgid "Receive Items Directly"
 msgstr "Recibir artículos directamente"
 
@@ -11883,6 +12177,16 @@ msgstr "No se seleccionó ninguna factura."
 #| msgid "Started %(count)d items across all tickets."
 msgid "%(count)d line(s) matched to invoice %(number)s."
 msgstr "Se empezaron %(count)d elementos en todos los tickets."
+
+#, fuzzy
+#| msgid "Only Pending POs can be approved."
+msgid "Only Pending POs can be rejected."
+msgstr "Solo se pueden mandar a aprobar las ordenes de compra pendientes."
+
+#, fuzzy
+#| msgid "Purchase Order"
+msgid "Purchase Order rejected."
+msgstr "Orden de Compra"
 
 msgid "Addresses"
 msgstr "Direcciónes"
@@ -12087,9 +12391,6 @@ msgid ""
 msgstr ""
 "'En el subtotal neto' siempre descuenta del subtotal original. 'En "
 "acumulado' descuenta del total acumulado después de los descuentos previos."
-
-msgid "Condition"
-msgstr "Condición"
 
 msgid ""
 "Optional safe_eval expression. Leave blank to always apply.\n"
@@ -13373,6 +13674,29 @@ msgstr "Ausencias pasadas"
 
 msgid "No past absences."
 msgstr "No hay ausencias pasadas"
+
+#~ msgid ""
+#~ "Nothing to auto-assign — every visible planning already has a driver and "
+#~ "truck."
+#~ msgstr ""
+#~ "Nada que asignar automáticamente — todas las planificaciones visibles ya "
+#~ "tienen conductor y camión."
+
+#~ msgid "Scheduled End Time"
+#~ msgstr "Hora de Finalización Programada"
+
+#~ msgid ""
+#~ "Ideal completion time — set by the requester or computed by auto-assignment."
+#~ msgstr ""
+#~ "Hora de finalización ideal — establecida por el solicitante o calculada por "
+#~ "la asignación automática."
+
+#~ msgid ""
+#~ "Optional — estimated/ideal completion time. Used to work backward to a start"
+#~ " time when Needed Time is left blank."
+#~ msgstr ""
+#~ "Opcional — hora de finalización estimada/ideal. Se usa para calcular la hora"
+#~ " de inicio cuando la Hora Necesaria se deja en blanco."
 
 #~ msgid "Assign a truck first — click to edit"
 #~ msgstr "Asigna primero un camión — haz clic para editar"

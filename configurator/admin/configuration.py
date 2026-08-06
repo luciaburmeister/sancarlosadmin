@@ -255,12 +255,13 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
     list_select_related = ["client","company","product"]
 
     readonly_fields = ("total_price","total_cost","subtotal_price","company")
-    actions_row = ["export_configuration_to_template", 
+    actions_row = ["export_configuration_to_template",
                    "convert_to_production",
                    "record_actual_values",
                    "resync_planning_from_template",
                    "create_receival_slip_action",
                    "view_receival_slips"]
+    actions_detail = ["convert_to_production_detail_action"]
     autocomplete_fields = ["client","product","asset","quote","project_file"]
     list_filter_submit = True
 
@@ -418,14 +419,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
     def total_price_display(self, obj):
         return obj.total_price
     
-    @action(
-    description=_("Convert to production"),
-    attrs={"target": "_blank"}
-
-)
-    def convert_to_production(self, request: HttpRequest, object_id: int):
-        config = Configuration.objects.get(pk=object_id)
-        
+    def _convert_to_production(self, request, config):
         if (
             config.quote
             and config.quote.status != QuoteStatus.ACCEPTED
@@ -436,18 +430,56 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
                 _("Cannot convert to production. The associated quote must be accepted."),
                 messages.ERROR
             )
-            return redirect(request.META.get('HTTP_REFERER', 'admin:configurator_configuration_changelist'))
+            return None
 
         flow = ConfigurationFlow(config)
-
         ticket = flow.convert()
         self.message_user(
                 request,
                 _("Configuration successfully converted to production."),
                 "success")
+        return ticket
+
+    @action(
+    description=_("Convert to production"),
+    attrs={"target": "_blank"}
+
+)
+    def convert_to_production(self, request: HttpRequest, object_id: int):
+        config = Configuration.objects.get(pk=object_id)
+        ticket = self._convert_to_production(request, config)
+        if ticket is None:
+            return redirect(request.META.get('HTTP_REFERER', 'admin:configurator_configuration_changelist'))
 
         return redirect(
             reverse("admin:production_productionticket_change", args=[ticket.id])
+        )
+
+    @action(
+        description=_("Convert to production"),
+        attrs={"target": "_blank"},
+        permissions=["config_quote_is_accepted"],
+    )
+    def convert_to_production_detail_action(self, request: HttpRequest, object_id: int):
+        config = Configuration.objects.get(pk=object_id)
+        ticket = self._convert_to_production(request, config)
+        if ticket is None:
+            return redirect(reverse("admin:configurator_configuration_change", args=[object_id]))
+
+        return redirect(
+            reverse("admin:production_productionticket_change", args=[ticket.id])
+        )
+
+    def has_config_quote_is_accepted_permission(self, request, object_id=None):
+        if not object_id:
+            return True
+        config = Configuration.objects.filter(pk=object_id).select_related("quote", "product").first()
+        if not config:
+            return False
+        return (
+            not config.quote
+            or config.quote.status == QuoteStatus.ACCEPTED
+            or config.product.allow_production_without_accepted_quote
         )
 
     @action(description=_("Create Receival Slip"))

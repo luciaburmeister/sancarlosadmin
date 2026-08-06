@@ -5,7 +5,8 @@ from django.contrib import admin, messages
 from django.http import HttpRequest
 from unfold.admin import ModelAdmin, TabularInline,StackedInline
 from django.utils.translation import gettext_lazy as _
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
+from django.utils.safestring import mark_safe
 from django.urls import path, reverse
 from django.shortcuts import get_object_or_404, redirect, render
 from unfold.decorators import display, action
@@ -35,6 +36,7 @@ from production.models import (
 )
 from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter, TicketIncompleteStageFilter
 from production.services.scheduler import ScheduleProposalApplier, proposal_from_dict
+from production.services.scheduler.reasons import describe_reason
 from production.views.configuration_autocomplete import ConfigurationAutocompleteView
 from production.views.planned_sessions_schedule_view import PlannedSessionsScheduleDayView
 from production.views.production_item_stages_view import ProductionItemAdvanceStageView
@@ -736,13 +738,39 @@ class SchedulingRunAdmin(ModelAdmin):
         run = get_object_or_404(SchedulingRun, pk=run_id)
         proposal = proposal_from_dict(run.result_payload)
 
+        configuration_names = {
+            config.pk: str(config)
+            for config in Configuration.objects.filter(
+                pk__in=(
+                    proposal.selected_configuration_ids
+                    + proposal.unselected_configuration_ids
+                )
+            )
+        }
+
         selected_rows = [
             [
-                config_id,
+                configuration_names.get(config_id, config_id),
                 proposal.configuration_margins.get(str(config_id), 0),
             ]
             for config_id in proposal.selected_configuration_ids
         ]
+
+        unselected_rows = []
+        for config_id in proposal.unselected_configuration_ids:
+            reasons = proposal.unselected_reasons.get(config_id, [])
+            if reasons:
+                reasons_cell = format_html_join(
+                    mark_safe("<br>"), "{}",
+                    ((describe_reason(reason),) for reason in reasons),
+                )
+            else:
+                reasons_cell = _("No reason recorded (run predates this feature).")
+            unselected_rows.append([
+                configuration_names.get(config_id, config_id),
+                proposal.configuration_margins.get(str(config_id), 0),
+                reasons_cell,
+            ])
 
         assignment_rows = [
             [
@@ -774,8 +802,12 @@ class SchedulingRunAdmin(ModelAdmin):
                 {"title": _("Assignments"), "metric": len(proposal.assignments)},
             ],
             "selected_configs_table": {
-                "headers": [_("Configuration ID"), _("Margin")],
+                "headers": [_("Configuration"), _("Margin")],
                 "rows": selected_rows,
+            },
+            "unselected_configs_table": {
+                "headers": [_("Configuration"), _("Margin"), _("Why it was not planned")],
+                "rows": unselected_rows,
             },
             "assignments_table": {
                 "headers": [

@@ -475,37 +475,76 @@ class ArcopayService:
 
     @staticmethod
     def _update_account_balance(bank_account: BankAccount) -> None:
-        """Update last_known_balance from the latest BankTransaction for this specific account.
+        """Update last_known_balance from the running balance of the newest transaction.
 
         The product-level ``balance`` in the Arcopay response is shared across
         all accounts under the same consent/token, so it can't be used per
         account. Instead we take the per-transaction running ``balance`` from
-        the most recent imported transaction's raw payload.
+        the raw payload of the account's chronologically last transaction.
+
+        Arcopay's response order within a day varies by bank (newest-first,
+        oldest-first, or scrambled), so ``imported_at`` can't break ties
+        between same-day transactions. Instead we reconstruct the order by
+        chaining running balances: the day's closing transaction is the one
+        whose balance is not another same-day transaction's prior balance
+        (``balance - amount``).
         """
+        from collections import Counter
+
+        from django.db.models import Max
         from django.utils import timezone as tz
 
-        latest_txn = (
+        with_balance = (
             BankTransaction.objects
             .filter(bank_account=bank_account)
             .exclude(raw_data__balance__isnull=True)
-            .order_by("-transaction_date", "-imported_at")
-            .values_list("raw_data__balance", "amount_currency")
-            .first()
         )
-        if latest_txn is None:
+        latest_date = with_balance.aggregate(m=Max("transaction_date"))["m"]
+        if latest_date is None:
             return
 
-        balance, currency = latest_txn
-        try:
-            balance = Decimal(str(balance))
-        except (InvalidOperation, ValueError):
+        day_txns = (
+            with_balance
+            .filter(transaction_date=latest_date)
+            .order_by("-imported_at")
+            .values_list("raw_data__balance", "amount", "amount_currency")
+        )
+
+        cents = Decimal("0.01")
+        parsed = []
+        for raw_balance, amount, currency in day_txns:
+            try:
+                balance = Decimal(str(raw_balance)).quantize(cents)
+            except (InvalidOperation, ValueError):
+                logger.warning(
+                    "BankAccount %s: transaction has unparseable balance %r; ignoring it.",
+                    bank_account.pk, raw_balance,
+                )
+                continue
+            prior = (balance - amount).quantize(cents)
+            parsed.append((balance, prior, currency))
+
+        if not parsed:
+            return
+
+        balances = Counter(balance for balance, _, _ in parsed)
+        priors = Counter(prior for _, prior, _ in parsed)
+        heads = list((balances - priors).elements())
+
+        if len(heads) == 1:
+            closing = heads[0]
+            currency = next(c for balance, _, c in parsed if balance == closing)
+        else:
+            # Broken or fully self-cancelling chain — can't reconstruct the
+            # order, so fall back to the most recently imported transaction.
             logger.warning(
-                "BankAccount %s: latest transaction has unparseable balance %r; skipping balance update.",
-                bank_account.pk, balance,
+                "BankAccount %s: ambiguous balance chain on %s (%d head candidates); "
+                "falling back to last imported transaction.",
+                bank_account.pk, latest_date, len(heads),
             )
-            return
+            closing, _, currency = parsed[0]
 
-        bank_account.last_known_balance = Money(balance, currency)
+        bank_account.last_known_balance = Money(closing, currency)
         bank_account.last_balance_updated_at = tz.now()
         bank_account.save(update_fields=["last_known_balance", "last_known_balance_currency", "last_balance_updated_at"])
 

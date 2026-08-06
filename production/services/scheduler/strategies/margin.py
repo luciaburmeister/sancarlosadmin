@@ -4,6 +4,7 @@ from configurator.models import Configuration
 from production.services.scheduler.data import optimization_dict_creation
 from production.services.scheduler.proposal import ScheduleProposal, ScheduledAssignment
 from production.services.scheduler.core import ScheduleStrategy
+from production.services.scheduler import reasons
 from datetime import date
 import pulp
 from datetime import datetime, timedelta
@@ -88,6 +89,82 @@ class MarginScheduler(ScheduleStrategy):
                 groups.setdefault(key, []).append(r)
         return [(key[0], sorted(resources, key=lambda r: r.pk)) for key, resources in groups.items() if len(resources) > 1]
     
+    def _structural_unschedulable_reasons(
+        self, configurations, configuration_company, company_ordered_slots,
+        configuration_stages, stage_resource_types, stage_resource_type_quantity,
+        stage_suffix_slots, valid_start_positions,
+        resource_type_active_resources, resource_parallel_capacity,
+    ) -> dict[int, list[dict]]:
+        """
+        Detects, per configuration, conditions that make it impossible to
+        schedule regardless of the other configurations competing for
+        capacity. Returns {configuration pk: [reason dict, ...]}.
+        """
+        result = {}
+
+        for c in configurations:
+            c_reasons = []
+            stages = configuration_stages[c]
+            company = configuration_company[c]
+            total_slots = len(company_ordered_slots.get(company, []))
+
+            if not stages:
+                c_reasons.append({"code": reasons.NO_SCHEDULABLE_STAGES})
+            elif not total_slots:
+                c_reasons.append({
+                    "code": reasons.NO_COMPANY_TIME_SLOTS,
+                    "company": str(company),
+                })
+            elif not valid_start_positions[(c, stages[0])]:
+                # Suffix slots decrease along the sequence, so if any stage
+                # has no valid start, the first one doesn't either.
+                needed = stage_suffix_slots[(c, stages[0])]
+                c_reasons.append({
+                    "code": reasons.HORIZON_TOO_SHORT,
+                    "needed_slots": needed,
+                    "needed_minutes": needed * self.ts,
+                    "available_slots": total_slots,
+                })
+
+            for s in stages:
+                for rt in stage_resource_types[(c, s)]:
+                    kind = rt[0].model  # "machine" or "employee"
+                    active = resource_type_active_resources.get(rt, [])
+                    if not active:
+                        c_reasons.append({
+                            "code": reasons.NO_ACTIVE_RESOURCES,
+                            "stage": s,
+                            "kind": kind,
+                        })
+                        continue
+
+                    required = stage_resource_type_quantity[(c, s, rt)]
+                    capacity = sum(
+                        resource_parallel_capacity.get(r, 0) for r in active
+                    )
+                    if required > capacity:
+                        c_reasons.append({
+                            "code": reasons.INSUFFICIENT_RESOURCE_CAPACITY,
+                            "stage": s,
+                            "kind": kind,
+                            "required": required,
+                            "available": capacity,
+                        })
+
+            if c_reasons:
+                result[c.pk] = c_reasons
+
+        return result
+
+    def _strategy_unselected_reason(self, configuration, margin) -> dict | None:
+        """
+        Strategy-specific reason why a schedulable configuration would be
+        left out. Overridden by subclasses with other objectives.
+        """
+        if margin <= 0:
+            return {"code": reasons.NON_POSITIVE_MARGIN, "margin": margin}
+        return None
+
     def _should_use_warm_start(
         self, configurations, configuration_company, company_ordered_slots,
         configuration_stages, stage_resource_types, stage_resource_type_quantity,
@@ -468,8 +545,9 @@ class MarginScheduler(ScheduleStrategy):
         self, prob, variable_set, configurations, configuration_company,
         company_ordered_slots, configuration_margin, configuration_stages,
         stage_resource_types, stage_resource_type_quantity,
-        resource_type_active_resources,
+        resource_type_active_resources, structural_reasons=None,
     ) -> dict:
+        structural_reasons = structural_reasons or {}
         solver_status = pulp.LpStatus.get(prob.status, str(prob.status))
         is_optimal = solver_status == "Optimal"
         objective_value = pulp.value(prob.objective)
@@ -485,10 +563,34 @@ class MarginScheduler(ScheduleStrategy):
             warnings.append("The solver did not finish.")
 
         for c in configurations:
-            if self._var_value_is_one(variable_set["y"][c]):
+            # A structurally unschedulable configuration can never produce
+            # assignments, even if the solver left its y variable free
+            # (e.g. a configuration without schedulable stages).
+            if c.pk in structural_reasons:
+                unselected.append(c)
+            elif self._var_value_is_one(variable_set["y"][c]):
                 selected.append(c)
             else:
                 unselected.append(c)
+
+        unselected_reasons = {}
+        for c in unselected:
+            c_reasons = list(structural_reasons.get(c.pk, []))
+            if not c_reasons:
+                strategy_reason = self._strategy_unselected_reason(
+                    c, configuration_margin[c],
+                )
+                if strategy_reason is not None:
+                    c_reasons.append(strategy_reason)
+            if not c_reasons:
+                if not is_optimal:
+                    c_reasons.append({
+                        "code": reasons.SOLVER_INCOMPLETE,
+                        "status": solver_status,
+                    })
+                else:
+                    c_reasons.append({"code": reasons.CAPACITY_COMPETITION})
+            unselected_reasons[c.pk] = c_reasons
 
         for c in selected:
             company = configuration_company[c]
@@ -537,6 +639,7 @@ class MarginScheduler(ScheduleStrategy):
             "total_margin": float(total_margin),
             "selected_configurations": selected,
             "unselected_configurations": unselected,
+            "unselected_reasons": unselected_reasons,
             "assignments": assignments,
             "warnings": warnings,
         }
@@ -556,6 +659,7 @@ class MarginScheduler(ScheduleStrategy):
                 c.pk: float(configuration_margin[c])
                 for c in list(selected) + list(unselected)
             },
+            unselected_reasons=extracted_solution["unselected_reasons"],
             assignments=extracted_solution["assignments"],
             warnings=extracted_solution["warnings"],
             metadata={
@@ -585,6 +689,13 @@ class MarginScheduler(ScheduleStrategy):
         )
         covering_start_positions = self._covering_start_positions(
             valid_start_positions, stage_required_slots,
+        )
+        structural_reasons = self._structural_unschedulable_reasons(
+            configurations, configuration_company, company_ordered_slots,
+            configuration_stages, stage_resource_types,
+            stage_resource_type_quantity, stage_suffix_slots,
+            valid_start_positions, resource_type_active_resources,
+            resource_parallel_capacity,
         )
         variable_set = self._variable_definition(
             configurations, configuration_company, company_ordered_slots,
@@ -638,6 +749,7 @@ class MarginScheduler(ScheduleStrategy):
             stage_resource_types=stage_resource_types,
             stage_resource_type_quantity=stage_resource_type_quantity,
             resource_type_active_resources=resource_type_active_resources,
+            structural_reasons=structural_reasons,
         )
         return self._build_proposal(
             start_date=start_date, end_date=end_date,

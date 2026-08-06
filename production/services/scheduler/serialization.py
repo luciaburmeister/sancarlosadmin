@@ -14,6 +14,7 @@ def proposal_to_dict(proposal: ScheduleProposal) -> dict:
         "selected_configuration_ids": proposal.selected_configuration_ids,
         "unselected_configuration_ids": proposal.unselected_configuration_ids,
         "configuration_margins": proposal.configuration_margins,
+        "unselected_reasons": proposal.unselected_reasons,
         "warnings": proposal.warnings,
         "metadata": proposal.metadata,
         "assignments": [
@@ -45,6 +46,10 @@ def proposal_from_dict(data: dict) -> ScheduleProposal:
         selected_configuration_ids=data.get("selected_configuration_ids", []),
         unselected_configuration_ids=data.get("unselected_configuration_ids", []),
         configuration_margins=data.get("configuration_margins", {}),
+        unselected_reasons={
+            int(config_id): reasons
+            for config_id, reasons in data.get("unselected_reasons", {}).items()
+        },
         warnings=data.get("warnings", []),
         metadata=data.get("metadata", {}),
         assignments=[

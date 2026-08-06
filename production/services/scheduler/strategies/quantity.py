@@ -3,6 +3,11 @@ import pulp
 from production.services.scheduler.strategies.margin import MarginScheduler
 
 class QuantityScheduler(MarginScheduler):
+    def _strategy_unselected_reason(self, configuration, margin):
+        # The quantity objective ignores margins, so a non-positive margin
+        # is never the reason a configuration was left out.
+        return None
+
     def _objective_definition(
         self, variable_set, configuration_margin, configurations,
         configuration_stages, valid_start_positions,

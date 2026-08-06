@@ -4960,8 +4960,9 @@ msgid ""
 "                  Actual: avg %(avg)s min over %(count_orders)s order(s) (range %(min)s–%(max)s min)\n"
 "                "
 msgstr ""
-"Actual: avg %(avg)s min en %(count_orders)s orden(es) (rango %(min)s–%(max)s"
-" min)"
+"\n"
+"                  Actual: avg %(avg)s min en %(count_orders)s orden(es) (rango %(min)s–%(max)s min)\n"
+"                "
 
 #, python-format
 msgid "~%(workers)s worker(s)"
@@ -11924,15 +11925,13 @@ msgstr "Nueva conversación"
 msgid "Explain why this Purchase Order is rejected."
 msgstr "Cobrado"
 
-#, fuzzy
-#| msgid "Project Name"
-msgid "Project Purchase"
-msgstr "Nombre del proyecto"
 
-#, fuzzy
-#| msgid "Material"
+msgid "Project Purchase"
+msgstr "Compra de proyecto"
+
+
 msgid "Stock Material"
-msgstr "Material"
+msgstr "Stockaje"
 
 msgid "Pending Approval"
 msgstr "Pendiente"
@@ -13935,3 +13934,114 @@ msgstr "No hay ausencias pasadas"
 
 #~ msgid "employees in the file could not be matched."
 #~ msgstr "No se pudieron emparejar %(counter)s empleados del archivo."
+
+#: production/services/scheduler/reasons.py
+msgid "machine"
+msgstr "máquina"
+
+#: production/services/scheduler/reasons.py
+msgid "employee"
+msgstr "empleado"
+
+#: production/services/scheduler/reasons.py
+msgid ""
+"The configuration has no production stage with time or resource data, so "
+"there is nothing to schedule. Check the product template's planning "
+"resources."
+msgstr ""
+"La configuración no tiene ninguna etapa de producción con datos de tiempo o "
+"recursos, por lo que no hay nada que planificar. Revisa los recursos de "
+"planificación de la plantilla de producto."
+
+#: production/services/scheduler/reasons.py
+#, python-format
+msgid ""
+"The company %(company)s has no working schedule slots on the weekdays "
+"inside the selected date range."
+msgstr ""
+"La empresa %(company)s no tiene franjas de horario laboral en los días de "
+"la semana dentro del rango de fechas seleccionado."
+
+#: production/services/scheduler/reasons.py
+#, python-format
+msgid ""
+"The configuration does not fit in the selected date range: its stages need "
+"%(needed)s slots (%(needed_minutes)s min) but only %(available)s slots are "
+"available."
+msgstr ""
+"La configuración no cabe en el rango de fechas seleccionado: sus etapas "
+"necesitan %(needed)s franjas (%(needed_minutes)s min) pero solo hay "
+"%(available)s franjas disponibles."
+
+#: production/services/scheduler/reasons.py
+#, python-format
+msgid ""
+"Stage \"%(stage)s\" requires a %(kind)s, but no active %(kind)s with that "
+"stage is registered as a production resource."
+msgstr ""
+"La etapa \"%(stage)s\" requiere %(kind)s, pero no hay %(kind)s activo con "
+"esa etapa registrado como recurso de producción."
+
+#: production/services/scheduler/reasons.py
+#, python-format
+msgid ""
+"Stage \"%(stage)s\" needs %(required)s %(kind)s(s) working in parallel, but "
+"the active resources only provide a parallel capacity of %(available)s."
+msgstr ""
+"La etapa \"%(stage)s\" necesita %(required)s %(kind)s(s) trabajando en "
+"paralelo, pero los recursos activos solo ofrecen una capacidad en paralelo "
+"de %(available)s."
+
+#: production/services/scheduler/reasons.py
+#, python-format
+msgid ""
+"The configuration's margin is not positive (%(margin)s), so the margin-"
+"maximizing strategy will never select it."
+msgstr ""
+"El margen de la configuración no es positivo (%(margin)s), por lo que la "
+"estrategia de maximización de margen nunca la seleccionará."
+
+#: production/services/scheduler/reasons.py
+#, python-format
+msgid ""
+"The solver stopped before finding a complete solution (status: %(status)s). "
+"The configuration might still fit; try a longer time limit or fewer "
+"configurations."
+msgstr ""
+"El optimizador se detuvo antes de encontrar una solución completa (estado: "
+"%(status)s). La configuración aún podría caber; prueba con un límite de "
+"tiempo mayor o con menos configuraciones."
+
+#: production/services/scheduler/reasons.py
+msgid ""
+"The configuration is schedulable, but there was not enough remaining "
+"resource capacity or working time in the date range once the selected "
+"configurations were scheduled."
+msgstr ""
+"La configuración es planificable, pero no quedó suficiente capacidad de "
+"recursos o tiempo de trabajo en el rango de fechas una vez planificadas las "
+"configuraciones seleccionadas."
+
+#: production/admin.py
+msgid "No reason recorded (run predates this feature)."
+msgstr "No hay motivo registrado (la ejecución es anterior a esta funcionalidad)."
+
+#: production/admin.py
+msgid "Why it was not planned"
+msgstr "Por qué no se planificó"
+
+#: production/templates/admin/production/schedulingrun/preview.html
+msgid "Configurations without planning"
+msgstr "Configuraciones sin planificación"
+
+#: production/templates/admin/production/schedulingrun/preview.html
+msgid ""
+"These configurations did not get a planning in this run. The reason is "
+"shown next to each one."
+msgstr ""
+"Estas configuraciones no obtuvieron planificación en esta ejecución. El "
+"motivo se muestra junto a cada una."
+
+#: production/templates/admin/production/schedulingrun/preview.html
+msgid "Every requested configuration was planned."
+msgstr "Todas las configuraciones solicitadas fueron planificadas."

@@ -27,6 +27,9 @@ class ScheduleProposal:
     selected_configuration_ids: list[int] = field(default_factory=list)
     unselected_configuration_ids: list[int] = field(default_factory=list)
     configuration_margins: dict[int, float] = field(default_factory=dict)
+    # config id -> list of {"code": ..., **params} dicts explaining why the
+    # configuration did not get a planning (see scheduler.reasons)
+    unselected_reasons: dict[int, list[dict]] = field(default_factory=dict)
     assignments: list[ScheduledAssignment] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)

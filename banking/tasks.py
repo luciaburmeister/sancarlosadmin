@@ -134,6 +134,12 @@ def send_bank_accounts_summary():
     known balance + when it was last synced) to that company's configured
     recipients (Company.bank_summary_emails).
 
+    Recipients configured on several companies receive ONE consolidated
+    email covering all of their companies instead of one email per
+    company. Recipients are grouped by the exact set of companies they
+    are subscribed to, so recipients sharing the same set still get a
+    single batched email.
+
     Companies with no recipients configured are skipped — this is opt-in
     per company, unlike company.tasks.send_document_reminders which falls
     back to company.email.
@@ -154,8 +160,8 @@ def send_bank_accounts_summary():
         .prefetch_related("bankaccounts")
     )
 
-    emails_sent = 0
-    errors = []
+    company_summaries = {}
+    recipient_company_ids = {}  # normalized email -> {"email": str, "company_ids": [int]}
 
     for company in companies:
         accounts = list(company.bankaccounts.all())
@@ -186,24 +192,57 @@ def send_bank_accounts_summary():
                 "synced_at": synced_str,
             })
 
+        company_summaries[company.pk] = {
+            "company": company,
+            "accounts": account_rows,
+        }
+
+        for address in company.bank_summary_emails:
+            normalized = address.strip().lower()
+            if not normalized:
+                continue
+            entry = recipient_company_ids.setdefault(
+                normalized, {"email": address.strip(), "company_ids": []}
+            )
+            if company.pk not in entry["company_ids"]:
+                entry["company_ids"].append(company.pk)
+
+    # Recipients subscribed to the same set of companies share one email.
+    groups = {}  # tuple of company ids -> [recipient emails]
+    for entry in recipient_company_ids.values():
+        groups.setdefault(tuple(entry["company_ids"]), []).append(entry["email"])
+
+    emails_sent = 0
+    errors = []
+
+    for company_ids, recipients in groups.items():
+        summaries = [company_summaries[pk] for pk in company_ids]
+        names = ", ".join(s["company"].name for s in summaries)
+        single_company = summaries[0]["company"] if len(summaries) == 1 else None
+
         try:
             html_message = render_to_string(
                 "company/email/bank_accounts_summary.html",
-                {"company_name": company.name, "accounts": account_rows},
+                {
+                    "companies": [
+                        {"name": s["company"].name, "accounts": s["accounts"]}
+                        for s in summaries
+                    ],
+                },
             )
             success = EmailService.send_email(
-                to=company.bank_summary_emails,
-                subject=f"Resumen de cuentas bancarias: {company.name}",
+                to=recipients,
+                subject=f"Resumen de cuentas bancarias: {names}",
                 body_html=html_message,
-                related_object=company,
-                company=company,
+                related_object=single_company,
+                company=single_company,
             )
             if success:
                 emails_sent += 1
             else:
-                errors.append(f"Failed to send summary for company {company.id} ({company.name})")
+                errors.append(f"Failed to send summary for companies [{names}]")
         except Exception as e:
-            errors.append(f"Error processing company {company.id} ({company.name}): {str(e)}")
+            errors.append(f"Error processing companies [{names}]: {str(e)}")
 
     if errors:
         raise Exception(f"Bank accounts summary task completed with errors: {'; '.join(errors)}")

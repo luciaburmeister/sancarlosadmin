@@ -14,7 +14,16 @@ def run_schedule_optimization(run_id: int):
 
     try:
         configuration_ids = run.input_payload.get("configuration_ids", [])
-        configurations = list(Configuration.objects.filter(pk__in=configuration_ids))
+        configurations = list(
+            Configuration.objects.filter(pk__in=configuration_ids).select_related("product")
+        )
+
+        # Refresh each configuration's planning snapshot from its product
+        # template, so the optimizer always sees the template's current
+        # stage times and resources instead of a stale copy.
+        resynced_items = 0
+        for configuration in configurations:
+            resynced_items += configuration.resync_planning_from_template()
 
         strategy = build_scheduler_strategy(
             strategy_code=run.strategy,
@@ -27,7 +36,9 @@ def run_schedule_optimization(run_id: int):
             configurations=configurations,
         )
 
-        run.result_payload = proposal_to_dict(proposal)
+        result_payload = proposal_to_dict(proposal)
+        result_payload["metadata"]["resynced_items"] = resynced_items
+        run.result_payload = result_payload
         run.solver_status = proposal.solver_status
         run.objective_value = proposal.objective_value
         run.total_margin = proposal.total_margin
@@ -46,6 +57,7 @@ def run_schedule_optimization(run_id: int):
             "run_id": run_id,
             "status": "solved",
             "configurations": len(configurations),
+            "resynced_items": resynced_items,
             "solver_status": proposal.solver_status,
         }
 

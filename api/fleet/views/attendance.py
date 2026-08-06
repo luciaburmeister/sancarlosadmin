@@ -110,7 +110,7 @@ class PlanningsListView(APIView):
         for p in plannings:
             stops = [{"zone": s.zone.name, "address": f"{s.zone.street_address}, {s.zone.city}, {s.zone.postal_code}", "sequence": s.sequence} for s in p.stops.all()]
             data.append({
-                "id": p.id, "asset_id": p.asset.id,
+                "id": p.id, "asset_id": p.asset.id if p.asset else 0,
                 "origin": p.origin.name if p.origin else None,
                 "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,
                 "destination": p.destination.name if p.destination else None,
@@ -214,7 +214,7 @@ class PortesPlanningListView(APIView):
             origin_lat, origin_lon = get_zone_coordinates(p.origin) if p.origin else (None, None)
             dest_lat, dest_lon = get_zone_coordinates(p.destination) if p.destination else (None, None)
             data.append({
-                "id": p.id, "asset_id": p.asset.id, "asset_name": p.asset.name,
+                "id": p.id, "asset_id": p.asset.id if p.asset else 0, "asset_name": p.asset.name if p.asset else "",
                 "load_description": p.load_description,
                 "origin": p.origin.name if p.origin else None,
                 "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,

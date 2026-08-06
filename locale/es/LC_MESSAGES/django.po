@@ -1603,6 +1603,9 @@ msgstr "Porte de Máquina Propia"
 msgid "External Material Transport"
 msgstr "Porte de Material Externo"
 
+msgid "Own Material Transport"
+msgstr "Porte de Material Propio"
+
 msgid "Crane Service"
 msgstr "Servicio de Grúa"
 
@@ -1617,6 +1620,9 @@ msgstr "Retirada de Cuba"
 
 msgid "Container Swap"
 msgstr "Cambio de Cuba"
+
+msgid "Engine Water Tank Refill"
+msgstr "Relleno con Cuba de Agua Motor"
 
 msgid "3 M3"
 msgstr "3 M3"
@@ -4960,8 +4966,9 @@ msgid ""
 "                  Actual: avg %(avg)s min over %(count_orders)s order(s) (range %(min)s–%(max)s min)\n"
 "                "
 msgstr ""
-"Actual: avg %(avg)s min en %(count_orders)s orden(es) (rango %(min)s–%(max)s"
-" min)"
+"\n"
+"                  Actual: avg %(avg)s min en %(count_orders)s orden(es) (rango %(min)s–%(max)s min)\n"
+"                "
 
 #, python-format
 msgid "~%(workers)s worker(s)"

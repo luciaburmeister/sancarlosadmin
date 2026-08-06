@@ -401,6 +401,9 @@
       .backlog-card .backlog-sublabel { font-size: 11px; opacity: .75; margin-top: 1px; }
       .backlog-card .backlog-row { font-size: 11px; margin-top: 3px; line-height: 1.35; }
       .backlog-card .backlog-row .k { opacity: .55; margin-right: 3px; }
+      .backlog-card .backlog-row.filled { color: #047857; }
+      .dark .backlog-card .backlog-row.filled { color: #34d399; }
+      .backlog-card .backlog-row.filled .k { opacity: .85; color: inherit; }
       .backlog-card .backlog-notes {
         font-size: 10px;
         font-style: italic;
@@ -936,8 +939,22 @@
         rows.push(`<div class="backlog-row"><span class="k">{% trans "To" %}:</span>${escapeHtml(toVal)}</div>`);
       }
       if (item.load_description) rows.push(`<div class="backlog-row"><span class="k">{% trans "Load" %}:</span>${escapeHtml(truncate(item.load_description, 80))}</div>`);
-      const metaParts = [item.date, item.driver, item.truck].filter(Boolean);
-      if (metaParts.length) rows.push(`<div class="backlog-sublabel">${metaParts.map(escapeHtml).join(" · ")}</div>`);
+      if (item.date) {
+        const dateLabel = shortDate(new Date(item.date + "T00:00:00"));
+        rows.push(`<div class="backlog-row"><span class="k">{% trans "Date" %}:</span>${escapeHtml(dateLabel)}</div>`);
+      }
+      // Driver/truck are shown in green with a checkmark when already set —
+      // the red chips below cover what's still missing, so together it's
+      // obvious at a glance what this card still needs.
+      if (item.driver) {
+        rows.push(`<div class="backlog-row filled"><span class="k">✓ {% trans "Driver" %}:</span>${escapeHtml(item.driver)}</div>`);
+      }
+      if (item.truck) {
+        rows.push(`<div class="backlog-row filled"><span class="k">✓ {% trans "Truck" %}:</span>${escapeHtml(item.truck)}</div>`);
+      }
+      if (item.suggested_trucks_label) {
+        rows.push(`<div class="backlog-row filled"><span class="k">✓ {% trans "Suggested Trucks" %}:</span>${escapeHtml(item.suggested_trucks_label)}</div>`);
+      }
 
       const estimateHtml = (item.time_label || item.duration_label)
         ? `<div class="backlog-estimate">

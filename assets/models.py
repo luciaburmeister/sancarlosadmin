@@ -17,6 +17,7 @@ from configurator.utils.evaluator import validate_expression_for_safe_eval
 from assets.constants import (
     SERVICE_TYPE_MAQUINA_PROPIA,
     SERVICE_TYPE_MATERIAL_EXTERNO,
+    SERVICE_TYPE_MATERIAL_PROPIO,
     SERVICE_TYPE_GRUA,
     SERVICE_TYPE_CUBA,
     SERVICE_TYPE_PLANNING_TYPE,
@@ -427,6 +428,7 @@ class ServiceType(models.TextChoices):
     """Maps to a backend planning_type ("cuba"/"porte") via SERVICE_TYPE_PLANNING_TYPE."""
     PORTE_MAQUINA_PROPIA = SERVICE_TYPE_MAQUINA_PROPIA, _("Own Machine Transport")
     PORTE_MATERIAL_EXTERNO = SERVICE_TYPE_MATERIAL_EXTERNO, _("External Material Transport")
+    PORTE_MATERIAL_PROPIO = SERVICE_TYPE_MATERIAL_PROPIO, _("Own Material Transport")
     SERVICIO_GRUA = SERVICE_TYPE_GRUA, _("Crane Service")
     MOVIMIENTO_CUBA = SERVICE_TYPE_CUBA, _("Container Movement")
 
@@ -435,6 +437,7 @@ class CubaOperationType(models.TextChoices):
     PUESTA = "puesta", _("Container Drop-off")
     RETIRADA = "retirada", _("Container Pickup")
     CAMBIO = "cambio", _("Container Swap")
+    CAMBIO_AGUA = "cambio_agua", _("Engine Water Tank Refill")
 
 
 class CubaSize(models.TextChoices):
@@ -466,6 +469,7 @@ class AssignmentOrigin(models.TextChoices):
 SERVICE_TYPE_COLORS = {
     SERVICE_TYPE_MAQUINA_PROPIA: "#3B82F6",
     SERVICE_TYPE_MATERIAL_EXTERNO: "#10B981",
+    SERVICE_TYPE_MATERIAL_PROPIO: "#14B8A6",
     SERVICE_TYPE_GRUA: "#8B5CF6",
     SERVICE_TYPE_CUBA: "#F59E0B",
 }
@@ -526,7 +530,7 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         related_name="asset_plannings",
         verbose_name=_("Project File"),
     )
-    service_type = models.CharField(max_length=20, choices=ServiceType.choices, blank=True, verbose_name=_("Service Type"))
+    service_type = models.CharField(max_length=25, choices=ServiceType.choices, blank=True, verbose_name=_("Service Type"))
     cuba_operation_type = models.CharField(max_length=20, choices=CubaOperationType.choices, blank=True, verbose_name=_("Cuba Operation Type"))
     cuba_size = models.CharField(max_length=10, choices=CubaSize.choices, blank=True, verbose_name=_("Cuba Size"))
     machinist_moved = models.BooleanField(
@@ -720,7 +724,7 @@ class AssetPlanningRequestStatus(models.TextChoices):
 
 class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
     """Request for an AssetPlanning, reviewed and approved before it becomes one."""
-    service_type = models.CharField(max_length=20, choices=ServiceType.choices, default=SERVICE_TYPE_MAQUINA_PROPIA, verbose_name=_("Service Type"))
+    service_type = models.CharField(max_length=25, choices=ServiceType.choices, default=SERVICE_TYPE_MAQUINA_PROPIA, verbose_name=_("Service Type"))
     # Derived from service_type in clean().
     planning_type = models.CharField(max_length=20, choices=AssetPlanning.PLANNING_CHOICES, default="porte", verbose_name=_("Planning Type"))
     to_zone = models.ForeignKey(WorkingZone, on_delete=models.PROTECT, related_name="planning_requests_to", verbose_name=_("To Zone"))

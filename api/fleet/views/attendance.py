@@ -110,7 +110,7 @@ class PlanningsListView(APIView):
         for p in plannings:
             stops = [{"zone": s.zone.name, "address": f"{s.zone.street_address}, {s.zone.city}, {s.zone.postal_code}", "sequence": s.sequence} for s in p.stops.all()]
             data.append({
-                "id": p.id, "asset_id": p.asset.id,
+                "id": p.id, "asset_id": p.asset.id if p.asset else 0,
                 "origin": p.origin.name if p.origin else None,
                 "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,
                 "destination": p.destination.name if p.destination else None,
@@ -208,13 +208,24 @@ class PortesPlanningListView(APIView):
             return JsonResponse({"transport_plannings": []})
         plannings = AssetPlanning.objects.filter(
             assigned_to=employee, status__in=["pending", "in_transit"], planning_type="porte",
-        ).select_related("asset", "origin", "destination")
+        ).select_related("asset", "origin", "destination", "transport_asset").order_by("scheduled_time", "pk")
         data = []
+        # Service types without a cargo asset (Grúa, Material Externo) leave `asset`
+        # blank — fall back to the truck so the driver can still scan its QR to open
+        # the planning, same as before `asset` was optional. If the same truck backs
+        # more than one such planning for this driver today, only the earliest one
+        # gets the scannable id — the rest fall back to 0 so a scan never silently
+        # opens the wrong planning; those still open fine from the "Mis Portes" list.
+        claimed_transport_asset_ids = set()
         for p in plannings:
             origin_lat, origin_lon = get_zone_coordinates(p.origin) if p.origin else (None, None)
             dest_lat, dest_lon = get_zone_coordinates(p.destination) if p.destination else (None, None)
+            display_asset = p.asset
+            if display_asset is None and p.transport_asset_id and p.transport_asset_id not in claimed_transport_asset_ids:
+                display_asset = p.transport_asset
+                claimed_transport_asset_ids.add(p.transport_asset_id)
             data.append({
-                "id": p.id, "asset_id": p.asset.id, "asset_name": p.asset.name,
+                "id": p.id, "asset_id": display_asset.id if display_asset else 0, "asset_name": display_asset.name if display_asset else "",
                 "load_description": p.load_description,
                 "origin": p.origin.name if p.origin else None,
                 "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,
@@ -256,7 +267,7 @@ class PorteSubmitView(APIView):
         notes = raw.get("notes", "")
         transaction_type = TransactionTypeChoices.PORTE_MOVEMENT if action == "recogida" else TransactionTypeChoices.PORTE_DELIVERY
         transaction = AssetTransaction.objects.create(
-            asset=planning.asset, company=planning.asset.company,
+            asset=planning.asset, company=planning.company,
             from_zone=planning.origin, to_zone=planning.destination,
             transaction_type=transaction_type, date=timezone.now(), performed_by=employee,
             notes=f"Porte {action} - Matricula: {matricula}. {notes}",

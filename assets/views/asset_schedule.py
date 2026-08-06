@@ -13,7 +13,7 @@ from unfold.views import UnfoldModelAdminViewMixin
 
 from company.models import Employee
 from core.admin.company_access import get_user_companies
-from assets.forms import AssetScheduleFilterForm
+from assets.forms import AssetScheduleFilterForm, _duration_label
 from assets.models import Asset, AssetPlanning, SERVICE_TYPE_COLORS, ServiceType
 from assets.services.auto_assigner import URGENCY_ORDER, auto_link_transport
 from assets.services.route_optimizer import GoogleRouteOptimizer
@@ -270,8 +270,11 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
             })
 
         # Backlog is a scheduling tool (drag-to-assign) — no point computing or
-        # showing it to someone who can't act on it anyway.
-        backlog_items = self._backlog_items(company, filters) if (company and can_edit) else []
+        # showing it to someone who can't act on it anyway. Deliberately not
+        # passed `filters`: the schedule filters narrow the grid (people/week),
+        # but the backlog should always list every unscheduled planning so
+        # nothing silently disappears from it while filtering the grid.
+        backlog_items = self._backlog_items(company) if (company and can_edit) else []
         filter_items = _filter_query_items(request.GET)
         filter_querystring = urlencode(filter_items, doseq=True)
 
@@ -333,15 +336,20 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
                 missing.append(_("truck"))
             if not p.scheduled_time:
                 missing.append(_("time"))
-            duration = optimizer.estimate_duration(p.origin, p.destination)
+            if p.estimated_duration:
+                minutes = max(int(p.estimated_duration.total_seconds() // 60), 15)
+            else:
+                duration = optimizer.estimate_duration(p.origin, p.destination)
+                minutes = max(int(duration.total_seconds() // 60), 15)
             items.append({
                 **_planning_card_data(p),
                 "id": p.pk,
                 "date": p.scheduled_date.isoformat(),
                 "time_label": p.scheduled_time.strftime("%H:%M") if p.scheduled_time else "",
+                "duration_label": str(_duration_label(minutes)),
                 "missing": missing,
                 "driver": str(p.assigned_to) if p.assigned_to_id else "",
-                "minutes": max(int(duration.total_seconds() // 60), 15),
+                "minutes": minutes,
             })
         return items
 

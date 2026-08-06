@@ -369,6 +369,34 @@
       }
       .dark .backlog-card { background: #1f2937; border-color: #374151; }
       .backlog-card.dragging { opacity: .5; }
+      .backlog-card .backlog-estimate {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 4px;
+        min-height: 1.1em;
+      }
+      .backlog-card .backlog-estimate-time {
+        font-size: 22px;
+        font-weight: 700;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+        color: #111827;
+        margin-right: auto;
+      }
+      .dark .backlog-card .backlog-estimate-time { color: #f9fafb; }
+      .backlog-card .backlog-estimate-duration {
+        font-size: 18px;
+        font-weight: 700;
+        line-height: 1.1;
+        letter-spacing: -0.01em;
+        color: #111827;
+        white-space: nowrap;
+        margin-left: auto;
+        text-align: right;
+      }
+      .dark .backlog-card .backlog-estimate-duration { color: #f9fafb; }
       .backlog-card .backlog-label { font-weight: 600; font-size: 12px; }
       .backlog-card .backlog-sublabel { font-size: 11px; opacity: .75; margin-top: 1px; }
       .backlog-card .backlog-row { font-size: 11px; margin-top: 3px; line-height: 1.35; }
@@ -908,13 +936,18 @@
         rows.push(`<div class="backlog-row"><span class="k">{% trans "To" %}:</span>${escapeHtml(toVal)}</div>`);
       }
       if (item.load_description) rows.push(`<div class="backlog-row"><span class="k">{% trans "Load" %}:</span>${escapeHtml(truncate(item.load_description, 80))}</div>`);
-      const metaParts = [
-        item.time_label ? `${item.date} ${item.time_label}` : item.date,
-        item.driver, item.truck,
-      ].filter(Boolean);
+      const metaParts = [item.date, item.driver, item.truck].filter(Boolean);
       if (metaParts.length) rows.push(`<div class="backlog-sublabel">${metaParts.map(escapeHtml).join(" · ")}</div>`);
 
+      const estimateHtml = (item.time_label || item.duration_label)
+        ? `<div class="backlog-estimate">
+            <span class="backlog-estimate-time">${item.time_label ? escapeHtml(item.time_label) : ""}</span>
+            <span class="backlog-estimate-duration">${item.duration_label ? escapeHtml(item.duration_label) : ""}</span>
+          </div>`
+        : "";
+
       el.innerHTML = `
+        ${estimateHtml}
         <div class="backlog-label">${escapeHtml(item.label)}</div>
         ${tagsHtml ? `<div>${tagsHtml}</div>` : ""}
         ${rows.join("")}

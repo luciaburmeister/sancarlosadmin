@@ -85,7 +85,7 @@ class POChangePageProjectFileTests(POTypeTests):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
         self.assertIn("Project 1", content)
-        self.assertIn("typeof po_type === 'undefined'", content)
+        self.assertIn("typeof po_type === &#x27;undefined&#x27;", content)
 
     def test_locked_stock_po_hides_project_file_row(self):
         po = self._po(po_type=PurchaseOrderType.STOCK, status=PurchaseOrderStatus.APPROVED)

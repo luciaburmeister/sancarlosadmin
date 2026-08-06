@@ -16,9 +16,9 @@
 </head>
 <body>
     <div class="container">
-        <h2>Nueva Orden de Compra</h2>
+        <h2>Orden de Compra pendiente de aprobación</h2>
         <p>Hola,</p>
-        <p>Se ha creado una nueva orden de compra en <strong>{{ company_name }}</strong>:</p>
+        <p>La siguiente orden de compra de <strong>{{ company_name }}</strong>{% if requester_name %}, solicitada por <strong>{{ requester_name }}</strong>,{% endif %} se ha enviado a aprobación y requiere su revisión:</p>
 
         <table>
             <tbody>

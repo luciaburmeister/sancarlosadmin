@@ -7,11 +7,12 @@ logger = logging.getLogger(__name__)
 
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)
-def send_purchase_order_created_notification(self, purchase_order_id: int):
-    """Notify a company's configured recipients that a new Purchase Order was created.
+def send_purchase_order_pending_approval_notification(self, purchase_order_id: int):
+    """Notify a company's configured approvers that a Purchase Order awaits approval.
 
-    Skipped when the company has no recipients configured
-    (Company.purchase_order_notification_emails) — opt-in per company.
+    Sent when a PO is submitted for approval. Skipped when the company has no
+    recipients configured (Company.purchase_order_notification_emails) — opt-in
+    per company.
     """
     from django.conf import settings
     from django.template.loader import render_to_string
@@ -22,7 +23,7 @@ def send_purchase_order_created_notification(self, purchase_order_id: int):
     from purchasing.models import PurchaseOrder
 
     try:
-        po = PurchaseOrder.objects.select_related("company", "provider").get(pk=purchase_order_id)
+        po = PurchaseOrder.objects.select_related("company", "provider", "requested_by").get(pk=purchase_order_id)
     except PurchaseOrder.DoesNotExist:
         logger.error("PurchaseOrder %s does not exist, skipping notification.", purchase_order_id)
         return {"status": "error", "message": f"PurchaseOrder {purchase_order_id} not found."}
@@ -36,8 +37,10 @@ def send_purchase_order_created_notification(self, purchase_order_id: int):
     po_url = f"{settings.BACKEND_URL.rstrip('/')}{admin_path}"
 
     try:
+        requester = po.requested_by
+        requester_name = (requester.get_full_name() or requester.username) if requester else ""
         html_message = render_to_string(
-            "purchasing/email/purchase_order_created.html",
+            "purchasing/email/purchase_order_pending_approval.html",
             {
                 "company_name": company.name,
                 "po_number": po.number,
@@ -45,12 +48,13 @@ def send_purchase_order_created_notification(self, purchase_order_id: int):
                 "total_amount": po.total_amount,
                 "date_ordered": po.date_ordered,
                 "project_file": po.project_file,
+                "requester_name": requester_name,
                 "po_url": po_url,
             },
         )
         success = EmailService.send_email(
             to=recipients,
-            subject=f"Nueva orden de compra: {po.number}",
+            subject=f"Orden de compra pendiente de aprobación: {po.number}",
             body_html=html_message,
             related_object=po,
             company=company,

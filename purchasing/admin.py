@@ -237,9 +237,14 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return super().get_readonly_fields(request, obj)
 
     def _send_to_approval(self, request, po):
+        from purchasing.tasks import send_purchase_order_pending_approval_notification
+
         if po.status == PurchaseOrderStatus.DRAFT:
             po.status = PurchaseOrderStatus.PENDING_APPROVAL
             po.save()
+            transaction.on_commit(
+                lambda: send_purchase_order_pending_approval_notification.delay(po.pk)
+            )
             self.message_user(request, _("Purchase Order sent for approval."))
         else:
             self.message_user(request, _("Only Draft POs can be sent for approval."), level="error")

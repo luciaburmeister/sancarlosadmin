@@ -107,6 +107,7 @@ class AssetScheduleViewTests(TestCase):
             company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
             scheduled_date=TODAY, load_description="Arena", notes="Urgente al mediodía",
             cuba_size="3m3", urgency="high", service_type="porte_maquina",
+            estimated_duration=timedelta(hours=1, minutes=30),
         )
         response = self.client.get(self.url)
         item = next(i for i in response.context["backlog_items"] if i["id"] == planning.pk)
@@ -119,6 +120,8 @@ class AssetScheduleViewTests(TestCase):
         self.assertEqual(item["urgency"], "high")
         self.assertEqual(item["color"], "#3B82F6")  # porte_maquina
         self.assertEqual(item["urgency_color"], "#F59E0B")
+        self.assertEqual(item["minutes"], 90)
+        self.assertEqual(item["duration_label"], "1h 30 min")
 
     def test_resize_persists_new_times(self):
         response = self.client.post(

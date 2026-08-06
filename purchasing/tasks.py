@@ -13,7 +13,9 @@ def send_purchase_order_created_notification(self, purchase_order_id: int):
     Skipped when the company has no recipients configured
     (Company.purchase_order_notification_emails) — opt-in per company.
     """
+    from django.conf import settings
     from django.template.loader import render_to_string
+    from django.urls import reverse
 
     from company.models import Company
     from core.services.email_service import EmailService
@@ -30,6 +32,9 @@ def send_purchase_order_created_notification(self, purchase_order_id: int):
     if not recipients:
         return {"status": "skipped", "reason": "no_recipients"}
 
+    admin_path = reverse("admin:purchasing_purchaseorder_change", args=[po.pk])
+    po_url = f"{settings.BACKEND_URL.rstrip('/')}{admin_path}"
+
     try:
         html_message = render_to_string(
             "purchasing/email/purchase_order_created.html",
@@ -40,6 +45,7 @@ def send_purchase_order_created_notification(self, purchase_order_id: int):
                 "total_amount": po.total_amount,
                 "date_ordered": po.date_ordered,
                 "project_file": po.project_file,
+                "po_url": po_url,
             },
         )
         success = EmailService.send_email(

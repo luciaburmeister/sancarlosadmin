@@ -252,7 +252,9 @@ class PorteSubmitView(APIView):
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON"}, status=400)
         try:
-            planning = AssetPlanning.objects.select_related("asset", "origin", "destination").get(
+            planning = AssetPlanning.objects.select_related(
+                "asset", "transport_asset", "origin", "destination",
+            ).get(
                 id=planning_id, assigned_to=employee, planning_type="porte"
             )
         except AssetPlanning.DoesNotExist:
@@ -266,8 +268,10 @@ class PorteSubmitView(APIView):
         client_id = raw.get("client_id")
         notes = raw.get("notes", "")
         transaction_type = TransactionTypeChoices.PORTE_MOVEMENT if action == "recogida" else TransactionTypeChoices.PORTE_DELIVERY
+
+        tx_asset = planning.asset or planning.transport_asset
         transaction = AssetTransaction.objects.create(
-            asset=planning.asset, company=planning.company,
+            asset=tx_asset, company=planning.company,
             from_zone=planning.origin, to_zone=planning.destination,
             transaction_type=transaction_type, date=timezone.now(), performed_by=employee,
             notes=f"Porte {action} - Matricula: {matricula}. {notes}",

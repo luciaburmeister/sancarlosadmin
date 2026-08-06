@@ -316,6 +316,7 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
                 "asset", "origin", "destination", "assigned_to", "transport_asset",
                 "source_request", "superseded_by",
             )
+            .prefetch_related("suggested_trucks")
             .order_by("scheduled_date")
         )
         backlog_filters = {**filters}
@@ -341,6 +342,7 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
             else:
                 duration = optimizer.estimate_duration(p.origin, p.destination)
                 minutes = max(int(duration.total_seconds() // 60), 15)
+            suggested_trucks = [t.name for t in p.suggested_trucks.all()]
             items.append({
                 **_planning_card_data(p),
                 "id": p.pk,
@@ -349,6 +351,8 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
                 "duration_label": str(_duration_label(minutes)),
                 "missing": missing,
                 "driver": str(p.assigned_to) if p.assigned_to_id else "",
+                "suggested_trucks": suggested_trucks,
+                "suggested_trucks_label": ", ".join(suggested_trucks),
                 "minutes": minutes,
             })
         return items

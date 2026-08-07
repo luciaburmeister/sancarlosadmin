@@ -33,11 +33,21 @@ class OptimizeScheduleForm(forms.Form):
         help_text="Last day that can be scheduled.",
     )
     ts = forms.IntegerField(
-        min_value=1,
+        min_value=10,
         initial=30,
         widget=UnfoldAdminIntegerFieldWidget,
         label="Time step (minutes)",
-        help_text="Slot size used by the optimizer.",
+        help_text="Slot size used by the optimizer. Smaller slots make the "
+                  "optimization considerably slower; 10 minutes is the minimum.",
+    )
+    time_limit = forms.IntegerField(
+        min_value=10,
+        max_value=600,
+        initial=60,
+        widget=UnfoldAdminIntegerFieldWidget,
+        label="Solver time limit (seconds)",
+        help_text="Maximum time the solver may spend. It stops earlier when "
+                  "it finds a schedule within 5% of the optimum.",
     )
     configurations = UnfoldAdminMultipleAutocompleteModelChoiceField(
         label=_("Configurations"),

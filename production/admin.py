@@ -707,6 +707,7 @@ class SchedulingRunAdmin(ModelAdmin):
                     status="pending",
                     input_payload={
                         "configuration_ids": [c.pk for c in configurations],
+                        "time_limit": form.cleaned_data["time_limit"],
                     },
                 )
 

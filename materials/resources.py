@@ -172,3 +172,57 @@ class PriceSheetItemResource(resources.ModelResource):
 
     def dehydrate_category(self, item):
         return item.resolved_category
+
+
+class ProviderResource(resources.ModelResource):
+    """Read-only resource used only for exporting Providers."""
+
+    name = fields.Field(column_name=_("Name"), attribute="name", readonly=True)
+    contact = fields.Field(column_name=_("Contact"), attribute="contact", readonly=True)
+    phone = fields.Field(column_name=_("Phone"), attribute="phone", readonly=True)
+    email = fields.Field(column_name=_("Email"), attribute="email", readonly=True)
+    tax_identifier = fields.Field(column_name=_("Tax identifier"), attribute="tax_identifier", readonly=True)
+    associated_emails = fields.Field(column_name=_("Associated Emails"), readonly=True)
+    account = fields.Field(column_name=_("Accounting Account"), readonly=True)
+    company = fields.Field(column_name=_("Company"), readonly=True)
+    balance_owed = fields.Field(column_name=_("Balance owed"), readonly=True)
+
+    class Meta:
+        model = Provider
+        fields = (
+            "id",
+            "name",
+            "contact",
+            "phone",
+            "email",
+            "tax_identifier",
+            "associated_emails",
+            "account",
+            "company",
+            "balance_owed",
+        )
+        export_order = fields
+
+    def dehydrate_associated_emails(self, provider):
+        return ", ".join(provider.associated_emails or [])
+
+    def dehydrate_account(self, provider):
+        return str(provider.account) if provider.account else ""
+
+    def dehydrate_company(self, provider):
+        return provider.company.name if provider.company else ""
+
+    def get_queryset(self):
+        # Only used when the admin doesn't pass its (already annotated) queryset.
+        from invoices.models import Invoice
+        from payments.mixins import annotate_outstanding_balance
+
+        return annotate_outstanding_balance(
+            super().get_queryset().select_related("company", "account"),
+            Invoice,
+            "provider",
+            "balance_owed",
+        )
+
+    def dehydrate_balance_owed(self, provider):
+        return float(getattr(provider, "balance_owed", 0) or 0)

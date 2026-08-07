@@ -19,12 +19,12 @@ from django.contrib.postgres.fields import ArrayField
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter
 )
-from import_export.admin import ImportExportModelAdmin
+from import_export.admin import ImportExportModelAdmin, ExportActionModelAdmin
 from unfold.contrib.import_export.forms import (
     ImportForm,
     SelectableFieldsExportForm,
 )
-from materials.resources import MaterialResource, PriceSheetItemResource
+from materials.resources import MaterialResource, PriceSheetItemResource, ProviderResource
 from payments.mixins import annotate_outstanding_balance
 
 class ComponentPriceRuleInline(TabularInline):
@@ -188,8 +188,10 @@ class ProviderForm(forms.ModelForm):
 
 
 @admin.register(Provider)
-class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
+class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     form = ProviderForm
+    resource_classes = [ProviderResource]
+    export_form_class = SelectableFieldsExportForm
     list_display = ("name", "contact", "phone", "email", "tax_identifier", "account", "company", "balance_owed_display")
     search_fields = ("name", "contact", "phone", "email", "tax_identifier", "associated_emails")
     list_select_related = ["company", "account"]

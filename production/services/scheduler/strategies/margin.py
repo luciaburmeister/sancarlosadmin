@@ -1,7 +1,10 @@
 import math
+import os
+from collections import defaultdict
 
 from configurator.models import Configuration
 from production.services.scheduler.data import optimization_dict_creation
+from production.services.scheduler.pooling import pool_interchangeable_resources
 from production.services.scheduler.proposal import ScheduleProposal, ScheduledAssignment
 from production.services.scheduler.core import ScheduleStrategy
 from production.services.scheduler import reasons
@@ -9,9 +12,15 @@ from datetime import date
 import pulp
 from datetime import datetime, timedelta
 
+DEFAULT_TIME_LIMIT_SECONDS = 60
+DEFAULT_GAP_REL = 0.05
+
+
 class MarginScheduler(ScheduleStrategy):
     def __init__(self, optimization_params):
         self.ts = optimization_params["ts"]
+        self.time_limit = optimization_params.get("time_limit") or DEFAULT_TIME_LIMIT_SECONDS
+        self.gap_rel = optimization_params.get("gap_rel") or DEFAULT_GAP_REL
     
     @staticmethod
     def _var_value_is_one(var: pulp.LpVariable, tol: float = 1e-5) -> bool:
@@ -40,22 +49,61 @@ class MarginScheduler(ScheduleStrategy):
         return suffix
     
     @staticmethod
+    def _config_stage_prefix_slots(configuration_stages, stage_required_slots):
+        """
+        For each (config, stage), how many slots the stages BEFORE it need:
+        the stage can never be active earlier than that position.
+        """
+        prefix = {}
+        for c, stages in configuration_stages.items():
+            running = 0
+            for stage in stages:
+                prefix[(c, stage)] = running
+                running += stage_required_slots[(c, stage)]
+        return prefix
+
+    @staticmethod
     def _valid_stage_start_positions(
         company_ordered_slots,
         configuration_company,
         configurations,
         configuration_stages,
         stage_suffix_slots,
+        stage_prefix_slots,
     ):
         valid_start_positions = {}
         for c in configurations:
             company = configuration_company[c]
             total_slots = len(company_ordered_slots[company])
             for s in configuration_stages[c]:
+                earliest_start = stage_prefix_slots[(c, s)]
                 needed_for_rest = stage_suffix_slots[(c, s)]
-                latest_start = max(0, total_slots - needed_for_rest + 1)
-                valid_start_positions[(c, s)] = list(range(latest_start))
+                latest_start = total_slots - needed_for_rest + 1
+                valid_start_positions[(c, s)] = list(
+                    range(earliest_start, max(earliest_start, latest_start))
+                )
         return valid_start_positions
+
+    @staticmethod
+    def _stage_position_windows(
+        company_ordered_slots, configuration_company, configurations,
+        configuration_stages, stage_required_slots,
+        stage_prefix_slots, stage_suffix_slots,
+    ):
+        """
+        For each (config, stage), the range of slot positions the stage can
+        possibly occupy: not before its predecessors fit, not so late that
+        the following stages no longer fit. x variables and their
+        constraints only exist inside this window.
+        """
+        windows = {}
+        for c in configurations:
+            total_slots = len(company_ordered_slots[configuration_company[c]])
+            for s in configuration_stages[c]:
+                first = stage_prefix_slots[(c, s)]
+                slots_after = stage_suffix_slots[(c, s)] - stage_required_slots[(c, s)]
+                windows[(c, s)] = range(first, max(first, total_slots - slots_after))
+        return windows
 
     @staticmethod
     def _covering_start_positions(valid_start_positions, stage_required_slots):
@@ -75,19 +123,6 @@ class MarginScheduler(ScheduleStrategy):
                 ]
             covering_start_positions[key] = stage_cover
         return covering_start_positions
-    
-    @staticmethod
-    def _resource_symmetry_groups(resource_type_active_resources, resource_parallel_capacity, resource_daily_capacity_minutes):
-        groups = {}
-        for rt, resources in resource_type_active_resources.items():
-            for r in resources:
-                key = (
-                    rt, r.company_id,
-                    resource_parallel_capacity[r],
-                    resource_daily_capacity_minutes[r],
-                )
-                groups.setdefault(key, []).append(r)
-        return [(key[0], sorted(resources, key=lambda r: r.pk)) for key, resources in groups.items() if len(resources) > 1]
     
     def _structural_unschedulable_reasons(
         self, configurations, configuration_company, company_ordered_slots,
@@ -275,6 +310,7 @@ class MarginScheduler(ScheduleStrategy):
         self, configurations, configuration_company, company_ordered_slots,
         configuration_stages, stage_resource_types, stage_resource_type_quantity,
         resource_type_active_resources, valid_start_positions,
+        stage_position_windows,
     ) -> dict:
         x = {
             (c, s, pos, r, q): pulp.LpVariable(
@@ -285,7 +321,7 @@ class MarginScheduler(ScheduleStrategy):
             for rt in stage_resource_types[(c, s)]
             for q in range(stage_resource_type_quantity[(c, s, rt)])
             for r in resource_type_active_resources[rt]
-            for pos in range(len(company_ordered_slots[configuration_company[c]]))
+            for pos in stage_position_windows[(c, s)]
         }
         y = {c: pulp.LpVariable(f"y_{c.pk}", cat="Binary") for c in configurations}
         start = {
@@ -328,8 +364,8 @@ class MarginScheduler(ScheduleStrategy):
         stage_resource_type_quantity, stage_required_slots,
         valid_start_positions, covering_start_positions,
         resource_type_active_resources, resource_parallel_capacity,
-        resource_daily_capacity_minutes, ts, resource_slot_load, 
-        resource_day_load
+        resource_daily_capacity_minutes, ts, resource_slot_load,
+        resource_day_load, stage_position_windows,
     ):
         constraints = {}
 
@@ -378,7 +414,7 @@ class MarginScheduler(ScheduleStrategy):
             for s in configuration_stages[c]
             for rt in stage_resource_types[(c, s)]
             for q in range(stage_resource_type_quantity[(c, s, rt)])
-            for pos in range(len(company_ordered_slots[configuration_company[c]]))
+            for pos in stage_position_windows[(c, s)]
         })
 
         # Use only chosen resource
@@ -393,7 +429,7 @@ class MarginScheduler(ScheduleStrategy):
             for rt in stage_resource_types[(c, s)]
             for q in range(stage_resource_type_quantity[(c, s, rt)])
             for r in resource_type_active_resources[rt]
-            for pos in range(len(company_ordered_slots[configuration_company[c]]))
+            for pos in stage_position_windows[(c, s)]
         })
 
         # Stage sequence
@@ -452,58 +488,24 @@ class MarginScheduler(ScheduleStrategy):
             for d in {slot_day for slot_day, _ in company_ordered_slots[r.company]}
         })
 
-        # Symmetry breaking
-        constraints.update(self._resource_symmetry_constraints(
-            variable_set=variable_set,
-            configurations=configurations,
-            configuration_stages=configuration_stages,
-            stage_resource_types=stage_resource_types,
-            stage_resource_type_quantity=stage_resource_type_quantity,
-            company_ordered_slots=company_ordered_slots,
-            configuration_company=configuration_company,
-            resource_type_active_resources=resource_type_active_resources,
-            resource_parallel_capacity=resource_parallel_capacity,
-            resource_daily_capacity_minutes=resource_daily_capacity_minutes,
-        ))
+        return constraints
 
-        return constraints
-    
-    def _resource_symmetry_constraints(
-        self, variable_set, configurations, configuration_stages,
-        stage_resource_types, stage_resource_type_quantity,
-        company_ordered_slots, configuration_company,
-        resource_type_active_resources, resource_parallel_capacity,
-        resource_daily_capacity_minutes,
-    ):
-        constraints = {}
-        groups = self._resource_symmetry_groups(
-            resource_type_active_resources, resource_parallel_capacity,
-            resource_daily_capacity_minutes,
+    @staticmethod
+    def _make_solver(use_warm_start, time_limit, gap_rel, gap_abs, max_nodes):
+        try:
+            solver = pulp.HiGHS(
+                msg=False, timeLimit=time_limit, gapRel=gap_rel, gapAbs=gap_abs,
+            )
+            if solver.available():
+                return solver
+        except Exception:
+            pass
+        return pulp.PULP_CBC_CMD(
+            msg=False, warmStart=use_warm_start, presolve=True, cuts=True,
+            timeLimit=time_limit, gapRel=gap_rel, gapAbs=gap_abs,
+            maxNodes=max_nodes, threads=max(1, (os.cpu_count() or 2) - 1),
         )
-        for group_idx, (rt, group) in enumerate(groups):
-            for left, right in zip(group, group[1:]):
-                left_load = pulp.lpSum(
-                    variable_set["x"].get((c, s, pos, left, q), 0)
-                    for c in configurations
-                    for s in configuration_stages[c]
-                    if rt in stage_resource_types[(c, s)]
-                    for q in range(stage_resource_type_quantity[(c, s, rt)])
-                    for pos in range(len(company_ordered_slots[configuration_company[c]]))
-                )
-                right_load = pulp.lpSum(
-                    variable_set["x"].get((c, s, pos, right, q), 0)
-                    for c in configurations
-                    for s in configuration_stages[c]
-                    if rt in stage_resource_types[(c, s)]
-                    for q in range(stage_resource_type_quantity[(c, s, rt)])
-                    for pos in range(len(company_ordered_slots[configuration_company[c]]))
-                )
-                constraints[f"Symmetry_{group_idx}_{left.pk}_{right.pk}"] = (
-                    left_load >= right_load,
-                    f"Symmetry_{group_idx}_{left.pk}_{right.pk}",
-                )
-        return constraints
-    
+
     def _solve_problem(
         self, objective, constraints,
         use_warm_start=False, time_limit=None,
@@ -513,9 +515,8 @@ class MarginScheduler(ScheduleStrategy):
         prob += objective
         for c in constraints.values():
             prob += c
-        solver = pulp.PULP_CBC_CMD(
-            msg=True, warmStart=use_warm_start, presolve=True, cuts=True,
-            timeLimit=time_limit, gapRel=gap_rel, gapAbs=gap_abs, maxNodes=max_nodes,
+        solver = self._make_solver(
+            use_warm_start, time_limit, gap_rel, gap_abs, max_nodes,
         )
         prob.solve(solver)
         return prob
@@ -541,11 +542,89 @@ class MarginScheduler(ScheduleStrategy):
         intervals.append((current_start, current_end, slot_count))
         return intervals
 
+    def _assign_pool_members(
+        self, pool_usages, company_ordered_slots,
+        member_parallel_capacity, member_slot_load,
+    ):
+        """
+        Maps each pooled stage occupation back to concrete resources.
+
+        The model guarantees the pool as a whole has capacity, so a
+        first-fit over members (earliest usages first) almost always finds a
+        single member for the entire interval; when pre-existing sessions
+        fragment availability, the stage is split across members and a
+        warning is emitted.
+        """
+        used = defaultdict(int)
+        assignments = []
+        warnings = []
+
+        def has_room(member, pos):
+            capacity = member_parallel_capacity.get(member, 0)
+            taken = member_slot_load.get((member, pos), 0) + used[(member, pos)]
+            return capacity - taken > 0
+
+        for usage in sorted(pool_usages, key=lambda u: u["positions"][0]):
+            pool = usage["pool"]
+            positions = usage["positions"]
+
+            member = next(
+                (m for m in pool.members
+                 if all(has_room(m, pos) for pos in positions)),
+                None,
+            )
+            if member is not None:
+                chunks = [(member, positions)]
+            else:
+                # No single member covers the whole interval: split it at
+                # availability boundaries.
+                chunks = []
+                current_member, current_chunk = None, []
+                for pos in positions:
+                    if current_member is not None and has_room(current_member, pos):
+                        current_chunk.append(pos)
+                        continue
+                    if current_chunk:
+                        chunks.append((current_member, current_chunk))
+                    current_member = next(
+                        (m for m in pool.members if has_room(m, pos)),
+                        pool.members[0],
+                    )
+                    current_chunk = [pos]
+                chunks.append((current_member, current_chunk))
+                warnings.append(
+                    f"Stage '{usage['stage']}' of {usage['configuration']} was "
+                    f"split across {len(chunks)} resources of the same type "
+                    "because no single one was free for the whole interval."
+                )
+
+            for member, chunk in chunks:
+                for pos in chunk:
+                    used[(member, pos)] += 1
+                slots = [
+                    company_ordered_slots[usage["company"]][pos] for pos in chunk
+                ]
+                for start_dt, end_dt, sc in self._merge_consecutive_slots(slots):
+                    assignments.append(ScheduledAssignment(
+                        configuration_id=usage["configuration"].pk,
+                        configuration_name=str(usage["configuration"]),
+                        stage_name=usage["stage"],
+                        resource_id=member.pk,
+                        resource_name=str(member),
+                        start=start_dt,
+                        end=end_dt,
+                        slot_count=sc,
+                        minutes=sc * self.ts,
+                    ))
+
+        return assignments, warnings
+
     def _extract_solution(
         self, prob, variable_set, configurations, configuration_company,
         company_ordered_slots, configuration_margin, configuration_stages,
         stage_resource_types, stage_resource_type_quantity,
-        resource_type_active_resources, structural_reasons=None,
+        resource_type_active_resources, member_parallel_capacity,
+        member_slot_load, structural_reasons=None,
     ) -> dict:
         structural_reasons = structural_reasons or {}
         solver_status = pulp.LpStatus.get(prob.status, str(prob.status))
@@ -592,42 +671,42 @@ class MarginScheduler(ScheduleStrategy):
                     c_reasons.append({"code": reasons.CAPACITY_COMPETITION})
             unselected_reasons[c.pk] = c_reasons
 
+        pool_usages = []
         for c in selected:
             company = configuration_company[c]
             for s in configuration_stages[c]:
                 if not stage_resource_types[(c, s)]:
                     continue
 
-                seen_resource_q = set()
+                seen_pool_q = set()
                 for rt in stage_resource_types[(c, s)]:
                     for q in range(stage_resource_type_quantity[(c, s, rt)]):
-                        for r in resource_type_active_resources[rt]:
-                            key = (r, q)
-                            if key in seen_resource_q:
+                        for pool in resource_type_active_resources[rt]:
+                            key = (pool, q)
+                            if key in seen_pool_q:
                                 continue
-                            seen_resource_q.add(key)
+                            seen_pool_q.add(key)
 
-                            active_slots = []
+                            positions = []
                             for pos in range(len(company_ordered_slots[company])):
-                                var = variable_set["x"].get((c, s, pos, r, q))
+                                var = variable_set["x"].get((c, s, pos, pool, q))
                                 if var is not None and self._var_value_is_one(var):
-                                    active_slots.append(company_ordered_slots[company][pos])
+                                    positions.append(pos)
 
-                            if not active_slots:
-                                continue
+                            if positions:
+                                pool_usages.append({
+                                    "configuration": c,
+                                    "company": company,
+                                    "stage": s,
+                                    "pool": pool,
+                                    "positions": positions,
+                                })
 
-                            for start_dt, end_dt, sc in self._merge_consecutive_slots(active_slots):
-                                assignments.append(ScheduledAssignment(
-                                    configuration_id=c.pk,
-                                    configuration_name=str(c),
-                                    stage_name=s,
-                                    resource_id=r.pk,
-                                    resource_name=str(r),
-                                    start=start_dt,
-                                    end=end_dt,
-                                    slot_count=sc,
-                                    minutes=sc * self.ts,
-                                ))
+        assignments, split_warnings = self._assign_pool_members(
+            pool_usages, company_ordered_slots,
+            member_parallel_capacity, member_slot_load,
+        )
+        warnings.extend(split_warnings)
 
         assignments.sort(key=lambda a: (a.start, a.configuration_id, a.stage_name))
         total_margin = sum(float(configuration_margin[c]) for c in selected)
@@ -683,9 +762,17 @@ class MarginScheduler(ScheduleStrategy):
         stage_suffix_slots = self._config_stage_suffix_slots(
             configuration_stages, stage_required_slots,
         )
+        stage_prefix_slots = self._config_stage_prefix_slots(
+            configuration_stages, stage_required_slots,
+        )
         valid_start_positions = self._valid_stage_start_positions(
             company_ordered_slots, configuration_company, configurations,
-            configuration_stages, stage_suffix_slots,
+            configuration_stages, stage_suffix_slots, stage_prefix_slots,
+        )
+        stage_position_windows = self._stage_position_windows(
+            company_ordered_slots, configuration_company, configurations,
+            configuration_stages, stage_required_slots,
+            stage_prefix_slots, stage_suffix_slots,
         )
         covering_start_positions = self._covering_start_positions(
             valid_start_positions, stage_required_slots,
@@ -697,11 +784,28 @@ class MarginScheduler(ScheduleStrategy):
             valid_start_positions, resource_type_active_resources,
             resource_parallel_capacity,
         )
+
+        # Collapse interchangeable resources into pools: the model shrinks by
+        # the average group size and no symmetry breaking is needed. The
+        # original per-resource dicts are kept to split assignments back to
+        # concrete resources after solving.
+        member_parallel_capacity = resource_parallel_capacity
+        member_slot_load = resource_slot_load
+        (
+            resource_type_active_resources, resource_parallel_capacity,
+            resource_daily_capacity_minutes, resource_slot_load,
+            resource_day_load,
+        ) = pool_interchangeable_resources(
+            resource_type_active_resources, resource_parallel_capacity,
+            resource_daily_capacity_minutes, resource_slot_load,
+            resource_day_load,
+        )
+
         variable_set = self._variable_definition(
             configurations, configuration_company, company_ordered_slots,
             configuration_stages, stage_resource_types,
             stage_resource_type_quantity, resource_type_active_resources,
-            valid_start_positions,
+            valid_start_positions, stage_position_windows,
         )
         use_warm_start = self._should_use_warm_start(
             configurations, configuration_company, company_ordered_slots,
@@ -727,17 +831,12 @@ class MarginScheduler(ScheduleStrategy):
             stage_required_slots, valid_start_positions,
             covering_start_positions, resource_type_active_resources,
             resource_parallel_capacity, resource_daily_capacity_minutes, self.ts,
-            resource_slot_load, resource_day_load
+            resource_slot_load, resource_day_load, stage_position_windows,
         )
         prob = self._solve_problem(
             objective, constraints, use_warm_start,
-            time_limit=120, gap_rel=0.01,
+            time_limit=self.time_limit, gap_rel=self.gap_rel,
         )
-
-        print("Solver status:", pulp.LpStatus[prob.status])
-        print("Objective:", pulp.value(prob.objective))
-        for c in configurations:
-            print(f"y[{c.pk}] =", pulp.value(variable_set["y"][c]))
 
         extracted_solution = self._extract_solution(
             prob=prob, variable_set=variable_set,
@@ -749,6 +848,8 @@ class MarginScheduler(ScheduleStrategy):
             stage_resource_types=stage_resource_types,
             stage_resource_type_quantity=stage_resource_type_quantity,
             resource_type_active_resources=resource_type_active_resources,
+            member_parallel_capacity=member_parallel_capacity,
+            member_slot_load=member_slot_load,
             structural_reasons=structural_reasons,
         )
         return self._build_proposal(

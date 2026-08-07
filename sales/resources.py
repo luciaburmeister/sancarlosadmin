@@ -102,6 +102,8 @@ class ClientResource(resources.ModelResource):
     - Existing records are matched by tax_identifier, then name + company.
     """
 
+    balance_owed = fields.Field(column_name=_("Balance owed"), readonly=True)
+
     class Meta:
         model = Client
         import_id_fields = ["id"]   # prevents _check_import_id_fields from raising
@@ -113,7 +115,20 @@ class ClientResource(resources.ModelResource):
             "address",
             "phone",
             "email",
+            "balance_owed",
         )
+
+    def get_queryset(self):
+        # Only used when the admin doesn't pass its (already annotated) queryset.
+        from invoices.models import SalesInvoice
+        from payments.mixins import annotate_outstanding_balance
+
+        return annotate_outstanding_balance(
+            super().get_queryset(), SalesInvoice, "client", "balance_owed"
+        )
+
+    def dehydrate_balance_owed(self, client):
+        return float(getattr(client, "balance_owed", 0) or 0)
 
     def __init__(self, *args, **kwargs):
         self._default_company = kwargs.pop("default_company", None)

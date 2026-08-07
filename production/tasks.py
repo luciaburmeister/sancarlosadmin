@@ -27,7 +27,10 @@ def run_schedule_optimization(run_id: int):
 
         strategy = build_scheduler_strategy(
             strategy_code=run.strategy,
-            optimization_params={"ts": run.slot_minutes},
+            optimization_params={
+                "ts": run.slot_minutes,
+                "time_limit": run.input_payload.get("time_limit"),
+            },
         )
         scheduler = Scheduler(strategy)
         proposal = scheduler.schedule(

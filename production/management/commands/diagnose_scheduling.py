@@ -63,9 +63,12 @@ class Command(BaseCommand):
         stage_suffix_slots = scheduler._config_stage_suffix_slots(
             configuration_stages, stage_required_slots,
         )
+        stage_prefix_slots = scheduler._config_stage_prefix_slots(
+            configuration_stages, stage_required_slots,
+        )
         valid_start_positions = scheduler._valid_stage_start_positions(
             company_ordered_slots, configuration_company, configurations,
-            configuration_stages, stage_suffix_slots,
+            configuration_stages, stage_suffix_slots, stage_prefix_slots,
         )
         structural_reasons = scheduler._structural_unschedulable_reasons(
             configurations, configuration_company, company_ordered_slots,

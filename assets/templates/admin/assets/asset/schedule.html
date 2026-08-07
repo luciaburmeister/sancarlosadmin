@@ -127,6 +127,7 @@
         box-shadow: 0 1px 3px rgba(0,0,0,.25);
         cursor: grab;
         user-select: none;
+        touch-action: none;
         overflow: hidden;
         z-index: 10;
         transition: box-shadow .12s ease;
@@ -256,6 +257,7 @@
         right: 0;
         height: 8px;
         cursor: ns-resize;
+        touch-action: none;
       }
       .sched-block .block-resize-handle-top { top: 0; }
       .sched-block .block-resize-handle-bottom { bottom: 0; }
@@ -365,6 +367,7 @@
         border-left-width: 4px;
         padding: 8px 10px;
         cursor: grab;
+        touch-action: none;
         background: #fff;
       }
       .dark .backlog-card { background: #1f2937; border-color: #374151; }
@@ -1000,7 +1003,7 @@
   }
 
   // ── Delete (unassign) ───────────────────────────────────────────────────
-  body.addEventListener("mousedown", (e) => {
+  body.addEventListener("pointerdown", (e) => {
     const delBtn = e.target.closest(".block-delete");
     if (!delBtn) return;
     e.stopPropagation();
@@ -1019,7 +1022,7 @@
   });
 
   // ── Duplicate to next day ────────────────────────────────────────────────
-  body.addEventListener("mousedown", (e) => {
+  body.addEventListener("pointerdown", (e) => {
     const dupBtn = e.target.closest(".block-duplicate");
     if (!dupBtn) return;
     e.stopPropagation();
@@ -1055,7 +1058,7 @@
   // Backlog card → grid: drag start.
   const backlogList = document.getElementById("sched-backlog-list");
   if (backlogList) {
-    backlogList.addEventListener("mousedown", (e) => {
+    backlogList.addEventListener("pointerdown", (e) => {
       if (e.target.closest(".backlog-auto-assign")) return;
       const cardEl = e.target.closest(".backlog-card");
       if (!cardEl) return;
@@ -1085,7 +1088,7 @@
 
     // Backlog card → auto-assign button: pick a compatible truck, its
     // driver, and a free time automatically, without dragging.
-    backlogList.addEventListener("mousedown", (e) => {
+    backlogList.addEventListener("pointerdown", (e) => {
       const btn = e.target.closest(".backlog-auto-assign");
       if (!btn) return;
       e.stopPropagation();
@@ -1118,7 +1121,7 @@
     });
   }
 
-  body.addEventListener("mousedown", (e) => {
+  body.addEventListener("pointerdown", (e) => {
     if (e.target.closest(".block-delete") || e.target.closest(".block-duplicate")) return;
 
     const blockEl = e.target.closest(".sched-block");
@@ -1164,7 +1167,7 @@
     blockEl.classList.add("dragging");
   });
 
-  document.addEventListener("mousemove", (e) => {
+  document.addEventListener("pointermove", (e) => {
     if (!dragState) return;
 
     if (dragState.mode === "resize-bottom") {
@@ -1204,7 +1207,7 @@
     dragState.targetCell = cell || null;
   });
 
-  document.addEventListener("mouseup", (e) => {
+  document.addEventListener("pointerup", (e) => {
     if (!dragState) return;
 
     if (dragState.mode === "backlog") {
@@ -1341,6 +1344,17 @@
         showToast(err.message);
         renderAll();
       });
+  });
+
+  // The OS/browser can abort a touch gesture mid-drag (incoming call,
+  // edge-swipe navigation, etc.) — clean up so nothing is left stuck.
+  document.addEventListener("pointercancel", () => {
+    if (!dragState) return;
+    dragState.ghost && dragState.ghost.remove();
+    dragState.targetCell && dragState.targetCell.classList.remove("drop-target");
+    dragState.cardEl && dragState.cardEl.classList.remove("dragging");
+    dragState.blockEl && dragState.blockEl.classList.remove("dragging");
+    dragState = null;
   });
 
   // ── Click an empty cell to create a new planning for that person/day/hour

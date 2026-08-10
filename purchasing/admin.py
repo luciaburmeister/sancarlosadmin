@@ -121,14 +121,14 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     # On locked (non-draft) POs every field is readonly, so `po_type` is absent
     # from the Alpine form data — the typeof guard keeps project_file visible
-    # there; get_fieldsets removes it for locked stock POs instead.
+    # there; get_fieldsets removes it for locked non-project POs instead.
     conditional_fields = {
         "project_file": "typeof po_type === 'undefined' || po_type == 'PROJECT'",
     }
 
     def get_fieldsets(self, request, obj=None):
         fieldsets = super().get_fieldsets(request, obj)
-        if obj and obj.po_type == PurchaseOrderType.STOCK and obj.status != PurchaseOrderStatus.DRAFT:
+        if obj and obj.po_type != PurchaseOrderType.PROJECT and obj.status != PurchaseOrderStatus.DRAFT:
             fieldsets = deepcopy(fieldsets)
             for _name, opts in fieldsets:
                 cleaned = []

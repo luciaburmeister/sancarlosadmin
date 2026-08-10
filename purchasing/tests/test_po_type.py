@@ -58,6 +58,26 @@ class POTypeTests(TestCase):
         po.refresh_from_db()
         self.assertIsNone(po.project_file)
 
+    def test_investment_po_without_project_file_validates(self):
+        po = self._po(po_type=PurchaseOrderType.INVESTMENT)
+        po.full_clean()
+
+    def test_investment_po_clears_project_file_on_save(self):
+        po = self._po(po_type=PurchaseOrderType.INVESTMENT, project_file=self.project_file)
+        po.save()
+        po.refresh_from_db()
+        self.assertIsNone(po.project_file)
+
+    def test_maintenance_po_without_project_file_validates(self):
+        po = self._po(po_type=PurchaseOrderType.MAINTENANCE)
+        po.full_clean()
+
+    def test_maintenance_po_clears_project_file_on_save(self):
+        po = self._po(po_type=PurchaseOrderType.MAINTENANCE, project_file=self.project_file)
+        po.save()
+        po.refresh_from_db()
+        self.assertIsNone(po.project_file)
+
     def test_default_type_is_project(self):
         self.assertEqual(self._po().po_type, PurchaseOrderType.PROJECT)
 
@@ -89,6 +109,20 @@ class POChangePageProjectFileTests(POTypeTests):
 
     def test_locked_stock_po_hides_project_file_row(self):
         po = self._po(po_type=PurchaseOrderType.STOCK, status=PurchaseOrderStatus.APPROVED)
+        po.save()
+        response = self._change_page(po)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('class="field-project_file"', response.content.decode())
+
+    def test_locked_investment_po_hides_project_file_row(self):
+        po = self._po(po_type=PurchaseOrderType.INVESTMENT, status=PurchaseOrderStatus.APPROVED)
+        po.save()
+        response = self._change_page(po)
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('class="field-project_file"', response.content.decode())
+
+    def test_locked_maintenance_po_hides_project_file_row(self):
+        po = self._po(po_type=PurchaseOrderType.MAINTENANCE, status=PurchaseOrderStatus.APPROVED)
         po.save()
         response = self._change_page(po)
         self.assertEqual(response.status_code, 200)

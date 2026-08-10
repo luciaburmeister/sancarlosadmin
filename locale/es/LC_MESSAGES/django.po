@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-06 14:23+0200\n"
+"POT-Creation-Date: 2026-08-10 11:55+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2083,6 +2083,11 @@ msgstr "Arrastra para cambiar la hora de fin"
 msgid "No pending items."
 msgstr "No hay elementos pendientes."
 
+#, fuzzy
+#| msgid "Delivery"
+msgid "Driver"
+msgstr "Entrega"
+
 msgid "Auto-assign truck, driver and time"
 msgstr "Asignar automáticamente camión, conductor y hora"
 
@@ -2929,11 +2934,6 @@ msgstr "Stock Entrante"
 #| msgid "Stock In"
 msgid "Clock Out Location"
 msgstr "Stock Entrante"
-
-#, fuzzy
-#| msgid "Delivery"
-msgid "Driver"
-msgstr "Entrega"
 
 msgid "All"
 msgstr "Todo"
@@ -9899,6 +9899,11 @@ msgid "Unit"
 msgstr "Precio unitario"
 
 #, fuzzy
+#| msgid "Tax Identifier"
+msgid "Tax identifier"
+msgstr "Identificador Fiscal"
+
+#, fuzzy
 #| msgid "Provider"
 msgid "Merge Providers"
 msgstr "Proveedor"
@@ -11182,6 +11187,10 @@ msgstr "Programación de ejecuciones"
 msgid "Optimize schedule"
 msgstr "Optimizar horario"
 
+msgid "No reason recorded (run predates this feature)."
+msgstr ""
+"No hay motivo registrado (la ejecución es anterior a esta funcionalidad)."
+
 #, fuzzy
 #| msgid "Stage status"
 msgid "Solver status"
@@ -11200,13 +11209,11 @@ msgstr "Precio total"
 msgid "Assignments"
 msgstr "Asignado"
 
-#, fuzzy
-#| msgid "Configuration"
-msgid "Configuration ID"
-msgstr "Configuración"
-
 msgid "Margin"
 msgstr "Margen"
+
+msgid "Why it was not planned"
+msgstr "Por qué no se planificó"
 
 msgid "Minutes"
 msgstr "Minutos"
@@ -11436,6 +11443,83 @@ msgstr "Líneas de Ensamblaje"
 msgid "Cannot perform this action on a line with status '%(status)s'."
 msgstr ""
 "No se puede realizar esta acción en una línea con estado '%(status)s'."
+
+msgid "machine"
+msgstr "máquina"
+
+msgid "employee"
+msgstr "empleado"
+
+msgid ""
+"The configuration has no production stage with time or resource data, so "
+"there is nothing to schedule. Check the product template's planning "
+"resources."
+msgstr ""
+"La configuración no tiene ninguna etapa de producción con datos de tiempo o "
+"recursos, por lo que no hay nada que planificar. Revisa los recursos de "
+"planificación de la plantilla de producto."
+
+#, python-format
+msgid ""
+"The company %(company)s has no working schedule slots on the weekdays inside"
+" the selected date range."
+msgstr ""
+"La empresa %(company)s no tiene franjas de horario laboral en los días de la"
+" semana dentro del rango de fechas seleccionado."
+
+#, python-format
+msgid ""
+"The configuration does not fit in the selected date range: its stages need "
+"%(needed)s slots (%(needed_minutes)s min) but only %(available)s slots are "
+"available."
+msgstr ""
+"La configuración no cabe en el rango de fechas seleccionado: sus etapas "
+"necesitan %(needed)s franjas (%(needed_minutes)s min) pero solo hay "
+"%(available)s franjas disponibles."
+
+#, python-format
+msgid ""
+"Stage \"%(stage)s\" requires a %(kind)s, but no active %(kind)s with that "
+"stage is registered as a production resource."
+msgstr ""
+"La etapa \"%(stage)s\" requiere %(kind)s, pero no hay %(kind)s activo con "
+"esa etapa registrado como recurso de producción."
+
+#, python-format
+msgid ""
+"Stage \"%(stage)s\" needs %(required)s %(kind)s(s) working in parallel, but "
+"the active resources only provide a parallel capacity of %(available)s."
+msgstr ""
+"La etapa \"%(stage)s\" necesita %(required)s %(kind)s(s) trabajando en "
+"paralelo, pero los recursos activos solo ofrecen una capacidad en paralelo "
+"de %(available)s."
+
+#, python-format
+msgid ""
+"The configuration's margin is not positive (%(margin)s), so the margin-"
+"maximizing strategy will never select it."
+msgstr ""
+"El margen de la configuración no es positivo (%(margin)s), por lo que la "
+"estrategia de maximización de margen nunca la seleccionará."
+
+#, python-format
+msgid ""
+"The solver stopped before finding a complete solution (status: %(status)s). "
+"The configuration might still fit; try a longer time limit or fewer "
+"configurations."
+msgstr ""
+"El optimizador se detuvo antes de encontrar una solución completa (estado: "
+"%(status)s). La configuración aún podría caber; prueba con un límite de "
+"tiempo mayor o con menos configuraciones."
+
+msgid ""
+"The configuration is schedulable, but there was not enough remaining "
+"resource capacity or working time in the date range once the selected "
+"configurations were scheduled."
+msgstr ""
+"La configuración es planificable, pero no quedó suficiente capacidad de "
+"recursos o tiempo de trabajo en el rango de fechas una vez planificadas las "
+"configuraciones seleccionadas."
 
 msgid "No se puede validar el motivo de pausa sin empresa."
 msgstr "No se puede validar el motivo de pausa sin empresa."
@@ -11734,6 +11818,19 @@ msgstr "Configuraciones"
 msgid "No configurations were selected by the optimizer."
 msgstr "No se seleccionaron configuraciones por el optimizador."
 
+msgid "Configurations without planning"
+msgstr "Configuraciones sin planificación"
+
+msgid ""
+"These configurations did not get a planning in this run. The reason is shown"
+" next to each one."
+msgstr ""
+"Estas configuraciones no obtuvieron planificación en esta ejecución. El "
+"motivo se muestra junto a cada una."
+
+msgid "Every requested configuration was planned."
+msgstr "Todas las configuraciones solicitadas fueron planificadas."
+
 #, fuzzy
 #| msgid "Pricing rule assignments"
 msgid "Planned assignments"
@@ -11921,18 +12018,31 @@ msgstr "Nueva conversación"
 msgid "Explain why this Purchase Order is rejected."
 msgstr "Cobrado"
 
-
 msgid "Project Purchase"
 msgstr "Compra de proyecto"
-
 
 msgid "Stock Material"
 msgstr "Stockaje"
 
+#, fuzzy
+#| msgid "Components"
+msgid "Investment"
+msgstr "Componentes"
+
+#, fuzzy
+#| msgid "Finance"
+msgid "Maintenance"
+msgstr "Finanzas"
+
 msgid "Pending Approval"
 msgstr "Pendiente"
 
-msgid "Required for project purchases; not used for stock material orders."
+#, fuzzy
+#| msgid ""
+#| "Required for project purchases; not used for stock material orders."
+msgid ""
+"Required for project purchases; not used for stock, investment, or "
+"maintenance orders."
 msgstr ""
 "Requerido para compras de proyectos; no se usa para pedidos de material de "
 "inventario."
@@ -13670,6 +13780,10 @@ msgstr "Ausencias pasadas"
 msgid "No past absences."
 msgstr "No hay ausencias pasadas"
 
+#, fuzzy
+#~ msgid "Configuration ID"
+#~ msgstr "Configuración"
+
 #~ msgid ""
 #~ "Nothing to auto-assign — every visible planning already has a driver and "
 #~ "truck."
@@ -13930,114 +14044,3 @@ msgstr "No hay ausencias pasadas"
 
 #~ msgid "employees in the file could not be matched."
 #~ msgstr "No se pudieron emparejar %(counter)s empleados del archivo."
-
-#: production/services/scheduler/reasons.py
-msgid "machine"
-msgstr "máquina"
-
-#: production/services/scheduler/reasons.py
-msgid "employee"
-msgstr "empleado"
-
-#: production/services/scheduler/reasons.py
-msgid ""
-"The configuration has no production stage with time or resource data, so "
-"there is nothing to schedule. Check the product template's planning "
-"resources."
-msgstr ""
-"La configuración no tiene ninguna etapa de producción con datos de tiempo o "
-"recursos, por lo que no hay nada que planificar. Revisa los recursos de "
-"planificación de la plantilla de producto."
-
-#: production/services/scheduler/reasons.py
-#, python-format
-msgid ""
-"The company %(company)s has no working schedule slots on the weekdays "
-"inside the selected date range."
-msgstr ""
-"La empresa %(company)s no tiene franjas de horario laboral en los días de "
-"la semana dentro del rango de fechas seleccionado."
-
-#: production/services/scheduler/reasons.py
-#, python-format
-msgid ""
-"The configuration does not fit in the selected date range: its stages need "
-"%(needed)s slots (%(needed_minutes)s min) but only %(available)s slots are "
-"available."
-msgstr ""
-"La configuración no cabe en el rango de fechas seleccionado: sus etapas "
-"necesitan %(needed)s franjas (%(needed_minutes)s min) pero solo hay "
-"%(available)s franjas disponibles."
-
-#: production/services/scheduler/reasons.py
-#, python-format
-msgid ""
-"Stage \"%(stage)s\" requires a %(kind)s, but no active %(kind)s with that "
-"stage is registered as a production resource."
-msgstr ""
-"La etapa \"%(stage)s\" requiere %(kind)s, pero no hay %(kind)s activo con "
-"esa etapa registrado como recurso de producción."
-
-#: production/services/scheduler/reasons.py
-#, python-format
-msgid ""
-"Stage \"%(stage)s\" needs %(required)s %(kind)s(s) working in parallel, but "
-"the active resources only provide a parallel capacity of %(available)s."
-msgstr ""
-"La etapa \"%(stage)s\" necesita %(required)s %(kind)s(s) trabajando en "
-"paralelo, pero los recursos activos solo ofrecen una capacidad en paralelo "
-"de %(available)s."
-
-#: production/services/scheduler/reasons.py
-#, python-format
-msgid ""
-"The configuration's margin is not positive (%(margin)s), so the margin-"
-"maximizing strategy will never select it."
-msgstr ""
-"El margen de la configuración no es positivo (%(margin)s), por lo que la "
-"estrategia de maximización de margen nunca la seleccionará."
-
-#: production/services/scheduler/reasons.py
-#, python-format
-msgid ""
-"The solver stopped before finding a complete solution (status: %(status)s). "
-"The configuration might still fit; try a longer time limit or fewer "
-"configurations."
-msgstr ""
-"El optimizador se detuvo antes de encontrar una solución completa (estado: "
-"%(status)s). La configuración aún podría caber; prueba con un límite de "
-"tiempo mayor o con menos configuraciones."
-
-#: production/services/scheduler/reasons.py
-msgid ""
-"The configuration is schedulable, but there was not enough remaining "
-"resource capacity or working time in the date range once the selected "
-"configurations were scheduled."
-msgstr ""
-"La configuración es planificable, pero no quedó suficiente capacidad de "
-"recursos o tiempo de trabajo en el rango de fechas una vez planificadas las "
-"configuraciones seleccionadas."
-
-#: production/admin.py
-msgid "No reason recorded (run predates this feature)."
-msgstr "No hay motivo registrado (la ejecución es anterior a esta funcionalidad)."
-
-#: production/admin.py
-msgid "Why it was not planned"
-msgstr "Por qué no se planificó"
-
-#: production/templates/admin/production/schedulingrun/preview.html
-msgid "Configurations without planning"
-msgstr "Configuraciones sin planificación"
-
-#: production/templates/admin/production/schedulingrun/preview.html
-msgid ""
-"These configurations did not get a planning in this run. The reason is "
-"shown next to each one."
-msgstr ""
-"Estas configuraciones no obtuvieron planificación en esta ejecución. El "
-"motivo se muestra junto a cada una."
-
-#: production/templates/admin/production/schedulingrun/preview.html
-msgid "Every requested configuration was planned."
-msgstr "Todas las configuraciones solicitadas fueron planificadas."

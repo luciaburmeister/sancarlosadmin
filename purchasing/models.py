@@ -19,6 +19,8 @@ def po_file_path(instance, filename):
 class PurchaseOrderType(models.TextChoices):
     PROJECT = "PROJECT", _("Project Purchase")
     STOCK = "STOCK", _("Stock Material")
+    INVESTMENT = "INVESTMENT", _("Investment")
+    MAINTENANCE = "MAINTENANCE", _("Maintenance")
 
 class PurchaseOrderStatus(models.TextChoices):
     DRAFT = "DRAFT", _("Draft")
@@ -53,7 +55,7 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         blank=True,
         related_name="purchase_orders",
         verbose_name=_("Project File"),
-        help_text=_("Required for project purchases; not used for stock material orders."),
+        help_text=_("Required for project purchases; not used for stock, investment, or maintenance orders."),
     )
     external_reference = models.CharField(
         max_length=100,
@@ -155,7 +157,7 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
             raise ValidationError({"project_file": _("A project file is required for project purchases.")})
 
     def save(self, *args, **kwargs):
-        if self.po_type == PurchaseOrderType.STOCK:
+        if self.po_type != PurchaseOrderType.PROJECT:
             self.project_file = None
         if not self.number and self.company:
             self.number = next_scoped_code(

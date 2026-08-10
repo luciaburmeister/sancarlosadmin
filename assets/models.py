@@ -892,6 +892,124 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
         return GoogleRouteOptimizer().estimate_duration(self.from_zone, self.to_zone)
 
 
+class AssetPlanningRequestDraftStatus(models.TextChoices):
+    DRAFT = "draft", _("Draft")
+    SUBMITTED = "submitted", _("Submitted")
+    PROCESSED = "processed", _("Processed")
+    CANCELLED = "cancelled", _("Cancelled")
+
+
+class AssetPlanningRequestDraft(CompanyOwnedModel, Timestampable):
+    """
+    Mobile-app draft of a planning request. Client/zones can be picked from the
+    real Client/WorkingZone catalogs, or — when the requester can't find one —
+    described with the new_*/*_text/*_city suggestion fields instead. Never
+    becomes an AssetPlanningRequest automatically — a planner reads it and
+    creates the real one by hand (see AssetPlanningRequestAdmin's "Create real
+    request" action), at which point this draft is linked via `resulting_request`.
+    """
+    service_type = models.CharField(max_length=25, choices=ServiceType.choices, default=SERVICE_TYPE_MAQUINA_PROPIA, verbose_name=_("Service Type"))
+    client = models.ForeignKey(
+        Client, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="asset_planning_request_drafts", verbose_name=_("Client"),
+        help_text=_("Leave empty and fill New Client Name instead if this client doesn't exist yet."),
+    )
+    new_client_name = models.CharField(
+        max_length=100, blank=True, verbose_name=_("New Client Name (suggested)"),
+        help_text=_("Filled instead of Client when the requester couldn't find the client — a new one must be created."),
+    )
+    new_client_tax_id = models.CharField(max_length=20, blank=True, verbose_name=_("New Client Tax ID (CIF/NIF, suggested)"))
+    new_client_fiscal_address = models.CharField(max_length=255, blank=True, verbose_name=_("New Client Fiscal Address (suggested)"))
+    to_zone = models.ForeignKey(
+        WorkingZone, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+", verbose_name=_("To Zone"),
+        help_text=_("Leave empty and fill Destination Street/City instead if this zone doesn't exist yet."),
+    )
+    destination_text = models.CharField(
+        max_length=255, blank=True, verbose_name=_("New Destination Street/Number (suggested)"),
+        help_text=_("Filled instead of To Zone when the requester couldn't find the zone — a new one must be created."),
+    )
+    destination_city = models.CharField(max_length=100, blank=True, default="Málaga", verbose_name=_("New Destination City (suggested)"))
+    from_zone = models.ForeignKey(
+        WorkingZone, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+", verbose_name=_("From Zone"),
+        help_text=_("Leave empty and fill Origin Street/City instead if this zone doesn't exist yet."),
+    )
+    origin_text = models.CharField(
+        max_length=255, blank=True, verbose_name=_("New Origin Street/Number (suggested)"),
+        help_text=_("Filled instead of From Zone when the requester couldn't find the zone — a new one must be created."),
+    )
+    origin_city = models.CharField(max_length=100, blank=True, default="Málaga", verbose_name=_("New Origin City (suggested)"))
+    needed_date = models.DateField(verbose_name=_("Needed Date"))
+    needed_time = models.TimeField(null=True, blank=True, verbose_name=_("Preferred Time"))
+    urgency = models.CharField(max_length=10, choices=PlanningUrgency.choices, blank=True, verbose_name=_("Urgency"))
+    notes = models.TextField(blank=True, verbose_name=_("Notes"))
+    cuba_operation_type = models.CharField(max_length=20, choices=CubaOperationType.choices, blank=True, verbose_name=_("Cuba Operation Type"))
+    cuba_size = models.CharField(max_length=10, choices=CubaSize.choices, blank=True, verbose_name=_("Cuba Size"))
+    asset = models.ForeignKey(Asset, on_delete=models.SET_NULL, null=True, blank=True, related_name="planning_request_drafts", verbose_name=_("Asset"))
+    load_description = models.TextField(blank=True, verbose_name=_("Load Description"))
+    requested_by = models.ForeignKey('company.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name="asset_planning_request_drafts", verbose_name=_("Requested By"))
+    status = models.CharField(max_length=20, choices=AssetPlanningRequestDraftStatus.choices, default=AssetPlanningRequestDraftStatus.DRAFT, verbose_name=_("Status"))
+    resulting_request = models.OneToOneField(
+        AssetPlanningRequest, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="source_draft", verbose_name=_("Asset Planning Request"),
+    )
+
+    class Meta:
+        verbose_name = _("Asset Planning Request Draft")
+        verbose_name_plural = _("Asset Planning Request Drafts")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        client_label = self.new_client_name or (self.client.name if self.client_id else "?")
+        destination_label = self.to_zone.name if self.to_zone_id else (self.destination_text or "?")
+        return f"{self.get_service_type_display()} → {destination_label} ({client_label}, {self.needed_date})"
+
+    @property
+    def requests_new_client(self) -> bool:
+        """True when the requester couldn't find their client and suggested a new one instead."""
+        return bool(self.new_client_name) and not self.client_id
+
+    @property
+    def requests_new_destination_zone(self) -> bool:
+        """True when the requester couldn't find the destination zone and described a new one instead."""
+        return bool(self.destination_text) and not self.to_zone_id
+
+    @property
+    def requests_new_origin_zone(self) -> bool:
+        """True when the requester couldn't find the origin zone and described a new one instead."""
+        return bool(self.origin_text) and not self.from_zone_id
+
+    @classmethod
+    def count_submitted_for(cls, companies) -> int:
+        """How many drafts are SUBMITTED and awaiting a planner, across the given companies."""
+        return cls.objects.filter(
+            status=AssetPlanningRequestDraftStatus.SUBMITTED, company__in=companies,
+        ).count()
+
+    def missing_fields_for_submit(self):
+        """Field names still needed before this draft can move to SUBMITTED."""
+        needed = SERVICE_TYPE_FIELDS.get(self.service_type, set())
+        required = {
+            field_name for field_name in needed
+            if field_name not in ("suggested_trucks", "from_zone", "to_zone")
+        }
+        required |= {"needed_date"}
+
+        missing = []
+        for field_name in required:
+            value = getattr(self, f"{field_name}_id" if field_name == "asset" else field_name)
+            if not value:
+                missing.append(field_name)
+        if not self.client_id and not self.new_client_name.strip():
+            missing.append("client")
+        if not self.to_zone_id and not self.destination_text.strip():
+            missing.append("destination_text")
+        if "from_zone" in needed and not self.from_zone_id and not self.origin_text.strip():
+            missing.append("origin_text")
+        return missing
+
+
 class ZoneDistanceCache(models.Model):
     from_zone = models.ForeignKey(WorkingZone, on_delete=models.CASCADE, related_name="+")
     to_zone = models.ForeignKey(WorkingZone, on_delete=models.CASCADE, related_name="+")

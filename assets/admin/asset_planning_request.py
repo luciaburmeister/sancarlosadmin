@@ -1,4 +1,5 @@
 from django.contrib import admin, messages
+from django.contrib.admin.utils import unquote
 from django.db import transaction
 from django.urls import reverse
 from django.shortcuts import redirect
@@ -14,7 +15,10 @@ from core.admin.company_access import get_user_companies
 from company.models import Employee
 from assets.constants import SERVICE_TYPE_FIELDS, SERVICE_TYPE_MAQUINA_PROPIA
 from assets.forms import AssetPlanningRequestForm
-from assets.models import Asset, AssetPlanning, AssetPlanningRequest, AssetPlanningRequestStatus, AssetTypeCategory
+from assets.models import (
+    Asset, AssetPlanning, AssetPlanningRequest, AssetPlanningRequestDraft,
+    AssetPlanningRequestDraftStatus, AssetPlanningRequestStatus, AssetTypeCategory,
+)
 
 # Built from SERVICE_TYPE_FIELDS so the form and AssetPlanningRequest.clean()
 # never disagree about which fields apply to which service type.
@@ -59,6 +63,7 @@ class ChangesPendingFilter(admin.SimpleListFilter):
 @admin.register(AssetPlanningRequest)
 class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     form = AssetPlanningRequestForm
+    change_form_before_template = "admin/assets/assetplanningrequest/source_draft_panel.html"
     list_display = (
         "service_type", "to_zone", "from_zone",
         "needed_date", "needed_time", "urgency", "show_status",
@@ -131,6 +136,71 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         # Stashed for formfield_for_foreignkey/formfield_for_manytomany below.
         request._obj_ = obj
         return super().get_form(request, obj, **kwargs)
+
+    def add_view(self, request, form_url="", extra_context=None):
+        # Stashed for get_changeform_initial_data below and rendered by
+        # change_form_before_template (source_draft_panel.html) so the
+        # planner can see the original mobile draft while filling in the
+        # real zones/project file it doesn't carry.
+        draft_id = request.GET.get("draft_id")
+        if draft_id:
+            request._source_draft = AssetPlanningRequestDraft.objects.filter(
+                pk=draft_id
+            ).select_related("client", "asset", "requested_by").first()
+            if request._source_draft is not None:
+                extra_context = extra_context or {}
+                extra_context["source_draft"] = request._source_draft
+        return super().add_view(request, form_url, extra_context)
+
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        # Same source_draft_panel.html as add_view, so the second reviewer
+        # can also see the original mobile draft, not just the first.
+        obj = self.get_object(request, unquote(object_id))
+        source_draft = getattr(obj, "source_draft", None) if obj is not None else None
+        if source_draft is not None:
+            extra_context = extra_context or {}
+            extra_context["source_draft"] = source_draft
+        return super().change_view(request, object_id, form_url, extra_context)
+
+    def get_changeform_initial_data(self, request):
+        # Prefills the add form from a mobile draft (see add_view above and
+        # AssetPlanningRequestDraftAdmin.create_request_action).
+        initial = super().get_changeform_initial_data(request)
+        draft = getattr(request, "_source_draft", None)
+        if draft is None:
+            return initial
+        initial.update({
+            "service_type": draft.service_type,
+            "needed_date": draft.needed_date,
+            "cuba_operation_type": draft.cuba_operation_type,
+            "cuba_size": draft.cuba_size,
+            "asset": draft.asset_id,
+            "load_description": draft.load_description,
+            "notes": draft.notes,
+        })
+        # Optional on the draft; only override the request's own default
+        # (urgency=MEDIUM) when the requester actually picked one.
+        if draft.needed_time:
+            initial["needed_time"] = draft.needed_time
+        if draft.urgency:
+            initial["urgency"] = draft.urgency
+        # Zones the requester picked from the real catalog carry straight
+        # over — only the new-zone-request suggestions (destination_text/
+        # destination_city, origin_text/origin_city) need the reviewer to
+        # create a WorkingZone by hand first (see source_draft_panel.html).
+        if draft.to_zone_id:
+            initial["to_zone"] = draft.to_zone_id
+        if draft.from_zone_id:
+            initial["from_zone"] = draft.from_zone_id
+        return initial
+
+    def response_add(self, request, obj, post_url_continue=None):
+        draft_id = request.GET.get("draft_id")
+        if draft_id:
+            AssetPlanningRequestDraft.objects.filter(pk=draft_id).update(
+                status=AssetPlanningRequestDraftStatus.PROCESSED, resulting_request=obj,
+            )
+        return super().response_add(request, obj, post_url_continue)
 
     def _target_company(self, request):
         """Company every company-scoped field (asset, assigned_to, suggested_trucks) must agree on."""

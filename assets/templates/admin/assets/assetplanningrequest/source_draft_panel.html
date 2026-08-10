@@ -1,0 +1,118 @@
+{% load i18n %}
+
+{% if source_draft %}
+{% with draft=source_draft %}
+<div class="mb-6 rounded-default border border-primary-200 dark:border-primary-800 bg-primary-50 dark:bg-primary-900/10 shadow-xs overflow-hidden">
+  <div class="flex items-center justify-between gap-2 px-5 py-3 border-b border-primary-200 dark:border-primary-800">
+    <div class="flex items-center gap-2">
+      <span class="material-symbols-outlined text-primary-600 dark:text-primary-400 text-[18px] leading-none">smartphone</span>
+      <h2 class="text-sm font-bold text-font-important-light dark:text-font-important-dark m-0">
+        {% blocktrans with requester=draft.requested_by|default:"—" %}From mobile draft — requested by {{ requester }}{% endblocktrans %}
+      </h2>
+    </div>
+    {% url 'admin:assets_assetplanningrequestdraft_change' draft.pk as draft_url %}
+    <a href="{{ draft_url }}" class="text-xs font-medium text-primary-700 dark:text-primary-400 hover:underline whitespace-nowrap">
+      {% trans "View original draft" %}
+    </a>
+  </div>
+
+  {% if draft.requests_new_client %}
+  <div class="mx-5 mt-4 rounded-default border-2 border-red-500 dark:border-red-400 bg-red-50 dark:bg-red-900/30 px-4 py-3">
+    <p class="m-0 text-sm font-black text-red-700 dark:text-red-300">
+      {% trans "NEW CLIENT REQUESTED — create it before continuing" %}
+    </p>
+    <p class="m-0 mt-1 text-sm text-red-700 dark:text-red-300">
+      <strong>{% trans "Name" %}:</strong> {{ draft.new_client_name }}
+      {% if draft.new_client_tax_id %} · <strong>{% trans "Tax ID" %}:</strong> {{ draft.new_client_tax_id }}{% endif %}
+      {% if draft.new_client_fiscal_address %} · <strong>{% trans "Fiscal Address" %}:</strong> {{ draft.new_client_fiscal_address }}{% endif %}
+    </p>
+  </div>
+  {% endif %}
+
+  {% if draft.requests_new_destination_zone or draft.requests_new_origin_zone %}
+  <div class="mx-5 mt-4 rounded-default border-2 border-red-500 dark:border-red-400 bg-red-50 dark:bg-red-900/30 px-4 py-3">
+    <p class="m-0 text-sm font-black text-red-700 dark:text-red-300">
+      {% trans "NEW WORKING ZONE REQUESTED — create it before continuing" %}
+    </p>
+    {% if draft.requests_new_destination_zone %}
+    <p class="m-0 mt-1 text-sm text-red-700 dark:text-red-300">
+      <strong>{% trans "Destination" %}:</strong> {{ draft.destination_text }}, {{ draft.destination_city }}
+    </p>
+    {% endif %}
+    {% if draft.requests_new_origin_zone %}
+    <p class="m-0 mt-1 text-sm text-red-700 dark:text-red-300">
+      <strong>{% trans "Origin" %}:</strong> {{ draft.origin_text }}, {{ draft.origin_city }}
+    </p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 px-5 py-4 text-sm">
+    <div>
+      <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Client" %}</p>
+      <p class="m-0 text-font-default-light dark:text-font-default-dark">{{ draft.client.name|default:"—" }}</p>
+    </div>
+    <div>
+      <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Service Type" %}</p>
+      <p class="m-0 text-font-default-light dark:text-font-default-dark">{{ draft.get_service_type_display }}</p>
+    </div>
+    <div>
+      <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Destination" %}</p>
+      <p class="m-0 text-font-default-light dark:text-font-default-dark">
+        {% if draft.to_zone %}{{ draft.to_zone.name }}{% else %}{{ draft.destination_text|default:"—" }}{% endif %}
+      </p>
+    </div>
+    <div>
+      <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Origin" %}</p>
+      <p class="m-0 text-font-default-light dark:text-font-default-dark">
+        {% if draft.from_zone %}{{ draft.from_zone.name }}{% else %}{{ draft.origin_text|default:"—" }}{% endif %}
+      </p>
+    </div>
+    <div>
+      <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Needed Date" %}</p>
+      <p class="m-0 text-font-default-light dark:text-font-default-dark">{{ draft.needed_date }}</p>
+    </div>
+    {% if draft.needed_time %}
+    <div>
+      <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Preferred Time" %}</p>
+      <p class="m-0 text-font-default-light dark:text-font-default-dark">{{ draft.needed_time }}</p>
+    </div>
+    {% endif %}
+    {% if draft.urgency %}
+    <div>
+      <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Urgency" %}</p>
+      <p class="m-0 text-font-default-light dark:text-font-default-dark">{{ draft.get_urgency_display }}</p>
+    </div>
+    {% endif %}
+    {% if draft.asset %}
+    <div>
+      <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Asset" %}</p>
+      <p class="m-0 text-font-default-light dark:text-font-default-dark">{{ draft.asset }}</p>
+    </div>
+    {% endif %}
+    {% if draft.load_description %}
+    <div class="sm:col-span-2">
+      <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Load Description" %}</p>
+      <p class="m-0 text-font-default-light dark:text-font-default-dark whitespace-pre-line">{{ draft.load_description }}</p>
+    </div>
+    {% endif %}
+    {% if draft.cuba_operation_type or draft.cuba_size %}
+    <div>
+      <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Cuba Operation Type" %}</p>
+      <p class="m-0 text-font-default-light dark:text-font-default-dark">{{ draft.get_cuba_operation_type_display|default:"—" }}</p>
+    </div>
+    <div>
+      <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Cuba Size" %}</p>
+      <p class="m-0 text-font-default-light dark:text-font-default-dark">{{ draft.get_cuba_size_display|default:"—" }}</p>
+    </div>
+    {% endif %}
+    {% if draft.notes %}
+    <div class="sm:col-span-2">
+      <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Notes" %}</p>
+      <p class="m-0 text-font-default-light dark:text-font-default-dark whitespace-pre-line">{{ draft.notes }}</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endwith %}
+{% endif %}

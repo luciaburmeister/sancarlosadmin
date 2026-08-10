@@ -14044,3 +14044,124 @@ msgstr "No hay ausencias pasadas"
 
 #~ msgid "employees in the file could not be matched."
 #~ msgstr "No se pudieron emparejar %(counter)s empleados del archivo."
+
+msgid "New Client Name (suggested)"
+msgstr "Nombre del cliente nuevo (sugerido)"
+
+msgid "Filled instead of Client when the requester couldn't find the client — a new one must be created."
+msgstr "Se rellena en vez de Cliente cuando quien solicita no encuentra el cliente — hay que crear uno nuevo."
+
+msgid "New Client Tax ID (CIF/NIF, suggested)"
+msgstr "CIF/NIF del cliente nuevo (sugerido)"
+
+msgid "New Client Fiscal Address (suggested)"
+msgstr "Domicilio fiscal del cliente nuevo (sugerido)"
+
+msgid "Leave empty and fill New Client Name instead if this client doesn't exist yet."
+msgstr "Déjalo vacío y rellena Nombre del cliente nuevo si este cliente todavía no existe."
+
+msgid "Destination (written by requester)"
+msgstr "Destino (escrito por quien solicita)"
+
+msgid "Origin (written by requester)"
+msgstr "Origen (escrito por quien solicita)"
+
+msgid "Preferred Time"
+msgstr "Hora preferida"
+
+msgid "Asset Planning Request Draft"
+msgstr "Borrador de Solicitud de Planificación"
+
+msgid "Asset Planning Request Drafts"
+msgstr "Borradores de Solicitud de Planificación"
+
+msgid "New client requested"
+msgstr "Cliente nuevo solicitado"
+
+msgid "Request (written by the requester)"
+msgstr "Solicitud (escrita por quien solicita)"
+
+msgid "New client"
+msgstr "Cliente nuevo"
+
+msgid "New Client Request"
+msgstr "Solicitud de Cliente Nuevo"
+
+msgid "⚠️ This requester couldn't find their client — a NEW client must be created first (suggested name/tax ID/fiscal address below) before this can become a real request."
+msgstr "⚠️ Quien solicita no encontró su cliente — hay que crear un cliente NUEVO primero (nombre/CIF/domicilio fiscal sugeridos abajo) antes de poder convertir esto en una solicitud real."
+
+msgid "Create real request"
+msgstr "Crear solicitud real"
+
+msgid "Only submitted drafts can be turned into a real request."
+msgstr "Solo los borradores publicados pueden convertirse en una solicitud real."
+
+msgid "Drafts"
+msgstr "Borradores"
+
+msgid "Requests"
+msgstr "Solicitudes"
+
+msgid "View original draft"
+msgstr "Ver borrador original"
+
+msgid "NEW CLIENT REQUESTED — create it before continuing"
+msgstr "CLIENTE NUEVO SOLICITADO — créalo antes de continuar"
+
+msgid "Fiscal Address"
+msgstr "Domicilio fiscal"
+
+#, python-format
+msgid "From mobile draft — requested by %(requester)s"
+msgstr "Del borrador móvil — solicitado por %(requester)s"
+
+msgid "New Destination Street/Number (suggested)"
+msgstr "Calle y número del destino nuevo (sugerido)"
+
+msgid "New Destination City (suggested)"
+msgstr "Ciudad del destino nuevo (sugerida)"
+
+msgid "New Origin Street/Number (suggested)"
+msgstr "Calle y número del origen nuevo (sugerido)"
+
+msgid "New Origin City (suggested)"
+msgstr "Ciudad del origen nuevo (sugerida)"
+
+msgid "Leave empty and fill Destination Street/City instead if this zone doesn't exist yet."
+msgstr "Déjalo vacío y rellena Calle/Ciudad del destino si esta zona todavía no existe."
+
+msgid "Leave empty and fill Origin Street/City instead if this zone doesn't exist yet."
+msgstr "Déjalo vacío y rellena Calle/Ciudad del origen si esta zona todavía no existe."
+
+msgid "Filled instead of To Zone when the requester couldn't find the zone — a new one must be created."
+msgstr "Se rellena en vez de Zona de destino cuando quien solicita no encuentra la zona — hay que crear una nueva."
+
+msgid "Filled instead of From Zone when the requester couldn't find the zone — a new one must be created."
+msgstr "Se rellena en vez de Zona de origen cuando quien solicita no encuentra la zona — hay que crear una nueva."
+
+msgid "New zone requested"
+msgstr "Zona nueva solicitada"
+
+msgid "New zone"
+msgstr "Zona nueva"
+
+msgid "New Zone Request"
+msgstr "Solicitud de Zona Nueva"
+
+msgid "Origin"
+msgstr "Origen"
+
+msgid "NEW WORKING ZONE REQUESTED — create it before continuing"
+msgstr "ZONA DE TRABAJO NUEVA SOLICITADA — créala antes de continuar"
+
+#, python-format
+msgid "Destination: %(street)s, %(city)s"
+msgstr "Destino: %(street)s, %(city)s"
+
+#, python-format
+msgid "Origin: %(street)s, %(city)s"
+msgstr "Origen: %(street)s, %(city)s"
+
+msgid "⚠️ This requester couldn't find a working zone — a NEW one must be created first. "
+msgstr "⚠️ Quien solicita no encontró una zona de trabajo — hay que crear una NUEVA primero. "
+

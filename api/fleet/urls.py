@@ -4,7 +4,7 @@ from company.views.views import LocationRecordCreateView
 from assets.views import asset_transaction_imagen_view
 from .views.assets import DeliveryCheckView, MachineHoursListView, MachineCheckView, LaborerZonesView, LaborerHoursView, LaborerHoursStatusView
 from .views.attendance import MachineHoursHistorialView
-from .views import assets, attendance, zones
+from .views import assets, attendance, zones, planning_drafts
 
 urlpatterns = [
     path("assets/", assets.AssetsListView.as_view(), name="assets"),
@@ -37,4 +37,9 @@ urlpatterns = [
     path("laborer/zones/", LaborerZonesView.as_view(), name="laborer_zones"),
     path("laborer/transaction/", LaborerHoursView.as_view(), name="laborer_transaction"),
     path("laborer/status/", LaborerHoursStatusView.as_view(), name="laborer_status"),
+    path("planning-drafts/", planning_drafts.PlanningDraftListCreateView.as_view(), name="planning_drafts"),
+    path("planning-drafts/service-types/", planning_drafts.PlanningDraftServiceTypesView.as_view(), name="planning_draft_service_types"),
+    path("planning-drafts/<int:draft_id>/", planning_drafts.PlanningDraftDetailView.as_view(), name="planning_draft_detail"),
+    path("planning-drafts/<int:draft_id>/submit/", planning_drafts.PlanningDraftSubmitView.as_view(), name="planning_draft_submit"),
+    path("machines/", planning_drafts.MachinesListView.as_view(), name="machines"),
 ]

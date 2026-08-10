@@ -15,7 +15,7 @@ from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
-from django.utils import timezone
+from django.utils import timezone, translation
 
 from assets.admin.asset_planning_request import AssetPlanningRequestAdmin
 from assets.models import (
@@ -93,7 +93,12 @@ class AwaitsRereviewTests(TestCase):
         planning.refresh_from_db()
         self.assertTrue(planning.has_pending_request_changes)
         self.assertTrue(planning.is_old_plan)
-        card = _planning_card_data(planning)
+        # _planning_card_data() translates old_plan_label at call time using
+        # whatever language is currently active. Outside a request (no
+        # LocaleMiddleware involved), that defaults to LANGUAGE_CODE ("es"),
+        # so force English here to assert against the source string.
+        with translation.override("en"):
+            card = _planning_card_data(planning)
         self.assertTrue(card["is_old_plan"])
         self.assertIn("Old plan", card["old_plan_label"])
 
@@ -118,7 +123,8 @@ class AwaitsRereviewTests(TestCase):
         self.assertTrue(old.is_superseded)
         self.assertTrue(old.is_old_plan)
         self.assertFalse(new.is_old_plan)
-        card = _planning_card_data(old)
+        with translation.override("en"):
+            card = _planning_card_data(old)
         self.assertTrue(card["is_old_plan"])
         self.assertTrue(card["is_superseded"])
         self.assertEqual(card["old_plan_label"], "Old plan")

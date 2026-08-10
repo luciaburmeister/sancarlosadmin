@@ -1,4 +1,5 @@
 """Main orchestrator for bank transaction matching and reconciliation."""
+from datetime import timedelta
 from decimal import Decimal
 
 from django.apps import apps
@@ -19,7 +20,10 @@ from banking.services.transaction_matching.counterparty import (
     find_counterparty,
     find_employee_counterparty,
 )
-from banking.services.transaction_matching.types import MatchResult
+from banking.services.transaction_matching.types import (
+    PAYMENT_DATE_TOLERANCE_DAYS,
+    MatchResult,
+)
 from payments.models import (
     Payment,
     PaymentAllocation,
@@ -223,7 +227,9 @@ class TransactionMatcher:
         """
         Fetch unpaid / partially paid documents that could match.
         Scoped to the identified counterparty when available.
-        Only considers invoices issued on or before the transaction date.
+        Only considers invoices issued on or before the transaction date,
+        allowing for a payment to arrive up to PAYMENT_DATE_TOLERANCE_DAYS
+        before the document's date (early payments).
         """
         Invoice = apps.get_model("invoices", "Invoice")
         SalesInvoice = apps.get_model("invoices", "SalesInvoice")
@@ -231,12 +237,13 @@ class TransactionMatcher:
         LoanEvent = apps.get_model("loans", "LoanEvent")
         ExpenseClaim = apps.get_model("expenses", "ExpenseClaim")
         txn_date = self.transaction.transaction_date
+        cutoff_date = txn_date + timedelta(days=PAYMENT_DATE_TOLERANCE_DAYS)
 
         if self.direction == PaymentDirection.OUTBOUND:
             qs = Invoice.objects.filter(
                 company=self.transaction.company,
                 payment_status__in=["unpaid", "partial"],
-                date_issued__lte=txn_date,
+                date_issued__lte=cutoff_date,
             )
             if self.counterparty:
                 qs = qs.filter(provider=self.counterparty)
@@ -245,7 +252,7 @@ class TransactionMatcher:
                 loan__company=self.transaction.company,
                 loan__bank_account=self.transaction.bank_account,
                 payment_status__in=["unpaid", "partial"],
-                due_date__lte=txn_date,
+                due_date__lte=cutoff_date,
             )
 
             # LoanEvents (early repayments) that haven't been reconciled yet
@@ -259,7 +266,7 @@ class TransactionMatcher:
                 parent_loan__bank_account=self.transaction.bank_account,
                 parent_loan__company=self.transaction.company,
                 event_type="early_repayment",
-                date__lte=txn_date,
+                date__lte=cutoff_date,
             ).exclude(pk__in=reconciled_event_ids)
 
             # Approved expense claims — reimbursement goes to the employee,
@@ -269,7 +276,7 @@ class TransactionMatcher:
             claim_qs = ExpenseClaim.objects.filter(
                 company=self.transaction.company,
                 status=ExpenseClaimStatus.APPROVED,
-                created_at__date__lte=txn_date,
+                created_at__date__lte=cutoff_date,
             )
             employee = find_employee_counterparty(self.transaction, self.transaction.company)
             self.employee_counterparty = employee
@@ -281,7 +288,7 @@ class TransactionMatcher:
         qs = SalesInvoice.objects.filter(
             company=self.transaction.company,
             payment_status__in=["unpaid", "partial"],
-            date_issued__lte=txn_date,
+            date_issued__lte=cutoff_date,
         )
         if self.counterparty:
             qs = qs.filter(client=self.counterparty)

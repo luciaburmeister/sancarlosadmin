@@ -237,16 +237,12 @@ msgstr "Albaranes de Trabajo"
 msgid "Receival Slips"
 msgstr "Albaránes de Recibida"
 
-#, fuzzy
-#| msgid "Process Planning"
 msgid "Resource Planning"
-msgstr "Planificación del Proceso"
+msgstr "Planificación de Recursos"
 
 msgid "Planning Backlog"
 msgstr "Backlog de planificación"
 
-#, fuzzy
-#| msgid "Planning"
 msgid "Planning Types"
 msgstr "Tipos de planificación"
 
@@ -262,10 +258,8 @@ msgstr "Ordenes de Compra"
 msgid "PO Receipts"
 msgstr "Albaránes de Recepción"
 
-#, fuzzy
-#| msgid "Provider"
 msgid "Providers"
-msgstr "Proveedor"
+msgstr "Proveedores"
 
 msgid "Invoicing"
 msgstr "Facturación"
@@ -324,10 +318,8 @@ msgstr "Tipos de Activos"
 msgid "Asset Planning"
 msgstr "Planificación del Activos"
 
-#, fuzzy
-#| msgid "Process Planning"
 msgid "Request Planning"
-msgstr "Planificación del Proceso"
+msgstr "Solicitudes de Planificación"
 
 msgid "Asset Transactions"
 msgstr "Transacciónes de activos"
@@ -335,10 +327,8 @@ msgstr "Transacciónes de activos"
 msgid "Maps"
 msgstr "Mapas"
 
-#, fuzzy
-#| msgid "Payment Tracking"
 msgid "Driver Tracking"
-msgstr "Seguimiento de pagos"
+msgstr "Seguimiento de conductores"
 
 msgid "Materials"
 msgstr "Materiales"

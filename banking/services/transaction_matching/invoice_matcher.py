@@ -21,6 +21,7 @@ from banking.models import (
 )
 from banking.services.transaction_matching.types import (
     AMOUNT_TOLERANCE_PERCENT,
+    PAYMENT_DATE_TOLERANCE_DAYS,
 )
 from payments.models import (
     Payment,
@@ -286,6 +287,8 @@ class InvoiceMatcher:
         Returns list of (BankTransaction, available_amount) tuples.
         Filters by direction, company, and reconciliation status.
         Applies counterparty IBAN filter when known.
+        Transactions dated up to PAYMENT_DATE_TOLERANCE_DAYS before the
+        document's date are included, to catch early payments.
 
         For expense claims (no IBAN to narrow by) the pool is bounded further:
         a time window after the claim, and an amount cap — since all candidate
@@ -304,7 +307,8 @@ class InvoiceMatcher:
                 ReconciliationStatus.UNRECONCILED,
                 ReconciliationStatus.PARTIAL,
             ],
-            transaction_date__gte=self._document_date,
+            transaction_date__gte=self._document_date
+            - timedelta(days=PAYMENT_DATE_TOLERANCE_DAYS),
             **amount_filter,
         ).select_related("bank_account", "reconciliation")
 

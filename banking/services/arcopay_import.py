@@ -135,13 +135,25 @@ class ArcopayService:
 
     @staticmethod
     def get_consent_info(token: str) -> dict:
-        """POST /consent/info/ — get consent details."""
+        """POST /consent/info/ — get consent details.
+
+        Raises ``ArcopayAPIError`` with Arcopay's own code/message on error
+        responses (e.g. C001 when the consent is no longer valid).
+        """
         resp = requests.post(
             f"{ARCOPAY_API_URL}/consent/info/",
             data={"servicekey": NUEK_SERVICE_KEY, "token": token},
             timeout=30,
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            try:
+                error_data = resp.json()
+            except Exception:
+                error_data = {"message": resp.text, "code": str(resp.status_code)}
+            raise ArcopayAPIError(
+                error_data.get("message", "Unknown error"),
+                error_data.get("code", str(resp.status_code)),
+            )
         return resp.json()
 
     @staticmethod
@@ -201,6 +213,9 @@ class ArcopayService:
         "rejected", "revoked", "revokedbypsu", "expired",
         "terminatedbytpp", "cancelled", "canceled",
     }
+    # Error codes /consent/info/ returns once a consent is dead
+    # (observed: C001 "The consent is not valid anymore").
+    _CONSENT_DEAD_CODES = {"C001"}
 
     @classmethod
     def check_consent_status(cls, bank_account: BankAccount) -> str:
@@ -221,11 +236,18 @@ class ArcopayService:
             message = "No Arcopay token"
             valid_until = None
         else:
-            info = cls.get_consent_info(bank_account.nuek_token)
+            dead_code = None
+            try:
+                info = cls.get_consent_info(bank_account.nuek_token)
+            except ArcopayAPIError as e:
+                if e.code not in cls._CONSENT_DEAD_CODES:
+                    raise
+                # Arcopay answers with an error (e.g. C001) instead of a
+                # status once the consent is dead — that IS the status.
+                dead_code = e.code
+                info = {"message": e.message}
             if not isinstance(info, dict):
                 raise ArcopayAPIError(f"Unexpected consent info response: {info!r}")
-            if info.get("code"):
-                raise ArcopayAPIError(info.get("message", "Unknown error"), str(info.get("code")))
 
             message = str(info.get("message", "") or "")
 
@@ -242,7 +264,7 @@ class ArcopayService:
                     )
 
             normalized = message.strip().lower()
-            if normalized in cls._CONSENT_INVALID_MESSAGES:
+            if dead_code or normalized in cls._CONSENT_INVALID_MESSAGES:
                 status = ConsentStatus.INVALID
             elif normalized in cls._CONSENT_VALID_MESSAGES:
                 if valid_until and valid_until < date.today():
@@ -784,4 +806,5 @@ class ArcopayAPIError(Exception):
 
     def __init__(self, message: str, code: str = "1"):
         self.code = code
+        self.message = message
         super().__init__(f"[{code}] {message}")

@@ -65,6 +65,22 @@ class CheckConsentStatusTests(TestCase):
         })
         self.assertEqual(status, ConsentStatus.INVALID)
 
+    def test_dead_consent_error_code_is_invalid(self):
+        """Arcopay may answer /consent/info/ with a C001 error instead of a
+        status once the consent is dead — that must map to INVALID."""
+        from banking.services.arcopay_import import ArcopayAPIError
+
+        with patch.object(
+            ArcopayService, "get_consent_info",
+            side_effect=ArcopayAPIError(
+                "The consent is not valid anymore, please request a new one.", "C001",
+            ),
+        ):
+            status = ArcopayService.check_consent_status(self.account)
+        self.account.refresh_from_db()
+        self.assertEqual(status, ConsentStatus.INVALID)
+        self.assertIn("not valid anymore", self.account.consent_status_message)
+
     def test_unrecognised_message_stays_unknown(self):
         status = self._check({"message": "SomethingNew"})
         self.assertEqual(status, ConsentStatus.UNKNOWN)

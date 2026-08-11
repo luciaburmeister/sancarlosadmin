@@ -210,22 +210,18 @@ class PortesPlanningListView(APIView):
             assigned_to=employee, status__in=["pending", "in_transit"], planning_type="porte",
         ).select_related("asset", "origin", "destination", "transport_asset").order_by("scheduled_time", "pk")
         data = []
-        # Service types without a cargo asset (Grúa, Material Externo) leave `asset`
-        # blank — fall back to the truck so the driver can still scan its QR to open
-        # the planning, same as before `asset` was optional. If the same truck backs
-        # more than one such planning for this driver today, only the earliest one
-        # gets the scannable id — the rest fall back to 0 so a scan never silently
-        # opens the wrong planning; those still open fine from the "Mis Portes" list.
-        claimed_transport_asset_ids = set()
+        # Same truck, several portes: only the earliest is scannable via QR.
+        claimed_scannable_asset_ids = set()
         for p in plannings:
             origin_lat, origin_lon = get_zone_coordinates(p.origin) if p.origin else (None, None)
             dest_lat, dest_lon = get_zone_coordinates(p.destination) if p.destination else (None, None)
-            display_asset = p.asset
-            if display_asset is None and p.transport_asset_id and p.transport_asset_id not in claimed_transport_asset_ids:
-                display_asset = p.transport_asset
-                claimed_transport_asset_ids.add(p.transport_asset_id)
+            display_asset = p.asset or p.transport_asset
+            scannable_asset_id = 0
+            if display_asset is not None and display_asset.id not in claimed_scannable_asset_ids:
+                claimed_scannable_asset_ids.add(display_asset.id)
+                scannable_asset_id = display_asset.id
             data.append({
-                "id": p.id, "asset_id": display_asset.id if display_asset else 0, "asset_name": display_asset.name if display_asset else "",
+                "id": p.id, "asset_id": scannable_asset_id, "asset_name": display_asset.name if display_asset else "",
                 "load_description": p.load_description,
                 "origin": p.origin.name if p.origin else None,
                 "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,

@@ -193,8 +193,8 @@ class PorteWithoutAssetTests(TestCase):
         tx = AssetTransaction.objects.get(data__planning_id=planning.id)
         self.assertEqual(tx.asset_id, self.truck.id)
 
-    def test_submit_prefers_cargo_asset_over_truck(self):
-        """When both cargo and truck are set, the transaction must keep the cargo asset."""
+    def test_submit_uses_transport_even_when_cargo_was_selected(self):
+        """Temporary: porte save forces asset=transport_asset, so the transaction uses the truck."""
         from assets.models import AssetTransaction
 
         cargo_type = make_asset_type(self.company, name="Máquina")
@@ -211,6 +211,8 @@ class PorteWithoutAssetTests(TestCase):
             service_type="porte_maquina",
             status="pending",
         )
+        planning.refresh_from_db()
+        self.assertEqual(planning.asset_id, self.truck.id)
         response = self.api_client.post(
             f"/en/api/portes/{planning.id}/submit/",
             data={
@@ -224,4 +226,4 @@ class PorteWithoutAssetTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         tx = AssetTransaction.objects.get(data__planning_id=planning.id)
-        self.assertEqual(tx.asset_id, cargo.id)
+        self.assertEqual(tx.asset_id, self.truck.id)

@@ -576,10 +576,36 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         ordering = ["-scheduled_date"]
         indexes = [models.Index(fields=["assigned_to", "scheduled_date"])]
 
+    def _is_porte(self) -> bool:
+        return (
+            self.planning_type == "porte"
+            or SERVICE_TYPE_PLANNING_TYPE.get(self.service_type) == "porte"
+        )
+
+    def _sync_porte_asset_from_transport(self) -> bool:
+        """Temporary: porte plannings always use the truck as `asset`.
+
+        Cargo vs truck will be modeled properly later; until then the mobile
+        QR/submit flow and admin lists expect `asset` to be the transport.
+        Returns True when `asset` was changed.
+        """
+        if not self._is_porte() or not self.transport_asset_id:
+            return False
+        if self.asset_id == self.transport_asset_id:
+            return False
+        self.asset_id = self.transport_asset_id
+        return True
+
     def save(self, *args, **kwargs):
         # Auto-tag assignment_origin unless the caller explicitly set it
         # (TransportAssigner does, to mark AUTO) — see assets/services/transport_assigner.py.
         update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            update_fields = list(update_fields)
+            kwargs["update_fields"] = update_fields
+        if self._sync_porte_asset_from_transport() and update_fields is not None and "asset" not in update_fields:
+            update_fields = [*update_fields, "asset"]
+            kwargs["update_fields"] = update_fields
         origin_explicit = update_fields is not None and "assignment_origin" in update_fields
         if not origin_explicit:
             new_origin = None
@@ -605,6 +631,7 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
 
     def clean(self):
         super().clean()
+        self._sync_porte_asset_from_transport()
         if not self.project_file_id:
             raise ValidationError({"project_file": _("Project File is required.")})
         if self.project_file_id and self.company_id and self.project_file.company_id != self.company_id:

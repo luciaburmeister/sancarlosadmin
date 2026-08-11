@@ -90,6 +90,14 @@ class AddViewDraftPanelTests(DraftAdminFixtureMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.client.force_login(self.superuser)
+        # These assertions check the Spanish-rendered panel text. Whichever
+        # language happens to be active when reverse() builds the i18n_patterns
+        # URL decides which admin language actually renders — and that's
+        # ambient state left over from whatever ran before this test (order
+        # is not guaranteed, especially under --parallel). Pin it so this
+        # test doesn't depend on test execution order.
+        translation.activate("es")
+        self.addCleanup(translation.deactivate)
 
     def test_add_with_draft_id_prefills_form_and_shows_panel(self):
         draft = self._make_draft()
@@ -132,6 +140,8 @@ class ChangeViewDraftPanelTests(DraftAdminFixtureMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.client.force_login(self.superuser)
+        translation.activate("es")
+        self.addCleanup(translation.deactivate)
         self.request_obj = AssetPlanningRequest.objects.create(
             company=self.company,
             service_type=ServiceType.SERVICIO_GRUA,
@@ -274,6 +284,8 @@ class NewZoneRequestAdminTests(DraftAdminFixtureMixin, TestCase):
     def setUp(self):
         super().setUp()
         self.client.force_login(self.superuser)
+        translation.activate("es")
+        self.addCleanup(translation.deactivate)
 
     def test_add_view_shows_new_zone_banner_and_carries_real_zone_forward(self):
         # Default fixture draft has destination_text but no to_zone.

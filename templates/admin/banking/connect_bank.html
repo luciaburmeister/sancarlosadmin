@@ -210,12 +210,28 @@
                oninput="filterBanks(this.value)">
     </div>
 
+    {% if reconnect_account %}
+    <div class="selected-info" style="display: block; margin-bottom: 1rem; padding: 0.75rem 1rem; background: var(--color-primary-50, #eff6ff); border-radius: 0.5rem;">
+        {% trans "Reconnecting bank account:" %}
+        <strong>{{ reconnect_account.bank_name }} — {{ reconnect_account.iban }}</strong>.
+        {% trans "The new consent will be linked to this account." %}
+    </div>
+    {% endif %}
+
     <form method="post" action="{{ initiate_url }}" id="consentForm">
         {% csrf_token %}
         <input type="hidden" name="bank_service" id="selectedBank" value="">
+        {% if reconnect_account %}
+        <input type="hidden" name="bank_account_id" value="{{ reconnect_account.pk }}">
+        {% endif %}
 
         <div class="company-selector">
             <label for="companySelect">{% trans "Company" %}</label>
+            {% if reconnect_account %}
+            <select name="company_id" id="companySelect" onchange="checkFormReady()" required>
+                <option value="{{ reconnect_account.company.pk }}" selected>{{ reconnect_account.company }}</option>
+            </select>
+            {% else %}
             <select name="company_id" id="companySelect" onchange="checkFormReady()" required>
                 {% if companies|length > 1 %}
                 <option value="">— {% trans "Select a company" %} —</option>
@@ -224,6 +240,7 @@
                 <option value="{{ company.pk }}">{{ company }}</option>
                 {% endfor %}
             </select>
+            {% endif %}
         </div>
 
         <div class="bank-grid" id="bankGrid">

@@ -12,7 +12,7 @@ from django.views import View
 from django.views.decorators.csrf import csrf_exempt
 
 from banking.services.arcopay_import import ArcopayService
-from company.models import Company
+from company.models import BankAccount, Company
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +84,25 @@ class ArcopayCallbackView(View):
             logger.error("Arcopay callback: no active company found for id=%s", company_id)
             return JsonResponse({"result": "KO", "error": "No company"}, status=400)
 
+        # Optional: the account the reconnect flow was started from. The
+        # Arcopay response doesn't identify the account, so this is the only
+        # reliable way to bind the new token/consent to a specific account.
+        bank_account = None
+        bank_account_id = request.GET.get("bank_account_id")
+        if bank_account_id:
+            bank_account = BankAccount.objects.filter(
+                pk=bank_account_id, company=company,
+            ).first()
+            if not bank_account:
+                logger.warning(
+                    "Arcopay callback: bank_account_id=%s not found for company %s; "
+                    "continuing without account binding.", bank_account_id, company.pk,
+                )
+
         try:
-            result = ArcopayService.process_consent_callback(payload, company)
+            result = ArcopayService.process_consent_callback(
+                payload, company, bank_account=bank_account,
+            )
             logger.info(
                 "Arcopay consent callback processed: consent_id=%s, accounts=%d",
                 result.get("consent_id"),

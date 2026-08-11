@@ -113,6 +113,68 @@ class CheckConsentStatusTests(TestCase):
         self.assertGreaterEqual(self.account.consent_checked_at, first_checked_at)
 
 
+class ConsentCallbackAccountBindingTests(TestCase):
+    """The Arcopay response doesn't say which account a consent belongs to,
+    so the reconnect flow threads the originating account through the
+    callback and the token/consent must be bound to it — even when the bank
+    sends an empty globalPosition and discovery finds nothing."""
+
+    def setUp(self):
+        self.company = Company.objects.create(name="Test Co")
+        self.account = _make_account(
+            self.company, nuek_token="old-token", nuek_consent_id="old-consent",
+        )
+
+    def test_empty_global_position_binds_token_to_originating_account(self):
+        payload = {"token": "new-token", "consentId": "new-consent", "globalPosition": []}
+        with patch.object(
+            ArcopayService, "store_accounts_from_token", return_value=[],
+        ), patch.object(
+            ArcopayService, "check_consent_status", return_value=ConsentStatus.VALID,
+        ):
+            result = ArcopayService.process_consent_callback(
+                payload, self.company, bank_account=self.account,
+            )
+
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.nuek_token, "new-token")
+        self.assertEqual(self.account.nuek_consent_id, "new-consent")
+        self.assertEqual(
+            result["accounts"], [{"bank_account_id": self.account.pk, "iban": self.account.iban}],
+        )
+
+    def test_token_change_is_recorded_in_history(self):
+        payload = {"token": "new-token", "consentId": "new-consent", "globalPosition": []}
+        baseline = self.account.history.count()
+        with patch.object(
+            ArcopayService, "store_accounts_from_token", return_value=[],
+        ), patch.object(
+            ArcopayService, "check_consent_status", return_value=ConsentStatus.VALID,
+        ):
+            ArcopayService.process_consent_callback(
+                payload, self.company, bank_account=self.account,
+            )
+        self.assertEqual(self.account.history.count(), baseline + 1)
+        self.assertEqual(self.account.history.first().nuek_token, "new-token")
+
+    def test_without_bound_account_products_still_upsert_by_iban(self):
+        payload = {
+            "token": "new-token",
+            "consentId": "new-consent",
+            "globalPosition": [{
+                "product": self.account.iban,
+                "iban": self.account.iban,
+                "type": "checking",
+                "currency": "EUR",
+                "transactions": [],
+            }],
+        }
+        ArcopayService.process_consent_callback(payload, self.company)
+        self.account.refresh_from_db()
+        self.assertEqual(self.account.nuek_token, "new-token")
+        self.assertEqual(self.account.nuek_consent_id, "new-consent")
+
+
 class SyncSkipsInvalidConsentTests(TestCase):
     def setUp(self):
         self.company = Company.objects.create(name="Test Co")

@@ -29,7 +29,7 @@ from invoices.models import AppliedTax
 from management.views import QuoteAcceptanceWizardView
 from sales.forms import QuoteItemImportForm, QuoteItemConfirmImportForm
 from sales.models import (
-    Quote, QuoteItem, QuoteInventoryItem, QuoteStatus,
+    Quote, QuoteItem, QuoteInventoryItem, QuoteProductionStatus, QuoteStatus,
     QuoteConfigurationGroup, QuotePhoto, QuotePhotoCategory,
 )
 from sales.resources import QuoteItemImportResource, QuoteExportResource
@@ -38,7 +38,14 @@ from sales.views.quote_export_view import QuoteExportView
 from sales.views.quote_send_email_view import QuoteSendEmailView
 from sales.views_analysis import ConversionAnalysisView
 
+from .filters import HasProductionFilter, ProductionSchedulingFilter
 from .mixins import _CompanyImportMixin
+
+PRODUCTION_BADGE_NONE = _("No production")
+PRODUCTION_BADGE_PENDING = _("Production")
+PRODUCTION_BADGE_NOT_CONVERTED = _("Not converted")
+PRODUCTION_BADGE_UNSCHEDULED = _("Unscheduled")
+PRODUCTION_BADGE_SCHEDULED = _("Scheduled")
 
 
 class QuotePhotoInline(TabularInline):
@@ -180,12 +187,12 @@ class ConfigurationReadOnlyInline(TabularInline):
     extra = 0
     tab = True
     readonly_fields = [
-        "config_link", "status",
+        "config_link", "status", "planning_status",
         "cost_display", "margin_display", "margin_pct_display","subtotal_price", "total_price_display",
         "convert_to_production_link",
     ]
     fields = [
-        "config_link", "status", "quote_group",
+        "config_link", "status", "planning_status", "quote_group",
         "cost_display",
         "margin_display", "margin_pct_display",
         "subtotal_price", "total_price_display",
@@ -279,10 +286,12 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
     resource_classes = [QuoteExportResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
-    list_display = ["id", "project_name", "client", "show_status_customized_color", "total_price_display", "company"]
+    list_display = ["id", "project_name", "client", "show_status_customized_color", "production_planning_badge", "total_price_display", "company"]
     list_sections = [QuoteDetailsSection]
     list_filter = [
         ("status",MultipleChoicesDropdownFilter),
+        HasProductionFilter,
+        ProductionSchedulingFilter,
         ("company",AutocompleteSelectMultipleFilter),
         ("created_at",RangeDateFilter),
         ("date_sent", RangeDateFilter),
@@ -454,6 +463,27 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
     )
     def show_status_customized_color(self, obj):
         return _(obj.get_status_display())
+
+    @display(
+        description=_("Production"),
+        ordering="production_status",
+        label={
+            PRODUCTION_BADGE_PENDING: "info",
+            PRODUCTION_BADGE_NOT_CONVERTED: "danger",
+            PRODUCTION_BADGE_UNSCHEDULED: "warning",
+            PRODUCTION_BADGE_SCHEDULED: "success",
+        },
+    )
+    def production_planning_badge(self, obj):
+        if obj.production_status == QuoteProductionStatus.NO_PRODUCTION:
+            return PRODUCTION_BADGE_NONE
+        if obj.status != QuoteStatus.ACCEPTED:
+            return PRODUCTION_BADGE_PENDING
+        if obj.production_status == QuoteProductionStatus.NOT_CONVERTED:
+            return PRODUCTION_BADGE_NOT_CONVERTED
+        if obj.production_status == QuoteProductionStatus.UNSCHEDULED:
+            return PRODUCTION_BADGE_UNSCHEDULED
+        return PRODUCTION_BADGE_SCHEDULED
 
     @action(description=_("Add Configuration"))
     def add_configuration_to_quote(self, request, object_id: int):

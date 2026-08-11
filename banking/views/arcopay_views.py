@@ -52,12 +52,22 @@ class ConnectBankView(UnfoldModelAdminViewMixin, TemplateView):
             logger.exception("Failed to fetch bank list from Arcopay")
             error_message = str(e)
 
+        # Reconnect flow: lock the flow to the account it was started from.
+        reconnect_account = None
+        bank_account_id = self.request.GET.get("bank_account_id", "")
+        if bank_account_id:
+            reconnect_account = BankAccount.objects.filter(
+                pk=bank_account_id,
+                company__in=self.companies,
+            ).select_related("company").first()
+
         context.update({
             "title": self.title,
             "banks": banks,
             "companies": self.companies,
             "error_message": error_message,
             "initiate_url": reverse("admin:banking_initiate_consent"),
+            "reconnect_account": reconnect_account,
         })
         return context
 
@@ -86,9 +96,23 @@ class InitiateConsentView(UnfoldModelAdminViewMixin, View):
             messages.error(request, _("Please select a bank."))
             return redirect("admin:banking_connect_bank")
 
+        # Optional: reconnect flow started from a specific bank account.
+        # Threaded through the callback URL so the new token/consent can be
+        # bound to that account even if Arcopay returns no account data.
+        bank_account = None
+        bank_account_id = request.POST.get("bank_account_id", "")
+        if bank_account_id:
+            bank_account = BankAccount.objects.filter(
+                pk=bank_account_id, company=company,
+            ).first()
+            if not bank_account:
+                messages.error(request, _("That bank account does not belong to the selected company."))
+                return redirect("admin:banking_connect_bank")
+
         # Build callback + redirect URLs
         backend_url = settings.BACKEND_URL.rstrip("/")
-        callback_url = f"{backend_url}/api/banking/arcopay/callback/?company_id={company.pk}"
+        account_param = f"&bank_account_id={bank_account.pk}" if bank_account else ""
+        callback_url = f"{backend_url}/api/banking/arcopay/callback/?company_id={company.pk}{account_param}"
         callback_error_url = f"{backend_url}/api/banking/arcopay/callback-error/?company_id={company.pk}"
 
         redirect_url = request.build_absolute_uri(
@@ -113,6 +137,8 @@ class InitiateConsentView(UnfoldModelAdminViewMixin, View):
             # Store in session so ConsentDoneView can retrieve the token
             request.session["arcopay_consent_id"] = consent_id
             request.session["arcopay_company_id"] = str(company.pk)
+            if bank_account:
+                request.session["arcopay_bank_account_id"] = str(bank_account.pk)
             if token:
                 request.session["arcopay_token"] = token
 
@@ -160,6 +186,7 @@ class ConsentDoneView(UnfoldModelAdminViewMixin, View):
         session_consent_id = request.session.pop("arcopay_consent_id", "")
         session_token = request.session.pop("arcopay_token", "")
         session_company_id = request.session.pop("arcopay_company_id", "") or company_id
+        session_bank_account_id = request.session.pop("arcopay_bank_account_id", "")
 
         # 200 = new consent granted, 402 = consent already valid
         is_success = (
@@ -184,6 +211,32 @@ class ConsentDoneView(UnfoldModelAdminViewMixin, View):
         if cid:
             user_companies = get_user_companies(request.user)
             company = next((c for c in user_companies if str(c.pk) == str(cid)), None)
+
+        # Reconnect flow: the consent belongs to a specific account. The
+        # callback should already have bound the token; if it didn't arrive
+        # but we have the token in session, bind it here as a fallback.
+        if session_bank_account_id and company:
+            account = BankAccount.objects.filter(
+                pk=session_bank_account_id, company=company,
+            ).first()
+            if account:
+                if session_token and account.nuek_token != session_token:
+                    account.nuek_token = session_token
+                    if session_consent_id:
+                        account.nuek_consent_id = session_consent_id
+                    account.save(update_fields=["nuek_token", "nuek_consent_id"])
+                try:
+                    ArcopayService.check_consent_status(account)
+                except Exception:
+                    logger.exception("Consent status refresh failed for account %s", account.pk)
+                messages.success(
+                    request,
+                    _("Bank re-connected for %(bank)s. Transactions will import on the next sync.")
+                    % {"bank": account.bank_name or account.iban},
+                )
+                return redirect(
+                    reverse("admin:company_bankaccount_change", args=[account.pk])
+                )
 
         qs = BankAccount.objects.filter(company=company) if company else BankAccount.objects.all()
         max_pk_before = qs.exclude(nuek_token="").aggregate(max_pk=Max("pk"))["max_pk"] or 0

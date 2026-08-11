@@ -631,6 +631,13 @@ class QuoteStatus(models.TextChoices):
     REJECTED = "rejected", _("Rejected")
 
 
+class QuoteProductionStatus(models.TextChoices):
+    NO_PRODUCTION = "no_production", _("No production")
+    NOT_CONVERTED = "not_converted", _("Not converted")
+    UNSCHEDULED = "unscheduled", _("Unscheduled")
+    SCHEDULED = "scheduled", _("Scheduled")
+
+
 class Quote(Timestampable, CompanyOwnedModel):
     client = models.ForeignKey(
         Client,
@@ -673,6 +680,18 @@ class Quote(Timestampable, CompanyOwnedModel):
         choices=QuoteStatus.choices,
         default=QuoteStatus.DRAFT,
         verbose_name=_("Status"),
+    )
+
+    production_status = models.CharField(
+        max_length=20,
+        choices=QuoteProductionStatus.choices,
+        default=QuoteProductionStatus.NO_PRODUCTION,
+        db_index=True,
+        verbose_name=_("Production status"),
+        help_text=_(
+            "Kept in sync automatically from this quote's configurations "
+            "and their planning status."
+        ),
     )
 
     subtotal_price = MoneyField(

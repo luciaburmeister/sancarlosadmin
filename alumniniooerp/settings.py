@@ -21,7 +21,9 @@ from django.templatetags.static import static
 from datetime import timedelta
 from celery.schedules import crontab
 
-load_dotenv()
+# override=True so .env edits take effect on dev-server autoreload —
+# reloaded children inherit the parent's env, which would otherwise win.
+load_dotenv(override=True)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent

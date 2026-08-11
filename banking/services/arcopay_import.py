@@ -773,6 +773,26 @@ class ArcopayService:
         if isinstance(global_position, dict):
             global_position = [global_position]
 
+        if not global_position:
+            # Some banks (observed: Bankinter) deliver the callback with an
+            # empty globalPosition. Discover the accounts via /transactions/
+            # GLOBAL instead, so the new token/consent is never dropped.
+            logger.info(
+                "Consent callback for consent %s has empty globalPosition; "
+                "discovering accounts via GLOBAL fetch.", consent_id,
+            )
+            accounts = ArcopayService.store_accounts_from_token(
+                token=token, company=company, consent_id=consent_id,
+            )
+            return {
+                "consent_id": consent_id,
+                "token": token,
+                "accounts": [
+                    {"bank_account_id": a.pk, "iban": a.iban}
+                    for a in accounts
+                ],
+            }
+
         accounts_processed = []
 
         for product_data in global_position:

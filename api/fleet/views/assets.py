@@ -7,7 +7,7 @@ from datetime import datetime
 import qrcode
 from company.models import WorkingZone, WorkingZoneAuthorization
 from django.core.files.base import ContentFile
-from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission
+from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus
 from core.tasks import send_asset_transaction_email_task
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -96,22 +96,6 @@ def _open_laborer_qs(employee, today):
     ).exclude(data__has_key='laborer_end_time')
 
 
-def get_asset_status(last_transaction):
-    if last_transaction is None:
-        return "AVAILABLE"
-    if last_transaction.transaction_type == TransactionTypeChoices.MOVEMENT:
-        return "PICKED_UP"
-    if last_transaction.transaction_type == TransactionTypeChoices.DELIVERY:
-        return "DELIVERED"
-    if last_transaction.transaction_type == TransactionTypeChoices.RECEIPT:
-        prev = AssetTransaction.objects.filter(
-            asset=last_transaction.asset,
-            date__lt=last_transaction.date,
-        ).exclude(transaction_type=TransactionTypeChoices.RECEIPT).order_by("-date").first()
-        return get_asset_status(prev)
-    return "AVAILABLE"
-
-
 def get_asset_receipt(asset):
     last_movement = AssetTransaction.objects.filter(asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT).order_by("-date").first()
     if last_movement is None:
@@ -127,7 +111,7 @@ def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
         "id": asset.id,
         "code": asset.name,
         "description": asset.asset_type.name if asset.asset_type else "",
-        "status": get_asset_status(last_tx),
+        "status": asset.current_transaction_status(last_tx),
         "asset_receipt": asset.has_pending_receipt,
         "last_location": str(zone) if zone else None,
         "last_updated": last_tx.date.strftime("%d/%m/%Y %H:%M") if last_tx else None,
@@ -246,6 +230,12 @@ class BaseTransactionStrategy:
         if image_file:
             transaction.imagen.save(image_file.name, image_file, save=False)
 
+    def _resolve_planning(self):
+        planning_id = self.data.get("planning_id")
+        if not planning_id:
+            return None
+        return AssetPlanning.objects.filter(id=planning_id, company=self.asset.company).first()
+
     def execute(self) -> JsonResponse:
         raise NotImplementedError
 
@@ -300,14 +290,19 @@ class MovementStrategy(BaseTransactionStrategy):
         else:
             form_data["cliente"] = ""
         distance_note = f"Distancia: {int(distance)}m" if distance is not None else "Sin zona asignada"
+        planning = self._resolve_planning()
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=None,
             transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(), performed_by=employee,
             project_file=asset.current_working_zone.project_file if asset.current_working_zone else None,
+            planning=planning,
             notes=f"Recogido por {user.username}. GPS: {latitude}, {longitude}. {distance_note}", data=form_data,
         )
         self._save_firma_and_imagen(transaction)
         transaction.save()
+        if planning is not None:
+            planning.status = PlanningStatus.IN_TRANSIT
+            planning.save(update_fields=["status"])
         send_asset_transaction_email_task.delay(transaction.id)
         return JsonResponse({"success": True, "message": "Recogida registrada", "transaction_id": transaction.id})
 
@@ -346,10 +341,12 @@ class DeliveryStrategy(BaseTransactionStrategy):
         if destination_zone.location_confirmed_at is None and latitude and longitude:
             confirm_zone_location(destination_zone, latitude, longitude)
         form_data["cliente"] = destination_zone.client.name if destination_zone.client else ""
+        planning = self._resolve_planning()
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=destination_zone,
             transaction_type=TransactionTypeChoices.DELIVERY, date=timezone.now(), performed_by=employee,
             project_file=destination_zone.project_file if destination_zone else None,
+            planning=planning,
             notes=f"Entregado por {user.username} en {destination_zone}. GPS: {latitude}, {longitude}. Distancia: {int(distance)}m",
             data=form_data,
         )
@@ -357,6 +354,9 @@ class DeliveryStrategy(BaseTransactionStrategy):
         transaction.save()
         asset.current_working_zone = destination_zone
         asset.save()
+        if planning is not None:
+            planning.status = PlanningStatus.DELIVERED
+            planning.save(update_fields=["status"])
         send_asset_transaction_email_task.delay(transaction.id)
         return JsonResponse({"success": True, "message": f"Entrega registrada en {destination_zone}", "transaction_id": transaction.id})
 
@@ -395,6 +395,7 @@ class ReceiptStrategy(BaseTransactionStrategy):
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=vertedero_zone,
             transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(), performed_by=employee,
+            planning=self._resolve_planning(),
             notes=f"Verteo registrado por {user.username}. Albaran: {nro_albaran}. Material: {material_vertido}. Peso: {peso_neto}kg.",
             data=form_data,
         )
@@ -580,7 +581,7 @@ class MachineHoursStrategy(BaseTransactionStrategy):
 
         if planning_id:
             try:
-                AssetPlanning.objects.filter(id=planning_id).update(status="delivered")
+                AssetPlanning.objects.filter(id=planning_id).update(status=PlanningStatus.DELIVERED)
             except Exception:
                 pass
 
@@ -805,17 +806,7 @@ class DeliveryCheckView(APIView):
             is_almacen = nearby_zones[0][0].zone_type == WorkingZone.ZoneType.ALMACEN if len(nearby_zones) == 1 else False
         else:
             is_almacen = asset.current_working_zone is not None and asset.current_working_zone.zone_type == WorkingZone.ZoneType.ALMACEN
-        last_movement = AssetTransaction.objects.filter(
-            asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT, from_zone__zone_type=WorkingZone.ZoneType.OBRA,
-        ).order_by("-date").first()
-        verteo_required = False
-        if last_movement is not None:
-            vertedero_value = last_movement.data.get("vertedero", "")
-            verteo_required = bool(vertedero_value and vertedero_value.strip())
-        if verteo_required and last_movement is not None:
-            already_done = AssetTransaction.objects.filter(asset=asset, transaction_type=TransactionTypeChoices.RECEIPT, date__gt=last_movement.date).exists()
-            if already_done:
-                verteo_required = False
+        verteo_required = asset.verteo_pending_transaction is not None
         can_deliver = not verteo_required or is_almacen
         response_data = {"verteo_required": verteo_required, "is_almacen": is_almacen, "can_deliver": can_deliver, "not_near_vertedero": False, "at_vertedero": False}
         if lat_param is not None and lon_param is not None:

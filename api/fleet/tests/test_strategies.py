@@ -12,9 +12,14 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from datetime import date
+
 from assets.models import (
+    AssetPlanning,
     AssetTransaction,
     AssetTransactionReceipt,
+    PlanningStatus,
+    PlanningType,
     TransactionTypeChoices,
 )
 from api.fleet.tests.helpers import (
@@ -124,6 +129,23 @@ class MovementStrategyTests(TestCase):
         self.assertTrue(body["success"])
         self.assertIn("transaction_id", body)
 
+    def test_movement_without_planning_id_leaves_fk_blank(self):
+        """Backward compatibility: the current app never sends planning_id for cuba."""
+        self._run_movement()
+        tx = AssetTransaction.objects.first()
+        self.assertIsNone(tx.planning_id)
+
+    def test_movement_with_planning_id_links_fk_and_syncs_status(self):
+        planning = AssetPlanning.objects.create(
+            company=self.company, asset=self.asset, assigned_to=self.employee,
+            scheduled_date=date.today(), planning_type=PlanningType.CUBA, status=PlanningStatus.PENDING,
+        )
+        self._run_movement(extra_data={"planning_id": planning.id})
+        tx = AssetTransaction.objects.first()
+        self.assertEqual(tx.planning_id, planning.id)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+
 
 class DeliveryStrategyTests(TestCase):
     """Tests for DeliveryStrategy — when a driver delivers (deja) a cuba."""
@@ -141,7 +163,7 @@ class DeliveryStrategyTests(TestCase):
             zone=self.origin_zone,
         )
 
-    def _run_delivery(self):
+    def _run_delivery(self, extra_data=None):
         from api.fleet.views.assets import DeliveryStrategy
 
         data = {
@@ -159,6 +181,8 @@ class DeliveryStrategyTests(TestCase):
             "vertedero": "",
             "zone_id": self.dest_zone.id,
         }
+        if extra_data:
+            data.update(extra_data)
         strategy = DeliveryStrategy(data, self.asset, self.employee, self.user)
         with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
             return strategy.execute()
@@ -194,6 +218,22 @@ class DeliveryStrategyTests(TestCase):
         self._run_delivery()
         self.asset.refresh_from_db()
         self.assertEqual(self.asset.current_working_zone, self.dest_zone)
+
+    def test_delivery_without_planning_id_leaves_fk_blank(self):
+        self._run_delivery()
+        tx = AssetTransaction.objects.first()
+        self.assertIsNone(tx.planning_id)
+
+    def test_delivery_with_planning_id_links_fk_and_syncs_status(self):
+        planning = AssetPlanning.objects.create(
+            company=self.company, asset=self.asset, assigned_to=self.employee,
+            scheduled_date=date.today(), planning_type=PlanningType.CUBA, status=PlanningStatus.IN_TRANSIT,
+        )
+        self._run_delivery(extra_data={"planning_id": planning.id})
+        tx = AssetTransaction.objects.first()
+        self.assertEqual(tx.planning_id, planning.id)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.DELIVERED)
 
 
 class ReceiptStrategyTests(TestCase):
@@ -304,3 +344,15 @@ class ReceiptStrategyTests(TestCase):
         body = json.loads(response.content)
         self.assertIn("error", body)
         self.assertEqual(response.status_code, 400)
+
+    def test_receipt_with_planning_id_links_fk_but_does_not_touch_status(self):
+        """Verteo is a side event — it links to the plan but never changes its status."""
+        planning = AssetPlanning.objects.create(
+            company=self.company, asset=self.asset, assigned_to=self.employee,
+            scheduled_date=date.today(), planning_type=PlanningType.CUBA, status=PlanningStatus.IN_TRANSIT,
+        )
+        self._run_receipt(extra_data={"planning_id": planning.id})
+        tx = AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.RECEIPT).first()
+        self.assertEqual(tx.planning_id, planning.id)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)

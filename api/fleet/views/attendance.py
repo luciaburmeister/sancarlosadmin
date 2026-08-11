@@ -2,7 +2,7 @@ import base64
 import json
 from decimal import Decimal
 from datetime import datetime
-from assets.models import AssetTransaction, TransactionTypeChoices
+from assets.models import AssetTransaction, PlanningStatus, TransactionTypeChoices
 from company.models import WorkAttendance
 from django.core.files.base import ContentFile
 from django.http import JsonResponse
@@ -95,6 +95,43 @@ class AttendanceStatusView(APIView):
         return JsonResponse({"is_clocked_in": is_clocked_in})
 
 
+def _serialize_cuba_planning(p):
+    stops = [{"zone": s.zone.name, "address": f"{s.zone.street_address}, {s.zone.city}, {s.zone.postal_code}", "sequence": s.sequence} for s in p.stops.all()]
+    return {
+        "id": p.id, "planning_type": p.planning_type, "asset_id": p.asset.id if p.asset else 0,
+        "origin": p.origin.name if p.origin else None,
+        "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,
+        "destination": p.destination.name if p.destination else None,
+        "destination_address": f"{p.destination.street_address}, {p.destination.city}, {p.destination.postal_code}" if p.destination else None,
+        "stops": stops,
+        "transport_asset": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
+        "route_order": p.route_order,
+        "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
+        "status": p.status,
+    }
+
+
+def _serialize_porte_planning(p, scannable_asset_id=None):
+    from api.fleet.views.assets import get_zone_coordinates
+    origin_lat, origin_lon = get_zone_coordinates(p.origin) if p.origin else (None, None)
+    dest_lat, dest_lon = get_zone_coordinates(p.destination) if p.destination else (None, None)
+    display_asset = p.asset or p.transport_asset
+    if scannable_asset_id is None:
+        scannable_asset_id = display_asset.id if display_asset else 0
+    return {
+        "id": p.id, "planning_type": p.planning_type, "asset_id": scannable_asset_id, "asset_name": display_asset.name if display_asset else "",
+        "load_description": p.load_description,
+        "origin": p.origin.name if p.origin else None,
+        "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,
+        "origin_lat": origin_lat, "origin_lon": origin_lon,
+        "destination": p.destination.name if p.destination else None,
+        "destination_address": f"{p.destination.street_address}, {p.destination.city}, {p.destination.postal_code}" if p.destination else None,
+        "destination_lat": dest_lat, "destination_lon": dest_lon,
+        "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
+        "status": p.status, "notes": p.notes,
+    }
+
+
 class PlanningsListView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -102,26 +139,59 @@ class PlanningsListView(APIView):
         employee = get_current_employee(request.user)
         if employee is None:
             return JsonResponse({"plannings": []})
-        from assets.models import AssetPlanning
+        from assets.models import AssetPlanning, PlanningStatus, PlanningType
         plannings = AssetPlanning.objects.filter(
-            assigned_to=employee, status__in=["pending", "in_transit"], planning_type="cuba",
+            assigned_to=employee, status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT], planning_type=PlanningType.CUBA,
         ).select_related("asset", "origin", "destination", "transport_asset").prefetch_related("stops__zone").order_by("route_order", "pk")
-        data = []
-        for p in plannings:
-            stops = [{"zone": s.zone.name, "address": f"{s.zone.street_address}, {s.zone.city}, {s.zone.postal_code}", "sequence": s.sequence} for s in p.stops.all()]
-            data.append({
-                "id": p.id, "asset_id": p.asset.id if p.asset else 0,
-                "origin": p.origin.name if p.origin else None,
-                "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,
-                "destination": p.destination.name if p.destination else None,
-                "destination_address": f"{p.destination.street_address}, {p.destination.city}, {p.destination.postal_code}" if p.destination else None,
-                "stops": stops,
-                "transport_asset": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
-                "route_order": p.route_order,
-                "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
-                "status": p.status,
-            })
+        data = [_serialize_cuba_planning(p) for p in plannings]
         return JsonResponse({"plannings": data})
+
+
+class PlanningNextTaskView(APIView):
+    """The single next cuba/porte job for this driver — cuba and porte share one combined
+    route_order sequence, so only one task is ever surfaced at a time, regardless of type."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        employee = get_current_employee(request.user)
+        if employee is None:
+            return JsonResponse({"task": None})
+        from assets.models import AssetPlanning, PlanningStatus, PlanningType
+        planning = AssetPlanning.objects.filter(
+            assigned_to=employee, status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
+            planning_type__in=[PlanningType.CUBA, PlanningType.PORTE],
+        ).select_related(
+            "asset", "origin", "destination", "transport_asset",
+        ).prefetch_related("stops__zone").order_by("scheduled_date", "route_order", "scheduled_time", "pk").first()
+        if planning is None:
+            return JsonResponse({"task": None})
+        task = (
+            _serialize_cuba_planning(planning) if planning.planning_type == PlanningType.CUBA
+            else _serialize_porte_planning(planning)
+        )
+        return JsonResponse({"task": task})
+
+
+class PlanningAbandonRemainingView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        employee = get_current_employee(request.user)
+        if employee is None:
+            return JsonResponse({"error": "No employee profile found"}, status=400)
+        from assets.services.abandon import PlanningAbandoner
+        abandoned = PlanningAbandoner().abandon_remaining(employee)
+        return JsonResponse({
+            "count": len(abandoned),
+            "abandoned": [
+                {
+                    "id": p.id, "planning_type": p.planning_type,
+                    "abandoned_stage": p.abandoned_stage,
+                    "abandoned_stage_label": p.get_abandoned_stage_display(),
+                }
+                for p in abandoned
+            ],
+        })
 
 
 class MovementsListView(APIView):
@@ -201,37 +271,23 @@ class PortesPlanningListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from assets.models import AssetPlanning
-        from api.fleet.views.assets import get_zone_coordinates
+        from assets.models import AssetPlanning, PlanningStatus, PlanningType
         employee = get_current_employee(request.user)
         if employee is None:
             return JsonResponse({"transport_plannings": []})
         plannings = AssetPlanning.objects.filter(
-            assigned_to=employee, status__in=["pending", "in_transit"], planning_type="porte",
+            assigned_to=employee, status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT], planning_type=PlanningType.PORTE,
         ).select_related("asset", "origin", "destination", "transport_asset").order_by("scheduled_time", "pk")
         data = []
         # Same truck, several portes: only the earliest is scannable via QR.
         claimed_scannable_asset_ids = set()
         for p in plannings:
-            origin_lat, origin_lon = get_zone_coordinates(p.origin) if p.origin else (None, None)
-            dest_lat, dest_lon = get_zone_coordinates(p.destination) if p.destination else (None, None)
             display_asset = p.asset or p.transport_asset
             scannable_asset_id = 0
             if display_asset is not None and display_asset.id not in claimed_scannable_asset_ids:
                 claimed_scannable_asset_ids.add(display_asset.id)
                 scannable_asset_id = display_asset.id
-            data.append({
-                "id": p.id, "asset_id": scannable_asset_id, "asset_name": display_asset.name if display_asset else "",
-                "load_description": p.load_description,
-                "origin": p.origin.name if p.origin else None,
-                "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,
-                "origin_lat": origin_lat, "origin_lon": origin_lon,
-                "destination": p.destination.name if p.destination else None,
-                "destination_address": f"{p.destination.street_address}, {p.destination.city}, {p.destination.postal_code}" if p.destination else None,
-                "destination_lat": dest_lat, "destination_lon": dest_lon,
-                "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
-                "status": p.status, "notes": p.notes,
-            })
+            data.append(_serialize_porte_planning(p, scannable_asset_id=scannable_asset_id))
         return JsonResponse({"transport_plannings": data})
 
 
@@ -278,6 +334,6 @@ class PorteSubmitView(APIView):
             save_image_to_field(transaction, "firma_image", firma_b64, f"firma_porte_{planning_id}_{action}.png")
         if imagen_b64:
             save_image_to_field(transaction, "imagen", imagen_b64, f"porte_{planning_id}_{action}.jpg")
-        planning.status = "in_transit" if action == "recogida" else "delivered"
+        planning.status = PlanningStatus.IN_TRANSIT if action == "recogida" else PlanningStatus.DELIVERED
         planning.save()
         return JsonResponse({"success": True, "message": f"Porte {action} registered successfully"})

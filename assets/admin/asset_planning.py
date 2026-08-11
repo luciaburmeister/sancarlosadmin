@@ -105,9 +105,9 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "asset", "origin", "destination",
         "assigned_to", "transport_asset",
         "scheduled_date", "scheduled_time", "urgency", "show_traceability",
-        "route_order", "status", "service_type", "company",
+        "route_order", "status", "abandoned_stage", "service_type", "company",
     )
-    list_filter = (TraceabilityFilter, "status", "urgency", "service_type", "company", "origin", "destination")
+    list_filter = (TraceabilityFilter, "status", "abandoned_stage", "urgency", "service_type", "company", "origin", "destination")
     search_fields = (
         "asset__name",
         "assigned_to__first_name",
@@ -127,7 +127,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "suggested_trucks",
         "moved_employees",
     ]
-    readonly_fields = ["assignment_origin", "computed_end_time_display"]
+    readonly_fields = ["assignment_origin", "computed_end_time_display", "abandoned_stage", "abandoned_at"]
     inlines = [AssetPlanningStopInline]
     actions_list = ["auto_assign_action", "optimize_daily_routes_action"]
     actions_row = ["auto_assign_row_action"]
@@ -157,6 +157,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
                 "suggested_trucks",
                 ("status", "route_order", "urgency"),
                 "assignment_origin",
+                ("abandoned_stage", "abandoned_at"),
                 ("skip_auto_assignment", "time_locked"),
                 ("planning_type", "service_type"),
                 ("cuba_operation_type", "cuba_size"),

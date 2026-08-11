@@ -68,6 +68,13 @@ class PlanningBackfillMigrationTests(TransactionTestCase):
         ).pk
 
         MigrationExecutor(connection).migrate(MIGRATE_TO)
+        # Finish bringing the schema fully current — the test bodies below query
+        # through the real `assets.models.AssetTransaction`/`AssetPlanning`, which
+        # expect every column any migration ever added, not just the ones added
+        # by MIGRATE_TO.
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
 
     def tearDown(self):
         # Leave the DB on the real latest migration state for other tests.

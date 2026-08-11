@@ -890,6 +890,7 @@
         + (CAN_EDIT ? "" : " read-only");
       el.dataset.id = b.id;
       el.style.backgroundColor = b.color || "#3B82F6";
+      el.style.borderLeft = `5px solid ${b.status_color || "#64748B"}`;
       el.style.top = topFor(b.start) + "px";
       el.style.height = heightFor(b.start, b.end) + "px";
       el.innerHTML = CAN_EDIT ? `

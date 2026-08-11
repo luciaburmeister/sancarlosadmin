@@ -308,7 +308,6 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
     ]
     list_select_related = ["client", "project_file__client", "company", "agent", "created_by"]
     list_filter_submit = True
-    change_form_outer_after_template = "sales/quote_preset_picker.html"
 
     inlines = [ConfigurationReadOnlyInline,
     QuoteInventoryItemInline,
@@ -322,7 +321,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
 
     actions_list = [ "quote_dashboard_action"]
     actions_row = ["add_configuration_to_quote", "export_quote_action", "send_email_row_action"]
-    actions_detail = ["send_email_detail_action"]
+    actions_detail = ["add_configuration_detail_action", "send_email_detail_action"]
 
     fieldsets = (
         ("Quote Details", {
@@ -571,6 +570,11 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
     @action(description=_("Send Email"), icon="mail")
     def send_email_detail_action(self, request, object_id):
         return redirect(reverse("admin:sales_quote_send_email", args=[object_id]))
+
+    @action(description=_("Add Configuration"), icon="add")
+    def add_configuration_detail_action(self, request, object_id):
+        url = reverse("admin:configurator_configuration_wizard_select")
+        return redirect(f"{url}?quote_id={object_id}")
 
 
 @admin.register(QuoteItem)

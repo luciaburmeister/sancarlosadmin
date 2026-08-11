@@ -270,6 +270,7 @@ class PorteSubmitView(APIView):
             asset=tx_asset, company=planning.company,
             from_zone=planning.origin, to_zone=planning.destination,
             transaction_type=transaction_type, date=timezone.now(), performed_by=employee,
+            planning=planning,
             notes=f"Porte {action} - Matricula: {matricula}. {notes}",
             data={"movement_type": "porte", "action": action, "matricula": matricula, "planning_id": planning_id, "load_description": planning.load_description, "client_id": client_id}
         )

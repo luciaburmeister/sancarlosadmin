@@ -192,6 +192,8 @@ class PorteWithoutAssetTests(TestCase):
         self.assertEqual(planning.status, "in_transit")
         tx = AssetTransaction.objects.get(data__planning_id=planning.id)
         self.assertEqual(tx.asset_id, self.truck.id)
+        # The new FK is populated alongside the existing soft data["planning_id"].
+        self.assertEqual(tx.planning_id, planning.id)
 
     def test_submit_uses_transport_even_when_cargo_was_selected(self):
         """Temporary: porte save forces asset=transport_asset, so the transaction uses the truck."""

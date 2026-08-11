@@ -463,6 +463,9 @@ class MachineHoursStrategy(BaseTransactionStrategy):
         photo_b64 = self.data.get("photo_start", "")
         chosen_zone_id = self.data.get("zone_id")
         planning_id = self.data.get("planning_id")
+        planning_obj = None
+        if planning_id:
+            planning_obj = AssetPlanning.objects.filter(id=planning_id, company=asset.company).first()
 
         already_open = _open_machine_qs(asset, employee, today).exists()
         if already_open:
@@ -489,6 +492,7 @@ class MachineHoursStrategy(BaseTransactionStrategy):
             asset=asset, company=asset.company, from_zone=detected_zone, to_zone=None,
             transaction_type=TransactionTypeChoices.MACHINE_HOURS, date=timezone.now(), performed_by=employee,
             project_file=detected_zone.project_file if detected_zone else None,
+            planning=planning_obj,
             notes=f"Inicio de maquina por {user.username}. GPS: {latitude}, {longitude}.",
             data={
                 "planning_id": planning_id,

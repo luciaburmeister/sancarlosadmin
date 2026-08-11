@@ -342,6 +342,7 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
     project_file = models.ForeignKey("management.ProjectFile", on_delete=models.SET_NULL, null=True, blank=True, related_name="asset_transactions", verbose_name=_("Project File"))
     performed_by = models.ForeignKey("company.Employee", on_delete=models.SET_NULL, null=True, blank=True, related_name="performed_transactions")
     billing_status = models.CharField(max_length=10, choices=BillingStatus.choices, default=BillingStatus.NONE, db_index=True, verbose_name=_("Billing Status"))
+    planning = models.ForeignKey("assets.AssetPlanning", on_delete=models.SET_NULL, null=True, blank=True, related_name="transactions", verbose_name=_("Planning"))
 
     class Meta:
         verbose_name = _("Asset transaction")

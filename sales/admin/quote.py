@@ -10,6 +10,7 @@ from import_export.admin import ImportExportModelAdmin
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.admin import GenericTabularInline as _GenericTabularInline
 from unfold.decorators import action, display
+from unfold.sections import TemplateSection
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter,
     MultipleChoicesDropdownFilter,
@@ -248,12 +249,38 @@ class ConfigurationReadOnlyInline(TabularInline):
         return "—"
 
 
+class QuoteDetailsSection(TemplateSection):
+    """Expandable row card holding the secondary Quote fields dropped from list_display."""
+
+    template_name = "sales/quote_details_section.html"
+
+    def get_context_data(self, request, instance):
+        created_by = instance.created_by
+        project_file = instance.project_file
+        project_file_url = (
+            reverse("admin:management_projectfile_change", args=[project_file.pk])
+            if project_file else None
+        )
+        return {
+            "created_by_name": (created_by.get_full_name() or created_by.username) if created_by else None,
+            "created_at": instance.created_at,
+            "estimated_delivery_date": instance.estimated_delivery_date,
+            "project_file": project_file,
+            "project_file_url": project_file_url,
+            "agent": instance.agent,
+            "payment_method": instance.get_payment_method_display(),
+            "date_sent": instance.date_sent,
+            "date_accepted": instance.date_accepted,
+        }
+
+
 @admin.register(Quote)
 class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportModelAdmin, ModelAdmin):
     resource_classes = [QuoteExportResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
-    list_display = ["id", "project_name", "client","created_at", "date_sent","date_accepted", "project_file", "show_status_customized_color", "total_price_display", "company"]
+    list_display = ["id", "project_name", "client", "show_status_customized_color", "total_price_display", "company"]
+    list_sections = [QuoteDetailsSection]
     list_filter = [
         ("status",MultipleChoicesDropdownFilter),
         ("company",AutocompleteSelectMultipleFilter),
@@ -268,8 +295,9 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
         "total_cost", "total_commissions_display",
         "margin_before_discount_display", "margin_before_discount_pct_display",
         "margin_after_discount_display", "margin_after_discount_pct_display",
+        "created_by",
     ]
-    list_select_related = ["client", "project_file__client", "company"]
+    list_select_related = ["client", "project_file__client", "company", "agent", "created_by"]
     list_filter_submit = True
     change_form_outer_after_template = "sales/quote_preset_picker.html"
 
@@ -294,11 +322,12 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
                 ("client", "agent"),
                 ("status", "company"),
                 ("project_name",),
-                ("date", "expires_at"),
+                ("date", "expires_at", "estimated_delivery_date"),
                 ("payment_method", "payment_terms_days"),
                 ("subtotal_price", "discount_amount"),
                 ("tax_amount", "total_price"),
                 "discount_policies",
+                "created_by",
             )
         }),
         (_("Details"), {
@@ -325,6 +354,11 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
             )
         }),
     )
+
+    def save_model(self, request, obj, form, change):
+        if not change and not obj.created_by_id:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     @display(description=_("Total price"))
     def total_price_display(self, obj):

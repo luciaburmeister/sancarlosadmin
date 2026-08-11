@@ -1,5 +1,6 @@
 import hashlib
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Max
@@ -807,6 +808,21 @@ class Quote(Timestampable, CompanyOwnedModel):
         default=0,
         verbose_name=_("Payment Terms (Days)"),
         help_text=_("Auto-populated from the client's payment terms; used to compute the invoice due date."),
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name=_("Created by"),
+    )
+
+    estimated_delivery_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Estimated delivery date"),
     )
 
     class Meta:

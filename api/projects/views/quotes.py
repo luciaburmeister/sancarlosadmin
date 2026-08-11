@@ -34,7 +34,7 @@ class PresupuestoListCreateView(CompanyAPIView):
         except ProjectFile.DoesNotExist:
             return JsonResponse({"error": "Not found"}, status=404)
 
-        quotes = pf.quotes.prefetch_related("configurations").order_by("-created_at")
+        quotes = pf.quotes.select_related("created_by").prefetch_related("configurations").order_by("-created_at")
         results = [serialize_presupuesto(q, include_products=False) for q in quotes]
         return JsonResponse({"results": results, "count": len(results)})
 
@@ -49,6 +49,9 @@ class PresupuestoListCreateView(CompanyAPIView):
         expires_at, err = parse_date_or_error(body.get("expires_at"))
         if err:
             return err
+        estimated_delivery_date, err = parse_date_or_error(body.get("estimated_delivery_date"))
+        if err:
+            return err
 
         if not name:
             name = f"Presupuesto {date.today().strftime('%d/%m/%Y')}"
@@ -60,6 +63,8 @@ class PresupuestoListCreateView(CompanyAPIView):
             project_name=name,
             project_file=pf,
             expires_at=expires_at,
+            estimated_delivery_date=estimated_delivery_date,
+            created_by=request.user,
         )
         if not had_quotes and pf.status == ProjectFileStatus.NEW:
             pf.status = ProjectFileStatus.ACTIVE
@@ -123,6 +128,12 @@ class PresupuestoDetailView(CompanyAPIView):
         if "observations" in body:
             quote.observations = (body["observations"] or "").strip() or None
             update_fields.append("observations")
+        if "estimated_delivery_date" in body:
+            estimated_delivery_date, err = parse_date_or_error(body["estimated_delivery_date"])
+            if err:
+                return err
+            quote.estimated_delivery_date = estimated_delivery_date
+            update_fields.append("estimated_delivery_date")
         if update_fields:
             quote.save(update_fields=update_fields)
 

@@ -714,6 +714,12 @@ class BaseBankAccount(models.Model):
     class Meta:
         abstract = True
 
+class ConsentStatus(models.TextChoices):
+    UNKNOWN = "unknown", _("Unknown")
+    VALID = "valid", _("Valid")
+    INVALID = "invalid", _("Invalid")
+
+
 class BankAccount(CompanyOwnedModel, BaseBankAccount):
     nuek_account_id = models.CharField(
         max_length=100,
@@ -738,6 +744,31 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
         blank=True,
         verbose_name=_("Nuek Product ID"),
         help_text=_("Product identifier from Arcopay (IBAN or UUID). Used in /transactions/ calls."),
+    )
+    consent_status = models.CharField(
+        max_length=10,
+        choices=ConsentStatus.choices,
+        default=ConsentStatus.UNKNOWN,
+        verbose_name=_("Consent Status"),
+        help_text=_("Whether the Arcopay PSD2 consent is still valid. Refreshed on every sync and via the 'Check Consent' admin action."),
+    )
+    consent_status_message = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Consent Status Message"),
+        help_text=_("Raw consent state reported by Arcopay (e.g. Valid, Rejected)."),
+    )
+    consent_valid_until = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Consent Valid Until"),
+        help_text=_("Expiry date of the PSD2 consent as reported by Arcopay."),
+    )
+    consent_checked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Consent Checked At"),
+        help_text=_("When the consent status was last verified against Arcopay."),
     )
     is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
     sync_from_date = models.DateField(
@@ -767,6 +798,8 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
         verbose_name=_("Balance Updated At"),
         help_text=_("When the balance was last refreshed from the bank."),
     )
+
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = _("Bank Account")

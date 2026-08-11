@@ -12,7 +12,7 @@ from unittest.mock import patch
 from django.test import TestCase
 
 from banking.services.arcopay_import import ArcopayAPIError, ArcopayService
-from company.models import BankAccount, Company
+from company.models import BankAccount, Company, ConsentStatus
 
 
 class SyncFromDateTests(TestCase):
@@ -26,6 +26,11 @@ class SyncFromDateTests(TestCase):
             nuek_consent_id="consent-123",
             nuek_product_id="ES9121000418450200051332",
         )
+        consent_patch = patch.object(
+            ArcopayService, "check_consent_status", return_value=ConsentStatus.VALID,
+        )
+        consent_patch.start()
+        self.addCleanup(consent_patch.stop)
 
     def _sync_and_capture_start_dates(self, **sync_kwargs):
         """Run sync_account with the API mocked; return the startDates used."""
@@ -142,6 +147,11 @@ class MultiProductSyncFromDateTests(TestCase):
             nuek_product_id="P2",
             sync_from_date=date(2026, 2, 1),
         )
+        consent_patch = patch.object(
+            ArcopayService, "check_consent_status", return_value=ConsentStatus.VALID,
+        )
+        consent_patch.start()
+        self.addCleanup(consent_patch.stop)
 
     def _run_sync(self, fail_products=()):
         calls = {}

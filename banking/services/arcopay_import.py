@@ -16,7 +16,7 @@ from django.conf import settings
 from djmoney.money import Money
 
 from banking.models import BankTransaction, ReconciliationStatus
-from company.models import BankAccount, Company
+from company.models import BankAccount, Company, ConsentStatus
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +193,90 @@ class ArcopayService:
             resp.raise_for_status()
         return resp.json()
 
+    # Consent states Arcopay may report in /consent/info/ ``message``.
+    # Anything not listed keeps the account at UNKNOWN so sync is never
+    # blocked by an unrecognised wording.
+    _CONSENT_VALID_MESSAGES = {"valid", "authorised", "authorized"}
+    _CONSENT_INVALID_MESSAGES = {
+        "rejected", "revoked", "revokedbypsu", "expired",
+        "terminatedbytpp", "cancelled", "canceled",
+    }
+
+    @classmethod
+    def check_consent_status(cls, bank_account: BankAccount) -> str:
+        """Query /consent/info/ and persist the consent state on the account.
+
+        Returns the resulting ``ConsentStatus`` value. Raises on network or
+        API errors, leaving the stored status untouched.
+
+        Only writes a full (history-tracked) save when the status, message
+        or expiry actually changed; a mere re-check bumps
+        ``consent_checked_at`` via ``update()`` so the audit history isn't
+        flooded by periodic syncs.
+        """
+        from django.utils import timezone as tz
+
+        if not bank_account.nuek_token:
+            status = ConsentStatus.UNKNOWN
+            message = "No Arcopay token"
+            valid_until = None
+        else:
+            info = cls.get_consent_info(bank_account.nuek_token)
+            if not isinstance(info, dict):
+                raise ArcopayAPIError(f"Unexpected consent info response: {info!r}")
+            if info.get("code"):
+                raise ArcopayAPIError(info.get("message", "Unknown error"), str(info.get("code")))
+
+            message = str(info.get("message", "") or "")
+
+            valid_until = None
+            raw_until = info.get("validUntil", "")
+            if raw_until:
+                try:
+                    d, m, y = str(raw_until).split("-")
+                    valid_until = date(int(y), int(m), int(d))
+                except (ValueError, TypeError):
+                    logger.warning(
+                        "BankAccount %s: unparseable consent validUntil %r",
+                        bank_account.pk, raw_until,
+                    )
+
+            normalized = message.strip().lower()
+            if normalized in cls._CONSENT_INVALID_MESSAGES:
+                status = ConsentStatus.INVALID
+            elif normalized in cls._CONSENT_VALID_MESSAGES:
+                if valid_until and valid_until < date.today():
+                    status = ConsentStatus.INVALID
+                else:
+                    status = ConsentStatus.VALID
+            else:
+                status = ConsentStatus.UNKNOWN
+
+        now = tz.now()
+        changed = (
+            bank_account.consent_status != status
+            or bank_account.consent_status_message != message[:100]
+            or bank_account.consent_valid_until != valid_until
+        )
+        bank_account.consent_status = status
+        bank_account.consent_status_message = message[:100]
+        bank_account.consent_valid_until = valid_until
+        bank_account.consent_checked_at = now
+        if changed:
+            bank_account.save(update_fields=[
+                "consent_status", "consent_status_message",
+                "consent_valid_until", "consent_checked_at",
+            ])
+            logger.info(
+                "BankAccount %s consent status changed to %s (%s)",
+                bank_account.pk, status, message,
+            )
+        else:
+            # Timestamp-only refresh — skip signals so no history row is created.
+            BankAccount.objects.filter(pk=bank_account.pk).update(consent_checked_at=now)
+
+        return status
+
     # ------------------------------------------------------------------
     # Transaction fetching
     # ------------------------------------------------------------------
@@ -357,6 +441,25 @@ class ArcopayService:
             logger.warning(
                 "BankAccount %s has no nuek_token; skipping sync.",
                 bank_account.pk,
+            )
+            return 0
+
+        # --- Step 0: verify the PSD2 consent is still usable ---
+        try:
+            consent_status = ArcopayService.check_consent_status(bank_account)
+        except (ArcopayAPIError, requests.RequestException) as e:
+            # Don't block the sync on a failed status lookup — the
+            # transaction fetch below has its own error handling.
+            logger.warning(
+                "Consent status check failed for account %s (continuing): %s",
+                bank_account.pk, e,
+            )
+            consent_status = None
+        if consent_status == ConsentStatus.INVALID:
+            logger.warning(
+                "BankAccount %s consent is invalid (%s); skipping sync. "
+                "The account must be reconnected via the Arcopay consent flow.",
+                bank_account.pk, bank_account.consent_status_message,
             )
             return 0
 

@@ -10,7 +10,9 @@ import html
 import re
 
 
-from company.models import Company, CompanyDefaultTax, CompanyScheduleSlot, CompanyUser, CompanyEmailConfig, BankAccount, CompanyDocument, CompanyDocumentType, ConfigurationList
+from simple_history.admin import SimpleHistoryAdmin
+
+from company.models import Company, CompanyDefaultTax, CompanyScheduleSlot, CompanyUser, CompanyEmailConfig, BankAccount, CompanyDocument, CompanyDocumentType, ConfigurationList, ConsentStatus
 from django.utils.translation import gettext_lazy as _
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
@@ -28,11 +30,67 @@ from unfold.widgets import (
 from django.contrib.postgres.fields import ArrayField
 
 @admin.register(BankAccount)
-class BankAccountAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ("bank_name", "account_number", "iban", "nuek_token", "is_default", "sync_from_date", "company")
+class BankAccountAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
+    list_display = ("bank_name", "account_number", "iban", "consent_status_badge", "is_default", "sync_from_date", "company")
+    list_filter = ("consent_status",)
     search_fields = ("bank_name", "account_number", "iban")
     autocomplete_fields = ("company",)
-    actions_detail = ["sync_transactions_action"]
+    readonly_fields = ("consent_status", "consent_status_message", "consent_valid_until", "consent_checked_at")
+    actions_detail = ["sync_transactions_action", "check_consent_action"]
+
+    @admin.display(description=_("Consent"), ordering="consent_status")
+    def consent_status_badge(self, obj):
+        colors = {
+            ConsentStatus.VALID: ("#dcfce7", "#166534"),
+            ConsentStatus.INVALID: ("#fee2e2", "#991b1b"),
+            ConsentStatus.UNKNOWN: ("#f3f4f6", "#374151"),
+        }
+        bg, fg = colors.get(obj.consent_status, colors[ConsentStatus.UNKNOWN])
+        return format_html(
+            '<span style="background:{};color:{};padding:2px 8px;border-radius:9999px;'
+            'font-size:11px;font-weight:600;white-space:nowrap;" title="{}">{}</span>',
+            bg, fg,
+            obj.consent_status_message or "",
+            obj.get_consent_status_display(),
+        )
+
+    @action(
+        description=_("Check Consent"),
+        url_path="check-consent",
+        icon="verified_user",
+    )
+    def check_consent_action(self, request, object_id: int):
+        from banking.services.arcopay_import import ArcopayService
+
+        account = get_object_or_404(BankAccount, pk=object_id)
+        if not account.nuek_token:
+            messages.error(
+                request,
+                _("This bank account is not connected to Arcopay (no token). Please connect it first."),
+            )
+            return redirect(request.META.get("HTTP_REFERER"))
+
+        try:
+            status = ArcopayService.check_consent_status(account)
+        except Exception as e:
+            messages.error(
+                request,
+                _("Could not check the consent status: %(error)s") % {"error": e},
+            )
+        else:
+            if status == ConsentStatus.VALID:
+                messages.success(
+                    request,
+                    _("Consent is valid%(until)s.")
+                    % {"until": f" ({_('until')} {account.consent_valid_until})" if account.consent_valid_until else ""},
+                )
+            else:
+                messages.warning(
+                    request,
+                    _("Consent status: %(status)s — %(message)s. Reconnect the account to sync transactions.")
+                    % {"status": account.get_consent_status_display(), "message": account.consent_status_message},
+                )
+        return redirect(request.META.get("HTTP_REFERER"))
 
     @action(
         description=_("Sync Transactions"),
@@ -40,6 +98,7 @@ class BankAccountAdmin(CompanyRestrictedAdmin, ModelAdmin):
         icon="sync",
     )
     def sync_transactions_action(self, request, object_id: int):
+        from banking.services.arcopay_import import ArcopayService
         from banking.tasks import sync_bank_account_task
 
         account = get_object_or_404(BankAccount, pk=object_id)
@@ -47,6 +106,20 @@ class BankAccountAdmin(CompanyRestrictedAdmin, ModelAdmin):
             messages.error(
                 request,
                 _("This bank account is not connected to Arcopay (no token). Please connect it first."),
+            )
+            return redirect(request.META.get("HTTP_REFERER"))
+
+        # Refresh consent status synchronously so a dead consent surfaces
+        # immediately instead of a silent background no-op.
+        try:
+            status = ArcopayService.check_consent_status(account)
+        except Exception:
+            status = None  # transient lookup failure — the task will retry the check
+        if status == ConsentStatus.INVALID:
+            messages.error(
+                request,
+                _("Cannot sync %(bank)s: the Arcopay consent is invalid (%(message)s). Please reconnect the account.")
+                % {"bank": account.bank_name or account.iban, "message": account.consent_status_message},
             )
         else:
             sync_bank_account_task.delay(account.pk)

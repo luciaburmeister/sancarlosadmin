@@ -91,10 +91,12 @@ class DiscountRule(models.Model):
         validators=[validate_expression_for_safe_eval],
         help_text=_(
             "Optional safe_eval expression. Leave blank to always apply.\n"
-            "Available variables: subtotal, total_quantity.\n"
+            "Available variables: subtotal, total_quantity, accumulated "
+            "(running total after prior discounts).\n"
             "Examples:\n"
             "  • subtotal > 1000\n"
             "  • subtotal > 5000 and total_quantity > 10\n"
+            "  • accumulated > 900\n"
         ),
     )
     level = models.CharField(

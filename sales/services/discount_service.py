@@ -17,8 +17,11 @@ class DiscountService:
         for rule in rules:
             # Evaluate condition (empty = always applies)
             if rule.condition and rule.condition.strip():
+                # 'accumulated' reflects the running total after prior rules,
+                # so it changes as the cascade progresses.
+                rule_context = {**context, "accumulated": float(accumulated)}
                 try:
-                    if not bool(safe_eval(rule.condition, context)):
+                    if not bool(safe_eval(rule.condition, rule_context)):
                         continue
                 except Exception:
                     continue  # ponytail: skip broken conditions silently

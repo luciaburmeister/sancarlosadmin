@@ -1,0 +1,61 @@
+{% extends "admin/base.html" %}
+{% load i18n unfold %}
+
+{% block title %}{{ asset_map.name }} - {% trans "Asset Map" %}{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+{% if filter_form %}{{ filter_form.media }}{% endif %}
+<style>
+  .assetmap-table-filters select[multiple],
+  .assetmap-table-filters input[type="text"] {
+    min-width: 14rem;
+  }
+  .assetmap-table-filters .select2-container {
+    min-width: 14rem !important;
+  }
+  .assetmap-table-filters .select2-container .select2-selection--multiple {
+    min-height: 2.5rem;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="px-6 py-8">
+    <div class="mb-8 flex items-baseline justify-between">
+        <div>
+            <h1 class="text-2xl font-bold">{{ asset_map.name }}</h1>
+            <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+                {% trans "Nombre, zona, expediente, capacidad y última fecha de colocación de cada cuba." %}
+            </p>
+        </div>
+        <a href="{% url 'admin:assets_assetmap_view' asset_map.pk %}">{% trans "View as map" %}</a>
+    </div>
+
+    {# ── Filters ── #}
+    {% if filter_form %}
+    <div class="mb-6 rounded-2xl border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 p-4">
+        <form method="get" class="flex flex-col gap-4 assetmap-table-filters">
+            <div class="flex flex-wrap items-end gap-4">
+                {% for field in filter_form %}
+                    {% include "unfold/helpers/field.html" with field=field %}
+                {% endfor %}
+            </div>
+            <div class="flex items-center gap-2">
+                {% component "unfold/components/button.html" with type="submit" variant="primary" %}
+                    {% trans "Apply" %}
+                {% endcomponent %}
+                {% component "unfold/components/button.html" with href=request.path variant="default" %}
+                    {% trans "Reset" %}
+                {% endcomponent %}
+            </div>
+        </form>
+    </div>
+    {% endif %}
+
+    {# ── Data table ── #}
+    {% component "unfold/components/card.html" %}
+        {% component "unfold/components/table.html" with table=table_data card_included=1 striped=1 %}{% endcomponent %}
+    {% endcomponent %}
+</div>
+{% endblock %}

@@ -6,12 +6,12 @@ from unfold.admin import ModelAdmin
 
 from core.admin.company_admin import CompanyRestrictedAdmin
 from assets.models import AssetMap
-from assets.views import AssetMapDetailView
+from assets.views import AssetMapDetailView, AssetMapTableView
 
 
 @admin.register(AssetMap)
 class AssetMapAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ("name", "asset_count", "company", "is_active", "view_map_link")
+    list_display = ("name", "asset_count", "company", "is_active", "view_map_link", "view_table_link")
     list_filter = ("is_active", "company")
     search_fields = ("name", "description")
     autocomplete_fields = ["assets", "company"]
@@ -31,6 +31,13 @@ class AssetMapAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ),
                 name="assets_assetmap_view",
             ),
+            path(
+                "<int:object_id>/table/",
+                self.admin_site.admin_view(
+                    AssetMapTableView.as_view(model_admin=self)
+                ),
+                name="assets_assetmap_table",
+            ),
         ]
         return custom_urls + urls
 
@@ -43,4 +50,11 @@ class AssetMapAdmin(CompanyRestrictedAdmin, ModelAdmin):
         if obj.pk:
             url = reverse("admin:assets_assetmap_view", args=[obj.pk])
             return format_html('<a href="{}">{}</a>', url, _("View Map"))
+        return "-"
+
+    @admin.display(description=_("Table"))
+    def view_table_link(self, obj):
+        if obj.pk:
+            url = reverse("admin:assets_assetmap_table", args=[obj.pk])
+            return format_html('<a href="{}">{}</a>', url, _("View Table"))
         return "-"

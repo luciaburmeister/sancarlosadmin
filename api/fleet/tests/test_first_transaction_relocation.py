@@ -24,6 +24,7 @@ from api.fleet.tests.helpers import (
     make_asset_type,
     make_asset,
     make_zone,
+    make_planning,
 )
 
 ZONE_LAT = 40.416775
@@ -39,11 +40,13 @@ class MovementFirstTransactionRelocationTests(TestCase):
     def _run_movement(self, asset, employee, user, latitude, longitude, zone_id=None):
         from api.fleet.views.assets import MovementStrategy
 
+        planning = make_planning(asset.company, asset=asset, assigned_to=employee)
         data = {
             "transaction_type": "movement",
             "latitude": latitude,
             "longitude": longitude,
             "matricula": "1234ABC",
+            "planning_id": planning.id,
         }
         if zone_id is not None:
             data["zone_id"] = zone_id
@@ -114,11 +117,13 @@ class DeliveryFirstTransactionRelocationTests(TestCase):
     def _run_delivery(self, asset, employee, user, latitude, longitude, zone_id=None):
         from api.fleet.views.assets import DeliveryStrategy
 
+        planning = make_planning(asset.company, asset=asset, assigned_to=employee)
         data = {
             "transaction_type": "delivery",
             "latitude": latitude,
             "longitude": longitude,
             "matricula": "1234ABC",
+            "planning_id": planning.id,
         }
         if zone_id is not None:
             data["zone_id"] = zone_id

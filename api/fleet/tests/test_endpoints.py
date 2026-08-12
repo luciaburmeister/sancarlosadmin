@@ -21,6 +21,7 @@ from api.fleet.tests.helpers import (
     make_asset_type,
     make_asset,
     make_zone,
+    make_planning,
 )
 
 
@@ -42,6 +43,7 @@ class AssetTransactionEndpointTests(TestCase):
             employee=self.employee,
             zone=self.zone,
         )
+        self.planning = make_planning(self.company, asset=self.asset, assigned_to=self.employee)
         self.client.force_authenticate(user=self.user)
 
     def _movement_payload(self, **overrides):
@@ -59,6 +61,7 @@ class AssetTransactionEndpointTests(TestCase):
             "m3": "6",
             "vertedero": "",
             "zone_id": self.zone.id,
+            "planning_id": self.planning.id,
         }
         payload.update(overrides)
         return payload
@@ -122,6 +125,7 @@ class AssetTransactionEndpointTests(TestCase):
                 "latitude": 40.416775,
                 "longitude": -3.703790,
                 "zone_id": self.zone.id,
+                "planning_id": self.planning.id,
             }),
             content_type="application/json",
         )
@@ -179,3 +183,15 @@ class AssetTransactionEndpointTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_movement_without_planning_id_returns_400(self):
+        """Cuba can't operate without a plan — strict mode."""
+        payload = self._movement_payload()
+        del payload["planning_id"]
+        response = self.client.post(
+            self._url(),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", response.json())

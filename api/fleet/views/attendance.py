@@ -295,7 +295,7 @@ class PorteSubmitView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, planning_id):
-        from assets.models import AssetPlanning
+        from assets.models import AssetPlanning, PlanningType
         employee = get_current_employee(request.user)
         if employee is None:
             return JsonResponse({"error": "No employee profile found"}, status=400)
@@ -307,7 +307,7 @@ class PorteSubmitView(APIView):
             planning = AssetPlanning.objects.select_related(
                 "asset", "transport_asset", "origin", "destination",
             ).get(
-                id=planning_id, assigned_to=employee, planning_type="porte"
+                id=planning_id, assigned_to=employee, planning_type=PlanningType.PORTE
             )
         except AssetPlanning.DoesNotExist:
             return JsonResponse({"error": "Planning not found"}, status=404)

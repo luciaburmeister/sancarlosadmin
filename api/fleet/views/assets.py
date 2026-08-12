@@ -7,7 +7,7 @@ from datetime import datetime
 import qrcode
 from company.models import WorkingZone, WorkingZoneAuthorization
 from django.core.files.base import ContentFile
-from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus
+from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType
 from core.tasks import send_asset_transaction_email_task
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -230,11 +230,17 @@ class BaseTransactionStrategy:
         if image_file:
             transaction.imagen.save(image_file.name, image_file, save=False)
 
-    def _resolve_planning(self):
+    def _require_planning(self):
+        """A cuba can't operate without a plan assigned to the driver submitting it."""
         planning_id = self.data.get("planning_id")
         if not planning_id:
-            return None
-        return AssetPlanning.objects.filter(id=planning_id, company=self.asset.company).first()
+            return None, JsonResponse({"error": "Debes tener un plan asignado para poder operar."}, status=400)
+        planning = AssetPlanning.objects.filter(
+            id=planning_id, company=self.asset.company, assigned_to=self.employee, planning_type=PlanningType.CUBA,
+        ).first()
+        if planning is None:
+            return None, JsonResponse({"error": "El plan indicado no existe o no está asignado a ti."}, status=400)
+        return planning, None
 
     def execute(self) -> JsonResponse:
         raise NotImplementedError
@@ -242,6 +248,9 @@ class BaseTransactionStrategy:
 
 class MovementStrategy(BaseTransactionStrategy):
     def execute(self) -> JsonResponse:
+        planning, error = self._require_planning()
+        if error:
+            return error
         data = self.data
         asset = self.asset
         employee = self.employee
@@ -290,7 +299,6 @@ class MovementStrategy(BaseTransactionStrategy):
         else:
             form_data["cliente"] = ""
         distance_note = f"Distancia: {int(distance)}m" if distance is not None else "Sin zona asignada"
-        planning = self._resolve_planning()
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=None,
             transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(), performed_by=employee,
@@ -300,15 +308,17 @@ class MovementStrategy(BaseTransactionStrategy):
         )
         self._save_firma_and_imagen(transaction)
         transaction.save()
-        if planning is not None:
-            planning.status = PlanningStatus.IN_TRANSIT
-            planning.save(update_fields=["status"])
+        planning.status = PlanningStatus.IN_TRANSIT
+        planning.save(update_fields=["status"])
         send_asset_transaction_email_task.delay(transaction.id)
         return JsonResponse({"success": True, "message": "Recogida registrada", "transaction_id": transaction.id})
 
 
 class DeliveryStrategy(BaseTransactionStrategy):
     def execute(self) -> JsonResponse:
+        planning, error = self._require_planning()
+        if error:
+            return error
         data = self.data
         asset = self.asset
         employee = self.employee
@@ -341,7 +351,6 @@ class DeliveryStrategy(BaseTransactionStrategy):
         if destination_zone.location_confirmed_at is None and latitude and longitude:
             confirm_zone_location(destination_zone, latitude, longitude)
         form_data["cliente"] = destination_zone.client.name if destination_zone.client else ""
-        planning = self._resolve_planning()
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=destination_zone,
             transaction_type=TransactionTypeChoices.DELIVERY, date=timezone.now(), performed_by=employee,
@@ -354,15 +363,17 @@ class DeliveryStrategy(BaseTransactionStrategy):
         transaction.save()
         asset.current_working_zone = destination_zone
         asset.save()
-        if planning is not None:
-            planning.status = PlanningStatus.DELIVERED
-            planning.save(update_fields=["status"])
+        planning.status = PlanningStatus.DELIVERED
+        planning.save(update_fields=["status"])
         send_asset_transaction_email_task.delay(transaction.id)
         return JsonResponse({"success": True, "message": f"Entrega registrada en {destination_zone}", "transaction_id": transaction.id})
 
 
 class ReceiptStrategy(BaseTransactionStrategy):
     def execute(self) -> JsonResponse:
+        planning, error = self._require_planning()
+        if error:
+            return error
         data = self.data
         asset = self.asset
         employee = self.employee
@@ -395,7 +406,7 @@ class ReceiptStrategy(BaseTransactionStrategy):
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=vertedero_zone,
             transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(), performed_by=employee,
-            planning=self._resolve_planning(),
+            planning=planning,
             notes=f"Verteo registrado por {user.username}. Albaran: {nro_albaran}. Material: {material_vertido}. Peso: {peso_neto}kg.",
             data=form_data,
         )

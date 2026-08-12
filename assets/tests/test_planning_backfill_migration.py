@@ -35,6 +35,17 @@ class PlanningBackfillMigrationTests(TransactionTestCase):
         OldPlanning = old_apps.get_model("assets", "AssetPlanning")
         OldTransaction = old_apps.get_model("assets", "AssetTransaction")
 
+        # company.0074 (merged in from main after this test was written) added a
+        # NOT NULL ArrayField with no server-side default. The historical
+        # `OldCompany` model predates that migration and omits the column
+        # entirely, so inserts fail unless the column has a temporary DB-level
+        # default to fall back on.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "ALTER TABLE company_company "
+                "ALTER COLUMN asset_plan_draft_notification_emails SET DEFAULT '{}'"
+            )
+
         self.company_a_id = OldCompany.objects.create(name="Company A").pk
         company_b_id = OldCompany.objects.create(name="Company B").pk
 

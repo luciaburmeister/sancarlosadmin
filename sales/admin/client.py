@@ -9,7 +9,7 @@ from import_export.admin import ImportExportModelAdmin
 from django.urls import reverse
 
 from core.admin.company_admin import CompanyRestrictedAdmin
-from invoices.models import AppliedTax, SalesInvoice
+from invoices.models import AppliedTax, SalesInvoice, SalesInvoiceStatus
 from payments.mixins import annotate_outstanding_balance
 from sales.models import Client, ClientAddress, ClientContact, ClientBankAccount
 from sales.forms import ClientImportForm, ClientExportForm, ClientConfirmImportForm
@@ -112,13 +112,17 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        return annotate_outstanding_balance(qs, SalesInvoice, "client", "balance_owed")
+        return annotate_outstanding_balance(
+            qs, SalesInvoice, "client", "balance_owed",
+            invoice_filters={"status": SalesInvoiceStatus.FINAL},
+        )
 
     @staticmethod
     def _pending_invoices_url(obj):
         return (
             reverse("admin:invoices_salesinvoice_changelist")
             + f"?client__id__exact={obj.pk}&payment_status__in=unpaid,partial"
+            + f"&status__exact={SalesInvoiceStatus.FINAL}"
         )
 
     @display(description=_("Balance owed"))

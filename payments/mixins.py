@@ -55,6 +55,7 @@ def annotate_outstanding_balance(
     invoice_model,
     counterparty_field: str,
     annotation_name: str = "outstanding_balance",
+    invoice_filters: dict | None = None,
 ) -> QuerySet:
     """
     Annotate a Provider/Client queryset with the total outstanding balance
@@ -63,6 +64,9 @@ def annotate_outstanding_balance(
 
     `invoice_model` must be a `Payable` model with a `total_amount` MoneyField
     and a `payment_status` field (see `invoices.models.Invoice`/`SalesInvoice`).
+
+    `invoice_filters` optionally narrows which invoices count, e.g.
+    ``{"status": SalesInvoiceStatus.FINAL}`` to ignore proforma/cancelled ones.
     """
     from invoices.models import InvoicePaymentStatus
     from payments.models import PaymentAllocation
@@ -81,7 +85,9 @@ def annotate_outstanding_balance(
     )
 
     remaining_per_invoice = (
-        invoice_model.objects.filter(**{counterparty_field: OuterRef("pk")})
+        invoice_model.objects.filter(
+            **{counterparty_field: OuterRef("pk")}, **(invoice_filters or {})
+        )
         .exclude(payment_status=InvoicePaymentStatus.PAID)
         .annotate(
             remaining=Coalesce(

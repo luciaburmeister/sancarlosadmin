@@ -13,6 +13,7 @@ import re
 from simple_history.admin import SimpleHistoryAdmin
 
 from company.models import Company, CompanyDefaultTax, CompanyScheduleSlot, CompanyUser, CompanyEmailConfig, BankAccount, CompanyDocument, CompanyDocumentType, ConfigurationList, ConsentStatus
+from assets.models import AssetPlanningNotificationRecipient
 from django.utils.translation import gettext_lazy as _
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
@@ -212,6 +213,13 @@ class CompanyDefaultTaxInline(TabularInline):
     verbose_name = _("Default Tax")
     verbose_name_plural = _("Default Taxes")
 
+class AssetPlanningNotificationRecipientInline(TabularInline):
+    model = AssetPlanningNotificationRecipient
+    extra = 0
+    fields = ("service_type", "email")
+    verbose_name = _("Asset Planning Notification Recipient")
+    verbose_name_plural = _("Asset Planning Notification Recipients")
+
 class CompanyDocumentInline(StackedInline):
     model = CompanyDocument
     form = CompanyDocumentForm
@@ -391,7 +399,10 @@ class CompanyAdmin(ModelAdmin):
     form = CompanyAdminForm
     readonly_fields = ("terms_import_hint",)
     autocomplete_fields = ("asset_reception_product",)
-    inlines = [BankAccountInline, CompanyDocumentInline, CompanyScheduleSlotInline, CompanyDefaultTaxInline]
+    inlines = [
+        BankAccountInline, CompanyDocumentInline, CompanyScheduleSlotInline, CompanyDefaultTaxInline,
+        AssetPlanningNotificationRecipientInline,
+    ]
     list_display = ("name", "is_active")
     list_filter = ("is_active",)
     search_fields = ("name",)
@@ -424,6 +435,7 @@ class CompanyAdmin(ModelAdmin):
                 ("document_reminder_emails"),
                 ("bank_summary_emails"),
                 ("purchase_order_notification_emails"),
+                ("asset_plan_draft_notification_emails"),
                 "invoice_number_format",
                 "require_asset_on_project_file",
                 "require_working_zone_on_project_file",

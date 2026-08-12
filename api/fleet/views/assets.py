@@ -12,6 +12,7 @@ from core.tasks import send_asset_transaction_email_task
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
+from assets.models import AssetIdentifier
 from rest_framework.views import APIView
 from api.constants import MAX_ZONE_RADIUS_M
 from api.fleet.serializers import AssetTransactionSerializer
@@ -122,6 +123,64 @@ def get_asset_receipt(asset):
     return last_receipt.date > last_movement.date
 
 
+def _get_vas_a_verter(asset):
+    """Returns True if the last recogida had vasAVerter == 'Sí' and verteo not yet done."""
+    last_movement = AssetTransaction.objects.filter(
+        asset=asset,
+        transaction_type=TransactionTypeChoices.MOVEMENT,
+    ).order_by("-date").first()
+    if last_movement is None:
+        return False
+    if last_movement.data.get("vasAVerter", "") != "Sí":
+        return False
+    # Check if verteo has already been done after this recogida
+    already_done = AssetTransaction.objects.filter(
+        asset=asset,
+        transaction_type=TransactionTypeChoices.RECEIPT,
+        date__gt=last_movement.date,
+    ).exists()
+    return not already_done
+
+
+
+def _enrich_with_truck_data(form_data, matricula, company):
+    """Look up the truck asset by matricula and inject tipo_camion and implemento."""
+    if not matricula:
+        return
+    try:
+        identifier = AssetIdentifier.objects.select_related("asset").get(
+            label__iexact="MATRICULA",
+            value=matricula,
+            asset__company=company,
+        )
+        truck_data = identifier.asset.data or {}
+        form_data["tipo_camion"] = truck_data.get("tipo_camion", "")
+        form_data["implemento"] = truck_data.get("implemento", "")
+    except AssetIdentifier.DoesNotExist:
+        form_data["tipo_camion"] = ""
+        form_data["implemento"] = ""
+
+
+
+def _enrich_with_truck_data(form_data, matricula, company):
+    """Look up the truck asset by matricula and inject tipo_camion and implemento."""
+    if not matricula:
+        form_data["tipo_camion"] = ""
+        form_data["implemento"] = ""
+        return
+    try:
+        identifier = AssetIdentifier.objects.select_related("asset").get(
+            label__iexact="MATRICULA",
+            value=matricula,
+            asset__company=company,
+        )
+        truck_data = identifier.asset.data or {}
+        form_data["tipo_camion"] = truck_data.get("tipo_camion", "")
+        form_data["implemento"] = truck_data.get("implemento", "")
+    except AssetIdentifier.DoesNotExist:
+        form_data["tipo_camion"] = ""
+        form_data["implemento"] = ""
+
 def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
     return {
         "id": asset.id,
@@ -129,6 +188,7 @@ def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
         "description": asset.asset_type.name if asset.asset_type else "",
         "status": get_asset_status(last_tx),
         "asset_receipt": asset.has_pending_receipt,
+        "vas_a_verter": _get_vas_a_verter(asset),
         "last_location": str(zone) if zone else None,
         "last_updated": last_tx.date.strftime("%d/%m/%Y %H:%M") if last_tx else None,
         "zone_address": f"{zone.street_address}, {zone.city}, {zone.postal_code}" if zone else None,
@@ -289,8 +349,13 @@ class MovementStrategy(BaseTransactionStrategy):
             if zone.client_id and not hasattr(zone, '_client_cache'):
                 zone = WorkingZone.objects.select_related("client").get(pk=zone.pk)
             form_data["cliente"] = zone.client.name if zone.client else ""
+            form_data["zone_type"] = zone.zone_type
+            form_data["trabajo"] = "Recogida"
         else:
             form_data["cliente"] = ""
+            form_data["zone_type"] = ""
+        _enrich_with_truck_data(form_data, form_data.get("matricula", ""), asset.company)
+        _enrich_with_truck_data(form_data, form_data.get("matricula", ""), asset.company)
         distance_note = f"Distancia: {int(distance)}m" if distance is not None else "Sin zona asignada"
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=None,
@@ -331,6 +396,9 @@ class DeliveryStrategy(BaseTransactionStrategy):
         if destination_zone.client_id and not hasattr(destination_zone, '_client_cache'):
             destination_zone = WorkingZone.objects.select_related("client").get(pk=destination_zone.pk)
         form_data["cliente"] = destination_zone.client.name if destination_zone.client else ""
+        form_data["zone_type"] = destination_zone.zone_type
+        form_data["trabajo"] = "Dejada"
+        _enrich_with_truck_data(form_data, form_data.get("matricula", ""), asset.company)
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=destination_zone,
             transaction_type=TransactionTypeChoices.DELIVERY, date=timezone.now(), performed_by=employee,
@@ -791,8 +859,8 @@ class DeliveryCheckView(APIView):
         ).order_by("-date").first()
         verteo_required = False
         if last_movement is not None:
-            vertedero_value = last_movement.data.get("vertedero", "")
-            verteo_required = bool(vertedero_value and vertedero_value.strip())
+            vas_a_verter = last_movement.data.get("vasAVerter", "")
+            verteo_required = vas_a_verter == "Sí"
         if verteo_required and last_movement is not None:
             already_done = AssetTransaction.objects.filter(asset=asset, transaction_type=TransactionTypeChoices.RECEIPT, date__gt=last_movement.date).exists()
             if already_done:

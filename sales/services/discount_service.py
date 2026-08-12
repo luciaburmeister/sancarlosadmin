@@ -38,7 +38,7 @@ class DiscountService:
 
             breakdown.append({
                 "rule_name": rule.name,
-                "kind": rule.kind,
+                "kind": getattr(rule, "kind", "standard"),
                 "percentage": str(rule.percentage),
                 "mode": rule.mode,
                 "base": str(base.quantize(Decimal("0.01"))),

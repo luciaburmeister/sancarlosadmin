@@ -59,6 +59,11 @@ class DiscountLevel(models.TextChoices):
     BASKET = "basket", _("Basket")
 
 
+class DiscountKind(models.TextChoices):
+    STANDARD = "standard", _("Standard")
+    FINANCING = "financing", _("Financing")
+
+
 class DiscountRule(models.Model):
     """A single discount rule within a policy. Ordered and conditionally applied."""
     policy = models.ForeignKey(
@@ -107,6 +112,16 @@ class DiscountRule(models.Model):
         help_text=_(
             "'Line item' writes the effective discount % to each inventory item. "
             "'Basket' applies the discount to the overall quote subtotal."
+        ),
+    )
+    kind = models.CharField(
+        max_length=20,
+        choices=DiscountKind.choices,
+        default=DiscountKind.STANDARD,
+        verbose_name=_("Kind"),
+        help_text=_(
+            "'Financing' tags this rule as a financing discount so it can be "
+            "identified separately (e.g. in the quote export JSON)."
         ),
     )
     is_active = models.BooleanField(default=True, verbose_name=_("Active"))

@@ -77,6 +77,43 @@ class QuoteExportStrategy(BaseExportStrategy):
                 "total_with_tax": float(inv_item.total_with_tax.amount) if inv_item.total_with_tax else 0,
             })
 
+        # Sums for the export summary block
+        lines_subtotal = sum(
+            (Decimal(str(item["line_total"])) for item in inventory_items_data),
+            Decimal("0.00"),
+        )
+        configurations_subtotal = sum(
+            (Decimal(str(c["subtotal"])) for c in configurations_data),
+            Decimal("0.00"),
+        )
+        line_items_discount_total = sum(
+            (
+                Decimal(str(item["unit_price"])) * Decimal(str(item["quantity"]))
+                - Decimal(str(item["line_total"]))
+                for item in inventory_items_data
+            ),
+            Decimal("0.00"),
+        )
+        configurations_discount_total = sum(
+            (
+                abs(Decimal((config.pricing_breakdown or {}).get("discount_total", "0")))
+                for config in all_configs
+            ),
+            Decimal("0.00"),
+        )
+        basket_discount_total = self.quote.discount_amount.amount if self.quote.discount_amount else Decimal("0.00")
+        discounts_total = line_items_discount_total + configurations_discount_total + basket_discount_total
+
+        discount_breakdown = self.quote.discount_breakdown or []
+        financing_discount_amount = sum(
+            (
+                abs(Decimal(entry["amount"]))
+                for entry in discount_breakdown
+                if entry.get("kind") == "financing" and entry.get("level") == "basket"
+            ),
+            Decimal("0.00"),
+        )
+
         context = {
             "quote": self.quote,
             "client": self.quote.client,
@@ -91,12 +128,20 @@ class QuoteExportStrategy(BaseExportStrategy):
             "has_inventory_items": len(inventory_items_data) > 0,
             "subtotal_price": float(self.quote.subtotal_price.amount),
             "discount_amount": float(self.quote.discount_amount.amount) if self.quote.discount_amount else 0,
-            "discount_breakdown": self.quote.discount_breakdown or [],
+            "discount_breakdown": discount_breakdown,
             "discounted_subtotal": float(self.quote.discounted_subtotal.amount) if self.quote.discounted_subtotal else 0,
             "tax_amount": float(self.quote.tax_amount.amount),
             "total_price": float(self.quote.total_price.amount),
             "tax_breakdown": self.quote.tax_breakdown,
             "config_count": len(configurations_data),
+            # Summary sums
+            "lines_subtotal": float(lines_subtotal),
+            "configurations_subtotal": float(configurations_subtotal),
+            "line_items_discount_total": float(line_items_discount_total),
+            "configurations_discount_total": float(configurations_discount_total),
+            "discounts_total": float(discounts_total),
+            "has_financing_discount": financing_discount_amount > 0,
+            "financing_discount_amount": float(financing_discount_amount),
         }
 
         # Use common helper for company and bank information

@@ -458,11 +458,27 @@ class LoanInstallmentInline(TabularInline):
         "payment_status",
         "amount_paid",
         "outstanding_principal_after",
+        "mark_paid_button",
     )
     readonly_fields = fields
 
     def has_add_permission(self, request, obj=None):
         return False
+
+    @admin.display(description=_("Actions"))
+    def mark_paid_button(self, obj):
+        if not obj.pk or obj.payment_status == "paid":
+            return "—"
+        url = reverse("admin:loans_loan_mark_installment_paid", args=[obj.pk])
+        return format_html(
+            '<a href="{}" class="font-medium text-primary-600 dark:text-primary-400 hover:underline" '
+            'onclick="return confirm(\'{}\');">'
+            '<span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;">price_check</span>'
+            ' {}</a>',
+            url,
+            _("Mark this installment as paid without a bank transaction?"),
+            _("Mark as paid"),
+        )
 
 
 @admin.register(Loan)
@@ -513,6 +529,83 @@ class LoanAdmin(ModelAdmin, CompanyRestrictedAdmin):
             "fields": (("status", "bank_account"), "notes"),
         }),
     )
+
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "installment/<int:installment_id>/mark-paid/",
+                self.admin_site.admin_view(self.mark_installment_paid),
+                name="loans_loan_mark_installment_paid",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    def mark_installment_paid(self, request, installment_id):
+        """
+        Mark an installment as paid without a bank transaction, for old
+        installments that predate the available bank data and can never be
+        reconciled. Creates a manual Payment fully allocated to the
+        installment so amount_paid/payment_status (which are recomputed from
+        PaymentAllocation) stay consistent.
+        """
+        installment = get_object_or_404(
+            LoanInstallment.objects.select_related("loan__company", "loan__bank_account"),
+            pk=installment_id,
+        )
+        loan = installment.loan
+        redirect_url = reverse("admin:loans_loan_change", args=[loan.pk]) + "#installments"
+
+        if not self.has_change_permission(request, loan):
+            messages.error(request, _("You do not have permission to modify this loan."))
+            return redirect(redirect_url)
+
+        remaining = installment.amount_remaining
+        if installment.payment_status == "paid" or remaining.amount <= 0:
+            messages.info(request, _("Installment #%(num)s is already paid.") % {
+                "num": installment.installment_number,
+            })
+            return redirect(redirect_url)
+
+        from django.db import transaction as db_transaction
+        from payments.models import (
+            Payment,
+            PaymentCreatedBy,
+            PaymentDirection,
+            PaymentMethod,
+            PaymentStatus,
+        )
+
+        with db_transaction.atomic():
+            payment = Payment.objects.create(
+                company=loan.company,
+                payment_date=installment.due_date,
+                amount=remaining.amount,
+                amount_currency=str(remaining.currency),
+                direction=PaymentDirection.OUTBOUND,
+                method=PaymentMethod.TRANSFER,
+                status=PaymentStatus.CONFIRMED,
+                bank_account=loan.bank_account,
+                created_by=PaymentCreatedBy.MANUAL,
+                notes=_("Marked as paid manually from admin (no bank transaction). %(loan)s") % {
+                    "loan": str(installment),
+                },
+            )
+            PaymentAllocation.objects.create(
+                payment=payment,
+                amount_applied=remaining.amount,
+                amount_applied_currency=str(remaining.currency),
+                content_type=ContentType.objects.get_for_model(LoanInstallment),
+                object_id=installment.pk,
+            )
+
+        messages.success(
+            request,
+            _("Installment #%(num)s marked as paid (%(amount)s).") % {
+                "num": installment.installment_number,
+                "amount": remaining,
+            },
+        )
+        return redirect(redirect_url)
 
     def has_add_permission(self, request):
         return bool(request.GET.get("parent_loan"))

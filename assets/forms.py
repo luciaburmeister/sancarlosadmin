@@ -433,6 +433,16 @@ class AssetMapTableFilterForm(forms.Form):
         required=False,
         widget=UnfoldAdminTextInputWidget(attrs={"placeholder": _("Buscar por nombre…")}),
     )
+    sort = forms.ChoiceField(
+        label=_("Ordenar por"),
+        required=False,
+        choices=[
+            ("", _("Zona / nombre (por defecto)")),
+            ("-zone_changed_at", _("Última fecha de colocación (más reciente primero)")),
+            ("zone_changed_at", _("Última fecha de colocación (más antigua primero)")),
+        ],
+        widget=UnfoldAdminSelectWidget,
+    )
 
     def __init__(self, *args, zone_choices=(), project_file_choices=(), dynamic_field_specs=(), **kwargs):
         super().__init__(*args, **kwargs)
@@ -453,7 +463,7 @@ class AssetMapTableFilterForm(forms.Form):
                 widget=UnfoldAdminSelect2MultipleWidget,
             )
         self.order_fields(
-            ["zone", "expediente", "q"] + [f"df_{spec['key']}" for spec in dynamic_field_specs]
+            ["zone", "expediente", "q"] + [f"df_{spec['key']}" for spec in dynamic_field_specs] + ["sort"]
         )
 
 

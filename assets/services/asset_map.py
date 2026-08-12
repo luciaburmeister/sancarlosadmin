@@ -1,4 +1,4 @@
-from django.db.models import Q
+from django.db.models import F, Q
 from django.urls import reverse
 from django.utils.formats import date_format
 
@@ -139,20 +139,26 @@ class AssetMapService:
         }
 
     @classmethod
-    def build_table_rows(cls, asset_map, *, zone_ids=None, project_file_ids=None, search=None, dynamic_filters=None):
+    def build_table_rows(cls, asset_map, *, zone_ids=None, project_file_ids=None, search=None, dynamic_filters=None, sort=None):
         """
         Tabular, filterable view of the same assets/fields the map shows.
 
         `zone_ids`/`project_file_ids` are lists (multi-select). `dynamic_filters`
         is {field_key: [values]}, limited by the caller to keys returned from
-        `dynamic_filter_options` for this same map.
+        `dynamic_filter_options` for this same map. `sort` is "zone_changed_at"
+        or "-zone_changed_at", falling back to the default zone/name ordering.
         """
         assets = (
             asset_map.assets
             .select_related("asset_type", "current_working_zone", "current_working_zone__project_file")
             .prefetch_related("asset_type__fields")
-            .order_by("current_working_zone__name", "name")
         )
+        if sort == "zone_changed_at":
+            assets = assets.order_by(F("zone_changed_at").asc(nulls_last=True), "name")
+        elif sort == "-zone_changed_at":
+            assets = assets.order_by(F("zone_changed_at").desc(nulls_last=True), "name")
+        else:
+            assets = assets.order_by("current_working_zone__name", "name")
         if zone_ids:
             assets = assets.filter(current_working_zone_id__in=zone_ids)
         if project_file_ids:

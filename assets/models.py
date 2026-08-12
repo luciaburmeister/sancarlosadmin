@@ -20,6 +20,7 @@ from assets.constants import (
     SERVICE_TYPE_MATERIAL_PROPIO,
     SERVICE_TYPE_GRUA,
     SERVICE_TYPE_CUBA,
+    SERVICE_TYPE_MAQUINISTAS,
     SERVICE_TYPE_PLANNING_TYPE,
     SERVICE_TYPE_FIELDS,
 )
@@ -408,6 +409,33 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
             ),
         ]
 
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new:
+            self._sync_zones_on_porte_delivery()
+
+    def _sync_zones_on_porte_delivery(self):
+        """An own-machine porte delivery means the machine — and, if the plan
+        says the operator(s) moved with it, those employees too — are now at
+        to_zone. Keeps Asset/Employee.current_working_zone in sync with what
+        actually happened in the field.
+        """
+        if self.transaction_type != TransactionTypeChoices.PORTE_DELIVERY:
+            return
+        if not self.planning_id or not self.to_zone_id:
+            return
+        planning = self.planning
+        if planning.service_type != SERVICE_TYPE_MAQUINA_PROPIA:
+            return
+        if self.asset_id:
+            self.asset.current_working_zone = self.to_zone
+            self.asset.save()
+        if planning.machinist_moved:
+            for employee in planning.moved_employees.all():
+                employee.current_working_zone = self.to_zone
+                employee.save()
+
     def __str__(self):
         return f"{self.get_transaction_type_display()} - {self.asset} ({self.from_zone} -> {self.to_zone})"
 
@@ -467,12 +495,13 @@ class AssetTransactionReceipt(models.Model):
 
 
 class ServiceType(models.TextChoices):
-    """Maps to a backend planning_type ("cuba"/"porte") via SERVICE_TYPE_PLANNING_TYPE."""
+    """Maps to a backend planning_type ("cuba"/"porte"/"none") via SERVICE_TYPE_PLANNING_TYPE."""
     PORTE_MAQUINA_PROPIA = SERVICE_TYPE_MAQUINA_PROPIA, _("Own Machine Transport")
     PORTE_MATERIAL_EXTERNO = SERVICE_TYPE_MATERIAL_EXTERNO, _("External Material Transport")
     PORTE_MATERIAL_PROPIO = SERVICE_TYPE_MATERIAL_PROPIO, _("Own Material Transport")
     SERVICIO_GRUA = SERVICE_TYPE_GRUA, _("Crane Service")
     MOVIMIENTO_CUBA = SERVICE_TYPE_CUBA, _("Container Movement")
+    MOVIMIENTO_MAQUINISTAS = SERVICE_TYPE_MAQUINISTAS, _("Machinist Movement")
 
 
 class AssetPlanningNotificationRecipient(CompanyOwnedModel, Timestampable):
@@ -529,6 +558,7 @@ SERVICE_TYPE_COLORS = {
     SERVICE_TYPE_MATERIAL_PROPIO: "#14B8A6",
     SERVICE_TYPE_GRUA: "#8B5CF6",
     SERVICE_TYPE_CUBA: "#F59E0B",
+    SERVICE_TYPE_MAQUINISTAS: "#EC4899",
 }
 DEFAULT_SERVICE_TYPE_COLOR = "#64748B"
 URGENCY_COLORS = {
@@ -562,6 +592,7 @@ class PlanningType(models.TextChoices):
     CUBA = "cuba", _("Container Movement")
     PORTE = "porte", _("Transport")
     MACHINE_HOURS = "machine_hours", _("Machine Hours")
+    NONE = "none", _("Not Planned")
 
 
 STATUS_COLORS = {
@@ -871,13 +902,13 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
     planning_type = models.CharField(max_length=20, choices=AssetPlanning.PLANNING_CHOICES, default="porte", verbose_name=_("Planning Type"))
     to_zone = models.ForeignKey(WorkingZone, on_delete=models.PROTECT, related_name="planning_requests_to", verbose_name=_("To Zone"))
     from_zone = models.ForeignKey(WorkingZone, on_delete=models.PROTECT, null=True, blank=True, related_name="planning_requests_from", verbose_name=_("From Zone"))
-    needed_date = models.DateField(verbose_name=_("Needed Date"))
+    needed_date = models.DateField(default=date_.today, verbose_name=_("Needed Date"))
     needed_time = models.TimeField(
         null=True, blank=True, verbose_name=_("Needed Time"),
         help_text=_("Optional — leave blank to let route assignment pick a time."),
     )
     estimated_duration = models.DurationField(
-        verbose_name=_("Estimated Duration"),
+        null=True, blank=True, verbose_name=_("Estimated Duration"),
         help_text=_("Expected job length. Used with Needed Time to find a free slot."),
     )
     urgency = models.CharField(
@@ -934,6 +965,12 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
 
     # Set once the request is approved.
     resulting_planning = models.OneToOneField(AssetPlanning, on_delete=models.SET_NULL, null=True, blank=True, related_name="source_request", verbose_name=_("Asset Planning"))
+
+    # Only used by service types with no AssetPlanning at all (e.g. Machinist
+    # Movement — see apply_machinist_zone_change()): when the zone change was
+    # actually applied to moved_employees, immediately on approval or later
+    # by apply_due_machinist_movements() if needed_date was in the future.
+    zone_sync_applied_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Zone Sync Applied At"))
 
     history = HistoricalRecords()
 
@@ -1016,6 +1053,13 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
         if "cuba_size" not in required:
             self.cuba_size = ""
 
+        # Not tracked in SERVICE_TYPE_FIELDS: AssetPlanningRequestDraft shares
+        # that dict and has no estimated_duration field at all.
+        if self.service_type == SERVICE_TYPE_MAQUINISTAS:
+            self.estimated_duration = None
+        elif not self.estimated_duration:
+            raise ValidationError({"estimated_duration": _("Estimated duration is required for this service type.")})
+
         if self.service_type != SERVICE_TYPE_MAQUINA_PROPIA:
             self.machinist_moved = False
 
@@ -1032,6 +1076,20 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
     def get_estimated_duration(self):
         from assets.services.route_optimizer import GoogleRouteOptimizer
         return GoogleRouteOptimizer().estimate_duration(self.from_zone, self.to_zone)
+
+    def apply_machinist_zone_change(self):
+        """Move every selected employee's current_working_zone to to_zone and mark this applied.
+
+        Only meaningful for MOVIMIENTO_MAQUINISTAS requests, which never get an
+        AssetPlanning — approve_submit_action calls this immediately when
+        needed_date is due, otherwise apply_due_machinist_movements() (Celery
+        beat) calls it once that date arrives.
+        """
+        for employee in self.moved_employees.all():
+            employee.current_working_zone = self.to_zone
+            employee.save()
+        self.zone_sync_applied_at = timezone.now()
+        self.save(update_fields=["zone_sync_applied_at"])
 
 
 class AssetPlanningRequestDraftStatus(models.TextChoices):

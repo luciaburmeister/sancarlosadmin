@@ -240,6 +240,16 @@ class AssetPlanningRequestForm(forms.ModelForm):
         model = AssetPlanningRequest
         fields = "__all__"
 
+    def clean(self):
+        cleaned_data = super().clean()
+        # The only service type with no AssetPlanning at all — nothing gets
+        # scheduled/routed, so there's no job length to estimate. Every other
+        # service type keeps estimated_duration required as declared above.
+        if cleaned_data.get("service_type") == ServiceType.MOVIMIENTO_MAQUINISTAS:
+            self.errors.pop("estimated_duration", None)
+            cleaned_data["estimated_duration"] = None
+        return cleaned_data
+
 
 class AssetAddForm(forms.ModelForm):
     """Minimal add form: type-specific fields are completed on the change form."""

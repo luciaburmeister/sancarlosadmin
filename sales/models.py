@@ -1543,6 +1543,14 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
         verbose_name=_("Client")
     )
     incremental_id = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("Incremental ID"))
+    external_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+        verbose_name=_("External ID"),
+        help_text=_("External reference identifier for this delivery order."),
+    )
     sales_invoice = models.ForeignKey(
         "invoices.SalesInvoice",
         on_delete=models.SET_NULL,

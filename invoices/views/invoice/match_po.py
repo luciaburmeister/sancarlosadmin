@@ -49,7 +49,9 @@ class InvoiceMatchPOView(UnfoldModelAdminViewMixin, TemplateView):
         if po is None:
             candidates = POInvoiceMatchService.candidate_pos_for_invoice(invoice)
             for candidate in candidates:
-                candidate.items_with_pending = POInvoiceMatchService.po_items_with_pending(candidate)
+                candidate.items_with_pending = POInvoiceMatchService.po_items_with_pending(
+                    candidate, for_credit=invoice.is_credit_note
+                )
             context["candidates"] = candidates
         else:
             suggestions = POInvoiceMatchService.suggest_pairs_for_invoice(invoice, po)
@@ -81,7 +83,9 @@ class InvoiceMatchPOView(UnfoldModelAdminViewMixin, TemplateView):
                     "suggested_qty": suggestion.get("quantity") or "",
                 })
             context["rows"] = rows
-            context["target_lines"] = POInvoiceMatchService.po_items_with_pending(po)
+            context["target_lines"] = POInvoiceMatchService.po_items_with_pending(
+                po, for_credit=invoice.is_credit_note
+            )
             currency = invoice.total_amount.currency if invoice.total_amount else "EUR"
             context["progress"] = POInvoiceMatchService.progress_summary(rows, currency)
         return context
@@ -93,7 +97,10 @@ class InvoiceMatchPOView(UnfoldModelAdminViewMixin, TemplateView):
             messages.error(request, _("No purchase order was selected."))
             return redirect(request.path)
 
-        po_items = {pi.pk: pi for pi, _ in POInvoiceMatchService.po_items_with_pending(po)}
+        po_items = {
+            pi.pk: pi
+            for pi, _ in POInvoiceMatchService.po_items_with_pending(po, for_credit=invoice.is_credit_note)
+        }
         pairs = []
         for item, remaining in POInvoiceMatchService.invoice_items_with_remaining(invoice):
             target_raw = request.POST.get(f"target_{item.pk}")

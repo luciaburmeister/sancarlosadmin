@@ -259,6 +259,8 @@ class InvoiceService:
                 invoice.payment_method = extracted_data.payment_method or invoice.payment_method or "transfer"
                 invoice.company = company
                 invoice.ocr_raw_response = extracted_data.raw_response
+                if extracted_data.document_type in ("invoice", "credit_note"):
+                    invoice.document_type = extracted_data.document_type
                 invoice.needs_manual_review = True
 
                 # Replace items
@@ -283,6 +285,7 @@ class InvoiceService:
                     'net_amount', 'net_amount_currency',
                     'total_amount', 'total_amount_currency',
                     'currency', 'payment_method', 'company', 'ocr_raw_response',
+                    'document_type',
                     'needs_manual_review', 'ocr_processing', 'ocr_processed', 'ocr_error',
                 ])
                 invoice.verify_total_balance()
@@ -323,6 +326,11 @@ class InvoiceService:
             image_hash=image_hash,
             company=company,
             ocr_raw_response=extracted_data.raw_response,
+            document_type=(
+                extracted_data.document_type
+                if extracted_data.document_type in ("invoice", "credit_note")
+                else "invoice"
+            ),
             ocr_processing=True  # Mark as currently processing
         )
         

@@ -282,8 +282,17 @@ class PurchaseOrderItem(Timestampable):
         """
         Recomputes invoiced_quantity from invoice allocations (self-healing,
         mirrors Payment.recalculate_pending_allocation()).
+        Credit-note allocations subtract: they reverse previously invoiced quantity.
         """
-        total = self.invoice_allocations.aggregate(total=models.Sum("quantity"))["total"] or Decimal("0")
+        total = self.invoice_allocations.aggregate(
+            total=models.Sum(
+                models.Case(
+                    models.When(invoice__document_type="credit_note", then=-models.F("quantity")),
+                    default=models.F("quantity"),
+                    output_field=models.DecimalField(max_digits=10, decimal_places=3),
+                )
+            )
+        )["total"] or Decimal("0")
         self.invoiced_quantity = total
         # Queryset update to skip PurchaseOrderItem.save() side effects
         # (PO total recalculation, inventory cost price sync).

@@ -58,7 +58,9 @@ class POMatchInvoiceView(UnfoldModelAdminViewMixin, TemplateView):
         else:
             suggestions = POInvoiceMatchService.suggest_pairs_for_po(po, invoice)
             rows = []
-            for po_item, pending in POInvoiceMatchService.po_items_with_pending(po):
+            for po_item, pending in POInvoiceMatchService.po_items_with_pending(
+                po, for_credit=invoice.is_credit_note
+            ):
                 suggestion = suggestions.get(po_item.pk, {})
                 allocations = list(po_item.invoice_allocations.all())
                 is_matched = pending <= 0
@@ -102,7 +104,9 @@ class POMatchInvoiceView(UnfoldModelAdminViewMixin, TemplateView):
             for item, _ in POInvoiceMatchService.invoice_items_with_remaining(invoice)
         }
         pairs = []
-        for po_item, pending in POInvoiceMatchService.po_items_with_pending(po):
+        for po_item, pending in POInvoiceMatchService.po_items_with_pending(
+            po, for_credit=invoice.is_credit_note
+        ):
             target_raw = request.POST.get(f"target_{po_item.pk}")
             qty_raw = request.POST.get(f"qty_{po_item.pk}")
             if not target_raw or not qty_raw:

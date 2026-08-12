@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-11 11:40+0200\n"
+"POT-Creation-Date: 2026-08-11 16:48+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -2760,6 +2760,11 @@ msgstr "No hay facturas pendientes para esta empresa."
 msgid "Please select a bank."
 msgstr "Por favor, selecciona un expediente existente."
 
+#, fuzzy
+#| msgid "Account must belong to same company."
+msgid "That bank account does not belong to the selected company."
+msgstr "La cuenta debe pertenecer a la misma empresa."
+
 msgid "Arcopay did not return a consent URL."
 msgstr "Arcopay no devolvió una URL de consentimiento."
 
@@ -2776,6 +2781,13 @@ msgstr "La conexión bancaria devolvió el estado: %(status)s (%(consent)s)"
 
 msgid "Bank connection process completed."
 msgstr "Proceso de conexión bancaria completado."
+
+#, python-format
+msgid ""
+"Bank re-connected for %(bank)s. Transactions will import on the next sync."
+msgstr ""
+"Banco reconectado para %(bank)s. Las transacciones se importarán en la "
+"próxima sincronización."
 
 msgid "Bank connected successfully! Your transactions are being imported."
 msgstr "¡Banco conectado con éxito! Se están importando tus transacciones."
@@ -2941,9 +2953,57 @@ msgid "Send"
 msgstr "Enviar"
 
 #, fuzzy
-#| msgid "Transaction"
-msgid "Sync Transactions"
-msgstr "Transacción"
+#| msgid "Nuek Consent ID"
+msgid "Renew Consent"
+msgstr "ID de Consentimiento Nuek"
+
+#, fuzzy
+#| msgid ""
+#| "This bank account is not connected to Arcopay (no token). Please connect it "
+#| "first."
+msgid ""
+"This bank account is not connected to Arcopay (no token). Use 'Reconnect "
+"Bank' first."
+msgstr ""
+"Esta cuenta bancaria no está conectada a Arcopay (sin token). Por favor, "
+"conéctala primero."
+
+#, python-format
+msgid ""
+"Could not renew the consent: %(error)s. If it can no longer be renewed, use "
+"'Reconnect Bank'."
+msgstr ""
+"No se pudo renovar el consentimiento: %(error)s. Si ya no se puede renovar, "
+"utiliza 'Reconectar Banco'."
+
+#, python-format
+msgid "Consent renewed. Valid until %(until)s."
+msgstr "Consentimiento renovado. Válido hasta %(until)s."
+
+#, fuzzy
+#| msgid "Component"
+msgid "(unknown)"
+msgstr "Componente"
+
+#, fuzzy
+#| msgid "Create real request"
+msgid "Consent renewal requested."
+msgstr "Crear solicitud real"
+
+#, fuzzy
+#| msgid "Connect Bank"
+msgid "Reconnect Bank"
+msgstr "Conectar Banco"
+
+#, fuzzy
+#| msgid "Nuek Consent ID"
+msgid "Consent"
+msgstr "ID de Consentimiento Nuek"
+
+#, fuzzy
+#| msgid "Nuek Consent ID"
+msgid "Check Consent"
+msgstr "ID de Consentimiento Nuek"
 
 msgid ""
 "This bank account is not connected to Arcopay (no token). Please connect it "
@@ -2951,6 +3011,39 @@ msgid ""
 msgstr ""
 "Esta cuenta bancaria no está conectada a Arcopay (sin token). Por favor, "
 "conéctala primero."
+
+#, fuzzy, python-format
+#| msgid "Failed to connect to bank: %(error)s"
+msgid "Could not check the consent status: %(error)s"
+msgstr "Error al conectar con el banco: %(error)s"
+
+#, python-format
+msgid "Consent is valid%(until)s."
+msgstr "El consentimiento es válido%(until)s."
+
+msgid "until"
+msgstr "hasta"
+
+#, python-format
+msgid ""
+"Consent status: %(status)s — %(message)s. Reconnect the account to sync "
+"transactions."
+msgstr ""
+"Estado de consentimiento: %(status)s — %(message)s. Reconecta la cuenta para"
+" sincronizar las transacciones."
+
+#, fuzzy
+#| msgid "Transaction"
+msgid "Sync Transactions"
+msgstr "Transacción"
+
+#, python-format
+msgid ""
+"Cannot sync %(bank)s: the Arcopay consent is invalid (%(message)s). Please "
+"reconnect the account."
+msgstr ""
+"No se puede sincronizar %(bank)s: el consentimiento de Arcopay es inválido "
+"(%(message)s). Por favor, reconecta la cuenta."
 
 #, python-format
 msgid "Transaction sync queued for %(bank)s. It will run in the background."
@@ -3612,6 +3705,21 @@ msgid "Bank Address"
 msgstr "Dirección bancaria"
 
 #, fuzzy
+#| msgid "Component"
+msgid "Unknown"
+msgstr "Componente"
+
+#, fuzzy
+#| msgid "Validity"
+msgid "Valid"
+msgstr "Validez"
+
+#, fuzzy
+#| msgid "Invalid time"
+msgid "Invalid"
+msgstr "Hora inválida"
+
+#, fuzzy
 #| msgid "Bank Account"
 msgid "Nuek Account ID"
 msgstr "Cuenta de Banco"
@@ -3649,6 +3757,46 @@ msgid ""
 msgstr ""
 "Identificador del producto de Arcopay (IBAN o UUID). Utilizado en llamadas a"
 " /transactions/."
+
+#, fuzzy
+#| msgid "Payment Status"
+msgid "Consent Status"
+msgstr "Estado de pago"
+
+msgid ""
+"Whether the Arcopay PSD2 consent is still valid. Refreshed on every sync and"
+" via the 'Check Consent' admin action."
+msgstr ""
+"Si el consentimiento de Arcopay PSD2 sigue siendo válido. Se actualiza en "
+"cada sincronización y a través de la acción de administrador 'Verificar "
+"Consentimiento'."
+
+msgid "Consent Status Message"
+msgstr "Mensaje de estado de consentimiento"
+
+msgid "Raw consent state reported by Arcopay (e.g. Valid, Rejected)."
+msgstr ""
+"Estado de consentimiento en bruto reportado por Arcopay (por ejemplo, "
+"Válido, Rechazado)."
+
+#, fuzzy
+#| msgid "Valid Until"
+msgid "Consent Valid Until"
+msgstr "Válido hasta"
+
+msgid "Expiry date of the PSD2 consent as reported by Arcopay."
+msgstr ""
+"Fecha de caducidad del consentimiento PSD2 según lo informado por Arcopay."
+
+#, fuzzy
+#| msgid "Last Checked"
+msgid "Consent Checked At"
+msgstr "Última verificación"
+
+msgid "When the consent status was last verified against Arcopay."
+msgstr ""
+"Cuando se verificó por última vez el estado de consentimiento contra "
+"Arcopay."
 
 msgid "Is Default"
 msgstr "Es default"
@@ -4502,6 +4650,16 @@ msgstr "Directo a Taller"
 msgid "Production Done"
 msgstr "Producción Completada"
 
+#, fuzzy
+#| msgid "Planned End"
+msgid "Unplanned"
+msgstr "Fin Planificado"
+
+#, fuzzy
+#| msgid "Planned End"
+msgid "Planned"
+msgstr "Fin Planificado"
+
 msgid "Component A"
 msgstr "Componente A"
 
@@ -4737,6 +4895,22 @@ msgstr "Plantillas de reglas de precios"
 
 msgid "Internal label for this configuration"
 msgstr "Etiqueta interna para esta configuración"
+
+#, fuzzy
+#| msgid "Planning Stops"
+msgid "Planning status"
+msgstr "Paradas de planificación"
+
+msgid ""
+"Kept in sync automatically from the production ticket's planned sessions."
+msgstr ""
+"Mantenido en sincronización automáticamente desde las sesiones planificadas "
+"del ticket de producción."
+
+#, fuzzy
+#| msgid "Planned Start"
+msgid "Planned at"
+msgstr "Inicio Planificado"
 
 msgid "Total cost"
 msgstr "Costo total"
@@ -9269,11 +9443,6 @@ msgstr "Etiqueta interna de backlog"
 msgid "Internal Backlog Labels"
 msgstr "Etiquetas internas de backlog"
 
-#, fuzzy
-#| msgid "Planned End"
-msgid "Planned"
-msgstr "Fin Planificado"
-
 msgid "In Progress"
 msgstr "En Progreso"
 
@@ -12343,11 +12512,6 @@ msgid "Unmatched Lines"
 msgstr "Sin emparejar"
 
 #, fuzzy
-#| msgid "Component"
-msgid "Unknown"
-msgstr "Componente"
-
-#, fuzzy
 #| msgid "No accepted quotes found for this project file."
 msgid "No candidate invoices found for this provider with unmatched lines."
 msgstr "No se han encontrado presupuestos aceptados para este expediente."
@@ -12494,6 +12658,39 @@ msgstr "Factura finalizada y Orden de Entrega generada."
 
 msgid "Link Item Codes"
 msgstr "Asociar Codigos"
+
+#, fuzzy
+#| msgid "In production"
+msgid "includes production"
+msgstr "En producción"
+
+#, fuzzy
+#| msgid "Production planning"
+msgid "production scheduling"
+msgstr "Etapas de Producción"
+
+#, fuzzy
+#| msgid "Production tickets"
+msgid "Production – no ticket"
+msgstr "Tickets de Producción"
+
+#, fuzzy
+#| msgid "Scheduled"
+msgid "Unscheduled"
+msgstr "Planificado"
+
+msgid "Accepted – missing schedule"
+msgstr "Aceptado – horario faltante"
+
+#, fuzzy
+#| msgid "In production"
+msgid "No production"
+msgstr "En producción"
+
+#, fuzzy
+#| msgid "Not overdue"
+msgid "Not converted"
+msgstr "No vencido"
 
 #, fuzzy
 #| msgid "Post time"
@@ -12863,6 +13060,13 @@ msgstr "Items del pedido"
 msgid "Expires at"
 msgstr "Expira el"
 
+msgid ""
+"Kept in sync automatically from this quote's configurations and their "
+"planning status."
+msgstr ""
+"Mantenido en sincronía automáticamente a partir de las configuraciones de "
+"esta cita y su estado de planificación."
+
 #, fuzzy
 #| msgid "Total price"
 msgid "Subtotal price"
@@ -12930,18 +13134,14 @@ msgstr ""
 "Autocompletado desde los términos de pago del cliente; utilizado para "
 "calcular la fecha de vencimiento de la factura."
 
-#, fuzzy
-#| msgid "Estimated days"
 msgid "Estimated delivery date"
-msgstr "Días estimados"
+msgstr "Fecha de entrega estimada"
 
 msgid "Can view quote dashboard"
 msgstr "Puede ver el panel de cotizaciones."
 
-#, fuzzy
-#| msgid "Configuration"
 msgid "Configuration Group"
-msgstr "Configuración"
+msgstr "Grupo de Configuraciones"
 
 msgid "Quote item"
 msgstr "artículo de Presupuesto"
@@ -13204,7 +13404,6 @@ msgstr "Valor Promedio del Presupuesto"
 msgid "Breakdown by Status"
 msgstr "Desglose por Estado"
 
-
 msgid "Tracking"
 msgstr "Seguimiento"
 
@@ -13222,7 +13421,6 @@ msgstr "Días estimados"
 #| msgid "Project File"
 msgid "Project file"
 msgstr "Expediente"
-
 
 msgid "Status timeline"
 msgstr "Hitos de Status"
@@ -13368,6 +13566,14 @@ msgstr ""
 
 msgid "Search banks..."
 msgstr "Buscar bancos"
+
+#, fuzzy
+#| msgid "Client Bank Accounts"
+msgid "Reconnecting bank account:"
+msgstr "Cuentas de banco del cliente"
+
+msgid "The new consent will be linked to this account."
+msgstr "El nuevo consentimiento estará vinculado a esta cuenta."
 
 msgid "Select a company"
 msgstr "Seleccione una empresa"

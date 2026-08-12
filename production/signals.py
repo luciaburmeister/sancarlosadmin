@@ -5,7 +5,8 @@ from django.dispatch import receiver
 from django.contrib.contenttypes.models import ContentType
 
 from company.models import Employee, Machine
-from production.models import ProductionResource
+from production.models import PlannedProductionSession, ProductionResource, ProductionTicket
+from production.services.planning_status_sync import sync_configuration_planning_status
 
 
 def sync_production_resource(instance):
@@ -50,3 +51,22 @@ def delete_employee_production_resource(sender, instance, **kwargs):
 @receiver(post_delete, sender=Machine)
 def delete_machine_production_resource(sender, instance, **kwargs):
     delete_production_resource(instance)
+
+
+@receiver(post_save, sender=PlannedProductionSession)
+def planned_session_saved(sender, instance, **kwargs):
+    if instance.production_ticket_id:
+        sync_configuration_planning_status(instance.production_ticket)
+
+
+@receiver(post_delete, sender=PlannedProductionSession)
+def planned_session_deleted(sender, instance, **kwargs):
+    if not instance.production_ticket_id:
+        return
+    try:
+        ticket = instance.production_ticket
+    except ProductionTicket.DoesNotExist:
+        # Cascade delete of the ticket itself; the configuration is being
+        # torn down with it, nothing to sync.
+        return
+    sync_configuration_planning_status(ticket)

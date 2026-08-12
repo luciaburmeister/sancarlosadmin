@@ -95,6 +95,13 @@ class Company(models.Model):
         verbose_name=_("Purchase Order Notification Emails"),
         help_text=_("Emails that will be notified whenever a new Purchase Order is created"),
     )
+    asset_plan_draft_notification_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Asset Plan Draft Notification Emails"),
+        help_text=_("Emails notified whenever a new Asset Planning Request Draft is submitted from the mobile app"),
+    )
     terms_text = models.TextField(
         blank=True,
         verbose_name=_("Términos y Condiciones"),

@@ -1,6 +1,6 @@
 from django.contrib import admin, messages
 from unfold.admin import ModelAdmin
-from configurator.models import Configuration, ConfigurationParameterValue, ConfigurationItem, PricingRuleAssignment, ConfigurationFlow,ConfigurationStatus,ConfigurationComponentGroup
+from configurator.models import Configuration, ConfigurationParameterValue, ConfigurationItem, PricingRuleAssignment, ConfigurationFlow,ConfigurationStatus,ConfigurationPlanningStatus,ConfigurationComponentGroup
 from sales.models import QuoteStatus
 from unfold.admin import TabularInline,GenericTabularInline,StackedInline
 from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter,RangeDateTimeFilter,MultipleChoicesDropdownFilter
@@ -243,18 +243,20 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
         "subtotal_price",
         "total_price_display",
         "show_status_customized_color",
+        "show_planning_status_badge",
         "company"
     )
 
     list_filter = (("company",AutocompleteSelectMultipleFilter),
-                    ("status",MultipleChoicesDropdownFilter), 
+                    ("status",MultipleChoicesDropdownFilter),
+                    ("planning_status",MultipleChoicesDropdownFilter),
                    ("client",AutocompleteSelectMultipleFilter), 
                    ("product",AutocompleteSelectMultipleFilter),
                    ("created_at",RangeDateTimeFilter))
     search_fields = ("name", "client__name")
     list_select_related = ["client","company","product"]
 
-    readonly_fields = ("total_price","total_cost","subtotal_price","company")
+    readonly_fields = ("total_price","total_cost","subtotal_price","company","planning_status","planned_at")
     actions_row = ["export_configuration_to_template",
                    "convert_to_production",
                    "record_actual_values",
@@ -287,12 +289,24 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
     def show_status_customized_color(self, obj):
         return _(obj.get_status_display())
 
+    @display(
+        description=_("Planning"),
+        ordering="planning_status",
+        label={
+            _(ConfigurationPlanningStatus.PLANNED.label): "success",
+            _(ConfigurationPlanningStatus.UNPLANNED.label): "warning",
+        },
+    )
+    def show_planning_status_badge(self, obj):
+        return _(obj.get_planning_status_display())
+
     fieldsets = (
         (_("Configuration"), {
             "fields": (
                 ("quote"),
                 ("name", "client"),
                 ("product", "status"),
+                ("planning_status", "planned_at"),
                 ("company", "asset"),
                 ("project_file",),
             ),

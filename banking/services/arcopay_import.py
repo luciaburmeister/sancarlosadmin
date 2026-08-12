@@ -135,18 +135,40 @@ class ArcopayService:
 
     @staticmethod
     def get_consent_info(token: str) -> dict:
-        """POST /consent/info/ — get consent details."""
+        """POST /consent/info/ — get consent details.
+
+        Raises ``ArcopayAPIError`` with Arcopay's own code/message on error
+        responses (e.g. C001 when the consent is no longer valid).
+        """
         resp = requests.post(
             f"{ARCOPAY_API_URL}/consent/info/",
             data={"servicekey": NUEK_SERVICE_KEY, "token": token},
             timeout=30,
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            try:
+                error_data = resp.json()
+            except Exception:
+                error_data = {"message": resp.text, "code": str(resp.status_code)}
+            raise ArcopayAPIError(
+                error_data.get("message", "Unknown error"),
+                error_data.get("code", str(resp.status_code)),
+            )
         return resp.json()
 
     @staticmethod
     def renew_consent(token: str, valid_until: date | None = None) -> dict:
-        """POST /consent/renew/"""
+        """POST /consent/renew/ — extend an existing consent's validity.
+
+        Uses the account's own token, so no callback round-trip is needed
+        (renewal keeps the token; the bank may still require the user to
+        complete SCA at the returned ``follow`` URL). Omitting
+        ``valid_until`` lets Arcopay assign the entity's maximum (up to
+        180 days).
+
+        Returns dict with ``follow`` (URL for the user) and ``consentId``.
+        Raises ``ArcopayAPIError`` with Arcopay's code/message on failure.
+        """
         payload = {"servicekey": NUEK_SERVICE_KEY, "token": token}
         if valid_until:
             payload["validUntil"] = valid_until.strftime("%d-%m-%Y")
@@ -155,8 +177,23 @@ class ArcopayService:
             data=payload,
             timeout=30,
         )
-        resp.raise_for_status()
-        return resp.json()
+        if not resp.ok:
+            try:
+                error_data = resp.json()
+            except Exception:
+                error_data = {"message": resp.text, "code": str(resp.status_code)}
+            logger.error(
+                "Arcopay /consent/renew/ failed: status=%s, response=%s",
+                resp.status_code, error_data,
+            )
+            raise ArcopayAPIError(
+                error_data.get("message", "Unknown error"),
+                error_data.get("code", str(resp.status_code)),
+            )
+        data = resp.json()
+        if isinstance(data, dict) and data.get("code"):
+            raise ArcopayAPIError(data.get("message", "Unknown error"), str(data.get("code")))
+        return data
 
     @staticmethod
     def cancel_consent(token: str) -> dict:
@@ -201,6 +238,9 @@ class ArcopayService:
         "rejected", "revoked", "revokedbypsu", "expired",
         "terminatedbytpp", "cancelled", "canceled",
     }
+    # Error codes /consent/info/ returns once a consent is dead
+    # (observed: C001 "The consent is not valid anymore").
+    _CONSENT_DEAD_CODES = {"C001"}
 
     @classmethod
     def check_consent_status(cls, bank_account: BankAccount) -> str:
@@ -221,11 +261,18 @@ class ArcopayService:
             message = "No Arcopay token"
             valid_until = None
         else:
-            info = cls.get_consent_info(bank_account.nuek_token)
+            dead_code = None
+            try:
+                info = cls.get_consent_info(bank_account.nuek_token)
+            except ArcopayAPIError as e:
+                if e.code not in cls._CONSENT_DEAD_CODES:
+                    raise
+                # Arcopay answers with an error (e.g. C001) instead of a
+                # status once the consent is dead — that IS the status.
+                dead_code = e.code
+                info = {"message": e.message}
             if not isinstance(info, dict):
                 raise ArcopayAPIError(f"Unexpected consent info response: {info!r}")
-            if info.get("code"):
-                raise ArcopayAPIError(info.get("message", "Unknown error"), str(info.get("code")))
 
             message = str(info.get("message", "") or "")
 
@@ -242,7 +289,7 @@ class ArcopayService:
                     )
 
             normalized = message.strip().lower()
-            if normalized in cls._CONSENT_INVALID_MESSAGES:
+            if dead_code or normalized in cls._CONSENT_INVALID_MESSAGES:
                 status = ConsentStatus.INVALID
             elif normalized in cls._CONSENT_VALID_MESSAGES:
                 if valid_until and valid_until < date.today():
@@ -728,7 +775,11 @@ class ArcopayService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def process_consent_callback(payload: dict, company: Company) -> dict:
+    def process_consent_callback(
+        payload: dict,
+        company: Company,
+        bank_account: BankAccount | None = None,
+    ) -> dict:
         """Handle the POST callback from Arcopay after consent is granted.
 
         Payload schema (consentGetCallback):
@@ -740,6 +791,12 @@ class ArcopayService:
 
         For each product in globalPosition, creates or updates a
         BankAccount and imports initial transactions.
+
+        ``bank_account`` is the account the user started the reconnect flow
+        from (threaded through the callback URL). The response itself doesn't
+        say which account a consent belongs to — some banks even send an
+        empty globalPosition — so when given, the new token/consent is bound
+        to that account FIRST, before any product matching.
         """
         token = payload.get("token", "")
         consent_id = payload.get("consentId", "")
@@ -748,8 +805,46 @@ class ArcopayService:
         if not token:
             raise ValueError("Missing token in consent callback")
 
+        if bank_account is not None:
+            bank_account.nuek_token = token
+            if consent_id:
+                bank_account.nuek_consent_id = consent_id
+            bank_account.save(update_fields=["nuek_token", "nuek_consent_id"])
+            logger.info(
+                "Consent %s bound to originating BankAccount %s (%s)",
+                consent_id, bank_account.pk, bank_account.iban,
+            )
+            try:
+                ArcopayService.check_consent_status(bank_account)
+            except Exception:
+                logger.exception(
+                    "Consent status refresh failed for account %s", bank_account.pk,
+                )
+
         if isinstance(global_position, dict):
             global_position = [global_position]
+
+        if not global_position:
+            # Some banks (observed: Bankinter) deliver the callback with an
+            # empty globalPosition. Discover the accounts via /transactions/
+            # GLOBAL instead, so the new token/consent is never dropped.
+            logger.info(
+                "Consent callback for consent %s has empty globalPosition; "
+                "discovering accounts via GLOBAL fetch.", consent_id,
+            )
+            accounts = ArcopayService.store_accounts_from_token(
+                token=token, company=company, consent_id=consent_id,
+            )
+            if not accounts and bank_account is not None:
+                accounts = [bank_account]
+            return {
+                "consent_id": consent_id,
+                "token": token,
+                "accounts": [
+                    {"bank_account_id": a.pk, "iban": a.iban}
+                    for a in accounts
+                ],
+            }
 
         accounts_processed = []
 
@@ -784,4 +879,5 @@ class ArcopayAPIError(Exception):
 
     def __init__(self, message: str, code: str = "1"):
         self.code = code
+        self.message = message
         super().__init__(f"[{code}] {message}")

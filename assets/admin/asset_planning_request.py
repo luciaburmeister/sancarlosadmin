@@ -219,6 +219,11 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
             if not obj.company_id:
                 obj.company = self._target_company(request)
         super().save_model(request, obj, form, change)
+        if not change:
+            from assets.tasks import send_asset_planning_request_created_notification
+            transaction.on_commit(
+                lambda: send_asset_planning_request_created_notification.delay(obj.pk)
+            )
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         # Restricted to every company the user has access to (not just their

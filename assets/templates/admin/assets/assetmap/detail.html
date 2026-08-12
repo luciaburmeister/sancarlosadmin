@@ -58,6 +58,7 @@
 <div class="am-wrap">
   <div class="am-header">
     <h1>{{ asset_map.name }}</h1>
+    <a href="{% url 'admin:assets_assetmap_table' asset_map.pk %}">{% trans "View as table" %}</a>
   </div>
   {% if asset_map.description %}<p>{{ asset_map.description }}</p>{% endif %}
 

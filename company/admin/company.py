@@ -13,6 +13,7 @@ import re
 from simple_history.admin import SimpleHistoryAdmin
 
 from company.models import Company, CompanyDefaultTax, CompanyScheduleSlot, CompanyUser, CompanyEmailConfig, BankAccount, CompanyDocument, CompanyDocumentType, ConfigurationList, ConsentStatus
+from assets.models import AssetPlanningNotificationRecipient
 from django.utils.translation import gettext_lazy as _
 from django.shortcuts import get_object_or_404, redirect
 from django.contrib import messages
@@ -36,7 +37,74 @@ class BankAccountAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     search_fields = ("bank_name", "account_number", "iban")
     autocomplete_fields = ("company",)
     readonly_fields = ("consent_status", "consent_status_message", "consent_valid_until", "consent_checked_at")
-    actions_detail = ["sync_transactions_action", "check_consent_action"]
+    actions_detail = ["sync_transactions_action", "check_consent_action", "renew_consent_action", "reconnect_bank_action"]
+
+    @action(
+        description=_("Renew Consent"),
+        url_path="renew-consent",
+        icon="autorenew",
+    )
+    def renew_consent_action(self, request, object_id: int):
+        """Extend the existing consent via /consent/renew/ — keeps the same
+        token, so the consent stays bound to this account. Falls back to
+        'Reconnect Bank' only when the consent can no longer be renewed."""
+        from banking.services.arcopay_import import ArcopayService
+
+        account = get_object_or_404(BankAccount, pk=object_id)
+        if not account.nuek_token:
+            messages.error(
+                request,
+                _("This bank account is not connected to Arcopay (no token). Use 'Reconnect Bank' first."),
+            )
+            return redirect(request.META.get("HTTP_REFERER"))
+
+        try:
+            result = ArcopayService.renew_consent(account.nuek_token)
+        except Exception as e:
+            messages.error(
+                request,
+                _("Could not renew the consent: %(error)s. If it can no longer be renewed, use 'Reconnect Bank'.")
+                % {"error": e},
+            )
+            return redirect(request.META.get("HTTP_REFERER"))
+
+        consent_id = result.get("consentId", "")
+        if consent_id and consent_id != account.nuek_consent_id:
+            account.nuek_consent_id = consent_id
+            account.save(update_fields=["nuek_consent_id"])
+
+        follow_url = result.get("follow", "")
+        if follow_url:
+            # The bank requires the user to confirm the renewal (SCA).
+            # After completing it, use 'Check Consent' to verify the new expiry.
+            return redirect(follow_url)
+
+        # Renewed silently — refresh and show the new expiry.
+        try:
+            ArcopayService.check_consent_status(account)
+            account.refresh_from_db()
+            messages.success(
+                request,
+                _("Consent renewed. Valid until %(until)s.")
+                % {"until": account.consent_valid_until or _("(unknown)")},
+            )
+        except Exception:
+            messages.success(request, _("Consent renewal requested."))
+        return redirect(request.META.get("HTTP_REFERER"))
+
+    @action(
+        description=_("Reconnect Bank"),
+        url_path="reconnect-bank",
+        icon="link",
+    )
+    def reconnect_bank_action(self, request, object_id: int):
+        """Start the Arcopay consent flow bound to this account, so the new
+        token/consent lands here even if the bank returns no account data."""
+        from django.urls import reverse
+
+        account = get_object_or_404(BankAccount, pk=object_id)
+        url = reverse("admin:banking_connect_bank") + f"?bank_account_id={account.pk}"
+        return redirect(url)
 
     @admin.display(description=_("Consent"), ordering="consent_status")
     def consent_status_badge(self, obj):
@@ -144,6 +212,13 @@ class CompanyDefaultTaxInline(TabularInline):
     autocomplete_fields = ["tax_type"]
     verbose_name = _("Default Tax")
     verbose_name_plural = _("Default Taxes")
+
+class AssetPlanningNotificationRecipientInline(TabularInline):
+    model = AssetPlanningNotificationRecipient
+    extra = 0
+    fields = ("service_type", "email")
+    verbose_name = _("Asset Planning Notification Recipient")
+    verbose_name_plural = _("Asset Planning Notification Recipients")
 
 class CompanyDocumentInline(StackedInline):
     model = CompanyDocument
@@ -324,7 +399,10 @@ class CompanyAdmin(ModelAdmin):
     form = CompanyAdminForm
     readonly_fields = ("terms_import_hint",)
     autocomplete_fields = ("asset_reception_product",)
-    inlines = [BankAccountInline, CompanyDocumentInline, CompanyScheduleSlotInline, CompanyDefaultTaxInline]
+    inlines = [
+        BankAccountInline, CompanyDocumentInline, CompanyScheduleSlotInline, CompanyDefaultTaxInline,
+        AssetPlanningNotificationRecipientInline,
+    ]
     list_display = ("name", "is_active")
     list_filter = ("is_active",)
     search_fields = ("name",)
@@ -357,6 +435,7 @@ class CompanyAdmin(ModelAdmin):
                 ("document_reminder_emails"),
                 ("bank_summary_emails"),
                 ("purchase_order_notification_emails"),
+                ("asset_plan_draft_notification_emails"),
                 "invoice_number_format",
                 "require_asset_on_project_file",
                 "require_working_zone_on_project_file",

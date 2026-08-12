@@ -5,6 +5,7 @@ required) and "publishes" one once it has everything its service_type needs. A
 planner then reads it in the Django admin and creates the real
 AssetPlanningRequest by hand.
 """
+from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 
@@ -35,7 +36,11 @@ class PlanningDraftListCreateView(CompanyAPIView):
         )
         if not serializer.is_valid():
             return JsonResponse({"error": _first_error(serializer.errors)}, status=400)
-        serializer.save(company=self.company, requested_by=self.employee)
+        draft = serializer.save(company=self.company, requested_by=self.employee)
+        from assets.tasks import send_asset_planning_draft_created_notification
+        transaction.on_commit(
+            lambda: send_asset_planning_draft_created_notification.delay(draft.pk)
+        )
         return JsonResponse(serializer.data, status=201)
 
 

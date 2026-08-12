@@ -420,3 +420,40 @@ class AssetScheduleFilterForm(forms.Form):
         self.fields["transport_asset"].queryset = trucks
 
 
+class AssetMapTableFilterForm(forms.Form):
+    """
+    GET filters for the AssetMap table view (Unfold Select2 multi-selects,
+    like the schedule filters). `zone`/`expediente` choices and the dynamic
+    per-AssetTypeField filters depend on which AssetMap is being viewed, so
+    they're added in __init__ rather than declared on the class.
+    """
+
+    q = forms.CharField(
+        label=_("Nombre"),
+        required=False,
+        widget=UnfoldAdminTextInputWidget(attrs={"placeholder": _("Buscar por nombre…")}),
+    )
+
+    def __init__(self, *args, zone_choices=(), project_file_choices=(), dynamic_field_specs=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        if zone_choices:
+            self.fields["zone"] = forms.MultipleChoiceField(
+                label=_("Zona"), required=False, choices=zone_choices,
+                widget=UnfoldAdminSelect2MultipleWidget,
+            )
+        if project_file_choices:
+            self.fields["expediente"] = forms.MultipleChoiceField(
+                label=_("Expediente"), required=False, choices=project_file_choices,
+                widget=UnfoldAdminSelect2MultipleWidget,
+            )
+        for spec in dynamic_field_specs:
+            self.fields[f"df_{spec['key']}"] = forms.MultipleChoiceField(
+                label=spec["label"], required=False,
+                choices=[(v, v) for v in spec["options"]],
+                widget=UnfoldAdminSelect2MultipleWidget,
+            )
+        self.order_fields(
+            ["zone", "expediente", "q"] + [f"df_{spec['key']}" for spec in dynamic_field_specs]
+        )
+
+

@@ -475,6 +475,21 @@ class ServiceType(models.TextChoices):
     MOVIMIENTO_CUBA = SERVICE_TYPE_CUBA, _("Container Movement")
 
 
+class AssetPlanningNotificationRecipient(CompanyOwnedModel, Timestampable):
+    """Per-company, per-service-type recipient for 'new AssetPlanningRequest' emails."""
+    service_type = models.CharField(max_length=25, choices=ServiceType.choices, verbose_name=_("Service Type"))
+    email = models.EmailField(verbose_name=_("Email"))
+
+    class Meta:
+        verbose_name = _("Asset Planning Notification Recipient")
+        verbose_name_plural = _("Asset Planning Notification Recipients")
+        unique_together = ("company", "service_type", "email")
+        ordering = ["service_type", "email"]
+
+    def __str__(self):
+        return f"{self.get_service_type_display()} → {self.email}"
+
+
 class CubaOperationType(models.TextChoices):
     PUESTA = "puesta", _("Container Drop-off")
     RETIRADA = "retirada", _("Container Pickup")

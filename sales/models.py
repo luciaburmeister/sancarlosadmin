@@ -91,10 +91,12 @@ class DiscountRule(models.Model):
         validators=[validate_expression_for_safe_eval],
         help_text=_(
             "Optional safe_eval expression. Leave blank to always apply.\n"
-            "Available variables: subtotal, total_quantity.\n"
+            "Available variables: subtotal, total_quantity, accumulated "
+            "(running total after prior discounts).\n"
             "Examples:\n"
             "  • subtotal > 1000\n"
             "  • subtotal > 5000 and total_quantity > 10\n"
+            "  • accumulated > 900\n"
         ),
     )
     level = models.CharField(
@@ -631,6 +633,13 @@ class QuoteStatus(models.TextChoices):
     REJECTED = "rejected", _("Rejected")
 
 
+class QuoteProductionStatus(models.TextChoices):
+    NO_PRODUCTION = "no_production", _("No production")
+    NOT_CONVERTED = "not_converted", _("Not converted")
+    UNSCHEDULED = "unscheduled", _("Unscheduled")
+    SCHEDULED = "scheduled", _("Scheduled")
+
+
 class Quote(Timestampable, CompanyOwnedModel):
     client = models.ForeignKey(
         Client,
@@ -673,6 +682,18 @@ class Quote(Timestampable, CompanyOwnedModel):
         choices=QuoteStatus.choices,
         default=QuoteStatus.DRAFT,
         verbose_name=_("Status"),
+    )
+
+    production_status = models.CharField(
+        max_length=20,
+        choices=QuoteProductionStatus.choices,
+        default=QuoteProductionStatus.NO_PRODUCTION,
+        db_index=True,
+        verbose_name=_("Production status"),
+        help_text=_(
+            "Kept in sync automatically from this quote's configurations "
+            "and their planning status."
+        ),
     )
 
     subtotal_price = MoneyField(
@@ -1524,6 +1545,14 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
         verbose_name=_("Client")
     )
     incremental_id = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("Incremental ID"))
+    external_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+        verbose_name=_("External ID"),
+        help_text=_("External reference identifier for this delivery order."),
+    )
     sales_invoice = models.ForeignKey(
         "invoices.SalesInvoice",
         on_delete=models.SET_NULL,

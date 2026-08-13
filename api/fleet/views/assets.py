@@ -122,30 +122,6 @@ def get_asset_receipt(asset):
     return last_receipt.date > last_movement.date
 
 
-def _enrich_with_identifier(form_data, company, identifier_label, identifier_value, target_fields):
-    """
-    Generic: looks up an asset by identifier label+value and injects
-    the requested fields from asset.data into form_data.
-
-    target_fields: dict mapping form_data key -> asset.data key
-    e.g. {"tipo_camion": "tipo_camion", "implemento": "implemento"}
-    """
-    for form_key in target_fields:
-        form_data[form_key] = ""
-    if not identifier_value:
-        return
-    try:
-        identifier = AssetIdentifier.objects.select_related("asset").get(
-            label__iexact=identifier_label,
-            value=identifier_value,
-            asset__company=company,
-        )
-        asset_data = identifier.asset.data or {}
-        for form_key, data_key in target_fields.items():
-            form_data[form_key] = asset_data.get(data_key, "")
-    except AssetIdentifier.DoesNotExist:
-        pass
-
 
 def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
     # vas_a_verter: calculated inline — no need for a separate API helper
@@ -338,12 +314,6 @@ class MovementStrategy(BaseTransactionStrategy):
         else:
             form_data["cliente"] = ""
             form_data["zone_type"] = ""
-        _enrich_with_identifier(
-            form_data, asset.company,
-            identifier_label="MATRICULA",
-            identifier_value=form_data.get("matricula", ""),
-            target_fields={"tipo_camion": "tipo_camion", "implemento": "implemento"},
-        )
         distance_note = f"Distancia: {int(distance)}m" if distance is not None else "Sin zona asignada"
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=None,
@@ -386,12 +356,6 @@ class DeliveryStrategy(BaseTransactionStrategy):
         form_data["cliente"] = destination_zone.client.name if destination_zone.client else ""
         form_data["zone_type"] = destination_zone.zone_type
         form_data["trabajo"] = "Dejada"
-        _enrich_with_identifier(
-            form_data, asset.company,
-            identifier_label="MATRICULA",
-            identifier_value=form_data.get("matricula", ""),
-            target_fields={"tipo_camion": "tipo_camion", "implemento": "implemento"},
-        )
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=destination_zone,
             transaction_type=TransactionTypeChoices.DELIVERY, date=timezone.now(), performed_by=employee,

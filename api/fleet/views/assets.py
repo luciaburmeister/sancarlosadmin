@@ -7,12 +7,11 @@ from datetime import datetime
 import qrcode
 from company.models import WorkingZone, WorkingZoneAuthorization
 from django.core.files.base import ContentFile
-from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission
+from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, AssetIdentifier
 from core.tasks import send_asset_transaction_email_task
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
-from assets.models import AssetIdentifier
 from rest_framework.views import APIView
 from api.constants import MAX_ZONE_RADIUS_M
 from api.fleet.serializers import AssetTransactionSerializer
@@ -123,72 +122,57 @@ def get_asset_receipt(asset):
     return last_receipt.date > last_movement.date
 
 
-def _get_vas_a_verter(asset):
-    """Returns True if the last recogida had vasAVerter == 'Sí' and verteo not yet done."""
+def _enrich_with_identifier(form_data, company, identifier_label, identifier_value, target_fields):
+    """
+    Generic: looks up an asset by identifier label+value and injects
+    the requested fields from asset.data into form_data.
+
+    target_fields: dict mapping form_data key -> asset.data key
+    e.g. {"tipo_camion": "tipo_camion", "implemento": "implemento"}
+    """
+    for form_key in target_fields:
+        form_data[form_key] = ""
+    if not identifier_value:
+        return
+    try:
+        identifier = AssetIdentifier.objects.select_related("asset").get(
+            label__iexact=identifier_label,
+            value=identifier_value,
+            asset__company=company,
+        )
+        asset_data = identifier.asset.data or {}
+        for form_key, data_key in target_fields.items():
+            form_data[form_key] = asset_data.get(data_key, "")
+    except AssetIdentifier.DoesNotExist:
+        pass
+
+
+def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
+    # vas_a_verter: calculated inline — no need for a separate API helper
     last_movement = AssetTransaction.objects.filter(
         asset=asset,
         transaction_type=TransactionTypeChoices.MOVEMENT,
     ).order_by("-date").first()
-    if last_movement is None:
-        return False
-    if last_movement.data.get("vasAVerter", "") != "Sí":
-        return False
-    # Check if verteo has already been done after this recogida
-    already_done = AssetTransaction.objects.filter(
-        asset=asset,
-        transaction_type=TransactionTypeChoices.RECEIPT,
-        date__gt=last_movement.date,
-    ).exists()
-    return not already_done
+    if (
+        last_movement is not None
+        and last_movement.data.get("vasAVerter", "") == "Sí"
+        and not AssetTransaction.objects.filter(
+            asset=asset,
+            transaction_type=TransactionTypeChoices.RECEIPT,
+            date__gt=last_movement.date,
+        ).exists()
+    ):
+        vas_a_verter = True
+    else:
+        vas_a_verter = False
 
-
-
-def _enrich_with_truck_data(form_data, matricula, company):
-    """Look up the truck asset by matricula and inject tipo_camion and implemento."""
-    if not matricula:
-        return
-    try:
-        identifier = AssetIdentifier.objects.select_related("asset").get(
-            label__iexact="MATRICULA",
-            value=matricula,
-            asset__company=company,
-        )
-        truck_data = identifier.asset.data or {}
-        form_data["tipo_camion"] = truck_data.get("tipo_camion", "")
-        form_data["implemento"] = truck_data.get("implemento", "")
-    except AssetIdentifier.DoesNotExist:
-        form_data["tipo_camion"] = ""
-        form_data["implemento"] = ""
-
-
-
-def _enrich_with_truck_data(form_data, matricula, company):
-    """Look up the truck asset by matricula and inject tipo_camion and implemento."""
-    if not matricula:
-        form_data["tipo_camion"] = ""
-        form_data["implemento"] = ""
-        return
-    try:
-        identifier = AssetIdentifier.objects.select_related("asset").get(
-            label__iexact="MATRICULA",
-            value=matricula,
-            asset__company=company,
-        )
-        truck_data = identifier.asset.data or {}
-        form_data["tipo_camion"] = truck_data.get("tipo_camion", "")
-        form_data["implemento"] = truck_data.get("implemento", "")
-    except AssetIdentifier.DoesNotExist:
-        form_data["tipo_camion"] = ""
-        form_data["implemento"] = ""
-
-def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
     return {
         "id": asset.id,
         "code": asset.name,
         "description": asset.asset_type.name if asset.asset_type else "",
         "status": get_asset_status(last_tx),
         "asset_receipt": asset.has_pending_receipt,
-        "vas_a_verter": _get_vas_a_verter(asset),
+        "vas_a_verter": vas_a_verter,
         "last_location": str(zone) if zone else None,
         "last_updated": last_tx.date.strftime("%d/%m/%Y %H:%M") if last_tx else None,
         "zone_address": f"{zone.street_address}, {zone.city}, {zone.postal_code}" if zone else None,
@@ -354,8 +338,12 @@ class MovementStrategy(BaseTransactionStrategy):
         else:
             form_data["cliente"] = ""
             form_data["zone_type"] = ""
-        _enrich_with_truck_data(form_data, form_data.get("matricula", ""), asset.company)
-        _enrich_with_truck_data(form_data, form_data.get("matricula", ""), asset.company)
+        _enrich_with_identifier(
+            form_data, asset.company,
+            identifier_label="MATRICULA",
+            identifier_value=form_data.get("matricula", ""),
+            target_fields={"tipo_camion": "tipo_camion", "implemento": "implemento"},
+        )
         distance_note = f"Distancia: {int(distance)}m" if distance is not None else "Sin zona asignada"
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=None,
@@ -398,7 +386,12 @@ class DeliveryStrategy(BaseTransactionStrategy):
         form_data["cliente"] = destination_zone.client.name if destination_zone.client else ""
         form_data["zone_type"] = destination_zone.zone_type
         form_data["trabajo"] = "Dejada"
-        _enrich_with_truck_data(form_data, form_data.get("matricula", ""), asset.company)
+        _enrich_with_identifier(
+            form_data, asset.company,
+            identifier_label="MATRICULA",
+            identifier_value=form_data.get("matricula", ""),
+            target_fields={"tipo_camion": "tipo_camion", "implemento": "implemento"},
+        )
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=destination_zone,
             transaction_type=TransactionTypeChoices.DELIVERY, date=timezone.now(), performed_by=employee,
@@ -983,7 +976,6 @@ class MachineHoursListView(APIView):
             .select_related("asset", "asset__asset_type", "asset__current_working_zone")
             .exclude(asset__isnull=True)
         )
-        # Filter in Python — data__planning_id=None doesn't work reliably in JSONField
         qr_open_txs = [tx for tx in qr_open_txs if tx.data.get('planning_id') is None]
 
         for tx in qr_open_txs:

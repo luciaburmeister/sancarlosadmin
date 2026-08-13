@@ -1,5 +1,7 @@
 from typing import Optional
 
+from django.db import connection, transaction
+
 from company.models import Company
 from materials.models import Provider
 from core.services.tax_id_service import normalize_tax_id
@@ -24,17 +26,30 @@ def get_or_create_provider(
     if not clean_tax_id or not company:
         return None
 
-    provider = Provider.objects.filter(
-        tax_identifier__iexact=clean_tax_id,
-        company=company,
-    ).first()
-
-    if not provider:
-        provider = Provider.objects.create(
-            name=vendor_name or f"New Provider {clean_tax_id}",
-            tax_identifier=clean_tax_id,
-            company=company,
+    with transaction.atomic():
+        # Concurrent invoices from the same not-yet-onboarded vendor can hit
+        # this function at the same time, both miss the lookup below, and
+        # both try to create the provider. Serialize on a transaction-scoped
+        # advisory lock keyed by (company, tax id) so the second caller waits
+        # for the first to commit, then finds the row it just created instead
+        # of racing it. Released automatically when this transaction ends.
+        cursor = connection.cursor()
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtext(%s))",
+            [f"provider_tax_identifier:{company.pk}:{clean_tax_id}"],
         )
+
+        provider = Provider.objects.filter(
+            tax_identifier__iexact=clean_tax_id,
+            company=company,
+        ).first()
+
+        if not provider:
+            provider = Provider.objects.create(
+                name=vendor_name or f"New Provider {clean_tax_id}",
+                tax_identifier=clean_tax_id,
+                company=company,
+            )
 
     # Enrichment only, never a lookup key: record that this address has sent
     # invoices for this (already tax-ID-resolved) provider, as a hint for

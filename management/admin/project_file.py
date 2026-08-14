@@ -388,6 +388,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
                 obj.delete()
             for instance in instances:
                 instance.client = form.instance.client
+                instance.company = form.instance.company
                 instance.save()
             formset.save_m2m()
         else:

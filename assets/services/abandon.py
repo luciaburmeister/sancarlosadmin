@@ -15,7 +15,7 @@ from __future__ import annotations
 from django.db import transaction
 from django.utils import timezone
 
-from assets.models import AbandonedStageChoices, AssetPlanning, PlanningStatus, PlanningType
+from assets.models import AbandonedStageChoices, AssetPlanning, PlanningStatus, PlanningType, DRIVER_TASK_PLANNING_TYPES
 
 BLOCKED_ABANDON_STAGES = {
     AbandonedStageChoices.PICKED_UP_PENDING_POUR,
@@ -32,12 +32,12 @@ class PlanningAbandonBlockedError(Exception):
 
 
 class PlanningAbandoner:
-    def abandon_remaining(self, employee) -> list[AssetPlanning]:
+    def abandon_remaining(self, employee, reason: str = "") -> list[AssetPlanning]:
         today = timezone.now().date()
         with transaction.atomic():
             qs = AssetPlanning.objects.select_for_update().filter(
                 assigned_to=employee, status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
-                planning_type__in=[PlanningType.CUBA, PlanningType.PORTE], scheduled_date=today,
+                planning_type__in=DRIVER_TASK_PLANNING_TYPES, scheduled_date=today,
             )
             plannings = list(qs)
             stages = {planning.id: planning.compute_abandoned_stage() for planning in plannings}
@@ -49,6 +49,8 @@ class PlanningAbandoner:
                 planning.abandoned_stage = stages[planning.id]
                 planning.status = PlanningStatus.NOT_COMPLETED
                 planning.abandoned_at = timezone.now()
-                planning.save(update_fields=["status", "abandoned_stage", "abandoned_at"])
+                if reason:
+                    planning.notes = reason
+                planning.save(update_fields=["status", "abandoned_stage", "abandoned_at", "notes"])
                 abandoned.append(planning)
         return abandoned

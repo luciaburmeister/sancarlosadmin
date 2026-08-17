@@ -2,7 +2,7 @@ import base64
 import json
 from decimal import Decimal
 from datetime import datetime
-from assets.models import AssetTransaction, PlanningStatus, TransactionTypeChoices
+from assets.models import AssetPlanning, AssetTransaction, PlanningStatus, PlanningType, TransactionTypeChoices, DRIVER_TASK_PLANNING_TYPES
 from company.models import WorkAttendance
 from django.core.files.base import ContentFile
 from django.http import JsonResponse
@@ -163,6 +163,12 @@ class PlanningsListView(APIView):
         return JsonResponse({"plannings": data})
 
 
+_TASK_SERIALIZERS = {
+    PlanningType.CUBA: _serialize_cuba_planning,
+    PlanningType.PORTE: _serialize_porte_planning,
+}
+
+
 class PlanningNextTaskView(APIView):
     """The single next cuba/porte job for this driver — cuba and porte share one combined
     route_order sequence, so only one task is ever surfaced at a time, regardless of type.
@@ -170,28 +176,31 @@ class PlanningNextTaskView(APIView):
     Scoped to today only: a plan left open from a previous day (missed, delayed, never
     resolved) must not leak into today's queue, and a future day's plan must not be
     revealed early. Stale open plans from past days are dispatch's problem to reassign
-    via the schedule — see AssetPlanning.abandoned_stage / the "horario" admin view."""
+    via the schedule — see AssetPlanning.abandoned_stage / the "horario" admin view.
+
+    To support a new planning type, register its serializer in _TASK_SERIALIZERS above
+    and add the type to DRIVER_TASK_PLANNING_TYPES in assets/models.py."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         employee = get_current_employee(request.user)
         if employee is None:
             return JsonResponse({"task": None})
-        from assets.models import AssetPlanning, PlanningStatus, PlanningType
+        today = timezone.now().date()
         planning = AssetPlanning.objects.filter(
-            assigned_to=employee, status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
-            planning_type__in=[PlanningType.CUBA, PlanningType.PORTE],
-            scheduled_date=timezone.now().date(),
+            assigned_to=employee,
+            status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
+            planning_type__in=DRIVER_TASK_PLANNING_TYPES,
+            scheduled_date=today,
         ).select_related(
             "asset", "origin", "destination", "transport_asset",
-        ).prefetch_related("stops__zone").order_by("scheduled_date", "route_order", "scheduled_time", "pk").first()
+        ).prefetch_related("stops__zone").order_by("route_order", "scheduled_time", "pk").first()
         if planning is None:
             return JsonResponse({"task": None})
-        task = (
-            _serialize_cuba_planning(planning) if planning.planning_type == PlanningType.CUBA
-            else _serialize_porte_planning(planning)
-        )
-        return JsonResponse({"task": task})
+        serializer = _TASK_SERIALIZERS.get(planning.planning_type)
+        if serializer is None:
+            return JsonResponse({"error": f"No serializer registered for planning type '{planning.planning_type}'."}, status=500)
+        return JsonResponse({"task": serializer(planning)})
 
 
 class PlanningAbandonRemainingView(APIView):
@@ -201,9 +210,14 @@ class PlanningAbandonRemainingView(APIView):
         employee = get_current_employee(request.user)
         if employee is None:
             return JsonResponse({"error": "No employee profile found"}, status=400)
+        try:
+            body = json.loads(request.body or b"{}")
+        except (ValueError, TypeError):
+            body = {}
+        reason = body.get("reason", "").strip()
         from assets.services.abandon import PlanningAbandonBlockedError, PlanningAbandoner
         try:
-            abandoned = PlanningAbandoner().abandon_remaining(employee)
+            abandoned = PlanningAbandoner().abandon_remaining(employee, reason=reason)
         except PlanningAbandonBlockedError as exc:
             label = exc.planning.get_planning_type_display()
             return JsonResponse({
@@ -249,7 +263,7 @@ class MovementsListView(APIView):
                 "transaction_type": t.transaction_type,
                 "date": t.date.strftime("%d/%m/%Y %H:%M"),
                 "performed_by": t.performed_by.full_name if t.performed_by else None,
-                "movement_type": t_data.get("movement_type", t_data.get("tipo", "cuba")),
+                "movement_type": t_data.get("movement_type", t_data.get("tipo", "")),
             })
         paginator = MovementsPagination()
         page = paginator.paginate_queryset(data, request)

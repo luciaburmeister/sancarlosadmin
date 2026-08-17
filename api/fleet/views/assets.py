@@ -272,12 +272,16 @@ class BaseTransactionStrategy:
             transaction.imagen.save(image_file.name, image_file, save=False)
 
     def _require_planning(self):
-        """A cuba can't operate without a plan assigned to the driver submitting it."""
+        """An asset can't be operated without an active plan assigned to the driver for that asset."""
         planning_id = self.data.get("planning_id")
         if not planning_id:
             return None, JsonResponse({"error": "Debes tener un plan asignado para poder operar."}, status=400)
         planning = AssetPlanning.objects.filter(
-            id=planning_id, company=self.asset.company, assigned_to=self.employee, planning_type=PlanningType.CUBA,
+            id=planning_id,
+            company=self.asset.company,
+            assigned_to=self.employee,
+            asset=self.asset,
+            status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
         ).first()
         if planning is None:
             return None, JsonResponse({"error": "El plan indicado no existe o no está asignado a ti."}, status=400)
@@ -962,7 +966,7 @@ class MachineHoursListView(APIView):
 
         plannings = AssetPlanning.objects.select_related(
             "asset", "asset__asset_type", "asset__current_working_zone"
-        ).filter(assigned_to=employee, planning_type="machine_hours", scheduled_date=timezone.now().date(), status__in=["pending", "in_transit"])
+        ).filter(assigned_to=employee, planning_type=PlanningType.MACHINE_HOURS, scheduled_date=timezone.now().date(), status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT])
 
         for planning in plannings:
             asset = planning.asset

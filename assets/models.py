@@ -594,6 +594,11 @@ class PlanningType(models.TextChoices):
     NONE = "none", _("Not Planned")
 
 
+# Planning types that appear in the driver's daily task queue (GET /plannings/next/, abandon).
+# Add new field-task types here when supporting additional workflows or companies.
+DRIVER_TASK_PLANNING_TYPES = [PlanningType.CUBA, PlanningType.PORTE]
+
+
 STATUS_COLORS = {
     PlanningStatus.PENDING: "#64748B",
     PlanningStatus.IN_TRANSIT: "#3B82F6",

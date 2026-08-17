@@ -1,6 +1,6 @@
 """
-Temporary rule: AssetPlanning of porte service types always stores the truck
-on `asset` whenever `transport_asset` is set.
+AssetPlanning of porte service types falls back to the truck on `asset`
+only when no specific asset was chosen; a chosen `asset` is preserved.
 """
 from datetime import date
 
@@ -43,14 +43,14 @@ class PorteAssetSyncTests(TestCase):
             status="pending",
         )
 
-    def test_porte_maquina_overwrites_selected_asset_with_truck(self):
+    def test_porte_maquina_keeps_selected_asset(self):
         planning = self._create(
             service_type=SERVICE_TYPE_MAQUINA_PROPIA,
             planning_type="porte",
             asset=self.machine,
             transport_asset=self.truck,
         )
-        self.assertEqual(planning.asset_id, self.truck.id)
+        self.assertEqual(planning.asset_id, self.machine.id)
 
     def test_porte_material_sets_asset_from_transport(self):
         planning = self._create(

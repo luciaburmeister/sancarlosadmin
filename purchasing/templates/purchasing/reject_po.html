@@ -1,0 +1,62 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="px-4 py-3 bg-gray-50 border-b border-gray-200">
+    <div class="flex items-center text-sm text-gray-500">
+        <a href="{% url 'admin:index' %}" class="hover:text-primary-600">{% trans 'Home' %}</a>
+        <span class="mx-2">&raquo;</span>
+        <a href="{% url 'admin:purchasing_purchaseorder_changelist' %}" class="hover:text-primary-600">
+            {% trans 'Purchase Orders' %}</a>
+        <span class="mx-2">&raquo;</span>
+        <a href="{% url 'admin:purchasing_purchaseorder_change' po.id %}" class="hover:text-primary-600">
+            {{ po.number }}</a>
+        <span class="mx-2">&raquo;</span>
+        <span>{% trans 'Reject' %}</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto py-10 px-6">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="p-8 border-b border-gray-100 bg-gray-50/50">
+            <h1 class="text-2xl font-bold text-gray-900">{% trans "Reject Purchase Order" %} — {{ po.number }}</h1>
+            <p class="mt-2 text-sm text-gray-600">
+                {{ po.provider.name }}
+                {% if po.requested_by %}
+                · {% trans "Requested by" %}: {{ po.requested_by.get_full_name|default:po.requested_by.username }}
+                {% endif %}
+            </p>
+        </div>
+
+        <form method="post" class="p-8 space-y-6">
+            {% csrf_token %}
+
+            <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1.5">
+                    {{ form.reason.label }}
+                </label>
+                {{ form.reason }}
+                {% if form.reason.errors %}
+                <p class="mt-1 text-xs text-red-600">{{ form.reason.errors.0 }}</p>
+                {% endif %}
+                <p class="mt-2 text-xs text-gray-500">
+                    {% trans "The reason will be sent by email to the user who requested this Purchase Order." %}
+                </p>
+            </div>
+
+            <div class="pt-6 border-t border-gray-100 flex items-center justify-end space-x-4">
+                <a href="{% url 'admin:purchasing_purchaseorder_change' po.id %}"
+                    class="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-all">
+                    {% trans "Back" %}
+                </a>
+                <button type="submit"
+                    class="px-8 py-2.5 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-all focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+                    {% trans "Reject Purchase Order" %}
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

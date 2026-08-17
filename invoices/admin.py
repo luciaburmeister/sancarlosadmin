@@ -1,3 +1,4 @@
+from unfold.contrib.filters.admin import RangeNumericFilter
 from unfold.contrib.filters.admin import BooleanRadioFilter
 import logging
 
@@ -338,6 +339,7 @@ class InvoiceAdmin(LineItemExportMixin, ModelAdmin, CompanyRestrictedAdmin, Expo
         ("company", AutocompleteSelectMultipleFilter),
         ("provider", AutocompleteSelectMultipleFilter),
         ("date_issued", RangeDateFilter),
+        ("total_amount",RangeNumericFilter),
         # Document state
         ("confirmation_status", ChoicesDropdownFilter),
         # Payment

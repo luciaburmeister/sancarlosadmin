@@ -1,5 +1,7 @@
 import hashlib
 
+from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Max
 from django.db.models import Sum
@@ -13,7 +15,7 @@ from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey
 from invoices.models import AppliedTax, PaymentMethod
-from company.models import Company, CompanyOwnedModel, BaseBankAccount, BankAccount
+from company.models import Company, CompanyOwnedModel, BaseBankAccount, BankAccount, BaseDocumentType, BaseDocument
 from django_countries.fields import CountryField
 from configurator.utils.evaluator import validate_expression_for_safe_eval
 
@@ -89,10 +91,12 @@ class DiscountRule(models.Model):
         validators=[validate_expression_for_safe_eval],
         help_text=_(
             "Optional safe_eval expression. Leave blank to always apply.\n"
-            "Available variables: subtotal, total_quantity.\n"
+            "Available variables: subtotal, total_quantity, accumulated "
+            "(running total after prior discounts).\n"
             "Examples:\n"
             "  • subtotal > 1000\n"
             "  • subtotal > 5000 and total_quantity > 10\n"
+            "  • accumulated > 900\n"
         ),
     )
     level = models.CharField(
@@ -388,6 +392,11 @@ class Client(Timestampable, CompanyOwnedModel):
         default=PaymentMethod.TRANSFER,
         verbose_name=_("Payment Method")
     )
+    payment_terms_days = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name=_("Payment Terms (Days)"),
+        help_text=_("Days after invoice issue date before payment is due. Used to compute invoice due dates."),
+    )
     our_bank_account = models.ForeignKey(
         BankAccount,
         on_delete=models.SET_NULL,
@@ -439,6 +448,28 @@ class Client(Timestampable, CompanyOwnedModel):
 
     def __str__(self):
         return self.commercial_name or self.name
+
+    def clean(self):
+        super().clean()
+        self._validate_unique_tax_identifier()
+
+    def save(self, *args, **kwargs):
+        self._validate_unique_tax_identifier()
+        super().save(*args, **kwargs)
+
+    def _validate_unique_tax_identifier(self):
+        if not self.tax_identifier or not self.company_id:
+            return
+        duplicate = Client.objects.filter(
+            company_id=self.company_id,
+            tax_identifier__iexact=self.tax_identifier,
+        ).exclude(pk=self.pk)
+        if duplicate.exists():
+            raise ValidationError({
+                "tax_identifier": _(
+                    "Another client in this company already uses this tax identifier."
+                )
+            })
 
     @property
     def terms_version(self) -> str:
@@ -602,6 +633,13 @@ class QuoteStatus(models.TextChoices):
     REJECTED = "rejected", _("Rejected")
 
 
+class QuoteProductionStatus(models.TextChoices):
+    NO_PRODUCTION = "no_production", _("No production")
+    NOT_CONVERTED = "not_converted", _("Not converted")
+    UNSCHEDULED = "unscheduled", _("Unscheduled")
+    SCHEDULED = "scheduled", _("Scheduled")
+
+
 class Quote(Timestampable, CompanyOwnedModel):
     client = models.ForeignKey(
         Client,
@@ -644,6 +682,18 @@ class Quote(Timestampable, CompanyOwnedModel):
         choices=QuoteStatus.choices,
         default=QuoteStatus.DRAFT,
         verbose_name=_("Status"),
+    )
+
+    production_status = models.CharField(
+        max_length=20,
+        choices=QuoteProductionStatus.choices,
+        default=QuoteProductionStatus.NO_PRODUCTION,
+        db_index=True,
+        verbose_name=_("Production status"),
+        help_text=_(
+            "Kept in sync automatically from this quote's configurations "
+            "and their planning status."
+        ),
     )
 
     subtotal_price = MoneyField(
@@ -767,6 +817,35 @@ class Quote(Timestampable, CompanyOwnedModel):
         help_text=_("Commissionist agent for this quote. Auto-populated from the client's agent."),
     )
 
+    payment_method = models.CharField(
+        max_length=20,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.TRANSFER,
+        verbose_name=_("Payment Method"),
+        help_text=_("Auto-populated from the client's preferred payment method."),
+    )
+
+    payment_terms_days = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name=_("Payment Terms (Days)"),
+        help_text=_("Auto-populated from the client's payment terms; used to compute the invoice due date."),
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name=_("Created by"),
+    )
+
+    estimated_delivery_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Estimated delivery date"),
+    )
+
     class Meta:
         verbose_name = _("Quote")
         verbose_name_plural = _("Quotes")
@@ -780,12 +859,20 @@ class Quote(Timestampable, CompanyOwnedModel):
 
     @transaction.atomic
     def save(self, *args, **kwargs):
+        is_new = self.pk is None
+
         if not self.internal_name and self.project_name:
             self.internal_name = self.project_name
 
         # Auto-populate agent from client when not already set
         if not self.agent_id and self.client_id and self.client.agent_id:
             self.agent = self.client.agent
+
+        # Snapshot payment method/terms from the client at creation time
+        if is_new and self.client_id:
+            if not self.payment_method or self.payment_method == PaymentMethod.TRANSFER:
+                self.payment_method = self.client.payment_method
+            self.payment_terms_days = self.client.payment_terms_days
 
         # Auto-set date fields on status transitions
         if self.status != self._original_status:
@@ -1458,6 +1545,14 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
         verbose_name=_("Client")
     )
     incremental_id = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("Incremental ID"))
+    external_id = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        db_index=True,
+        verbose_name=_("External ID"),
+        help_text=_("External reference identifier for this delivery order."),
+    )
     sales_invoice = models.ForeignKey(
         "invoices.SalesInvoice",
         on_delete=models.SET_NULL,
@@ -1481,6 +1576,15 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
         blank=True,
         related_name="delivery_orders",
         verbose_name=_("Project File")
+    )
+    delivery_address = models.ForeignKey(
+        ClientAddress,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="delivery_orders",
+        verbose_name=_("Delivery Address"),
+        help_text=_("Optional. Defaults to the client's own address when left empty."),
     )
     status = models.CharField(
         max_length=20,
@@ -1570,6 +1674,39 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
         if save:
             self.save(update_fields=["subtotal_amount", "subtotal_amount_currency"])
         return self.subtotal_amount
+
+
+class DeliveryOrderDocumentType(BaseDocumentType):
+    class Meta:
+        verbose_name = _("Delivery Order Document Type")
+        verbose_name_plural = _("Delivery Order Document Types")
+
+
+class DeliveryOrderDocument(BaseDocument):
+    delivery_order = models.ForeignKey(
+        DeliveryOrder,
+        on_delete=models.CASCADE,
+        related_name="documents",
+        verbose_name=_("Delivery Order")
+    )
+    document_type = models.ForeignKey(
+        DeliveryOrderDocumentType,
+        on_delete=models.PROTECT,
+        related_name="documents",
+        verbose_name=_("Document Type")
+    )
+
+    class Meta:
+        verbose_name = _("Delivery Order Document")
+        verbose_name_plural = _("Delivery Order Documents")
+
+    def __str__(self):
+        return f"{self.document_type.name} - {self.delivery_order}"
+
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.delivery_order_id:
+            self.company = self.delivery_order.company
+        super().save(*args, **kwargs)
 
 
 class DeliveryOrderItem(Timestampable):

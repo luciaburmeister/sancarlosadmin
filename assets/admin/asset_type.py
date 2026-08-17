@@ -24,7 +24,8 @@ class AssetTypeFieldInline(TabularInline):
 
 @admin.register(AssetType)
 class AssetTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ("name", "description", "fields_summary")
+    list_display = ("name", "category", "description", "fields_summary")
+    list_filter = ("category",)
     search_fields = ("name",)
     inlines = [AssetTypeFieldInline]
     readonly_fields = ("schema",)
@@ -32,7 +33,7 @@ class AssetTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
         ArrayField: {"widget": ArrayWidget},
     }
     fieldsets = (
-        (None, {"fields": ("name", "description", "company", "identifier_labels")}),
+        (None, {"fields": ("name", "category", "description", "company", "identifier_labels")}),
         (_("Validation Schema"), {"fields": ("schema",)}),
     )
 

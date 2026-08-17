@@ -99,6 +99,21 @@ class TestDiscountServiceComputeEffectivePct(TestCase):
         self.assertEqual(pct, Decimal("0.00"))
         self.assertEqual(breakdown, [])
 
+    def test_condition_sees_accumulated(self):
+        """'accumulated' in a condition reflects the running total after prior rules."""
+        rules = [
+            self._make_rule("R1", 10),
+            self._make_rule("R2", 5, condition="accumulated < 950"),
+        ]
+        # Subtotal 1000: after R1 the running total is 900, so R2 applies.
+        _, breakdown = DiscountService.compute(Decimal("1000"), rules, {"subtotal": 1000})
+        self.assertEqual(len(breakdown), 2)
+
+        # Subtotal 1000 with R1 at 2%: running total 980, so R2 is skipped.
+        rules[0].percentage = Decimal("2")
+        _, breakdown = DiscountService.compute(Decimal("1000"), rules, {"subtotal": 1000})
+        self.assertEqual(len(breakdown), 1)
+
 
 # ---------------------------------------------------------------------------
 # Integration tests for the two-phase pipeline

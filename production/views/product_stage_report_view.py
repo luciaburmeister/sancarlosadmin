@@ -9,11 +9,8 @@ from unfold.views import UnfoldModelAdminViewMixin
 
 from company.models import Employee
 from configurator.models import Configuration, ProductTemplate
-from production.models import (
-    ProductionItemSession,
-    ProductionItemSessionStatus,
-    ProductionTicket,
-)
+from production.models import ProductionItemSession, ProductionTicket
+from production.services.intervals import merged_total_seconds
 
 
 class ProductStageReportView(UnfoldModelAdminViewMixin, View):
@@ -23,11 +20,7 @@ class ProductStageReportView(UnfoldModelAdminViewMixin, View):
 
     def _get_sessions_qs(self, request):
         """Return a base queryset of completed sessions with optional filters."""
-        qs = ProductionItemSession.objects.filter(
-            status=ProductionItemSessionStatus.DONE,
-            start_time__isnull=False,
-            end_time__isnull=False,
-        ).select_related(
+        qs = ProductionItemSession.objects.completed().select_related(
             "company",
             "production_item__ticket__content_type",
         )
@@ -60,17 +53,7 @@ class ProductStageReportView(UnfoldModelAdminViewMixin, View):
 
         # Filter by product — need to go through ticket → configuration
         if product_id:
-            from django.contrib.contenttypes.models import ContentType
-
-            config_ct = ContentType.objects.get_for_model(Configuration)
-            config_ids = Configuration.objects.filter(
-                product_id=product_id
-            ).values_list("id", flat=True)
-            ticket_ids = ProductionTicket.objects.filter(
-                content_type=config_ct,
-                object_id__in=config_ids,
-            ).values_list("id", flat=True)
-            qs = qs.filter(production_item__ticket_id__in=ticket_ids)
+            qs = qs.for_product(product_id)
 
         return qs
 
@@ -127,20 +110,10 @@ class ProductStageReportView(UnfoldModelAdminViewMixin, View):
             )
 
         # Merge overlapping intervals and sum actual working time
-        ticket_stage_totals = {}
-        for key, intervals in ticket_stage_intervals.items():
-            intervals.sort(key=lambda x: x[0])
-            merged = [intervals[0]]
-            for start, end in intervals[1:]:
-                prev_start, prev_end = merged[-1]
-                if start <= prev_end:
-                    # Overlapping or adjacent — extend
-                    merged[-1] = (prev_start, max(prev_end, end))
-                else:
-                    merged.append((start, end))
-            ticket_stage_totals[key] = sum(
-                (end - start).total_seconds() for start, end in merged
-            )
+        ticket_stage_totals = {
+            key: merged_total_seconds(intervals)
+            for key, intervals in ticket_stage_intervals.items()
+        }
 
         # Step 2: roll up into product → stage → {total_seconds, count}
         # count = number of tickets (orders) that went through this stage

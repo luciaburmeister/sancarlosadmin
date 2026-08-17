@@ -1,9 +1,13 @@
+import os
+
 from django.contrib import admin
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 from django.http import HttpResponse
 from django.urls import path, reverse
 from django.shortcuts import redirect
 from django.utils.translation import gettext_lazy as _
+from djmoney.money import Money
 
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action, display
@@ -58,7 +62,7 @@ class ExpenseTicketInline(TabularInline):
 
 @admin.register(ExpenseClaim)
 class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ("__str__", "submitted_by", "status", "total_claimed", "created_at")
+    list_display = ("__str__", "submitted_by", "status_badge", "total_claimed", "total_reimbursed", "created_at")
     list_filter = ("status", "company")
     search_fields = ("submitted_by__email", "submitted_by__first_name")
     autocomplete_fields = ("company", "submitted_by")
@@ -72,6 +76,7 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "approve_claim_detail_action",
         "reject_claim_detail_action",
         "revise_claim_detail_action",
+        "run_matcher_detail_action",
     ]
 
     def get_queryset(self, request):
@@ -93,6 +98,21 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
         if obj.submitted_by_id == request.user.id:
             return obj.status == ExpenseClaimStatus.DRAFT and super().has_delete_permission(request, obj)
         return False
+
+    # ── Display helpers ──────────────────────────────────────────────────────
+
+    @display(
+        description=_("Status"),
+        label={
+            ExpenseClaimStatus.DRAFT.label: "default",
+            ExpenseClaimStatus.SUBMITTED.label: "warning",
+            ExpenseClaimStatus.APPROVED.label: "info",
+            ExpenseClaimStatus.REIMBURSED.label: "success",
+            ExpenseClaimStatus.REJECTED.label: "danger",
+        },
+    )
+    def status_badge(self, obj):
+        return obj.get_status_display()
 
     def save_formset(self, request, form, formset, change):
         if formset.model is ExpenseTicket:
@@ -225,6 +245,25 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
             return False
         return request.user.is_superuser or claim.submitted_by_id == request.user.id
 
+    @action(description=_("Run Matcher"), url_path="run-matcher", icon="compare_arrows", permissions=["run_matcher_detail_action"])
+    def run_matcher_detail_action(self, request, object_id):
+        from banking.tasks import run_invoice_matcher_task
+
+        claim = self.get_object(request, object_id)
+        result = run_invoice_matcher_task.delay("expenseclaim", claim.pk)
+        back_url = reverse("admin:expenses_expenseclaim_change", args=[claim.pk])
+        status_url = (
+            reverse("admin:banking_matcher_status")
+            + f"?task_id={result.id}&task_type=expenseclaim&back_url={back_url}"
+        )
+        return redirect(status_url)
+
+    def has_run_matcher_detail_action_permission(self, request, object_id):
+        claim = self.get_object(request, object_id)
+        # Only approved claims are reimbursable — mirrors the candidate filter
+        # the transaction-side matcher already applies to expense claims.
+        return True
+
     # ── Custom URLs ──────────────────────────────────────────────────────────
 
     def get_urls(self):
@@ -250,11 +289,12 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "original_amount",
         "ticket_number",
         "claim",
+        "reimbursed_status",
         "ocr_status",
     )
     list_filter = ("company","date_of_purchase","claim", "needs_manual_review", "ocr_processed")
     search_fields = ("vendor_name", "vendor_tax_id", "ticket_number", "submitted_by__email")
-    autocomplete_fields = ("company", "submitted_by", "provider")
+    autocomplete_fields = ("company", "submitted_by", "provider", "invoice")
     readonly_fields = (
         "claim",
         "file_hash",
@@ -271,6 +311,9 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "exchange_rate_value",
         "converted_amount",
     )
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("claim")
 
     def has_change_permission(self, request, obj=None):
         # Mirrors the lock in ExpenseTicket.save(): once a ticket's claim has
@@ -308,6 +351,7 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
                     "photo",
                     ("submitted_by", "company"),
                     "claim",
+                    "invoice",
                 )
             },
         ),
@@ -349,7 +393,12 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
 
     actions = ["send_to_process", "create_claim"]
-    actions_detail = ["send_to_process_detail_action", "create_claim_detail_action", "override_exchange_rate_detail_action"]
+    actions_detail = [
+        "send_to_process_detail_action",
+        "create_claim_detail_action",
+        "create_invoice_from_ticket_detail_action",
+        "override_exchange_rate_detail_action",
+    ]
 
     # ── List actions ────────────────────────────────────────────────────────
 
@@ -418,6 +467,52 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return redirect(reverse("admin:expenses_expenseclaim_change", args=[claim.pk]))
 
     @action(
+        description=_("Create Invoice"),
+        url_path="create-invoice",
+        icon="request_quote",
+        permissions=["create_invoice_from_ticket_detail_action"],
+    )
+    def create_invoice_from_ticket_detail_action(self, request, object_id):
+        from invoices.models import Invoice
+
+        ticket = ExpenseTicket.objects.select_related("provider", "company").get(pk=object_id)
+
+        # apply_exchange_rate() always converts into the company's base
+        # currency (EUR everywhere in this system) — original_amount stays
+        # in whatever currency was printed on the receipt.
+        if ticket.converted_amount is not None:
+            amount, currency = ticket.converted_amount.amount, "EUR"
+        else:
+            amount, currency = ticket.original_amount.amount, ticket.original_amount_currency
+
+        invoice = Invoice(
+            company=ticket.company,
+            provider=ticket.provider,
+            invoice_number=ticket.ticket_number or None,
+            date_issued=ticket.date_of_purchase,
+            net_amount=Money(amount, currency),
+            total_amount=Money(amount, currency),
+            currency=currency,
+            uploaded_by=request.user,
+            needs_manual_review=True,
+        )
+        with ticket.photo.open("rb") as f:
+            invoice.file.save(os.path.basename(ticket.photo.name), ContentFile(f.read()), save=False)
+        invoice.save()
+
+        ticket.invoice = invoice
+        ticket.save(update_fields=["invoice"])
+
+        self.message_user(request, _("Invoice created and linked to this ticket."))
+        return redirect(reverse("admin:invoices_invoice_change", args=[invoice.pk]))
+
+    def has_create_invoice_from_ticket_detail_action_permission(self, request, object_id):
+        ticket = self.get_object(request, object_id)
+        if not ticket or ticket.invoice_id or not ticket.photo or ticket.original_amount is None:
+            return False
+        return self.has_change_permission(request, ticket)
+
+    @action(
         description=_("Override Exchange Rate"),
         url_path="override-exchange-rate",
         icon="edit",
@@ -483,6 +578,18 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         if obj.ocr_error:
             return "Error"
         return "Pending"
+
+    @display(
+        description=_("Reimbursed"),
+        label={
+            "Reimbursed": "success",
+            "Not reimbursed": "default",
+        },
+    )
+    def reimbursed_status(self, obj):
+        if obj.claim_id and obj.claim.status == ExpenseClaimStatus.REIMBURSED:
+            return "Reimbursed"
+        return "Not reimbursed"
 
     # ── Custom URLs ──────────────────────────────────────────────────────────
 

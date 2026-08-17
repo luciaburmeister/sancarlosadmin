@@ -13,6 +13,9 @@ def get_user_companies(user) -> QuerySet[Company]:
     Superusers get all companies.
     Cached per-user.
     """
+    if not user.is_authenticated:
+        return Company.objects.none()
+
     if user.is_superuser:
         return Company.objects.all()
 

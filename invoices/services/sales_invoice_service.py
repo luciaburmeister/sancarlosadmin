@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from decimal import Decimal
 from django.conf import settings
 from django.db import transaction
@@ -39,11 +40,16 @@ class SalesInvoiceService:
             from sales.models import Client
             client = Client.objects.filter(pk=client_id).first()
 
+        quote = getattr(configuration, 'quote', None)
+        payment_terms_days = cls.resolve_payment_terms_days(quote=quote, client=client)
+        date_issued = timezone.now().date()
+
         sales_invoice = SalesInvoice.objects.create(
             company=company,
             status=SalesInvoiceStatus.PROFORMA,
             invoice_number=None, # Assigned on finalization
-            date_issued=timezone.now().date(),
+            date_issued=date_issued,
+            due_date=date_issued + timedelta(days=payment_terms_days),
             client_id=client_id,
             configuration=configuration,
             notes=f"Generated from Configuration #{configuration.id}",
@@ -51,10 +57,10 @@ class SalesInvoiceService:
             total_amount=configuration.total_price,
             tax_amount=configuration.total_price - configuration.subtotal_price,
             payment_method=resolve_sales_invoice_payment_method(client=client),
+            payment_terms_days=payment_terms_days,
         )
 
         # ponytail: carry discount from the config's quote if present
-        quote = getattr(configuration, 'quote', None)
         if quote and quote.discount_amount and quote.discount_amount.amount > 0:
             sales_invoice.discount_amount = quote.discount_amount
             sales_invoice.discount_breakdown = quote.discount_breakdown or []
@@ -240,6 +246,20 @@ class SalesInvoiceService:
         )
         
         return delivery_order
+
+    @classmethod
+    def resolve_payment_terms_days(cls, *, quote=None, client=None, explicit=None):
+        """
+        Resolve payment terms (days) for a new sales invoice.
+        Prefers an explicit value, then the quote's snapshot, then the client's default.
+        """
+        if explicit is not None:
+            return explicit
+        if quote is not None and quote.payment_terms_days is not None:
+            return quote.payment_terms_days
+        if client is not None:
+            return client.payment_terms_days
+        return 0
 
     @classmethod
     def _generate_next_invoice_data(cls, company):

@@ -1,6 +1,11 @@
 {% extends "unfold/layouts/base.html" %}
 {% load i18n static %}
 
+{% block extrahead %}
+    {{ block.super }}
+    {{ form.media }}
+{% endblock %}
+
 {% block breadcrumbs %}
 <div class="px-4 py-3 bg-gray-50 border-b border-gray-200">
     <div class="flex items-center text-sm text-gray-500">
@@ -23,7 +28,7 @@
             </p>
         </div>
 
-        <form method="post" class="p-6 space-y-6">
+        <form method="post" class="p-6 space-y-8">
             {% csrf_token %}
 
             {% if form.non_field_errors %}
@@ -34,9 +39,9 @@
 
             <div class="space-y-4">
                 <div class="font-medium text-gray-700">{{ form.action_type.label }}</div>
-                <div class="flex flex-col space-y-2">
+                <div class="flex flex-col space-y-3">
                     {% for radio in form.action_type %}
-                    <label class="inline-flex items-center p-3 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
+                    <label class="inline-flex items-center p-4 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors">
                         {{ radio.tag }}
                         <span class="ml-3 font-medium text-gray-900">{{ radio.choice_label }}</span>
                     </label>
@@ -52,12 +57,25 @@
                 {% if form.existing_project.errors %}<p class="text-sm text-red-600">{{ form.existing_project.errors.0 }}</p>{% endif %}
             </div>
 
-            <div id="new-section" class="space-y-2">
-                <label for="{{ form.new_project_name.id_for_label }}" class="block font-medium text-gray-700">
-                    {{ form.new_project_name.label }}
-                </label>
-                {{ form.new_project_name }}
-                {% if form.new_project_name.errors %}<p class="text-sm text-red-600">{{ form.new_project_name.errors.0 }}</p>{% endif %}
+            <div id="new-section" class="space-y-4">
+                <div class="space-y-2">
+                    <label for="{{ form.new_project_name.id_for_label }}" class="block font-medium text-gray-700">
+                        {{ form.new_project_name.label }}
+                    </label>
+                    {{ form.new_project_name }}
+                    {% if form.new_project_name.errors %}<p class="text-sm text-red-600">{{ form.new_project_name.errors.0 }}</p>{% endif %}
+                </div>
+
+                {% if require_working_zone %}
+                <div class="space-y-2">
+                    <label for="{{ form.working_zones.id_for_label }}" class="block font-medium text-gray-700">
+                        {{ form.working_zones.label }}
+                    </label>
+                    {{ form.working_zones }}
+                    {% if form.working_zones.help_text %}<p class="text-sm text-gray-500">{{ form.working_zones.help_text }}</p>{% endif %}
+                    {% if form.working_zones.errors %}<p class="text-sm text-red-600">{{ form.working_zones.errors.0 }}</p>{% endif %}
+                </div>
+                {% endif %}
             </div>
 
             <div class="pt-6 border-t border-gray-100 flex items-center justify-end space-x-4">

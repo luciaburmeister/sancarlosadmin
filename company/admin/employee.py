@@ -26,11 +26,13 @@ from core.admin.company_access import get_user_companies
 from core.admin.company_admin import CompanyRestrictedAdmin
 from company.models import Employee, EmployeeType
 from company.views.employeesessions import EmployeeSessionsView
+from company.views.driver_tracking import DriverTrackingView
 
 from company.forms import BaseDocumentForm
 from vacations.models import VacationWallet, VacationRequest, VacationRequestStatus
 from decimal import Decimal
 from django.db.models import Sum
+
 
 
 class EmployeeDocumentForm(BaseDocumentForm):
@@ -339,6 +341,13 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
                     EmployeeSessionsView.as_view(model_admin=self)
                 ),
                 name="company_employee_sessions",
+            ),
+            path(
+                "driver-tracking/",
+                self.admin_site.admin_view(
+                    DriverTrackingView.as_view(model_admin=self)
+                ),
+                name="company_employee_driver_tracking",
             ),
         ] + super().get_urls()
 

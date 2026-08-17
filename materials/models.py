@@ -36,14 +36,39 @@ class Provider(Timestampable,CompanyOwnedModel):
 
     def __str__(self):
         return self.name
-    
+
     class Meta:
-        ordering = [Lower("name")]  
+        ordering = [Lower("name")]
         indexes = [
             Index(Lower("name"), name="provider_name_ci_idx"),
             GinIndex(fields=['associated_emails'], name='provider_emails_gin_idx')
         ]
-        
+
+    def clean(self):
+        super().clean()
+        self._validate_unique_tax_identifier()
+
+    def save(self, *args, **kwargs):
+        self._validate_unique_tax_identifier()
+        super().save(*args, **kwargs)
+
+    def _validate_unique_tax_identifier(self):
+        # Blank tax identifiers are still allowed (e.g. providers created by
+        # automated import flows before a CIF/NIF is known), so they are
+        # excluded from the uniqueness check to avoid blocking those flows.
+        if not self.tax_identifier or not self.company_id:
+            return
+        duplicate = Provider.objects.filter(
+            company_id=self.company_id,
+            tax_identifier__iexact=self.tax_identifier,
+        ).exclude(pk=self.pk)
+        if duplicate.exists():
+            raise ValidationError({
+                "tax_identifier": _(
+                    "Another provider in this company already uses this tax identifier."
+                )
+            })
+
 class ProviderBankAccount(CompanyOwnedModel, BaseBankAccount):
     provider = models.ForeignKey(
         Provider,

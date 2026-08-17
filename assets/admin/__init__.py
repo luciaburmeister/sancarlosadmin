@@ -2,4 +2,7 @@ from .asset_type import AssetTypeAdmin
 from .asset import AssetAdmin
 from .asset_transaction import AssetTransactionAdmin, AssetTransactionReceiptAdmin
 from .asset_planning import AssetPlanningAdmin
+from .asset_planning_request import AssetPlanningRequestAdmin
+from .asset_planning_request_draft import AssetPlanningRequestDraftAdmin
 from .asset_map import AssetMapAdmin
+from .transport_compatibility_rule import TransportCompatibilityRuleAdmin

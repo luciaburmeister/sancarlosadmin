@@ -11,8 +11,9 @@ Usage:
 from datetime import date
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 
-from assets.models import Asset, AssetType
+from assets.models import Asset, AssetPlanning, AssetType, PlanningStatus, PlanningType
 from company.models import Company, Employee, WorkingZone
 
 User = get_user_model()
@@ -61,11 +62,16 @@ def make_asset(company, asset_type, employee=None, zone=None, name="CUBA-001"):
     )
 
 
-def make_zone(company, name="Zona Test", lat=40.416775, lon=-3.703790):
+def make_zone(company, name="Zona Test", lat=40.416775, lon=-3.703790, confirmed=True):
     """
     Create a WorkingZone with a location point.
     POINT(longitude latitude) — note lon comes first, lat second.
     This is the format django-location-field stores.
+
+    confirmed=True (default) marks the zone's location as already
+    confirmed, matching how established zones behave in production
+    (strict geofence radius, no auto-relocate). Pass confirmed=False
+    to test the first-transaction leniency/auto-relocate behavior.
     """
     return WorkingZone.objects.create(
         company=company,
@@ -74,4 +80,22 @@ def make_zone(company, name="Zona Test", lat=40.416775, lon=-3.703790):
         city="Madrid",
         postal_code="28001",
         location=f"POINT({lon} {lat})",
+        location_confirmed_at=timezone.now() if confirmed else None,
+    )
+
+
+def make_planning(
+    company, asset=None, assigned_to=None,
+    planning_type=PlanningType.CUBA, status=PlanningStatus.PENDING,
+    scheduled_date=None, **overrides,
+):
+    """Create an AssetPlanning — the plan a driver must have to operate a cuba/porte."""
+    return AssetPlanning.objects.create(
+        company=company,
+        asset=asset,
+        assigned_to=assigned_to,
+        planning_type=planning_type,
+        status=status,
+        scheduled_date=scheduled_date or date.today(),
+        **overrides,
     )

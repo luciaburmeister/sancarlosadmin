@@ -1,7 +1,7 @@
 {% extends "admin/base_site.html" %}
 {% load i18n %}
 
-{% block title %}{% trans "Review Invoice Reconciliation" %}{% endblock %}
+{% block title %}{% trans "Review Reconciliation" %}{% endblock %}
 
 {% block content %}
 <style>
@@ -254,6 +254,31 @@
         color: #166534;
         font-weight: 500;
     }
+
+    /* ── Category select ────────────────────────────── */
+    .category-bar {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+    }
+
+    .category-bar label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--font-subtle-light, #888);
+        white-space: nowrap;
+    }
+
+    .category-bar select {
+        flex: 0 1 260px;
+        padding: 0.5rem 0.75rem;
+        border: 1px solid var(--border-default, #e2e8f0);
+        border-radius: 8px;
+        font-size: 0.9rem;
+        background: var(--bg-primary, #fff);
+        color: var(--font-default-light, #333);
+    }
 </style>
 
 <div class="review-container">
@@ -262,11 +287,11 @@
     <div class="inv-header">
         <h2>
             <span class="material-symbols-outlined">receipt_long</span>
-            {% trans "Review Invoice Reconciliation" %}
+            {% trans "Review Reconciliation" %}
         </h2>
         <div class="inv-meta">
             <div class="inv-meta-item">
-                <span class="inv-meta-label">{% trans "Invoice" %}</span>
+                <span class="inv-meta-label">{% trans "Document" %}</span>
                 <span class="inv-meta-value">
                     <a href="{{ invoice_change_url }}" style="color: var(--primary-600);">
                         {{ invoice_number }}
@@ -374,12 +399,27 @@
         </div>
 
         {% if not suggestion.is_confirmed %}
+        <div class="category-bar">
+            <label for="categorySelect">{% trans "Category" %} <span style="color:#dc2626;">*</span></label>
+            {% if categories %}
+            <select name="category" id="categorySelect" required>
+                <option value="" disabled selected>{% trans "— Select a category —" %}</option>
+                {% for cat in categories %}
+                <option value="{{ cat.pk }}">{{ cat.name }}</option>
+                {% endfor %}
+            </select>
+            {% else %}
+            <span style="color:#dc2626; font-size:0.85rem;">
+                {% trans "No categories configured for this company yet. Add one before confirming a match." %}
+            </span>
+            {% endif %}
+        </div>
         <div class="review-actions">
             <a href="{{ back_url }}" class="btn btn-back">
                 <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
-                {% trans "Back to Invoice" %}
+                {% trans "Back" %}
             </a>
-            <button type="submit" class="btn btn-approve">
+            <button type="submit" class="btn btn-approve" {% if not categories %}disabled{% endif %}>
                 <span class="material-symbols-outlined" style="font-size: 18px;">check</span>
                 {% trans "Approve" %}
             </button>
@@ -388,7 +428,7 @@
         <div class="review-actions">
             <a href="{{ back_url }}" class="btn btn-back">
                 <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
-                {% trans "Back to Invoice" %}
+                {% trans "Back" %}
             </a>
         </div>
         {% endif %}
@@ -397,13 +437,13 @@
     {% else %}
     <div class="empty-state">
         <span class="material-symbols-outlined">search_off</span>
-        <p>{% trans "No matching bank transactions were found for this invoice." %}</p>
+        <p>{% trans "No matching bank transactions were found for this document." %}</p>
     </div>
 
     <div class="review-actions">
         <a href="{{ back_url }}" class="btn btn-back">
             <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
-            {% trans "Back to Invoice" %}
+            {% trans "Back" %}
         </a>
     </div>
     {% endif %}

@@ -10,6 +10,7 @@ from import_export.admin import ImportExportModelAdmin
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.admin import GenericTabularInline as _GenericTabularInline
 from unfold.decorators import action, display
+from unfold.sections import TemplateSection
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter,
     MultipleChoicesDropdownFilter,
@@ -20,7 +21,7 @@ from unfold.contrib.import_export.forms import ImportForm, SelectableFieldsExpor
 from configurator.admin.configuration import AppliedTaxInline
 from configurator.commission.admin import QuoteCommissionInline
 from configurator.commission.services import CommissionService
-from configurator.models import Configuration
+from configurator.models import Configuration, ConfigurationStatus
 from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.email_log import EmailLogInline
 from core.admin.xlsx_export import FormattedXlsxExportMixin
@@ -28,7 +29,7 @@ from invoices.models import AppliedTax
 from management.views import QuoteAcceptanceWizardView
 from sales.forms import QuoteItemImportForm, QuoteItemConfirmImportForm
 from sales.models import (
-    Quote, QuoteItem, QuoteInventoryItem, QuoteStatus,
+    Quote, QuoteItem, QuoteInventoryItem, QuoteProductionStatus, QuoteStatus,
     QuoteConfigurationGroup, QuotePhoto, QuotePhotoCategory,
 )
 from sales.resources import QuoteItemImportResource, QuoteExportResource
@@ -37,7 +38,14 @@ from sales.views.quote_export_view import QuoteExportView
 from sales.views.quote_send_email_view import QuoteSendEmailView
 from sales.views_analysis import ConversionAnalysisView
 
+from .filters import HasProductionFilter, ProductionSchedulingFilter
 from .mixins import _CompanyImportMixin
+
+PRODUCTION_BADGE_NONE = _("No production")
+PRODUCTION_BADGE_PENDING = _("Production")
+PRODUCTION_BADGE_NOT_CONVERTED = _("Not converted")
+PRODUCTION_BADGE_UNSCHEDULED = _("Unscheduled")
+PRODUCTION_BADGE_SCHEDULED = _("Scheduled")
 
 
 class QuotePhotoInline(TabularInline):
@@ -179,14 +187,16 @@ class ConfigurationReadOnlyInline(TabularInline):
     extra = 0
     tab = True
     readonly_fields = [
-        "config_link", "status",
+        "config_link", "status", "planning_status",
         "cost_display", "margin_display", "margin_pct_display","subtotal_price", "total_price_display",
+        "convert_to_production_link",
     ]
     fields = [
-        "config_link", "status", "quote_group",
+        "config_link", "status", "planning_status", "quote_group",
         "cost_display",
         "margin_display", "margin_pct_display",
         "subtotal_price", "total_price_display",
+        "convert_to_production_link",
     ]
     autocomplete_fields = ["quote_group"]
     can_delete = True
@@ -208,6 +218,19 @@ class ConfigurationReadOnlyInline(TabularInline):
     def config_link(self, obj):
         url = reverse("admin:configurator_configuration_change", args=[obj.pk])
         return format_html('<a href="{}" target="_blank">{}</a>', url, obj.name)
+
+    @display(description=_("Production"))
+    def convert_to_production_link(self, obj):
+        if not obj.pk or obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.COMPLETED]:
+            return "-"
+        if (
+            obj.quote
+            and obj.quote.status != QuoteStatus.ACCEPTED
+            and not obj.product.allow_production_without_accepted_quote
+        ):
+            return "-"
+        url = reverse("admin:configurator_configuration_convert_to_production", args=[obj.pk])
+        return format_html('<a class="button" href="{}" target="_blank">{}</a>', url, _("Convert to production"))
 
     @display(description=_("Total price"))
     def total_price_display(self, obj):
@@ -233,14 +256,42 @@ class ConfigurationReadOnlyInline(TabularInline):
         return "—"
 
 
+class QuoteDetailsSection(TemplateSection):
+    """Expandable row card holding the secondary Quote fields dropped from list_display."""
+
+    template_name = "sales/quote_details_section.html"
+
+    def get_context_data(self, request, instance):
+        created_by = instance.created_by
+        project_file = instance.project_file
+        project_file_url = (
+            reverse("admin:management_projectfile_change", args=[project_file.pk])
+            if project_file else None
+        )
+        return {
+            "created_by_name": (created_by.get_full_name() or created_by.username) if created_by else None,
+            "created_at": instance.created_at,
+            "estimated_delivery_date": instance.estimated_delivery_date,
+            "project_file": project_file,
+            "project_file_url": project_file_url,
+            "agent": instance.agent,
+            "payment_method": instance.get_payment_method_display(),
+            "date_sent": instance.date_sent,
+            "date_accepted": instance.date_accepted,
+        }
+
+
 @admin.register(Quote)
 class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportModelAdmin, ModelAdmin):
     resource_classes = [QuoteExportResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
-    list_display = ["id", "project_name", "client", "date_sent","date_accepted", "project_file", "show_status_customized_color", "total_price_display", "company"]
+    list_display = ["id", "project_name", "client", "show_status_customized_color", "production_planning_badge", "total_price_display", "company"]
+    list_sections = [QuoteDetailsSection]
     list_filter = [
         ("status",MultipleChoicesDropdownFilter),
+        HasProductionFilter,
+        ProductionSchedulingFilter,
         ("company",AutocompleteSelectMultipleFilter),
         ("created_at",RangeDateFilter),
         ("date_sent", RangeDateFilter),
@@ -253,10 +304,10 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
         "total_cost", "total_commissions_display",
         "margin_before_discount_display", "margin_before_discount_pct_display",
         "margin_after_discount_display", "margin_after_discount_pct_display",
+        "created_by",
     ]
-    list_select_related = ["client", "project_file__client", "company"]
+    list_select_related = ["client", "project_file__client", "company", "agent", "created_by"]
     list_filter_submit = True
-    change_form_outer_after_template = "sales/quote_preset_picker.html"
 
     inlines = [ConfigurationReadOnlyInline,
     QuoteInventoryItemInline,
@@ -270,7 +321,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
 
     actions_list = [ "quote_dashboard_action"]
     actions_row = ["add_configuration_to_quote", "export_quote_action", "send_email_row_action"]
-    actions_detail = ["send_email_detail_action"]
+    actions_detail = ["add_configuration_detail_action", "send_email_detail_action"]
 
     fieldsets = (
         ("Quote Details", {
@@ -279,10 +330,12 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
                 ("client", "agent"),
                 ("status", "company"),
                 ("project_name",),
-                ("date", "expires_at"),
+                ("date", "expires_at", "estimated_delivery_date"),
+                ("payment_method", "payment_terms_days"),
                 ("subtotal_price", "discount_amount"),
                 ("tax_amount", "total_price"),
                 "discount_policies",
+                "created_by",
             )
         }),
         (_("Details"), {
@@ -309,6 +362,11 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
             )
         }),
     )
+
+    def save_model(self, request, obj, form, change):
+        if not change and not obj.created_by_id:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
 
     @display(description=_("Total price"))
     def total_price_display(self, obj):
@@ -405,6 +463,27 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
     def show_status_customized_color(self, obj):
         return _(obj.get_status_display())
 
+    @display(
+        description=_("Production"),
+        ordering="production_status",
+        label={
+            PRODUCTION_BADGE_PENDING: "info",
+            PRODUCTION_BADGE_NOT_CONVERTED: "danger",
+            PRODUCTION_BADGE_UNSCHEDULED: "warning",
+            PRODUCTION_BADGE_SCHEDULED: "success",
+        },
+    )
+    def production_planning_badge(self, obj):
+        if obj.production_status == QuoteProductionStatus.NO_PRODUCTION:
+            return PRODUCTION_BADGE_NONE
+        if obj.status != QuoteStatus.ACCEPTED:
+            return PRODUCTION_BADGE_PENDING
+        if obj.production_status == QuoteProductionStatus.NOT_CONVERTED:
+            return PRODUCTION_BADGE_NOT_CONVERTED
+        if obj.production_status == QuoteProductionStatus.UNSCHEDULED:
+            return PRODUCTION_BADGE_UNSCHEDULED
+        return PRODUCTION_BADGE_SCHEDULED
+
     @action(description=_("Add Configuration"))
     def add_configuration_to_quote(self, request, object_id: int):
         url = reverse("admin:configurator_configuration_wizard_select")
@@ -491,6 +570,11 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
     @action(description=_("Send Email"), icon="mail")
     def send_email_detail_action(self, request, object_id):
         return redirect(reverse("admin:sales_quote_send_email", args=[object_id]))
+
+    @action(description=_("Add Configuration"), icon="add")
+    def add_configuration_detail_action(self, request, object_id):
+        url = reverse("admin:configurator_configuration_wizard_select")
+        return redirect(f"{url}?quote_id={object_id}")
 
 
 @admin.register(QuoteItem)

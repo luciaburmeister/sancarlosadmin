@@ -1,6 +1,11 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 from configurator.models import ProductTemplate, ProductParameter, BOMRule, ProductComputedVariable,ProductPricingRuleAssignment, ProductTemplateComponentGroup, ProductComputedTemplate
+from unfold.contrib.filters.admin import (
+    AutocompleteSelectMultipleFilter,
+    BooleanRadioFilter,
+    ChoicesDropdownFilter,
+)
 from unfold.admin import TabularInline,StackedInline,GenericTabularInline
 from django.db import models
 from unfold.widgets import UnfoldAdminTextareaWidget, UnfoldAdminSelectWidget
@@ -178,8 +183,16 @@ class ProductTemplateComponentGroupInline(StackedInline):
 
 @admin.register(ProductTemplate)
 class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
-    list_display = ("id", "name", "flow_kind", "company", "planning_configured_badge", "planning_configure_link")
-    search_fields = ("name",)
+    list_display = ("id", "name", "flow_kind", "company", "show_in_configurator", "planning_configured_badge", "planning_configure_link")
+    list_filter = (
+        ("company", AutocompleteSelectMultipleFilter),
+        ("flow_kind", ChoicesDropdownFilter),
+        ("show_in_configurator", BooleanRadioFilter),
+        ("production_planning_configured", BooleanRadioFilter),
+        ("exclude_from_invoicing", BooleanRadioFilter),
+    )
+    list_filter_submit = True
+    search_fields = ("name", "description")
     actions_row = ["duplicate_product", "stage_report_action"]
     actions = ["export_planning_config"]
     list_select_related = ["company"]

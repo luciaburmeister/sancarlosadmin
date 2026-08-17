@@ -6,6 +6,10 @@ from decimal import Decimal
 # Tolerance for "close" amount matching (2%)
 AMOUNT_TOLERANCE_PERCENT = Decimal("0.02")
 
+# A payment can be dated up to this many days before the invoice/document
+# date and still be considered a candidate match (e.g. early payments).
+PAYMENT_DATE_TOLERANCE_DAYS = 15
+
 
 @dataclass
 class MatchResult:

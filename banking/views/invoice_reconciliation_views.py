@@ -13,9 +13,16 @@ from django.views.generic import FormView
 
 from unfold.views import UnfoldModelAdminViewMixin
 
-from banking.models import BankTransaction, BankReconciliation, InvoiceReconciliationSuggestion, ReconciliationStatus
+from banking.models import (
+    BankTransaction,
+    BankReconciliation,
+    BankTransactionCategory,
+    InvoiceReconciliationSuggestion,
+    ReconciliationStatus,
+)
 from banking.services.transaction_matching import InvoiceMatcher
 from invoices.models import SalesInvoice
+from apps.expenses.models import ExpenseClaim
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +57,8 @@ class CombinationSelectionForm(forms.Form):
 def _invoice_change_url(invoice):
     if isinstance(invoice, SalesInvoice):
         return reverse("admin:invoices_salesinvoice_change", args=[invoice.pk])
+    if isinstance(invoice, ExpenseClaim):
+        return reverse("admin:expenses_expenseclaim_change", args=[invoice.pk])
     return reverse("admin:invoices_invoice_change", args=[invoice.pk])
 
 
@@ -115,12 +124,16 @@ class ReviewInvoiceReconciliationView(UnfoldModelAdminViewMixin, FormView):
             "invoice_counterparty": str(
                 getattr(invoice, "provider", None)
                 or getattr(invoice, "client", None)
+                or getattr(invoice, "submitted_by", None)
                 or "—"
             ),
             "invoice_remaining": invoice.amount_remaining_decimal,
             "invoice_change_url": invoice_change_url,
             "combinations": combinations,
             "combo_count": len(combinations),
+            "categories": BankTransactionCategory.objects.filter(
+                company=suggestion.company
+            ).order_by("name"),
             "back_url": invoice_change_url,
         })
         return context
@@ -148,8 +161,22 @@ class ReviewInvoiceReconciliationView(UnfoldModelAdminViewMixin, FormView):
         suggestion.suggested_combinations = combos
         suggestion.save(update_fields=["suggested_combinations"])
 
+        category = None
+        category_id = self.request.POST.get("category")
+        if category_id:
+            category = BankTransactionCategory.objects.filter(
+                pk=category_id, company_id=suggestion.company_id
+            ).first()
+
+        if category is None:
+            messages.error(
+                self.request,
+                _("Please select a category before confirming this reconciliation."),
+            )
+            return redirect(self.request.path)
+
         try:
-            InvoiceMatcher.confirm(suggestion, combos[selected_idx], self.request.user)
+            InvoiceMatcher.confirm(suggestion, combos[selected_idx], self.request.user, category=category)
             messages.success(self.request, _("Reconciliation confirmed. Payment(s) created."))
         except Exception as e:
             logger.exception("Error confirming invoice reconciliation %s", pk)

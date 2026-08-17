@@ -21,7 +21,9 @@ from django.templatetags.static import static
 from datetime import timedelta
 from celery.schedules import crontab
 
-load_dotenv()
+# override=True so .env edits take effect on dev-server autoreload —
+# reloaded children inherit the parent's env, which would otherwise win.
+load_dotenv(override=True)
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -95,6 +97,7 @@ INSTALLED_APPS = [
     'simple_history',
     'rest_framework',
     'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',
     'rest_framework_api_key',
     'hijack',    
     'hijack.contrib.admin',
@@ -315,8 +318,15 @@ CELERY_RESULT_BACKEND = 'django-db'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'Europe/Madrid'  
+CELERY_TIMEZONE = 'Europe/Madrid'
 CELERY_RESULT_EXTENDED = True
+
+if TESTING:
+    # No Redis broker is available in CI/local test runs, and an unreachable
+    # broker blocks on connect rather than failing fast. Run tasks
+    # synchronously in-process instead so `.delay()` calls never touch Redis.
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
 
 CELERY_BEAT_SCHEDULE = {
     "sync-bank-transactions": {
@@ -390,6 +400,7 @@ UNFOLD = {
     "SITE_TITLE": "ERP - Polipus",
     "SITE_HEADER": "Polipus",
     "SHOW_LANGUAGES": True,
+    "TABS": "assets.admin.tabs.asset_planning_tabs",
     "SITE_LOGO": {
         "light": lambda request: static("site-logos/polipus_negro.png"),  # light mode
         "dark": lambda request: static("site-logos/polipus_blanco.png"),  # dark mode
@@ -790,6 +801,10 @@ UNFOLD = {
                         "title": _("Assets"),
                         "icon": "web_asset",
                         "link": reverse_lazy("admin:assets_asset_changelist"),
+                        "active": lambda request: (
+                            reverse("admin:assets_asset_changelist") in request.path
+                            and reverse("admin:assets_asset_schedule") not in request.path
+                        ),
                         "permission": lambda request: request.user.has_perm(
                             "assets.view_asset"
                         ),
@@ -811,11 +826,27 @@ UNFOLD = {
                         ),
                     },
                     {
+                        "title": _("Request Planning"),
+                        "icon": "fact_check",
+                        "link": reverse_lazy("admin:assets_assetplanningrequest_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_assetplanningrequest"
+                        ),
+                    },
+                    {
                         "title": _("Asset Transactions"),
                         "icon": "swap_horiz",
                         "link": reverse_lazy("admin:assets_assettransaction_changelist"),
                         "permission": lambda request: request.user.has_perm(
                             "assets.view_assettransaction"
+                        ),
+                    },
+                    {
+                        "title": _("Schedule"),
+                        "icon": "calendar_view_week",
+                        "link": reverse_lazy("admin:assets_asset_schedule"),
+                        "permission": lambda request: request.user.has_perm(
+                            "assets.view_asset"
                         ),
                     },
                     {
@@ -826,6 +857,15 @@ UNFOLD = {
                             "assets.view_assetmap"
                         ),
                     },
+                    {
+                    "title": _("Driver Tracking"),
+                    "icon": "location_on",
+                    "link": reverse_lazy("admin:company_locationrecord_driver_tracking"),
+                    "permission": lambda request: request.user.has_perm(
+                        "company.view_locationrecord"
+                    ),
+                },
+
                 ],
             },
             {
@@ -972,9 +1012,11 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(hours=12),   
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),     
-    'ROTATE_REFRESH_TOKENS': False,
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=12),
+    # Long-lived for mobile apps. Clients must persist the rotated refresh from /refresh/.
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=180),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
 }
 
 # django-money configuration

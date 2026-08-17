@@ -42,6 +42,7 @@ class WorkingZoneAdmin(ModelAdmin):
     autocomplete_fields = ["company", "project_file", "client"]
     list_selected_related = ["company", "project_file__company"]
     list_filter_submit = True
+    readonly_fields = ("location_confirmed_at",)
     inlines = [AssetTransactionInline, WorkingZoneAuthorizationInline]
     fieldsets = (
         (None, {
@@ -62,6 +63,7 @@ class WorkingZoneAdmin(ModelAdmin):
                 "province",
                 "country",
                 "location",
+                "location_confirmed_at",
             )
         }),
     )

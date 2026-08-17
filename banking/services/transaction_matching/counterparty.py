@@ -10,6 +10,8 @@ import unicodedata
 
 from django.apps import apps
 from django.contrib.postgres.search import TrigramSimilarity
+from django.db.models import Value
+from django.db.models.functions import Concat
 
 from banking.models import BankTransaction
 from payments.models import PaymentDirection
@@ -207,5 +209,94 @@ def _fuzzy_match(model_class, search_text: str, company):
     if len(candidates) == 2:
         if best.similarity - candidates[1].similarity < FUZZY_MIN_GAP:
             return None  # Too ambiguous
+
+    return best
+
+
+# ---------------------------------------------------------------------------
+# Employee counterparty (expense claim reimbursements)
+# ---------------------------------------------------------------------------
+#
+# Employees have no bank account on file, so there's no IBAN tier — this
+# goes straight to name → fuzzy matching, same tiered approach as
+# Provider/Client, adapted for Employee's split first_name/last_name (no
+# single `name` column to reuse the generic helpers above against).
+
+_EMPLOYEE_FULL_NAME = Concat("first_name", Value(" "), "last_name")
+
+
+def find_employee_counterparty(transaction: BankTransaction, company):
+    """
+    Tries to identify an Employee counterparty for outbound reimbursement
+    transactions (expense claims). Returns the Employee object if found,
+    None otherwise.
+    """
+    Employee = apps.get_model("company", "Employee")
+
+    counterparty_name = (transaction.counterparty_name or "").strip()
+    description = (transaction.description or "").strip()
+
+    if counterparty_name:
+        employee = _employee_name_match(Employee, counterparty_name, company)
+        if employee:
+            return employee
+
+    search_text = counterparty_name or description
+    if search_text:
+        return _employee_fuzzy_match(Employee, search_text, company)
+
+    return None
+
+
+def _employee_name_match(Employee, counterparty_name: str, company):
+    """Exact / normalized / contains match against the employee's full name."""
+    exact = (
+        Employee.objects.filter(company=company)
+        .annotate(computed_full_name=_EMPLOYEE_FULL_NAME)
+        .filter(computed_full_name__iexact=counterparty_name)
+        .first()
+    )
+    if exact:
+        return exact
+
+    norm_input = _normalize(counterparty_name)
+    if len(norm_input) >= 4:
+        entities = Employee.objects.filter(company=company).only(
+            "pk", "first_name", "last_name"
+        )
+        matches = [e for e in entities if _normalize(e.full_name) == norm_input]
+        if len(matches) == 1:
+            return matches[0]
+
+    entities = list(
+        Employee.objects.filter(company=company).only("pk", "first_name", "last_name")
+    )
+    upper_name = counterparty_name.upper()
+    matches = [
+        e for e in entities
+        if e.full_name.upper() in upper_name or upper_name in e.full_name.upper()
+    ]
+    if len(matches) == 1:
+        return matches[0]
+
+    return None
+
+
+def _employee_fuzzy_match(Employee, search_text: str, company):
+    """Fuzzy match via PostgreSQL trigram similarity on the concatenated full name."""
+    candidates = list(
+        Employee.objects.filter(company=company)
+        .annotate(similarity=TrigramSimilarity(_EMPLOYEE_FULL_NAME, search_text))
+        .filter(similarity__gte=FUZZY_MIN_SIMILARITY)
+        .order_by("-similarity")[:2]
+    )
+
+    if not candidates:
+        return None
+
+    best = candidates[0]
+    if len(candidates) == 2:
+        if best.similarity - candidates[1].similarity < FUZZY_MIN_GAP:
+            return None
 
     return best

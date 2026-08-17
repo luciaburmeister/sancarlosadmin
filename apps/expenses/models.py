@@ -1,11 +1,15 @@
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
+from django.contrib.contenttypes.models import ContentType
 from django.core.validators import FileExtensionValidator
 from django.core.exceptions import ValidationError
+from django.db.models import Sum
 from django_countries.fields import CountryField
 from djmoney.models.fields import MoneyField
+from djmoney.money import Money
 from company.models import CompanyOwnedModel
+from payments.mixins import Payable
 from decimal import Decimal
 import requests
 import os
@@ -147,7 +151,7 @@ VALID_TRANSITIONS = {
 }
 
 
-class ExpenseClaim(CompanyOwnedModel):
+class ExpenseClaim(CompanyOwnedModel, Payable):
 
     submitted_by = models.ForeignKey(
         User,
@@ -200,6 +204,33 @@ class ExpenseClaim(CompanyOwnedModel):
     @property
     def amount_remaining(self):
         return self.total_claimed - self.total_reimbursed
+
+    @property
+    def counterparty_key(self) -> tuple:
+        """Reimbursement goes to the submitting employee, not a provider/client."""
+        return ("employee", self.submitted_by_id)
+
+    def recalculate_reimbursement(self):
+        """
+        Recompute total_reimbursed from PaymentAllocation entries pointing to
+        this claim, and auto-transition to REIMBURSED once fully covered.
+        Mirrors Invoice.recalculate_payment_status(). Always call inside a
+        transaction.atomic() block.
+        """
+        from payments.models import PaymentAllocation
+
+        ct = ContentType.objects.get_for_model(self)
+        total_applied = (
+            PaymentAllocation.objects.filter(content_type=ct, object_id=self.pk)
+            .aggregate(total=Sum("amount_applied"))["total"]
+            or Decimal("0.00")
+        )
+        total_applied = min(total_applied, self.total_claimed.amount)
+
+        self.total_reimbursed = Money(total_applied, self.total_claimed_currency)
+        if total_applied >= self.total_claimed.amount and self.status == ExpenseClaimStatus.APPROVED:
+            self.status = ExpenseClaimStatus.REIMBURSED
+        self.save(update_fields=["total_reimbursed", "status"])
 
     def recalculate_total(self, save=True):
         tickets = self.tickets.all()
@@ -296,6 +327,16 @@ class ExpenseTicket(CompanyOwnedModel):
         default='',
         verbose_name=_("Ticket Number"),
         help_text="Transaction/ticket/receipt number printed on the ticket, filled by OCR"
+    )
+    invoice = models.ForeignKey(
+        'invoices.Invoice',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='expense_tickets',
+        verbose_name=_("Invoice"),
+        help_text="Optional formal Invoice for this expense — attach an existing one, "
+                   "or generate one from this ticket's data."
     )
 
     # --- Vendor fields ---

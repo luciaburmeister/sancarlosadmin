@@ -1,24 +1,27 @@
-"""Reverse matcher: starting from an Invoice/SalesInvoice, find matching BankTransactions."""
+"""Reverse matcher: starting from an Invoice/SalesInvoice/ExpenseClaim, find matching BankTransactions."""
 import logging
+from datetime import timedelta
 from decimal import Decimal
 from itertools import combinations as itertools_combinations
 
 from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction as db_transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 from djmoney.money import Money
 
 from banking.models import (
     BankReconciliation,
     BankTransaction,
+    BankTransactionCategory,
     InvoiceReconciliationSuggestion,
     ReconciliationMethod,
     ReconciliationStatus,
 )
 from banking.services.transaction_matching.types import (
     AMOUNT_TOLERANCE_PERCENT,
+    PAYMENT_DATE_TOLERANCE_DAYS,
 )
 from payments.models import (
     Payment,
@@ -35,16 +38,23 @@ MAX_COMBO_WITH_COUNTERPARTY = 10
 MAX_COMBO_WITHOUT_COUNTERPARTY = 3
 MAX_ALTERNATIVES = 20
 
+# Expense claims have no counterparty IBAN to narrow candidates by, so the
+# combination search would otherwise scan every unreconciled outbound
+# transaction in the company (O(n³)). Bound the pool by time instead:
+# reimbursements happen within weeks of approval, not months.
+CLAIM_MATCH_WINDOW_DAYS = 90
+
 
 class InvoiceMatcher:
     """
-    Reverse of TransactionMatcher: given an Invoice or SalesInvoice, finds
-    BankTransactions whose amounts sum to the invoice's remaining balance.
+    Reverse of TransactionMatcher: given an Invoice, SalesInvoice, or
+    ExpenseClaim, finds BankTransactions whose amounts sum to the
+    document's remaining balance.
 
     Usage:
         matcher = InvoiceMatcher(invoice)
         suggestion = matcher.run()   # creates InvoiceReconciliationSuggestion
-        InvoiceMatcher.confirm(suggestion, selected_combo, user)  # creates Payment etc.
+        InvoiceMatcher.confirm(suggestion, selected_combo, user, category=category)  # creates Payment etc.
     """
 
     def __init__(self, invoice):
@@ -82,6 +92,7 @@ class InvoiceMatcher:
         suggestion: InvoiceReconciliationSuggestion,
         selected_combo: dict,
         user,
+        category: BankTransactionCategory | None = None,
     ) -> None:
         """
         Confirm a suggestion.
@@ -95,10 +106,16 @@ class InvoiceMatcher:
           create only the BankReconciliation to link it to the bank transaction.
           No new Payment is created.
 
+        `category` is required and is assigned to every BankTransaction
+        reconciled as part of this confirmation.
+
         Idempotent — skips if suggestion is already confirmed.
         """
         if suggestion.is_confirmed:
             return
+
+        if category is None:
+            raise ValueError("A category is required to confirm a reconciliation.")
 
         invoice = suggestion.invoice
         invoice_ct = ContentType.objects.get_for_model(invoice)
@@ -163,7 +180,8 @@ class InvoiceMatcher:
                     if unmatched <= Decimal("0.01")
                     else ReconciliationStatus.PARTIAL
                 )
-                txn.save(update_fields=["reconciliation_status"])
+                txn.category = category
+                txn.save(update_fields=["reconciliation_status", "category"])
                 continue
 
             # Invoice has remaining balance — standard flow: create new Payment.
@@ -231,7 +249,8 @@ class InvoiceMatcher:
                 if new_unmatched <= Decimal("0.01")
                 else ReconciliationStatus.PARTIAL
             )
-            txn.save(update_fields=["reconciliation_status"])
+            txn.category = category
+            txn.save(update_fields=["reconciliation_status", "category"])
 
             invoice_remaining -= amount_to_apply
 
@@ -268,6 +287,13 @@ class InvoiceMatcher:
         Returns list of (BankTransaction, available_amount) tuples.
         Filters by direction, company, and reconciliation status.
         Applies counterparty IBAN filter when known.
+        Transactions dated up to PAYMENT_DATE_TOLERANCE_DAYS before the
+        document's date are included, to catch early payments.
+
+        For expense claims (no IBAN to narrow by) the pool is bounded further:
+        a time window after the claim, and an amount cap — since all candidate
+        amounts are positive, any transaction whose available amount exceeds
+        the target (+tolerance) can never be part of a valid combination.
         """
         amount_filter = (
             {"amount__gt": 0}
@@ -281,9 +307,25 @@ class InvoiceMatcher:
                 ReconciliationStatus.UNRECONCILED,
                 ReconciliationStatus.PARTIAL,
             ],
-            transaction_date__gte=self.invoice.date_issued,
+            transaction_date__gte=self._document_date
+            - timedelta(days=PAYMENT_DATE_TOLERANCE_DAYS),
             **amount_filter,
         ).select_related("bank_account", "reconciliation")
+
+        amount_cap = None
+        if self.invoice_type == "expenseclaim":
+            qs = qs.filter(
+                transaction_date__lte=self._document_date
+                + timedelta(days=CLAIM_MATCH_WINDOW_DAYS)
+            )
+            amount_cap = self._target_amount * (Decimal("1") + AMOUNT_TOLERANCE_PERCENT)
+            # SQL-level prune on the raw amount; partial transactions are kept
+            # regardless since their *available* amount (checked below) may be
+            # far smaller than the raw transaction amount.
+            qs = qs.filter(
+                Q(amount__gte=-amount_cap)
+                | Q(reconciliation_status=ReconciliationStatus.PARTIAL)
+            )
 
         ibans = self._get_counterparty_ibans()
         if ibans:
@@ -300,8 +342,11 @@ class InvoiceMatcher:
             else:
                 available = abs(txn.amount.amount)
 
-            if available > Decimal("0"):
-                result.append((txn, available))
+            if available <= Decimal("0"):
+                continue
+            if amount_cap is not None and available > amount_cap:
+                continue
+            result.append((txn, available))
 
         return result
 
@@ -315,6 +360,10 @@ class InvoiceMatcher:
                     company=self.invoice.company,
                 ).values_list("iban", flat=True)
             )
+        if self.invoice_type == "expenseclaim":
+            # Employees have no bank account on file — matching relies on
+            # amount + date only, same as the forward (transaction-side) matcher.
+            return []
         ClientBankAccount = apps.get_model("sales", "ClientBankAccount")
         return list(
             ClientBankAccount.objects.filter(
@@ -323,6 +372,32 @@ class InvoiceMatcher:
             ).values_list("iban", flat=True)
         )
 
+    @property
+    def _document_total(self):
+        """Total amount for the document — total_amount for invoices,
+        total_claimed for expense claims (which have no total_amount)."""
+        total = getattr(self.invoice, "total_amount", None)
+        if total is None:
+            total = self.invoice.total_claimed
+        return total.amount
+
+    @property
+    def _target_amount(self) -> Decimal:
+        """Amount the combination search is trying to reach — remaining
+        balance, or the full total when the document is already fully paid
+        (then we're looking for the transaction that paid it)."""
+        remaining = self.invoice.amount_remaining_decimal
+        return remaining if remaining > Decimal("0") else self._document_total
+
+    @property
+    def _document_date(self):
+        """Date to start scanning transactions from — issue date for invoices,
+        creation date for expense claims (which have no date_issued)."""
+        date_issued = getattr(self.invoice, "date_issued", None)
+        if date_issued is not None:
+            return date_issued
+        return self.invoice.created_at.date()
+
     def _find_matching_combos(self, candidates: list) -> list:
         """
         Find combinations of (txn, available_amount) that sum to the invoice target.
@@ -330,8 +405,7 @@ class InvoiceMatcher:
         - Fully paid invoice: target = total_amount (find the transaction that paid it)
         Returns the structured suggested_combinations list.
         """
-        remaining = self.invoice.amount_remaining_decimal
-        target = remaining if remaining > Decimal("0") else self.invoice.total_amount.amount
+        target = self._target_amount
         tolerance = target * AMOUNT_TOLERANCE_PERCENT
         max_combo = (
             MAX_COMBO_WITH_COUNTERPARTY

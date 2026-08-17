@@ -1,5 +1,7 @@
+from django import forms
 from django.contrib import admin
-from django.urls import reverse
+from django.shortcuts import redirect
+from django.urls import path, reverse
 from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 from unfold.decorators import display
@@ -17,12 +19,12 @@ from django.contrib.postgres.fields import ArrayField
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter
 )
-from import_export.admin import ImportExportModelAdmin
+from import_export.admin import ImportExportModelAdmin, ExportActionModelAdmin
 from unfold.contrib.import_export.forms import (
     ImportForm,
     SelectableFieldsExportForm,
 )
-from materials.resources import MaterialResource, PriceSheetItemResource
+from materials.resources import MaterialResource, PriceSheetItemResource, ProviderResource
 from payments.mixins import annotate_outstanding_balance
 
 class ComponentPriceRuleInline(TabularInline):
@@ -167,14 +169,36 @@ class MaterialAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAdmin):
         return request.user.has_perm("materials.can_import_materials")
 
 
+class ProviderForm(forms.ModelForm):
+    """Requires a tax identifier when a provider is created/edited by hand.
+
+    Automated import flows (invoice OCR, Cortizo import, etc.) create
+    Provider rows directly via the ORM and are unaffected by this — the
+    model field itself stays blank=True so those flows keep working even
+    before a CIF/NIF is known.
+    """
+
+    class Meta:
+        model = Provider
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["tax_identifier"].required = True
+
+
 @admin.register(Provider)
-class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
+class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
+    form = ProviderForm
+    resource_classes = [ProviderResource]
+    export_form_class = SelectableFieldsExportForm
     list_display = ("name", "contact", "phone", "email", "tax_identifier", "account", "company", "balance_owed_display")
     search_fields = ("name", "contact", "phone", "email", "tax_identifier", "associated_emails")
     list_select_related = ["company", "account"]
     autocomplete_fields = ["company", "account"]
     list_filter = [("company",AutocompleteSelectMultipleFilter)]
     list_filter_submit = True
+    actions = ["merge_providers"]
 
     formfield_overrides = {
         ArrayField: {
@@ -186,6 +210,33 @@ class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         from invoices.models import Invoice
         qs = super().get_queryset(request)
         return annotate_outstanding_balance(qs, Invoice, "provider", "balance_owed")
+
+    @admin.action(description=_("Merge selected providers (choose which to keep)"))
+    def merge_providers(self, request, queryset):
+        if queryset.count() < 2:
+            self.message_user(
+                request,
+                _("Please select at least 2 providers to merge."),
+                level="error",
+            )
+            return
+        ids = ",".join(str(i) for i in queryset.values_list("id", flat=True))
+        return redirect(reverse("admin:materials_provider_merge") + f"?ids={ids}")
+
+    def get_urls(self):
+        from materials.views import MergeProvidersView
+
+        urls = super().get_urls()
+        custom = [
+            path(
+                "merge/",
+                self.admin_site.admin_view(
+                    MergeProvidersView.as_view(model_admin=self)
+                ),
+                name="materials_provider_merge",
+            ),
+        ]
+        return custom + urls
 
     @staticmethod
     def _pending_invoices_url(obj):

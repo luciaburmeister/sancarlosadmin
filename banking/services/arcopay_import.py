@@ -16,7 +16,7 @@ from django.conf import settings
 from djmoney.money import Money
 
 from banking.models import BankTransaction, ReconciliationStatus
-from company.models import BankAccount, Company
+from company.models import BankAccount, Company, ConsentStatus
 
 logger = logging.getLogger(__name__)
 
@@ -135,18 +135,40 @@ class ArcopayService:
 
     @staticmethod
     def get_consent_info(token: str) -> dict:
-        """POST /consent/info/ — get consent details."""
+        """POST /consent/info/ — get consent details.
+
+        Raises ``ArcopayAPIError`` with Arcopay's own code/message on error
+        responses (e.g. C001 when the consent is no longer valid).
+        """
         resp = requests.post(
             f"{ARCOPAY_API_URL}/consent/info/",
             data={"servicekey": NUEK_SERVICE_KEY, "token": token},
             timeout=30,
         )
-        resp.raise_for_status()
+        if not resp.ok:
+            try:
+                error_data = resp.json()
+            except Exception:
+                error_data = {"message": resp.text, "code": str(resp.status_code)}
+            raise ArcopayAPIError(
+                error_data.get("message", "Unknown error"),
+                error_data.get("code", str(resp.status_code)),
+            )
         return resp.json()
 
     @staticmethod
     def renew_consent(token: str, valid_until: date | None = None) -> dict:
-        """POST /consent/renew/"""
+        """POST /consent/renew/ — extend an existing consent's validity.
+
+        Uses the account's own token, so no callback round-trip is needed
+        (renewal keeps the token; the bank may still require the user to
+        complete SCA at the returned ``follow`` URL). Omitting
+        ``valid_until`` lets Arcopay assign the entity's maximum (up to
+        180 days).
+
+        Returns dict with ``follow`` (URL for the user) and ``consentId``.
+        Raises ``ArcopayAPIError`` with Arcopay's code/message on failure.
+        """
         payload = {"servicekey": NUEK_SERVICE_KEY, "token": token}
         if valid_until:
             payload["validUntil"] = valid_until.strftime("%d-%m-%Y")
@@ -155,8 +177,23 @@ class ArcopayService:
             data=payload,
             timeout=30,
         )
-        resp.raise_for_status()
-        return resp.json()
+        if not resp.ok:
+            try:
+                error_data = resp.json()
+            except Exception:
+                error_data = {"message": resp.text, "code": str(resp.status_code)}
+            logger.error(
+                "Arcopay /consent/renew/ failed: status=%s, response=%s",
+                resp.status_code, error_data,
+            )
+            raise ArcopayAPIError(
+                error_data.get("message", "Unknown error"),
+                error_data.get("code", str(resp.status_code)),
+            )
+        data = resp.json()
+        if isinstance(data, dict) and data.get("code"):
+            raise ArcopayAPIError(data.get("message", "Unknown error"), str(data.get("code")))
+        return data
 
     @staticmethod
     def cancel_consent(token: str) -> dict:
@@ -192,6 +229,100 @@ class ArcopayService:
             )
             resp.raise_for_status()
         return resp.json()
+
+    # Consent states Arcopay may report in /consent/info/ ``message``.
+    # Anything not listed keeps the account at UNKNOWN so sync is never
+    # blocked by an unrecognised wording.
+    _CONSENT_VALID_MESSAGES = {"valid", "authorised", "authorized"}
+    _CONSENT_INVALID_MESSAGES = {
+        "rejected", "revoked", "revokedbypsu", "expired",
+        "terminatedbytpp", "cancelled", "canceled",
+    }
+    # Error codes /consent/info/ returns once a consent is dead
+    # (observed: C001 "The consent is not valid anymore").
+    _CONSENT_DEAD_CODES = {"C001"}
+
+    @classmethod
+    def check_consent_status(cls, bank_account: BankAccount) -> str:
+        """Query /consent/info/ and persist the consent state on the account.
+
+        Returns the resulting ``ConsentStatus`` value. Raises on network or
+        API errors, leaving the stored status untouched.
+
+        Only writes a full (history-tracked) save when the status, message
+        or expiry actually changed; a mere re-check bumps
+        ``consent_checked_at`` via ``update()`` so the audit history isn't
+        flooded by periodic syncs.
+        """
+        from django.utils import timezone as tz
+
+        if not bank_account.nuek_token:
+            status = ConsentStatus.UNKNOWN
+            message = "No Arcopay token"
+            valid_until = None
+        else:
+            dead_code = None
+            try:
+                info = cls.get_consent_info(bank_account.nuek_token)
+            except ArcopayAPIError as e:
+                if e.code not in cls._CONSENT_DEAD_CODES:
+                    raise
+                # Arcopay answers with an error (e.g. C001) instead of a
+                # status once the consent is dead — that IS the status.
+                dead_code = e.code
+                info = {"message": e.message}
+            if not isinstance(info, dict):
+                raise ArcopayAPIError(f"Unexpected consent info response: {info!r}")
+
+            message = str(info.get("message", "") or "")
+
+            valid_until = None
+            raw_until = info.get("validUntil", "")
+            if raw_until:
+                try:
+                    d, m, y = str(raw_until).split("-")
+                    valid_until = date(int(y), int(m), int(d))
+                except (ValueError, TypeError):
+                    logger.warning(
+                        "BankAccount %s: unparseable consent validUntil %r",
+                        bank_account.pk, raw_until,
+                    )
+
+            normalized = message.strip().lower()
+            if dead_code or normalized in cls._CONSENT_INVALID_MESSAGES:
+                status = ConsentStatus.INVALID
+            elif normalized in cls._CONSENT_VALID_MESSAGES:
+                if valid_until and valid_until < date.today():
+                    status = ConsentStatus.INVALID
+                else:
+                    status = ConsentStatus.VALID
+            else:
+                status = ConsentStatus.UNKNOWN
+
+        now = tz.now()
+        changed = (
+            bank_account.consent_status != status
+            or bank_account.consent_status_message != message[:100]
+            or bank_account.consent_valid_until != valid_until
+        )
+        bank_account.consent_status = status
+        bank_account.consent_status_message = message[:100]
+        bank_account.consent_valid_until = valid_until
+        bank_account.consent_checked_at = now
+        if changed:
+            bank_account.save(update_fields=[
+                "consent_status", "consent_status_message",
+                "consent_valid_until", "consent_checked_at",
+            ])
+            logger.info(
+                "BankAccount %s consent status changed to %s (%s)",
+                bank_account.pk, status, message,
+            )
+        else:
+            # Timestamp-only refresh — skip signals so no history row is created.
+            BankAccount.objects.filter(pk=bank_account.pk).update(consent_checked_at=now)
+
+        return status
 
     # ------------------------------------------------------------------
     # Transaction fetching
@@ -360,6 +491,25 @@ class ArcopayService:
             )
             return 0
 
+        # --- Step 0: verify the PSD2 consent is still usable ---
+        try:
+            consent_status = ArcopayService.check_consent_status(bank_account)
+        except (ArcopayAPIError, requests.RequestException) as e:
+            # Don't block the sync on a failed status lookup — the
+            # transaction fetch below has its own error handling.
+            logger.warning(
+                "Consent status check failed for account %s (continuing): %s",
+                bank_account.pk, e,
+            )
+            consent_status = None
+        if consent_status == ConsentStatus.INVALID:
+            logger.warning(
+                "BankAccount %s consent is invalid (%s); skipping sync. "
+                "The account must be reconnected via the Arcopay consent flow.",
+                bank_account.pk, bank_account.consent_status_message,
+            )
+            return 0
+
         default_start = date.today() - timedelta(days=days_back)
         start_date = bank_account.sync_from_date or default_start
 
@@ -475,37 +625,76 @@ class ArcopayService:
 
     @staticmethod
     def _update_account_balance(bank_account: BankAccount) -> None:
-        """Update last_known_balance from the latest BankTransaction for this specific account.
+        """Update last_known_balance from the running balance of the newest transaction.
 
         The product-level ``balance`` in the Arcopay response is shared across
         all accounts under the same consent/token, so it can't be used per
         account. Instead we take the per-transaction running ``balance`` from
-        the most recent imported transaction's raw payload.
+        the raw payload of the account's chronologically last transaction.
+
+        Arcopay's response order within a day varies by bank (newest-first,
+        oldest-first, or scrambled), so ``imported_at`` can't break ties
+        between same-day transactions. Instead we reconstruct the order by
+        chaining running balances: the day's closing transaction is the one
+        whose balance is not another same-day transaction's prior balance
+        (``balance - amount``).
         """
+        from collections import Counter
+
+        from django.db.models import Max
         from django.utils import timezone as tz
 
-        latest_txn = (
+        with_balance = (
             BankTransaction.objects
             .filter(bank_account=bank_account)
             .exclude(raw_data__balance__isnull=True)
-            .order_by("-transaction_date", "-imported_at")
-            .values_list("raw_data__balance", "amount_currency")
-            .first()
         )
-        if latest_txn is None:
+        latest_date = with_balance.aggregate(m=Max("transaction_date"))["m"]
+        if latest_date is None:
             return
 
-        balance, currency = latest_txn
-        try:
-            balance = Decimal(str(balance))
-        except (InvalidOperation, ValueError):
+        day_txns = (
+            with_balance
+            .filter(transaction_date=latest_date)
+            .order_by("-imported_at")
+            .values_list("raw_data__balance", "amount", "amount_currency")
+        )
+
+        cents = Decimal("0.01")
+        parsed = []
+        for raw_balance, amount, currency in day_txns:
+            try:
+                balance = Decimal(str(raw_balance)).quantize(cents)
+            except (InvalidOperation, ValueError):
+                logger.warning(
+                    "BankAccount %s: transaction has unparseable balance %r; ignoring it.",
+                    bank_account.pk, raw_balance,
+                )
+                continue
+            prior = (balance - amount).quantize(cents)
+            parsed.append((balance, prior, currency))
+
+        if not parsed:
+            return
+
+        balances = Counter(balance for balance, _, _ in parsed)
+        priors = Counter(prior for _, prior, _ in parsed)
+        heads = list((balances - priors).elements())
+
+        if len(heads) == 1:
+            closing = heads[0]
+            currency = next(c for balance, _, c in parsed if balance == closing)
+        else:
+            # Broken or fully self-cancelling chain — can't reconstruct the
+            # order, so fall back to the most recently imported transaction.
             logger.warning(
-                "BankAccount %s: latest transaction has unparseable balance %r; skipping balance update.",
-                bank_account.pk, balance,
+                "BankAccount %s: ambiguous balance chain on %s (%d head candidates); "
+                "falling back to last imported transaction.",
+                bank_account.pk, latest_date, len(heads),
             )
-            return
+            closing, _, currency = parsed[0]
 
-        bank_account.last_known_balance = Money(balance, currency)
+        bank_account.last_known_balance = Money(closing, currency)
         bank_account.last_balance_updated_at = tz.now()
         bank_account.save(update_fields=["last_known_balance", "last_known_balance_currency", "last_balance_updated_at"])
 
@@ -586,7 +775,11 @@ class ArcopayService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def process_consent_callback(payload: dict, company: Company) -> dict:
+    def process_consent_callback(
+        payload: dict,
+        company: Company,
+        bank_account: BankAccount | None = None,
+    ) -> dict:
         """Handle the POST callback from Arcopay after consent is granted.
 
         Payload schema (consentGetCallback):
@@ -598,6 +791,12 @@ class ArcopayService:
 
         For each product in globalPosition, creates or updates a
         BankAccount and imports initial transactions.
+
+        ``bank_account`` is the account the user started the reconnect flow
+        from (threaded through the callback URL). The response itself doesn't
+        say which account a consent belongs to — some banks even send an
+        empty globalPosition — so when given, the new token/consent is bound
+        to that account FIRST, before any product matching.
         """
         token = payload.get("token", "")
         consent_id = payload.get("consentId", "")
@@ -606,8 +805,46 @@ class ArcopayService:
         if not token:
             raise ValueError("Missing token in consent callback")
 
+        if bank_account is not None:
+            bank_account.nuek_token = token
+            if consent_id:
+                bank_account.nuek_consent_id = consent_id
+            bank_account.save(update_fields=["nuek_token", "nuek_consent_id"])
+            logger.info(
+                "Consent %s bound to originating BankAccount %s (%s)",
+                consent_id, bank_account.pk, bank_account.iban,
+            )
+            try:
+                ArcopayService.check_consent_status(bank_account)
+            except Exception:
+                logger.exception(
+                    "Consent status refresh failed for account %s", bank_account.pk,
+                )
+
         if isinstance(global_position, dict):
             global_position = [global_position]
+
+        if not global_position:
+            # Some banks (observed: Bankinter) deliver the callback with an
+            # empty globalPosition. Discover the accounts via /transactions/
+            # GLOBAL instead, so the new token/consent is never dropped.
+            logger.info(
+                "Consent callback for consent %s has empty globalPosition; "
+                "discovering accounts via GLOBAL fetch.", consent_id,
+            )
+            accounts = ArcopayService.store_accounts_from_token(
+                token=token, company=company, consent_id=consent_id,
+            )
+            if not accounts and bank_account is not None:
+                accounts = [bank_account]
+            return {
+                "consent_id": consent_id,
+                "token": token,
+                "accounts": [
+                    {"bank_account_id": a.pk, "iban": a.iban}
+                    for a in accounts
+                ],
+            }
 
         accounts_processed = []
 
@@ -642,4 +879,5 @@ class ArcopayAPIError(Exception):
 
     def __init__(self, message: str, code: str = "1"):
         self.code = code
+        self.message = message
         super().__init__(f"[{code}] {message}")

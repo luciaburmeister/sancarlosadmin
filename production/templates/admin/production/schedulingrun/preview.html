@@ -113,6 +113,20 @@
                 {% endif %}
             {% endcomponent %}
 
+            {% component "unfold/components/card.html" with title=_("Configurations without planning") %}
+                {% if unselected_configs_table.rows %}
+                    {% component "unfold/components/text.html" with class="mb-4 text-sm text-base-500" %}
+                        {% trans "These configurations did not get a planning in this run. The reason is shown next to each one." %}
+                    {% endcomponent %}
+                    {% component "unfold/components/table.html" with table=unselected_configs_table card_included=1 striped=1 %}
+                    {% endcomponent %}
+                {% else %}
+                    {% component "unfold/components/text.html" %}
+                        {% trans "Every requested configuration was planned." %}
+                    {% endcomponent %}
+                {% endif %}
+            {% endcomponent %}
+
             {% component "unfold/components/card.html" with title=_("Planned assignments") %}
                 {% if assignments_table.rows %}
                     {% component "unfold/components/table.html" with table=assignments_table card_included=1 striped=1 height="32rem" %}

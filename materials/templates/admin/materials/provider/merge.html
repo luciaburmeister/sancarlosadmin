@@ -1,0 +1,195 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+{{ block.super }}
+<style>
+  .merge-wrap {
+    max-width: 900px;
+    margin: 32px auto;
+  }
+  .merge-title {
+    font-size: 1.5rem;
+    font-weight: 800;
+    margin-bottom: 8px;
+  }
+  .merge-subtitle {
+    color: #64748b;
+    margin-bottom: 24px;
+    font-size: .95rem;
+    line-height: 1.6;
+  }
+  .merge-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  }
+  .merge-card h3 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0 0 16px;
+    color: #0f172a;
+  }
+  .merge-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .merge-table th {
+    text-align: left;
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    color: #64748b;
+    padding: 8px 12px;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .merge-table td {
+    padding: 12px;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: .9rem;
+    vertical-align: top;
+  }
+  .merge-table tr:last-child td {
+    border-bottom: none;
+  }
+  .merge-radio {
+    width: 18px;
+    height: 18px;
+    accent-color: #10b981;
+    cursor: pointer;
+  }
+  .merge-counts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .count-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: .72rem;
+    font-weight: 600;
+    background: #f1f5f9;
+    color: #475569;
+    white-space: nowrap;
+  }
+  .count-chip.zero {
+    opacity: .45;
+  }
+  .merge-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .merge-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 24px;
+    border: none;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: .9rem;
+    cursor: pointer;
+    transition: all .2s;
+    text-decoration: none;
+  }
+  .merge-btn--primary {
+    background: #f43f5e;
+    color: #fff;
+  }
+  .merge-btn--primary:hover {
+    background: #e11d48;
+  }
+  .merge-btn--secondary {
+    background: #f1f5f9;
+    color: #334155;
+  }
+  .merge-btn--secondary:hover {
+    background: #e2e8f0;
+  }
+  .merge-warning {
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 24px;
+    font-size: .85rem;
+    color: #92400e;
+    line-height: 1.5;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="merge-wrap">
+  <div class="merge-title">🔀 {% trans "Merge Providers" %}</div>
+  <div class="merge-subtitle">
+    {% trans "Select the provider you want to KEEP. Every invoice, purchase order, material, bank account, item reference, asset, and expense ticket from the other selected providers will be reassigned to it, and the duplicates will be deleted." %}
+  </div>
+
+  <div class="merge-warning">
+    ⚠️ {% trans "This action is largely irreversible. Invoices and item references are never deleted or overwritten — if an invoice number or item reference collides with one already on the provider you're keeping, that record is left on the discarded provider for you to resolve manually, and that provider won't be fully removed." %}
+  </div>
+
+  <form method="post">
+    {% csrf_token %}
+
+    <div class="merge-card">
+      <h3>📋 {% trans "Selected Providers" %}</h3>
+      <table class="merge-table">
+        <thead>
+          <tr>
+            <th style="width:40px">{% trans "Keep" %}</th>
+            <th>{% trans "Name" %}</th>
+            <th>{% trans "Tax ID" %}</th>
+            <th>{% trans "Linked Records" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in providers %}
+          <tr>
+            <td>
+              <input type="radio" name="target_id" value="{{ item.provider.pk }}" class="merge-radio"
+                {% if forloop.first %}checked{% endif %}>
+            </td>
+            <td style="font-weight:600">
+              {{ item.provider.name }}
+              {% if item.provider.contact or item.provider.email %}
+              <div style="font-weight:400;color:#94a3b8;font-size:.8rem;">
+                {{ item.provider.contact }}{% if item.provider.contact and item.provider.email %} · {% endif %}{{ item.provider.email }}
+              </div>
+              {% endif %}
+            </td>
+            <td>{{ item.provider.tax_identifier|default:"—" }}</td>
+            <td>
+              <div class="merge-counts">
+                {% for label, count in item.counts.items %}
+                <span class="count-chip{% if not count %} zero{% endif %}">{{ label }}: {{ count }}</span>
+                {% endfor %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <input type="hidden" name="ids" value="{{ ids_str }}">
+
+    <div class="merge-actions">
+      <button type="submit" class="merge-btn merge-btn--primary">
+        🔀 {% trans "Merge & Delete Duplicates" %}
+      </button>
+      <a href="{% url 'admin:materials_provider_changelist' %}" class="merge-btn merge-btn--secondary">
+        {% trans "Cancel" %}
+      </a>
+    </div>
+  </form>
+</div>
+{% endblock %}

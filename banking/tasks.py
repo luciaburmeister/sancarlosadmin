@@ -56,9 +56,9 @@ def run_matcher_for_transaction(self, bank_transaction_id: int):
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)
 def run_invoice_matcher_task(self, model_name: str, invoice_id: int):
-    """Run InvoiceMatcher for a single Invoice or SalesInvoice.
+    """Run InvoiceMatcher for a single Invoice, SalesInvoice, or ExpenseClaim.
 
-    model_name: 'invoice' or 'salesinvoice'
+    model_name: 'invoice', 'salesinvoice', or 'expenseclaim'
 
     Returns a result dict consumed by the matcher status page:
         {"status": "done",     "suggestion_id": X, "has_match": bool}
@@ -71,6 +71,7 @@ def run_invoice_matcher_task(self, model_name: str, invoice_id: int):
     model_map = {
         "invoice": "invoices.Invoice",
         "salesinvoice": "invoices.SalesInvoice",
+        "expenseclaim": "expenses.ExpenseClaim",
     }
     app_label, model = model_map[model_name].split(".")
 
@@ -125,6 +126,128 @@ def sync_bank_transactions(self):
     except Exception as exc:
         logger.exception("Bank transaction sync failed")
         raise self.retry(exc=exc)
+
+
+@shared_task(name="banking.tasks.send_bank_accounts_summary")
+def send_bank_accounts_summary():
+    """Periodic task: emails each company's bank account balances (last
+    known balance + when it was last synced) to that company's configured
+    recipients (Company.bank_summary_emails).
+
+    Recipients configured on several companies receive ONE consolidated
+    email covering all of their companies instead of one email per
+    company. Recipients are grouped by the exact set of companies they
+    are subscribed to, so recipients sharing the same set still get a
+    single batched email.
+
+    Companies with no recipients configured are skipped — this is opt-in
+    per company, unlike company.tasks.send_document_reminders which falls
+    back to company.email.
+
+    Not wired into settings.CELERY_BEAT_SCHEDULE: schedule it via a
+    django-celery-beat PeriodicTask (admin > Periodic Tasks) pointing at
+    "banking.tasks.send_bank_accounts_summary".
+    """
+    from django.template.loader import render_to_string
+    from django.utils.formats import date_format, number_format
+    from django.utils.timezone import localtime
+
+    from company.models import Company
+    from core.services.email_service import EmailService
+
+    companies = (
+        Company.objects.exclude(bank_summary_emails=[])
+        .prefetch_related("bankaccounts")
+    )
+
+    company_summaries = {}
+    recipient_company_ids = {}  # normalized email -> {"email": str, "company_ids": [int]}
+
+    for company in companies:
+        accounts = list(company.bankaccounts.all())
+        if not accounts:
+            continue
+
+        account_rows = []
+        for account in accounts:
+            if account.last_known_balance is not None:
+                balance_str = (
+                    f"{number_format(account.last_known_balance.amount, 2, force_grouping=True)} €"
+                )
+            else:
+                balance_str = "—"
+
+            if account.last_balance_updated_at is not None:
+                synced_str = date_format(
+                    localtime(account.last_balance_updated_at),
+                    "SHORT_DATETIME_FORMAT",
+                )
+            else:
+                synced_str = "Nunca sincronizado"
+
+            account_rows.append({
+                "bank_name": account.bank_name,
+                "identifier": account.iban or account.account_number or "—",
+                "balance": balance_str,
+                "synced_at": synced_str,
+            })
+
+        company_summaries[company.pk] = {
+            "company": company,
+            "accounts": account_rows,
+        }
+
+        for address in company.bank_summary_emails:
+            normalized = address.strip().lower()
+            if not normalized:
+                continue
+            entry = recipient_company_ids.setdefault(
+                normalized, {"email": address.strip(), "company_ids": []}
+            )
+            if company.pk not in entry["company_ids"]:
+                entry["company_ids"].append(company.pk)
+
+    # Recipients subscribed to the same set of companies share one email.
+    groups = {}  # tuple of company ids -> [recipient emails]
+    for entry in recipient_company_ids.values():
+        groups.setdefault(tuple(entry["company_ids"]), []).append(entry["email"])
+
+    emails_sent = 0
+    errors = []
+
+    for company_ids, recipients in groups.items():
+        summaries = [company_summaries[pk] for pk in company_ids]
+        names = ", ".join(s["company"].name for s in summaries)
+        single_company = summaries[0]["company"] if len(summaries) == 1 else None
+
+        try:
+            html_message = render_to_string(
+                "company/email/bank_accounts_summary.html",
+                {
+                    "companies": [
+                        {"name": s["company"].name, "accounts": s["accounts"]}
+                        for s in summaries
+                    ],
+                },
+            )
+            success = EmailService.send_email(
+                to=recipients,
+                subject=f"Resumen de cuentas bancarias: {names}",
+                body_html=html_message,
+                related_object=single_company,
+                company=single_company,
+            )
+            if success:
+                emails_sent += 1
+            else:
+                errors.append(f"Failed to send summary for companies [{names}]")
+        except Exception as e:
+            errors.append(f"Error processing companies [{names}]: {str(e)}")
+
+    if errors:
+        raise Exception(f"Bank accounts summary task completed with errors: {'; '.join(errors)}")
+
+    return {"task": "send_bank_accounts_summary", "status": "ok", "emails_sent": emails_sent}
 
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=60)

@@ -138,7 +138,11 @@ def serialize_presupuesto(quote, include_products=True):
         "internal_name": quote.internal_name or quote.project_name,
         "status": quote.status,
         "created_at": quote.created_at.strftime("%Y-%m-%d %H:%M"),
+        "created_by": quote.created_by.get_full_name() or quote.created_by.username if quote.created_by else None,
         "expires_at": quote.expires_at.strftime("%Y-%m-%d") if quote.expires_at else None,
+        "estimated_delivery_date": (
+            quote.estimated_delivery_date.strftime("%Y-%m-%d") if quote.estimated_delivery_date else None
+        ),
         "total_price": float(quote.total_price.amount) if quote.total_price else 0.0,
         "client_name": client_name,
         "observations": quote.observations or "",

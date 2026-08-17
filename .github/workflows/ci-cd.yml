@@ -72,6 +72,17 @@ jobs:
           python3 -m pipx install poetry==${{ env.POETRY_VERSION }}
           echo "${{ env.HOME }}/.local/bin" >> $GITHUB_PATH
 
+      - name: Configure Poetry to use in-project virtualenv
+        run: poetry config virtualenvs.in-project true
+
+      - name: Cache Poetry virtualenv
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: poetry-venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            poetry-venv-${{ runner.os }}-
+
       - name: Install dependencies
         run: poetry install
 

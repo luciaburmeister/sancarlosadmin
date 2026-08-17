@@ -83,3 +83,14 @@ class IdentityCodesForm(forms.Form):
             if codes:
                 self.parsed_codes[ri.id] = codes
         return cleaned
+
+
+class RejectPurchaseOrderForm(forms.Form):
+    reason = forms.CharField(
+        required=True,
+        label=_("Rejection Reason"),
+        widget=UnfoldAdminTextareaWidget(attrs={
+            "rows": 4,
+            "placeholder": _("Explain why this Purchase Order is rejected."),
+        }),
+    )

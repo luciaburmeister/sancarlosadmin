@@ -2,13 +2,14 @@ import datetime
 
 from django import forms
 from django.contrib import admin
-from django.contrib.admin.widgets import AutocompleteSelect
+from django.contrib.admin.widgets import AutocompleteSelect, AutocompleteSelectMultiple
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from unfold.contrib.forms.widgets import WysiwygWidget
 from unfold.widgets import (
     UnfoldAdminDateWidget,
+    UnfoldAdminRelatedFieldWrapperWidget,
     UnfoldAdminSelect2MultipleWidget,
     UnfoldAdminSelectWidget,
     UnfoldAdminIntegerFieldWidget,
@@ -42,6 +43,7 @@ class InternalLabelsSelectWidget(UnfoldAdminSelect2MultipleWidget):
 
 
 from assets.models import AssetType
+from company.models import WorkingZone, WorkingZoneAuthorization
 from .models import (
     ProjectFile,
     ProjectFileStatus,
@@ -79,6 +81,45 @@ class ProjectFileAdminForm(forms.ModelForm):
         return cleaned
 
 
+class _WorkingZoneAutocomplete(AutocompleteSelectMultiple):
+    """Fix data attrs so the autocomplete URL resolves correctly."""
+    def build_attrs(self, base_attrs, extra_attrs=None):
+        attrs = super().build_attrs(base_attrs, extra_attrs)
+        attrs["data-app-label"] = "company"
+        attrs["data-model-name"] = "workingzoneauthorization"
+        attrs["data-field-name"] = "working_zone"
+        return attrs
+
+    @property
+    def media(self):
+        # RelatedFieldWidgetWrapper's "+" popup link relies on this script
+        # (bound globally to `.related-widget-wrapper-link` clicks) — it's
+        # normally supplied by ModelAdmin.media in a real admin changeform,
+        # which this plain wizard form doesn't get for free.
+        #
+        # NOTE: combining Media via `+` lets Django's topological sort slot
+        # an independent single-item list anywhere relative to another list
+        # it has no ordering constraint with — in practice it landed this
+        # *before* jquery.init.js, which it needs (`django.jQuery`) to run
+        # at all, silently breaking the popup. Build one flat, explicitly
+        # ordered list instead so it's guaranteed to load last.
+        base = super().media
+        return forms.Media(
+            js=list(base._js) + ["admin/js/admin/RelatedObjectLookups.js"],
+            css=base._css,
+        )
+
+
+class _ExistingProjectFileAutocomplete(AutocompleteSelect):
+    """Fix data attrs so the autocomplete URL resolves correctly."""
+    def build_attrs(self, base_attrs, extra_attrs=None):
+        attrs = super().build_attrs(base_attrs, extra_attrs)
+        attrs["data-app-label"] = "management"
+        attrs["data-model-name"] = "resourceplanning"
+        attrs["data-field-name"] = "project_file"
+        return attrs
+
+
 class LinkProjectFileForm(forms.Form):
     CHOICES = [
         ('existing', _('Link to an existing Expediente')),
@@ -102,16 +143,52 @@ class LinkProjectFileForm(forms.Form):
         label=_("New Expediente Name"),
         help_text=_("Only required if creating a new one. Defaults to the Quote's project name.")
     )
+    working_zones = forms.ModelMultipleChoiceField(
+        queryset=WorkingZone.objects.none(),
+        required=False,
+        label=_("Working Zones"),
+        help_text=_("Select at least one existing working zone to link to the new Expediente."),
+    )
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._company = company
+        if company:
+            self.fields["working_zones"].queryset = WorkingZone.objects.filter(
+                company=company, project_file__isnull=True, is_active=True
+            ).order_by("name")
+        rel = WorkingZoneAuthorization._meta.get_field("working_zone").remote_field
+        zone_widget = _WorkingZoneAutocomplete(rel, admin.site)
+        zone_widget.choices = self.fields["working_zones"].choices
+        self.fields["working_zones"].widget = UnfoldAdminRelatedFieldWrapperWidget(
+            zone_widget, rel, admin.site, can_add_related=True,
+        )
+
+        pf_rel = ResourcePlanning._meta.get_field("project_file").remote_field
+        self.fields["existing_project"].widget = _ExistingProjectFileAutocomplete(pf_rel, admin.site)
+        self.fields["existing_project"].widget.choices = self.fields["existing_project"].choices
 
     def clean(self):
         cleaned_data = super().clean()
         action_type = cleaned_data.get("action_type")
         existing_project = cleaned_data.get("existing_project")
         new_project_name = cleaned_data.get("new_project_name")
+        working_zones = cleaned_data.get("working_zones")
 
         if action_type == 'existing' and not existing_project:
             self.add_error('existing_project', _("Please select an existing expediente."))
-        
+
+        if (
+            action_type == 'new'
+            and self._company
+            and self._company.require_working_zone_on_project_file
+            and not working_zones
+        ):
+            self.add_error(
+                'working_zones',
+                _("This company requires at least one working zone linked to the project file."),
+            )
+
         return cleaned_data
 
 

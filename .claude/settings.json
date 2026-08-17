@@ -28,7 +28,14 @@
       "Bash(python3 -c \"import ast; ast.parse\\(open\\('apps/expenses/services/ocr_services/__init__.py'\\).read\\(\\)\\)\")",
       "Bash(grep -rln \"interest_paid\" /Users/joangaes/Documents/Scalewave/fistex/alumniniooerp -g '*.py')",
       "Bash(python manage.py test loans.tests -v 2)",
-      "Bash(.venv/bin/python -c ' *)"
+      "Bash(.venv/bin/python -c ' *)",
+      "Bash(python /private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/85d10830-947d-4680-90e4-620d6b10b7cf/scratchpad/port_functions.py assets/migrations/0011_alter_asset_assigned_to_and_more_squashed_0046_merge_20260730_0809.py)",
+      "Bash(python manage.py showmigrations assets)",
+      "Bash(python /private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/85d10830-947d-4680-90e4-620d6b10b7cf/scratchpad/port_functions.py sales/migrations/0036_discount_module_squashed_0047_commission_to_quote_level.py)",
+      "Bash(python manage.py squashmigrations sales 0036_discount_module 0047_commission_to_quote_level --noinput)",
+      "Bash(sed 's|.*/migrations/||')",
+      "Bash(python manage.py showmigrations sales)",
+      "Bash(SEGMENT_APP=production python manage.py shell -c 'exec\\(open\\('\\\\''/private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/85d10830-947d-4680-90e4-620d6b10b7cf/scratchpad/plan_segments.py'\\\\''\\).read\\(\\)\\)')"
     ]
   }
 }

@@ -151,7 +151,8 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
         "company",
         "current_working_zone",
         "assigned_to",
-        "provider"]
+        "provider",
+        "excluded_assets"]
     readonly_fields = ("qr_code_preview",)
     list_select_related = ["asset_type","client","provider","assigned_to","current_working_zone","current_working_zone__client","company",]
     fieldsets = (
@@ -165,6 +166,12 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
                     ("current_working_zone", "is_active"),
                     "description",
                 )
+            },
+        ),
+        (
+            _("Compatibility"),
+            {
+                "fields": ("excluded_assets",),
             },
         ),
         (
@@ -208,6 +215,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
 
     def get_urls(self):
         from assets.views.asset_wizard import AssetCreateWizardView
+        from assets.views.asset_schedule import AssetScheduleCaptureView, AssetScheduleView
 
         urls = super().get_urls()
         custom = [
@@ -217,6 +225,20 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
                     AssetCreateWizardView.as_view(model_admin=self)
                 ),
                 name="assets_asset_wizard",
+            ),
+            path(
+                "schedule/capture/",
+                self.admin_site.admin_view(
+                    AssetScheduleCaptureView.as_view(model_admin=self)
+                ),
+                name="assets_asset_schedule_capture",
+            ),
+            path(
+                "schedule/",
+                self.admin_site.admin_view(
+                    AssetScheduleView.as_view(model_admin=self)
+                ),
+                name="assets_asset_schedule",
             ),
         ]
         return custom + urls

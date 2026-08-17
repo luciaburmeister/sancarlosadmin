@@ -81,6 +81,27 @@ class Company(models.Model):
         verbose_name=_("Document Reminder Emails"),
         help_text=_("Emails that will receive document expiration reminders"),
     )
+    bank_summary_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Bank Summary Emails"),
+        help_text=_("Emails that will receive the periodic bank accounts balance summary"),
+    )
+    purchase_order_notification_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Purchase Order Notification Emails"),
+        help_text=_("Emails that will be notified whenever a new Purchase Order is created"),
+    )
+    asset_plan_draft_notification_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Asset Plan Draft Notification Emails"),
+        help_text=_("Emails notified whenever a new Asset Planning Request Draft is submitted from the mobile app"),
+    )
     terms_text = models.TextField(
         blank=True,
         verbose_name=_("Términos y Condiciones"),
@@ -139,6 +160,14 @@ class Company(models.Model):
         help_text=_(
             "When enabled, new project files must have an asset (e.g. the vehicle "
             "entering the workshop) linked before they can be saved."
+        ),
+    )
+    require_working_zone_on_project_file = models.BooleanField(
+        default=False,
+        verbose_name=_("Require working zone on project files"),
+        help_text=_(
+            "When enabled, new project files must have at least one working zone "
+            "linked before they can be saved."
         ),
     )
     asset_reception_product = models.ForeignKey(
@@ -529,6 +558,12 @@ class WorkingZone(CompanyOwnedModel):
     province = models.CharField(max_length=100, verbose_name=_("Province"), default="")
     country = CountryField(verbose_name=_("Country"), default="ES")
     location = LocationField(based_fields=['street_address', 'city', 'postal_code', 'province', 'country'], zoom=18, default='POINT(36.7178 4.4256)')
+    location_confirmed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Location confirmed at"),
+        help_text=_("Set the first time a real-world transaction confirms this zone's GPS location."),
+    )
     is_active = models.BooleanField(default=True, verbose_name=_("Active"))
     project_file = models.ForeignKey(
         "management.ProjectFile",
@@ -554,6 +589,11 @@ class WorkingZone(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.name} ({self.company})"
+
+    @property
+    def full_address(self) -> str:
+        parts = [p for p in [self.street_address, self.city, self.postal_code] if p]
+        return ", ".join(parts)
 
     def get_coordinates(self):
         """
@@ -681,6 +721,12 @@ class BaseBankAccount(models.Model):
     class Meta:
         abstract = True
 
+class ConsentStatus(models.TextChoices):
+    UNKNOWN = "unknown", _("Unknown")
+    VALID = "valid", _("Valid")
+    INVALID = "invalid", _("Invalid")
+
+
 class BankAccount(CompanyOwnedModel, BaseBankAccount):
     nuek_account_id = models.CharField(
         max_length=100,
@@ -705,6 +751,31 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
         blank=True,
         verbose_name=_("Nuek Product ID"),
         help_text=_("Product identifier from Arcopay (IBAN or UUID). Used in /transactions/ calls."),
+    )
+    consent_status = models.CharField(
+        max_length=10,
+        choices=ConsentStatus.choices,
+        default=ConsentStatus.UNKNOWN,
+        verbose_name=_("Consent Status"),
+        help_text=_("Whether the Arcopay PSD2 consent is still valid. Refreshed on every sync and via the 'Check Consent' admin action."),
+    )
+    consent_status_message = models.CharField(
+        max_length=100,
+        blank=True,
+        verbose_name=_("Consent Status Message"),
+        help_text=_("Raw consent state reported by Arcopay (e.g. Valid, Rejected)."),
+    )
+    consent_valid_until = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Consent Valid Until"),
+        help_text=_("Expiry date of the PSD2 consent as reported by Arcopay."),
+    )
+    consent_checked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Consent Checked At"),
+        help_text=_("When the consent status was last verified against Arcopay."),
     )
     is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
     sync_from_date = models.DateField(
@@ -734,6 +805,8 @@ class BankAccount(CompanyOwnedModel, BaseBankAccount):
         verbose_name=_("Balance Updated At"),
         help_text=_("When the balance was last refreshed from the bank."),
     )
+
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = _("Bank Account")

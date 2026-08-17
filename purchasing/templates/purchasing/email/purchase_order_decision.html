@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f4f7f6; margin: 0; padding: 0; }
+        .container { padding: 40px; max-width: 800px; margin: 20px auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
+        th { background-color: #f8f9fa; color: #2c3e50; font-weight: 600; }
+        .total { font-weight: bold; color: #2c3e50; }
+        .banner { padding: 14px 20px; border-radius: 6px; font-size: 1.1em; font-weight: 600; margin: 20px 0; }
+        .banner-approved { background-color: #eafaf1; color: #1e8449; border: 1px solid #a9dfbf; }
+        .banner-rejected { background-color: #fdedec; color: #c0392b; border: 1px solid #f5b7b1; }
+        .reason { background-color: #f8f9fa; border-left: 4px solid #c0392b; padding: 12px 16px; margin: 20px 0; color: #2c3e50; }
+        .btn { display: inline-block; padding: 12px 24px; background-color: #3498db; color: #ffffff !important; text-decoration: none; border-radius: 5px; font-weight: 600; }
+        .btn-wrapper { text-align: center; margin: 30px 0 10px; }
+        .footer { margin-top: 40px; font-size: 0.85em; color: #7f8c8d; border-top: 1px solid #eee; padding-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Decisión sobre su Orden de Compra</h2>
+        <p>Hola,</p>
+        <p>Su orden de compra <strong>{{ po_number }}</strong> ha sido revisada{% if reviewer_name %} por <strong>{{ reviewer_name }}</strong>{% endif %}:</p>
+
+        {% if approved %}
+        <div class="banner banner-approved">✔ Aprobada</div>
+        {% else %}
+        <div class="banner banner-rejected">✘ Rechazada</div>
+        {% if rejection_reason %}
+        <div class="reason">
+            <strong>Motivo:</strong><br>
+            {{ rejection_reason|linebreaksbr }}
+        </div>
+        {% endif %}
+        {% endif %}
+
+        <table>
+            <tbody>
+                <tr>
+                    <th>Número</th>
+                    <td>{{ po_number }}</td>
+                </tr>
+                <tr>
+                    <th>Proveedor</th>
+                    <td>{{ provider_name }}</td>
+                </tr>
+                {% if project_file %}
+                <tr>
+                    <th>Expediente</th>
+                    <td>{{ project_file }}</td>
+                </tr>
+                {% endif %}
+                <tr>
+                    <th>Importe Total</th>
+                    <td class="total">{{ total_amount }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        {% if po_url %}
+        <div class="btn-wrapper">
+            <a href="{{ po_url }}" class="btn">Ver Orden de Compra</a>
+        </div>
+        {% endif %}
+
+        <div class="footer">
+            <p>Este es un mensaje generado automáticamente por su sistema <strong>ERP Polipus</strong>.</p>
+        </div>
+    </div>
+</body>
+</html>

@@ -33,6 +33,11 @@ class ConfigurationStatus(models.TextChoices):
     CANCELLED = "cancelled", _("Cancelled")
 
 
+class ConfigurationPlanningStatus(models.TextChoices):
+    UNPLANNED = "unplanned", _("Unplanned")
+    PLANNED = "planned", _("Planned")
+
+
 class IncompatibilityRule(CompanyOwnedModel):
     """
     Material A is incompatible with Material B.
@@ -615,6 +620,21 @@ class Configuration(Timestampable, CompanyOwnedModel):
         choices=ConfigurationStatus.choices,
         default=ConfigurationStatus.DRAFT,
         verbose_name=_("Status"),
+    )
+
+    planning_status = models.CharField(
+        max_length=20,
+        choices=ConfigurationPlanningStatus.choices,
+        default=ConfigurationPlanningStatus.UNPLANNED,
+        db_index=True,
+        verbose_name=_("Planning status"),
+        help_text=_("Kept in sync automatically from the production ticket's planned sessions."),
+    )
+
+    planned_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Planned at"),
     )
 
     total_cost = MoneyField(

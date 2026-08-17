@@ -23,6 +23,9 @@ class QuoteAcceptanceWizardView(UnfoldModelAdminViewMixin, FormView):
         quote = get_object_or_404(Quote, pk=quote_id)
         context['quote'] = quote
         context['opts'] = Quote._meta
+        context['require_working_zone'] = bool(
+            quote.company and quote.company.require_working_zone_on_project_file
+        )
         return context
 
     def get_initial(self):
@@ -32,13 +35,20 @@ class QuoteAcceptanceWizardView(UnfoldModelAdminViewMixin, FormView):
         initial['new_project_name'] = quote.project_name
         return initial
 
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        quote_id = self.kwargs.get('quote_id')
+        quote = get_object_or_404(Quote, pk=quote_id)
+        kwargs['company'] = quote.company
+        return kwargs
+
     def form_valid(self, form):
         quote_id = self.kwargs.get('quote_id')
         quote = get_object_or_404(Quote, pk=quote_id)
-        
+
         action_type = form.cleaned_data["action_type"]
         project_file = None
-        
+
         if action_type == "new":
             project_name = form.cleaned_data.get("new_project_name") or quote.project_name or f"Expediente - {quote.id}"
             project_file = ProjectFile.objects.create(
@@ -46,6 +56,9 @@ class QuoteAcceptanceWizardView(UnfoldModelAdminViewMixin, FormView):
                 client=quote.client,
                 company=quote.company,
             )
+            working_zones = form.cleaned_data.get("working_zones")
+            if working_zones:
+                working_zones.update(project_file=project_file)
             messages.success(self.request, _("New Expediente created and linked."))
         else:
             project_file = form.cleaned_data["existing_project"]

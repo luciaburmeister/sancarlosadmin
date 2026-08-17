@@ -1,4 +1,5 @@
 """Main orchestrator for bank transaction matching and reconciliation."""
+from datetime import timedelta
 from decimal import Decimal
 
 from django.apps import apps
@@ -10,12 +11,19 @@ from djmoney.money import Money
 from banking.models import (
     BankReconciliation,
     BankTransaction,
+    BankTransactionCategory,
     ReconciliationMethod,
     ReconciliationStatus,
 )
 from banking.services.transaction_matching.amount_matching import match_amount
-from banking.services.transaction_matching.counterparty import find_counterparty
-from banking.services.transaction_matching.types import MatchResult
+from banking.services.transaction_matching.counterparty import (
+    find_counterparty,
+    find_employee_counterparty,
+)
+from banking.services.transaction_matching.types import (
+    PAYMENT_DATE_TOLERANCE_DAYS,
+    MatchResult,
+)
 from payments.models import (
     Payment,
     PaymentAllocation,
@@ -39,6 +47,7 @@ class TransactionMatcher:
         self.transaction = bank_transaction
         self.direction = self._get_direction()
         self.counterparty = None
+        self.employee_counterparty = None
         self.result: MatchResult | None = None
 
     def run(self) -> BankReconciliation:
@@ -51,7 +60,7 @@ class TransactionMatcher:
         self.result = match_amount(
             self.transaction,
             candidates,
-            has_counterparty=self.counterparty is not None,
+            has_counterparty=self.counterparty is not None or self.employee_counterparty is not None,
         )
 
         # Build the combined suggested_allocations structure:
@@ -106,6 +115,7 @@ class TransactionMatcher:
         reconciliation: BankReconciliation,
         confirmed_allocations: list,
         user,
+        category: BankTransactionCategory | None = None,
     ) -> BankReconciliation:
         """
         Confirm (or modify) a matcher suggestion and create the Payment.
@@ -113,12 +123,20 @@ class TransactionMatcher:
         confirmed_allocations is a list of dicts:
             [{"content_type": "invoice", "object_id": 5}, ...]
 
+        If `category` is given, it's assigned to the bank transaction so
+        confirming a reconciliation (manual or automatic) also categorizes
+        it. Leaving it None keeps whatever category the transaction already
+        had.
+
         Idempotent — if the reconciliation is already confirmed, returns it.
         """
         if reconciliation.is_confirmed:
             return reconciliation
 
         txn = reconciliation.bank_transaction
+
+        if category is None and txn.category_id is None:
+            raise ValueError("A category is required to confirm a reconciliation.")
 
         # Step 1 — Did the human change the suggestion?
         method = TransactionMatcher._determine_method(
@@ -182,12 +200,16 @@ class TransactionMatcher:
         reconciliation.unmatched_amount = Money(actual_unmatched, txn.amount_currency)
         reconciliation.save()
 
-        # Step 5 — Update BankTransaction reconciliation status
+        # Step 5 — Update BankTransaction reconciliation status (+ category)
         is_partial = confirmed_allocations and total_allocated < txn_amount
         txn.reconciliation_status = (
             ReconciliationStatus.PARTIAL if is_partial else ReconciliationStatus.RECONCILED
         )
-        txn.save(update_fields=["reconciliation_status"])
+        update_fields = ["reconciliation_status"]
+        if category is not None:
+            txn.category = category
+            update_fields.append("category")
+        txn.save(update_fields=update_fields)
 
         return reconciliation
 
@@ -205,19 +227,23 @@ class TransactionMatcher:
         """
         Fetch unpaid / partially paid documents that could match.
         Scoped to the identified counterparty when available.
-        Only considers invoices issued on or before the transaction date.
+        Only considers invoices issued on or before the transaction date,
+        allowing for a payment to arrive up to PAYMENT_DATE_TOLERANCE_DAYS
+        before the document's date (early payments).
         """
         Invoice = apps.get_model("invoices", "Invoice")
         SalesInvoice = apps.get_model("invoices", "SalesInvoice")
         LoanInstallment = apps.get_model("loans", "LoanInstallment")
         LoanEvent = apps.get_model("loans", "LoanEvent")
+        ExpenseClaim = apps.get_model("expenses", "ExpenseClaim")
         txn_date = self.transaction.transaction_date
+        cutoff_date = txn_date + timedelta(days=PAYMENT_DATE_TOLERANCE_DAYS)
 
         if self.direction == PaymentDirection.OUTBOUND:
             qs = Invoice.objects.filter(
                 company=self.transaction.company,
                 payment_status__in=["unpaid", "partial"],
-                date_issued__lte=txn_date,
+                date_issued__lte=cutoff_date,
             )
             if self.counterparty:
                 qs = qs.filter(provider=self.counterparty)
@@ -226,7 +252,7 @@ class TransactionMatcher:
                 loan__company=self.transaction.company,
                 loan__bank_account=self.transaction.bank_account,
                 payment_status__in=["unpaid", "partial"],
-                due_date__lte=txn_date,
+                due_date__lte=cutoff_date,
             )
 
             # LoanEvents (early repayments) that haven't been reconciled yet
@@ -240,15 +266,29 @@ class TransactionMatcher:
                 parent_loan__bank_account=self.transaction.bank_account,
                 parent_loan__company=self.transaction.company,
                 event_type="early_repayment",
-                date__lte=txn_date,
+                date__lte=cutoff_date,
             ).exclude(pk__in=reconciled_event_ids)
 
-            return list(qs) + list(installment_qs) + list(event_qs)
+            # Approved expense claims — reimbursement goes to the employee,
+            # not a provider, so counterparty resolution is separate from
+            # self.counterparty (which is Provider/Client-typed).
+            from apps.expenses.models import ExpenseClaimStatus
+            claim_qs = ExpenseClaim.objects.filter(
+                company=self.transaction.company,
+                status=ExpenseClaimStatus.APPROVED,
+                created_at__date__lte=cutoff_date,
+            )
+            employee = find_employee_counterparty(self.transaction, self.transaction.company)
+            self.employee_counterparty = employee
+            if employee and employee.user_id:
+                claim_qs = claim_qs.filter(submitted_by_id=employee.user_id)
+
+            return list(qs) + list(installment_qs) + list(event_qs) + list(claim_qs)
 
         qs = SalesInvoice.objects.filter(
             company=self.transaction.company,
             payment_status__in=["unpaid", "partial"],
-            date_issued__lte=txn_date,
+            date_issued__lte=cutoff_date,
         )
         if self.counterparty:
             qs = qs.filter(client=self.counterparty)

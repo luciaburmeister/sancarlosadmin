@@ -1,0 +1,83 @@
+{% load i18n %}
+
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 w-full">
+
+    <div class="rounded-default border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 p-3">
+        <div class="flex items-center gap-1.5 mb-2.5 pb-2 border-b border-base-200 dark:border-base-800">
+            <span class="material-symbols-outlined text-primary-600 dark:text-primary-500 text-base!">person</span>
+            <h3 class="text-xs font-semibold text-base-500 dark:text-base-400 uppercase tracking-wide">{% trans "Tracking" %}</h3>
+        </div>
+        <dl class="space-y-1.5">
+            <div class="flex items-center justify-between gap-2">
+                <dt class="text-xs text-base-500 dark:text-base-400">{% trans "Created by" %}</dt>
+                <dd class="text-sm font-medium text-font-important-light dark:text-font-important-dark truncate">{{ created_by_name|default:"—" }}</dd>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+                <dt class="text-xs text-base-500 dark:text-base-400">{% trans "Created at" %}</dt>
+                <dd class="text-sm font-medium text-font-important-light dark:text-font-important-dark">{{ created_at|date:"d/m/Y H:i"|default:"—" }}</dd>
+            </div>
+        </dl>
+    </div>
+
+    <div class="rounded-default border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 p-3">
+        <div class="flex items-center gap-1.5 mb-2.5 pb-2 border-b border-base-200 dark:border-base-800">
+            <span class="material-symbols-outlined text-amber-600 dark:text-amber-500 text-base!">local_shipping</span>
+            <h3 class="text-xs font-semibold text-base-500 dark:text-base-400 uppercase tracking-wide">{% trans "Delivery" %}</h3>
+        </div>
+        <dl class="space-y-1.5">
+            <div class="flex items-center justify-between gap-2">
+                <dt class="text-xs text-base-500 dark:text-base-400">{% trans "Estimated date" %}</dt>
+                <dd class="text-sm font-medium text-font-important-light dark:text-font-important-dark">{{ estimated_delivery_date|date:"d/m/Y"|default:"—" }}</dd>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+                <dt class="text-xs text-base-500 dark:text-base-400">{% trans "Project file" %}</dt>
+                <dd class="text-sm font-medium truncate">
+                    {% if project_file_url %}
+                        <a href="{{ project_file_url }}" target="_blank" rel="noopener noreferrer"
+                           class="text-primary-600 dark:text-primary-500 hover:underline inline-flex items-center gap-1">
+                            {{ project_file }}
+                            <span class="material-symbols-outlined text-sm!">open_in_new</span>
+                        </a>
+                    {% else %}
+                        <span class="text-font-important-light dark:text-font-important-dark">—</span>
+                    {% endif %}
+                </dd>
+            </div>
+        </dl>
+    </div>
+
+    <div class="rounded-default border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 p-3">
+        <div class="flex items-center gap-1.5 mb-2.5 pb-2 border-b border-base-200 dark:border-base-800">
+            <span class="material-symbols-outlined text-violet-600 dark:text-violet-500 text-base!">handshake</span>
+            <h3 class="text-xs font-semibold text-base-500 dark:text-base-400 uppercase tracking-wide">{% trans "Sales" %}</h3>
+        </div>
+        <dl class="space-y-1.5">
+            <div class="flex items-center justify-between gap-2">
+                <dt class="text-xs text-base-500 dark:text-base-400">{% trans "Agent" %}</dt>
+                <dd class="text-sm font-medium text-font-important-light dark:text-font-important-dark truncate">{{ agent|default:"—" }}</dd>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+                <dt class="text-xs text-base-500 dark:text-base-400">{% trans "Payment" %}</dt>
+                <dd class="text-sm font-medium text-font-important-light dark:text-font-important-dark truncate">{{ payment_method|default:"—" }}</dd>
+            </div>
+        </dl>
+    </div>
+
+    <div class="rounded-default border border-base-200 dark:border-base-800 bg-white dark:bg-base-900 p-3">
+        <div class="flex items-center gap-1.5 mb-2.5 pb-2 border-b border-base-200 dark:border-base-800">
+            <span class="material-symbols-outlined text-emerald-600 dark:text-emerald-500 text-base!">schedule</span>
+            <h3 class="text-xs font-semibold text-base-500 dark:text-base-400 uppercase tracking-wide">{% trans "Status timeline" %}</h3>
+        </div>
+        <dl class="space-y-1.5">
+            <div class="flex items-center justify-between gap-2">
+                <dt class="text-xs text-base-500 dark:text-base-400">{% trans "Sent" %}</dt>
+                <dd class="text-sm font-medium text-font-important-light dark:text-font-important-dark">{{ date_sent|date:"d/m/Y H:i"|default:"—" }}</dd>
+            </div>
+            <div class="flex items-center justify-between gap-2">
+                <dt class="text-xs text-base-500 dark:text-base-400">{% trans "Accepted" %}</dt>
+                <dd class="text-sm font-medium text-font-important-light dark:text-font-important-dark">{{ date_accepted|date:"d/m/Y H:i"|default:"—" }}</dd>
+            </div>
+        </dl>
+    </div>
+
+</div>

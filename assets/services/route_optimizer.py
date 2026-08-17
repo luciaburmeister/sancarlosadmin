@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from datetime import date
+from datetime import date, timedelta
 from typing import Sequence
 
 import requests
@@ -57,6 +57,21 @@ class BaseRouteOptimizer(ABC):
         for i, planning in enumerate(ordered):
             planning.route_order = i
         AssetPlanning.objects.bulk_update(ordered, ["route_order"])
+
+    def estimate_duration(
+        self,
+        from_zone: WorkingZone | None,
+        to_zone: WorkingZone | None,
+        default: timedelta = timedelta(hours=1),
+    ) -> timedelta:
+        """Falls back to `default` when zones are missing or have no route data."""
+        if not from_zone or not to_zone:
+            return default
+        self._get_distance_matrix([from_zone, to_zone])
+        cached = ZoneDistanceCache.objects.filter(from_zone=from_zone, to_zone=to_zone).first()
+        if not cached or not cached.duration_seconds:
+            return default
+        return timedelta(seconds=cached.duration_seconds)
 
     # ── Helpers ────────────────────────────────────────────────────────
 

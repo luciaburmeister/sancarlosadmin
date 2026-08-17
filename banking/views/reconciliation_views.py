@@ -17,7 +17,13 @@ from djmoney.money import Money
 
 from unfold.views import UnfoldModelAdminViewMixin
 
-from banking.models import BankReconciliation, BankTransaction, ReconciliationMethod, ReconciliationStatus
+from banking.models import (
+    BankReconciliation,
+    BankTransaction,
+    BankTransactionCategory,
+    ReconciliationMethod,
+    ReconciliationStatus,
+)
 from banking.services.transaction_matching import TransactionMatcher
 from payments.models import Payment, PaymentAllocation, PaymentDirection
 
@@ -102,6 +108,9 @@ class ReviewReconciliationView(UnfoldModelAdminViewMixin, FormView):
             "txn_amount": txn_amount,
             "combinations": combinations,
             "combo_count": len(combinations),
+            "categories": BankTransactionCategory.objects.filter(
+                company=txn.company
+            ).order_by("name"),
             "skip_url": reverse(
                 "admin:banking_reconciliation_skip",
                 args=[recon.pk],
@@ -112,7 +121,10 @@ class ReviewReconciliationView(UnfoldModelAdminViewMixin, FormView):
 
     def form_valid(self, form):
         pk = self.kwargs["pk"]
-        recon = get_object_or_404(BankReconciliation, pk=pk)
+        recon = get_object_or_404(
+            BankReconciliation.objects.select_related("bank_transaction__company"),
+            pk=pk,
+        )
 
         if recon.is_confirmed:
             messages.info(self.request, _("This reconciliation is already confirmed."))
@@ -133,11 +145,26 @@ class ReviewReconciliationView(UnfoldModelAdminViewMixin, FormView):
 
         confirmed_allocations = combos[selected_idx].get("allocations", [])
 
+        category = None
+        category_id = self.request.POST.get("category")
+        if category_id:
+            category = BankTransactionCategory.objects.filter(
+                pk=category_id, company_id=recon.bank_transaction.company_id
+            ).first()
+
+        if category is None:
+            messages.error(
+                self.request,
+                _("Please select a category before confirming this reconciliation."),
+            )
+            return redirect(self.request.path)
+
         try:
             TransactionMatcher.confirm(
                 reconciliation=recon,
                 confirmed_allocations=confirmed_allocations,
                 user=self.request.user,
+                category=category,
             )
             messages.success(self.request, _("Reconciliation confirmed. Payment created."))
         except Exception as e:
@@ -200,6 +227,9 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
             "txn_amount": effective_amount,
             "is_partial": is_partial,
             "documents": documents,
+            "categories": BankTransactionCategory.objects.filter(
+                company=txn.company
+            ).order_by("name"),
             "submit_url": reverse(
                 "admin:banking_banktransaction_manual_reconcile",
                 args=[txn.pk],
@@ -239,6 +269,20 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
             messages.error(request, _("Invalid document selection."))
             return redirect(reverse("admin:banking_banktransaction_manual_reconcile", args=[pk]))
 
+        category = None
+        category_id = request.POST.get("category")
+        if category_id:
+            category = BankTransactionCategory.objects.filter(
+                pk=category_id, company_id=txn.company_id
+            ).first()
+
+        if category is None:
+            messages.error(
+                request,
+                _("Please select a category before confirming this reconciliation."),
+            )
+            return redirect(reverse("admin:banking_banktransaction_manual_reconcile", args=[pk]))
+
         is_partial = txn.reconciliation_status == ReconciliationStatus.PARTIAL
         existing_recon = None
         if is_partial:
@@ -252,6 +296,7 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                 self._add_allocations_to_existing(
                     reconciliation=existing_recon,
                     confirmed_allocations=confirmed_allocations,
+                    category=category,
                 )
             else:
                 BankReconciliation.objects.filter(bank_transaction=txn, is_confirmed=False).delete()
@@ -267,6 +312,7 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                     reconciliation=recon,
                     confirmed_allocations=confirmed_allocations,
                     user=request.user,
+                    category=category,
                 )
             messages.success(request, _("Reconciliation confirmed successfully."))
         except Exception as e:
@@ -277,7 +323,11 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
 
     @staticmethod
     @db_transaction.atomic
-    def _add_allocations_to_existing(reconciliation: BankReconciliation, confirmed_allocations: list) -> None:
+    def _add_allocations_to_existing(
+        reconciliation: BankReconciliation,
+        confirmed_allocations: list,
+        category: BankTransactionCategory | None = None,
+    ) -> None:
         """Add more allocations to an already-confirmed PARTIAL reconciliation."""
         payment = reconciliation.payment
         txn = reconciliation.bank_transaction
@@ -306,16 +356,24 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
         reconciliation.unmatched_amount = Money(new_unmatched, txn.amount_currency)
         reconciliation.save(update_fields=["unmatched_amount"])
 
+        update_fields = []
         if new_unmatched <= Decimal("0.01"):
             txn.reconciliation_status = ReconciliationStatus.RECONCILED
-            txn.save(update_fields=["reconciliation_status"])
+            update_fields.append("reconciliation_status")
+        if category is not None:
+            txn.category = category
+            update_fields.append("category")
+        if update_fields:
+            txn.save(update_fields=update_fields)
 
     @staticmethod
     def _get_candidate_documents(txn: BankTransaction) -> list:
-        """Return unpaid invoices, sales invoices, or loan installments for this transaction's company."""
+        """Return unpaid invoices, sales invoices, loan installments, or
+        approved expense claims for this transaction's company."""
         Invoice = apps.get_model("invoices", "Invoice")
         SalesInvoice = apps.get_model("invoices", "SalesInvoice")
         LoanInstallment = apps.get_model("loans", "LoanInstallment")
+        ExpenseClaim = apps.get_model("expenses", "ExpenseClaim")
 
         direction = PaymentDirection.INBOUND if txn.amount.amount > 0 else PaymentDirection.OUTBOUND
         results = []
@@ -356,6 +414,27 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                     "date": installment.due_date,
                     "counterparty": str(installment.loan.bank),
                     "remaining": installment.amount_remaining_decimal,
+                })
+
+            from apps.expenses.models import ExpenseClaimStatus
+            claim_qs = ExpenseClaim.objects.filter(
+                company=txn.company,
+                status=ExpenseClaimStatus.APPROVED,
+                created_at__date__lte=txn.transaction_date,
+            ).select_related("submitted_by").order_by("-created_at")
+
+            cct = ContentType.objects.get_for_model(ExpenseClaim)
+            for claim in claim_qs:
+                if claim.amount_remaining_decimal <= 0:
+                    continue
+                results.append({
+                    "content_type": cct.model,
+                    "object_id": claim.pk,
+                    "form_value": f"{cct.model}:{claim.pk}",
+                    "number": str(claim),
+                    "date": claim.created_at.date(),
+                    "counterparty": claim.submitted_by.get_full_name() or str(claim.submitted_by),
+                    "remaining": claim.amount_remaining_decimal,
                 })
         else:
             qs = SalesInvoice.objects.filter(

@@ -1,4 +1,5 @@
 import datetime
+from datetime import timedelta
 
 from django import forms
 from django.utils.translation import gettext_lazy as _
@@ -6,15 +7,149 @@ from unfold.fields import UnfoldAdminAutocompleteModelChoiceField
 from unfold.widgets import (
     UnfoldAdminTextInputWidget,
     UnfoldAdminSelectWidget,
+    UnfoldAdminSelect2MultipleWidget,
     UnfoldBooleanSwitchWidget,
 )
 
-from company.models import Company
+
+class StaticSelect2MultipleWidget(UnfoldAdminSelect2MultipleWidget):
+    """Select2 multi-select with local options (chips + search), like schedule filters.
+
+    UnfoldAdminSelect2MultipleWidget adds ``admin-autocomplete``, which triggers
+    Django's AJAX autocomplete and breaks static M2M picks in ModelAdmin forms.
+    """
+
+    def __init__(self, attrs=None, choices=()):
+        attrs = attrs or {}
+        attrs["data-theme"] = "admin-autocomplete"
+        attrs["class"] = "unfold-admin-autocomplete"
+        forms.SelectMultiple.__init__(self, attrs, choices)
+
+    class Media(UnfoldAdminSelect2MultipleWidget.Media):
+        pass
+
+
+# Aligns with the schedule's 15-minute slots; covers a normal working day.
+_DURATION_PRESET_MINUTES = (
+    15, 30, 45, 60, 75, 90, 105, 120, 150, 180, 240, 300, 360, 480,
+)
+
+
+def _duration_label(minutes: int) -> str:
+    hours, mins = divmod(minutes, 60)
+    if hours and mins:
+        return _("%(hours)dh %(mins)d min") % {"hours": hours, "mins": mins}
+    if hours == 1:
+        return _("1 hour")
+    if hours:
+        return _("%(hours)d hours") % {"hours": hours}
+    return _("%(mins)d min") % {"mins": mins}
+
+
+def _duration_choices(extra_minutes=None):
+    minutes_set = set(_DURATION_PRESET_MINUTES)
+    if extra_minutes and extra_minutes > 0:
+        minutes_set.add(int(extra_minutes))
+    return [("", "---------")] + [
+        (m, _duration_label(m)) for m in sorted(minutes_set)
+    ]
+
+
+class EstimatedDurationChoiceField(forms.TypedChoiceField):
+    """Select of common durations instead of a raw hh:mm:ss DurationField input."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("choices", _duration_choices())
+        kwargs.setdefault("coerce", self._coerce)
+        kwargs.setdefault("empty_value", None)
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("widget", UnfoldAdminSelectWidget)
+        super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def _coerce(value):
+        if value in ("", None):
+            return None
+        # has_changed() runs _coerce on both the submitted data (raw minutes
+        # from the select) AND the field's initial value — which is already
+        # a timedelta straight off the model instance, not a choice string.
+        if isinstance(value, timedelta):
+            return value
+        return timedelta(minutes=int(value))
+
+    def prepare_value(self, value):
+        if isinstance(value, timedelta):
+            minutes = int(value.total_seconds() // 60)
+            if minutes > 0 and minutes not in dict(self.choices):
+                self.choices = _duration_choices(extra_minutes=minutes)
+            return minutes if minutes > 0 else ""
+        return value
+
+
+# Matches TransportAssigner's WORKING_DAY_START/END/SLOT_STEP
+# (assets/services/transport_assigner.py) — the hours it can actually search
+# a free slot within.
+_TIME_SLOT_START_MINUTES = 7 * 60
+_TIME_SLOT_END_MINUTES = 17 * 60
+_TIME_SLOT_STEP_MINUTES = 15
+
+
+def _time_choices(extra_minutes=None):
+    minutes_set = set(range(_TIME_SLOT_START_MINUTES, _TIME_SLOT_END_MINUTES + 1, _TIME_SLOT_STEP_MINUTES))
+    if extra_minutes is not None and extra_minutes >= 0:
+        minutes_set.add(int(extra_minutes))
+    return [("", "---------")] + [
+        (m, "%02d:%02d" % (m // 60, m % 60)) for m in sorted(minutes_set)
+    ]
+
+
+class TimeChoiceField(forms.TypedChoiceField):
+    """Select of common start times instead of a raw HH:MM:SS TimeField input."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("choices", _time_choices())
+        kwargs.setdefault("coerce", self._coerce)
+        kwargs.setdefault("empty_value", None)
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("widget", UnfoldAdminSelectWidget)
+        super().__init__(*args, **kwargs)
+
+    @staticmethod
+    def _coerce(value):
+        if value in ("", None):
+            return None
+        # has_changed() runs _coerce on both the submitted data (raw minutes
+        # from the select) AND the field's initial value — which is already
+        # a time straight off the model instance, not a choice string.
+        if isinstance(value, datetime.time):
+            return value
+        minutes = int(value)
+        return datetime.time(minutes // 60, minutes % 60)
+
+    def prepare_value(self, value):
+        if isinstance(value, datetime.time):
+            minutes = value.hour * 60 + value.minute
+            if minutes not in dict(self.choices):
+                self.choices = _time_choices(extra_minutes=minutes)
+            return minutes
+        return value
+
+
+from company.models import Company, Employee
 from core.admin.company_access import get_user_companies
 from core.forms.dynamic_fields import DynamicFieldBuilder
 from sales.models import Client
 
-from .models import AssetIdentifier, Asset, AssetType
+from .models import (
+    Asset,
+    AssetIdentifier,
+    AssetPlanning,
+    AssetPlanningRequest,
+    AssetType,
+    AssetTypeCategory,
+    PlanningUrgency,
+    ServiceType,
+)
 
 # Namespaced to Asset specifically: a generic "data__" prefix would eventually
 # collide with another model/form using the same convention.
@@ -86,6 +221,24 @@ class AssetForm(forms.ModelForm):
             obj.save()
             self.save_m2m()
         return obj
+
+
+class AssetPlanningRequestForm(forms.ModelForm):
+    """Change/add form for AssetPlanningRequest; swaps raw duration/time inputs for presets."""
+
+    estimated_duration = EstimatedDurationChoiceField(
+        label=AssetPlanningRequest._meta.get_field("estimated_duration").verbose_name,
+        help_text=AssetPlanningRequest._meta.get_field("estimated_duration").help_text,
+        required=True,
+    )
+    needed_time = TimeChoiceField(
+        label=AssetPlanningRequest._meta.get_field("needed_time").verbose_name,
+        help_text=AssetPlanningRequest._meta.get_field("needed_time").help_text,
+    )
+
+    class Meta:
+        model = AssetPlanningRequest
+        fields = "__all__"
 
 
 class AssetAddForm(forms.ModelForm):
@@ -202,3 +355,105 @@ class AssetIdentifierForm(forms.ModelForm):
                 choices=[('', '---------')] + [(l, l) for l in labels],
                 required=True
             )
+
+
+class AssetScheduleFilterForm(forms.Form):
+    """GET filters for the asset staffing calendar (Unfold Select2 widgets, like Resource Planning)."""
+
+    assigned_to = forms.ModelMultipleChoiceField(
+        label=_("Drivers"),
+        required=False,
+        queryset=Employee.objects.none(),
+        widget=UnfoldAdminSelect2MultipleWidget,
+    )
+    transport_asset = forms.ModelMultipleChoiceField(
+        label=_("Trucks"),
+        required=False,
+        queryset=Asset.objects.none(),
+        widget=UnfoldAdminSelect2MultipleWidget,
+    )
+    service_type = forms.MultipleChoiceField(
+        label=_("Service Type"),
+        required=False,
+        choices=ServiceType.choices,
+        widget=UnfoldAdminSelect2MultipleWidget,
+    )
+    status = forms.MultipleChoiceField(
+        label=_("Status"),
+        required=False,
+        choices=AssetPlanning.STATUS_CHOICES,
+        widget=UnfoldAdminSelect2MultipleWidget,
+    )
+    urgency = forms.MultipleChoiceField(
+        label=_("Urgency"),
+        required=False,
+        choices=PlanningUrgency.choices,
+        widget=UnfoldAdminSelect2MultipleWidget,
+    )
+    planning_type = forms.MultipleChoiceField(
+        label=_("Planning Type"),
+        required=False,
+        choices=AssetPlanning.PLANNING_CHOICES,
+        widget=UnfoldAdminSelect2MultipleWidget,
+    )
+    only_with_plans = forms.BooleanField(
+        label=_("Only drivers with plannings"),
+        required=False,
+        initial=False,
+        widget=UnfoldBooleanSwitchWidget,
+    )
+
+    def __init__(self, *args, company=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        employees = Employee.objects.none()
+        trucks = Asset.objects.none()
+        if company is not None:
+            employees = Employee.objects.filter(
+                company=company, is_active=True
+            ).order_by("first_name", "last_name")
+            trucks = Asset.objects.filter(
+                company=company,
+                is_active=True,
+                asset_type__category=AssetTypeCategory.TRUCK,
+            ).order_by("name")
+        self.fields["assigned_to"].queryset = employees
+        self.fields["transport_asset"].queryset = trucks
+
+
+class AssetMapTableFilterForm(forms.Form):
+    """
+    GET filters for the AssetMap table view (Unfold Select2 multi-selects,
+    like the schedule filters). `zone`/`expediente` choices and the dynamic
+    per-AssetTypeField filters depend on which AssetMap is being viewed, so
+    they're added in __init__ rather than declared on the class.
+    """
+
+    q = forms.CharField(
+        label=_("Nombre"),
+        required=False,
+        widget=UnfoldAdminTextInputWidget(attrs={"placeholder": _("Buscar por nombre…")}),
+    )
+
+    def __init__(self, *args, zone_choices=(), project_file_choices=(), dynamic_field_specs=(), **kwargs):
+        super().__init__(*args, **kwargs)
+        if zone_choices:
+            self.fields["zone"] = forms.MultipleChoiceField(
+                label=_("Zona"), required=False, choices=zone_choices,
+                widget=UnfoldAdminSelect2MultipleWidget,
+            )
+        if project_file_choices:
+            self.fields["expediente"] = forms.MultipleChoiceField(
+                label=_("Expediente"), required=False, choices=project_file_choices,
+                widget=UnfoldAdminSelect2MultipleWidget,
+            )
+        for spec in dynamic_field_specs:
+            self.fields[f"df_{spec['key']}"] = forms.MultipleChoiceField(
+                label=spec["label"], required=False,
+                choices=[(v, v) for v in spec["options"]],
+                widget=UnfoldAdminSelect2MultipleWidget,
+            )
+        self.order_fields(
+            ["zone", "expediente", "q"] + [f"df_{spec['key']}" for spec in dynamic_field_specs]
+        )
+
+

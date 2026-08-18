@@ -457,6 +457,9 @@
         margin-right: 4px;
         vertical-align: 1px;
       }
+      .legend-dot:not(:first-child) {
+        margin-left: 8px;
+      }
 
       .block-status-icons { font-size: 9px; margin-right: 2px; }
 
@@ -576,9 +579,9 @@
     <span><strong style="color:#6366f1">⚠ {% trans "Old plan" %}:</strong> {% trans "replaced or awaiting re-approval of its source request" %}</span>
     <span>
       {% for st in service_type_legend %}
-        <span class="legend-dot" style="background:{{ st.color }}{% if not forloop.first %};margin-left:8px{% endif %}"></span>{{ st.label }}
+        <span class="legend-dot" data-color="{{ st.color }}"></span>{{ st.label }}
       {% endfor %}
-      <span class="legend-dot" style="background:#64748B;margin-left:8px"></span>{% trans "Other / unset" %}
+      <span class="legend-dot" style="background: #64748B;"></span>{% trans "Other / unset" %}
     </span>
   </div>
 
@@ -1433,6 +1436,9 @@
   });
 
   // ── Init ────────────────────────────────────────────────────────────────
+  document.querySelectorAll(".legend-dot[data-color]").forEach((el) => {
+    el.style.backgroundColor = el.dataset.color;
+  });
   buildHeader();
   buildSkeleton();
   renderBacklog();

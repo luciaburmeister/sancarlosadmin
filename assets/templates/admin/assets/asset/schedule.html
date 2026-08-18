@@ -288,13 +288,6 @@
       }
       .sched-block.needs-truck {
         box-shadow: 0 0 0 2px #f97316, 0 2px 8px rgba(0,0,0,.35);
-        background-image: repeating-linear-gradient(
-          -45deg,
-          transparent,
-          transparent 6px,
-          rgba(0, 0, 0, 0.12) 6px,
-          rgba(0, 0, 0, 0.12) 12px
-        ) !important;
       }
       .sched-block.over-hours::before,
       .sched-block.conflict::before {
@@ -587,7 +580,7 @@
     {% endif %}
     <span><strong>⚠ {% trans "amber" %}:</strong> {% trans "overlaps another job for that person/truck" %}</span>
     <span><strong>🤖:</strong> {% trans "auto-assigned" %}</span>
-    <span><strong style="color:#f97316">⚠ {% trans "Needs truck" %}:</strong> {% trans "orange stripe — no truck assigned yet" %}</span>
+    <span><strong style="color:#f97316">⚠ {% trans "Needs truck" %}:</strong> {% trans "no truck assigned yet" %}</span>
     <span><strong style="color:#6366f1">⚠ {% trans "Old plan" %}:</strong> {% trans "replaced or awaiting re-approval of its source request" %}</span>
     <span>
       {% for st in service_type_legend %}

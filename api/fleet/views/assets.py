@@ -276,13 +276,21 @@ class BaseTransactionStrategy:
         planning_id = self.data.get("planning_id")
         if not planning_id:
             return None, JsonResponse({"error": "Debes tener un plan asignado para poder operar."}, status=400)
-        planning = AssetPlanning.objects.filter(
+        base_qs = AssetPlanning.objects.filter(
             id=planning_id,
             company=self.asset.company,
             assigned_to=self.employee,
-            asset=self.asset,
             status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
-        ).first()
+        )
+        # First try: planning explicitly pre-assigned to this asset
+        planning = base_qs.filter(asset=self.asset).first()
+        # Second try: planning with no asset yet — the scanned cuba is the one being operated
+        if planning is None:
+            unassigned = base_qs.filter(asset__isnull=True).first()
+            if unassigned is not None:
+                unassigned.asset = self.asset
+                unassigned.save(update_fields=["asset"])
+                planning = unassigned
         if planning is None:
             return None, JsonResponse({"error": "El plan indicado no existe o no está asignado a ti."}, status=400)
         return planning, None
@@ -851,21 +859,55 @@ class DeliveryCheckView(APIView):
         lat_param = request.query_params.get("lat")
         lon_param = request.query_params.get("lon")
         action = request.query_params.get("action", "")
+        planning_dest_zone_id = None  # id of the planning's destination zone, if included
         if lat_param is not None and lon_param is not None:
             try:
                 latitude = float(lat_param)
                 longitude = float(lon_param)
                 if action == "verteo":
-                    zone_type_filter = WorkingZone.ZoneType.VERTEDERO
+                    nearby_zones = find_zones_within_radius(
+                        latitude, longitude, asset.company, zone_type=WorkingZone.ZoneType.VERTEDERO
+                    )
+                elif action == "dejar":
+                    # Only almacenes from the geo search — drivers deliver to an almacen
+                    # OR to the specific destination defined in their planning.
+                    nearby_zones = find_zones_within_radius(
+                        latitude, longitude, asset.company, zone_type=WorkingZone.ZoneType.ALMACEN
+                    )
+                    planning_id_param = request.query_params.get("planning_id")
+                    if planning_id_param:
+                        try:
+                            planning = AssetPlanning.objects.select_related("destination").filter(
+                                id=int(planning_id_param), company=asset.company, destination__isnull=False
+                            ).first()
+                            if planning and planning.destination:
+                                dz = planning.destination
+                                dz_lat, dz_lon = get_zone_coordinates(dz)
+                                if dz_lat is not None:
+                                    dist = haversine_distance(latitude, longitude, dz_lat, dz_lon)
+                                    if dist <= MAX_ZONE_RADIUS_M:
+                                        already_in = any(z.id == dz.id for z, _ in nearby_zones)
+                                        if not already_in:
+                                            nearby_zones.append((dz, dist))
+                                        planning_dest_zone_id = dz.id
+                        except (ValueError, TypeError):
+                            pass
                 else:
-                    zone_type_filter = None
-                nearby_zones = find_zones_within_radius(
-                    latitude, longitude, asset.company, zone_type=zone_type_filter,
-                    zone_types=[WorkingZone.ZoneType.OBRA, WorkingZone.ZoneType.ALMACEN] if action in ("recoger", "dejar") else None
-                )
+                    nearby_zones = find_zones_within_radius(
+                        latitude, longitude, asset.company,
+                        zone_types=[WorkingZone.ZoneType.OBRA, WorkingZone.ZoneType.ALMACEN]
+                    )
                 if len(nearby_zones) > 1:
                     multiple_zones = True
-                    zones_data = [{"id": z.id, "name": str(z), "zone_type": z.zone_type} for z, _ in nearby_zones]
+                    zones_data = [
+                        {
+                            "id": z.id,
+                            "name": str(z),
+                            "zone_type": z.zone_type,
+                            "is_planning_destination": z.id == planning_dest_zone_id,
+                        }
+                        for z, _ in nearby_zones
+                    ]
                 elif len(nearby_zones) == 1:
                     detected_zone_id = nearby_zones[0][0].id
                 elif len(nearby_zones) == 0 and action == "verteo":

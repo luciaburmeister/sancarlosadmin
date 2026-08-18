@@ -2,7 +2,7 @@ import base64
 import json
 from decimal import Decimal
 from datetime import datetime
-from assets.models import AssetPlanning, AssetTransaction, PlanningStatus, PlanningType, TransactionTypeChoices, DRIVER_TASK_PLANNING_TYPES
+from assets.models import Asset, AssetIdentifier, AssetPlanning, AssetTransaction, PlanningStatus, PlanningType, TransactionTypeChoices, DRIVER_TASK_PLANNING_TYPES
 from company.models import WorkAttendance
 from django.core.files.base import ContentFile
 from django.http import JsonResponse
@@ -95,6 +95,13 @@ class AttendanceStatusView(APIView):
         return JsonResponse({"is_clocked_in": is_clocked_in})
 
 
+def _get_transport_matricula(transport_asset):
+    if not transport_asset:
+        return None
+    identifier = AssetIdentifier.objects.filter(asset=transport_asset, label__iexact="MATRICULA").first()
+    return identifier.value if identifier else None
+
+
 def _serialize_cuba_planning(p):
     from api.fleet.views.assets import get_zone_coordinates
     origin_lat, origin_lon = get_zone_coordinates(p.origin) if p.origin else (None, None)
@@ -110,7 +117,8 @@ def _serialize_cuba_planning(p):
         "destination_address": f"{p.destination.street_address}, {p.destination.city}, {p.destination.postal_code}" if p.destination else None,
         "destination_lat": dest_lat, "destination_lon": dest_lon,
         "stops": stops,
-        "vehicle": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
+        "transport_asset": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
+        "transport_asset_matricula": _get_transport_matricula(p.transport_asset),
         "route_order": p.route_order,
         "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
         "status": p.status,
@@ -142,7 +150,8 @@ def _serialize_porte_planning(p, scannable_asset_id=None):
         "destination_lat": dest_lat, "destination_lon": dest_lon,
         "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
         "status": p.status, "notes": p.notes,
-        "vehicle": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
+        "transport_asset": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
+        "transport_asset_matricula": _get_transport_matricula(p.transport_asset),
         "service_type": p.service_type,
         "service_type_label": p.get_service_type_display() if p.service_type else None,
     }
@@ -368,6 +377,16 @@ class PorteSubmitView(APIView):
         transaction_type = TransactionTypeChoices.PORTE_MOVEMENT if action == "recogida" else TransactionTypeChoices.PORTE_DELIVERY
 
         tx_asset = planning.asset or planning.transport_asset
+        if action == "recogida":
+            asset_id_from_scan = raw.get("asset_id")
+            if asset_id_from_scan:
+                try:
+                    scanned_asset = Asset.objects.get(id=asset_id_from_scan, company=planning.company)
+                    planning.asset = scanned_asset
+                    planning.save(update_fields=["asset"])
+                    tx_asset = scanned_asset
+                except Asset.DoesNotExist:
+                    return JsonResponse({"error": "El activo escaneado no pertenece a tu empresa."}, status=400)
         transaction = AssetTransaction.objects.create(
             asset=tx_asset, company=planning.company,
             from_zone=planning.origin, to_zone=planning.destination,

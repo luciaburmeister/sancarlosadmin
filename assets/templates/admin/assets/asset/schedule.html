@@ -289,14 +289,6 @@
       .sched-block.needs-truck {
         box-shadow: 0 0 0 2px #f97316, 0 2px 8px rgba(0,0,0,.35);
       }
-      .sched-block.over-hours::before,
-      .sched-block.conflict::before {
-        content: "⚠";
-        position: absolute;
-        top: 1px;
-        left: 4px;
-        font-size: 10px;
-      }
 
       .sched-block .block-missing-truck {
         display: block;
@@ -705,25 +697,54 @@
     });
   }
 
+  // Live jobs only — delivered/cancelled are historical and must not flag
+  // overlaps, matching AssetPlanning.has_conflict on the server.
+  const LIVE_STATUSES = new Set(["pending", "in_transit", "not_completed"]);
+  function isLive(b) {
+    if (b.is_superseded) return false;
+    return !b.status || LIVE_STATUSES.has(b.status);
+  }
+  function sharedResource(a, b) {
+    if (a.person === b.person) return "person";
+    if (a.truck_id && b.truck_id && a.truck_id === b.truck_id) return "truck";
+    if (a.truck && b.truck && a.truck === b.truck) return "truck";
+    return null;
+  }
+
   // ── Conflict / out-of-hours detection (visual only — never auto-moves) ──
   function flagConflicts() {
     const flagged = [];
-    blocks.forEach((b) => { b.overHours = b.start < DAY_START || b.end > DAY_END; b.conflict = false; });
+    blocks.forEach((b) => {
+      b.overHours = isLive(b) && (b.start < DAY_START || b.end > DAY_END);
+      b.conflict = false;
+      b.conflictReason = "";
+    });
     for (let i = 0; i < blocks.length; i++) {
       for (let j = i + 1; j < blocks.length; j++) {
         const a = blocks[i], b = blocks[j];
+        if (!isLive(a) || !isLive(b)) continue;
         if (a.day !== b.day) continue;
-        const samePerson = a.person === b.person;
-        const sameTruck = a.truck && b.truck && a.truck === b.truck;
-        if (!samePerson && !sameTruck) continue;
+        const resource = sharedResource(a, b);
+        if (!resource) continue;
         if (a.start < b.end && b.start < a.end) {
           a.conflict = true;
           b.conflict = true;
+          const reason = resource === "truck"
+            ? "{% trans 'overlaps another job for the same truck' %}"
+            : "{% trans 'overlaps another job for this person' %}";
+          if (!a.conflictReason) a.conflictReason = reason;
+          if (!b.conflictReason) b.conflictReason = reason;
         }
       }
     }
     blocks.forEach((b) => { if (b.overHours || b.conflict) flagged.push(b); });
     return flagged;
+  }
+
+  function flagReason(b) {
+    if (b.conflict && b.conflictReason) return b.conflictReason;
+    if (b.overHours) return "{% trans 'outside 07:00–17:00' %}";
+    return "";
   }
 
   let previousFlaggedIds = new Set();
@@ -732,7 +753,11 @@
     const newly = flagged.filter((b) => !previousFlaggedIds.has(b.id));
     previousFlaggedIds = currentIds;
     if (!newly.length) return;
-    const names = newly.map((b) => `"${b.label}" (${PEOPLE[b.person] ? PEOPLE[b.person].name : "?"}, ${DAY_LABELS[b.day]})`).join(", ");
+    const names = newly.map((b) => {
+      const who = PEOPLE[b.person] ? PEOPLE[b.person].name : "?";
+      const reason = flagReason(b);
+      return `"${b.label}" (${who}, ${DAY_LABELS[b.day]}${reason ? " — " + reason : ""})`;
+    }).join(", ");
     showToast("⚠ " + "{% trans 'Needs attention' %}" + ": " + names);
   }
 
@@ -797,7 +822,7 @@
     return body.querySelector(`.day-cell[data-person="${person}"][data-day="${day}"]`);
   }
 
-  // Traceability on the block: missing truck gets a banner + stripe; 🤖 = auto-assigned.
+  // Traceability on the block: missing truck gets a banner; 🤖 = auto-assigned.
   function statusIcons(b) {
     if (!b.truck) return "";
     if (b.origin === "auto") {
@@ -818,6 +843,8 @@
       if (!value) return;
       rows.push(`<div class="tt-row"><span class="tt-label">${escapeHtml(label)}:</span> ${escapeHtml(value)}</div>`);
     };
+    if (b.conflict) add("{% trans 'Conflict' %}", b.conflictReason || "{% trans 'overlaps another job' %}");
+    if (b.overHours) add("{% trans 'Hours' %}", "{% trans 'outside 07:00–17:00' %}");
     add("{% trans 'Asset' %}", b.asset);
     add("{% trans 'From' %}", [b.origin_name, b.origin_address].filter(Boolean).join(" — "));
     add("{% trans 'To' %}", [b.destination_name, b.destination_address].filter(Boolean).join(" — "));
@@ -1253,6 +1280,7 @@
         // Truck was linked server-side from the driver's assigned asset (or
         // left blank with a note) — reflect that on the freshly dropped block.
         if (data && typeof data.truck === "string") newBlock.truck = data.truck;
+        if (data && "truck_id" in data) newBlock.truck_id = data.truck_id;
         if (data && data.origin) newBlock.origin = data.origin;
         reportNewFlags(renderAll());
         if (data && data.truck_note) showToast("⚠ " + data.truck_note);
@@ -1330,6 +1358,7 @@
         let changed = false;
         if (data.origin && data.origin !== block.origin) { block.origin = data.origin; changed = true; }
         if (typeof data.truck === "string" && data.truck !== block.truck) { block.truck = data.truck; changed = true; }
+        if ("truck_id" in data && data.truck_id !== block.truck_id) { block.truck_id = data.truck_id; changed = true; }
         if (changed) renderAll();
         if (data.truck_note) showToast("⚠ " + data.truck_note);
       })

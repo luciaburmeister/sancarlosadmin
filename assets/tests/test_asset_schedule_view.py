@@ -64,6 +64,7 @@ class AssetScheduleViewTests(TestCase):
         self.assertEqual(blocks[0]["destination_name"], "Destination")
         self.assertNotIn("route", blocks[0])
         self.assertEqual(blocks[0]["truck"], "Truck 1")
+        self.assertEqual(blocks[0]["truck_id"], self.truck.pk)
         self.assertIn("urgency_label", blocks[0])
         self.assertIn("origin_address", blocks[0])
         self.assertIn("destination_address", blocks[0])

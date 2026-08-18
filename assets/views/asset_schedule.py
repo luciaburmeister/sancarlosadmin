@@ -79,6 +79,7 @@ def _planning_card_data(planning: AssetPlanning) -> dict:
         "destination_name": destination["name"],
         "destination_address": destination["address"],
         "truck": planning.transport_asset.name if planning.transport_asset_id else "",
+        "truck_id": planning.transport_asset_id,
         "urgency": planning.urgency,
         "urgency_label": planning.get_urgency_display(),
         "planning_type": planning.planning_type,
@@ -418,6 +419,7 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
                 "success": True,
                 "origin": planning.assignment_origin,
                 "truck": planning.transport_asset.name if planning.transport_asset_id else "",
+                "truck_id": planning.transport_asset_id,
                 "truck_note": truck_note,
             })
 

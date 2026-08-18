@@ -99,15 +99,23 @@ def _serialize_cuba_planning(p):
     stops = [{"zone": s.zone.name, "address": f"{s.zone.street_address}, {s.zone.city}, {s.zone.postal_code}", "sequence": s.sequence} for s in p.stops.all()]
     return {
         "id": p.id, "planning_type": p.planning_type, "asset_id": p.asset.id if p.asset else 0,
+        "asset_name": p.asset.name if p.asset else None,
         "origin": p.origin.name if p.origin else None,
         "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,
         "destination": p.destination.name if p.destination else None,
         "destination_address": f"{p.destination.street_address}, {p.destination.city}, {p.destination.postal_code}" if p.destination else None,
         "stops": stops,
-        "transport_asset": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
+        "vehicle": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
         "route_order": p.route_order,
         "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
         "status": p.status,
+        "notes": p.notes,
+        "service_type": p.service_type,
+        "service_type_label": p.get_service_type_display() if p.service_type else None,
+        "cuba_operation_type": p.cuba_operation_type,
+        "cuba_operation_type_label": p.get_cuba_operation_type_display() if p.cuba_operation_type else None,
+        "cuba_size": p.cuba_size,
+        "cuba_size_label": p.get_cuba_size_display() if p.cuba_size else None,
     }
 
 
@@ -129,6 +137,9 @@ def _serialize_porte_planning(p, scannable_asset_id=None):
         "destination_lat": dest_lat, "destination_lon": dest_lon,
         "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
         "status": p.status, "notes": p.notes,
+        "vehicle": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
+        "service_type": p.service_type,
+        "service_type_label": p.get_service_type_display() if p.service_type else None,
     }
 
 
@@ -149,7 +160,12 @@ class PlanningsListView(APIView):
 
 class PlanningNextTaskView(APIView):
     """The single next cuba/porte job for this driver — cuba and porte share one combined
-    route_order sequence, so only one task is ever surfaced at a time, regardless of type."""
+    route_order sequence, so only one task is ever surfaced at a time, regardless of type.
+
+    Scoped to today only: a plan left open from a previous day (missed, delayed, never
+    resolved) must not leak into today's queue, and a future day's plan must not be
+    revealed early. Stale open plans from past days are dispatch's problem to reassign
+    via the schedule — see AssetPlanning.abandoned_stage / the "horario" admin view."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -160,6 +176,7 @@ class PlanningNextTaskView(APIView):
         planning = AssetPlanning.objects.filter(
             assigned_to=employee, status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
             planning_type__in=[PlanningType.CUBA, PlanningType.PORTE],
+            scheduled_date=timezone.now().date(),
         ).select_related(
             "asset", "origin", "destination", "transport_asset",
         ).prefetch_related("stops__zone").order_by("scheduled_date", "route_order", "scheduled_time", "pk").first()

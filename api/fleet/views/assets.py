@@ -388,10 +388,23 @@ class DeliveryStrategy(BaseTransactionStrategy):
         transaction.save()
         asset.current_working_zone = destination_zone
         asset.save()
-        planning.status = PlanningStatus.DELIVERED
-        planning.save(update_fields=["status"])
+        matches_planned_destination = (
+            planning.destination_id is None or planning.destination_id == destination_zone.id
+        )
+        if matches_planned_destination:
+            planning.status = PlanningStatus.DELIVERED
+            planning.save(update_fields=["status"])
+            message = f"Entrega registrada en {destination_zone}"
+        else:
+            # Wrong zone: record the real delivery, but the plan isn't done — it
+            # stays as-is (still in the driver's queue) until delivered to the
+            # right zone, or explicitly abandoned via "No puedo hacer más".
+            message = (
+                f"Entrega registrada en {destination_zone}, pero no es la zona planificada. "
+                "Debes entregarla en la zona correcta."
+            )
         send_asset_transaction_email_task.delay(transaction.id)
-        return JsonResponse({"success": True, "message": f"Entrega registrada en {destination_zone}", "transaction_id": transaction.id})
+        return JsonResponse({"success": True, "message": message, "transaction_id": transaction.id})
 
 
 class ReceiptStrategy(BaseTransactionStrategy):

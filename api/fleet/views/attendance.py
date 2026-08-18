@@ -96,14 +96,19 @@ class AttendanceStatusView(APIView):
 
 
 def _serialize_cuba_planning(p):
+    from api.fleet.views.assets import get_zone_coordinates
+    origin_lat, origin_lon = get_zone_coordinates(p.origin) if p.origin else (None, None)
+    dest_lat, dest_lon = get_zone_coordinates(p.destination) if p.destination else (None, None)
     stops = [{"zone": s.zone.name, "address": f"{s.zone.street_address}, {s.zone.city}, {s.zone.postal_code}", "sequence": s.sequence} for s in p.stops.all()]
     return {
         "id": p.id, "planning_type": p.planning_type, "asset_id": p.asset.id if p.asset else 0,
         "asset_name": p.asset.name if p.asset else None,
         "origin": p.origin.name if p.origin else None,
         "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,
+        "origin_lat": origin_lat, "origin_lon": origin_lon,
         "destination": p.destination.name if p.destination else None,
         "destination_address": f"{p.destination.street_address}, {p.destination.city}, {p.destination.postal_code}" if p.destination else None,
+        "destination_lat": dest_lat, "destination_lon": dest_lon,
         "stops": stops,
         "vehicle": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
         "route_order": p.route_order,

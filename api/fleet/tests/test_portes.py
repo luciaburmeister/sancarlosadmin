@@ -195,8 +195,8 @@ class PorteWithoutAssetTests(TestCase):
         # The new FK is populated alongside the existing soft data["planning_id"].
         self.assertEqual(tx.planning_id, planning.id)
 
-    def test_submit_uses_transport_even_when_cargo_was_selected(self):
-        """Temporary: porte save forces asset=transport_asset, so the transaction uses the truck."""
+    def test_submit_uses_selected_cargo_over_transport(self):
+        """A specifically chosen cargo asset must survive save() and be used for the transaction, not the truck."""
         from assets.models import AssetTransaction
 
         cargo_type = make_asset_type(self.company, name="Máquina")
@@ -214,7 +214,7 @@ class PorteWithoutAssetTests(TestCase):
             status="pending",
         )
         planning.refresh_from_db()
-        self.assertEqual(planning.asset_id, self.truck.id)
+        self.assertEqual(planning.asset_id, cargo.id)
         response = self.api_client.post(
             f"/en/api/portes/{planning.id}/submit/",
             data={
@@ -228,4 +228,4 @@ class PorteWithoutAssetTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         tx = AssetTransaction.objects.get(data__planning_id=planning.id)
-        self.assertEqual(tx.asset_id, self.truck.id)
+        self.assertEqual(tx.asset_id, cargo.id)

@@ -702,15 +702,15 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         )
 
     def _sync_porte_asset_from_transport(self) -> bool:
-        """Temporary: porte plannings always use the truck as `asset`.
-
-        Cargo vs truck will be modeled properly later; until then the mobile
-        QR/submit flow and admin lists expect `asset` to be the transport.
-        Returns True when `asset` was changed.
+        """Fallback: porte plannings without a specifically chosen `asset`
+        use the truck as `asset` so the mobile QR/submit flow and admin
+        lists always have something to display. A specifically chosen
+        `asset` (e.g. the machine for SERVICE_TYPE_MAQUINA_PROPIA) is never
+        overwritten. Returns True when `asset` was changed.
         """
         if not self._is_porte() or not self.transport_asset_id:
             return False
-        if self.asset_id == self.transport_asset_id:
+        if self.asset_id:
             return False
         self.asset_id = self.transport_asset_id
         return True

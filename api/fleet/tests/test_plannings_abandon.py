@@ -45,3 +45,16 @@ class PlanningAbandonRemainingViewTests(APITestCase):
         response = self.client.post("/en/api/plannings/abandon/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"count": 0, "abandoned": []})
+
+    def test_blocked_when_carrying_a_picked_up_porte(self):
+        carried = AssetPlanning.objects.create(
+            company=self.company, assigned_to=self.employee,
+            scheduled_date=date.today(), planning_type=PlanningType.PORTE, status=PlanningStatus.IN_TRANSIT,
+        )
+        response = self.client.post("/en/api/plannings/abandon/")
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertEqual(data["blocked_planning_id"], carried.id)
+        self.assertIn("error", data)
+        carried.refresh_from_db()
+        self.assertNotEqual(carried.status, PlanningStatus.NOT_COMPLETED)

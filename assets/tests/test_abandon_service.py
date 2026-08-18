@@ -19,7 +19,7 @@ from assets.models import (
     PlanningType,
     TransactionTypeChoices,
 )
-from assets.services.abandon import PlanningAbandoner
+from assets.services.abandon import PlanningAbandonBlockedError, PlanningAbandoner
 from company.models import WorkingZone
 
 
@@ -145,3 +145,40 @@ class AbandonRemainingPlanningsTests(TestCase):
         second = PlanningAbandoner().abandon_remaining(self.employee)
         self.assertEqual(len(first), 1)
         self.assertEqual(len(second), 0)
+
+    def test_blocks_when_porte_is_picked_up_pending_delivery(self):
+        carried_porte = self._make_planning(planning_type=PlanningType.PORTE, status=PlanningStatus.IN_TRANSIT)
+        other_pending = self._make_planning(planning_type=PlanningType.PORTE, status=PlanningStatus.PENDING)
+
+        with self.assertRaises(PlanningAbandonBlockedError) as ctx:
+            PlanningAbandoner().abandon_remaining(self.employee)
+        self.assertEqual(ctx.exception.planning.id, carried_porte.id)
+
+        for p in (carried_porte, other_pending):
+            p.refresh_from_db()
+            self.assertNotEqual(p.status, PlanningStatus.NOT_COMPLETED)
+
+    def test_blocks_when_cuba_is_picked_up_and_leaves_everything_untouched(self):
+        company = self.company
+        asset_type = make_asset_type(company)
+        obra = make_zone(company, name="Obra")
+        obra.zone_type = WorkingZone.ZoneType.OBRA
+        obra.save()
+        asset = make_asset(company, asset_type, employee=self.employee, zone=obra)
+        carried_cuba = AssetPlanning.objects.create(
+            company=company, asset=asset, assigned_to=self.employee,
+            scheduled_date=date.today(), planning_type=PlanningType.CUBA, status=PlanningStatus.IN_TRANSIT,
+        )
+        AssetTransaction.objects.create(
+            company=company, asset=asset, from_zone=obra, transaction_type=TransactionTypeChoices.MOVEMENT,
+            date=timezone.now(), data={"vasAVerter": ""}, planning=carried_cuba,
+        )
+        other_pending = self._make_planning(planning_type=PlanningType.PORTE, status=PlanningStatus.PENDING)
+
+        with self.assertRaises(PlanningAbandonBlockedError) as ctx:
+            PlanningAbandoner().abandon_remaining(self.employee)
+        self.assertEqual(ctx.exception.planning.id, carried_cuba.id)
+
+        for p in (carried_cuba, other_pending):
+            p.refresh_from_db()
+            self.assertNotEqual(p.status, PlanningStatus.NOT_COMPLETED)

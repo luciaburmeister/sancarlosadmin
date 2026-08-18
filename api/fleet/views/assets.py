@@ -7,7 +7,7 @@ from datetime import datetime
 import qrcode
 from company.models import WorkingZone, WorkingZoneAuthorization
 from django.core.files.base import ContentFile
-from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType
+from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType, AssignmentOrigin
 from core.tasks import send_asset_transaction_email_task
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -197,6 +197,10 @@ class AssetDetailView(APIView):
 
 
 class AssetAssignView(APIView):
+    """Driver self-assignment via QR scan — scanning a cuba is the claim: it always
+    hands the asset AND its today's planning to the scanning driver, taking it from
+    whoever had it before if needed. There's no manual dispatch assignment to
+    conflict with, so the physical scan is treated as ground truth."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request, asset_id):
@@ -210,9 +214,26 @@ class AssetAssignView(APIView):
             return JsonResponse({"error": "No employee profile found"}, status=400)
         if asset.company != employee.company:
             return JsonResponse({"error": "Este cubo no pertenece a tu empresa"}, status=403)
+
+        planning = AssetPlanning.objects.filter(
+            asset=asset, company=asset.company, planning_type=PlanningType.CUBA,
+            status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
+            scheduled_date=timezone.now().date(),
+        ).order_by("route_order", "scheduled_time", "pk").first()
+        if planning is None:
+            return JsonResponse({"error": "No hay ningún plan pendiente hoy para esta cuba."}, status=400)
+
         asset.assigned_to = employee
-        asset.save()
-        return JsonResponse({"success": True, "message": f"Cubo {asset.name} asignado a {employee.full_name}"})
+        asset.save(update_fields=["assigned_to"])
+        if planning.assigned_to_id != employee.id:
+            planning.assigned_to = employee
+            planning.assignment_origin = AssignmentOrigin.MANUAL
+            planning.save(update_fields=["assigned_to", "assignment_origin"])
+        return JsonResponse({
+            "success": True,
+            "message": f"Cubo {asset.name} asignado a {employee.full_name}",
+            "planning_id": planning.id,
+        })
 
 
 class AssetQRView(APIView):

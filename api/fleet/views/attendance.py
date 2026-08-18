@@ -201,8 +201,18 @@ class PlanningAbandonRemainingView(APIView):
         employee = get_current_employee(request.user)
         if employee is None:
             return JsonResponse({"error": "No employee profile found"}, status=400)
-        from assets.services.abandon import PlanningAbandoner
-        abandoned = PlanningAbandoner().abandon_remaining(employee)
+        from assets.services.abandon import PlanningAbandonBlockedError, PlanningAbandoner
+        try:
+            abandoned = PlanningAbandoner().abandon_remaining(employee)
+        except PlanningAbandonBlockedError as exc:
+            label = exc.planning.get_planning_type_display()
+            return JsonResponse({
+                "error": (
+                    f"Tienes un {label.lower()} recogido sin dejar. "
+                    "Complétalo antes de marcarte como no disponible."
+                ),
+                "blocked_planning_id": exc.planning.id,
+            }, status=400)
         return JsonResponse({
             "count": len(abandoned),
             "abandoned": [

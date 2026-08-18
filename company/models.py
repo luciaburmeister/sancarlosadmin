@@ -2,7 +2,8 @@ import unicodedata
 
 from django.contrib.auth.hashers import make_password
 from django.db import models
-from django.utils.translation import gettext_lazy as _  
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django_countries.fields import CountryField
@@ -413,6 +414,22 @@ class Employee(CompanyOwnedModel):
         validators=[validate_work_pin],
     )
 
+    current_working_zone = models.ForeignKey(
+        "company.WorkingZone",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="current_employees",
+        verbose_name=_("Current Working Zone"),
+    )
+    zone_changed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name=_("Zone changed at"),
+        help_text=_("When current_working_zone last actually changed."),
+    )
+
     class Meta:
         verbose_name = _("Employee")
         verbose_name_plural = _("Employees")
@@ -447,6 +464,16 @@ class Employee(CompanyOwnedModel):
                 })
 
     def save(self, *args, **kwargs):
+        if self.pk:
+            old_zone_id = (
+                Employee.objects.filter(pk=self.pk)
+                .values_list("current_working_zone_id", flat=True)
+                .first()
+            )
+            if old_zone_id != self.current_working_zone_id:
+                self.zone_changed_at = timezone.now()
+        elif self.current_working_zone_id:
+            self.zone_changed_at = timezone.now()
         if self.work_pin and self.work_pin.isdigit() and len(self.work_pin) == 4:
             self.work_pin = make_password(self.work_pin)
         if self.home_city and not self.work_calendar_id:

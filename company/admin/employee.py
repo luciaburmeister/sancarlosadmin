@@ -109,6 +109,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         "company",
         "is_active",
         "user",
+        "current_working_zone",
     )
 
     list_filter = (
@@ -126,7 +127,8 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
     autocomplete_fields = (
         "company",
         "user",
-        "sale_zones"
+        "sale_zones",
+        "current_working_zone",
     )
 
     ordering = (
@@ -172,6 +174,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
                 ("hired_at", "terminated_at"),
                 "is_active",
                 "sale_zones",
+                ("current_working_zone", "zone_changed_at"),
             )
         },
     ),
@@ -219,7 +222,7 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
             choices=[(s, s) for s in stages]
         )
         return form
-    readonly_fields = ()
+    readonly_fields = ("zone_changed_at",)
 
     @display(description=_("Name"))
     def full_name(self, obj):

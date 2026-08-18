@@ -333,6 +333,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "banking.tasks.sync_bank_transactions",
         "schedule": crontab(minute=0, hour="*/6"),  # every 6 hours
     },
+    "apply-due-machinist-movements": {
+        "task": "assets.tasks.apply_due_machinist_movements",
+        "schedule": crontab(minute=5, hour=0),  # daily at 00:05
+    },
 }
 
 # E-invoicing: disable AEAT submissions in tests / staging

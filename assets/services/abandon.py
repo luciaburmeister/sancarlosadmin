@@ -2,8 +2,9 @@
 "No puedo hacer más" — bulk-abandon a driver's remaining cuba/porte plannings for today.
 
 Sets each still-open planning to `not_completed` with a computed
-`abandoned_stage` (AssetPlanning.compute_abandoned_stage) so dispatch can see
-and reschedule it from the asset schedule view.
+`abandoned_stage` (AssetPlanning.compute_abandoned_stage), plus who/why/when
+(abandoned_by/abandoned_reason/abandoned_at), so dispatch can see and
+reschedule it from the asset schedule view.
 
 Blocked if the driver is currently holding a picked-up cuba/porte that hasn't
 been dropped off — that must be resolved (delivered, or the real state
@@ -45,12 +46,15 @@ class PlanningAbandoner:
             if blocked is not None:
                 raise PlanningAbandonBlockedError(blocked)
             abandoned = []
+            now = timezone.now()
             for planning in plannings:
                 planning.abandoned_stage = stages[planning.id]
                 planning.status = PlanningStatus.NOT_COMPLETED
-                planning.abandoned_at = timezone.now()
-                if reason:
-                    planning.notes = reason
-                planning.save(update_fields=["status", "abandoned_stage", "abandoned_at", "notes"])
+                planning.abandoned_at = now
+                planning.abandoned_reason = reason
+                planning.abandoned_by = employee
+                planning.save(update_fields=[
+                    "status", "abandoned_stage", "abandoned_at", "abandoned_reason", "abandoned_by",
+                ])
                 abandoned.append(planning)
         return abandoned

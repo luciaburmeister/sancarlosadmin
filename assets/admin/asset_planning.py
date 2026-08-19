@@ -144,7 +144,10 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "suggested_trucks",
         "moved_employees",
     ]
-    readonly_fields = ["assignment_origin", "computed_end_time_display", "abandoned_stage", "abandoned_at"]
+    readonly_fields = [
+        "assignment_origin", "computed_end_time_display",
+        "abandoned_stage", "abandoned_at", "abandoned_reason", "abandoned_by",
+    ]
     inlines = [AssetPlanningStopInline, AssetPlanningTransactionInline]
     actions_list = ["auto_assign_action", "optimize_daily_routes_action"]
     actions_row = ["auto_assign_row_action"]
@@ -161,6 +164,13 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
                 "asset",
             )
         }),
+        (_("Abandonment"), {
+            "fields": (
+                ("abandoned_by", "abandoned_at"),
+                "abandoned_reason",
+                "abandoned_stage",
+            )
+        }),
         (_("Route"), {
             "fields": (
                 ("origin", "destination"),
@@ -174,7 +184,6 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
                 "suggested_trucks",
                 ("status", "route_order", "urgency"),
                 "assignment_origin",
-                ("abandoned_stage", "abandoned_at"),
                 ("skip_auto_assignment", "time_locked"),
                 ("planning_type", "service_type"),
                 ("cuba_operation_type", "cuba_size"),

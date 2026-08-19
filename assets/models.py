@@ -675,6 +675,11 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         max_length=35, blank=True, choices=AbandonedStageChoices.choices, verbose_name=_("Abandoned Stage"),
     )
     abandoned_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Abandoned At"))
+    abandoned_reason = models.TextField(blank=True, verbose_name=_("Abandoned Reason"))
+    abandoned_by = models.ForeignKey(
+        'company.Employee', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="abandoned_plannings", verbose_name=_("Abandoned By"),
+    )
     skip_auto_assignment = models.BooleanField(
         default=False, verbose_name=_("Skip Automatic Assignment"),
         help_text=_(

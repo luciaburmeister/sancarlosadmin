@@ -129,6 +129,7 @@ def _serialize_cuba_planning(p):
         "cuba_operation_type_label": p.get_cuba_operation_type_display() if p.cuba_operation_type else None,
         "cuba_size": p.cuba_size,
         "cuba_size_label": p.get_cuba_size_display() if p.cuba_size else None,
+        "cuba_capacidad": p.asset.data.get("capacidad") if p.asset and p.asset.data else None,
     }
 
 

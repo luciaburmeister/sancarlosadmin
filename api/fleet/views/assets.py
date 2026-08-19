@@ -244,6 +244,30 @@ class AssetAssignView(APIView):
         })
 
 
+class AssetCapacidadUpdateView(APIView):
+    """Lets a driver record a cuba's capacity the first time it's missing from the
+    asset's data — filled once in the field, it sticks for every future job on that
+    same physical cuba instead of being re-entered per planning."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, asset_id):
+        employee = get_current_employee(request.user)
+        if employee is None:
+            return JsonResponse({"error": "No employee profile found"}, status=400)
+        try:
+            asset = Asset.objects.get(id=asset_id)
+        except Asset.DoesNotExist:
+            return JsonResponse({"error": "Asset not found"}, status=404)
+        if asset.company != employee.company:
+            return JsonResponse({"error": "Este cubo no pertenece a tu empresa"}, status=403)
+        capacidad = json.loads(request.body).get("capacidad", "").strip()
+        if not capacidad:
+            return JsonResponse({"error": "Capacidad vacía"}, status=400)
+        asset.data = {**(asset.data or {}), "capacidad": capacidad}
+        asset.save(update_fields=["data"])
+        return JsonResponse({"success": True, "capacidad": capacidad})
+
+
 class AssetQRView(APIView):
     authentication_classes = []
     permission_classes = []

@@ -17,7 +17,7 @@ from django.contrib import messages
 from company.models import Employee
 from assets.constants import SERVICE_TYPE_MAQUINA_PROPIA
 from assets.forms import EstimatedDurationChoiceField, TimeChoiceField
-from assets.models import Asset, AssetPlanning, AssetPlanningStop, AssetTypeCategory, AssignmentOrigin
+from assets.models import Asset, AssetPlanning, AssetPlanningStop, AssetTransaction, AssetTypeCategory, AssignmentOrigin
 
 
 class AutoAssignBulkForm(BaseDialogForm):
@@ -55,6 +55,23 @@ class AssetPlanningStopInline(TabularInline):
     fields = ("sequence", "zone", "notes")
     autocomplete_fields = ["zone"]
     ordering = ["sequence"]
+
+
+class AssetPlanningTransactionInline(TabularInline):
+    model = AssetTransaction
+    fk_name = "planning"
+    extra = 0
+    tab = True
+    can_delete = False
+    show_change_link = True
+    ordering = ["-date"]
+    fields = ("asset", "transaction_type", "date", "from_zone", "to_zone", "billing_status")
+    readonly_fields = fields
+    verbose_name = _("Transaction")
+    verbose_name_plural = _("Transactions")
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
 class TraceabilityFilter(admin.SimpleListFilter):
@@ -128,7 +145,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "moved_employees",
     ]
     readonly_fields = ["assignment_origin", "computed_end_time_display", "abandoned_stage", "abandoned_at"]
-    inlines = [AssetPlanningStopInline]
+    inlines = [AssetPlanningStopInline, AssetPlanningTransactionInline]
     actions_list = ["auto_assign_action", "optimize_daily_routes_action"]
     actions_row = ["auto_assign_row_action"]
     conditional_fields = CONDITIONAL_FIELDS

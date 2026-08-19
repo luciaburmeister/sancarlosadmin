@@ -167,7 +167,7 @@ class PlanningsListView(APIView):
         from assets.models import AssetPlanning, PlanningStatus, PlanningType
         plannings = AssetPlanning.objects.filter(
             assigned_to=employee, status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT], planning_type=PlanningType.CUBA,
-        ).select_related("asset", "origin", "destination", "transport_asset").prefetch_related("stops__zone").order_by("route_order", "pk")
+        ).select_related("asset", "origin", "destination", "transport_asset").prefetch_related("stops__zone").order_by("scheduled_time", "route_order", "pk")
         data = [_serialize_cuba_planning(p) for p in plannings]
         return JsonResponse({"plannings": data})
 
@@ -180,7 +180,10 @@ _TASK_SERIALIZERS = {
 
 class PlanningNextTaskView(APIView):
     """The single next cuba/porte job for this driver — cuba and porte share one combined
-    route_order sequence, so only one task is ever surfaced at a time, regardless of type.
+    queue, so only one task is ever surfaced at a time, regardless of type. Ordered by
+    scheduled_time to always match what dispatch sees in the "horario" admin view
+    (assets/views/asset_schedule.py), with route_order only as a tiebreaker for jobs
+    scheduled at the same time.
 
     Scoped to today only: a plan left open from a previous day (missed, delayed, never
     resolved) must not leak into today's queue, and a future day's plan must not be
@@ -203,7 +206,7 @@ class PlanningNextTaskView(APIView):
             scheduled_date=today,
         ).select_related(
             "asset", "origin", "destination", "transport_asset",
-        ).prefetch_related("stops__zone").order_by("route_order", "scheduled_time", "pk").first()
+        ).prefetch_related("stops__zone").order_by("scheduled_time", "route_order", "pk").first()
         if planning is None:
             return JsonResponse({"task": None})
         serializer = _TASK_SERIALIZERS.get(planning.planning_type)

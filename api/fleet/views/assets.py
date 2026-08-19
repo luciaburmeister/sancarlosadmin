@@ -219,7 +219,7 @@ class AssetAssignView(APIView):
             asset=asset, company=asset.company, planning_type=PlanningType.CUBA,
             status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
             scheduled_date=timezone.now().date(),
-        ).order_by("route_order", "scheduled_time", "pk").first()
+        ).order_by("scheduled_time", "route_order", "pk").first()
         if planning is None:
             return JsonResponse({"error": "No hay ningún plan pendiente hoy para esta cuba."}, status=400)
 

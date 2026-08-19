@@ -1,11 +1,12 @@
 """Tests for the ProjectFile <-> WorkingZone requirement and its per-company enforcement."""
 from django.contrib import admin
 from django.contrib.auth import get_user_model
+from django.forms.models import inlineformset_factory
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
 from company.models import Company, WorkingZone
-from management.admin.project_file import ProjectFileWorkingZoneInline
+from management.admin.project_file import ProjectFileAdmin, ProjectFileWorkingZoneInline
 from management.forms import LinkProjectFileForm
 from management.models import ProjectFile
 from sales.models import Client, Quote
@@ -150,3 +151,54 @@ class QuoteAcceptanceWizardWorkingZoneTests(TestCase):
             "existing_project": existing_pf.pk,
         })
         self.assertEqual(response.status_code, 302)
+
+
+class ProjectFileAdminSaveFormsetWorkingZoneTests(TestCase):
+    """Regression test: WorkingZone rows created via the ProjectFile admin inline
+    must inherit `company` from the parent ProjectFile, same as `client` already does."""
+
+    def setUp(self):
+        self.company = Company.objects.create(name="Taller Co")
+        self.client_obj = Client.objects.create(name="Acme", company=self.company)
+        self.project_file = ProjectFile.objects.create(
+            name="Expediente", company=self.company, client=self.client_obj,
+        )
+        self.user = User.objects.create_superuser(
+            username="admin2", email="admin2@test.com", password="pass1234",
+        )
+        self.factory = RequestFactory()
+        self.model_admin = ProjectFileAdmin(ProjectFile, admin.site)
+
+    def test_working_zone_created_via_inline_inherits_project_file_company(self):
+        request = self.factory.post("/")
+        request.user = self.user
+
+        FormSet = inlineformset_factory(
+            ProjectFile, WorkingZone, fk_name="project_file",
+            fields=["name", "zone_type", "street_address", "city", "postal_code", "province", "country", "location", "is_active"],
+            extra=1,
+        )
+        data = {
+            "working_zones-TOTAL_FORMS": "1",
+            "working_zones-INITIAL_FORMS": "0",
+            "working_zones-MIN_NUM_FORMS": "0",
+            "working_zones-MAX_NUM_FORMS": "1000",
+            "working_zones-0-name": "Zona Nueva",
+            "working_zones-0-zone_type": WorkingZone.ZoneType.OBRA,
+            "working_zones-0-street_address": "Calle Falsa 123",
+            "working_zones-0-city": "Madrid",
+            "working_zones-0-postal_code": "28080",
+            "working_zones-0-province": "Madrid",
+            "working_zones-0-country": "ES",
+            "working_zones-0-location": "40.416775,-3.70379",
+            "working_zones-0-is_active": "on",
+        }
+        formset = FormSet(data, instance=self.project_file)
+        self.assertTrue(formset.is_valid(), formset.errors)
+
+        form = type("FakeForm", (), {"instance": self.project_file})()
+        self.model_admin.save_formset(request, form, formset, change=True)
+
+        zone = WorkingZone.objects.get(name="Zona Nueva")
+        self.assertEqual(zone.company, self.company)
+        self.assertEqual(zone.client, self.client_obj)

@@ -14,7 +14,7 @@ class DiscountRuleInline(StackedInline):
         (None, {
             "fields": (
                 ("name", "is_active"),
-                ("percentage", "mode", "level"),
+                ("percentage", "mode", "level", "kind"),
                 "condition",
             )
         }),

@@ -120,11 +120,12 @@ class ClientResource(resources.ModelResource):
 
     def get_queryset(self):
         # Only used when the admin doesn't pass its (already annotated) queryset.
-        from invoices.models import SalesInvoice
+        from invoices.models import SalesInvoice, SalesInvoiceStatus
         from payments.mixins import annotate_outstanding_balance
 
         return annotate_outstanding_balance(
-            super().get_queryset(), SalesInvoice, "client", "balance_owed"
+            super().get_queryset(), SalesInvoice, "client", "balance_owed",
+            invoice_filters={"status": SalesInvoiceStatus.FINAL},
         )
 
     def dehydrate_balance_owed(self, client):

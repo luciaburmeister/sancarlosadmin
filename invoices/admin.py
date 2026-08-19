@@ -341,6 +341,7 @@ class InvoiceAdmin(LineItemExportMixin, ModelAdmin, CompanyRestrictedAdmin, Expo
         ("date_issued", RangeDateFilter),
         ("total_amount",RangeNumericFilter),
         # Document state
+        ("document_type", ChoicesDropdownFilter),
         ("confirmation_status", ChoicesDropdownFilter),
         # Payment
         ("payment_status", ChoicesDropdownFilter),
@@ -361,6 +362,7 @@ class InvoiceAdmin(LineItemExportMixin, ModelAdmin, CompanyRestrictedAdmin, Expo
         "provider",
         "account",
         "project_file",
+        "rectifies",
     )
 
     readonly_fields = (
@@ -501,6 +503,7 @@ class InvoiceAdmin(LineItemExportMixin, ModelAdmin, CompanyRestrictedAdmin, Expo
             {
                 "fields": (
                     ("invoice_number", "provider"),
+                    ("document_type", "rectifies"),
                     ("net_amount", "total_amount"),
                     "file",
                     "company",

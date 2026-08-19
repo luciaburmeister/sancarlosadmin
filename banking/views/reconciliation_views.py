@@ -76,16 +76,33 @@ class ReviewReconciliationView(UnfoldModelAdminViewMixin, FormView):
                 except Exception:
                     change_url = None
 
+                # Date/counterparty live under different names per document
+                # type: invoices use date_issued/client/provider, loan
+                # installments use due_date/loan.bank, loan events use
+                # date/parent_loan.bank, expense claims use
+                # created_at/submitted_by.
+                doc_date = (
+                    getattr(doc, "date_issued", None)
+                    or getattr(doc, "due_date", None)
+                    or getattr(doc, "date", None)
+                )
+                if doc_date is None and getattr(doc, "created_at", None):
+                    doc_date = doc.created_at.date()
+
+                loan = getattr(doc, "loan", None) or getattr(doc, "parent_loan", None)
+                counterparty = (
+                    getattr(doc, "client", None)
+                    or getattr(doc, "provider", None)
+                    or (loan.bank if loan else None)
+                    or getattr(doc, "submitted_by", None)
+                )
+
                 docs.append({
                     "content_type": alloc["content_type"],
                     "object_id": doc.pk,
                     "number": getattr(doc, "invoice_number", str(doc)),
-                    "date": getattr(doc, "date_issued", None),
-                    "counterparty": str(
-                        getattr(doc, "client", None)
-                        or getattr(doc, "provider", None)
-                        or "—"
-                    ),
+                    "date": doc_date,
+                    "counterparty": str(counterparty or "—"),
                     "remaining": remaining,
                     "change_url": change_url,
                 })

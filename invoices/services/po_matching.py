@@ -54,22 +54,29 @@ class POInvoiceMatchService:
                 date_ordered__gte=invoice.date_issued - delta,
                 date_ordered__lte=invoice.date_issued + delta,
             )
-        qs = (
-            qs.annotate(
-                _ordered=Sum("items__quantity"),
-                _invoiced=Sum("items__invoiced_quantity"),
-            )
-            .filter(_ordered__gt=F("_invoiced"))
-            .select_related("provider")
-            .order_by("-date_ordered")
+        qs = qs.annotate(
+            _ordered=Sum("items__quantity"),
+            _invoiced=Sum("items__invoiced_quantity"),
         )
+        if invoice.is_credit_note:
+            # A credit note reverses billed quantity, so only POs with something
+            # already invoiced are creditable.
+            qs = qs.filter(_invoiced__gt=0)
+        else:
+            qs = qs.filter(_ordered__gt=F("_invoiced"))
+        qs = qs.select_related("provider").order_by("-date_ordered")
 
         pos = list(qs[:50])
         for po in pos:
-            po.pending_to_invoice = (po._ordered or Decimal("0")) - (po._invoiced or Decimal("0"))
+            if invoice.is_credit_note:
+                po.pending_to_invoice = po._invoiced or Decimal("0")
+            else:
+                po.pending_to_invoice = (po._ordered or Decimal("0")) - (po._invoiced or Decimal("0"))
 
         target = cls._invoice_base(invoice)
         if target is not None:
+            # abs() so a credit note's negative base compares against PO totals.
+            target = abs(target)
             pos.sort(key=lambda po: abs(cls._money_amount(po.total_amount) - target))
         return pos[: cls.MAX_CANDIDATES]
 
@@ -106,7 +113,7 @@ class POInvoiceMatchService:
                 result.append(inv)
 
         target = cls._money_amount(po.total_amount)
-        result.sort(key=lambda inv: abs((cls._invoice_base(inv) or target) - target))
+        result.sort(key=lambda inv: abs(abs(cls._invoice_base(inv) or target) - target))
         return result[: cls.MAX_CANDIDATES]
 
     # ------------------------------------------------------------------
@@ -123,10 +130,14 @@ class POInvoiceMatchService:
         return out
 
     @staticmethod
-    def po_items_with_pending(po):
-        """Returns [(PurchaseOrderItem, pending_invoice_quantity)]."""
+    def po_items_with_pending(po, for_credit=False):
+        """
+        Returns [(PurchaseOrderItem, pending_invoice_quantity)].
+        For credit notes the consumable pool is what has already been invoiced
+        (the creditable quantity), not what remains to invoice.
+        """
         return [
-            (pi, pi.pending_invoice_quantity)
+            (pi, pi.invoiced_quantity if for_credit else pi.pending_invoice_quantity)
             for pi in po.items.select_related("inventory_item").prefetch_related(
                 "invoice_allocations__invoice_item__invoice"
             )
@@ -144,7 +155,7 @@ class POInvoiceMatchService:
         ]
         targets = [
             (pi, pending, cls._po_item_text(pi), pi.unit_price)
-            for pi, pending in cls.po_items_with_pending(po)
+            for pi, pending in cls.po_items_with_pending(po, for_credit=invoice.is_credit_note)
         ]
         return cls._suggest(sources, targets)
 
@@ -156,7 +167,7 @@ class POInvoiceMatchService:
         """
         sources = [
             (pi, pending, cls._po_item_text(pi), pi.unit_price)
-            for pi, pending in cls.po_items_with_pending(po)
+            for pi, pending in cls.po_items_with_pending(po, for_credit=invoice.is_credit_note)
         ]
         targets = [
             (item, remaining, item.description, item.unit_price)
@@ -269,7 +280,8 @@ class POInvoiceMatchService:
         score = len(_tokens(source_text) & _tokens(target_text))
         sp = cls._money_amount(source_price)
         tp = cls._money_amount(target_price)
-        if sp is not None and tp is not None and sp == tp:
+        # abs() so credit-note lines (negative unit price) match PO prices.
+        if sp is not None and tp is not None and abs(sp) == abs(tp):
             score += 3
         return score
 

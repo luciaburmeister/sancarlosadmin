@@ -57,6 +57,10 @@ class InvoicePaymentStatus(models.TextChoices):
     PARTIAL = "partial", _("Partial")
     PAID = "paid", _("Paid")
 
+class InvoiceDocumentType(models.TextChoices):
+    INVOICE = "invoice", _("Invoice")
+    CREDIT_NOTE = "credit_note", _("Credit Note")
+
 def invoice_file_path(instance, filename):
     """
     Determines the path where the invoice file will be stored.
@@ -115,6 +119,26 @@ class Invoice(Timestampable, Payable):
         choices=InvoicePaymentStatus.choices,
         default=InvoicePaymentStatus.UNPAID,
         verbose_name=_("Payment Status"),
+    )
+
+    document_type = models.CharField(
+        max_length=20,
+        choices=InvoiceDocumentType.choices,
+        default=InvoiceDocumentType.INVOICE,
+        db_index=True,
+        verbose_name=_("Document Type"),
+        help_text=_("Credit notes reverse invoiced quantities when matched against purchase orders."),
+    )
+
+    rectifies = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="credit_notes",
+        limit_choices_to={"document_type": InvoiceDocumentType.INVOICE},
+        verbose_name=_("Rectifies"),
+        help_text=_("Original invoice this credit note rectifies."),
     )
 
     # Stores the path to the file, actual file saved locally
@@ -241,8 +265,10 @@ class Invoice(Timestampable, Payable):
     def __str__(self):
         return f"{self.invoice_number} - {self.provider}"
 
-        
-    
+    @property
+    def is_credit_note(self):
+        return self.document_type == InvoiceDocumentType.CREDIT_NOTE
+
     def recalculate_totals(self, save=True):
         """
         Recalculates the total amount by summing up items and applying taxes sequentially.
@@ -352,9 +378,18 @@ class Invoice(Timestampable, Payable):
             or 0
         )
 
-        if total_applied <= 0:
+        total = self.total_amount.amount if self.total_amount else 0
+        if total < 0:
+            # Credit note: settled by refunds/offsets applied as negative allocations
+            if total_applied <= total:
+                new_status = InvoicePaymentStatus.PAID
+            elif total_applied < 0:
+                new_status = InvoicePaymentStatus.PARTIAL
+            else:
+                new_status = InvoicePaymentStatus.UNPAID
+        elif total_applied <= 0:
             new_status = InvoicePaymentStatus.UNPAID
-        elif self.total_amount and total_applied >= self.total_amount.amount:
+        elif self.total_amount and total_applied >= total:
             new_status = InvoicePaymentStatus.PAID
         else:
             new_status = InvoicePaymentStatus.PARTIAL
@@ -1247,18 +1282,36 @@ class InvoicePOAllocation(Timestampable):
             errors["po_item"] = _("The purchase order belongs to a different company than the invoice.")
 
         if self.quantity is not None and self.quantity > 0:
-            already_allocated = (
+            # Net invoiced on this PO line: normal allocations add, credit-note
+            # allocations subtract (they reverse previously invoiced quantity).
+            net_allocated = (
                 InvoicePOAllocation.objects.filter(po_item_id=self.po_item_id)
                 .exclude(pk=self.pk)
-                .aggregate(total=Sum("quantity"))["total"]
+                .aggregate(
+                    total=Sum(
+                        models.Case(
+                            models.When(invoice__document_type=InvoiceDocumentType.CREDIT_NOTE, then=-models.F("quantity")),
+                            default=models.F("quantity"),
+                            output_field=models.DecimalField(max_digits=10, decimal_places=3),
+                        )
+                    )
+                )["total"]
                 or Decimal("0")
             )
-            if already_allocated + self.quantity > self.po_item.quantity:
+            if invoice.is_credit_note:
+                if self.quantity > net_allocated:
+                    errors["quantity"] = _(
+                        "Cannot credit %(qty)s: only %(allocated)s has been invoiced on this PO line."
+                    ) % {
+                        "qty": self.quantity,
+                        "allocated": net_allocated,
+                    }
+            elif net_allocated + self.quantity > self.po_item.quantity:
                 errors["quantity"] = _(
                     "Cannot allocate %(qty)s: %(allocated)s of %(ordered)s already invoiced on this PO line."
                 ) % {
                     "qty": self.quantity,
-                    "allocated": already_allocated,
+                    "allocated": net_allocated,
                     "ordered": self.po_item.quantity,
                 }
 

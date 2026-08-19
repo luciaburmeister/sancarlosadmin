@@ -144,6 +144,7 @@ class InvoiceResource(resources.ModelResource):
             'base_iva_3',
             'iva_3',
             'retencion',
+            'document_type',
             'confirmation_status',
             'payment_status',
             'last_payment_date',

@@ -56,11 +56,12 @@ class AssetMapTableView(UnfoldModelAdminViewMixin, TemplateView):
             dynamic_field_specs=options["dynamic_filters"],
         )
 
-        zone_ids, project_file_ids, search, dynamic_filters = [], [], None, {}
+        zone_ids, project_file_ids, search, dynamic_filters, sort = [], [], None, {}, None
         if filter_form.is_valid():
             zone_ids = filter_form.cleaned_data.get("zone") or []
             project_file_ids = filter_form.cleaned_data.get("expediente") or []
             search = (filter_form.cleaned_data.get("q") or "").strip() or None
+            sort = filter_form.cleaned_data.get("sort") or None
             dynamic_filters = {
                 spec["key"]: filter_form.cleaned_data.get(f"df_{spec['key']}") or []
                 for spec in options["dynamic_filters"]
@@ -72,6 +73,7 @@ class AssetMapTableView(UnfoldModelAdminViewMixin, TemplateView):
             project_file_ids=project_file_ids,
             search=search,
             dynamic_filters=dynamic_filters,
+            sort=sort,
         )
 
         ctx.update({

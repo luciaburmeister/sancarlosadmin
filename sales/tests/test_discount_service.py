@@ -328,3 +328,64 @@ class TestMixedDiscounts(_DiscountPipelineBase):
         levels = [e["level"] for e in quote.discount_breakdown]
         self.assertIn("line_item", levels)
         self.assertIn("basket", levels)
+
+
+class TestLineItemsBasketDiscounts(_DiscountPipelineBase):
+    """LINE_ITEMS_BASKET rules apply only to the line items subtotal, excluding configurations."""
+
+    def _make_config(self, quote, subtotal):
+        return Configuration.objects.create(
+            company=self.company,
+            client=quote.client,
+            quote=quote,
+            product=self.product,
+            name=f"Config {subtotal}",
+            subtotal_price=subtotal,
+            total_price=subtotal,
+        )
+
+    def test_excludes_configurations_from_base(self):
+        """A 10% line-items-basket rule discounts only the inventory item subtotal,
+        leaving the configuration subtotal untouched."""
+        quote = self._make_quote()
+        self._make_inv_item(quote, Decimal("200.00"), Decimal("1"))
+        self._make_config(quote, Decimal("300.00"))
+
+        self._make_policy(
+            [{"name": "10% line items basket", "percentage": 10, "level": DiscountLevel.LINE_ITEMS_BASKET}],
+            assign_to_quote=quote,
+        )
+
+        quote.recalc_totals()
+        quote.refresh_from_db()
+
+        # Overall subtotal is unaffected: 200 (items) + 300 (config) = 500
+        self.assertEqual(quote.subtotal_price.amount, Decimal("500.00"))
+        # Discount is 10% of the 200 item subtotal only, not the 500 overall subtotal
+        self.assertEqual(quote.discount_amount.amount, Decimal("20.00"))
+        self.assertEqual(quote.discounted_subtotal.amount, Decimal("480.00"))
+
+        levels = [e["level"] for e in quote.discount_breakdown]
+        self.assertIn("line_items_basket", levels)
+
+    def test_combines_with_basket_level(self):
+        """LINE_ITEMS_BASKET and BASKET discounts both apply and add up."""
+        quote = self._make_quote()
+        self._make_inv_item(quote, Decimal("200.00"), Decimal("1"))
+        self._make_config(quote, Decimal("300.00"))
+
+        self._make_policy(
+            [
+                {"name": "10% line items basket", "percentage": 10, "level": DiscountLevel.LINE_ITEMS_BASKET, "order": 0},
+                {"name": "5% basket", "percentage": 5, "level": DiscountLevel.BASKET, "order": 1},
+            ],
+            assign_to_quote=quote,
+        )
+
+        quote.recalc_totals()
+        quote.refresh_from_db()
+
+        # line_items_basket: 10% of 200 = 20.00
+        # basket: 5% of the overall 500 subtotal = 25.00 (independent base, as with existing basket rules)
+        self.assertEqual(quote.discount_amount.amount, Decimal("45.00"))
+        self.assertEqual(quote.discounted_subtotal.amount, Decimal("455.00"))

@@ -31,8 +31,7 @@ CONDITIONAL_FIELDS = {
     )
     for field_name in _CONDITIONAL_FIELD_NAMES
 }
-# Not in SERVICE_TYPE_FIELDS (that dict is shared with
-# AssetPlanningRequestDraft, which has none of these fields at all).
+# Not in SERVICE_TYPE_FIELDS — shared with AssetPlanningRequestDraft, which lacks these fields.
 CONDITIONAL_FIELDS["estimated_duration"] = f"service_type != '{SERVICE_TYPE_MAQUINISTAS}'"
 CONDITIONAL_FIELDS["machinist_moved"] = f"service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}'"
 CONDITIONAL_FIELDS["moved_employees"] = (

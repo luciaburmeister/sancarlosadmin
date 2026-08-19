@@ -429,9 +429,7 @@ class DeliveryStrategy(BaseTransactionStrategy):
             planning.save(update_fields=["status"])
             message = f"Entrega registrada en {destination_zone}"
         else:
-            # Wrong zone: record the real delivery, but the plan isn't done — it
-            # stays as-is (still in the driver's queue) until delivered to the
-            # right zone, or explicitly abandoned via "No puedo hacer más".
+            # Wrong zone: plan stays pending until delivered correctly or abandoned.
             message = (
                 f"Entrega registrada en {destination_zone}, pero no es la zona planificada. "
                 "Debes entregarla en la zona correcta."
@@ -869,8 +867,7 @@ class DeliveryCheckView(APIView):
                         latitude, longitude, asset.company, zone_type=WorkingZone.ZoneType.VERTEDERO
                     )
                 elif action == "dejar":
-                    # Only almacenes from the geo search — drivers deliver to an almacen
-                    # OR to the specific destination defined in their planning.
+                    # Geo search only for almacenes; planning destination is added separately.
                     nearby_zones = find_zones_within_radius(
                         latitude, longitude, asset.company, zone_type=WorkingZone.ZoneType.ALMACEN
                     )

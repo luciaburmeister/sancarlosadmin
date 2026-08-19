@@ -594,8 +594,7 @@ class PlanningType(models.TextChoices):
     NONE = "none", _("Not Planned")
 
 
-# Planning types that appear in the driver's daily task queue (GET /plannings/next/, abandon).
-# Add new field-task types here when supporting additional workflows or companies.
+# Planning types in the driver's daily task queue (GET /plannings/next/, abandon).
 DRIVER_TASK_PLANNING_TYPES = [PlanningType.CUBA, PlanningType.PORTE]
 
 
@@ -970,10 +969,8 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
     # Set once the request is approved.
     resulting_planning = models.OneToOneField(AssetPlanning, on_delete=models.SET_NULL, null=True, blank=True, related_name="source_request", verbose_name=_("Asset Planning"))
 
-    # Only used by service types with no AssetPlanning at all (e.g. Machinist
-    # Movement — see apply_machinist_zone_change()): when the zone change was
-    # actually applied to moved_employees, immediately on approval or later
-    # by apply_due_machinist_movements() if needed_date was in the future.
+    # No-AssetPlanning types only (e.g. Machinist Movement, see
+    # apply_machinist_zone_change()): when the zone change actually applied.
     zone_sync_applied_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Zone Sync Applied At"))
 
     history = HistoricalRecords()

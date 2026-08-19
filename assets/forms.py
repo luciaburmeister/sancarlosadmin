@@ -242,9 +242,7 @@ class AssetPlanningRequestForm(forms.ModelForm):
 
     def clean(self):
         cleaned_data = super().clean()
-        # The only service type with no AssetPlanning at all — nothing gets
-        # scheduled/routed, so there's no job length to estimate. Every other
-        # service type keeps estimated_duration required as declared above.
+        # No AssetPlanning for this type, so no job length to estimate.
         if cleaned_data.get("service_type") == ServiceType.MOVIMIENTO_MAQUINISTAS:
             self.errors.pop("estimated_duration", None)
             cleaned_data["estimated_duration"] = None

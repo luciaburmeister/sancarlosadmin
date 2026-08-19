@@ -854,6 +854,14 @@ class AssetTransactionView(APIView):
 
 
 class DeliveryCheckView(APIView):
+    """Zones the driver can pick from for a cuba action (recoger/dejar/verteo) at their
+    current GPS position. Always returns the candidate list, even a single match — the
+    driver confirms explicitly every time rather than having one silently auto-picked.
+
+    For "dejar" specifically: the geo search only covers almacenes. The plan's own
+    destination (an obra) is added on top, but only when the driver is actually near
+    it — never other, unrelated obras. When it's too far, destination_too_far/
+    destination_zone_name tell the client to say so instead of just omitting it."""
     permission_classes = [IsAuthenticated]
 
     def get(self, request, asset_id):
@@ -864,10 +872,10 @@ class DeliveryCheckView(APIView):
             asset = Asset.objects.select_related("current_working_zone").get(id=asset_id, company=employee.company)
         except Asset.DoesNotExist:
             return JsonResponse({"error": "Asset not found"}, status=404)
-        multiple_zones = False
         zones_data = []
-        detected_zone_id = None
         nearby_zones = []
+        destination_too_far = False
+        destination_zone_name = None
         lat_param = request.query_params.get("lat")
         lon_param = request.query_params.get("lon")
         action = request.query_params.get("action", "")
@@ -897,10 +905,11 @@ class DeliveryCheckView(APIView):
                                 if dz_lat is not None:
                                     dist = haversine_distance(latitude, longitude, dz_lat, dz_lon)
                                     if dist <= MAX_ZONE_RADIUS_M:
-                                        already_in = any(z.id == dz.id for z, _ in nearby_zones)
-                                        if not already_in:
-                                            nearby_zones.append((dz, dist))
+                                        nearby_zones.append((dz, dist))
                                         planning_dest_zone_id = dz.id
+                                    else:
+                                        destination_too_far = True
+                                        destination_zone_name = str(dz)
                         except (ValueError, TypeError):
                             pass
                 else:
@@ -908,39 +917,34 @@ class DeliveryCheckView(APIView):
                         latitude, longitude, asset.company,
                         zone_types=[WorkingZone.ZoneType.OBRA, WorkingZone.ZoneType.ALMACEN]
                     )
-                if len(nearby_zones) > 1:
-                    multiple_zones = True
-                    zones_data = [
-                        {
-                            "id": z.id,
-                            "name": str(z),
-                            "zone_type": z.zone_type,
-                            "is_planning_destination": z.id == planning_dest_zone_id,
-                        }
-                        for z, _ in nearby_zones
-                    ]
-                elif len(nearby_zones) == 1:
-                    detected_zone_id = nearby_zones[0][0].id
-                elif len(nearby_zones) == 0 and action == "verteo":
-                    return JsonResponse({"can_deliver": False, "verteo_required": False, "is_almacen": False, "multiple_zones": False, "not_near_vertedero": True, "at_vertedero": False})
-                elif len(nearby_zones) == 0 and action == "dejar":
+                if len(nearby_zones) == 0 and action == "verteo":
+                    return JsonResponse({"can_deliver": False, "verteo_required": False, "is_almacen": False, "zones": [], "not_near_vertedero": True, "at_vertedero": False})
+                if len(nearby_zones) == 0 and action == "dejar":
                     vertedero_zones = find_zones_within_radius(latitude, longitude, asset.company, zone_type=WorkingZone.ZoneType.VERTEDERO)
                     if len(vertedero_zones) > 0:
-                        return JsonResponse({"can_deliver": False, "verteo_required": False, "is_almacen": False, "multiple_zones": False, "not_near_vertedero": False, "at_vertedero": True})
+                        return JsonResponse({"can_deliver": False, "verteo_required": False, "is_almacen": False, "zones": [], "not_near_vertedero": False, "at_vertedero": True})
+                zones_data = [
+                    {
+                        "id": z.id,
+                        "name": str(z),
+                        "zone_type": z.zone_type,
+                        "is_planning_destination": z.id == planning_dest_zone_id,
+                    }
+                    for z, _ in nearby_zones
+                ]
             except (ValueError, TypeError):
                 pass
         if lat_param is not None and lon_param is not None:
-            is_almacen = nearby_zones[0][0].zone_type == WorkingZone.ZoneType.ALMACEN if len(nearby_zones) == 1 else False
+            is_almacen = len(nearby_zones) == 1 and nearby_zones[0][0].zone_type == WorkingZone.ZoneType.ALMACEN
         else:
             is_almacen = asset.current_working_zone is not None and asset.current_working_zone.zone_type == WorkingZone.ZoneType.ALMACEN
         verteo_required = asset.verteo_pending_transaction is not None
         can_deliver = not verteo_required or is_almacen
         response_data = {"verteo_required": verteo_required, "is_almacen": is_almacen, "can_deliver": can_deliver, "not_near_vertedero": False, "at_vertedero": False}
         if lat_param is not None and lon_param is not None:
-            response_data["multiple_zones"] = multiple_zones
-            response_data["detected_zone_id"] = detected_zone_id
-            if multiple_zones:
-                response_data["zones"] = zones_data
+            response_data["zones"] = zones_data
+            response_data["destination_too_far"] = destination_too_far
+            response_data["destination_zone_name"] = destination_zone_name
         return JsonResponse(response_data)
 
 

@@ -200,7 +200,11 @@ class AssetAssignView(APIView):
     """Driver self-assignment via QR scan — scanning a cuba is the claim: it always
     hands the asset AND its today's planning to the scanning driver, taking it from
     whoever had it before if needed. There's no manual dispatch assignment to
-    conflict with, so the physical scan is treated as ground truth."""
+    conflict with, so the physical scan is treated as ground truth.
+
+    Cubas aren't required to be pre-pinned to a plan — that's the point of scanning:
+    if this driver has their own pending cuba plan today with no asset picked yet,
+    the scanned cuba fills it in, same as BaseTransactionStrategy._require_planning."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request, asset_id):
@@ -215,11 +219,21 @@ class AssetAssignView(APIView):
         if asset.company != employee.company:
             return JsonResponse({"error": "Este cubo no pertenece a tu empresa"}, status=403)
 
-        planning = AssetPlanning.objects.filter(
-            asset=asset, company=asset.company, planning_type=PlanningType.CUBA,
+        today = timezone.now().date()
+        base_qs = AssetPlanning.objects.filter(
+            company=asset.company, planning_type=PlanningType.CUBA,
             status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
-            scheduled_date=timezone.now().date(),
-        ).order_by("scheduled_time", "route_order", "pk").first()
+            scheduled_date=today,
+        )
+        planning = base_qs.filter(asset=asset).order_by("scheduled_time", "route_order", "pk").first()
+        if planning is None:
+            unassigned = base_qs.filter(
+                asset__isnull=True, assigned_to=employee,
+            ).order_by("scheduled_time", "route_order", "pk").first()
+            if unassigned is not None:
+                unassigned.asset = asset
+                unassigned.save(update_fields=["asset"])
+                planning = unassigned
         if planning is None:
             return JsonResponse({"error": "No hay ningún plan pendiente hoy para esta cuba."}, status=400)
 

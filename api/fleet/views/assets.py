@@ -7,7 +7,7 @@ from datetime import datetime
 import qrcode
 from company.models import WorkingZone, WorkingZoneAuthorization
 from django.core.files.base import ContentFile
-from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType, AssignmentOrigin
+from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType
 from core.tasks import send_asset_transaction_email_task
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -126,6 +126,14 @@ def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
     else:
         vas_a_verter = False
 
+    # Llena/vacía as last reported, at either a recogida or a dejada — pre-fills the
+    # next recogida form.
+    last_state_tx = AssetTransaction.objects.filter(
+        asset=asset,
+        transaction_type__in=[TransactionTypeChoices.MOVEMENT, TransactionTypeChoices.DELIVERY],
+    ).order_by("-date").first()
+    last_cuba_estado = last_state_tx.data.get("cubaEstado") or None if last_state_tx else None
+
     return {
         "id": asset.id,
         "code": asset.name,
@@ -133,6 +141,7 @@ def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
         "status": asset.current_transaction_status(last_tx),
         "asset_receipt": asset.has_pending_receipt,
         "vas_a_verter": vas_a_verter,
+        "last_cuba_estado": last_cuba_estado,
         "last_location": str(zone) if zone else None,
         "last_updated": last_tx.date.strftime("%d/%m/%Y %H:%M") if last_tx else None,
         "zone_address": f"{zone.street_address}, {zone.city}, {zone.postal_code}" if zone else None,
@@ -197,14 +206,10 @@ class AssetDetailView(APIView):
 
 
 class AssetAssignView(APIView):
-    """Driver self-assignment via QR scan — scanning a cuba is the claim: it always
-    hands the asset AND its today's planning to the scanning driver, taking it from
-    whoever had it before if needed. There's no manual dispatch assignment to
-    conflict with, so the physical scan is treated as ground truth.
-
-    Cubas aren't required to be pre-pinned to a plan — that's the point of scanning:
-    if this driver has their own pending cuba plan today with no asset picked yet,
-    the scanned cuba fills it in, same as BaseTransactionStrategy._require_planning."""
+    """Driver self-assignment via QR scan — whatever cuba gets scanned is what fulfills
+    this driver's own pending cuba plan for today, no other condition attached. Not
+    checking whether the scanned asset already had some other plan is deliberate:
+    dispatch data isn't trusted enough to let it block a driver mid-pickup."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request, asset_id):
@@ -220,29 +225,18 @@ class AssetAssignView(APIView):
             return JsonResponse({"error": "Este cubo no pertenece a tu empresa"}, status=403)
 
         today = timezone.now().date()
-        base_qs = AssetPlanning.objects.filter(
+        planning = AssetPlanning.objects.filter(
             company=asset.company, planning_type=PlanningType.CUBA,
             status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
-            scheduled_date=today,
-        )
-        planning = base_qs.filter(asset=asset).order_by("scheduled_time", "route_order", "pk").first()
-        if planning is None:
-            unassigned = base_qs.filter(
-                asset__isnull=True, assigned_to=employee,
-            ).order_by("scheduled_time", "route_order", "pk").first()
-            if unassigned is not None:
-                unassigned.asset = asset
-                unassigned.save(update_fields=["asset"])
-                planning = unassigned
+            scheduled_date=today, assigned_to=employee,
+        ).order_by("scheduled_time", "route_order", "pk").first()
         if planning is None:
             return JsonResponse({"error": "No hay ningún plan pendiente hoy para esta cuba."}, status=400)
+        planning.asset = asset
+        planning.save(update_fields=["asset"])
 
         asset.assigned_to = employee
         asset.save(update_fields=["assigned_to"])
-        if planning.assigned_to_id != employee.id:
-            planning.assigned_to = employee
-            planning.assignment_origin = AssignmentOrigin.MANUAL
-            planning.save(update_fields=["assigned_to", "assignment_origin"])
         return JsonResponse({
             "success": True,
             "message": f"Cubo {asset.name} asignado a {employee.full_name}",

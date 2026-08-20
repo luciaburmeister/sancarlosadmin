@@ -6,6 +6,7 @@ SERVICE_TYPE_MATERIAL_PROPIO = "porte_material_propio"
 SERVICE_TYPE_GRUA = "servicio_grua"
 SERVICE_TYPE_CUBA = "movimiento_cuba"
 SERVICE_TYPE_MAQUINISTAS = "movimiento_maquinistas"
+SERVICE_TYPE_AUTOPORTE_MAQUINA = "autoporte_maquina"
 
 # Backend planning_type ("cuba"/"porte"/"none", consumed by AssetPlanning and
 # the mobile API) derived from the requester-facing service_type. "none"
@@ -17,6 +18,7 @@ SERVICE_TYPE_PLANNING_TYPE = {
     SERVICE_TYPE_GRUA: "porte",
     SERVICE_TYPE_CUBA: "cuba",
     SERVICE_TYPE_MAQUINISTAS: "none",
+    SERVICE_TYPE_AUTOPORTE_MAQUINA: "none",
 }
 
 # Fields relevant per service_type. Drives AssetPlanningRequest.clean(), the admin
@@ -28,7 +30,10 @@ SERVICE_TYPE_FIELDS = {
     SERVICE_TYPE_MATERIAL_PROPIO: {"from_zone", "to_zone", "load_description", "suggested_trucks"},
     SERVICE_TYPE_GRUA: {"to_zone", "suggested_trucks"},
     SERVICE_TYPE_CUBA: {"to_zone", "cuba_operation_type", "cuba_size", "suggested_trucks"},
-    # No AssetPlanning for this type, so just from/to zone — moved_employees/
+    # No AssetPlanning for these two, so no route endpoints — moved_employees/
     # estimated_duration are handled separately (absent from the draft model).
     SERVICE_TYPE_MAQUINISTAS: {"from_zone", "to_zone"},
+    # Self-moving machine, no truck/dispatch — only the destination matters,
+    # same shape as SERVICE_TYPE_GRUA minus the truck.
+    SERVICE_TYPE_AUTOPORTE_MAQUINA: {"to_zone", "asset"},
 }

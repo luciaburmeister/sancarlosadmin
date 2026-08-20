@@ -75,6 +75,15 @@ class AssetScheduleViewTests(TestCase):
         self.assertNotIn("project_file", blocks[0])
         self.assertNotIn("expediente", blocks[0])
 
+    def test_schedule_legend_includes_every_service_type_color(self):
+        """Regression guard: the legend indexes SERVICE_TYPE_COLORS[key] directly
+        (not .get()) for every ServiceType member — a new service type without a
+        color entry would 500 this page."""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        legend_keys = {item["key"] for item in response.context["service_type_legend"]}
+        self.assertIn("autoporte_maquina", legend_keys)
+
     def test_block_includes_planning_details(self):
         self.planning.load_description = "Escombros mixtos"
         self.planning.notes = "Llamar al encargado"

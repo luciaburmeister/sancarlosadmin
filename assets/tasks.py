@@ -122,24 +122,21 @@ def send_asset_planning_draft_created_notification(self, draft_id: int):
 
 
 @shared_task
-def apply_due_machinist_movements():
-    """Daily beat: apply approved Machinist Movement requests whose needed_date
-    has arrived — covers requests approved ahead of their effective date (see
-    AssetPlanningRequestAdmin._approve_machinist_movement, which applies
-    same-day approvals immediately instead of waiting for this task)."""
+def apply_due_zone_sync_requests():
+    """Beat: apply approved planning_type == NONE requests (Machinist Movement,
+    Machine Self-Transport) whose needed_date/needed_time has arrived — covers
+    requests approved ahead of their effective moment (see
+    AssetPlanningRequestAdmin._approve_zone_sync_request, which applies
+    already-due approvals immediately instead of waiting for this task)."""
     from django.utils import timezone
 
-    from assets.constants import SERVICE_TYPE_MAQUINISTAS
-    from assets.models import AssetPlanningRequest, AssetPlanningRequestStatus
+    from assets.models import AssetPlanningRequest, AssetPlanningRequestStatus, PlanningType
 
-    due_requests = AssetPlanningRequest.objects.filter(
-        service_type=SERVICE_TYPE_MAQUINISTAS,
+    candidates = AssetPlanningRequest.objects.filter(
+        planning_type=PlanningType.NONE,
         status=AssetPlanningRequestStatus.APPROVED,
         needed_date__lte=timezone.localdate(),
         zone_sync_applied_at__isnull=True,
     )
-    applied_ids = []
-    for req in due_requests:
-        req.apply_machinist_zone_change()
-        applied_ids.append(req.pk)
+    applied_ids = [req.pk for req in candidates if req.is_zone_sync_due and req.apply_zone_change()]
     return {"status": "ok", "applied_request_ids": applied_ids}

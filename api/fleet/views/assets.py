@@ -108,23 +108,7 @@ def get_asset_receipt(asset):
 
 
 def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
-    # vas_a_verter: calculated inline — no need for a separate API helper
-    last_movement = AssetTransaction.objects.filter(
-        asset=asset,
-        transaction_type=TransactionTypeChoices.MOVEMENT,
-    ).order_by("-date").first()
-    if (
-        last_movement is not None
-        and last_movement.data.get("vasAVerter", "") == "Sí"
-        and not AssetTransaction.objects.filter(
-            asset=asset,
-            transaction_type=TransactionTypeChoices.RECEIPT,
-            date__gt=last_movement.date,
-        ).exists()
-    ):
-        vas_a_verter = True
-    else:
-        vas_a_verter = False
+    vas_a_verter = asset.verteo_pending_transaction is not None
 
     # Llena/vacía as last reported, at either a recogida or a dejada — pre-fills the
     # next recogida form.
@@ -144,7 +128,7 @@ def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
         "last_cuba_estado": last_cuba_estado,
         "last_location": str(zone) if zone else None,
         "last_updated": last_tx.date.strftime("%d/%m/%Y %H:%M") if last_tx else None,
-        "zone_address": f"{zone.street_address}, {zone.city}, {zone.postal_code}" if zone else None,
+        "zone_address": zone.full_address if zone else None,
         "zone_lat": zone_coords[0],
         "zone_lon": zone_coords[1],
         "cliente": asset.client.name if asset.client else "",
@@ -312,7 +296,9 @@ class BaseTransactionStrategy:
             id=planning_id,
             company=self.asset.company,
             assigned_to=self.employee,
+            planning_type=PlanningType.CUBA,
             status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
+            scheduled_date=timezone.now().date(),
         )
         # First try: planning explicitly pre-assigned to this asset
         planning = base_qs.filter(asset=self.asset).first()

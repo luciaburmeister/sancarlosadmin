@@ -260,6 +260,11 @@ class Asset(CompanyOwnedModel):
             return None
         return last_movement
 
+    @property
+    def matricula(self):
+        identifier = self.identifiers.filter(label__iexact="MATRICULA").first()
+        return identifier.value if identifier else None
+
     class Meta:
         verbose_name = _("Asset")
         verbose_name_plural = _("Assets")

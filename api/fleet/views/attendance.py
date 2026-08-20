@@ -2,7 +2,7 @@ import base64
 import json
 from decimal import Decimal
 from datetime import datetime
-from assets.models import Asset, AssetIdentifier, AssetPlanning, AssetTransaction, PlanningStatus, PlanningType, TransactionTypeChoices, DRIVER_TASK_PLANNING_TYPES
+from assets.models import Asset, AssetPlanning, AssetTransaction, PlanningStatus, PlanningType, TransactionTypeChoices, DRIVER_TASK_PLANNING_TYPES
 from company.models import WorkAttendance
 from django.core.files.base import ContentFile
 from django.http import JsonResponse
@@ -95,30 +95,23 @@ class AttendanceStatusView(APIView):
         return JsonResponse({"is_clocked_in": is_clocked_in})
 
 
-def _get_transport_matricula(transport_asset):
-    if not transport_asset:
-        return None
-    identifier = AssetIdentifier.objects.filter(asset=transport_asset, label__iexact="MATRICULA").first()
-    return identifier.value if identifier else None
-
-
 def _serialize_cuba_planning(p):
     from api.fleet.views.assets import get_zone_coordinates
     origin_lat, origin_lon = get_zone_coordinates(p.origin) if p.origin else (None, None)
     dest_lat, dest_lon = get_zone_coordinates(p.destination) if p.destination else (None, None)
-    stops = [{"zone": s.zone.name, "address": f"{s.zone.street_address}, {s.zone.city}, {s.zone.postal_code}", "sequence": s.sequence} for s in p.stops.all()]
+    stops = [{"zone": s.zone.name, "address": s.zone.full_address, "sequence": s.sequence} for s in p.stops.all()]
     return {
         "id": p.id, "planning_type": p.planning_type, "asset_id": p.asset.id if p.asset else 0,
         "asset_name": p.asset.name if p.asset else None,
         "origin": p.origin.name if p.origin else None,
-        "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,
+        "origin_address": p.origin.full_address if p.origin else None,
         "origin_lat": origin_lat, "origin_lon": origin_lon,
         "destination": p.destination.name if p.destination else None,
-        "destination_address": f"{p.destination.street_address}, {p.destination.city}, {p.destination.postal_code}" if p.destination else None,
+        "destination_address": p.destination.full_address if p.destination else None,
         "destination_lat": dest_lat, "destination_lon": dest_lon,
         "stops": stops,
         "transport_asset": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
-        "transport_asset_matricula": _get_transport_matricula(p.transport_asset),
+        "transport_asset_matricula": p.transport_asset.matricula if p.transport_asset else None,
         "route_order": p.route_order,
         "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
         "status": p.status,
@@ -144,15 +137,15 @@ def _serialize_porte_planning(p, scannable_asset_id=None):
         "id": p.id, "planning_type": p.planning_type, "asset_id": scannable_asset_id, "asset_name": display_asset.name if display_asset else "",
         "load_description": p.load_description,
         "origin": p.origin.name if p.origin else None,
-        "origin_address": f"{p.origin.street_address}, {p.origin.city}, {p.origin.postal_code}" if p.origin else None,
+        "origin_address": p.origin.full_address if p.origin else None,
         "origin_lat": origin_lat, "origin_lon": origin_lon,
         "destination": p.destination.name if p.destination else None,
-        "destination_address": f"{p.destination.street_address}, {p.destination.city}, {p.destination.postal_code}" if p.destination else None,
+        "destination_address": p.destination.full_address if p.destination else None,
         "destination_lat": dest_lat, "destination_lon": dest_lon,
         "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
         "status": p.status, "notes": p.notes,
         "transport_asset": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
-        "transport_asset_matricula": _get_transport_matricula(p.transport_asset),
+        "transport_asset_matricula": p.transport_asset.matricula if p.transport_asset else None,
         "service_type": p.service_type,
         "service_type_label": p.get_service_type_display() if p.service_type else None,
     }
@@ -389,7 +382,7 @@ class PorteSubmitView(APIView):
                     planning.asset = scanned_asset
                     planning.save(update_fields=["asset"])
                     tx_asset = scanned_asset
-                except Asset.DoesNotExist:
+                except (Asset.DoesNotExist, ValueError):
                     return JsonResponse({"error": "El activo escaneado no pertenece a tu empresa."}, status=400)
         transaction = AssetTransaction.objects.create(
             asset=tx_asset, company=planning.company,

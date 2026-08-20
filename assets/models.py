@@ -245,9 +245,14 @@ class Asset(CompanyOwnedModel):
 
     @property
     def verteo_pending_transaction(self):
-        """The last obra pickup awaiting its verteo (RECEIPT), or None if there isn't one."""
+        """The last pickup awaiting its verteo (RECEIPT), or None if there isn't one.
+
+        Not restricted to pickups from an OBRA — a full cuba can just as
+        legitimately be sitting at an ALMACEN awaiting its trip to the
+        vertedero.
+        """
         last_movement = self.transactions.filter(
-            transaction_type=TransactionTypeChoices.MOVEMENT, from_zone__zone_type=WorkingZone.ZoneType.OBRA,
+            transaction_type=TransactionTypeChoices.MOVEMENT,
         ).order_by("-date").first()
         if last_movement is None:
             return None

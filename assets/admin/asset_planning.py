@@ -17,7 +17,7 @@ from django.contrib import messages
 from company.models import Employee
 from assets.constants import SERVICE_TYPE_MAQUINA_PROPIA
 from assets.forms import EstimatedDurationChoiceField, TimeChoiceField
-from assets.models import Asset, AssetPlanning, AssetPlanningStop, AssetTypeCategory, AssignmentOrigin
+from assets.models import Asset, AssetPlanning, AssetPlanningStop, AssetTransaction, AssetTypeCategory, AssignmentOrigin
 
 
 class AutoAssignBulkForm(BaseDialogForm):
@@ -55,6 +55,23 @@ class AssetPlanningStopInline(TabularInline):
     fields = ("sequence", "zone", "notes")
     autocomplete_fields = ["zone"]
     ordering = ["sequence"]
+
+
+class AssetPlanningTransactionInline(TabularInline):
+    model = AssetTransaction
+    fk_name = "planning"
+    extra = 0
+    tab = True
+    can_delete = False
+    show_change_link = True
+    ordering = ["-date"]
+    fields = ("asset", "transaction_type", "date", "from_zone", "to_zone", "billing_status")
+    readonly_fields = fields
+    verbose_name = _("Transaction")
+    verbose_name_plural = _("Transactions")
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
 class TraceabilityFilter(admin.SimpleListFilter):
@@ -105,9 +122,9 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "asset", "origin", "destination",
         "assigned_to", "transport_asset",
         "scheduled_date", "scheduled_time", "urgency", "show_traceability",
-        "route_order", "status", "service_type", "company",
+        "route_order", "status", "abandoned_stage", "service_type", "company",
     )
-    list_filter = (TraceabilityFilter, "status", "urgency", "service_type", "company", "origin", "destination")
+    list_filter = (TraceabilityFilter, "status", "abandoned_stage", "urgency", "service_type", "company", "origin", "destination")
     search_fields = (
         "asset__name",
         "assigned_to__first_name",
@@ -127,8 +144,11 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "suggested_trucks",
         "moved_employees",
     ]
-    readonly_fields = ["assignment_origin", "computed_end_time_display"]
-    inlines = [AssetPlanningStopInline]
+    readonly_fields = [
+        "assignment_origin", "computed_end_time_display",
+        "abandoned_stage", "abandoned_at", "abandoned_reason", "abandoned_by",
+    ]
+    inlines = [AssetPlanningStopInline, AssetPlanningTransactionInline]
     actions_list = ["auto_assign_action", "optimize_daily_routes_action"]
     actions_row = ["auto_assign_row_action"]
     conditional_fields = CONDITIONAL_FIELDS
@@ -142,6 +162,13 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         (_("Asset"), {
             "fields": (
                 "asset",
+            )
+        }),
+        (_("Abandonment"), {
+            "fields": (
+                ("abandoned_by", "abandoned_at"),
+                "abandoned_reason",
+                "abandoned_stage",
             )
         }),
         (_("Route"), {

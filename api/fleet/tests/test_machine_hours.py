@@ -178,9 +178,12 @@ class MachineHoursStrategyTest(MachineHoursBaseTest):
         )
 
     def _get_tx(self):
+        return self._get_tx_by_planning_id(self.planning.id)
+
+    def _get_tx_by_planning_id(self, planning_id):
         return AssetTransaction.objects.filter(
             transaction_type=TransactionTypeChoices.MACHINE_HOURS,
-            data__planning_id=self.planning.id,
+            data__planning_id=planning_id,
         ).first()
 
     def test_start_creates_transaction(self):
@@ -192,6 +195,16 @@ class MachineHoursStrategyTest(MachineHoursBaseTest):
         self.assertNotIn("machine_end_time", tx.data)
         self.assertEqual(len(tx.data["intervals"]), 1)
         self.assertIsNone(tx.data["intervals"][0]["end"])
+        # The new FK is populated alongside the existing soft data["planning_id"].
+        self.assertEqual(tx.planning_id, self.planning.id)
+
+    def test_start_with_unknown_planning_id_leaves_fk_blank(self):
+        response = self._post("start", extra={"planning_id": 999999})
+        self.assertEqual(response.status_code, 200)
+        tx = self._get_tx_by_planning_id(999999)
+        self.assertIsNotNone(tx)
+        self.assertIsNone(tx.planning_id)
+        self.assertEqual(tx.data["planning_id"], 999999)
 
     def test_start_double_start_rejected(self):
         self._post("start")

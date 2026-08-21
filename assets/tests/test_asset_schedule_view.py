@@ -16,7 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext, override
 
-from assets.models import Asset, AssetPlanning, AssetType, AssetTypeCategory
+from assets.models import Asset, AssetPlanning, AssetType, AssetTypeCategory, PlanningStatus
 from api.fleet.tests.helpers import make_asset_type, make_company, make_employee, make_zone
 
 User = get_user_model()
@@ -64,12 +64,14 @@ class AssetScheduleViewTests(TestCase):
         self.assertEqual(blocks[0]["destination_name"], "Destination")
         self.assertNotIn("route", blocks[0])
         self.assertEqual(blocks[0]["truck"], "Truck 1")
+        self.assertEqual(blocks[0]["truck_id"], self.truck.pk)
         self.assertIn("urgency_label", blocks[0])
         self.assertIn("origin_address", blocks[0])
         self.assertIn("destination_address", blocks[0])
         self.assertIn("load_description", blocks[0])
         self.assertIn("notes", blocks[0])
         self.assertIn("color", blocks[0])
+        self.assertEqual(blocks[0]["status_color"], self.planning.status_color)
         self.assertNotIn("project_file", blocks[0])
         self.assertNotIn("expediente", blocks[0])
 
@@ -153,6 +155,28 @@ class AssetScheduleViewTests(TestCase):
         self.assertEqual(self.planning.assigned_to_id, other_employee.pk)
         self.assertEqual(self.planning.scheduled_date, new_day)
         self.assertEqual(self.planning.scheduled_time, time(9, 0))
+
+    def test_move_reactivates_a_not_completed_planning(self):
+        self.planning.status = PlanningStatus.NOT_COMPLETED
+        self.planning.abandoned_stage = "picked_up_pending_pour"
+        self.planning.abandoned_at = timezone.now()
+        self.planning.save(update_fields=["status", "abandoned_stage", "abandoned_at"])
+        new_day = TODAY + timedelta(days=1)
+
+        response = self.client.post(
+            self.url,
+            data={
+                "action": "move", "id": self.planning.pk,
+                "start": 9 * 60, "end": 10 * 60,
+                "person_id": self.employee.pk, "day": new_day.isoformat(),
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.planning.refresh_from_db()
+        self.assertEqual(self.planning.status, PlanningStatus.PENDING)
+        self.assertEqual(self.planning.abandoned_stage, "")
+        self.assertIsNone(self.planning.abandoned_at)
 
     def test_unassign_clears_driver_truck_and_time(self):
         response = self.client.post(

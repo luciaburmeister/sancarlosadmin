@@ -15,6 +15,8 @@ from django.test import TestCase
 from assets.models import (
     AssetTransaction,
     AssetTransactionReceipt,
+    PlanningStatus,
+    PlanningType,
     TransactionTypeChoices,
 )
 from api.fleet.tests.helpers import (
@@ -24,6 +26,7 @@ from api.fleet.tests.helpers import (
     make_asset_type,
     make_asset,
     make_zone,
+    make_planning,
 )
 
 
@@ -44,6 +47,7 @@ class MovementStrategyTests(TestCase):
             employee=self.employee,
             zone=self.zone,
         )
+        self.planning = make_planning(self.company, asset=self.asset, assigned_to=self.employee)
 
     def _run_movement(self, extra_data=None):
         """Helper that runs MovementStrategy directly with a valid payload."""
@@ -63,6 +67,7 @@ class MovementStrategyTests(TestCase):
             "m3": "6",
             "vertedero": "Vertedero Norte",
             "zone_id": self.zone.id,
+            "planning_id": self.planning.id,
         }
         if extra_data:
             data.update(extra_data)
@@ -124,6 +129,36 @@ class MovementStrategyTests(TestCase):
         self.assertTrue(body["success"])
         self.assertIn("transaction_id", body)
 
+    def test_movement_without_planning_id_is_rejected(self):
+        """Cuba can't operate without a plan — strict mode."""
+        response = self._run_movement(extra_data={"planning_id": None})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", json.loads(response.content))
+        self.assertEqual(AssetTransaction.objects.count(), 0)
+
+    def test_movement_with_someone_elses_planning_id_is_rejected(self):
+        other_user = make_user(username="otherdriver")
+        other_employee = make_employee(self.company, other_user)
+        other_planning = make_planning(self.company, asset=self.asset, assigned_to=other_employee)
+        response = self._run_movement(extra_data={"planning_id": other_planning.id})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(AssetTransaction.objects.count(), 0)
+
+    def test_movement_with_a_porte_planning_id_is_rejected(self):
+        porte_planning = make_planning(
+            self.company, asset=self.asset, assigned_to=self.employee, planning_type=PlanningType.PORTE,
+        )
+        response = self._run_movement(extra_data={"planning_id": porte_planning.id})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(AssetTransaction.objects.count(), 0)
+
+    def test_movement_with_planning_id_links_fk_and_syncs_status(self):
+        self._run_movement()
+        tx = AssetTransaction.objects.first()
+        self.assertEqual(tx.planning_id, self.planning.id)
+        self.planning.refresh_from_db()
+        self.assertEqual(self.planning.status, PlanningStatus.IN_TRANSIT)
+
 
 class DeliveryStrategyTests(TestCase):
     """Tests for DeliveryStrategy — when a driver delivers (deja) a cuba."""
@@ -140,8 +175,9 @@ class DeliveryStrategyTests(TestCase):
             employee=self.employee,
             zone=self.origin_zone,
         )
+        self.planning = make_planning(self.company, asset=self.asset, assigned_to=self.employee)
 
-    def _run_delivery(self):
+    def _run_delivery(self, extra_data=None):
         from api.fleet.views.assets import DeliveryStrategy
 
         data = {
@@ -158,7 +194,10 @@ class DeliveryStrategyTests(TestCase):
             "m3": "6",
             "vertedero": "",
             "zone_id": self.dest_zone.id,
+            "planning_id": self.planning.id,
         }
+        if extra_data:
+            data.update(extra_data)
         strategy = DeliveryStrategy(data, self.asset, self.employee, self.user)
         with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
             return strategy.execute()
@@ -195,6 +234,21 @@ class DeliveryStrategyTests(TestCase):
         self.asset.refresh_from_db()
         self.assertEqual(self.asset.current_working_zone, self.dest_zone)
 
+    def test_delivery_without_planning_id_is_rejected(self):
+        response = self._run_delivery(extra_data={"planning_id": None})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", json.loads(response.content))
+        self.assertEqual(AssetTransaction.objects.count(), 0)
+
+    def test_delivery_with_planning_id_links_fk_and_syncs_status(self):
+        self.planning.status = PlanningStatus.IN_TRANSIT
+        self.planning.save(update_fields=["status"])
+        self._run_delivery()
+        tx = AssetTransaction.objects.first()
+        self.assertEqual(tx.planning_id, self.planning.id)
+        self.planning.refresh_from_db()
+        self.assertEqual(self.planning.status, PlanningStatus.DELIVERED)
+
 
 class ReceiptStrategyTests(TestCase):
     """Tests for ReceiptStrategy — when a driver registers a verteo."""
@@ -217,6 +271,9 @@ class ReceiptStrategyTests(TestCase):
             from_zone=self.zone,
             performed_by=self.employee,
         )
+        self.planning = make_planning(
+            self.company, asset=self.asset, assigned_to=self.employee, status=PlanningStatus.IN_TRANSIT,
+        )
 
     def _run_receipt(self, extra_data=None):
         from api.fleet.views.assets import ReceiptStrategy
@@ -230,6 +287,7 @@ class ReceiptStrategyTests(TestCase):
             "latitude": 40.416775,
             "longitude": -3.703790,
             "zone_id": self.zone.id,
+            "planning_id": self.planning.id,
         }
         if extra_data:
             data.update(extra_data)
@@ -304,3 +362,16 @@ class ReceiptStrategyTests(TestCase):
         body = json.loads(response.content)
         self.assertIn("error", body)
         self.assertEqual(response.status_code, 400)
+
+    def test_receipt_without_planning_id_is_rejected(self):
+        response = self._run_receipt(extra_data={"planning_id": None})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", json.loads(response.content))
+
+    def test_receipt_with_planning_id_links_fk_but_does_not_touch_status(self):
+        """Verteo is a side event — it links to the plan but never changes its status."""
+        self._run_receipt()
+        tx = AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.RECEIPT).first()
+        self.assertEqual(tx.planning_id, self.planning.id)
+        self.planning.refresh_from_db()
+        self.assertEqual(self.planning.status, PlanningStatus.IN_TRANSIT)

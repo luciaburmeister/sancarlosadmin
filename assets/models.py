@@ -20,6 +20,7 @@ from assets.constants import (
     SERVICE_TYPE_MATERIAL_PROPIO,
     SERVICE_TYPE_GRUA,
     SERVICE_TYPE_CUBA,
+    SERVICE_TYPE_MAQUINISTAS,
     SERVICE_TYPE_PLANNING_TYPE,
     SERVICE_TYPE_FIELDS,
 )
@@ -164,6 +165,12 @@ class AssetTypeField(models.Model):
         return f"{self.label} ({self.asset_type.name})"
 
 
+class AssetCurrentStatus(models.TextChoices):
+    AVAILABLE = "AVAILABLE", _("Available")
+    PICKED_UP = "PICKED_UP", _("Picked Up")
+    DELIVERED = "DELIVERED", _("Delivered")
+
+
 class Asset(CompanyOwnedModel):
     asset_type = models.ForeignKey(AssetType, on_delete=models.PROTECT, related_name="assets", verbose_name=_("Asset Type"))
     client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True, related_name="assets", verbose_name=_("Owner/Client"))
@@ -218,6 +225,50 @@ class Asset(CompanyOwnedModel):
         if last_receipt is None:
             return False
         return last_receipt.date > last_movement.date
+
+    def current_transaction_status(self, last_transaction=None) -> str:
+        """AssetCurrentStatus derived from this asset's own transaction history."""
+        if last_transaction is None:
+            last_transaction = self.transactions.order_by("-date").first()
+        if last_transaction is None:
+            return AssetCurrentStatus.AVAILABLE
+        if last_transaction.transaction_type == TransactionTypeChoices.MOVEMENT:
+            return AssetCurrentStatus.PICKED_UP
+        if last_transaction.transaction_type == TransactionTypeChoices.DELIVERY:
+            return AssetCurrentStatus.DELIVERED
+        if last_transaction.transaction_type == TransactionTypeChoices.RECEIPT:
+            prev = self.transactions.filter(
+                date__lt=last_transaction.date,
+            ).exclude(transaction_type=TransactionTypeChoices.RECEIPT).order_by("-date").first()
+            return self.current_transaction_status(prev)
+        return AssetCurrentStatus.AVAILABLE
+
+    @property
+    def verteo_pending_transaction(self):
+        """The last pickup awaiting its verteo (RECEIPT), or None if there isn't one.
+
+        Not restricted to pickups from an OBRA — a full cuba can just as
+        legitimately be sitting at an ALMACEN awaiting its trip to the
+        vertedero.
+        """
+        last_movement = self.transactions.filter(
+            transaction_type=TransactionTypeChoices.MOVEMENT,
+        ).order_by("-date").first()
+        if last_movement is None:
+            return None
+        if last_movement.data.get("vasAVerter", "") != "Sí":
+            return None
+        already_done = self.transactions.filter(
+            transaction_type=TransactionTypeChoices.RECEIPT, date__gt=last_movement.date,
+        ).exists()
+        if already_done:
+            return None
+        return last_movement
+
+    @property
+    def matricula(self):
+        identifier = self.identifiers.filter(label__iexact="MATRICULA").first()
+        return identifier.value if identifier else None
 
     class Meta:
         verbose_name = _("Asset")
@@ -342,6 +393,7 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
     project_file = models.ForeignKey("management.ProjectFile", on_delete=models.SET_NULL, null=True, blank=True, related_name="asset_transactions", verbose_name=_("Project File"))
     performed_by = models.ForeignKey("company.Employee", on_delete=models.SET_NULL, null=True, blank=True, related_name="performed_transactions")
     billing_status = models.CharField(max_length=10, choices=BillingStatus.choices, default=BillingStatus.NONE, db_index=True, verbose_name=_("Billing Status"))
+    planning = models.ForeignKey("assets.AssetPlanning", on_delete=models.SET_NULL, null=True, blank=True, related_name="transactions", verbose_name=_("Planning"))
 
     class Meta:
         verbose_name = _("Asset transaction")
@@ -365,6 +417,33 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
                 name="asset_tx_laborer_end_idx",
             ),
         ]
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        if is_new:
+            self._sync_zones_on_porte_delivery()
+
+    def _sync_zones_on_porte_delivery(self):
+        """An own-machine porte delivery means the machine — and, if the plan
+        says the operator(s) moved with it, those employees too — are now at
+        to_zone. Keeps Asset/Employee.current_working_zone in sync with what
+        actually happened in the field.
+        """
+        if self.transaction_type != TransactionTypeChoices.PORTE_DELIVERY:
+            return
+        if not self.planning_id or not self.to_zone_id:
+            return
+        planning = self.planning
+        if planning.service_type != SERVICE_TYPE_MAQUINA_PROPIA:
+            return
+        if self.asset_id:
+            self.asset.current_working_zone = self.to_zone
+            self.asset.save()
+        if planning.machinist_moved:
+            for employee in planning.moved_employees.all():
+                employee.current_working_zone = self.to_zone
+                employee.save()
 
     def __str__(self):
         return f"{self.get_transaction_type_display()} - {self.asset} ({self.from_zone} -> {self.to_zone})"
@@ -425,12 +504,13 @@ class AssetTransactionReceipt(models.Model):
 
 
 class ServiceType(models.TextChoices):
-    """Maps to a backend planning_type ("cuba"/"porte") via SERVICE_TYPE_PLANNING_TYPE."""
+    """Maps to a backend planning_type ("cuba"/"porte"/"none") via SERVICE_TYPE_PLANNING_TYPE."""
     PORTE_MAQUINA_PROPIA = SERVICE_TYPE_MAQUINA_PROPIA, _("Own Machine Transport")
     PORTE_MATERIAL_EXTERNO = SERVICE_TYPE_MATERIAL_EXTERNO, _("External Material Transport")
     PORTE_MATERIAL_PROPIO = SERVICE_TYPE_MATERIAL_PROPIO, _("Own Material Transport")
     SERVICIO_GRUA = SERVICE_TYPE_GRUA, _("Crane Service")
     MOVIMIENTO_CUBA = SERVICE_TYPE_CUBA, _("Container Movement")
+    MOVIMIENTO_MAQUINISTAS = SERVICE_TYPE_MAQUINISTAS, _("Machinist Movement")
 
 
 class AssetPlanningNotificationRecipient(CompanyOwnedModel, Timestampable):
@@ -487,6 +567,7 @@ SERVICE_TYPE_COLORS = {
     SERVICE_TYPE_MATERIAL_PROPIO: "#14B8A6",
     SERVICE_TYPE_GRUA: "#8B5CF6",
     SERVICE_TYPE_CUBA: "#F59E0B",
+    SERVICE_TYPE_MAQUINISTAS: "#EC4899",
 }
 DEFAULT_SERVICE_TYPE_COLOR = "#64748B"
 URGENCY_COLORS = {
@@ -495,17 +576,50 @@ URGENCY_COLORS = {
     PlanningUrgency.HIGH: "#F59E0B",
     PlanningUrgency.URGENT: "#EF4444",
 }
-
-
 def _default_end_time(start: time) -> time | None:
     """1-hour fallback duration when no end time is set; None if that would cross into the next day."""
     combined = datetime.combine(date_.today(), start) + timedelta(hours=1)
     return combined.time() if combined.date() == date_.today() else None
 
 
+class AbandonedStageChoices(models.TextChoices):
+    NOT_STARTED = "not_started", _("Not picked up")
+    PICKED_UP_PENDING_POUR = "picked_up_pending_pour", _("Picked up, pending pour")
+    PICKED_UP_PENDING_DELIVERY = "picked_up_pending_delivery", _("Picked up, pending delivery")
+    DELIVERED_PENDING_CONFIRMATION = "delivered_pending_confirmation", _("Delivered, pending confirmation")
+
+
+class PlanningStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    IN_TRANSIT = "in_transit", _("In Transit")
+    DELIVERED = "delivered", _("Delivered")
+    CANCELLED = "cancelled", _("Cancelled")
+    NOT_COMPLETED = "not_completed", _("Not Completed")
+
+
+class PlanningType(models.TextChoices):
+    CUBA = "cuba", _("Container Movement")
+    PORTE = "porte", _("Transport")
+    MACHINE_HOURS = "machine_hours", _("Machine Hours")
+    NONE = "none", _("Not Planned")
+
+
+# Planning types in the driver's daily task queue (GET /plannings/next/, abandon).
+DRIVER_TASK_PLANNING_TYPES = [PlanningType.CUBA, PlanningType.PORTE]
+
+
+STATUS_COLORS = {
+    PlanningStatus.PENDING: "#64748B",
+    PlanningStatus.IN_TRANSIT: "#3B82F6",
+    PlanningStatus.DELIVERED: "#10B981",
+    PlanningStatus.CANCELLED: "#94A3B8",
+    PlanningStatus.NOT_COMPLETED: "#EF4444",
+}
+
+
 class AssetPlanning(CompanyOwnedModel, Timestampable):
-    STATUS_CHOICES = [('pending', _('Pending')), ('in_transit', _('In Transit')), ('delivered', _('Delivered')), ('cancelled', _('Cancelled'))]
-    PLANNING_CHOICES = [('cuba', _('Container Movement')), ('porte', _('Transport')), ('machine_hours', _('Machine Hours'))]
+    STATUS_CHOICES = PlanningStatus.choices
+    PLANNING_CHOICES = PlanningType.choices
 
     asset = models.ForeignKey(
         Asset, on_delete=models.PROTECT, null=True, blank=True,
@@ -526,9 +640,9 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         null=True, blank=True, verbose_name=_("Estimated Duration"),
         help_text=_("Expected job length. Added to Scheduled Time to compute the end time."),
     )
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', verbose_name=_("Status"))
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=PlanningStatus.PENDING, verbose_name=_("Status"))
     route_order = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name=_("Route Order"))
-    planning_type = models.CharField(max_length=20, choices=PLANNING_CHOICES, default='cuba', verbose_name=_("Planning Type"))
+    planning_type = models.CharField(max_length=20, choices=PLANNING_CHOICES, default=PlanningType.CUBA, verbose_name=_("Planning Type"))
     urgency = models.CharField(
         max_length=10, choices=PlanningUrgency.choices, default=PlanningUrgency.MEDIUM, verbose_name=_("Urgency"),
     )
@@ -567,6 +681,15 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
     )
     load_description = models.TextField(blank=True, verbose_name=_("Load Description"))
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
+    abandoned_stage = models.CharField(
+        max_length=35, blank=True, choices=AbandonedStageChoices.choices, verbose_name=_("Abandoned Stage"),
+    )
+    abandoned_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Abandoned At"))
+    abandoned_reason = models.TextField(blank=True, verbose_name=_("Abandoned Reason"))
+    abandoned_by = models.ForeignKey(
+        'company.Employee', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="abandoned_plannings", verbose_name=_("Abandoned By"),
+    )
     skip_auto_assignment = models.BooleanField(
         default=False, verbose_name=_("Skip Automatic Assignment"),
         help_text=_(
@@ -598,15 +721,15 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         )
 
     def _sync_porte_asset_from_transport(self) -> bool:
-        """Temporary: porte plannings always use the truck as `asset`.
-
-        Cargo vs truck will be modeled properly later; until then the mobile
-        QR/submit flow and admin lists expect `asset` to be the transport.
-        Returns True when `asset` was changed.
+        """Fallback: porte plannings without a specifically chosen `asset`
+        use the truck as `asset` so the mobile QR/submit flow and admin
+        lists always have something to display. A specifically chosen
+        `asset` (e.g. the machine for SERVICE_TYPE_MAQUINA_PROPIA) is never
+        overwritten. Returns True when `asset` was changed.
         """
         if not self._is_porte() or not self.transport_asset_id:
             return False
-        if self.asset_id == self.transport_asset_id:
+        if self.asset_id:
             return False
         self.asset_id = self.transport_asset_id
         return True
@@ -673,7 +796,7 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
 
     @classmethod
     def has_overlap(cls, *, scheduled_date, start, end, assigned_to_id=None, transport_asset_id=None, exclude_pk=None) -> bool:
-        """Does any other pending/in_transit planning for this driver/truck, same day, overlap [start, end)?
+        """Does any other still-open (pending/in_transit/not_completed) planning for this driver/truck, same day, overlap [start, end)?
 
         Shared by has_conflict (checks a saved planning against the rest) and
         TransportAssigner (checks a not-yet-saved candidate slot) — see
@@ -686,7 +809,10 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
             q |= Q(assigned_to_id=assigned_to_id)
         if transport_asset_id:
             q |= Q(transport_asset_id=transport_asset_id)
-        others = cls.objects.filter(q, scheduled_date=scheduled_date, status__in=["pending", "in_transit"])
+        others = cls.objects.filter(
+            q, scheduled_date=scheduled_date,
+            status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT, PlanningStatus.NOT_COMPLETED],
+        )
         if exclude_pk is not None:
             others = others.exclude(pk=exclude_pk)
 
@@ -736,6 +862,10 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         return URGENCY_COLORS.get(self.urgency, URGENCY_COLORS[PlanningUrgency.MEDIUM])
 
     @property
+    def status_color(self) -> str:
+        return STATUS_COLORS.get(self.status, STATUS_COLORS[PlanningStatus.PENDING])
+
+    @property
     def has_pending_request_changes(self) -> bool:
         """True when the source request was re-opened after approval (awaits re-review)."""
         try:
@@ -752,6 +882,25 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
     def is_old_plan(self) -> bool:
         """Plan to replace: linked request awaits re-review, or already replaced by a newer approve."""
         return self.has_pending_request_changes or self.is_superseded
+
+    def compute_abandoned_stage(self) -> str:
+        """Where a driver left this job — used when abandoning it via "No puedo hacer más"."""
+        if self.planning_type == PlanningType.PORTE:
+            return (
+                AbandonedStageChoices.PICKED_UP_PENDING_DELIVERY if self.status == PlanningStatus.IN_TRANSIT
+                else AbandonedStageChoices.NOT_STARTED
+            )
+        if self.asset_id is None:
+            return AbandonedStageChoices.NOT_STARTED
+        last_tx = self.transactions.order_by("-date").first() or self.asset.transactions.order_by("-date").first()
+        asset_state = self.asset.current_transaction_status(last_tx)
+        if asset_state == AssetCurrentStatus.AVAILABLE:
+            return AbandonedStageChoices.NOT_STARTED
+        if asset_state == AssetCurrentStatus.DELIVERED:
+            return AbandonedStageChoices.DELIVERED_PENDING_CONFIRMATION
+        if self.asset.verteo_pending_transaction is not None:
+            return AbandonedStageChoices.PICKED_UP_PENDING_POUR
+        return AbandonedStageChoices.PICKED_UP_PENDING_DELIVERY
 
     def __str__(self):
         asset_label = self.asset.name if self.asset_id else _("Planning")
@@ -771,13 +920,13 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
     planning_type = models.CharField(max_length=20, choices=AssetPlanning.PLANNING_CHOICES, default="porte", verbose_name=_("Planning Type"))
     to_zone = models.ForeignKey(WorkingZone, on_delete=models.PROTECT, related_name="planning_requests_to", verbose_name=_("To Zone"))
     from_zone = models.ForeignKey(WorkingZone, on_delete=models.PROTECT, null=True, blank=True, related_name="planning_requests_from", verbose_name=_("From Zone"))
-    needed_date = models.DateField(verbose_name=_("Needed Date"))
+    needed_date = models.DateField(default=date_.today, verbose_name=_("Needed Date"))
     needed_time = models.TimeField(
         null=True, blank=True, verbose_name=_("Needed Time"),
         help_text=_("Optional — leave blank to let route assignment pick a time."),
     )
     estimated_duration = models.DurationField(
-        verbose_name=_("Estimated Duration"),
+        null=True, blank=True, verbose_name=_("Estimated Duration"),
         help_text=_("Expected job length. Used with Needed Time to find a free slot."),
     )
     urgency = models.CharField(
@@ -834,6 +983,10 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
 
     # Set once the request is approved.
     resulting_planning = models.OneToOneField(AssetPlanning, on_delete=models.SET_NULL, null=True, blank=True, related_name="source_request", verbose_name=_("Asset Planning"))
+
+    # No-AssetPlanning types only (e.g. Machinist Movement, see
+    # apply_machinist_zone_change()): when the zone change actually applied.
+    zone_sync_applied_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Zone Sync Applied At"))
 
     history = HistoricalRecords()
 
@@ -916,6 +1069,13 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
         if "cuba_size" not in required:
             self.cuba_size = ""
 
+        # Not tracked in SERVICE_TYPE_FIELDS: AssetPlanningRequestDraft shares
+        # that dict and has no estimated_duration field at all.
+        if self.service_type == SERVICE_TYPE_MAQUINISTAS:
+            self.estimated_duration = None
+        elif not self.estimated_duration:
+            raise ValidationError({"estimated_duration": _("Estimated duration is required for this service type.")})
+
         if self.service_type != SERVICE_TYPE_MAQUINA_PROPIA:
             self.machinist_moved = False
 
@@ -932,6 +1092,20 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
     def get_estimated_duration(self):
         from assets.services.route_optimizer import GoogleRouteOptimizer
         return GoogleRouteOptimizer().estimate_duration(self.from_zone, self.to_zone)
+
+    def apply_machinist_zone_change(self):
+        """Move every selected employee's current_working_zone to to_zone and mark this applied.
+
+        Only meaningful for MOVIMIENTO_MAQUINISTAS requests, which never get an
+        AssetPlanning — approve_submit_action calls this immediately when
+        needed_date is due, otherwise apply_due_machinist_movements() (Celery
+        beat) calls it once that date arrives.
+        """
+        for employee in self.moved_employees.all():
+            employee.current_working_zone = self.to_zone
+            employee.save()
+        self.zone_sync_applied_at = timezone.now()
+        self.save(update_fields=["zone_sync_applied_at"])
 
 
 class AssetPlanningRequestDraftStatus(models.TextChoices):

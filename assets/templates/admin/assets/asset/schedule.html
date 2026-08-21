@@ -288,21 +288,6 @@
       }
       .sched-block.needs-truck {
         box-shadow: 0 0 0 2px #f97316, 0 2px 8px rgba(0,0,0,.35);
-        background-image: repeating-linear-gradient(
-          -45deg,
-          transparent,
-          transparent 6px,
-          rgba(0, 0, 0, 0.12) 6px,
-          rgba(0, 0, 0, 0.12) 12px
-        ) !important;
-      }
-      .sched-block.over-hours::before,
-      .sched-block.conflict::before {
-        content: "⚠";
-        position: absolute;
-        top: 1px;
-        left: 4px;
-        font-size: 10px;
       }
 
       .sched-block .block-missing-truck {
@@ -472,6 +457,9 @@
         margin-right: 4px;
         vertical-align: 1px;
       }
+      .legend-dot:not(:first-child) {
+        margin-left: 8px;
+      }
 
       .block-status-icons { font-size: 9px; margin-right: 2px; }
 
@@ -587,13 +575,13 @@
     {% endif %}
     <span><strong>⚠ {% trans "amber" %}:</strong> {% trans "overlaps another job for that person/truck" %}</span>
     <span><strong>🤖:</strong> {% trans "auto-assigned" %}</span>
-    <span><strong style="color:#f97316">⚠ {% trans "Needs truck" %}:</strong> {% trans "orange stripe — no truck assigned yet" %}</span>
+    <span><strong style="color:#f97316">⚠ {% trans "Needs truck" %}:</strong> {% trans "no truck assigned yet" %}</span>
     <span><strong style="color:#6366f1">⚠ {% trans "Old plan" %}:</strong> {% trans "replaced or awaiting re-approval of its source request" %}</span>
     <span>
       {% for st in service_type_legend %}
-        <span class="legend-dot" style="background:{{ st.color }}{% if not forloop.first %};margin-left:8px{% endif %}"></span>{{ st.label }}
+        <span class="legend-dot" data-color="{{ st.color }}"></span>{{ st.label }}
       {% endfor %}
-      <span class="legend-dot" style="background:#64748B;margin-left:8px"></span>{% trans "Other / unset" %}
+      <span class="legend-dot" style="background: #64748B;"></span>{% trans "Other / unset" %}
     </span>
   </div>
 
@@ -712,25 +700,54 @@
     });
   }
 
+  // Live jobs only — delivered/cancelled are historical and must not flag
+  // overlaps, matching AssetPlanning.has_conflict on the server.
+  const LIVE_STATUSES = new Set(["pending", "in_transit", "not_completed"]);
+  function isLive(b) {
+    if (b.is_superseded) return false;
+    return !b.status || LIVE_STATUSES.has(b.status);
+  }
+  function sharedResource(a, b) {
+    if (a.person === b.person) return "person";
+    if (a.truck_id && b.truck_id && a.truck_id === b.truck_id) return "truck";
+    if (a.truck && b.truck && a.truck === b.truck) return "truck";
+    return null;
+  }
+
   // ── Conflict / out-of-hours detection (visual only — never auto-moves) ──
   function flagConflicts() {
     const flagged = [];
-    blocks.forEach((b) => { b.overHours = b.start < DAY_START || b.end > DAY_END; b.conflict = false; });
+    blocks.forEach((b) => {
+      b.overHours = isLive(b) && (b.start < DAY_START || b.end > DAY_END);
+      b.conflict = false;
+      b.conflictReason = "";
+    });
     for (let i = 0; i < blocks.length; i++) {
       for (let j = i + 1; j < blocks.length; j++) {
         const a = blocks[i], b = blocks[j];
+        if (!isLive(a) || !isLive(b)) continue;
         if (a.day !== b.day) continue;
-        const samePerson = a.person === b.person;
-        const sameTruck = a.truck && b.truck && a.truck === b.truck;
-        if (!samePerson && !sameTruck) continue;
+        const resource = sharedResource(a, b);
+        if (!resource) continue;
         if (a.start < b.end && b.start < a.end) {
           a.conflict = true;
           b.conflict = true;
+          const reason = resource === "truck"
+            ? "{% trans 'overlaps another job for the same truck' %}"
+            : "{% trans 'overlaps another job for this person' %}";
+          if (!a.conflictReason) a.conflictReason = reason;
+          if (!b.conflictReason) b.conflictReason = reason;
         }
       }
     }
     blocks.forEach((b) => { if (b.overHours || b.conflict) flagged.push(b); });
     return flagged;
+  }
+
+  function flagReason(b) {
+    if (b.conflict && b.conflictReason) return b.conflictReason;
+    if (b.overHours) return "{% trans 'outside 07:00–17:00' %}";
+    return "";
   }
 
   let previousFlaggedIds = new Set();
@@ -739,7 +756,11 @@
     const newly = flagged.filter((b) => !previousFlaggedIds.has(b.id));
     previousFlaggedIds = currentIds;
     if (!newly.length) return;
-    const names = newly.map((b) => `"${b.label}" (${PEOPLE[b.person] ? PEOPLE[b.person].name : "?"}, ${DAY_LABELS[b.day]})`).join(", ");
+    const names = newly.map((b) => {
+      const who = PEOPLE[b.person] ? PEOPLE[b.person].name : "?";
+      const reason = flagReason(b);
+      return `"${b.label}" (${who}, ${DAY_LABELS[b.day]}${reason ? " — " + reason : ""})`;
+    }).join(", ");
     showToast("⚠ " + "{% trans 'Needs attention' %}" + ": " + names);
   }
 
@@ -804,7 +825,7 @@
     return body.querySelector(`.day-cell[data-person="${person}"][data-day="${day}"]`);
   }
 
-  // Traceability on the block: missing truck gets a banner + stripe; 🤖 = auto-assigned.
+  // Traceability on the block: missing truck gets a banner; 🤖 = auto-assigned.
   function statusIcons(b) {
     if (!b.truck) return "";
     if (b.origin === "auto") {
@@ -825,6 +846,8 @@
       if (!value) return;
       rows.push(`<div class="tt-row"><span class="tt-label">${escapeHtml(label)}:</span> ${escapeHtml(value)}</div>`);
     };
+    if (b.conflict) add("{% trans 'Conflict' %}", b.conflictReason || "{% trans 'overlaps another job' %}");
+    if (b.overHours) add("{% trans 'Hours' %}", "{% trans 'outside 07:00–17:00' %}");
     add("{% trans 'Asset' %}", b.asset);
     add("{% trans 'From' %}", [b.origin_name, b.origin_address].filter(Boolean).join(" — "));
     add("{% trans 'To' %}", [b.destination_name, b.destination_address].filter(Boolean).join(" — "));
@@ -890,6 +913,7 @@
         + (CAN_EDIT ? "" : " read-only");
       el.dataset.id = b.id;
       el.style.backgroundColor = b.color || "#3B82F6";
+      el.style.borderLeft = `5px solid ${b.status_color || "#64748B"}`;
       el.style.top = topFor(b.start) + "px";
       el.style.height = heightFor(b.start, b.end) + "px";
       el.innerHTML = CAN_EDIT ? `
@@ -1259,6 +1283,7 @@
         // Truck was linked server-side from the driver's assigned asset (or
         // left blank with a note) — reflect that on the freshly dropped block.
         if (data && typeof data.truck === "string") newBlock.truck = data.truck;
+        if (data && "truck_id" in data) newBlock.truck_id = data.truck_id;
         if (data && data.origin) newBlock.origin = data.origin;
         reportNewFlags(renderAll());
         if (data && data.truck_note) showToast("⚠ " + data.truck_note);
@@ -1336,6 +1361,7 @@
         let changed = false;
         if (data.origin && data.origin !== block.origin) { block.origin = data.origin; changed = true; }
         if (typeof data.truck === "string" && data.truck !== block.truck) { block.truck = data.truck; changed = true; }
+        if ("truck_id" in data && data.truck_id !== block.truck_id) { block.truck_id = data.truck_id; changed = true; }
         if (changed) renderAll();
         if (data.truck_note) showToast("⚠ " + data.truck_note);
       })
@@ -1410,6 +1436,9 @@
   });
 
   // ── Init ────────────────────────────────────────────────────────────────
+  document.querySelectorAll(".legend-dot[data-color]").forEach((el) => {
+    el.style.backgroundColor = el.dataset.color;
+  });
   buildHeader();
   buildSkeleton();
   renderBacklog();

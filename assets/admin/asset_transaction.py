@@ -179,10 +179,11 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         ("to_zone", AutocompleteSelectMultipleFilter),
         ("date", RangeDateTimeFilter),
         ("performed_by", AutocompleteSelectMultipleFilter),
-        ("asset", AutocompleteSelectMultipleFilter)
+        ("asset", AutocompleteSelectMultipleFilter),
+        ("planning", AutocompleteSelectMultipleFilter)
     )
     search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes")
-    autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file"]
+    autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file", "planning"]
     exclude = ["company", "firma"]
     readonly_fields = ["firma_preview", "imagen_link", "performed_by", "material_vertido_display", "peso_neto_display"]
     list_select_related = ["from_zone__company", "to_zone__company", "company", "performed_by__company", "asset__asset_type"]
@@ -204,6 +205,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
                 "from_zone",
                 "to_zone",
                 "project_file",
+                "planning",
                 "date",
                 "performed_by",
                 "material_vertido_display",

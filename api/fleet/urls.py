@@ -11,6 +11,7 @@ urlpatterns = [
     path("assets/<int:asset_id>/", assets.AssetDetailView.as_view(), name="asset_by_id"),
     path("assets/<int:asset_id>/transaction/", assets.AssetTransactionView.as_view(), name="asset_transaction"),
     path("assets/<int:asset_id>/assign/", assets.AssetAssignView.as_view(), name="assign"),
+    path("assets/<int:asset_id>/capacidad/", assets.AssetCapacidadUpdateView.as_view(), name="asset_capacidad"),
     path("assets/<int:asset_id>/qr/", assets.AssetQRView.as_view(), name="asset_qr"),
     path(
         "assets/<int:asset_id>/check-location/",
@@ -26,6 +27,8 @@ urlpatterns = [
     path("zones/", zones.ZonesListView.as_view(), name="zones"),
     path("clients/", zones.ClientsListView.as_view(), name="clients"),
     path("plannings/", attendance.PlanningsListView.as_view(), name="plannings"),
+    path("plannings/next/", attendance.PlanningNextTaskView.as_view(), name="plannings_next"),
+    path("plannings/abandon/", attendance.PlanningAbandonRemainingView.as_view(), name="plannings_abandon"),
     path("movements/", attendance.MovementsListView.as_view(), name="movements"),
     path("identifiers/", zones.AssetIdentifiersView.as_view(), name="identifiers"),
     path("config/", zones.ConfigListView.as_view(), name="config"),

@@ -13,7 +13,7 @@ from datetime import date
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from assets.models import Asset, AssetType
+from assets.models import Asset, AssetPlanning, AssetType, PlanningStatus, PlanningType
 from company.models import Company, Employee, WorkingZone
 
 User = get_user_model()
@@ -81,4 +81,21 @@ def make_zone(company, name="Zona Test", lat=40.416775, lon=-3.703790, confirmed
         postal_code="28001",
         location=f"POINT({lon} {lat})",
         location_confirmed_at=timezone.now() if confirmed else None,
+    )
+
+
+def make_planning(
+    company, asset=None, assigned_to=None,
+    planning_type=PlanningType.CUBA, status=PlanningStatus.PENDING,
+    scheduled_date=None, **overrides,
+):
+    """Create an AssetPlanning — the plan a driver must have to operate a cuba/porte."""
+    return AssetPlanning.objects.create(
+        company=company,
+        asset=asset,
+        assigned_to=assigned_to,
+        planning_type=planning_type,
+        status=status,
+        scheduled_date=scheduled_date or date.today(),
+        **overrides,
     )

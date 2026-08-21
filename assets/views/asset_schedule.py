@@ -14,7 +14,7 @@ from unfold.views import UnfoldModelAdminViewMixin
 from company.models import Employee
 from core.admin.company_access import get_user_companies
 from assets.forms import AssetScheduleFilterForm, _duration_label
-from assets.models import Asset, AssetPlanning, SERVICE_TYPE_COLORS, ServiceType
+from assets.models import Asset, AssetPlanning, PlanningStatus, SERVICE_TYPE_COLORS, ServiceType
 from assets.services.auto_assigner import URGENCY_ORDER, auto_link_transport
 from assets.services.route_optimizer import GoogleRouteOptimizer
 
@@ -79,6 +79,7 @@ def _planning_card_data(planning: AssetPlanning) -> dict:
         "destination_name": destination["name"],
         "destination_address": destination["address"],
         "truck": planning.transport_asset.name if planning.transport_asset_id else "",
+        "truck_id": planning.transport_asset_id,
         "urgency": planning.urgency,
         "urgency_label": planning.get_urgency_display(),
         "planning_type": planning.planning_type,
@@ -97,6 +98,7 @@ def _planning_card_data(planning: AssetPlanning) -> dict:
         "status_label": planning.get_status_display(),
         "color": planning.service_type_color,
         "urgency_color": planning.urgency_color,
+        "status_color": planning.status_color,
         "request_changes_pending": request_changes_pending,
         "is_old_plan": is_old_plan,
         "is_superseded": planning.is_superseded,
@@ -405,6 +407,11 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
                 planning.assigned_to = employee
                 planning.scheduled_date = day
                 update_fields += ["assigned_to", "scheduled_date"]
+                if planning.status == PlanningStatus.NOT_COMPLETED:
+                    planning.status = PlanningStatus.PENDING
+                    planning.abandoned_stage = ""
+                    planning.abandoned_at = None
+                    update_fields += ["status", "abandoned_stage", "abandoned_at"]
 
             planning.save(update_fields=update_fields)
             truck_note = auto_link_transport(planning, employee, previous_driver_id) if employee else None
@@ -412,6 +419,7 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
                 "success": True,
                 "origin": planning.assignment_origin,
                 "truck": planning.transport_asset.name if planning.transport_asset_id else "",
+                "truck_id": planning.transport_asset_id,
                 "truck_note": truck_note,
             })
 

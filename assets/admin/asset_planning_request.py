@@ -13,7 +13,7 @@ from simple_history.admin import SimpleHistoryAdmin
 from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.company_access import get_user_companies
 from company.models import Employee
-from assets.constants import SERVICE_TYPE_FIELDS, SERVICE_TYPE_MAQUINA_PROPIA
+from assets.constants import SERVICE_TYPE_FIELDS, SERVICE_TYPE_MAQUINA_PROPIA, SERVICE_TYPE_MAQUINISTAS
 from assets.forms import AssetPlanningRequestForm
 from assets.models import (
     Asset, AssetPlanning, AssetPlanningRequest, AssetPlanningRequestDraft,
@@ -31,8 +31,13 @@ CONDITIONAL_FIELDS = {
     )
     for field_name in _CONDITIONAL_FIELD_NAMES
 }
+# Not in SERVICE_TYPE_FIELDS — shared with AssetPlanningRequestDraft, which lacks these fields.
+CONDITIONAL_FIELDS["estimated_duration"] = f"service_type != '{SERVICE_TYPE_MAQUINISTAS}'"
 CONDITIONAL_FIELDS["machinist_moved"] = f"service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}'"
-CONDITIONAL_FIELDS["moved_employees"] = f"service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}' && machinist_moved"
+CONDITIONAL_FIELDS["moved_employees"] = (
+    f"(service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}' && machinist_moved) "
+    f"|| service_type == '{SERVICE_TYPE_MAQUINISTAS}'"
+)
 
 
 class ChangesPendingFilter(admin.SimpleListFilter):
@@ -91,7 +96,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
     readonly_fields = [
         "planning_type", "requested_by", "status",
         "reviewed_by", "reviewed_at",
-        "resulting_planning",
+        "resulting_planning", "zone_sync_applied_at",
         "rereview_notice",
     ]
     actions_row = ["duplicate_action"]
@@ -118,7 +123,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
                 "status", "rereview_notice", "requested_by",
                 ("reviewed_by", "reviewed_at"),
                 "rejection_reason",
-                "resulting_planning",
+                "resulting_planning", "zone_sync_applied_at",
             )
         }),
     )
@@ -308,6 +313,10 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         if obj.status != AssetPlanningRequestStatus.PENDING_REVIEW:
             return
 
+        if obj.service_type == SERVICE_TYPE_MAQUINISTAS:
+            self._approve_machinist_movement(request, obj)
+            return
+
         # transport_asset/assigned_to are filled later by auto-assignment.
         # Asset is only required for service types that list it in SERVICE_TYPE_FIELDS.
         missing = []
@@ -367,6 +376,30 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         else:
             messages.success(request, _("Request approved. Asset Planning created."))
 
+    def _approve_machinist_movement(self, request, obj):
+        """Machinist Movement never gets an AssetPlanning — just approve and
+        move moved_employees to to_zone: immediately if needed_date is
+        already due, otherwise apply_due_machinist_movements() (Celery beat)
+        picks it up once that date arrives.
+        """
+        if not obj.moved_employees.exists():
+            messages.error(request, _("Select at least one machinist to approve this request."))
+            return
+
+        obj.status = AssetPlanningRequestStatus.APPROVED
+        obj.reviewed_by = request.user
+        obj.reviewed_at = timezone.now()
+        obj.save()
+
+        if obj.needed_date <= timezone.localdate():
+            obj.apply_machinist_zone_change()
+            messages.success(request, _("Request approved. Machinists moved to the destination zone."))
+        else:
+            messages.success(
+                request,
+                _("Request approved. Machinists will move to the destination zone on %(date)s.") % {"date": obj.needed_date},
+            )
+
     @action(description=_("Reject"), icon="cancel", variant=ActionVariant.DANGER, permissions=["approve"])
     def reject_submit_action(self, request, obj):
         if obj.status != AssetPlanningRequestStatus.PENDING_REVIEW:
@@ -393,6 +426,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         obj.reviewed_at = None
         obj.rejection_reason = ""
         obj.resulting_planning = None
+        obj.zone_sync_applied_at = None
         obj.save()
         obj.suggested_trucks.set(trucks)
         obj.moved_employees.set(moved)

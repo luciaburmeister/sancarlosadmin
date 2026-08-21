@@ -172,6 +172,19 @@ _TASK_SERIALIZERS = {
 }
 
 
+def _find_pending_cuba_dropoff(employee):
+    """This employee's own cuba still on the truck from an earlier task, or None."""
+    stuck_asset = Asset.objects.with_pending_pickup_by(employee).first()
+    if stuck_asset is None:
+        return None
+    return {
+        "planning_id": stuck_asset.last_movement_transaction.planning_id,
+        "asset_id": stuck_asset.id,
+        "asset_name": stuck_asset.name,
+        "verteo_pending": stuck_asset.verteo_pending_transaction is not None,
+    }
+
+
 class PlanningNextTaskView(APIView):
     """The single next cuba/porte job for this driver — cuba and porte share one combined
     queue, so only one task is ever surfaced at a time, regardless of type. Ordered by
@@ -191,7 +204,7 @@ class PlanningNextTaskView(APIView):
     def get(self, request):
         employee = get_current_employee(request.user)
         if employee is None:
-            return JsonResponse({"task": None})
+            return JsonResponse({"task": None, "pending_dropoff": None})
         today = timezone.now().date()
         planning = AssetPlanning.objects.filter(
             assigned_to=employee,
@@ -201,12 +214,22 @@ class PlanningNextTaskView(APIView):
         ).select_related(
             "asset", "origin", "destination", "transport_asset",
         ).prefetch_related("stops__zone").order_by("scheduled_time", "route_order", "pk").first()
+
+        pending_dropoff = _find_pending_cuba_dropoff(employee)
+        resuming_pending_cuba = (
+            pending_dropoff is not None and planning is not None
+            and planning.planning_type == PlanningType.CUBA
+            and planning.asset_id == pending_dropoff["asset_id"]
+        )
+        if resuming_pending_cuba:
+            pending_dropoff = None
+
         if planning is None:
-            return JsonResponse({"task": None})
+            return JsonResponse({"task": None, "pending_dropoff": pending_dropoff})
         serializer = _TASK_SERIALIZERS.get(planning.planning_type)
         if serializer is None:
             return JsonResponse({"error": f"No serializer registered for planning type '{planning.planning_type}'."}, status=500)
-        return JsonResponse({"task": serializer(planning)})
+        return JsonResponse({"task": serializer(planning), "pending_dropoff": pending_dropoff})
 
 
 class PlanningAbandonRemainingView(APIView):

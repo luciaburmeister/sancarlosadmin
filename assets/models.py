@@ -2,7 +2,7 @@ from datetime import date as date_, datetime, time, timedelta
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import Q
+from django.db.models import OuterRef, Q, Subquery
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 from sales.models import Client
@@ -171,7 +171,29 @@ class AssetCurrentStatus(models.TextChoices):
     DELIVERED = "DELIVERED", _("Delivered")
 
 
+class AssetQuerySet(models.QuerySet):
+    def with_pending_pickup_by(self, employee):
+        """Assets `employee` still has on their truck — their MOVEMENT is the most
+        recent transaction once RECEIPT (verteo) rows are ignored, same as
+        Asset.current_transaction_status treats RECEIPT as transparent, only
+        DELIVERY (or someone else's MOVEMENT) actually resolves it."""
+        latest_relevant_transaction = AssetTransaction.objects.filter(
+            asset=OuterRef("pk"),
+        ).exclude(
+            transaction_type=TransactionTypeChoices.RECEIPT,
+        ).order_by("-date").values("id")[:1]
+        return self.filter(company=employee.company).annotate(
+            latest_relevant_transaction_id=Subquery(latest_relevant_transaction),
+        ).filter(
+            latest_relevant_transaction_id__in=AssetTransaction.objects.filter(
+                transaction_type=TransactionTypeChoices.MOVEMENT, performed_by=employee,
+            ).values("id"),
+        )
+
+
 class Asset(CompanyOwnedModel):
+    objects = AssetQuerySet.as_manager()
+
     asset_type = models.ForeignKey(AssetType, on_delete=models.PROTECT, related_name="assets", verbose_name=_("Asset Type"))
     client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True, related_name="assets", verbose_name=_("Owner/Client"))
     name = models.CharField(max_length=200, verbose_name=_("Name/Label"))
@@ -244,6 +266,11 @@ class Asset(CompanyOwnedModel):
         return AssetCurrentStatus.AVAILABLE
 
     @property
+    def last_movement_transaction(self):
+        """Most recent pickup (MOVEMENT) transaction for this asset, or None."""
+        return self.transactions.filter(transaction_type=TransactionTypeChoices.MOVEMENT).order_by("-date").first()
+
+    @property
     def verteo_pending_transaction(self):
         """The last pickup awaiting its verteo (RECEIPT), or None if there isn't one.
 
@@ -251,9 +278,7 @@ class Asset(CompanyOwnedModel):
         legitimately be sitting at an ALMACEN awaiting its trip to the
         vertedero.
         """
-        last_movement = self.transactions.filter(
-            transaction_type=TransactionTypeChoices.MOVEMENT,
-        ).order_by("-date").first()
+        last_movement = self.last_movement_transaction
         if last_movement is None:
             return None
         if last_movement.data.get("vasAVerter", "") != "Sí":
@@ -264,6 +289,17 @@ class Asset(CompanyOwnedModel):
         if already_done:
             return None
         return last_movement
+
+    def pending_pickup_by(self, employee):
+        """The AssetPlanning to resume if `employee` is still holding this asset
+        unresolved — their own MOVEMENT is still its last transaction, no DELIVERY
+        since. None once it's been delivered, or if someone else holds it now."""
+        last_movement = self.last_movement_transaction
+        if last_movement is None or last_movement.performed_by_id != employee.id:
+            return None
+        if self.current_transaction_status() != AssetCurrentStatus.PICKED_UP:
+            return None
+        return last_movement.planning
 
     @property
     def matricula(self):

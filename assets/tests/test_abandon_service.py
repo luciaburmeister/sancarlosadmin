@@ -158,7 +158,11 @@ class AbandonRemainingPlanningsTests(TestCase):
             p.refresh_from_db()
             self.assertNotEqual(p.status, PlanningStatus.NOT_COMPLETED)
 
-    def test_blocks_when_cuba_is_picked_up_and_leaves_everything_untouched(self):
+    def test_cuba_picked_up_is_never_blocked(self):
+        # A cuba left on the truck (full or empty, poured or not) must never block
+        # "No puedo hacer mas" — the driver has no way to force resolving it on
+        # demand. PlanningNextTaskView is what stops them from starting a different
+        # task afterwards, not this bulk-abandon call.
         company = self.company
         asset_type = make_asset_type(company)
         obra = make_zone(company, name="Obra")
@@ -171,14 +175,14 @@ class AbandonRemainingPlanningsTests(TestCase):
         )
         AssetTransaction.objects.create(
             company=company, asset=asset, from_zone=obra, transaction_type=TransactionTypeChoices.MOVEMENT,
-            date=timezone.now(), data={"vasAVerter": ""}, planning=carried_cuba,
+            date=timezone.now(), data={"vasAVerter": "Sí"}, planning=carried_cuba,
         )
         other_pending = self._make_planning(planning_type=PlanningType.PORTE, status=PlanningStatus.PENDING)
 
-        with self.assertRaises(PlanningAbandonBlockedError) as ctx:
-            PlanningAbandoner().abandon_remaining(self.employee)
-        self.assertEqual(ctx.exception.planning.id, carried_cuba.id)
+        abandoned = PlanningAbandoner().abandon_remaining(self.employee)
 
-        for p in (carried_cuba, other_pending):
-            p.refresh_from_db()
-            self.assertNotEqual(p.status, PlanningStatus.NOT_COMPLETED)
+        abandoned_ids = {p.id for p in abandoned}
+        self.assertEqual(abandoned_ids, {carried_cuba.id, other_pending.id})
+        carried_cuba.refresh_from_db()
+        self.assertEqual(carried_cuba.status, PlanningStatus.NOT_COMPLETED)
+        self.assertEqual(carried_cuba.abandoned_stage, AbandonedStageChoices.PICKED_UP_PENDING_POUR)

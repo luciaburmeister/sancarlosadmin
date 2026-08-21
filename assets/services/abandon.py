@@ -6,10 +6,11 @@ Sets each still-open planning to `not_completed` with a computed
 (abandoned_by/abandoned_reason/abandoned_at), so dispatch can see and
 reschedule it from the asset schedule view.
 
-Blocked if the driver is currently holding a picked-up cuba/porte that hasn't
-been dropped off — that must be resolved (delivered, or the real state
-confirmed) before the rest of the day's plan can be abandoned. Otherwise the
-carried asset would silently vanish from tracking.
+A cuba left picked up is never blocked here — ending the day mid-cuba is
+normal and the driver can't force resolving it on demand. Instead
+PlanningNextTaskView (api/fleet/views/attendance.py) blocks them from
+starting a different task until they close it out, via Asset.pending_pickup_by.
+Porte still blocks: a load left in transit has no equivalent self-resolve path.
 """
 from __future__ import annotations
 
@@ -19,7 +20,6 @@ from django.utils import timezone
 from assets.models import AbandonedStageChoices, AssetPlanning, PlanningStatus, PlanningType, DRIVER_TASK_PLANNING_TYPES
 
 BLOCKED_ABANDON_STAGES = {
-    AbandonedStageChoices.PICKED_UP_PENDING_POUR,
     AbandonedStageChoices.PICKED_UP_PENDING_DELIVERY,
 }
 
@@ -42,7 +42,13 @@ class PlanningAbandoner:
             )
             plannings = list(qs)
             stages = {planning.id: planning.compute_abandoned_stage() for planning in plannings}
-            blocked = next((p for p in plannings if stages[p.id] in BLOCKED_ABANDON_STAGES), None)
+            blocked = next(
+                (
+                    p for p in plannings
+                    if p.planning_type == PlanningType.PORTE and stages[p.id] in BLOCKED_ABANDON_STAGES
+                ),
+                None,
+            )
             if blocked is not None:
                 raise PlanningAbandonBlockedError(blocked)
             abandoned = []

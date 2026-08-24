@@ -173,12 +173,22 @@ _TASK_SERIALIZERS = {
 
 
 def _find_pending_cuba_dropoff(employee):
-    """This employee's own cuba still on the truck from an earlier task, or None."""
+    """This employee's own cuba still on the truck from an earlier task, or None.
+
+    Pre-planning movements have planning=NULL. The Android client calls
+    JSONObject.getInt("planning_id") and crashes on JSON null, which aborts
+    the whole /plannings/next/ parse — today's task is in the payload but
+    never painted. A dropoff without a planning also cannot be closed via
+    the new flow, so do not surface it.
+    """
     stuck_asset = Asset.objects.with_pending_pickup_by(employee).first()
     if stuck_asset is None:
         return None
+    last_movement = stuck_asset.last_movement_transaction
+    if last_movement is None or last_movement.planning_id is None:
+        return None
     return {
-        "planning_id": stuck_asset.last_movement_transaction.planning_id,
+        "planning_id": last_movement.planning_id,
         "asset_id": stuck_asset.id,
         "asset_name": stuck_asset.name,
         "verteo_pending": stuck_asset.verteo_pending_transaction is not None,

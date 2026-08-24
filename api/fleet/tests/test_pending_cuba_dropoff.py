@@ -103,6 +103,25 @@ class PlanningNextTaskPendingDropoffTests(TestCase):
         response = self.client.get(self._url())
         self.assertFalse(response.json()["pending_dropoff"]["verteo_pending"])
 
+    def test_pending_dropoff_omitted_when_last_movement_predates_planning(self):
+        # Regression: the Android client parses pending_dropoff.planning_id with
+        # JSONObject.getInt(), which throws on JSON null and aborts the whole
+        # /plannings/next/ parse — so today's real task never gets painted either,
+        # even though it's right there in the same payload. A stuck cuba whose last
+        # movement has no planning attached (legacy data from before plan
+        # enforcement) must not be surfaced as pending_dropoff at all.
+        legacy_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-LEGACY")
+        self._pick_up(legacy_asset, planning=None, vas_a_verter="")
+
+        today_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-TODAY")
+        make_planning(self.company, asset=today_asset, assigned_to=self.employee, planning_type=PlanningType.CUBA)
+
+        response = self.client.get(self._url())
+        body = response.json()
+        self.assertIsNone(body["pending_dropoff"])
+        self.assertIsNotNone(body["task"])
+        self.assertEqual(body["task"]["asset_id"], today_asset.id)
+
     def test_pending_dropoff_survives_a_verteo(self):
         # Regression: the query used to key off the asset's absolute latest
         # transaction, so a RECEIPT (verteo) — which doesn't resolve the pickup —

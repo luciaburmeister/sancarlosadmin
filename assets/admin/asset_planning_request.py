@@ -35,7 +35,7 @@ CONDITIONAL_FIELDS = {
     for field_name in _CONDITIONAL_FIELD_NAMES
 }
 # Not in SERVICE_TYPE_FIELDS — shared with AssetPlanningRequestDraft, which lacks these fields.
-_NO_PLANNING_SERVICE_TYPES = [st for st, pt in SERVICE_TYPE_PLANNING_TYPE.items() if pt == "none"]
+_NO_PLANNING_SERVICE_TYPES = [st for st, pt in SERVICE_TYPE_PLANNING_TYPE.items() if pt == PlanningType.NONE]
 CONDITIONAL_FIELDS["estimated_duration"] = " && ".join(
     f"service_type != '{service_type}'" for service_type in _NO_PLANNING_SERVICE_TYPES
 )

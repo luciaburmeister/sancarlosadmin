@@ -28,7 +28,7 @@ from assets.constants import (
     SERVICE_TYPE_MAQUINA_PROPIA, SERVICE_TYPE_MAQUINISTAS, SERVICE_TYPE_MATERIAL_EXTERNO,
     SERVICE_TYPE_AUTOPORTE_MAQUINA,
 )
-from assets.models import AssetPlanningRequest, AssetPlanningRequestStatus, AssetTransaction, TransactionTypeChoices
+from assets.models import AssetPlanningRequest, AssetPlanningRequestStatus, AssetTransaction, PlanningType, TransactionTypeChoices
 from assets.tasks import apply_due_zone_sync_requests
 from management.models import ProjectFile
 from sales.models import Client
@@ -164,7 +164,7 @@ class MachinistMovementRequestTests(TestCase):
     def test_clean_does_not_require_estimated_duration(self):
         req = self._make_request(date.today())
         self.assertIsNone(req.estimated_duration)
-        self.assertEqual(req.planning_type, "none")
+        self.assertEqual(req.planning_type, PlanningType.NONE)
 
     def test_approve_today_moves_machinist_immediately_without_planning(self):
         req = self._make_request(date.today())
@@ -238,7 +238,7 @@ class AutoporteMaquinaRequestTests(TestCase):
         req = self._make_request(date.today())
         self.assertIsNone(req.from_zone_id)
         self.assertIsNone(req.estimated_duration)
-        self.assertEqual(req.planning_type, "none")
+        self.assertEqual(req.planning_type, PlanningType.NONE)
 
     def test_approve_moves_machine_alone_without_machinists(self):
         req = self._make_request(date.today())

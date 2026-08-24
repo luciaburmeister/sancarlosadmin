@@ -148,6 +148,7 @@ from .models import (
     AssetPlanningRequest,
     AssetType,
     AssetTypeCategory,
+    PlanningType,
     PlanningUrgency,
     ServiceType,
 )
@@ -244,7 +245,7 @@ class AssetPlanningRequestForm(forms.ModelForm):
     def clean(self):
         cleaned_data = super().clean()
         # No AssetPlanning for these types, so no job length to estimate.
-        if SERVICE_TYPE_PLANNING_TYPE.get(cleaned_data.get("service_type")) == "none":
+        if SERVICE_TYPE_PLANNING_TYPE.get(cleaned_data.get("service_type")) == PlanningType.NONE:
             self.errors.pop("estimated_duration", None)
             cleaned_data["estimated_duration"] = None
         return cleaned_data

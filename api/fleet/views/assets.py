@@ -309,6 +309,13 @@ class BaseTransactionStrategy:
                 unassigned.asset = self.asset
                 unassigned.save(update_fields=["asset"])
                 planning = unassigned
+        # Third try: this driver is still physically holding this cuba from an
+        # earlier task — let them close it out regardless of the plan's current
+        # status/date, or ending a day mid-cuba leaves no way to ever resolve it.
+        if planning is None:
+            pending = self.asset.pending_pickup_by(self.employee)
+            if pending is not None and str(pending.id) == str(planning_id):
+                planning = pending
         if planning is None:
             return None, JsonResponse({"error": "El plan indicado no existe o no está asignado a ti."}, status=400)
         return planning, None

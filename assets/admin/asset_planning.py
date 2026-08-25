@@ -127,6 +127,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
     list_filter = (TraceabilityFilter, "status", "abandoned_stage", "urgency", "service_type", "company", "origin", "destination")
     search_fields = (
         "asset__name",
+        "machine__name",
         "assigned_to__first_name",
         "assigned_to__last_name",
         "origin__name",
@@ -137,6 +138,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "company",
         "project_file",
         "asset",
+        "machine",
         "origin",
         "destination",
         "assigned_to",
@@ -162,6 +164,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         (_("Asset"), {
             "fields": (
                 "asset",
+                "machine",
             )
         }),
         (_("Abandonment"), {

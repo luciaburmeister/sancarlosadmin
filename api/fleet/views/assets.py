@@ -190,13 +190,12 @@ class AssetDetailView(APIView):
 
 
 class AssetAssignView(APIView):
-    """Driver self-assignment via QR scan — whatever cuba gets scanned is what fulfills
-    this driver's own pending cuba plan for today, no other condition attached. Not
-    checking whether the scanned asset already had some other plan is deliberate:
-    dispatch data isn't trusted enough to let it block a driver mid-pickup."""
+    """Assign a scanned cuba to this driver's next open job for today."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request, asset_id):
+        from assets.constants import AssignRequestKey
+        from assets.models import DRIVER_TASK_PLANNING_TYPES
         user = request.user
         try:
             asset = Asset.objects.get(id=asset_id)
@@ -208,16 +207,60 @@ class AssetAssignView(APIView):
         if asset.company != employee.company:
             return JsonResponse({"error": "Este cubo no pertenece a tu empresa"}, status=403)
 
+        try:
+            body = json.loads(request.body or b"{}")
+        except (ValueError, TypeError):
+            body = {}
+        use_pending_cuba = bool(body.get(AssignRequestKey.USE_PENDING_CUBA))
+
+        stuck = Asset.objects.needing_driver_attention(employee, include_porte=True)
+        if stuck is not None and stuck.id != asset.id:
+            return JsonResponse({
+                "error": (
+                    "Tienes una cuba pendiente. Debes dejarla o usarla para este "
+                    "plan antes de escanear otra."
+                ),
+            }, status=400)
+
         today = timezone.now().date()
-        planning = AssetPlanning.objects.filter(
-            company=asset.company, planning_type=PlanningType.CUBA,
+        today_jobs = AssetPlanning.objects.filter(
+            company=asset.company, planning_type__in=DRIVER_TASK_PLANNING_TYPES,
             status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
             scheduled_date=today, assigned_to=employee,
+            scheduled_time__isnull=False,
+        )
+        planning = today_jobs.filter(
+            status=PlanningStatus.IN_TRANSIT,
         ).order_by("scheduled_time", "route_order", "pk").first()
         if planning is None:
+            planning = today_jobs.filter(
+                status=PlanningStatus.PENDING,
+            ).order_by("scheduled_time", "route_order", "pk").first()
+        if planning is None:
             return JsonResponse({"error": "No hay ningún plan pendiente hoy para esta cuba."}, status=400)
+
+        claiming_pending = use_pending_cuba or (stuck is not None and stuck.id == asset.id)
+        if claiming_pending and planning.requires_empty_truck_pickup():
+            return JsonResponse({
+                "error": (
+                    "Este plan requiere llegar con el camión vacío. "
+                    "Debes dejar la cuba que llevas antes de recoger."
+                ),
+            }, status=400)
+        if claiming_pending and asset.verteo_pending_transaction is not None:
+            return JsonResponse({
+                "error": "Debes verter esta cuba antes de usarla para el próximo plan.",
+            }, status=400)
+
         planning.asset = asset
-        planning.save(update_fields=["asset"])
+        update_fields = ["asset"]
+        if claiming_pending:
+            planning.driver_claimed_cuba = True
+            update_fields.append("driver_claimed_cuba")
+            if planning.status == PlanningStatus.PENDING:
+                planning.status = PlanningStatus.IN_TRANSIT
+                update_fields.append("status")
+        planning.save(update_fields=update_fields)
 
         asset.assigned_to = employee
         asset.save(update_fields=["assigned_to"])
@@ -287,8 +330,16 @@ class BaseTransactionStrategy:
         if image_file:
             transaction.imagen.save(image_file.name, image_file, save=False)
 
-    def _require_planning(self):
-        """An asset can't be operated without an active plan assigned to the driver for that asset."""
+    def _require_planning(self, *, claim_unassigned=False, allow_stale_verteo=False):
+        """An asset can't be operated without an active plan assigned to the driver for that asset.
+
+        claim_unassigned: only MovementStrategy (a real recogida) may pin this
+        cuba onto a plan that dispatch left without an asset. Verteo/dejada of a
+        leftover must not silently attach it to the next unassigned job.
+
+        allow_stale_verteo: a full cuba dropped at an almacén still owes its
+        verteo — ReceiptStrategy may resume that plan even after a DELIVERY.
+        """
         planning_id = self.data.get("planning_id")
         if not planning_id:
             return None, JsonResponse({"error": "Debes tener un plan asignado para poder operar."}, status=400)
@@ -302,8 +353,8 @@ class BaseTransactionStrategy:
         )
         # First try: planning explicitly pre-assigned to this asset
         planning = base_qs.filter(asset=self.asset).first()
-        # Second try: planning with no asset yet — the scanned cuba is the one being operated
-        if planning is None:
+        # Second try: planning with no asset yet — only a recogida may claim it.
+        if planning is None and claim_unassigned:
             unassigned = base_qs.filter(asset__isnull=True).first()
             if unassigned is not None:
                 unassigned.asset = self.asset
@@ -316,6 +367,17 @@ class BaseTransactionStrategy:
             pending = self.asset.pending_pickup_by(self.employee)
             if pending is not None and str(pending.id) == str(planning_id):
                 planning = pending
+        # Verteo of a full cuba already left at an almacén: not PICKED_UP, so
+        # pending_pickup_by misses it, but verteo_pending_transaction is still set.
+        if planning is None and allow_stale_verteo:
+            last_movement = self.asset.last_movement_transaction
+            if (
+                last_movement is not None
+                and last_movement.performed_by_id == self.employee.id
+                and str(last_movement.planning_id) == str(planning_id)
+                and self.asset.verteo_pending_transaction is not None
+            ):
+                planning = last_movement.planning
         if planning is None:
             return None, JsonResponse({"error": "El plan indicado no existe o no está asignado a ti."}, status=400)
         return planning, None
@@ -326,7 +388,7 @@ class BaseTransactionStrategy:
 
 class MovementStrategy(BaseTransactionStrategy):
     def execute(self) -> JsonResponse:
-        planning, error = self._require_planning()
+        planning, error = self._require_planning(claim_unassigned=True)
         if error:
             return error
         data = self.data
@@ -389,6 +451,8 @@ class MovementStrategy(BaseTransactionStrategy):
         )
         self._save_firma_and_imagen(transaction)
         transaction.save()
+        if not AssetTransaction.payload_is_full(form_data):
+            planning.mark_cuba_claimed_by_driver()
         planning.sync_cuba_operation_status()
         send_asset_transaction_email_task.delay(transaction.id)
         return JsonResponse({"success": True, "message": "Recogida registrada", "transaction_id": transaction.id})
@@ -471,7 +535,7 @@ class DeliveryStrategy(BaseTransactionStrategy):
 
 class ReceiptStrategy(BaseTransactionStrategy):
     def execute(self) -> JsonResponse:
-        planning, error = self._require_planning()
+        planning, error = self._require_planning(allow_stale_verteo=True)
         if error:
             return error
         data = self.data
@@ -900,7 +964,9 @@ class DeliveryCheckView(APIView):
 
     For "dejar" specifically: the geo search only covers almacenes. The plan's own
     destination (an obra) is added on top, but only when the driver is actually near
-    it — never other, unrelated obras. When it's too far, destination_too_far/
+    it — never other, unrelated obras. A full cuba (verteo still owed) must not be
+    offered at that obra even if the driver is standing on it; destination_blocked_full
+    tells the client why it is missing. When it's too far, destination_too_far/
     destination_zone_name tell the client to say so instead of just omitting it."""
     permission_classes = [IsAuthenticated]
 
@@ -915,11 +981,13 @@ class DeliveryCheckView(APIView):
         zones_data = []
         nearby_zones = []
         destination_too_far = False
+        destination_blocked_full = False
         destination_zone_name = None
         lat_param = request.query_params.get("lat")
         lon_param = request.query_params.get("lon")
         action = request.query_params.get("action", "")
         planning_dest_zone_id = None  # id of the planning's destination zone, if included
+        verteo_required = asset.verteo_pending_transaction is not None
         if lat_param is not None and lon_param is not None:
             try:
                 latitude = float(lat_param)
@@ -945,8 +1013,14 @@ class DeliveryCheckView(APIView):
                                 if dz_lat is not None:
                                     dist = haversine_distance(latitude, longitude, dz_lat, dz_lon)
                                     if dist <= MAX_ZONE_RADIUS_M:
-                                        nearby_zones.append((dz, dist))
-                                        planning_dest_zone_id = dz.id
+                                        # A full cuba can sit at an almacén awaiting verteo,
+                                        # but never at an obra — same rule as DeliveryStrategy.
+                                        if dz.zone_type == WorkingZone.ZoneType.OBRA and verteo_required:
+                                            destination_blocked_full = True
+                                            destination_zone_name = str(dz)
+                                        else:
+                                            nearby_zones.append((dz, dist))
+                                            planning_dest_zone_id = dz.id
                                     else:
                                         destination_too_far = True
                                         destination_zone_name = str(dz)
@@ -959,11 +1033,10 @@ class DeliveryCheckView(APIView):
                     )
                 if len(nearby_zones) == 0 and action == "verteo":
                     return JsonResponse({"can_deliver": False, "verteo_required": False, "is_almacen": False, "zones": [], "not_near_vertedero": True, "at_vertedero": False})
-                if len(nearby_zones) == 0 and action == "dejar":
+                if len(nearby_zones) == 0 and action == "dejar" and not destination_blocked_full:
                     vertedero_zones = find_zones_within_radius(latitude, longitude, asset.company, zone_type=WorkingZone.ZoneType.VERTEDERO)
                     if len(vertedero_zones) > 0:
                         return JsonResponse({"can_deliver": False, "verteo_required": False, "is_almacen": False, "zones": [], "not_near_vertedero": False, "at_vertedero": True})
-                verteo_required = asset.verteo_pending_transaction is not None
                 zones_data = [
                     {
                         "id": z.id,
@@ -982,7 +1055,6 @@ class DeliveryCheckView(APIView):
             is_almacen = len(nearby_zones) == 1 and nearby_zones[0][0].zone_type == WorkingZone.ZoneType.ALMACEN
         else:
             is_almacen = asset.current_working_zone is not None and asset.current_working_zone.zone_type == WorkingZone.ZoneType.ALMACEN
-        verteo_required = asset.verteo_pending_transaction is not None
         # Global flags kept for older clients — "at least one deliverable zone" once
         # there's a candidate list; falls back to the old almacén-only heuristic
         # otherwise (e.g. no GPS params at all).
@@ -994,6 +1066,7 @@ class DeliveryCheckView(APIView):
         if lat_param is not None and lon_param is not None:
             response_data["zones"] = zones_data
             response_data["destination_too_far"] = destination_too_far
+            response_data["destination_blocked_full"] = destination_blocked_full
             response_data["destination_zone_name"] = destination_zone_name
         return JsonResponse(response_data)
 

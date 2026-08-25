@@ -22,7 +22,7 @@ from assets.models import (
 
 # Built from SERVICE_TYPE_FIELDS so the form and AssetPlanningRequest.clean()
 # never disagree about which fields apply to which service type.
-_CONDITIONAL_FIELD_NAMES = ["from_zone", "asset", "load_description", "cuba_operation_type", "cuba_size"]
+_CONDITIONAL_FIELD_NAMES = ["from_zone", "machine", "load_description", "cuba_operation_type", "cuba_size"]
 CONDITIONAL_FIELDS = {
     field_name: " || ".join(
         f"service_type == '{service_type}'"
@@ -72,14 +72,14 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
     list_display = (
         "service_type", "to_zone", "from_zone",
         "needed_date", "needed_time", "urgency", "show_status",
-        "requested_by", "assigned_to", "asset", "company",
+        "requested_by", "assigned_to", "asset", "machine", "company",
     )
     list_filter = (ChangesPendingFilter, "status", "urgency", "service_type", "company")
     search_fields = (
         "to_zone__name", "from_zone__name",
         "requested_by__first_name", "requested_by__last_name",
         "assigned_to__first_name", "assigned_to__last_name",
-        "asset__name",
+        "asset__name", "machine__name",
     )
     autocomplete_fields = [
         "company",
@@ -87,6 +87,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         "to_zone",
         "from_zone",
         "asset",
+        "machine",
         "assigned_to",
         "suggested_trucks",
         "transport_asset",
@@ -114,7 +115,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
                 ("cuba_operation_type", "cuba_size"),
                 ("machinist_moved", "moved_employees"),
                 "load_description", "notes",
-                ("asset", "assigned_to"),
+                ("asset", "machine", "assigned_to"),
                 ("suggested_trucks", "transport_asset"),
             )
         }),
@@ -151,7 +152,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         if draft_id:
             request._source_draft = AssetPlanningRequestDraft.objects.filter(
                 pk=draft_id
-            ).select_related("client", "asset", "requested_by").first()
+            ).select_related("client", "asset", "machine", "requested_by").first()
             if request._source_draft is not None:
                 extra_context = extra_context or {}
                 extra_context["source_draft"] = request._source_draft
@@ -180,6 +181,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
             "cuba_operation_type": draft.cuba_operation_type,
             "cuba_size": draft.cuba_size,
             "asset": draft.asset_id,
+            "machine": draft.machine_id,
             "load_description": draft.load_description,
             "notes": draft.notes,
         })
@@ -238,7 +240,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         # choice this queryset then rejects as invalid on save. clean()
         # still rejects mismatched company combinations.
         companies = None if request.user.is_superuser else get_user_companies(request.user)
-        if db_field.name == "asset":
+        if db_field.name == "machine":
             qs = Asset.objects.filter(asset_type__category=AssetTypeCategory.MACHINE, is_active=True)
             if companies is not None:
                 qs = qs.filter(company__in=companies)
@@ -323,6 +325,8 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         required = SERVICE_TYPE_FIELDS.get(obj.service_type, set())
         if "asset" in required and not obj.asset_id:
             missing.append(_("Asset"))
+        if "machine" in required and not obj.machine_id:
+            missing.append(_("Machine"))
         if not obj.project_file_id:
             missing.append(_("Project File"))
         if missing:
@@ -337,6 +341,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
             planning = AssetPlanning.objects.create(
                 company=obj.company,
                 asset=obj.asset,
+                machine=obj.machine,
                 origin=obj.from_zone,
                 destination=obj.to_zone,
                 assigned_to=obj.assigned_to,

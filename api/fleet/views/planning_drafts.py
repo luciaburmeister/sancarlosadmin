@@ -98,6 +98,7 @@ class PlanningDraftServiceTypesView(CompanyAPIView):
                     "label": label,
                     "needs_origin": "from_zone" in SERVICE_TYPE_FIELDS.get(value, set()),
                     "needs_asset": "asset" in SERVICE_TYPE_FIELDS.get(value, set()),
+                    "needs_machine": "machine" in SERVICE_TYPE_FIELDS.get(value, set()),
                     "needs_load_description": "load_description" in SERVICE_TYPE_FIELDS.get(value, set()),
                     "needs_cuba_fields": "cuba_operation_type" in SERVICE_TYPE_FIELDS.get(value, set()),
                 }

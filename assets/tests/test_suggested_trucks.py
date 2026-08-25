@@ -52,6 +52,7 @@ class ApproveCopiesSuggestedTrucksTests(TestCase):
             to_zone=self.to_zone,
             needed_date=NEEDED_DATE,
             asset=self.asset,
+            machine=self.asset,
             project_file=self.project_file,
             estimated_duration=timedelta(hours=1),
         )

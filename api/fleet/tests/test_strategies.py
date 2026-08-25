@@ -873,61 +873,108 @@ class CubaChecklistTests(TestCase):
         planning.refresh_from_db()
         return {s["key"]: s["status"] for s in planning.cuba_checklist()}
 
-    def test_puesta_checklist_has_only_dejar(self):
+    def test_puesta_checklist_starts_with_uncollected_cuba(self):
         planning = self._plan(CubaOperationType.PUESTA)
-        self.assertEqual(self._statuses(planning), {"dejar": "pending"})
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger_cuba": "pending", "dejar": "pending"},
+        )
         self._deliver(planning, self.obra)
-        self.assertEqual(self._statuses(planning), {"dejar": "done"})
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger_cuba": "pending", "dejar": "done"},
+        )
+
+    def test_puesta_checklist_does_not_mark_recoger_done_from_dispatch_asset(self):
+        planning = self._plan(CubaOperationType.PUESTA)
+        self.assertTrue(planning.asset_id)
+        self.assertEqual(self._statuses(planning)["recoger_cuba"], "pending")
 
     def test_retirada_checklist_skips_verter_when_empty(self):
         planning = self._plan(CubaOperationType.RETIRADA)
-        self.assertEqual(self._statuses(planning), {"recoger": "pending", "verter": "pending"})
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger_cuba": "pending", "recoger": "pending", "verter": "pending"},
+        )
         self._move(planning, self.obra)
-        self.assertEqual(self._statuses(planning), {"recoger": "done", "verter": "skipped"})
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger_cuba": "done", "recoger": "done", "verter": "skipped"},
+        )
 
     def test_retirada_checklist_needs_verter_when_full(self):
         planning = self._plan(CubaOperationType.RETIRADA)
         self._move(planning, self.obra, extra_data={CubaTransactionKey.ESTADO: CubaFillState.FULL})
-        self.assertEqual(self._statuses(planning), {"recoger": "done", "verter": "pending"})
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger_cuba": "done", "recoger": "done", "verter": "pending"},
+        )
         self._vert(planning)
-        self.assertEqual(self._statuses(planning), {"recoger": "done", "verter": "done"})
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger_cuba": "done", "recoger": "done", "verter": "done"},
+        )
 
     def test_cambio_misma_cuba_checklist_full_cycle(self):
         planning = self._plan(CubaOperationType.CAMBIO_MISMA_CUBA)
         self.assertEqual(
+            [s["key"] for s in planning.cuba_checklist()],
+            ["recoger_cuba", "dejar", "recoger", "verter"],
+        )
+        self.assertEqual(
             self._statuses(planning),
-            {"recoger": "pending", "verter": "pending", "dejar": "pending"},
+            {"recoger_cuba": "pending", "dejar": "pending", "recoger": "pending", "verter": "pending"},
+        )
+        self._deliver(planning, self.obra)
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger_cuba": "pending", "dejar": "done", "recoger": "pending", "verter": "pending"},
         )
         self._move(planning, self.obra, extra_data={CubaTransactionKey.ESTADO: CubaFillState.FULL})
         self.assertEqual(
             self._statuses(planning),
-            {"recoger": "done", "verter": "pending", "dejar": "pending"},
+            {"recoger_cuba": "done", "dejar": "done", "recoger": "done", "verter": "pending"},
         )
         self._vert(planning)
-        self._deliver(planning, self.obra)
         self.assertEqual(
             self._statuses(planning),
-            {"recoger": "done", "verter": "done", "dejar": "done"},
+            {"recoger_cuba": "done", "dejar": "done", "recoger": "done", "verter": "done"},
         )
 
     def test_cambio_agua_checklist_has_no_verter_step(self):
         planning = self._plan(CubaOperationType.CAMBIO_AGUA)
-        self.assertEqual(self._statuses(planning), {"recoger": "pending", "dejar": "pending"})
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger_cuba": "pending", "recoger": "pending", "dejar": "pending"},
+        )
         self._move(planning, self.obra)
         self._deliver(planning, self.obra)
-        self.assertEqual(self._statuses(planning), {"recoger": "done", "dejar": "done"})
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger_cuba": "done", "recoger": "done", "dejar": "done"},
+        )
 
     def test_cambio_checklist_tracks_both_legs_independently(self):
         old_cuba = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-OLD")
         planning = self._plan(CubaOperationType.CAMBIO)
         self.assertEqual(
             self._statuses(planning),
-            {"dejar_nueva": "pending", "recoger_vieja": "pending", "verter": "pending"},
+            {
+                "recoger_cuba": "pending",
+                "dejar_nueva": "pending",
+                "recoger_vieja": "pending",
+                "verter": "pending",
+            },
         )
         self._deliver(planning, self.obra)
         self.assertEqual(
             self._statuses(planning),
-            {"dejar_nueva": "done", "recoger_vieja": "pending", "verter": "pending"},
+            {
+                "recoger_cuba": "pending",
+                "dejar_nueva": "done",
+                "recoger_vieja": "pending",
+                "verter": "pending",
+            },
         )
         planning.asset = old_cuba
         planning.save(update_fields=["asset"])
@@ -935,7 +982,12 @@ class CubaChecklistTests(TestCase):
         self._move(planning, self.obra)
         self.assertEqual(
             self._statuses(planning),
-            {"dejar_nueva": "done", "recoger_vieja": "done", "verter": "skipped"},
+            {
+                "recoger_cuba": "done",
+                "dejar_nueva": "done",
+                "recoger_vieja": "done",
+                "verter": "skipped",
+            },
         )
 
     def test_status_color_flags_in_transit_with_a_pending_verteo(self):

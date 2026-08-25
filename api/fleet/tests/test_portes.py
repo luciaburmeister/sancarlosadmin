@@ -13,7 +13,9 @@ from datetime import date, time
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from assets.models import Asset, AssetPlanning, AssetTypeCategory
+from assets.models import (
+    Asset, AssetPlanning, AssetTypeCategory, PorteAction, TransactionTypeChoices,
+)
 from api.fleet.tests.helpers import (
     make_company,
     make_user,
@@ -229,3 +231,132 @@ class PorteWithoutAssetTests(TestCase):
         self.assertEqual(response.status_code, 200)
         tx = AssetTransaction.objects.get(data__planning_id=planning.id)
         self.assertEqual(tx.asset_id, cargo.id)
+
+
+class PorteCargaAndMachineTests(TestCase):
+    """New 'carga' step + AssetPlanning.machine (own-machine transport carried
+    inside a cuba, tracked separately from the cuba itself)."""
+
+    def setUp(self):
+        self.api_client = APIClient()
+        self.company = make_company()
+        self.user = make_user()
+        self.employee = make_employee(self.company, self.user)
+        self.cuba_type = make_asset_type(self.company, name="Cuba")
+        self.origin = make_zone(self.company, name="Origen")
+        self.destination = make_zone(self.company, name="Destino")
+        self.cuba = make_asset(self.company, self.cuba_type, employee=self.employee, name="CUBA-PORTE")
+        self.machine_type = make_asset_type(self.company, name="Retroexcavadora")
+        self.machine_type.category = AssetTypeCategory.MACHINE
+        self.machine_type.save()
+        self.machine = Asset.objects.create(company=self.company, asset_type=self.machine_type, name="MAQUINA-1")
+        self.api_client.force_authenticate(user=self.user)
+
+    def _make_planning(self, *, service_type="porte_material", machine=None, asset=None):
+        return AssetPlanning.objects.create(
+            company=self.company,
+            asset=asset if asset is not None else self.cuba,
+            machine=machine,
+            origin=self.origin,
+            destination=self.destination,
+            assigned_to=self.employee,
+            scheduled_date=date.today(),
+            planning_type="porte",
+            service_type=service_type,
+            status="in_transit",
+        )
+
+    def _submit(self, planning, action, extra=None):
+        data = {"action": action, "firma": "", "imagen": "", "matricula": "1234ABC", "notes": ""}
+        if extra:
+            data.update(extra)
+        return self.api_client.post(f"/en/api/portes/{planning.id}/submit/", data=data, format="json")
+
+    def test_material_carga_is_a_plain_button_no_scan_needed(self):
+        from assets.models import AssetTransaction, TransactionTypeChoices
+
+        planning = self._make_planning(service_type="porte_material")
+        response = self._submit(planning, "carga")
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(
+            AssetTransaction.objects.filter(
+                planning=planning, transaction_type=TransactionTypeChoices.PORTE_LOAD,
+            ).exists()
+        )
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, "in_transit")
+
+    def test_machine_carga_requires_a_qr_scan(self):
+        planning = self._make_planning(service_type="porte_maquina")
+        response = self._submit(planning, "carga")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("escanear", response.json()["error"])
+
+    def test_machine_carga_associates_the_scanned_machine(self):
+        planning = self._make_planning(service_type="porte_maquina")
+        response = self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        self.assertEqual(response.status_code, 200)
+        planning.refresh_from_db()
+        self.assertEqual(planning.machine_id, self.machine.id)
+
+    def test_machine_carga_rejects_a_non_machine_asset(self):
+        planning = self._make_planning(service_type="porte_maquina")
+        response = self._submit(planning, "carga", extra={"asset_id": self.cuba.id})
+        self.assertEqual(response.status_code, 400)
+        planning.refresh_from_db()
+        self.assertIsNone(planning.machine_id)
+
+    def test_entrega_blocked_for_machine_porte_without_carga_scan(self):
+        planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
+        response = self._submit(planning, "entrega")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("máquina", response.json()["error"])
+
+    def test_machine_carga_must_match_dispatch_assignment(self):
+        other_machine = Asset.objects.create(
+            company=self.company, asset_type=self.machine_type, name="MAQUINA-2",
+        )
+        planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
+        response = self._submit(planning, "carga", extra={"asset_id": other_machine.id})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("coincide", response.json()["error"])
+
+    def test_machine_carga_accepts_matching_dispatch_assignment(self):
+        planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
+        response = self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        self.assertEqual(response.status_code, 200)
+
+    def test_entrega_updates_the_machine_working_zone(self):
+        planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
+        self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        response = self._submit(planning, "entrega")
+        self.assertEqual(response.status_code, 200)
+        self.machine.refresh_from_db()
+        self.assertEqual(self.machine.current_working_zone_id, self.destination.id)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, "delivered")
+
+    def test_entrega_does_not_change_cuba_status_for_machine_porte(self):
+        planning = self._make_planning(service_type="porte_maquina", machine=self.machine)
+        self._submit(planning, "recogida")
+        self._submit(planning, "carga", extra={"asset_id": self.machine.id})
+        response = self._submit(planning, "entrega")
+        self.assertEqual(response.status_code, 200)
+        self.cuba.refresh_from_db()
+        self.assertEqual(self.cuba.current_transaction_status(), "PICKED_UP")
+        self.assertFalse(
+            self.cuba.transactions.filter(
+                transaction_type=TransactionTypeChoices.PORTE_DELIVERY,
+            ).exists()
+        )
+
+    def test_entrega_does_not_sync_the_cuba_working_zone_for_material_porte(self):
+        """Zone-sync is scoped to own-machine transport (AssetPlanning.machine)
+        — a material porte's cuba never gets this treatment, matching the
+        pre-existing PorteDeliveryZoneSyncTests.test_delivery_for_other_service_type_does_not_sync."""
+        planning = self._make_planning(service_type="porte_material")
+        original_zone_id = self.cuba.current_working_zone_id
+        response = self._submit(planning, "entrega")
+        self.assertEqual(response.status_code, 200)
+        self.cuba.refresh_from_db()
+        self.assertEqual(self.cuba.current_working_zone_id, original_zone_id)

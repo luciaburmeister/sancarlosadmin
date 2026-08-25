@@ -97,6 +97,6 @@ def make_planning(
         assigned_to=assigned_to,
         planning_type=planning_type,
         status=status,
-        scheduled_date=scheduled_date or date.today(),
+        scheduled_date=scheduled_date or timezone.localdate(),
         **overrides,
     )

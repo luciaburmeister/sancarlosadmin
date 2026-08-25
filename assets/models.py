@@ -251,7 +251,9 @@ class AssetQuerySet(models.QuerySet):
         pending_pickups = AssetTransaction.objects.filter(
             transaction_type__in=pickup_types, performed_by=employee,
         )
-        return self.filter(company=employee.company).annotate(
+        return self.filter(company=employee.company).exclude(
+            asset_type__category__in=[AssetTypeCategory.MACHINE, AssetTypeCategory.TRUCK],
+        ).annotate(
             latest_relevant_transaction_id=Subquery(latest_relevant_transaction),
         ).filter(
             latest_relevant_transaction_id__in=pending_pickups.values("id"),
@@ -716,11 +718,12 @@ class CubaOperationType(models.TextChoices):
     CAMBIO_MISMA_CUBA = "cambio_misma_cuba", _("Same Container Swap")
 
 
-# Operation types whose destination-zone pickup must be resolved (emptied and
-# picked back up) in addition to the dropoff before the planning can close.
-# CAMBIO swaps in a different physical asset for the one picked up. CAMBIO_AGUA
-# and CAMBIO_MISMA_CUBA pick up and drop off the very same asset — the truck
-# must arrive empty for those, see AssetPlanning.requires_empty_truck_pickup().
+# Operation types whose destination-zone pickup must be resolved before the
+# planning can close, and that also require a dropoff back at that zone.
+# CAMBIO swaps in a different physical asset for the one picked up.
+# CAMBIO_AGUA and CAMBIO_MISMA_CUBA pick up and drop off the very same asset
+# at the obra — the truck must arrive empty, see requires_empty_truck_pickup().
+# CAMBIO_MISMA_CUBA may need a verteo between pickup and dropoff when full.
 CUBA_TWO_LEG_OPERATION_TYPES = frozenset({
     CubaOperationType.CAMBIO,
     CubaOperationType.CAMBIO_AGUA,
@@ -935,6 +938,15 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         ordering = ["-scheduled_date"]
         indexes = [models.Index(fields=["assigned_to", "scheduled_date"])]
 
+    def reset_execution_state_for_schedule_clone(self):
+        """Fresh schedule block — drop yesterday's driver-side progress."""
+        self.status = PlanningStatus.PENDING
+        self.driver_claimed_cuba = False
+        self.abandoned_stage = ""
+        self.abandoned_at = None
+        self.abandoned_reason = ""
+        self.abandoned_by = None
+
     def save(self, *args, **kwargs):
         # Auto-tag assignment_origin unless the caller explicitly set it
         # (TransportAssigner does, to mark AUTO) — see assets/services/transport_assigner.py.
@@ -942,6 +954,10 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         if update_fields is not None:
             update_fields = list(update_fields)
             kwargs["update_fields"] = update_fields
+        if not self.asset_id and self.driver_claimed_cuba:
+            self.driver_claimed_cuba = False
+            if update_fields is not None and "driver_claimed_cuba" not in update_fields:
+                kwargs["update_fields"] = [*update_fields, "driver_claimed_cuba"]
         origin_explicit = update_fields is not None and "assignment_origin" in update_fields
         if not origin_explicit:
             new_origin = None
@@ -1015,10 +1031,9 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         Deliberately asset-agnostic, even for CAMBIO: the "vieja" pickup is
         very often the very same physical cuba that was just dropped off as
         "nueva" — dejar la cuba, esperar un rato, recoger esa misma para
-        verterla y quedársela en el camión is normal, not an edge case. A real
-        two-asset swap and a same-asset round trip both close the same way
-        here; CAMBIO_MISMA_CUBA/CAMBIO_AGUA only differ in requiring an empty
-        truck to start (see requires_empty_truck_pickup())."""
+        verterla y quedársela en el camión is normal for CAMBIO, not an edge
+        case. CAMBIO_AGUA/CAMBIO_MISMA_CUBA also pick up at the obra but must
+        drop the same asset back there (see requires_empty_truck_pickup())."""
         qs = self.transactions.filter(transaction_type=TransactionTypeChoices.MOVEMENT)
         if self.cuba_operation_type not in CUBA_TWO_LEG_OPERATION_TYPES:
             return qs
@@ -1111,9 +1126,9 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
             checklist.append(self._checklist_step(ChecklistStepKey.RECOGER, f"Recoger en {zone_name}", pickup_tx is not None))
             checklist.append(verter_step())
         elif op == CubaOperationType.CAMBIO_MISMA_CUBA:
-            checklist.append(self._checklist_step(ChecklistStepKey.DEJAR, f"Dejar en {zone_name}", dropoff_done))
             checklist.append(self._checklist_step(ChecklistStepKey.RECOGER, f"Recoger en {zone_name}", pickup_tx is not None))
             checklist.append(verter_step())
+            checklist.append(self._checklist_step(ChecklistStepKey.DEJAR, f"Dejar en {zone_name}", dropoff_done))
         elif op == CubaOperationType.CAMBIO_AGUA:
             checklist.append(self._checklist_step(ChecklistStepKey.RECOGER, f"Recoger en {zone_name}", pickup_tx is not None))
             checklist.append(self._checklist_step(ChecklistStepKey.DEJAR, f"Dejar en {zone_name}", dropoff_done))

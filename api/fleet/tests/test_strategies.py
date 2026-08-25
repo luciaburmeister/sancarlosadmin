@@ -713,6 +713,24 @@ class CubaOperationCompletionTests(TestCase):
         self._deliver(planning, self.old_cuba, self.obra)
         planning.refresh_from_db()
         self.assertEqual(planning.status, PlanningStatus.DELIVERED)
+        self.old_cuba.refresh_from_db()
+        self.assertEqual(self.old_cuba.current_transaction_status(), "DELIVERED")
+
+    def test_cambio_misma_cuba_full_pickup_needs_verteo_before_close(self):
+        planning = self._plan(CubaOperationType.CAMBIO_MISMA_CUBA, asset=self.old_cuba)
+        self._move(planning, self.old_cuba, self.obra, extra_data={
+            CubaTransactionKey.ESTADO: CubaFillState.FULL,
+        })
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+        self._vert(planning, self.old_cuba)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+        self._deliver(planning, self.old_cuba, self.obra)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.DELIVERED)
+        self.old_cuba.refresh_from_db()
+        self.assertEqual(self.old_cuba.current_transaction_status(), "DELIVERED")
 
     def test_cambio_misma_cuba_next_task_hides_the_use_pending_cuba_shortcut(self):
         """The truck must arrive empty for this operation type — the driver can't
@@ -919,26 +937,26 @@ class CubaChecklistTests(TestCase):
         planning = self._plan(CubaOperationType.CAMBIO_MISMA_CUBA)
         self.assertEqual(
             [s["key"] for s in planning.cuba_checklist()],
-            ["recoger_cuba", "dejar", "recoger", "verter"],
+            ["recoger_cuba", "recoger", "verter", "dejar"],
         )
         self.assertEqual(
             self._statuses(planning),
-            {"recoger_cuba": "pending", "dejar": "pending", "recoger": "pending", "verter": "pending"},
-        )
-        self._deliver(planning, self.obra)
-        self.assertEqual(
-            self._statuses(planning),
-            {"recoger_cuba": "pending", "dejar": "done", "recoger": "pending", "verter": "pending"},
+            {"recoger_cuba": "pending", "recoger": "pending", "verter": "pending", "dejar": "pending"},
         )
         self._move(planning, self.obra, extra_data={CubaTransactionKey.ESTADO: CubaFillState.FULL})
         self.assertEqual(
             self._statuses(planning),
-            {"recoger_cuba": "done", "dejar": "done", "recoger": "done", "verter": "pending"},
+            {"recoger_cuba": "done", "recoger": "done", "verter": "pending", "dejar": "pending"},
         )
         self._vert(planning)
         self.assertEqual(
             self._statuses(planning),
-            {"recoger_cuba": "done", "dejar": "done", "recoger": "done", "verter": "done"},
+            {"recoger_cuba": "done", "recoger": "done", "verter": "done", "dejar": "pending"},
+        )
+        self._deliver(planning, self.obra)
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger_cuba": "done", "recoger": "done", "verter": "done", "dejar": "done"},
         )
 
     def test_cambio_agua_checklist_has_no_verter_step(self):

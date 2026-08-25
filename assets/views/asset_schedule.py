@@ -431,6 +431,7 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
             clone.pk = None
             clone._state.adding = True
             clone.scheduled_date = planning.scheduled_date + timedelta(days=1)
+            clone.reset_execution_state_for_schedule_clone()
             clone.save()
             clone.suggested_trucks.set(planning.suggested_trucks.all())
             clone.moved_employees.set(planning.moved_employees.all())

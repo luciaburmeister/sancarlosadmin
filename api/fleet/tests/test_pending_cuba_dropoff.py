@@ -766,3 +766,48 @@ class PendingDropoffIncludesPorteTests(TestCase):
 
     def _url(self):
         return "/en/api/plannings/next/"
+
+
+class MachinePorteMovementDoesNotBlockCubaTests(TestCase):
+    """A stale porte_movement on a machine must not block cuba scans — only cubas
+    belong in the pending-dropoff / needing_driver_attention flow."""
+
+    def setUp(self):
+        self.client = APIClient()
+        self.company = make_company()
+        self.user = make_user()
+        self.employee = make_employee(self.company, self.user)
+        self.client.force_authenticate(user=self.user)
+        self.cuba_type = make_asset_type(self.company)
+        self.machine_type = make_asset_type(self.company, name="Excavadora")
+        from assets.models import Asset, AssetTypeCategory
+        self.machine_type.category = AssetTypeCategory.MACHINE
+        self.machine_type.save()
+        self.obra = make_zone(self.company, name="Obra")
+        self.obra.zone_type = WorkingZone.ZoneType.OBRA
+        self.obra.save()
+
+    def test_machine_porte_movement_is_not_a_pending_cuba_dropoff(self):
+        from assets.models import Asset
+
+        machine = Asset.objects.create(
+            company=self.company, asset_type=self.machine_type, name="KUBOTA",
+        )
+        AssetTransaction.objects.create(
+            company=self.company, asset=machine,
+            transaction_type=TransactionTypeChoices.PORTE_MOVEMENT,
+            date=timezone.now(), performed_by=self.employee,
+        )
+        make_planning(
+            self.company, asset=None, assigned_to=self.employee,
+            planning_type=PlanningType.CUBA,
+            cuba_operation_type=CubaOperationType.CAMBIO_MISMA_CUBA,
+            destination=self.obra,
+        )
+
+        body = self.client.get("/en/api/plannings/next/").json()
+        self.assertIsNone(body["pending_dropoff"])
+        self.assertIsNotNone(body["task"])
+
+        stuck = Asset.objects.needing_driver_attention(self.employee, include_porte=True)
+        self.assertIsNone(stuck)

@@ -46,7 +46,7 @@ def _now_iso():
 
 
 def _today_str():
-    return str(timezone.now().date())
+    return str(timezone.localdate())
 
 
 def _parse_dt(iso_str):
@@ -222,7 +222,7 @@ class AssetAssignView(APIView):
                 ),
             }, status=400)
 
-        today = timezone.now().date()
+        today = timezone.localdate()
         today_jobs = AssetPlanning.objects.filter(
             company=asset.company, planning_type__in=DRIVER_TASK_PLANNING_TYPES,
             status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
@@ -349,7 +349,7 @@ class BaseTransactionStrategy:
             assigned_to=self.employee,
             planning_type=PlanningType.CUBA,
             status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
-            scheduled_date=timezone.now().date(),
+            scheduled_date=timezone.localdate(),
         )
         # First try: planning explicitly pre-assigned to this asset
         planning = base_qs.filter(asset=self.asset).first()
@@ -1146,7 +1146,7 @@ class MachineHoursListView(APIView):
 
         plannings = AssetPlanning.objects.select_related(
             "asset", "asset__asset_type", "asset__current_working_zone"
-        ).filter(assigned_to=employee, planning_type=PlanningType.MACHINE_HOURS, scheduled_date=timezone.now().date(), status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT])
+        ).filter(assigned_to=employee, planning_type=PlanningType.MACHINE_HOURS, scheduled_date=timezone.localdate(), status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT])
 
         for planning in plannings:
             asset = planning.asset

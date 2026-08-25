@@ -225,7 +225,7 @@ class PlanningNextTaskView(APIView):
         employee = get_current_employee(request.user)
         if employee is None:
             return JsonResponse({"task": None, "pending_dropoff": None})
-        today = timezone.now().date()
+        today = timezone.localdate()
         today_jobs = AssetPlanning.objects.filter(
             assigned_to=employee,
             planning_type__in=DRIVER_TASK_PLANNING_TYPES,
@@ -277,7 +277,7 @@ class PlanningAbandonView(APIView):
         planning_id = body.get("planning_id")
         if not planning_id:
             return JsonResponse({"error": "Debes indicar la tarea."}, status=400)
-        today = timezone.now().date()
+        today = timezone.localdate()
         planning = AssetPlanning.objects.filter(
             id=planning_id,
             assigned_to=employee,

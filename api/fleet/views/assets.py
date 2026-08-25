@@ -7,7 +7,7 @@ from datetime import datetime
 import qrcode
 from company.models import WorkingZone, WorkingZoneAuthorization
 from django.core.files.base import ContentFile
-from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType
+from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType, CubaFillState, CubaTransactionKey
 from core.tasks import send_asset_transaction_email_task
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -389,8 +389,7 @@ class MovementStrategy(BaseTransactionStrategy):
         )
         self._save_firma_and_imagen(transaction)
         transaction.save()
-        planning.status = PlanningStatus.IN_TRANSIT
-        planning.save(update_fields=["status"])
+        planning.sync_cuba_operation_status()
         send_asset_transaction_email_task.delay(transaction.id)
         return JsonResponse({"success": True, "message": "Recogida registrada", "transaction_id": transaction.id})
 
@@ -429,6 +428,13 @@ class DeliveryStrategy(BaseTransactionStrategy):
                 destination_zone, distance = nearby_zones[0]
         if destination_zone.client_id and not hasattr(destination_zone, '_client_cache'):
             destination_zone = WorkingZone.objects.select_related("client").get(pk=destination_zone.pk)
+        if destination_zone.zone_type == WorkingZone.ZoneType.OBRA and (
+            AssetTransaction.payload_is_full(form_data) or asset.verteo_pending_transaction is not None
+        ):
+            return JsonResponse(
+                {"error": "No puedes dejar una cuba llena en una obra. Llévala a un almacén o vierte primero."},
+                status=400,
+            )
         if destination_zone.location_confirmed_at is None and latitude and longitude:
             confirm_zone_location(destination_zone, latitude, longitude)
         form_data["cliente"] = destination_zone.client.name if destination_zone.client else ""
@@ -446,19 +452,19 @@ class DeliveryStrategy(BaseTransactionStrategy):
         transaction.save()
         asset.current_working_zone = destination_zone
         asset.save()
-        matches_planned_destination = (
-            planning.destination_id is None or planning.destination_id == destination_zone.id
-        )
-        if matches_planned_destination:
-            planning.status = PlanningStatus.DELIVERED
-            planning.save(update_fields=["status"])
-            message = f"Entrega registrada en {destination_zone}"
-        else:
-            # Wrong zone: plan stays pending until delivered correctly or abandoned.
+        planning.sync_cuba_operation_status()
+        planning.refresh_from_db(fields=["status"])
+        if (
+            planning.status != PlanningStatus.DELIVERED
+            and planning.destination_id
+            and planning.destination_id != destination_zone.id
+        ):
             message = (
                 f"Entrega registrada en {destination_zone}, pero no es la zona planificada. "
                 "Debes entregarla en la zona correcta."
             )
+        else:
+            message = f"Entrega registrada en {destination_zone}"
         send_asset_transaction_email_task.delay(transaction.id)
         return JsonResponse({"success": True, "message": message, "transaction_id": transaction.id})
 
@@ -493,13 +499,17 @@ class ReceiptStrategy(BaseTransactionStrategy):
                 return JsonResponse({"multiple_zones": True, "zones": [{"id": z.id, "name": str(z)} for z, d in nearby_zones]}, status=200)
             elif len(nearby_zones) == 1:
                 vertedero_zone, _ = nearby_zones[0]
+        # Not restricted to from_zone__zone_type=OBRA — a full cuba pending verteo can
+        # just as legitimately have been picked up from an almacén (see
+        # Asset.verteo_pending_transaction), and this must still link to it.
         movement_tx = AssetTransaction.objects.filter(
-            asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT, from_zone__zone_type=WorkingZone.ZoneType.OBRA,
+            asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT,
         ).order_by("-date").first()
         form_data = {k: v for k, v in data.items() if k not in ("transaction_type", "latitude", "longitude", "zone_id", "foto_albaran")}
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=vertedero_zone,
             transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(), performed_by=employee,
+            project_file=movement_tx.project_file if movement_tx else None,
             planning=planning,
             notes=f"Verteo registrado por {user.username}. Albaran: {nro_albaran}. Material: {material_vertido}. Peso: {peso_neto}kg.",
             data=form_data,
@@ -514,6 +524,25 @@ class ReceiptStrategy(BaseTransactionStrategy):
         if foto_file:
             receipt.foto.save(foto_file.name, foto_file, save=False)
         receipt.save()
+        # If this cuba had already been dropped off (e.g. left full at an almacén)
+        # before this verteo, the verteo itself implies picking it back up to take
+        # it to the vertedero — register that pickup too, so the rest of the system
+        # (status, Home "cuba sin resolver" card, Escanear/Dejar buttons) correctly
+        # treats it as back on the truck instead of still "delivered" at the almacén.
+        was_delivered_since_pickup = movement_tx is not None and AssetTransaction.objects.filter(
+            asset=asset, transaction_type=TransactionTypeChoices.DELIVERY, date__gt=movement_tx.date,
+        ).exists()
+        if was_delivered_since_pickup:
+            AssetTransaction.objects.create(
+                asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=None,
+                transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(), performed_by=employee,
+                project_file=transaction.project_file,
+                planning=planning,
+                notes=f"Recogida implícita al verter (ya estaba entregada) por {user.username}.",
+                data={CubaTransactionKey.ESTADO: CubaFillState.EMPTY},
+            )
+        if planning is not None:
+            planning.sync_cuba_operation_status()
         return JsonResponse({"success": True, "message": "Verteo registrado correctamente.", "transaction_id": transaction.id, "receipt_id": receipt.id})
 
 
@@ -934,12 +963,16 @@ class DeliveryCheckView(APIView):
                     vertedero_zones = find_zones_within_radius(latitude, longitude, asset.company, zone_type=WorkingZone.ZoneType.VERTEDERO)
                     if len(vertedero_zones) > 0:
                         return JsonResponse({"can_deliver": False, "verteo_required": False, "is_almacen": False, "zones": [], "not_near_vertedero": False, "at_vertedero": True})
+                verteo_required = asset.verteo_pending_transaction is not None
                 zones_data = [
                     {
                         "id": z.id,
                         "name": str(z),
                         "zone_type": z.zone_type,
                         "is_planning_destination": z.id == planning_dest_zone_id,
+                        # Per-zone, not the old single global flag — that broke with 2+
+                        # candidate zones (e.g. an obra and an almacén both nearby).
+                        "can_deliver": z.zone_type != WorkingZone.ZoneType.OBRA or not verteo_required,
                     }
                     for z, _ in nearby_zones
                 ]
@@ -950,7 +983,13 @@ class DeliveryCheckView(APIView):
         else:
             is_almacen = asset.current_working_zone is not None and asset.current_working_zone.zone_type == WorkingZone.ZoneType.ALMACEN
         verteo_required = asset.verteo_pending_transaction is not None
-        can_deliver = not verteo_required or is_almacen
+        # Global flags kept for older clients — "at least one deliverable zone" once
+        # there's a candidate list; falls back to the old almacén-only heuristic
+        # otherwise (e.g. no GPS params at all).
+        if zones_data:
+            can_deliver = any(z["can_deliver"] for z in zones_data)
+        else:
+            can_deliver = not verteo_required or is_almacen
         response_data = {"verteo_required": verteo_required, "is_almacen": is_almacen, "can_deliver": can_deliver, "not_near_vertedero": False, "at_vertedero": False}
         if lat_param is not None and lon_param is not None:
             response_data["zones"] = zones_data

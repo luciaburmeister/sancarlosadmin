@@ -2,7 +2,7 @@ from datetime import date as date_, datetime, time, timedelta
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import OuterRef, Q, Subquery
+from django.db.models import Exists, F, OuterRef, Q, Subquery
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 from sales.models import Client
@@ -171,12 +171,28 @@ class AssetCurrentStatus(models.TextChoices):
     DELIVERED = "DELIVERED", _("Delivered")
 
 
+class CubaTransactionKey:
+    ESTADO = "cubaEstado"
+    VAS_A_VERTER = "vasAVerter"
+
+
+class CubaFillState(models.TextChoices):
+    FULL = "Cuba llena", _("Full container")
+    EMPTY = "Cuba vacía", _("Empty container")
+
+
+class FormAffirmative(models.TextChoices):
+    YES = "Sí", _("Yes")
+    NO = "No", _("No")
+
+
 class AssetQuerySet(models.QuerySet):
     def with_pending_pickup_by(self, employee):
         """Assets `employee` still has on their truck — their MOVEMENT is the most
         recent transaction once RECEIPT (verteo) rows are ignored, same as
         Asset.current_transaction_status treats RECEIPT as transparent, only
-        DELIVERY (or someone else's MOVEMENT) actually resolves it."""
+        DELIVERY (or someone else's MOVEMENT) actually resolves it.         Full or empty. See Asset.verteo_pending_transaction for the narrower
+        "still owes a verteo" signal."""
         latest_relevant_transaction = AssetTransaction.objects.filter(
             asset=OuterRef("pk"),
         ).exclude(
@@ -189,6 +205,38 @@ class AssetQuerySet(models.QuerySet):
                 transaction_type=TransactionTypeChoices.MOVEMENT, performed_by=employee,
             ).values("id"),
         )
+
+    def with_verteo_pending_by(self, employee):
+        """Assets `employee` picked up full and hasn't verted yet — survives a
+        DELIVERY on purpose, unlike with_pending_pickup_by above: a full cuba can
+        be dropped off at an almacén and still owe its verteo. Only a RECEIPT
+        resolves this one."""
+        my_last_movement = AssetTransaction.objects.filter(
+            asset=OuterRef("pk"), transaction_type=TransactionTypeChoices.MOVEMENT, performed_by=employee,
+        ).order_by("-date")
+        return self.filter(company=employee.company).annotate(
+            my_last_movement_id=Subquery(my_last_movement.values("id")[:1]),
+            my_last_movement_date=Subquery(my_last_movement.values("date")[:1]),
+        ).annotate(
+            my_last_movement_full=Exists(
+                AssetTransaction.objects.filter(pk=OuterRef("my_last_movement_id")).filter(
+                    Q(**{f"data__{CubaTransactionKey.ESTADO}": CubaFillState.FULL})
+                    | Q(**{f"data__{CubaTransactionKey.VAS_A_VERTER}": FormAffirmative.YES}),
+                ),
+            ),
+        ).filter(
+            my_last_movement_full=True,
+        ).exclude(
+            transactions__transaction_type=TransactionTypeChoices.RECEIPT,
+            transactions__date__gt=F("my_last_movement_date"),
+        )
+
+    def needing_driver_attention(self, employee):
+        """Verteo-pending first, else still physically on the truck."""
+        stuck = self.with_verteo_pending_by(employee).first()
+        if stuck is not None:
+            return stuck
+        return self.with_pending_pickup_by(employee).first()
 
 
 class Asset(CompanyOwnedModel):
@@ -281,7 +329,7 @@ class Asset(CompanyOwnedModel):
         last_movement = self.last_movement_transaction
         if last_movement is None:
             return None
-        if last_movement.data.get("vasAVerter", "") != "Sí":
+        if not last_movement.is_full_cuba:
             return None
         already_done = self.transactions.filter(
             transaction_type=TransactionTypeChoices.RECEIPT, date__gt=last_movement.date,
@@ -460,6 +508,18 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
         if is_new:
             self._sync_zones_on_porte_delivery()
 
+    @classmethod
+    def payload_is_full(cls, data) -> bool:
+        data = data or {}
+        return (
+            data.get(CubaTransactionKey.ESTADO) == CubaFillState.FULL
+            or data.get(CubaTransactionKey.VAS_A_VERTER) == FormAffirmative.YES
+        )
+
+    @property
+    def is_full_cuba(self) -> bool:
+        return self.payload_is_full(self.data)
+
     def _sync_zones_on_porte_delivery(self):
         """An own-machine porte delivery means the machine — and, if the plan
         says the operator(s) moved with it, those employees too — are now at
@@ -569,6 +629,12 @@ class CubaOperationType(models.TextChoices):
     RETIRADA = "retirada", _("Container Pickup")
     CAMBIO = "cambio", _("Container Swap")
     CAMBIO_AGUA = "cambio_agua", _("Engine Water Tank Refill")
+
+
+CUBA_SWAP_OPERATION_TYPES = frozenset({
+    CubaOperationType.CAMBIO,
+    CubaOperationType.CAMBIO_AGUA,
+})
 
 
 class CubaSize(models.TextChoices):
@@ -816,6 +882,51 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         if "asset" in required and not self.asset_id:
             raise ValidationError({"asset": _("Asset is required for this service type.")})
 
+    def _empty_pickups(self):
+        qs = self.transactions.filter(transaction_type=TransactionTypeChoices.MOVEMENT)
+        if self.cuba_operation_type in CUBA_SWAP_OPERATION_TYPES:
+            if self.destination_id:
+                qs = qs.filter(from_zone_id=self.destination_id)
+            else:
+                qs = qs.filter(from_zone__zone_type=WorkingZone.ZoneType.OBRA)
+        return [tx for tx in qs if not tx.is_full_cuba]
+
+    def has_destination_dropoff(self) -> bool:
+        deliveries = self.transactions.filter(transaction_type=TransactionTypeChoices.DELIVERY)
+        if self.destination_id:
+            return deliveries.filter(to_zone_id=self.destination_id).exists()
+        return deliveries.filter(to_zone__zone_type=WorkingZone.ZoneType.OBRA).exists()
+
+    def has_resolved_pickup(self) -> bool:
+        if self.transactions.filter(transaction_type=TransactionTypeChoices.RECEIPT).exists():
+            return True
+        return bool(self._empty_pickups())
+
+    def is_cuba_operation_complete(self) -> bool:
+        dropoff_done = self.has_destination_dropoff()
+        pickup_done = self.has_resolved_pickup()
+        if self.cuba_operation_type == CubaOperationType.PUESTA:
+            return dropoff_done
+        if self.cuba_operation_type in CUBA_SWAP_OPERATION_TYPES:
+            return dropoff_done and pickup_done
+        return pickup_done
+
+    def sync_cuba_operation_status(self):
+        if self.planning_type != PlanningType.CUBA:
+            return
+        if self.status in (
+            PlanningStatus.DELIVERED,
+            PlanningStatus.NOT_COMPLETED,
+            PlanningStatus.CANCELLED,
+        ):
+            return
+        self.status = (
+            PlanningStatus.DELIVERED
+            if self.is_cuba_operation_complete()
+            else PlanningStatus.IN_TRANSIT
+        )
+        self.save(update_fields=["status"])
+
     @property
     def scheduled_end_time(self) -> time | None:
         """
@@ -920,7 +1031,7 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         return self.has_pending_request_changes or self.is_superseded
 
     def compute_abandoned_stage(self) -> str:
-        """Where a driver left this job — used when abandoning it via "No puedo hacer más"."""
+        """Where a driver left this job — stored when they skip or abandon it."""
         if self.planning_type == PlanningType.PORTE:
             return (
                 AbandonedStageChoices.PICKED_UP_PENDING_DELIVERY if self.status == PlanningStatus.IN_TRANSIT

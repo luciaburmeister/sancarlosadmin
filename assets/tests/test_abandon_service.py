@@ -186,3 +186,41 @@ class AbandonRemainingPlanningsTests(TestCase):
         carried_cuba.refresh_from_db()
         self.assertEqual(carried_cuba.status, PlanningStatus.NOT_COMPLETED)
         self.assertEqual(carried_cuba.abandoned_stage, AbandonedStageChoices.PICKED_UP_PENDING_POUR)
+
+
+class AbandonSinglePlanningTests(TestCase):
+    def setUp(self):
+        self.company = make_company()
+        self.user = make_user()
+        self.employee = make_employee(self.company, self.user)
+
+    def test_abandons_only_the_given_planning(self):
+        current = AssetPlanning.objects.create(
+            company=self.company, assigned_to=self.employee,
+            scheduled_date=date.today(), planning_type=PlanningType.CUBA,
+            status=PlanningStatus.PENDING,
+        )
+        later = AssetPlanning.objects.create(
+            company=self.company, assigned_to=self.employee,
+            scheduled_date=date.today(), planning_type=PlanningType.PORTE,
+            status=PlanningStatus.PENDING,
+        )
+        abandoned = PlanningAbandoner().abandon(self.employee, current, reason="Obra cerrada")
+        self.assertEqual(abandoned.id, current.id)
+        current.refresh_from_db()
+        later.refresh_from_db()
+        self.assertEqual(current.status, PlanningStatus.NOT_COMPLETED)
+        self.assertEqual(current.abandoned_reason, "Obra cerrada")
+        self.assertEqual(later.status, PlanningStatus.PENDING)
+
+    def test_blocks_skipping_a_porte_in_transit(self):
+        carried = AssetPlanning.objects.create(
+            company=self.company, assigned_to=self.employee,
+            scheduled_date=date.today(), planning_type=PlanningType.PORTE,
+            status=PlanningStatus.IN_TRANSIT,
+        )
+        with self.assertRaises(PlanningAbandonBlockedError):
+            PlanningAbandoner().abandon(self.employee, carried, reason="No llego")
+        carried.refresh_from_db()
+        self.assertEqual(carried.status, PlanningStatus.IN_TRANSIT)
+

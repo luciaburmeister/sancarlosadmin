@@ -1,10 +1,18 @@
 """
 api/fleet/tests/test_pending_cuba_dropoff.py
 
-Covers the "driver ends the day with a cuba still on the truck" flow:
+Covers the "driver still has a cuba needing attention" flow:
 - PlanningNextTaskView.pending_dropoff — surfaced alongside (not instead of) the
-  real next task, cleared once resolved or once the next task IS the same cuba.
-  Must survive an intervening verteo (RECEIPT) — only DELIVERY resolves it.
+  real next task, whenever EITHER of two independent things is true for some
+  asset: (a) it's still owed a verteo (with_verteo_pending_by — survives a
+  DELIVERY on purpose, since a full cuba can be dropped at an almacén and still
+  need verting, only a RECEIPT resolves this one), or (b) it's still physically
+  on the truck at all (with_pending_pickup_by — full or empty, only a DELIVERY
+  resolves this one, a RECEIPT alone doesn't). (a) takes priority when both
+  would somehow point at different assets. Carries verteo_pending (Vertedero
+  required before anything else) and can_use_for_next_task (only true once
+  verteo isn't pending, there's an actual next cuba job, and it has no asset of
+  its own yet) — the Home screen's "Usar esta cuba" button reads that flag.
 - AssetTransactionView's fallback (Asset.pending_pickup_by), letting the driver
   actually close it out (Vertedero/Dejar) even though the planning went
   NOT_COMPLETED and/or its scheduled_date is stale — but not once it's DELIVERED.
@@ -76,6 +84,9 @@ class PlanningNextTaskPendingDropoffTests(TestCase):
         self.assertEqual(body["pending_dropoff"]["asset_id"], stuck_asset.id)
         self.assertEqual(body["pending_dropoff"]["planning_id"], stuck_planning.id)
         self.assertTrue(body["pending_dropoff"]["verteo_pending"])
+        # Still owes a verteo — can't be reassigned to the other cuba's job yet,
+        # regardless of that job having no asset of its own.
+        self.assertFalse(body["pending_dropoff"]["can_use_for_next_task"])
 
     def test_no_pending_dropoff_when_next_task_resumes_the_same_cuba(self):
         stuck_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-STUCK")
@@ -92,16 +103,74 @@ class PlanningNextTaskPendingDropoffTests(TestCase):
         self.assertEqual(body["task"]["asset_id"], stuck_asset.id)
         self.assertIsNone(body["pending_dropoff"])
 
-    def test_verteo_pending_false_when_no_verteo_was_required(self):
+    def test_non_full_pickup_still_surfaces_but_without_verteo_pending(self):
+        # Empty pickup already closed its own plan on the recogida (see
+        # test_strategies.MovementStrategyTests) — but the cuba is still
+        # physically on the truck, undelivered, so it must still show up here,
+        # just without the verteo-pending flag forcing Vertedero.
         stuck_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-STUCK")
         stuck_planning = make_planning(
             self.company, asset=stuck_asset, assigned_to=self.employee,
-            planning_type=PlanningType.CUBA, status=PlanningStatus.NOT_COMPLETED,
+            planning_type=PlanningType.CUBA, status=PlanningStatus.DELIVERED,
         )
         self._pick_up(stuck_asset, stuck_planning, vas_a_verter="")
 
         response = self.client.get(self._url())
-        self.assertFalse(response.json()["pending_dropoff"]["verteo_pending"])
+        pending = response.json()["pending_dropoff"]
+        self.assertIsNotNone(pending)
+        self.assertEqual(pending["asset_id"], stuck_asset.id)
+        self.assertFalse(pending["verteo_pending"])
+
+    def test_can_use_for_next_task_true_when_next_cuba_job_has_no_asset_yet(self):
+        stuck_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-STUCK")
+        stuck_planning = make_planning(
+            self.company, asset=stuck_asset, assigned_to=self.employee,
+            planning_type=PlanningType.CUBA, status=PlanningStatus.DELIVERED,
+        )
+        self._pick_up(stuck_asset, stuck_planning, vas_a_verter="")
+        # Next job is unassigned — dispatch didn't pin a specific cuba to it.
+        make_planning(self.company, asset=None, assigned_to=self.employee, planning_type=PlanningType.CUBA)
+
+        response = self.client.get(self._url())
+        self.assertTrue(response.json()["pending_dropoff"]["can_use_for_next_task"])
+
+    def test_can_use_for_next_task_false_when_next_job_already_has_a_different_asset(self):
+        stuck_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-STUCK")
+        stuck_planning = make_planning(
+            self.company, asset=stuck_asset, assigned_to=self.employee,
+            planning_type=PlanningType.CUBA, status=PlanningStatus.DELIVERED,
+        )
+        self._pick_up(stuck_asset, stuck_planning, vas_a_verter="")
+        other_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-OTHER")
+        make_planning(self.company, asset=other_asset, assigned_to=self.employee, planning_type=PlanningType.CUBA)
+
+        response = self.client.get(self._url())
+        self.assertFalse(response.json()["pending_dropoff"]["can_use_for_next_task"])
+
+    def test_can_use_for_next_task_false_when_next_job_is_a_porte(self):
+        stuck_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-STUCK")
+        stuck_planning = make_planning(
+            self.company, asset=stuck_asset, assigned_to=self.employee,
+            planning_type=PlanningType.CUBA, status=PlanningStatus.DELIVERED,
+        )
+        self._pick_up(stuck_asset, stuck_planning, vas_a_verter="")
+        make_planning(self.company, assigned_to=self.employee, planning_type=PlanningType.PORTE)
+
+        response = self.client.get(self._url())
+        self.assertFalse(response.json()["pending_dropoff"]["can_use_for_next_task"])
+
+    def test_can_use_for_next_task_false_when_there_is_no_next_task_at_all(self):
+        stuck_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-STUCK")
+        stuck_planning = make_planning(
+            self.company, asset=stuck_asset, assigned_to=self.employee,
+            planning_type=PlanningType.CUBA, status=PlanningStatus.DELIVERED,
+        )
+        self._pick_up(stuck_asset, stuck_planning, vas_a_verter="")
+
+        response = self.client.get(self._url())
+        body = response.json()
+        self.assertIsNone(body["task"])
+        self.assertFalse(body["pending_dropoff"]["can_use_for_next_task"])
 
     def test_pending_dropoff_omitted_when_last_movement_predates_planning(self):
         # Regression: the Android client parses pending_dropoff.planning_id with
@@ -111,7 +180,7 @@ class PlanningNextTaskPendingDropoffTests(TestCase):
         # movement has no planning attached (legacy data from before plan
         # enforcement) must not be surfaced as pending_dropoff at all.
         legacy_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-LEGACY")
-        self._pick_up(legacy_asset, planning=None, vas_a_verter="")
+        self._pick_up(legacy_asset, planning=None, vas_a_verter="Sí")
 
         today_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-TODAY")
         make_planning(self.company, asset=today_asset, assigned_to=self.employee, planning_type=PlanningType.CUBA)
@@ -122,14 +191,18 @@ class PlanningNextTaskPendingDropoffTests(TestCase):
         self.assertIsNotNone(body["task"])
         self.assertEqual(body["task"]["asset_id"], today_asset.id)
 
-    def test_pending_dropoff_survives_a_verteo(self):
-        # Regression: the query used to key off the asset's absolute latest
-        # transaction, so a RECEIPT (verteo) — which doesn't resolve the pickup —
-        # made it disappear from view even though the cuba was still on the truck.
+    def test_pending_dropoff_survives_a_verteo_but_loses_verteo_pending(self):
+        # Verting closes the cuba's own plan (see ReceiptStrategyTests) and clears
+        # verteo_pending — but the cuba is still physically on the truck until an
+        # actual DELIVERY happens, so it must keep surfacing here, just no longer
+        # forcing Vertedero.
         stuck_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-STUCK")
         stuck_planning = make_planning(
+            # Already DELIVERED, same as ReceiptStrategy would leave it right after
+            # this verteo (see ReceiptStrategyTests) — isolates pending_dropoff's own
+            # computation from the separate "resuming the same task" suppression.
             self.company, asset=stuck_asset, assigned_to=self.employee,
-            planning_type=PlanningType.CUBA, status=PlanningStatus.NOT_COMPLETED,
+            planning_type=PlanningType.CUBA, status=PlanningStatus.DELIVERED,
         )
         self._pick_up(stuck_asset, stuck_planning, vas_a_verter="Sí")
         AssetTransaction.objects.create(
@@ -139,9 +212,40 @@ class PlanningNextTaskPendingDropoffTests(TestCase):
         )
 
         response = self.client.get(self._url())
-        body = response.json()
-        self.assertIsNotNone(body["pending_dropoff"])
-        self.assertEqual(body["pending_dropoff"]["asset_id"], stuck_asset.id)
+        pending = response.json()["pending_dropoff"]
+        self.assertIsNotNone(pending)
+        self.assertEqual(pending["asset_id"], stuck_asset.id)
+        self.assertFalse(pending["verteo_pending"])
+
+    def test_pending_dropoff_survives_a_delivery_when_verteo_still_pending(self):
+        # Regression: dropping a full cuba off at an almacén (allowed — see
+        # DeliveryStrategyTests) used to clear pending_dropoff entirely, because
+        # with_pending_pickup_by (physically-on-the-truck) resolves on any
+        # DELIVERY. But the verteo is still owed, so this must keep surfacing,
+        # with verteo_pending still true — nothing has been verted yet.
+        stuck_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-STUCK2")
+        stuck_planning = make_planning(
+            # DeliveryStrategy closes the plan on zone match regardless of verteo
+            # state (see DeliveryStrategyTests) — isolate pending_dropoff's own
+            # computation from the separate "resuming the same task" suppression.
+            self.company, asset=stuck_asset, assigned_to=self.employee,
+            planning_type=PlanningType.CUBA, status=PlanningStatus.DELIVERED,
+        )
+        self._pick_up(stuck_asset, stuck_planning, vas_a_verter="Sí")
+        almacen = make_zone(self.company, name="Almacen")
+        almacen.zone_type = WorkingZone.ZoneType.ALMACEN
+        almacen.save()
+        AssetTransaction.objects.create(
+            company=self.company, asset=stuck_asset, from_zone=self.obra, to_zone=almacen,
+            transaction_type=TransactionTypeChoices.DELIVERY, date=timezone.now(),
+            performed_by=self.employee, planning=stuck_planning, data={"cubaEstado": "Cuba llena"},
+        )
+
+        response = self.client.get(self._url())
+        pending = response.json()["pending_dropoff"]
+        self.assertIsNotNone(pending)
+        self.assertEqual(pending["asset_id"], stuck_asset.id)
+        self.assertTrue(pending["verteo_pending"])
 
     def test_pending_dropoff_clears_once_delivered(self):
         stuck_asset = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-STUCK")
@@ -309,7 +413,7 @@ class AbandonThenNextTaskEndToEndTests(TestCase):
 
         abandon_response = self.client.post(
             "/en/api/plannings/abandon/",
-            data=json.dumps({"reason": "Fin de jornada laboral"}),
+            data=json.dumps({"planning_id": stuck_planning.id, "reason": "Fin de jornada laboral"}),
             content_type="application/json",
         )
         self.assertEqual(abandon_response.status_code, 200)
@@ -332,11 +436,12 @@ class AbandonThenNextTaskEndToEndTests(TestCase):
         AssetTransaction.objects.create(
             company=self.company, asset=stuck_asset, from_zone=self.obra,
             transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(),
-            performed_by=self.employee, planning=stuck_planning, data={"vasAVerter": ""},
+            performed_by=self.employee, planning=stuck_planning, data={"vasAVerter": "Sí"},
         )
         self.client.post(
             "/en/api/plannings/abandon/",
-            data=json.dumps({}), content_type="application/json",
+            data=json.dumps({"planning_id": stuck_planning.id, "reason": "Fin de jornada laboral"}),
+            content_type="application/json",
         )
 
         # Dispatch assigns a brand new, unrelated cuba for the next day.

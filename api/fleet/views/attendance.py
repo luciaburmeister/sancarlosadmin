@@ -172,29 +172,6 @@ _TASK_SERIALIZERS = {
 }
 
 
-def _find_pending_cuba_dropoff(employee):
-    """This employee's own cuba still on the truck from an earlier task, or None.
-
-    Pre-planning movements have planning=NULL. The Android client calls
-    JSONObject.getInt("planning_id") and crashes on JSON null, which aborts
-    the whole /plannings/next/ parse — today's task is in the payload but
-    never painted. A dropoff without a planning also cannot be closed via
-    the new flow, so do not surface it.
-    """
-    stuck_asset = Asset.objects.with_pending_pickup_by(employee).first()
-    if stuck_asset is None:
-        return None
-    last_movement = stuck_asset.last_movement_transaction
-    if last_movement is None or last_movement.planning_id is None:
-        return None
-    return {
-        "planning_id": last_movement.planning_id,
-        "asset_id": stuck_asset.id,
-        "asset_name": stuck_asset.name,
-        "verteo_pending": stuck_asset.verteo_pending_transaction is not None,
-    }
-
-
 class PlanningNextTaskView(APIView):
     """The single next cuba/porte job for this driver — cuba and porte share one combined
     queue, so only one task is ever surfaced at a time, regardless of type. Ordered by
@@ -211,6 +188,28 @@ class PlanningNextTaskView(APIView):
     and add the type to DRIVER_TASK_PLANNING_TYPES in assets/models.py."""
     permission_classes = [IsAuthenticated]
 
+    @staticmethod
+    def _pending_cuba_dropoff(employee):
+        """Cuba still needing a verteo or still on the truck.
+
+        Pre-planning movements have planning=NULL. The Android client calls
+        JSONObject.getInt("planning_id") and crashes on JSON null, so those
+        must not be surfaced. A dropoff without a planning also cannot be
+        closed via this flow.
+        """
+        stuck_asset = Asset.objects.needing_driver_attention(employee)
+        if stuck_asset is None:
+            return None
+        last_movement = stuck_asset.last_movement_transaction
+        if last_movement is None or last_movement.planning_id is None:
+            return None
+        return {
+            "planning_id": last_movement.planning_id,
+            "asset_id": stuck_asset.id,
+            "asset_name": stuck_asset.name,
+            "verteo_pending": stuck_asset.verteo_pending_transaction is not None,
+        }
+
     def get(self, request):
         employee = get_current_employee(request.user)
         if employee is None:
@@ -225,7 +224,7 @@ class PlanningNextTaskView(APIView):
             "asset", "origin", "destination", "transport_asset",
         ).prefetch_related("stops__zone").order_by("scheduled_time", "route_order", "pk").first()
 
-        pending_dropoff = _find_pending_cuba_dropoff(employee)
+        pending_dropoff = self._pending_cuba_dropoff(employee)
         resuming_pending_cuba = (
             pending_dropoff is not None and planning is not None
             and planning.planning_type == PlanningType.CUBA
@@ -233,6 +232,13 @@ class PlanningNextTaskView(APIView):
         )
         if resuming_pending_cuba:
             pending_dropoff = None
+        if pending_dropoff is not None:
+            pending_dropoff["can_use_for_next_task"] = bool(
+                not pending_dropoff["verteo_pending"]
+                and planning is not None
+                and planning.planning_type == PlanningType.CUBA
+                and planning.asset_id is None
+            )
 
         if planning is None:
             return JsonResponse({"task": None, "pending_dropoff": pending_dropoff})
@@ -242,7 +248,7 @@ class PlanningNextTaskView(APIView):
         return JsonResponse({"task": serializer(planning), "pending_dropoff": pending_dropoff})
 
 
-class PlanningAbandonRemainingView(APIView):
+class PlanningAbandonView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -253,29 +259,42 @@ class PlanningAbandonRemainingView(APIView):
             body = json.loads(request.body or b"{}")
         except (ValueError, TypeError):
             body = {}
-        reason = body.get("reason", "").strip()
+        reason = (body.get("reason") or "").strip()
+        if not reason:
+            return JsonResponse({"error": "El motivo es obligatorio."}, status=400)
+        planning_id = body.get("planning_id")
+        if not planning_id:
+            return JsonResponse({"error": "Debes indicar la tarea."}, status=400)
+        today = timezone.now().date()
+        planning = AssetPlanning.objects.filter(
+            id=planning_id,
+            assigned_to=employee,
+            status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
+            planning_type__in=DRIVER_TASK_PLANNING_TYPES,
+            scheduled_date=today,
+        ).first()
+        if planning is None:
+            return JsonResponse(
+                {"error": "El plan indicado no existe o no está asignado a ti."},
+                status=400,
+            )
         from assets.services.abandon import PlanningAbandonBlockedError, PlanningAbandoner
         try:
-            abandoned = PlanningAbandoner().abandon_remaining(employee, reason=reason)
+            abandoned = PlanningAbandoner().abandon(employee, planning, reason=reason)
         except PlanningAbandonBlockedError as exc:
             label = exc.planning.get_planning_type_display()
             return JsonResponse({
                 "error": (
                     f"Tienes un {label.lower()} recogido sin dejar. "
-                    "Complétalo antes de marcarte como no disponible."
+                    "Complétalo antes de cancelar esta tarea."
                 ),
                 "blocked_planning_id": exc.planning.id,
             }, status=400)
         return JsonResponse({
-            "count": len(abandoned),
-            "abandoned": [
-                {
-                    "id": p.id, "planning_type": p.planning_type,
-                    "abandoned_stage": p.abandoned_stage,
-                    "abandoned_stage_label": p.get_abandoned_stage_display(),
-                }
-                for p in abandoned
-            ],
+            "id": abandoned.id,
+            "planning_type": abandoned.planning_type,
+            "abandoned_stage": abandoned.abandoned_stage,
+            "abandoned_stage_label": abandoned.get_abandoned_stage_display(),
         })
 
 

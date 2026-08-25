@@ -123,6 +123,7 @@ def _serialize_cuba_planning(p):
         "cuba_size": p.cuba_size,
         "cuba_size_label": p.get_cuba_size_display() if p.cuba_size else None,
         "cuba_capacidad": p.asset.data.get("capacidad") if p.asset and p.asset.data else None,
+        "checklist": p.cuba_checklist(),
     }
 
 
@@ -238,6 +239,7 @@ class PlanningNextTaskView(APIView):
                 and planning is not None
                 and planning.planning_type == PlanningType.CUBA
                 and planning.asset_id is None
+                and not planning.requires_empty_truck_pickup()
             )
 
         if planning is None:

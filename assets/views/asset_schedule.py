@@ -70,6 +70,9 @@ def _planning_card_data(planning: AssetPlanning) -> dict:
         old_plan_label = str(_("Old plan"))
     elif request_changes_pending:
         old_plan_label = str(_("Old plan — request changed"))
+    status_label = planning.get_status_display()
+    if planning.status == PlanningStatus.IN_TRANSIT and planning.has_pending_verteo():
+        status_label = f"{status_label} — {_('verteo pending')}"
     return {
         "label": service_type_label or planning.get_planning_type_display(),
         "sublabel": destination["name"] or origin["name"],
@@ -95,7 +98,7 @@ def _planning_card_data(planning: AssetPlanning) -> dict:
         "load_description": (planning.load_description or "").strip(),
         "notes": (planning.notes or "").strip(),
         "status": planning.status,
-        "status_label": planning.get_status_display(),
+        "status_label": status_label,
         "color": planning.service_type_color,
         "urgency_color": planning.urgency_color,
         "status_color": planning.status_color,

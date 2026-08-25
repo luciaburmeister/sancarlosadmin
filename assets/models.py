@@ -629,10 +629,25 @@ class CubaOperationType(models.TextChoices):
     RETIRADA = "retirada", _("Container Pickup")
     CAMBIO = "cambio", _("Container Swap")
     CAMBIO_AGUA = "cambio_agua", _("Engine Water Tank Refill")
+    CAMBIO_MISMA_CUBA = "cambio_misma_cuba", _("Same Container Swap")
 
 
-CUBA_SWAP_OPERATION_TYPES = frozenset({
+# Operation types whose destination-zone pickup must be resolved (emptied and
+# picked back up) in addition to the dropoff before the planning can close.
+# CAMBIO swaps in a different physical asset for the one picked up. CAMBIO_AGUA
+# and CAMBIO_MISMA_CUBA pick up and drop off the very same asset — the truck
+# must arrive empty for those, see AssetPlanning.requires_empty_truck_pickup().
+CUBA_TWO_LEG_OPERATION_TYPES = frozenset({
     CubaOperationType.CAMBIO,
+    CubaOperationType.CAMBIO_AGUA,
+    CubaOperationType.CAMBIO_MISMA_CUBA,
+})
+
+# Same-asset round trips: there's no second physical asset to swap in, so the
+# pickup can never be resolved via a cuba the driver is still carrying from an
+# earlier job — see AssetPlanning.requires_empty_truck_pickup().
+CUBA_REQUIRES_EMPTY_TRUCK_TYPES = frozenset({
+    CubaOperationType.CAMBIO_MISMA_CUBA,
     CubaOperationType.CAMBIO_AGUA,
 })
 
@@ -709,6 +724,10 @@ class PlanningType(models.TextChoices):
 # Planning types in the driver's daily task queue (GET /plannings/next/, abandon).
 DRIVER_TASK_PLANNING_TYPES = [PlanningType.CUBA, PlanningType.PORTE]
 
+
+# Shown as the schedule grid block's left border stripe (AssetPlanning.status_color) —
+# distinct from a plain in_transit block, an open verteo needs the driver's attention.
+VERTEO_PENDING_COLOR = "#D946EF"
 
 STATUS_COLORS = {
     PlanningStatus.PENDING: "#64748B",
@@ -882,34 +901,132 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         if "asset" in required and not self.asset_id:
             raise ValidationError({"asset": _("Asset is required for this service type.")})
 
-    def _empty_pickups(self):
+    def requires_empty_truck_pickup(self) -> bool:
+        """CAMBIO_MISMA_CUBA and CAMBIO_AGUA: the driver must arrive with nothing
+        already loaded — there's no second physical asset to swap in, so the
+        pickup has to be a fresh scan at the site, never resolved via a cuba
+        carried over from an earlier job. Used to hide the "usar esta cuba para
+        el próximo plan" shortcut (PlanningNextTaskView) for these operation
+        types."""
+        return self.cuba_operation_type in CUBA_REQUIRES_EMPTY_TRUCK_TYPES
+
+    def _destination_dropoff_transactions(self):
+        """DELIVERY transactions linked to this planning that resolve the
+        dropoff leg (to_zone == destination, or any obra when destination isn't
+        set)."""
+        qs = self.transactions.filter(transaction_type=TransactionTypeChoices.DELIVERY)
+        if self.destination_id:
+            return qs.filter(to_zone_id=self.destination_id)
+        return qs.filter(to_zone__zone_type=WorkingZone.ZoneType.OBRA)
+
+    def _destination_pickup_transactions(self):
+        """MOVEMENT transactions linked to this planning that resolve the
+        pickup leg (from_zone == destination, or any obra when destination
+        isn't set).
+
+        Deliberately asset-agnostic, even for CAMBIO: the "vieja" pickup is
+        very often the very same physical cuba that was just dropped off as
+        "nueva" — dejar la cuba, esperar un rato, recoger esa misma para
+        verterla y quedársela en el camión is normal, not an edge case. A real
+        two-asset swap and a same-asset round trip both close the same way
+        here; CAMBIO_MISMA_CUBA/CAMBIO_AGUA only differ in requiring an empty
+        truck to start (see requires_empty_truck_pickup())."""
         qs = self.transactions.filter(transaction_type=TransactionTypeChoices.MOVEMENT)
-        if self.cuba_operation_type in CUBA_SWAP_OPERATION_TYPES:
-            if self.destination_id:
-                qs = qs.filter(from_zone_id=self.destination_id)
-            else:
-                qs = qs.filter(from_zone__zone_type=WorkingZone.ZoneType.OBRA)
-        return [tx for tx in qs if not tx.is_full_cuba]
+        if self.cuba_operation_type not in CUBA_TWO_LEG_OPERATION_TYPES:
+            return qs
+        if self.destination_id:
+            return qs.filter(from_zone_id=self.destination_id)
+        return qs.filter(from_zone__zone_type=WorkingZone.ZoneType.OBRA)
 
     def has_destination_dropoff(self) -> bool:
-        deliveries = self.transactions.filter(transaction_type=TransactionTypeChoices.DELIVERY)
-        if self.destination_id:
-            return deliveries.filter(to_zone_id=self.destination_id).exists()
-        return deliveries.filter(to_zone__zone_type=WorkingZone.ZoneType.OBRA).exists()
+        return self._destination_dropoff_transactions().exists()
+
+    def _destination_pickup_transaction(self):
+        """The MOVEMENT transaction that resolves this plan's pickup leg — the
+        most recent one matching, in case an earlier attempt was redone."""
+        return self._destination_pickup_transactions().order_by("-date").first()
 
     def has_resolved_pickup(self) -> bool:
-        if self.transactions.filter(transaction_type=TransactionTypeChoices.RECEIPT).exists():
+        """An empty pickup resolves itself. A full one only resolves once ITS
+        OWN verteo is registered — not just any verteo anywhere else on this
+        planning. A planning can rack up an unrelated receipt earlier (e.g. a
+        prep pickup at an almacén, for cambio/cambio_agua's leg 1) that has
+        nothing to do with THIS pickup; checking "any receipt exists on the
+        planning" would wrongly treat that as resolving this one too. Tying it
+        to AssetTransactionReceipt.movement_transaction — set by ReceiptStrategy
+        to the pickup it actually verted — avoids that."""
+        pickup_tx = self._destination_pickup_transaction()
+        if pickup_tx is None:
+            return False
+        if not pickup_tx.is_full_cuba:
             return True
-        return bool(self._empty_pickups())
+        return pickup_tx.receipt_links.exists()
+
+    def has_pending_verteo(self) -> bool:
+        """True once a full pickup has been logged for this plan but its own
+        verteo hasn't — drives the horario schedule's distinct 'en tránsito,
+        verteo pendiente' block color."""
+        if self.planning_type != PlanningType.CUBA:
+            return False
+        pickup_tx = self._destination_pickup_transaction()
+        if pickup_tx is None or not pickup_tx.is_full_cuba:
+            return False
+        return not pickup_tx.receipt_links.exists()
 
     def is_cuba_operation_complete(self) -> bool:
         dropoff_done = self.has_destination_dropoff()
         pickup_done = self.has_resolved_pickup()
         if self.cuba_operation_type == CubaOperationType.PUESTA:
             return dropoff_done
-        if self.cuba_operation_type in CUBA_SWAP_OPERATION_TYPES:
+        if self.cuba_operation_type in CUBA_TWO_LEG_OPERATION_TYPES:
             return dropoff_done and pickup_done
         return pickup_done
+
+    def cuba_checklist(self):
+        """Ordered checkpoints for this plan's cuba_operation_type, each with a
+        done/pending/skipped status computed from the transactions logged so
+        far — drives the driver-facing progress stepper in the San Carlos app.
+        Mirrors is_cuba_operation_complete()'s per-type rules; keep them in sync.
+        """
+        if self.planning_type != PlanningType.CUBA or not self.cuba_operation_type:
+            return []
+
+        pickup_tx = self._destination_pickup_transaction()
+        dropoff_done = self.has_destination_dropoff()
+        zone_name = self.destination.name if self.destination_id else "la obra"
+
+        def step(key, label, done):
+            return {"key": key, "label": label, "status": "done" if done else "pending"}
+
+        def verter_step():
+            label = "Verter (solo si sale llena)"
+            if pickup_tx is None:
+                return {"key": "verter", "label": label, "status": "pending"}
+            if not pickup_tx.is_full_cuba:
+                return {"key": "verter", "label": label, "status": "skipped"}
+            return {"key": "verter", "label": label, "status": "done" if pickup_tx.receipt_links.exists() else "pending"}
+
+        op = self.cuba_operation_type
+        if op == CubaOperationType.PUESTA:
+            return [step("dejar", f"Dejar en {zone_name}", dropoff_done)]
+        if op == CubaOperationType.RETIRADA:
+            return [
+                step("recoger", f"Recoger en {zone_name}", pickup_tx is not None),
+                verter_step(),
+            ]
+        if op in (CubaOperationType.CAMBIO_MISMA_CUBA, CubaOperationType.CAMBIO_AGUA):
+            checklist = [step("recoger", f"Recoger en {zone_name}", pickup_tx is not None)]
+            if op == CubaOperationType.CAMBIO_MISMA_CUBA:
+                checklist.append(verter_step())
+            checklist.append(step("dejar", f"Dejar en {zone_name}", dropoff_done))
+            return checklist
+        if op == CubaOperationType.CAMBIO:
+            return [
+                step("dejar_nueva", f"Dejar la cuba nueva en {zone_name}", dropoff_done),
+                step("recoger_vieja", f"Recoger la cuba vieja en {zone_name}", pickup_tx is not None),
+                verter_step(),
+            ]
+        return []
 
     def sync_cuba_operation_status(self):
         if self.planning_type != PlanningType.CUBA:
@@ -1010,6 +1127,8 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
 
     @property
     def status_color(self) -> str:
+        if self.status == PlanningStatus.IN_TRANSIT and self.has_pending_verteo():
+            return VERTEO_PENDING_COLOR
         return STATUS_COLORS.get(self.status, STATUS_COLORS[PlanningStatus.PENDING])
 
     @property

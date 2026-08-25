@@ -583,6 +583,15 @@
       {% endfor %}
       <span class="legend-dot" style="background: #64748B;"></span>{% trans "Other / unset" %}
     </span>
+    <span>
+      <strong>{% trans "Border" %}:</strong>
+      <span class="legend-dot" style="background:#64748B"></span>{% trans "Pending" %}
+      <span class="legend-dot" style="background:#3B82F6"></span>{% trans "In transit" %}
+      <span class="legend-dot" style="background:#D946EF"></span>{% trans "In transit — verteo pending" %}
+      <span class="legend-dot" style="background:#10B981"></span>{% trans "Delivered" %}
+      <span class="legend-dot" style="background:#EF4444"></span>{% trans "Not completed" %}
+      <span class="legend-dot" style="background:#94A3B8"></span>{% trans "Cancelled" %}
+    </span>
   </div>
 
   <div class="flex gap-4 items-start">

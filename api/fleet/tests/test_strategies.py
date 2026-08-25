@@ -320,17 +320,18 @@ class ReceiptStrategyTests(TestCase):
             employee=self.employee,
             zone=self.zone,
         )
+        self.planning = make_planning(
+            self.company, asset=self.asset, assigned_to=self.employee,
+            status=PlanningStatus.IN_TRANSIT,
+            cuba_operation_type=CubaOperationType.RETIRADA,
+        )
         self.movement_tx = AssetTransaction.objects.create(
             asset=self.asset,
             company=self.company,
             transaction_type=TransactionTypeChoices.MOVEMENT,
             from_zone=self.zone,
             performed_by=self.employee,
-        )
-        self.planning = make_planning(
-            self.company, asset=self.asset, assigned_to=self.employee,
-            status=PlanningStatus.IN_TRANSIT,
-            cuba_operation_type=CubaOperationType.RETIRADA,
+            planning=self.planning,
         )
 
     def _run_receipt(self, extra_data=None):
@@ -703,4 +704,263 @@ class CubaOperationCompletionTests(TestCase):
         self.assertIsNotNone(body["pending_dropoff"])
         self.assertEqual(body["pending_dropoff"]["asset_id"], self.old_cuba.id)
         self.assertFalse(body["pending_dropoff"]["verteo_pending"])
+
+    def test_cambio_misma_cuba_closes_after_pickup_and_dropoff_of_the_same_asset(self):
+        planning = self._plan(CubaOperationType.CAMBIO_MISMA_CUBA, asset=self.old_cuba)
+        self._move(planning, self.old_cuba, self.obra)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+        self._deliver(planning, self.old_cuba, self.obra)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.DELIVERED)
+
+    def test_cambio_misma_cuba_next_task_hides_the_use_pending_cuba_shortcut(self):
+        """The truck must arrive empty for this operation type — the driver can't
+        skip the pickup by reusing a cuba they're still carrying from a previous job."""
+        planning = self._plan(CubaOperationType.RETIRADA, asset=self.old_cuba)
+        self._move(planning, self.old_cuba, self.obra)
+        make_planning(
+            self.company, asset=None, assigned_to=self.employee,
+            cuba_operation_type=CubaOperationType.CAMBIO_MISMA_CUBA, destination=self.almacen,
+        )
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        body = client.get("/en/api/plannings/next/").json()
+        self.assertIsNotNone(body["pending_dropoff"])
+        self.assertFalse(body["pending_dropoff"]["can_use_for_next_task"])
+
+    def test_cambio_agua_closes_after_pickup_and_dropoff_of_the_same_asset(self):
+        """cambio_agua is a same-asset round trip like cambio_misma_cuba, not a
+        real two-cuba swap — no verteo step applies."""
+        planning = self._plan(CubaOperationType.CAMBIO_AGUA, asset=self.old_cuba)
+        self._move(planning, self.old_cuba, self.obra)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+        self._deliver(planning, self.old_cuba, self.obra)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.DELIVERED)
+
+    def test_cambio_closes_when_the_vieja_pickup_is_the_same_asset_just_delivered(self):
+        """Real scenario, not an edge case: dejar la cuba nueva (vacía), esperar
+        un rato, recoger esa misma cuba de vuelta (ahora llena) para verterla y
+        quedársela en el camión — sin una segunda cuba física distinta."""
+        planning = self._plan(CubaOperationType.CAMBIO)
+        self._deliver(planning, self.new_cuba, self.obra)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+        self._move(planning, self.new_cuba, self.obra, extra_data={
+            CubaTransactionKey.ESTADO: CubaFillState.FULL,
+        })
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+        self._vert(planning, self.new_cuba)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.DELIVERED)
+
+    def test_cambio_closes_immediately_when_the_same_asset_comes_back_empty(self):
+        planning = self._plan(CubaOperationType.CAMBIO)
+        self._deliver(planning, self.new_cuba, self.obra)
+        self._move(planning, self.new_cuba, self.obra)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.DELIVERED)
+
+    def test_cambio_an_earlier_unrelated_verteo_does_not_resolve_a_later_full_pickup(self):
+        """Regression (real data, plan 225): a prep pickup+verteo at the almacén
+        before dejar (leg 1 doesn't even count toward the two-leg check, since
+        it's not from the destination zone) must not be reused to resolve a
+        LATER, separate full pickup at the obra (leg 2) — that one needs its
+        own verteo."""
+        planning = self._plan(CubaOperationType.CAMBIO)
+        self._move(planning, self.new_cuba, self.almacen, extra_data={
+            CubaTransactionKey.ESTADO: CubaFillState.FULL,
+        })
+        self._vert(planning, self.new_cuba)
+        self._deliver(planning, self.new_cuba, self.obra)
+        planning.asset = self.old_cuba
+        planning.save(update_fields=["asset"])
+        self._move(planning, self.old_cuba, self.obra, extra_data={
+            CubaTransactionKey.ESTADO: CubaFillState.FULL,
+        })
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+        self._vert(planning, self.old_cuba)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.DELIVERED)
+
+    def test_cambio_dejar_alone_with_no_prior_pickup_does_not_close(self):
+        """Truck already carrying the new cuba (pre-assigned / carried over — no
+        MovementStrategy call ever happened for this planning) — a single dejar
+        must not close a CAMBIO plan by itself; leg 2 (recoger vieja) still owed."""
+        planning = self._plan(CubaOperationType.CAMBIO)
+        self._deliver(planning, self.new_cuba, self.obra)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+
+    def test_cambio_agua_next_task_hides_the_use_pending_cuba_shortcut(self):
+        planning = self._plan(CubaOperationType.RETIRADA, asset=self.old_cuba)
+        self._move(planning, self.old_cuba, self.obra)
+        make_planning(
+            self.company, asset=None, assigned_to=self.employee,
+            cuba_operation_type=CubaOperationType.CAMBIO_AGUA, destination=self.almacen,
+        )
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        body = client.get("/en/api/plannings/next/").json()
+        self.assertIsNotNone(body["pending_dropoff"])
+        self.assertFalse(body["pending_dropoff"]["can_use_for_next_task"])
+
+
+class CubaChecklistTests(TestCase):
+    """AssetPlanning.cuba_checklist() — the progress steps behind the San Carlos
+    app's checkpoint stepper."""
+
+    def setUp(self):
+        self.company = make_company()
+        self.user = make_user()
+        self.employee = make_employee(self.company, self.user)
+        self.asset_type = make_asset_type(self.company)
+        self.obra = make_zone(self.company, name="Obra Destino", lat=40.42, lon=-3.71)
+        self.almacen = make_zone(self.company, name="Almacen", lat=40.41, lon=-3.70)
+        self.almacen.zone_type = WorkingZone.ZoneType.ALMACEN
+        self.almacen.save(update_fields=["zone_type"])
+        self.cuba = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-1")
+
+    def _plan(self, operation, **overrides):
+        return make_planning(
+            self.company, asset=self.cuba, assigned_to=self.employee,
+            cuba_operation_type=operation, destination=self.obra, **overrides,
+        )
+
+    def _move(self, planning, zone, extra_data=None):
+        from api.fleet.views.assets import MovementStrategy
+
+        self.cuba.current_working_zone = zone
+        self.cuba.save(update_fields=["current_working_zone"])
+        data = {
+            "transaction_type": "movement", "latitude": 40.42, "longitude": -3.71,
+            "zone_id": zone.id, "planning_id": planning.id,
+            CubaTransactionKey.ESTADO: CubaFillState.EMPTY,
+        }
+        if extra_data:
+            data.update(extra_data)
+        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
+            MovementStrategy(data, self.cuba, self.employee, self.user).execute()
+
+    def _deliver(self, planning, zone):
+        from api.fleet.views.assets import DeliveryStrategy
+
+        data = {
+            "transaction_type": "delivery", "latitude": 40.42, "longitude": -3.71,
+            "zone_id": zone.id, "planning_id": planning.id,
+            CubaTransactionKey.ESTADO: CubaFillState.EMPTY,
+        }
+        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
+            DeliveryStrategy(data, self.cuba, self.employee, self.user).execute()
+
+    def _vert(self, planning):
+        from api.fleet.views.assets import ReceiptStrategy
+
+        ReceiptStrategy(
+            {
+                "transaction_type": "receipt", "nro_albaran": "ALB-1", "foto_albaran": "",
+                "peso_neto": "500", "material_vertido": "RCD Limpio",
+                "zone_id": self.obra.id, "planning_id": planning.id,
+            },
+            self.cuba, self.employee, self.user,
+        ).execute()
+
+    def _statuses(self, planning):
+        planning.refresh_from_db()
+        return {s["key"]: s["status"] for s in planning.cuba_checklist()}
+
+    def test_puesta_checklist_has_only_dejar(self):
+        planning = self._plan(CubaOperationType.PUESTA)
+        self.assertEqual(self._statuses(planning), {"dejar": "pending"})
+        self._deliver(planning, self.obra)
+        self.assertEqual(self._statuses(planning), {"dejar": "done"})
+
+    def test_retirada_checklist_skips_verter_when_empty(self):
+        planning = self._plan(CubaOperationType.RETIRADA)
+        self.assertEqual(self._statuses(planning), {"recoger": "pending", "verter": "pending"})
+        self._move(planning, self.obra)
+        self.assertEqual(self._statuses(planning), {"recoger": "done", "verter": "skipped"})
+
+    def test_retirada_checklist_needs_verter_when_full(self):
+        planning = self._plan(CubaOperationType.RETIRADA)
+        self._move(planning, self.obra, extra_data={CubaTransactionKey.ESTADO: CubaFillState.FULL})
+        self.assertEqual(self._statuses(planning), {"recoger": "done", "verter": "pending"})
+        self._vert(planning)
+        self.assertEqual(self._statuses(planning), {"recoger": "done", "verter": "done"})
+
+    def test_cambio_misma_cuba_checklist_full_cycle(self):
+        planning = self._plan(CubaOperationType.CAMBIO_MISMA_CUBA)
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger": "pending", "verter": "pending", "dejar": "pending"},
+        )
+        self._move(planning, self.obra, extra_data={CubaTransactionKey.ESTADO: CubaFillState.FULL})
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger": "done", "verter": "pending", "dejar": "pending"},
+        )
+        self._vert(planning)
+        self._deliver(planning, self.obra)
+        self.assertEqual(
+            self._statuses(planning),
+            {"recoger": "done", "verter": "done", "dejar": "done"},
+        )
+
+    def test_cambio_agua_checklist_has_no_verter_step(self):
+        planning = self._plan(CubaOperationType.CAMBIO_AGUA)
+        self.assertEqual(self._statuses(planning), {"recoger": "pending", "dejar": "pending"})
+        self._move(planning, self.obra)
+        self._deliver(planning, self.obra)
+        self.assertEqual(self._statuses(planning), {"recoger": "done", "dejar": "done"})
+
+    def test_cambio_checklist_tracks_both_legs_independently(self):
+        old_cuba = make_asset(self.company, self.asset_type, employee=self.employee, zone=self.obra, name="CUBA-OLD")
+        planning = self._plan(CubaOperationType.CAMBIO)
+        self.assertEqual(
+            self._statuses(planning),
+            {"dejar_nueva": "pending", "recoger_vieja": "pending", "verter": "pending"},
+        )
+        self._deliver(planning, self.obra)
+        self.assertEqual(
+            self._statuses(planning),
+            {"dejar_nueva": "done", "recoger_vieja": "pending", "verter": "pending"},
+        )
+        planning.asset = old_cuba
+        planning.save(update_fields=["asset"])
+        self.cuba = old_cuba
+        self._move(planning, self.obra)
+        self.assertEqual(
+            self._statuses(planning),
+            {"dejar_nueva": "done", "recoger_vieja": "done", "verter": "skipped"},
+        )
+
+    def test_status_color_flags_in_transit_with_a_pending_verteo(self):
+        from assets.models import VERTEO_PENDING_COLOR, STATUS_COLORS
+
+        planning = self._plan(CubaOperationType.RETIRADA)
+        self.assertEqual(planning.status_color, STATUS_COLORS[PlanningStatus.PENDING])
+        self._move(planning, self.obra, extra_data={CubaTransactionKey.ESTADO: CubaFillState.FULL})
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+        self.assertTrue(planning.has_pending_verteo())
+        self.assertEqual(planning.status_color, VERTEO_PENDING_COLOR)
+        self._vert(planning)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.DELIVERED)
+        self.assertFalse(planning.has_pending_verteo())
+        self.assertEqual(planning.status_color, STATUS_COLORS[PlanningStatus.DELIVERED])
+
+    def test_status_color_stays_plain_in_transit_for_an_empty_pickup_still_awaiting_dropoff(self):
+        from assets.models import STATUS_COLORS
+
+        planning = self._plan(CubaOperationType.CAMBIO_MISMA_CUBA)
+        self._move(planning, self.obra)
+        planning.refresh_from_db()
+        self.assertEqual(planning.status, PlanningStatus.IN_TRANSIT)
+        self.assertFalse(planning.has_pending_verteo())
+        self.assertEqual(planning.status_color, STATUS_COLORS[PlanningStatus.IN_TRANSIT])
 

@@ -55,6 +55,7 @@ dependencies = [
     "cryptography (>=48.0.0,<49.0.0)",
     "pygments (>=2.20.0,<3.0.0)",
     "highspy (>=1.15.1,<2.0.0)",
+    "djangoql (>=0.19.1,<0.20.0)",
 ]
 
 

@@ -17,6 +17,7 @@ from unfold.admin import ModelAdmin, GenericTabularInline, TabularInline
 from django.utils.html import format_html
 from django.db import models
 from invoices.views.invoice.aging_export_view import AgingExportView
+from general.djangoql.admin import DjangoQLSearchAdminMixin
 
 from invoices.models import (
     Invoice,
@@ -316,7 +317,7 @@ class LineItemExportMixin:
 
 
 @admin.register(Invoice)
-class InvoiceAdmin(LineItemExportMixin, ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
+class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     resource_classes = [InvoiceResource, InvoiceItemResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
@@ -880,7 +881,7 @@ class EmailLogInline(GenericTabularInline):
         return False
 
 @admin.register(SalesInvoice)
-class SalesInvoiceAdmin(LineItemExportMixin, ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
+class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     resource_classes = [SalesInvoiceResource, SalesInvoiceItemResource]
     export_form_class = SelectableFieldsExportForm
 
@@ -897,6 +898,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, ModelAdmin, CompanyRestrictedAdmin,
         ("company", AutocompleteSelectMultipleFilter),
         ("client", AutocompleteSelectMultipleFilter),
         ("date_issued", RangeDateFilter),
+        ("total_amount",RangeNumericFilter),
         # Document state
         ("status", ChoicesDropdownFilter),
         ("is_external", BooleanRadioFilter),

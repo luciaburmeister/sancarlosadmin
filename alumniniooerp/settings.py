@@ -116,6 +116,7 @@ INSTALLED_APPS = [
     "payroll",
     "apps.expenses",
     "loans",
+    "djangoql",
 ]
 
 MIDDLEWARE = [

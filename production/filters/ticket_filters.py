@@ -1,8 +1,9 @@
-from django.contrib import admin
 from django.utils.translation import gettext_lazy as _
 from django.core.cache import cache
 
-from production.models import ProductionItem, ProductionTicketStatus
+from unfold.contrib.filters.admin import MultipleDropdownFilter
+
+from production.models import ProductionItem, ProductionTicket
 from production.constants import (
     TICKET_STAGE_LOOKUPS_KEY,
     TICKET_STAGE_STATUS_LOOKUPS_KEY,
@@ -10,7 +11,21 @@ from production.constants import (
 )
 
 
-class TicketStageFilter(admin.SimpleListFilter):
+def selected_values(value):
+    """Normalize a multiple-dropdown value into a clean list of strings.
+
+    The filter value is a list when the parameter is present in the query
+    string, ``None`` when it is absent, and a plain string while admin facet
+    counts are being computed.
+    """
+    if value in (None, ""):
+        return []
+    if isinstance(value, str):
+        return [value]
+    return [v for v in value if v not in (None, "")]
+
+
+class TicketStageFilter(MultipleDropdownFilter):
     title = _("Stage")
     parameter_name = "stage"
 
@@ -25,14 +40,10 @@ class TicketStageFilter(admin.SimpleListFilter):
             stages.update(planning.keys())
 
         # Attempt to sort using company stages if available
-        company = getattr(request.user, "company", None)
-        if not company and hasattr(model_admin, "get_queryset"):
-            # Try to get company from first object if possible, or just use request if it was set by middleware
-            pass
         company_stages = []
         if hasattr(request, "company") and request.company:
             company_stages = list(request.company.production_stages or [])
-        
+
         def sort_key(s):
             try:
                 return (0, company_stages.index(s))
@@ -43,14 +54,14 @@ class TicketStageFilter(admin.SimpleListFilter):
         cache.set(TICKET_STAGE_LOOKUPS_KEY, result, LOOKUPS_CACHE_TIMEOUT)
         return result
 
-
     def queryset(self, request, queryset):
-        stage = self.value()
-        if not stage:
+        stages = selected_values(self.value())
+        if not stages:
             return queryset
-        return queryset.filter(items__planning__has_key=stage).distinct()
-    
-class TicketIncompleteStageFilter(admin.SimpleListFilter):
+        return queryset.filter(items__planning__has_any_keys=stages).distinct()
+
+
+class TicketIncompleteStageFilter(MultipleDropdownFilter):
     title = _("Incomplete stage")
     parameter_name = "incomplete_stage"
 
@@ -65,20 +76,21 @@ class TicketIncompleteStageFilter(admin.SimpleListFilter):
         return [(stage, stage) for stage in sorted(stages)]
 
     def queryset(self, request, queryset):
-        value = self.value()
-        if not value:
+        values = selected_values(self.value())
+        if not values:
             return queryset
 
         matching_ids = []
         queryset = queryset.prefetch_related("items")
 
         for ticket in queryset:
-            if ticket.has_incomplete_stage(value):
+            if any(ticket.has_incomplete_stage(value) for value in values):
                 matching_ids.append(ticket.pk)
 
         return queryset.filter(pk__in=matching_ids)
 
-class TicketStageStatusFilter(admin.SimpleListFilter):
+
+class TicketStageStatusFilter(MultipleDropdownFilter):
     title = _("Stage status")
     parameter_name = "stage_status"
 
@@ -98,26 +110,46 @@ class TicketStageStatusFilter(admin.SimpleListFilter):
         cache.set(TICKET_STAGE_STATUS_LOOKUPS_KEY, result, LOOKUPS_CACHE_TIMEOUT)
         return result
 
-
     def queryset(self, request, queryset):
-        status = self.value()
-        if not status:
+        statuses = selected_values(self.value())
+        if not statuses:
             return queryset
 
-        stage = request.GET.get("stage")
+        stages = [stage for stage in request.GET.getlist("stage") if stage]
 
         ticket_ids = set()
         for production_item in ProductionItem.objects.filter(ticket__in=queryset).only("ticket_id", "planning"):
             planning = production_item.planning or {}
 
-            if stage:
-                info = planning.get(stage, {})
-                if info.get("status") == status:
-                    ticket_ids.add(production_item.ticket_id)
+            if stages:
+                infos = [planning.get(stage) or {} for stage in stages]
             else:
-                for info in planning.values():
-                    if info.get("status") == status:
-                        ticket_ids.add(production_item.ticket_id)
-                        break
+                infos = planning.values()
+
+            for info in infos:
+                if info.get("status") in statuses:
+                    ticket_ids.add(production_item.ticket_id)
+                    break
 
         return queryset.filter(id__in=ticket_ids)
+
+
+class TicketLastStageLabelFilter(MultipleDropdownFilter):
+    title = _("Last Stage")
+    parameter_name = "last_stage_label"
+
+    def lookups(self, request, model_admin):
+        labels = (
+            ProductionTicket.objects.exclude(last_stage_label__isnull=True)
+            .exclude(last_stage_label="")
+            .values_list("last_stage_label", flat=True)
+            .distinct()
+            .order_by("last_stage_label")
+        )
+        return [(label, label) for label in labels]
+
+    def queryset(self, request, queryset):
+        labels = selected_values(self.value())
+        if not labels:
+            return queryset
+        return queryset.filter(last_stage_label__in=labels)

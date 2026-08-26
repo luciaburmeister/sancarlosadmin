@@ -1120,6 +1120,21 @@ msgstr "Solicitud aprobada. Planificación de Activo creada."
 msgid "Request approved. Asset Planning created."
 msgstr "Solicitud aprobada. Planificación de Activo creada."
 
+msgid "Select at least one machinist or an asset to approve this request."
+msgstr ""
+"Selecciona al menos un maquinista o un activo para aprobar esta solicitud."
+
+msgid "Request approved. Zone updated."
+msgstr "Solicitud aprobada. Zona actualizada."
+
+#, python-format
+msgid "Request approved. Zone will update at %(time)s today."
+msgstr "Solicitud aprobada. La zona se actualizará hoy a las %(time)s."
+
+#, python-format
+msgid "Request approved. Zone will update on %(date)s."
+msgstr "Solicitud aprobada. La zona se actualizará el %(date)s."
+
 msgid "Request rejected."
 msgstr "Solicitud rechazada."
 
@@ -1331,6 +1346,13 @@ msgstr "Solo conductores con planificaciones"
 
 msgid "Machine"
 msgstr "Máquina"
+
+msgid ""
+"Own-machine transport only — the machine being carried, separate from the "
+"cuba used to transport it."
+msgstr ""
+"Solo para porte de máquina propia — la máquina que se transporta, "
+"independiente de la cuba usada para transportarla."
 
 msgid "Truck"
 msgstr "Camión"
@@ -1674,6 +1696,12 @@ msgstr "Servicio de Grúa"
 msgid "Container Movement"
 msgstr "Movimiento de Cuba"
 
+msgid "Machinist Movement"
+msgstr "Movimiento de Maquinistas"
+
+msgid "Machine Self-Transport"
+msgstr "Autoporte de Máquina"
+
 msgid "Container Drop-off"
 msgstr "Puesta de Cuba"
 
@@ -1851,6 +1879,9 @@ msgstr "Este expediente pertenece a una empresa diferente."
 msgid "Asset is required for this service type."
 msgstr "El activo es obligatorio para este tipo de servicio."
 
+msgid "Machine is required for this service type."
+msgstr "La máquina es obligatoria para este tipo de servicio."
+
 msgid "Planning"
 msgstr "Planificación"
 
@@ -1905,6 +1936,9 @@ msgstr "Revisado por"
 msgid "Reviewed At"
 msgstr "Revisado el"
 
+msgid "Zone Sync Applied At"
+msgstr "Sincronización de Zona Aplicada el"
+
 msgid "Asset Planning Request"
 msgstr "Solicitud de Planificación de Activo"
 
@@ -1922,6 +1956,11 @@ msgid "This asset belongs to a different company than the selected zone."
 msgstr ""
 "Este activo pertenece a una empresa diferente a la de la zona seleccionada."
 
+msgid "This machine belongs to a different company than the selected zone."
+msgstr ""
+"Esta máquina pertenece a una empresa diferente a la de la zona "
+"seleccionada."
+
 msgid "Load description is required for this service type."
 msgstr "La descripción de la carga es obligatoria para este tipo de servicio."
 
@@ -1931,6 +1970,9 @@ msgstr ""
 
 msgid "Cuba size is required for this service type."
 msgstr "El tamaño de cuba es obligatorio para este tipo de servicio."
+
+msgid "Estimated duration is required for this service type."
+msgstr "La duración estimada es obligatoria para este tipo de servicio."
 
 msgid "This employee belongs to a different company than the selected zone."
 msgstr ""

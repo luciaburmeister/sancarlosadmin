@@ -300,6 +300,31 @@ class AssetQuerySet(models.QuerySet):
             return stuck
         return self.with_pending_pickup_by(employee, include_porte=include_porte).first()
 
+    def visible_pending_dropoff(self, employee, planning=None):
+        """Pending cuba the driver-facing UI would show — same rules as
+        /plannings/next/. Assign must use this (not raw needing_driver_attention)
+        so a ghost stuck cuba the Home card hides cannot block QR scans."""
+        stuck_asset = self.needing_driver_attention(employee, include_porte=True)
+        if stuck_asset is None:
+            return None
+        last_movement = stuck_asset.transactions.filter(
+            transaction_type__in=[
+                TransactionTypeChoices.MOVEMENT,
+                TransactionTypeChoices.PORTE_MOVEMENT,
+            ],
+        ).order_by("-date").first()
+        if last_movement is None or last_movement.planning_id is None:
+            return None
+        pending = {
+            "planning_id": last_movement.planning_id,
+            "asset_id": stuck_asset.id,
+            "asset_name": stuck_asset.name,
+            "verteo_pending": stuck_asset.verteo_pending_transaction is not None,
+        }
+        if planning is not None and planning.suppresses_pending_dropoff_warning(pending):
+            return None
+        return pending
+
 
 class Asset(CompanyOwnedModel):
     objects = AssetQuerySet.as_manager()

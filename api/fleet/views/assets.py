@@ -213,15 +213,6 @@ class AssetAssignView(APIView):
             body = {}
         use_pending_cuba = bool(body.get(AssignRequestKey.USE_PENDING_CUBA))
 
-        stuck = Asset.objects.needing_driver_attention(employee, include_porte=True)
-        if stuck is not None and stuck.id != asset.id:
-            return JsonResponse({
-                "error": (
-                    "Tienes una cuba pendiente. Debes dejarla o usarla para este "
-                    "plan antes de escanear otra."
-                ),
-            }, status=400)
-
         today = timezone.localdate()
         today_jobs = AssetPlanning.objects.filter(
             company=asset.company, planning_type__in=DRIVER_TASK_PLANNING_TYPES,
@@ -239,7 +230,20 @@ class AssetAssignView(APIView):
         if planning is None:
             return JsonResponse({"error": "No hay ningún plan pendiente hoy para esta cuba."}, status=400)
 
-        claiming_pending = use_pending_cuba or (stuck is not None and stuck.id == asset.id)
+        # Same visibility rules as the Home pending card — do not block on a
+        # stuck cuba the UI would not show (e.g. legacy movement with no plan).
+        pending = Asset.objects.visible_pending_dropoff(employee, planning)
+        if pending is not None and pending["asset_id"] != asset.id:
+            return JsonResponse({
+                "error": (
+                    "Tienes una cuba pendiente. Debes dejarla o usarla para este "
+                    "plan antes de escanear otra."
+                ),
+            }, status=400)
+
+        claiming_pending = use_pending_cuba or (
+            pending is not None and pending["asset_id"] == asset.id
+        )
         if claiming_pending and planning.requires_empty_truck_pickup():
             return JsonResponse({
                 "error": (

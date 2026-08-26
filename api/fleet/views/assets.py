@@ -7,7 +7,7 @@ from datetime import datetime
 import qrcode
 from company.models import WorkingZone, WorkingZoneAuthorization
 from django.core.files.base import ContentFile
-from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType
+from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType, CubaFillState, CubaTransactionKey
 from core.tasks import send_asset_transaction_email_task
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
@@ -46,7 +46,7 @@ def _now_iso():
 
 
 def _today_str():
-    return str(timezone.now().date())
+    return str(timezone.localdate())
 
 
 def _parse_dt(iso_str):
@@ -190,13 +190,12 @@ class AssetDetailView(APIView):
 
 
 class AssetAssignView(APIView):
-    """Driver self-assignment via QR scan — whatever cuba gets scanned is what fulfills
-    this driver's own pending cuba plan for today, no other condition attached. Not
-    checking whether the scanned asset already had some other plan is deliberate:
-    dispatch data isn't trusted enough to let it block a driver mid-pickup."""
+    """Assign a scanned cuba to this driver's next open job for today."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request, asset_id):
+        from assets.constants import AssignRequestKey
+        from assets.models import DRIVER_TASK_PLANNING_TYPES
         user = request.user
         try:
             asset = Asset.objects.get(id=asset_id)
@@ -208,16 +207,64 @@ class AssetAssignView(APIView):
         if asset.company != employee.company:
             return JsonResponse({"error": "Este cubo no pertenece a tu empresa"}, status=403)
 
-        today = timezone.now().date()
-        planning = AssetPlanning.objects.filter(
-            company=asset.company, planning_type=PlanningType.CUBA,
+        try:
+            body = json.loads(request.body or b"{}")
+        except (ValueError, TypeError):
+            body = {}
+        use_pending_cuba = bool(body.get(AssignRequestKey.USE_PENDING_CUBA))
+
+        today = timezone.localdate()
+        today_jobs = AssetPlanning.objects.filter(
+            company=asset.company, planning_type__in=DRIVER_TASK_PLANNING_TYPES,
             status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
             scheduled_date=today, assigned_to=employee,
+            scheduled_time__isnull=False,
+        )
+        planning = today_jobs.filter(
+            status=PlanningStatus.IN_TRANSIT,
         ).order_by("scheduled_time", "route_order", "pk").first()
         if planning is None:
+            planning = today_jobs.filter(
+                status=PlanningStatus.PENDING,
+            ).order_by("scheduled_time", "route_order", "pk").first()
+        if planning is None:
             return JsonResponse({"error": "No hay ningún plan pendiente hoy para esta cuba."}, status=400)
+
+        # Same visibility rules as the Home pending card — do not block on a
+        # stuck cuba the UI would not show (e.g. legacy movement with no plan).
+        pending = Asset.objects.visible_pending_dropoff(employee, planning)
+        if pending is not None and pending["asset_id"] != asset.id:
+            return JsonResponse({
+                "error": (
+                    "Tienes una cuba pendiente. Debes dejarla o usarla para este "
+                    "plan antes de escanear otra."
+                ),
+            }, status=400)
+
+        claiming_pending = use_pending_cuba or (
+            pending is not None and pending["asset_id"] == asset.id
+        )
+        if claiming_pending and planning.requires_empty_truck_pickup():
+            return JsonResponse({
+                "error": (
+                    "Este plan requiere llegar con el camión vacío. "
+                    "Debes dejar la cuba que llevas antes de recoger."
+                ),
+            }, status=400)
+        if claiming_pending and asset.verteo_pending_transaction is not None:
+            return JsonResponse({
+                "error": "Debes verter esta cuba antes de usarla para el próximo plan.",
+            }, status=400)
+
         planning.asset = asset
-        planning.save(update_fields=["asset"])
+        update_fields = ["asset"]
+        if claiming_pending:
+            planning.driver_claimed_cuba = True
+            update_fields.append("driver_claimed_cuba")
+            if planning.status == PlanningStatus.PENDING:
+                planning.status = PlanningStatus.IN_TRANSIT
+                update_fields.append("status")
+        planning.save(update_fields=update_fields)
 
         asset.assigned_to = employee
         asset.save(update_fields=["assigned_to"])
@@ -287,8 +334,16 @@ class BaseTransactionStrategy:
         if image_file:
             transaction.imagen.save(image_file.name, image_file, save=False)
 
-    def _require_planning(self):
-        """An asset can't be operated without an active plan assigned to the driver for that asset."""
+    def _require_planning(self, *, claim_unassigned=False, allow_stale_verteo=False):
+        """An asset can't be operated without an active plan assigned to the driver for that asset.
+
+        claim_unassigned: only MovementStrategy (a real recogida) may pin this
+        cuba onto a plan that dispatch left without an asset. Verteo/dejada of a
+        leftover must not silently attach it to the next unassigned job.
+
+        allow_stale_verteo: a full cuba dropped at an almacén still owes its
+        verteo — ReceiptStrategy may resume that plan even after a DELIVERY.
+        """
         planning_id = self.data.get("planning_id")
         if not planning_id:
             return None, JsonResponse({"error": "Debes tener un plan asignado para poder operar."}, status=400)
@@ -298,12 +353,12 @@ class BaseTransactionStrategy:
             assigned_to=self.employee,
             planning_type=PlanningType.CUBA,
             status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
-            scheduled_date=timezone.now().date(),
+            scheduled_date=timezone.localdate(),
         )
         # First try: planning explicitly pre-assigned to this asset
         planning = base_qs.filter(asset=self.asset).first()
-        # Second try: planning with no asset yet — the scanned cuba is the one being operated
-        if planning is None:
+        # Second try: planning with no asset yet — only a recogida may claim it.
+        if planning is None and claim_unassigned:
             unassigned = base_qs.filter(asset__isnull=True).first()
             if unassigned is not None:
                 unassigned.asset = self.asset
@@ -316,6 +371,17 @@ class BaseTransactionStrategy:
             pending = self.asset.pending_pickup_by(self.employee)
             if pending is not None and str(pending.id) == str(planning_id):
                 planning = pending
+        # Verteo of a full cuba already left at an almacén: not PICKED_UP, so
+        # pending_pickup_by misses it, but verteo_pending_transaction is still set.
+        if planning is None and allow_stale_verteo:
+            last_movement = self.asset.last_movement_transaction
+            if (
+                last_movement is not None
+                and last_movement.performed_by_id == self.employee.id
+                and str(last_movement.planning_id) == str(planning_id)
+                and self.asset.verteo_pending_transaction is not None
+            ):
+                planning = last_movement.planning
         if planning is None:
             return None, JsonResponse({"error": "El plan indicado no existe o no está asignado a ti."}, status=400)
         return planning, None
@@ -326,7 +392,7 @@ class BaseTransactionStrategy:
 
 class MovementStrategy(BaseTransactionStrategy):
     def execute(self) -> JsonResponse:
-        planning, error = self._require_planning()
+        planning, error = self._require_planning(claim_unassigned=True)
         if error:
             return error
         data = self.data
@@ -389,8 +455,9 @@ class MovementStrategy(BaseTransactionStrategy):
         )
         self._save_firma_and_imagen(transaction)
         transaction.save()
-        planning.status = PlanningStatus.IN_TRANSIT
-        planning.save(update_fields=["status"])
+        if not AssetTransaction.payload_is_full(form_data):
+            planning.mark_cuba_claimed_by_driver()
+        planning.sync_cuba_operation_status()
         send_asset_transaction_email_task.delay(transaction.id)
         return JsonResponse({"success": True, "message": "Recogida registrada", "transaction_id": transaction.id})
 
@@ -429,6 +496,13 @@ class DeliveryStrategy(BaseTransactionStrategy):
                 destination_zone, distance = nearby_zones[0]
         if destination_zone.client_id and not hasattr(destination_zone, '_client_cache'):
             destination_zone = WorkingZone.objects.select_related("client").get(pk=destination_zone.pk)
+        if destination_zone.zone_type == WorkingZone.ZoneType.OBRA and (
+            AssetTransaction.payload_is_full(form_data) or asset.verteo_pending_transaction is not None
+        ):
+            return JsonResponse(
+                {"error": "No puedes dejar una cuba llena en una obra. Llévala a un almacén o vierte primero."},
+                status=400,
+            )
         if destination_zone.location_confirmed_at is None and latitude and longitude:
             confirm_zone_location(destination_zone, latitude, longitude)
         form_data["cliente"] = destination_zone.client.name if destination_zone.client else ""
@@ -446,26 +520,26 @@ class DeliveryStrategy(BaseTransactionStrategy):
         transaction.save()
         asset.current_working_zone = destination_zone
         asset.save()
-        matches_planned_destination = (
-            planning.destination_id is None or planning.destination_id == destination_zone.id
-        )
-        if matches_planned_destination:
-            planning.status = PlanningStatus.DELIVERED
-            planning.save(update_fields=["status"])
-            message = f"Entrega registrada en {destination_zone}"
-        else:
-            # Wrong zone: plan stays pending until delivered correctly or abandoned.
+        planning.sync_cuba_operation_status()
+        planning.refresh_from_db(fields=["status"])
+        if (
+            planning.status != PlanningStatus.DELIVERED
+            and planning.destination_id
+            and planning.destination_id != destination_zone.id
+        ):
             message = (
                 f"Entrega registrada en {destination_zone}, pero no es la zona planificada. "
                 "Debes entregarla en la zona correcta."
             )
+        else:
+            message = f"Entrega registrada en {destination_zone}"
         send_asset_transaction_email_task.delay(transaction.id)
         return JsonResponse({"success": True, "message": message, "transaction_id": transaction.id})
 
 
 class ReceiptStrategy(BaseTransactionStrategy):
     def execute(self) -> JsonResponse:
-        planning, error = self._require_planning()
+        planning, error = self._require_planning(allow_stale_verteo=True)
         if error:
             return error
         data = self.data
@@ -493,13 +567,17 @@ class ReceiptStrategy(BaseTransactionStrategy):
                 return JsonResponse({"multiple_zones": True, "zones": [{"id": z.id, "name": str(z)} for z, d in nearby_zones]}, status=200)
             elif len(nearby_zones) == 1:
                 vertedero_zone, _ = nearby_zones[0]
+        # Not restricted to from_zone__zone_type=OBRA — a full cuba pending verteo can
+        # just as legitimately have been picked up from an almacén (see
+        # Asset.verteo_pending_transaction), and this must still link to it.
         movement_tx = AssetTransaction.objects.filter(
-            asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT, from_zone__zone_type=WorkingZone.ZoneType.OBRA,
+            asset=asset, transaction_type=TransactionTypeChoices.MOVEMENT,
         ).order_by("-date").first()
         form_data = {k: v for k, v in data.items() if k not in ("transaction_type", "latitude", "longitude", "zone_id", "foto_albaran")}
         transaction = AssetTransaction(
             asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=vertedero_zone,
             transaction_type=TransactionTypeChoices.RECEIPT, date=timezone.now(), performed_by=employee,
+            project_file=movement_tx.project_file if movement_tx else None,
             planning=planning,
             notes=f"Verteo registrado por {user.username}. Albaran: {nro_albaran}. Material: {material_vertido}. Peso: {peso_neto}kg.",
             data=form_data,
@@ -514,6 +592,25 @@ class ReceiptStrategy(BaseTransactionStrategy):
         if foto_file:
             receipt.foto.save(foto_file.name, foto_file, save=False)
         receipt.save()
+        # If this cuba had already been dropped off (e.g. left full at an almacén)
+        # before this verteo, the verteo itself implies picking it back up to take
+        # it to the vertedero — register that pickup too, so the rest of the system
+        # (status, Home "cuba sin resolver" card, Escanear/Dejar buttons) correctly
+        # treats it as back on the truck instead of still "delivered" at the almacén.
+        was_delivered_since_pickup = movement_tx is not None and AssetTransaction.objects.filter(
+            asset=asset, transaction_type=TransactionTypeChoices.DELIVERY, date__gt=movement_tx.date,
+        ).exists()
+        if was_delivered_since_pickup:
+            AssetTransaction.objects.create(
+                asset=asset, company=asset.company, from_zone=asset.current_working_zone, to_zone=None,
+                transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(), performed_by=employee,
+                project_file=transaction.project_file,
+                planning=planning,
+                notes=f"Recogida implícita al verter (ya estaba entregada) por {user.username}.",
+                data={CubaTransactionKey.ESTADO: CubaFillState.EMPTY},
+            )
+        if planning is not None:
+            planning.sync_cuba_operation_status()
         return JsonResponse({"success": True, "message": "Verteo registrado correctamente.", "transaction_id": transaction.id, "receipt_id": receipt.id})
 
 
@@ -871,7 +968,9 @@ class DeliveryCheckView(APIView):
 
     For "dejar" specifically: the geo search only covers almacenes. The plan's own
     destination (an obra) is added on top, but only when the driver is actually near
-    it — never other, unrelated obras. When it's too far, destination_too_far/
+    it — never other, unrelated obras. A full cuba (verteo still owed) must not be
+    offered at that obra even if the driver is standing on it; destination_blocked_full
+    tells the client why it is missing. When it's too far, destination_too_far/
     destination_zone_name tell the client to say so instead of just omitting it."""
     permission_classes = [IsAuthenticated]
 
@@ -886,11 +985,13 @@ class DeliveryCheckView(APIView):
         zones_data = []
         nearby_zones = []
         destination_too_far = False
+        destination_blocked_full = False
         destination_zone_name = None
         lat_param = request.query_params.get("lat")
         lon_param = request.query_params.get("lon")
         action = request.query_params.get("action", "")
         planning_dest_zone_id = None  # id of the planning's destination zone, if included
+        verteo_required = asset.verteo_pending_transaction is not None
         if lat_param is not None and lon_param is not None:
             try:
                 latitude = float(lat_param)
@@ -916,8 +1017,14 @@ class DeliveryCheckView(APIView):
                                 if dz_lat is not None:
                                     dist = haversine_distance(latitude, longitude, dz_lat, dz_lon)
                                     if dist <= MAX_ZONE_RADIUS_M:
-                                        nearby_zones.append((dz, dist))
-                                        planning_dest_zone_id = dz.id
+                                        # A full cuba can sit at an almacén awaiting verteo,
+                                        # but never at an obra — same rule as DeliveryStrategy.
+                                        if dz.zone_type == WorkingZone.ZoneType.OBRA and verteo_required:
+                                            destination_blocked_full = True
+                                            destination_zone_name = str(dz)
+                                        else:
+                                            nearby_zones.append((dz, dist))
+                                            planning_dest_zone_id = dz.id
                                     else:
                                         destination_too_far = True
                                         destination_zone_name = str(dz)
@@ -930,7 +1037,7 @@ class DeliveryCheckView(APIView):
                     )
                 if len(nearby_zones) == 0 and action == "verteo":
                     return JsonResponse({"can_deliver": False, "verteo_required": False, "is_almacen": False, "zones": [], "not_near_vertedero": True, "at_vertedero": False})
-                if len(nearby_zones) == 0 and action == "dejar":
+                if len(nearby_zones) == 0 and action == "dejar" and not destination_blocked_full:
                     vertedero_zones = find_zones_within_radius(latitude, longitude, asset.company, zone_type=WorkingZone.ZoneType.VERTEDERO)
                     if len(vertedero_zones) > 0:
                         return JsonResponse({"can_deliver": False, "verteo_required": False, "is_almacen": False, "zones": [], "not_near_vertedero": False, "at_vertedero": True})
@@ -940,6 +1047,9 @@ class DeliveryCheckView(APIView):
                         "name": str(z),
                         "zone_type": z.zone_type,
                         "is_planning_destination": z.id == planning_dest_zone_id,
+                        # Per-zone, not the old single global flag — that broke with 2+
+                        # candidate zones (e.g. an obra and an almacén both nearby).
+                        "can_deliver": z.zone_type != WorkingZone.ZoneType.OBRA or not verteo_required,
                     }
                     for z, _ in nearby_zones
                 ]
@@ -949,12 +1059,18 @@ class DeliveryCheckView(APIView):
             is_almacen = len(nearby_zones) == 1 and nearby_zones[0][0].zone_type == WorkingZone.ZoneType.ALMACEN
         else:
             is_almacen = asset.current_working_zone is not None and asset.current_working_zone.zone_type == WorkingZone.ZoneType.ALMACEN
-        verteo_required = asset.verteo_pending_transaction is not None
-        can_deliver = not verteo_required or is_almacen
+        # Global flags kept for older clients — "at least one deliverable zone" once
+        # there's a candidate list; falls back to the old almacén-only heuristic
+        # otherwise (e.g. no GPS params at all).
+        if zones_data:
+            can_deliver = any(z["can_deliver"] for z in zones_data)
+        else:
+            can_deliver = not verteo_required or is_almacen
         response_data = {"verteo_required": verteo_required, "is_almacen": is_almacen, "can_deliver": can_deliver, "not_near_vertedero": False, "at_vertedero": False}
         if lat_param is not None and lon_param is not None:
             response_data["zones"] = zones_data
             response_data["destination_too_far"] = destination_too_far
+            response_data["destination_blocked_full"] = destination_blocked_full
             response_data["destination_zone_name"] = destination_zone_name
         return JsonResponse(response_data)
 
@@ -1034,7 +1150,7 @@ class MachineHoursListView(APIView):
 
         plannings = AssetPlanning.objects.select_related(
             "asset", "asset__asset_type", "asset__current_working_zone"
-        ).filter(assigned_to=employee, planning_type=PlanningType.MACHINE_HOURS, scheduled_date=timezone.now().date(), status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT])
+        ).filter(assigned_to=employee, planning_type=PlanningType.MACHINE_HOURS, scheduled_date=timezone.localdate(), status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT])
 
         for planning in plannings:
             asset = planning.asset

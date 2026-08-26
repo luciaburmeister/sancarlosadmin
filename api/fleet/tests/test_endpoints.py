@@ -13,7 +13,7 @@ from unittest.mock import patch
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from assets.models import AssetTransaction, TransactionTypeChoices, PlanningStatus
+from assets.models import AssetTransaction, TransactionTypeChoices, PlanningStatus, CubaOperationType
 from api.fleet.tests.helpers import (
     make_company,
     make_user,
@@ -197,9 +197,10 @@ class AssetTransactionEndpointTests(TestCase):
         self.assertIn("error", response.json())
 
     def test_delivery_to_planned_destination_marks_plan_delivered(self):
-        """Delivering at the plan's own destination zone completes the plan normally."""
+        """Delivering at the plan's own destination zone completes a puesta."""
+        self.planning.cuba_operation_type = CubaOperationType.PUESTA
         self.planning.destination = self.zone
-        self.planning.save(update_fields=["destination"])
+        self.planning.save(update_fields=["cuba_operation_type", "destination"])
         with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
             response = self.client.post(
                 self._url(),
@@ -217,9 +218,10 @@ class AssetTransactionEndpointTests(TestCase):
         active task) instead of jumping to DELIVERED or NOT_COMPLETED. Only
         "No puedo hacer más" (PlanningAbandoner) should ever set NOT_COMPLETED."""
         other_zone = make_zone(self.company, name="Zona Distinta")
+        self.planning.cuba_operation_type = CubaOperationType.PUESTA
         self.planning.destination = self.zone
         self.planning.status = PlanningStatus.IN_TRANSIT
-        self.planning.save(update_fields=["destination", "status"])
+        self.planning.save(update_fields=["cuba_operation_type", "destination", "status"])
         with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
             response = self.client.post(
                 self._url(),
@@ -238,8 +240,9 @@ class AssetTransactionEndpointTests(TestCase):
         self.assertEqual(tx.to_zone_id, other_zone.id)
 
     def test_delivery_without_planned_destination_still_completes(self):
-        """A plan with no destination set has nothing to mismatch against — preserves
-        today's behavior instead of blocking deliveries on incomplete plan data."""
+        """A puesta with no destination still completes when left at an obra."""
+        self.planning.cuba_operation_type = CubaOperationType.PUESTA
+        self.planning.save(update_fields=["cuba_operation_type"])
         self.assertIsNone(self.planning.destination_id)
         with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
             response = self.client.post(

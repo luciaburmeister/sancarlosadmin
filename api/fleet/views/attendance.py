@@ -2,7 +2,12 @@ import base64
 import json
 from decimal import Decimal
 from datetime import datetime
-from assets.models import Asset, AssetPlanning, AssetTransaction, PlanningStatus, PlanningType, TransactionTypeChoices, DRIVER_TASK_PLANNING_TYPES
+from assets.models import (
+    Asset, AssetPlanning, AssetTransaction, PlanningStatus, PlanningType,
+    TransactionTypeChoices, DRIVER_TASK_PLANNING_TYPES,
+    PorteAction, PorteTransactionDataKey, PorteMovementKind,
+    PORTE_ACTION_TRANSACTION_TYPES,
+)
 from company.models import WorkAttendance
 from django.core.files.base import ContentFile
 from django.http import JsonResponse
@@ -123,18 +128,22 @@ def _serialize_cuba_planning(p):
         "cuba_size": p.cuba_size,
         "cuba_size_label": p.get_cuba_size_display() if p.cuba_size else None,
         "cuba_capacidad": p.asset.data.get("capacidad") if p.asset and p.asset.data else None,
+        "checklist": p.cuba_checklist(),
     }
 
 
 def _serialize_porte_planning(p, scannable_asset_id=None):
     from api.fleet.views.assets import get_zone_coordinates
+    from assets.constants import SERVICE_TYPE_MAQUINA_PROPIA
     origin_lat, origin_lon = get_zone_coordinates(p.origin) if p.origin else (None, None)
     dest_lat, dest_lon = get_zone_coordinates(p.destination) if p.destination else (None, None)
     display_asset = p.asset or p.transport_asset
     if scannable_asset_id is None:
         scannable_asset_id = display_asset.id if display_asset else 0
+    progress = p.porte_progress_flags()
     return {
         "id": p.id, "planning_type": p.planning_type, "asset_id": scannable_asset_id, "asset_name": display_asset.name if display_asset else "",
+        "asset_assigned": p.asset_id is not None,
         "load_description": p.load_description,
         "origin": p.origin.name if p.origin else None,
         "origin_address": p.origin.full_address if p.origin else None,
@@ -148,6 +157,12 @@ def _serialize_porte_planning(p, scannable_asset_id=None):
         "transport_asset_matricula": p.transport_asset.matricula if p.transport_asset else None,
         "service_type": p.service_type,
         "service_type_label": p.get_service_type_display() if p.service_type else None,
+        "is_machine_porte": p.service_type == SERVICE_TYPE_MAQUINA_PROPIA,
+        "machine_id": p.machine_id or 0,
+        "machine_name": p.machine.name if p.machine_id else None,
+        "pickup_done": progress["pickup_done"],
+        "load_done": progress["load_done"],
+        "checklist": p.porte_checklist(),
     }
 
 
@@ -161,6 +176,7 @@ class PlanningsListView(APIView):
         from assets.models import AssetPlanning, PlanningStatus, PlanningType
         plannings = AssetPlanning.objects.filter(
             assigned_to=employee, status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT], planning_type=PlanningType.CUBA,
+            scheduled_time__isnull=False,
         ).select_related("asset", "origin", "destination", "transport_asset").prefetch_related("stops__zone").order_by("scheduled_time", "route_order", "pk")
         data = [_serialize_cuba_planning(p) for p in plannings]
         return JsonResponse({"plannings": data})
@@ -170,29 +186,6 @@ _TASK_SERIALIZERS = {
     PlanningType.CUBA: _serialize_cuba_planning,
     PlanningType.PORTE: _serialize_porte_planning,
 }
-
-
-def _find_pending_cuba_dropoff(employee):
-    """This employee's own cuba still on the truck from an earlier task, or None.
-
-    Pre-planning movements have planning=NULL. The Android client calls
-    JSONObject.getInt("planning_id") and crashes on JSON null, which aborts
-    the whole /plannings/next/ parse — today's task is in the payload but
-    never painted. A dropoff without a planning also cannot be closed via
-    the new flow, so do not surface it.
-    """
-    stuck_asset = Asset.objects.with_pending_pickup_by(employee).first()
-    if stuck_asset is None:
-        return None
-    last_movement = stuck_asset.last_movement_transaction
-    if last_movement is None or last_movement.planning_id is None:
-        return None
-    return {
-        "planning_id": last_movement.planning_id,
-        "asset_id": stuck_asset.id,
-        "asset_name": stuck_asset.name,
-        "verteo_pending": stuck_asset.verteo_pending_transaction is not None,
-    }
 
 
 class PlanningNextTaskView(APIView):
@@ -211,28 +204,37 @@ class PlanningNextTaskView(APIView):
     and add the type to DRIVER_TASK_PLANNING_TYPES in assets/models.py."""
     permission_classes = [IsAuthenticated]
 
+    @staticmethod
+    def _pending_cuba_dropoff(employee, planning=None):
+        return Asset.objects.visible_pending_dropoff(employee, planning)
+
     def get(self, request):
         employee = get_current_employee(request.user)
         if employee is None:
             return JsonResponse({"task": None, "pending_dropoff": None})
-        today = timezone.now().date()
-        planning = AssetPlanning.objects.filter(
+        today = timezone.localdate()
+        today_jobs = AssetPlanning.objects.filter(
             assigned_to=employee,
-            status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
             planning_type__in=DRIVER_TASK_PLANNING_TYPES,
             scheduled_date=today,
+            scheduled_time__isnull=False,
         ).select_related(
             "asset", "origin", "destination", "transport_asset",
-        ).prefetch_related("stops__zone").order_by("scheduled_time", "route_order", "pk").first()
+        ).prefetch_related("stops__zone")
+        planning = today_jobs.filter(
+            status=PlanningStatus.IN_TRANSIT,
+        ).order_by("scheduled_time", "route_order", "pk").first()
+        if planning is None:
+            planning = today_jobs.filter(
+                status=PlanningStatus.PENDING,
+            ).order_by("scheduled_time", "route_order", "pk").first()
 
-        pending_dropoff = _find_pending_cuba_dropoff(employee)
-        resuming_pending_cuba = (
-            pending_dropoff is not None and planning is not None
-            and planning.planning_type == PlanningType.CUBA
-            and planning.asset_id == pending_dropoff["asset_id"]
-        )
-        if resuming_pending_cuba:
-            pending_dropoff = None
+        pending_dropoff = self._pending_cuba_dropoff(employee, planning)
+        if pending_dropoff is not None:
+            pending_dropoff["can_use_for_next_task"] = (
+                planning.can_claim_pending_cuba_for_next_task(pending_dropoff)
+                if planning is not None else False
+            )
 
         if planning is None:
             return JsonResponse({"task": None, "pending_dropoff": pending_dropoff})
@@ -242,7 +244,7 @@ class PlanningNextTaskView(APIView):
         return JsonResponse({"task": serializer(planning), "pending_dropoff": pending_dropoff})
 
 
-class PlanningAbandonRemainingView(APIView):
+class PlanningAbandonView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -253,29 +255,42 @@ class PlanningAbandonRemainingView(APIView):
             body = json.loads(request.body or b"{}")
         except (ValueError, TypeError):
             body = {}
-        reason = body.get("reason", "").strip()
+        reason = (body.get("reason") or "").strip()
+        if not reason:
+            return JsonResponse({"error": "El motivo es obligatorio."}, status=400)
+        planning_id = body.get("planning_id")
+        if not planning_id:
+            return JsonResponse({"error": "Debes indicar la tarea."}, status=400)
+        today = timezone.localdate()
+        planning = AssetPlanning.objects.filter(
+            id=planning_id,
+            assigned_to=employee,
+            status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
+            planning_type__in=DRIVER_TASK_PLANNING_TYPES,
+            scheduled_date=today,
+        ).first()
+        if planning is None:
+            return JsonResponse(
+                {"error": "El plan indicado no existe o no está asignado a ti."},
+                status=400,
+            )
         from assets.services.abandon import PlanningAbandonBlockedError, PlanningAbandoner
         try:
-            abandoned = PlanningAbandoner().abandon_remaining(employee, reason=reason)
+            abandoned = PlanningAbandoner().abandon(employee, planning, reason=reason)
         except PlanningAbandonBlockedError as exc:
             label = exc.planning.get_planning_type_display()
             return JsonResponse({
                 "error": (
                     f"Tienes un {label.lower()} recogido sin dejar. "
-                    "Complétalo antes de marcarte como no disponible."
+                    "Complétalo antes de cancelar esta tarea."
                 ),
                 "blocked_planning_id": exc.planning.id,
             }, status=400)
         return JsonResponse({
-            "count": len(abandoned),
-            "abandoned": [
-                {
-                    "id": p.id, "planning_type": p.planning_type,
-                    "abandoned_stage": p.abandoned_stage,
-                    "abandoned_stage_label": p.get_abandoned_stage_display(),
-                }
-                for p in abandoned
-            ],
+            "id": abandoned.id,
+            "planning_type": abandoned.planning_type,
+            "abandoned_stage": abandoned.abandoned_stage,
+            "abandoned_stage_label": abandoned.get_abandoned_stage_display(),
         })
 
 
@@ -362,6 +377,7 @@ class PortesPlanningListView(APIView):
             return JsonResponse({"transport_plannings": []})
         plannings = AssetPlanning.objects.filter(
             assigned_to=employee, status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT], planning_type=PlanningType.PORTE,
+            scheduled_time__isnull=False,
         ).select_related("asset", "origin", "destination", "transport_asset").order_by("scheduled_time", "pk")
         data = []
         # Same truck, several portes: only the earliest is scannable via QR.
@@ -377,10 +393,12 @@ class PortesPlanningListView(APIView):
 
 
 class PorteSubmitView(APIView):
+    """Driver porte flow: pickup empty cuba → load → deliver. No fill-state tracking."""
     permission_classes = [IsAuthenticated]
 
     def post(self, request, planning_id):
-        from assets.models import AssetPlanning, PlanningType
+        from assets.constants import SERVICE_TYPE_MAQUINA_PROPIA
+        from assets.models import AssetPlanning, AssetTypeCategory, PlanningType
         employee = get_current_employee(request.user)
         if employee is None:
             return JsonResponse({"error": "No employee profile found"}, status=400)
@@ -390,24 +408,26 @@ class PorteSubmitView(APIView):
             return JsonResponse({"error": "Invalid JSON"}, status=400)
         try:
             planning = AssetPlanning.objects.select_related(
-                "asset", "transport_asset", "origin", "destination",
+                "asset", "machine", "transport_asset", "origin", "destination",
             ).get(
                 id=planning_id, assigned_to=employee, planning_type=PlanningType.PORTE
             )
         except AssetPlanning.DoesNotExist:
             return JsonResponse({"error": "Planning not found"}, status=404)
         action = raw.get("action")
-        if action not in ("recogida", "entrega"):
-            return JsonResponse({"error": "action must be 'recogida' or 'entrega'"}, status=400)
+        if action not in PORTE_ACTION_TRANSACTION_TYPES:
+            valid = ", ".join(PorteAction.values)
+            return JsonResponse({"error": f"action must be one of: {valid}"}, status=400)
         firma_b64 = raw.get("firma", "")
         imagen_b64 = raw.get("imagen", "")
         matricula = raw.get("matricula", "")
         client_id = raw.get("client_id")
         notes = raw.get("notes", "")
-        transaction_type = TransactionTypeChoices.PORTE_MOVEMENT if action == "recogida" else TransactionTypeChoices.PORTE_DELIVERY
+        is_machine_porte = planning.service_type == SERVICE_TYPE_MAQUINA_PROPIA
+        transaction_type = PORTE_ACTION_TRANSACTION_TYPES[action]
 
         tx_asset = planning.asset or planning.transport_asset
-        if action == "recogida":
+        if action == PorteAction.RECOGIDA:
             asset_id_from_scan = raw.get("asset_id")
             if asset_id_from_scan:
                 try:
@@ -417,18 +437,57 @@ class PorteSubmitView(APIView):
                     tx_asset = scanned_asset
                 except (Asset.DoesNotExist, ValueError):
                     return JsonResponse({"error": "El activo escaneado no pertenece a tu empresa."}, status=400)
+            if planning.asset_id:
+                planning.mark_cuba_claimed_by_driver()
+        elif action == PorteAction.CARGA and is_machine_porte:
+            machine_id_from_scan = raw.get("asset_id")
+            if not machine_id_from_scan:
+                return JsonResponse({"error": "Debes escanear el QR de la máquina."}, status=400)
+            try:
+                scanned_machine = Asset.objects.get(
+                    id=machine_id_from_scan, company=planning.company,
+                    asset_type__category=AssetTypeCategory.MACHINE,
+                )
+            except (Asset.DoesNotExist, ValueError):
+                return JsonResponse({"error": "El activo escaneado no es una máquina de tu empresa."}, status=400)
+            if planning.machine_id and scanned_machine.id != planning.machine_id:
+                return JsonResponse(
+                    {"error": "La máquina escaneada no coincide con la asignada al plan."},
+                    status=400,
+                )
+            planning.machine = scanned_machine
+            planning.save(update_fields=["machine"])
+        elif action == PorteAction.ENTREGA and is_machine_porte:
+            if not planning.transactions.filter(
+                transaction_type=TransactionTypeChoices.PORTE_LOAD,
+            ).exists():
+                return JsonResponse({"error": "Debes escanear la máquina antes de entregar."}, status=400)
+            if planning.machine_id:
+                tx_asset = planning.machine
+
         transaction = AssetTransaction.objects.create(
             asset=tx_asset, company=planning.company,
             from_zone=planning.origin, to_zone=planning.destination,
             transaction_type=transaction_type, date=timezone.now(), performed_by=employee,
             planning=planning,
             notes=f"Porte {action} - Matricula: {matricula}. {notes}",
-            data={"movement_type": "porte", "action": action, "matricula": matricula, "planning_id": planning_id, "load_description": planning.load_description, "client_id": client_id}
+            data={
+                PorteTransactionDataKey.MOVEMENT_TYPE: PorteMovementKind.PORTE,
+                PorteTransactionDataKey.ACTION: action,
+                PorteTransactionDataKey.MATRICULA: matricula,
+                PorteTransactionDataKey.PLANNING_ID: planning_id,
+                PorteTransactionDataKey.LOAD_DESCRIPTION: planning.load_description,
+                PorteTransactionDataKey.CLIENT_ID: client_id,
+                PorteTransactionDataKey.MACHINE_ID: planning.machine_id,
+            },
         )
         if firma_b64:
             save_image_to_field(transaction, "firma_image", firma_b64, f"firma_porte_{planning_id}_{action}.png")
         if imagen_b64:
             save_image_to_field(transaction, "imagen", imagen_b64, f"porte_{planning_id}_{action}.jpg")
-        planning.status = PlanningStatus.IN_TRANSIT if action == "recogida" else PlanningStatus.DELIVERED
+        if action == PorteAction.ENTREGA:
+            planning.status = PlanningStatus.DELIVERED
+        elif planning.status != PlanningStatus.DELIVERED:
+            planning.status = PlanningStatus.IN_TRANSIT
         planning.save()
         return JsonResponse({"success": True, "message": f"Porte {action} registered successfully"})

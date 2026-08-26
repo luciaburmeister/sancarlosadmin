@@ -419,6 +419,64 @@ class NewZoneRequestTests(TestCase):
         self.assertEqual(draft.destination_text, "Calle Nueva 9")
 
 
+class MachinePorteDraftTests(TestCase):
+    """Own-machine transport drafts use the machine FK, not asset."""
+
+    def setUp(self):
+        self.client_api = APIClient()
+        self.company = make_company()
+        self.user = make_user()
+        self.employee = make_employee(self.company, self.user)
+        self.client_api.force_authenticate(user=self.user)
+        self.sales_client = Client.objects.create(name="Client 1", company=self.company)
+        self.from_zone = make_zone(self.company, name="Depósito")
+        self.to_zone = make_zone(self.company, name="Obra Norte")
+        self.machine = _make_asset(
+            self.company, AssetTypeCategory.MACHINE, "KUBOTA U 17-3",
+        )
+
+    def test_create_submit_and_roundtrip_machine_field(self):
+        response = self.client_api.post(
+            "/es/api/planning-drafts/",
+            {
+                "service_type": ServiceType.PORTE_MAQUINA_PROPIA,
+                "client": self.sales_client.pk,
+                "from_zone": self.from_zone.pk,
+                "to_zone": self.to_zone.pk,
+                "machine": self.machine.pk,
+                "needed_date": "2026-09-01",
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertEqual(body["machine"], self.machine.pk)
+        self.assertEqual(body["machine_name"], "KUBOTA U 17-3")
+        self.assertEqual(body["missing_fields"], [])
+
+        draft = AssetPlanningRequestDraft.objects.get(pk=body["id"])
+        self.assertEqual(draft.machine_id, self.machine.pk)
+        self.assertIsNone(draft.asset_id)
+
+        response = self.client_api.post(f"/es/api/planning-drafts/{draft.pk}/submit/")
+        self.assertEqual(response.status_code, 200)
+        draft.refresh_from_db()
+        self.assertEqual(draft.status, AssetPlanningRequestDraftStatus.SUBMITTED)
+
+    def test_missing_machine_blocks_submit(self):
+        draft = AssetPlanningRequestDraft.objects.create(
+            company=self.company,
+            requested_by=self.employee,
+            service_type=ServiceType.PORTE_MAQUINA_PROPIA,
+            client=self.sales_client,
+            from_zone=self.from_zone,
+            to_zone=self.to_zone,
+            needed_date="2026-09-01",
+        )
+        response = self.client_api.post(f"/es/api/planning-drafts/{draft.pk}/submit/")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("machine", response.json()["missing_fields"])
+
+
 class CancelRequestTests(TestCase):
     """DELETE /planning-drafts/<id>/ — cancellable up until a planner processes it."""
 

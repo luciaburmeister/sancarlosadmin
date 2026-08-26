@@ -13,7 +13,7 @@ from unittest.mock import patch
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from assets.models import AssetTransaction, TransactionTypeChoices
+from assets.models import AssetTransaction, TransactionTypeChoices, PlanningStatus, CubaOperationType
 from api.fleet.tests.helpers import (
     make_company,
     make_user,
@@ -21,6 +21,7 @@ from api.fleet.tests.helpers import (
     make_asset_type,
     make_asset,
     make_zone,
+    make_planning,
 )
 
 
@@ -42,6 +43,7 @@ class AssetTransactionEndpointTests(TestCase):
             employee=self.employee,
             zone=self.zone,
         )
+        self.planning = make_planning(self.company, asset=self.asset, assigned_to=self.employee)
         self.client.force_authenticate(user=self.user)
 
     def _movement_payload(self, **overrides):
@@ -59,6 +61,7 @@ class AssetTransactionEndpointTests(TestCase):
             "m3": "6",
             "vertedero": "",
             "zone_id": self.zone.id,
+            "planning_id": self.planning.id,
         }
         payload.update(overrides)
         return payload
@@ -122,6 +125,7 @@ class AssetTransactionEndpointTests(TestCase):
                 "latitude": 40.416775,
                 "longitude": -3.703790,
                 "zone_id": self.zone.id,
+                "planning_id": self.planning.id,
             }),
             content_type="application/json",
         )
@@ -179,3 +183,73 @@ class AssetTransactionEndpointTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_movement_without_planning_id_returns_400(self):
+        """Cuba can't operate without a plan — strict mode."""
+        payload = self._movement_payload()
+        del payload["planning_id"]
+        response = self.client.post(
+            self._url(),
+            data=json.dumps(payload),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("error", response.json())
+
+    def test_delivery_to_planned_destination_marks_plan_delivered(self):
+        """Delivering at the plan's own destination zone completes a puesta."""
+        self.planning.cuba_operation_type = CubaOperationType.PUESTA
+        self.planning.destination = self.zone
+        self.planning.save(update_fields=["cuba_operation_type", "destination"])
+        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
+            response = self.client.post(
+                self._url(),
+                data=json.dumps(self._movement_payload(transaction_type="delivery", zone_id=self.zone.id)),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 200)
+        self.planning.refresh_from_db()
+        self.assertEqual(self.planning.status, PlanningStatus.DELIVERED)
+
+    def test_delivery_to_wrong_zone_does_not_complete_the_plan(self):
+        """Delivering somewhere other than the plan's destination must not silently
+        mark the plan as done — the transaction is still recorded (a real record of
+        where it was actually left), but the plan stays open (still the driver's
+        active task) instead of jumping to DELIVERED or NOT_COMPLETED. Only
+        "No puedo hacer más" (PlanningAbandoner) should ever set NOT_COMPLETED."""
+        other_zone = make_zone(self.company, name="Zona Distinta")
+        self.planning.cuba_operation_type = CubaOperationType.PUESTA
+        self.planning.destination = self.zone
+        self.planning.status = PlanningStatus.IN_TRANSIT
+        self.planning.save(update_fields=["cuba_operation_type", "destination", "status"])
+        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
+            response = self.client.post(
+                self._url(),
+                data=json.dumps(self._movement_payload(transaction_type="delivery", zone_id=other_zone.id)),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body.get("success"))
+        self.assertIn("no es la zona planificada", body.get("message", ""))
+        self.planning.refresh_from_db()
+        self.assertEqual(self.planning.status, PlanningStatus.IN_TRANSIT)
+        self.assertEqual(self.planning.abandoned_stage, "")
+        # The actual delivery is still on record, at the real zone the driver used.
+        tx = AssetTransaction.objects.get(transaction_type=TransactionTypeChoices.DELIVERY)
+        self.assertEqual(tx.to_zone_id, other_zone.id)
+
+    def test_delivery_without_planned_destination_still_completes(self):
+        """A puesta with no destination still completes when left at an obra."""
+        self.planning.cuba_operation_type = CubaOperationType.PUESTA
+        self.planning.save(update_fields=["cuba_operation_type"])
+        self.assertIsNone(self.planning.destination_id)
+        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
+            response = self.client.post(
+                self._url(),
+                data=json.dumps(self._movement_payload(transaction_type="delivery", zone_id=self.zone.id)),
+                content_type="application/json",
+            )
+        self.assertEqual(response.status_code, 200)
+        self.planning.refresh_from_db()
+        self.assertEqual(self.planning.status, PlanningStatus.DELIVERED)

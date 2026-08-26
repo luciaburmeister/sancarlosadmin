@@ -13,16 +13,19 @@ from simple_history.admin import SimpleHistoryAdmin
 from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.company_access import get_user_companies
 from company.models import Employee
-from assets.constants import SERVICE_TYPE_FIELDS, SERVICE_TYPE_MAQUINA_PROPIA
+from assets.constants import (
+    SERVICE_TYPE_FIELDS, SERVICE_TYPE_MAQUINA_PROPIA, SERVICE_TYPE_MAQUINISTAS,
+    SERVICE_TYPE_AUTOPORTE_MAQUINA, SERVICE_TYPE_PLANNING_TYPE,
+)
 from assets.forms import AssetPlanningRequestForm
 from assets.models import (
     Asset, AssetPlanning, AssetPlanningRequest, AssetPlanningRequestDraft,
-    AssetPlanningRequestDraftStatus, AssetPlanningRequestStatus, AssetTypeCategory,
+    AssetPlanningRequestDraftStatus, AssetPlanningRequestStatus, AssetTypeCategory, PlanningType,
 )
 
 # Built from SERVICE_TYPE_FIELDS so the form and AssetPlanningRequest.clean()
 # never disagree about which fields apply to which service type.
-_CONDITIONAL_FIELD_NAMES = ["from_zone", "asset", "load_description", "cuba_operation_type", "cuba_size"]
+_CONDITIONAL_FIELD_NAMES = ["from_zone", "asset", "machine", "load_description", "cuba_operation_type", "cuba_size"]
 CONDITIONAL_FIELDS = {
     field_name: " || ".join(
         f"service_type == '{service_type}'"
@@ -31,8 +34,17 @@ CONDITIONAL_FIELDS = {
     )
     for field_name in _CONDITIONAL_FIELD_NAMES
 }
+# Not in SERVICE_TYPE_FIELDS — shared with AssetPlanningRequestDraft, which lacks these fields.
+_NO_PLANNING_SERVICE_TYPES = [st for st, pt in SERVICE_TYPE_PLANNING_TYPE.items() if pt == PlanningType.NONE]
+CONDITIONAL_FIELDS["estimated_duration"] = " && ".join(
+    f"service_type != '{service_type}'" for service_type in _NO_PLANNING_SERVICE_TYPES
+)
 CONDITIONAL_FIELDS["machinist_moved"] = f"service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}'"
-CONDITIONAL_FIELDS["moved_employees"] = f"service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}' && machinist_moved"
+CONDITIONAL_FIELDS["moved_employees"] = (
+    f"(service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}' && machinist_moved) "
+    f"|| service_type == '{SERVICE_TYPE_MAQUINISTAS}' "
+    f"|| service_type == '{SERVICE_TYPE_AUTOPORTE_MAQUINA}'"
+)
 
 
 class ChangesPendingFilter(admin.SimpleListFilter):
@@ -67,14 +79,14 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
     list_display = (
         "service_type", "to_zone", "from_zone",
         "needed_date", "needed_time", "urgency", "show_status",
-        "requested_by", "assigned_to", "asset", "company",
+        "requested_by", "assigned_to", "asset", "machine", "company",
     )
     list_filter = (ChangesPendingFilter, "status", "urgency", "service_type", "company")
     search_fields = (
         "to_zone__name", "from_zone__name",
         "requested_by__first_name", "requested_by__last_name",
         "assigned_to__first_name", "assigned_to__last_name",
-        "asset__name",
+        "asset__name", "machine__name",
     )
     autocomplete_fields = [
         "company",
@@ -82,6 +94,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         "to_zone",
         "from_zone",
         "asset",
+        "machine",
         "assigned_to",
         "suggested_trucks",
         "transport_asset",
@@ -91,7 +104,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
     readonly_fields = [
         "planning_type", "requested_by", "status",
         "reviewed_by", "reviewed_at",
-        "resulting_planning",
+        "resulting_planning", "zone_sync_applied_at",
         "rereview_notice",
     ]
     actions_row = ["duplicate_action"]
@@ -109,7 +122,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
                 ("cuba_operation_type", "cuba_size"),
                 ("machinist_moved", "moved_employees"),
                 "load_description", "notes",
-                ("asset", "assigned_to"),
+                ("asset", "machine", "assigned_to"),
                 ("suggested_trucks", "transport_asset"),
             )
         }),
@@ -118,7 +131,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
                 "status", "rereview_notice", "requested_by",
                 ("reviewed_by", "reviewed_at"),
                 "rejection_reason",
-                "resulting_planning",
+                "resulting_planning", "zone_sync_applied_at",
             )
         }),
     )
@@ -146,7 +159,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         if draft_id:
             request._source_draft = AssetPlanningRequestDraft.objects.filter(
                 pk=draft_id
-            ).select_related("client", "asset", "requested_by").first()
+            ).select_related("client", "asset", "machine", "requested_by").first()
             if request._source_draft is not None:
                 extra_context = extra_context or {}
                 extra_context["source_draft"] = request._source_draft
@@ -175,6 +188,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
             "cuba_operation_type": draft.cuba_operation_type,
             "cuba_size": draft.cuba_size,
             "asset": draft.asset_id,
+            "machine": draft.machine_id,
             "load_description": draft.load_description,
             "notes": draft.notes,
         })
@@ -233,7 +247,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         # choice this queryset then rejects as invalid on save. clean()
         # still rejects mismatched company combinations.
         companies = None if request.user.is_superuser else get_user_companies(request.user)
-        if db_field.name == "asset":
+        if db_field.name in ("asset", "machine"):
             qs = Asset.objects.filter(asset_type__category=AssetTypeCategory.MACHINE, is_active=True)
             if companies is not None:
                 qs = qs.filter(company__in=companies)
@@ -308,12 +322,18 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         if obj.status != AssetPlanningRequestStatus.PENDING_REVIEW:
             return
 
+        if obj.planning_type == PlanningType.NONE:
+            self._approve_zone_sync_request(request, obj)
+            return
+
         # transport_asset/assigned_to are filled later by auto-assignment.
         # Asset is only required for service types that list it in SERVICE_TYPE_FIELDS.
         missing = []
         required = SERVICE_TYPE_FIELDS.get(obj.service_type, set())
         if "asset" in required and not obj.asset_id:
             missing.append(_("Asset"))
+        if "machine" in required and not obj.machine_id:
+            missing.append(_("Machine"))
         if not obj.project_file_id:
             missing.append(_("Project File"))
         if missing:
@@ -328,6 +348,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
             planning = AssetPlanning.objects.create(
                 company=obj.company,
                 asset=obj.asset,
+                machine=obj.machine,
                 origin=obj.from_zone,
                 destination=obj.to_zone,
                 assigned_to=obj.assigned_to,
@@ -367,6 +388,35 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         else:
             messages.success(request, _("Request approved. Asset Planning created."))
 
+    def _approve_zone_sync_request(self, request, obj):
+        """planning_type == NONE requests never get an AssetPlanning — just
+        approve and sync asset/moved_employees to to_zone: immediately if due
+        now, otherwise apply_due_zone_sync_requests() (Celery beat) picks it
+        up once needed_date/needed_time arrives.
+        """
+        if not obj.asset_id and not obj.moved_employees.exists():
+            messages.error(request, _("Select at least one machinist or an asset to approve this request."))
+            return
+
+        obj.status = AssetPlanningRequestStatus.APPROVED
+        obj.reviewed_by = request.user
+        obj.reviewed_at = timezone.now()
+        obj.save()
+
+        if obj.is_zone_sync_due:
+            obj.apply_zone_change()
+            messages.success(request, _("Request approved. Zone updated."))
+        elif obj.needed_time and obj.needed_date == timezone.localdate():
+            messages.success(
+                request,
+                _("Request approved. Zone will update at %(time)s today.") % {"time": obj.needed_time.strftime("%H:%M")},
+            )
+        else:
+            messages.success(
+                request,
+                _("Request approved. Zone will update on %(date)s.") % {"date": obj.needed_date},
+            )
+
     @action(description=_("Reject"), icon="cancel", variant=ActionVariant.DANGER, permissions=["approve"])
     def reject_submit_action(self, request, obj):
         if obj.status != AssetPlanningRequestStatus.PENDING_REVIEW:
@@ -393,6 +443,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         obj.reviewed_at = None
         obj.rejection_reason = ""
         obj.resulting_planning = None
+        obj.zone_sync_applied_at = None
         obj.save()
         obj.suggested_trucks.set(trucks)
         obj.moved_employees.set(moved)

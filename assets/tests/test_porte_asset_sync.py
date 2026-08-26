@@ -1,6 +1,8 @@
 """
-Temporary rule: AssetPlanning of porte service types always stores the truck
-on `asset` whenever `transport_asset` is set.
+Porte plannings keep `asset` for a specifically chosen cargo (cuba / machine
+cargo historically). They no longer copy `transport_asset` onto `asset` —
+GET /portes/ falls back with `p.asset or p.transport_asset`, and machine
+portes use the separate `machine` field.
 """
 from datetime import date
 
@@ -43,32 +45,34 @@ class PorteAssetSyncTests(TestCase):
             status="pending",
         )
 
-    def test_porte_maquina_overwrites_selected_asset_with_truck(self):
+    def test_porte_maquina_keeps_selected_asset(self):
         planning = self._create(
             service_type=SERVICE_TYPE_MAQUINA_PROPIA,
             planning_type="porte",
             asset=self.machine,
             transport_asset=self.truck,
         )
-        self.assertEqual(planning.asset_id, self.truck.id)
+        self.assertEqual(planning.asset_id, self.machine.id)
 
-    def test_porte_material_sets_asset_from_transport(self):
+    def test_porte_material_does_not_copy_truck_onto_asset(self):
         planning = self._create(
             service_type=SERVICE_TYPE_MATERIAL_EXTERNO,
             planning_type="porte",
             asset=None,
             transport_asset=self.truck,
         )
-        self.assertEqual(planning.asset_id, self.truck.id)
+        self.assertIsNone(planning.asset_id)
+        self.assertEqual(planning.transport_asset_id, self.truck.id)
 
-    def test_grua_sets_asset_from_transport(self):
+    def test_grua_does_not_copy_truck_onto_asset(self):
         planning = self._create(
             service_type=SERVICE_TYPE_GRUA,
             planning_type="porte",
             asset=None,
             transport_asset=self.truck,
         )
-        self.assertEqual(planning.asset_id, self.truck.id)
+        self.assertIsNone(planning.asset_id)
+        self.assertEqual(planning.transport_asset_id, self.truck.id)
 
     def test_cuba_keeps_selected_asset(self):
         cuba = make_asset(self.company, make_asset_type(self.company, "Cuba"), name="C-1")
@@ -80,7 +84,7 @@ class PorteAssetSyncTests(TestCase):
         )
         self.assertEqual(planning.asset_id, cuba.id)
 
-    def test_update_fields_transport_also_persists_asset(self):
+    def test_update_fields_transport_does_not_fill_asset(self):
         planning = self._create(
             service_type=SERVICE_TYPE_MATERIAL_EXTERNO,
             planning_type="porte",
@@ -91,4 +95,5 @@ class PorteAssetSyncTests(TestCase):
         planning.transport_asset = self.truck
         planning.save(update_fields=["transport_asset"])
         planning.refresh_from_db()
-        self.assertEqual(planning.asset_id, self.truck.id)
+        self.assertEqual(planning.transport_asset_id, self.truck.id)
+        self.assertIsNone(planning.asset_id)

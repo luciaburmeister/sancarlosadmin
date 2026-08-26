@@ -24,6 +24,7 @@ class MachineAssetSerializer(serializers.ModelSerializer):
 class AssetPlanningRequestDraftSerializer(serializers.ModelSerializer):
     client_name = serializers.CharField(source="client.name", read_only=True, default="")
     asset_name = serializers.CharField(source="asset.name", read_only=True, default="")
+    machine_name = serializers.CharField(source="machine.name", read_only=True, default="")
     to_zone_name = serializers.CharField(source="to_zone.name", read_only=True, default="")
     from_zone_name = serializers.CharField(source="from_zone.name", read_only=True, default="")
     service_type_display = serializers.CharField(source="get_service_type_display", read_only=True)
@@ -42,7 +43,7 @@ class AssetPlanningRequestDraftSerializer(serializers.ModelSerializer):
             "needed_date", "needed_time",
             "urgency", "urgency_display", "notes",
             "cuba_operation_type", "cuba_size",
-            "asset", "asset_name", "load_description",
+            "asset", "asset_name", "machine", "machine_name", "load_description",
             "status", "status_display", "missing_fields",
             "resulting_request_id", "created_at", "updated_at",
         ]

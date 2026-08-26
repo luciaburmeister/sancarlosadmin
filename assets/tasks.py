@@ -119,3 +119,24 @@ def send_asset_planning_draft_created_notification(self, draft_id: int):
         raise self.retry(exc=exc)
 
     return {"status": "ok" if success else "failed", "draft_id": draft_id}
+
+
+@shared_task
+def apply_due_zone_sync_requests():
+    """Beat: apply approved planning_type == NONE requests (Machinist Movement,
+    Machine Self-Transport) whose needed_date/needed_time has arrived — covers
+    requests approved ahead of their effective moment (see
+    AssetPlanningRequestAdmin._approve_zone_sync_request, which applies
+    already-due approvals immediately instead of waiting for this task)."""
+    from django.utils import timezone
+
+    from assets.models import AssetPlanningRequest, AssetPlanningRequestStatus, PlanningType
+
+    candidates = AssetPlanningRequest.objects.filter(
+        planning_type=PlanningType.NONE,
+        status=AssetPlanningRequestStatus.APPROVED,
+        needed_date__lte=timezone.localdate(),
+        zone_sync_applied_at__isnull=True,
+    )
+    applied_ids = [req.pk for req in candidates if req.is_zone_sync_due and req.apply_zone_change()]
+    return {"status": "ok", "applied_request_ids": applied_ids}

@@ -140,6 +140,7 @@ from core.admin.company_access import get_user_companies
 from core.forms.dynamic_fields import DynamicFieldBuilder
 from sales.models import Client
 
+from .constants import SERVICE_TYPE_PLANNING_TYPE
 from .models import (
     Asset,
     AssetIdentifier,
@@ -147,6 +148,7 @@ from .models import (
     AssetPlanningRequest,
     AssetType,
     AssetTypeCategory,
+    PlanningType,
     PlanningUrgency,
     ServiceType,
 )
@@ -239,6 +241,14 @@ class AssetPlanningRequestForm(forms.ModelForm):
     class Meta:
         model = AssetPlanningRequest
         fields = "__all__"
+
+    def clean(self):
+        cleaned_data = super().clean()
+        # No AssetPlanning for these types, so no job length to estimate.
+        if SERVICE_TYPE_PLANNING_TYPE.get(cleaned_data.get("service_type")) == PlanningType.NONE:
+            self.errors.pop("estimated_duration", None)
+            cleaned_data["estimated_duration"] = None
+        return cleaned_data
 
 
 class AssetAddForm(forms.ModelForm):

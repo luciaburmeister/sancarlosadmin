@@ -75,6 +75,14 @@ class EstimatedDurationBackfillMigrationTests(TransactionTestCase):
         ).pk
 
         MigrationExecutor(connection).migrate(MIGRATE_TO)
+        # Finish bringing the schema fully current — later migrations don't touch
+        # scheduled_time/estimated_duration, but the test bodies below query through
+        # the real `assets.models.AssetPlanning`, which expects every column any
+        # migration ever added (e.g. `planning`, `abandoned_stage`), not just the
+        # ones added by MIGRATE_TO.
+        executor = MigrationExecutor(connection)
+        executor.loader.build_graph()
+        executor.migrate(executor.loader.graph.leaf_nodes())
 
     def tearDown(self):
         # Leave the DB on the real latest migration state for other tests.

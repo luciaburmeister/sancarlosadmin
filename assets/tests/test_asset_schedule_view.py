@@ -16,7 +16,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext, override
 
-from assets.models import Asset, AssetPlanning, AssetType, AssetTypeCategory
+from assets.models import Asset, AssetPlanning, AssetType, AssetTypeCategory, PlanningStatus
 from api.fleet.tests.helpers import make_asset_type, make_company, make_employee, make_zone
 
 User = get_user_model()
@@ -64,14 +64,25 @@ class AssetScheduleViewTests(TestCase):
         self.assertEqual(blocks[0]["destination_name"], "Destination")
         self.assertNotIn("route", blocks[0])
         self.assertEqual(blocks[0]["truck"], "Truck 1")
+        self.assertEqual(blocks[0]["truck_id"], self.truck.pk)
         self.assertIn("urgency_label", blocks[0])
         self.assertIn("origin_address", blocks[0])
         self.assertIn("destination_address", blocks[0])
         self.assertIn("load_description", blocks[0])
         self.assertIn("notes", blocks[0])
         self.assertIn("color", blocks[0])
+        self.assertEqual(blocks[0]["status_color"], self.planning.status_color)
         self.assertNotIn("project_file", blocks[0])
         self.assertNotIn("expediente", blocks[0])
+
+    def test_schedule_legend_includes_every_service_type_color(self):
+        """Regression guard: the legend indexes SERVICE_TYPE_COLORS[key] directly
+        (not .get()) for every ServiceType member — a new service type without a
+        color entry would 500 this page."""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        legend_keys = {item["key"] for item in response.context["service_type_legend"]}
+        self.assertIn("autoporte_maquina", legend_keys)
 
     def test_block_includes_planning_details(self):
         self.planning.load_description = "Escombros mixtos"
@@ -154,6 +165,28 @@ class AssetScheduleViewTests(TestCase):
         self.assertEqual(self.planning.scheduled_date, new_day)
         self.assertEqual(self.planning.scheduled_time, time(9, 0))
 
+    def test_move_reactivates_a_not_completed_planning(self):
+        self.planning.status = PlanningStatus.NOT_COMPLETED
+        self.planning.abandoned_stage = "picked_up_pending_pour"
+        self.planning.abandoned_at = timezone.now()
+        self.planning.save(update_fields=["status", "abandoned_stage", "abandoned_at"])
+        new_day = TODAY + timedelta(days=1)
+
+        response = self.client.post(
+            self.url,
+            data={
+                "action": "move", "id": self.planning.pk,
+                "start": 9 * 60, "end": 10 * 60,
+                "person_id": self.employee.pk, "day": new_day.isoformat(),
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.planning.refresh_from_db()
+        self.assertEqual(self.planning.status, PlanningStatus.PENDING)
+        self.assertEqual(self.planning.abandoned_stage, "")
+        self.assertIsNone(self.planning.abandoned_at)
+
     def test_unassign_clears_driver_truck_and_time(self):
         response = self.client.post(
             self.url,
@@ -190,6 +223,8 @@ class AssetScheduleViewTests(TestCase):
         self.assertEqual(clones.count(), 1)
         clone = clones.get()
         self.assertEqual(clone.scheduled_date, TODAY + timedelta(days=1))
+        self.assertEqual(clone.status, PlanningStatus.PENDING)
+        self.assertFalse(clone.driver_claimed_cuba)
         self.assertEqual(clone.asset_id, self.planning.asset_id)
         self.assertEqual(clone.assigned_to_id, self.employee.pk)
         self.assertEqual(clone.transport_asset_id, self.truck.pk)
@@ -207,6 +242,22 @@ class AssetScheduleViewTests(TestCase):
         # Original untouched.
         self.planning.refresh_from_db()
         self.assertEqual(self.planning.scheduled_date, TODAY)
+
+    def test_duplicate_next_day_resets_delivered_execution_state(self):
+        self.planning.status = PlanningStatus.DELIVERED
+        self.planning.driver_claimed_cuba = True
+        self.planning.save(update_fields=["status", "driver_claimed_cuba"])
+
+        response = self.client.post(
+            self.url,
+            data={"action": "duplicate_next_day", "id": self.planning.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        clone = AssetPlanning.objects.exclude(pk=self.planning.pk).get()
+        self.assertEqual(clone.status, PlanningStatus.PENDING)
+        self.assertFalse(clone.driver_claimed_cuba)
 
     def test_context_exposes_add_and_change_urls(self):
         response = self.client.get(self.url)

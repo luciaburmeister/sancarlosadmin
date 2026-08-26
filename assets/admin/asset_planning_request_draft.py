@@ -64,7 +64,7 @@ class AssetPlanningRequestDraftAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "to_zone__name", "destination_text", "from_zone__name", "origin_text",
         "requested_by__first_name", "requested_by__last_name",
     )
-    autocomplete_fields = ["company", "client", "to_zone", "from_zone", "asset", "resulting_request"]
+    autocomplete_fields = ["company", "client", "to_zone", "from_zone", "asset", "machine", "resulting_request"]
     readonly_fields = [
         "service_type", "new_client_request_notice", "client",
         "new_client_name", "new_client_tax_id", "new_client_fiscal_address",
@@ -72,7 +72,7 @@ class AssetPlanningRequestDraftAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "to_zone", "destination_text", "destination_city",
         "from_zone", "origin_text", "origin_city",
         "needed_date", "needed_time", "urgency", "notes",
-        "cuba_operation_type", "cuba_size", "asset", "load_description",
+        "cuba_operation_type", "cuba_size", "asset", "machine", "load_description",
         "requested_by", "status", "resulting_request",
     ]
     actions_row = ["create_request_action"]
@@ -87,7 +87,7 @@ class AssetPlanningRequestDraftAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ("from_zone", "origin_text", "origin_city"),
                 ("needed_date", "needed_time"), "urgency", "notes",
                 ("cuba_operation_type", "cuba_size"),
-                ("asset", "load_description"),
+                ("asset", "machine", "load_description"),
             )
         }),
         (_("Status"), {"fields": ("status", "requested_by", "resulting_request")}),

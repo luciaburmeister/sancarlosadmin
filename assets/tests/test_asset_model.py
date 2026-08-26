@@ -95,9 +95,8 @@ class AssetModelTests(TestCase):
 
 class AssetStatusTests(TestCase):
     """
-    Tests for get_asset_status — the function that determines
-    whether a cuba is AVAILABLE, PICKED_UP, or DELIVERED
-    based on its last transaction.
+    Tests for Asset.current_transaction_status — determines whether a cuba
+    is AVAILABLE, PICKED_UP, or DELIVERED based on its last transaction.
     """
 
     def setUp(self):
@@ -120,22 +119,19 @@ class AssetStatusTests(TestCase):
     # Test 51
     def test_status_is_available_with_no_transactions(self):
         """A cuba with no transactions must show as AVAILABLE."""
-        from api.fleet.views.assets import get_asset_status
-        self.assertEqual(get_asset_status(None), "AVAILABLE")
+        self.assertEqual(self.asset.current_transaction_status(None), "AVAILABLE")
 
     # Test 52
     def test_status_is_picked_up_after_movement(self):
         """After a recogida (MOVEMENT), status must be PICKED_UP."""
-        from api.fleet.views.assets import get_asset_status
         tx = self._make_tx(TransactionTypeChoices.MOVEMENT)
-        self.assertEqual(get_asset_status(tx), "PICKED_UP")
+        self.assertEqual(self.asset.current_transaction_status(tx), "PICKED_UP")
 
     # Test 53
     def test_status_is_delivered_after_delivery(self):
         """After a delivery (DELIVERY), status must be DELIVERED."""
-        from api.fleet.views.assets import get_asset_status
         tx = self._make_tx(TransactionTypeChoices.DELIVERY)
-        self.assertEqual(get_asset_status(tx), "DELIVERED")
+        self.assertEqual(self.asset.current_transaction_status(tx), "DELIVERED")
 
     # Test 54
     def test_status_uses_latest_transaction_only(self):
@@ -143,7 +139,13 @@ class AssetStatusTests(TestCase):
         When there are multiple transactions, only the most recent one
         determines the status.
         """
-        from api.fleet.views.assets import get_asset_status
         self._make_tx(TransactionTypeChoices.MOVEMENT, seconds_offset=0)
         latest = self._make_tx(TransactionTypeChoices.DELIVERY, seconds_offset=10)
-        self.assertEqual(get_asset_status(latest), "DELIVERED")
+        self.assertEqual(self.asset.current_transaction_status(latest), "DELIVERED")
+
+    def test_status_stays_picked_up_after_porte_delivery(self):
+        """Porte entrega leaves the empty cuba on the truck — status unchanged."""
+        self._make_tx(TransactionTypeChoices.PORTE_MOVEMENT, seconds_offset=0)
+        self._make_tx(TransactionTypeChoices.PORTE_LOAD, seconds_offset=5)
+        latest = self._make_tx(TransactionTypeChoices.PORTE_DELIVERY, seconds_offset=10)
+        self.assertEqual(self.asset.current_transaction_status(latest), "PICKED_UP")

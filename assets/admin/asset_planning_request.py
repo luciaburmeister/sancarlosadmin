@@ -13,16 +13,19 @@ from simple_history.admin import SimpleHistoryAdmin
 from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.company_access import get_user_companies
 from company.models import Employee
-from assets.constants import SERVICE_TYPE_FIELDS, SERVICE_TYPE_MAQUINA_PROPIA, SERVICE_TYPE_MAQUINISTAS
+from assets.constants import (
+    SERVICE_TYPE_FIELDS, SERVICE_TYPE_MAQUINA_PROPIA, SERVICE_TYPE_MAQUINISTAS,
+    SERVICE_TYPE_AUTOPORTE_MAQUINA, SERVICE_TYPE_PLANNING_TYPE,
+)
 from assets.forms import AssetPlanningRequestForm
 from assets.models import (
     Asset, AssetPlanning, AssetPlanningRequest, AssetPlanningRequestDraft,
-    AssetPlanningRequestDraftStatus, AssetPlanningRequestStatus, AssetTypeCategory,
+    AssetPlanningRequestDraftStatus, AssetPlanningRequestStatus, AssetTypeCategory, PlanningType,
 )
 
 # Built from SERVICE_TYPE_FIELDS so the form and AssetPlanningRequest.clean()
 # never disagree about which fields apply to which service type.
-_CONDITIONAL_FIELD_NAMES = ["from_zone", "machine", "load_description", "cuba_operation_type", "cuba_size"]
+_CONDITIONAL_FIELD_NAMES = ["from_zone", "asset", "machine", "load_description", "cuba_operation_type", "cuba_size"]
 CONDITIONAL_FIELDS = {
     field_name: " || ".join(
         f"service_type == '{service_type}'"
@@ -32,11 +35,15 @@ CONDITIONAL_FIELDS = {
     for field_name in _CONDITIONAL_FIELD_NAMES
 }
 # Not in SERVICE_TYPE_FIELDS — shared with AssetPlanningRequestDraft, which lacks these fields.
-CONDITIONAL_FIELDS["estimated_duration"] = f"service_type != '{SERVICE_TYPE_MAQUINISTAS}'"
+_NO_PLANNING_SERVICE_TYPES = [st for st, pt in SERVICE_TYPE_PLANNING_TYPE.items() if pt == PlanningType.NONE]
+CONDITIONAL_FIELDS["estimated_duration"] = " && ".join(
+    f"service_type != '{service_type}'" for service_type in _NO_PLANNING_SERVICE_TYPES
+)
 CONDITIONAL_FIELDS["machinist_moved"] = f"service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}'"
 CONDITIONAL_FIELDS["moved_employees"] = (
     f"(service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}' && machinist_moved) "
-    f"|| service_type == '{SERVICE_TYPE_MAQUINISTAS}'"
+    f"|| service_type == '{SERVICE_TYPE_MAQUINISTAS}' "
+    f"|| service_type == '{SERVICE_TYPE_AUTOPORTE_MAQUINA}'"
 )
 
 
@@ -240,7 +247,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         # choice this queryset then rejects as invalid on save. clean()
         # still rejects mismatched company combinations.
         companies = None if request.user.is_superuser else get_user_companies(request.user)
-        if db_field.name == "machine":
+        if db_field.name in ("asset", "machine"):
             qs = Asset.objects.filter(asset_type__category=AssetTypeCategory.MACHINE, is_active=True)
             if companies is not None:
                 qs = qs.filter(company__in=companies)
@@ -315,8 +322,8 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         if obj.status != AssetPlanningRequestStatus.PENDING_REVIEW:
             return
 
-        if obj.service_type == SERVICE_TYPE_MAQUINISTAS:
-            self._approve_machinist_movement(request, obj)
+        if obj.planning_type == PlanningType.NONE:
+            self._approve_zone_sync_request(request, obj)
             return
 
         # transport_asset/assigned_to are filled later by auto-assignment.
@@ -381,14 +388,14 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         else:
             messages.success(request, _("Request approved. Asset Planning created."))
 
-    def _approve_machinist_movement(self, request, obj):
-        """Machinist Movement never gets an AssetPlanning — just approve and
-        move moved_employees to to_zone: immediately if needed_date is
-        already due, otherwise apply_due_machinist_movements() (Celery beat)
-        picks it up once that date arrives.
+    def _approve_zone_sync_request(self, request, obj):
+        """planning_type == NONE requests never get an AssetPlanning — just
+        approve and sync asset/moved_employees to to_zone: immediately if due
+        now, otherwise apply_due_zone_sync_requests() (Celery beat) picks it
+        up once needed_date/needed_time arrives.
         """
-        if not obj.moved_employees.exists():
-            messages.error(request, _("Select at least one machinist to approve this request."))
+        if not obj.asset_id and not obj.moved_employees.exists():
+            messages.error(request, _("Select at least one machinist or an asset to approve this request."))
             return
 
         obj.status = AssetPlanningRequestStatus.APPROVED
@@ -396,13 +403,18 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         obj.reviewed_at = timezone.now()
         obj.save()
 
-        if obj.needed_date <= timezone.localdate():
-            obj.apply_machinist_zone_change()
-            messages.success(request, _("Request approved. Machinists moved to the destination zone."))
+        if obj.is_zone_sync_due:
+            obj.apply_zone_change()
+            messages.success(request, _("Request approved. Zone updated."))
+        elif obj.needed_time and obj.needed_date == timezone.localdate():
+            messages.success(
+                request,
+                _("Request approved. Zone will update at %(time)s today.") % {"time": obj.needed_time.strftime("%H:%M")},
+            )
         else:
             messages.success(
                 request,
-                _("Request approved. Machinists will move to the destination zone on %(date)s.") % {"date": obj.needed_date},
+                _("Request approved. Zone will update on %(date)s.") % {"date": obj.needed_date},
             )
 
     @action(description=_("Reject"), icon="cancel", variant=ActionVariant.DANGER, permissions=["approve"])

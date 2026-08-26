@@ -1,7 +1,7 @@
 from datetime import date as date_, datetime, time, timedelta
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Exists, F, OuterRef, Q, Subquery
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
@@ -21,6 +21,7 @@ from assets.constants import (
     SERVICE_TYPE_GRUA,
     SERVICE_TYPE_CUBA,
     SERVICE_TYPE_MAQUINISTAS,
+    SERVICE_TYPE_AUTOPORTE_MAQUINA,
     SERVICE_TYPE_PLANNING_TYPE,
     SERVICE_TYPE_FIELDS,
 )
@@ -718,6 +719,7 @@ class ServiceType(models.TextChoices):
     SERVICIO_GRUA = SERVICE_TYPE_GRUA, _("Crane Service")
     MOVIMIENTO_CUBA = SERVICE_TYPE_CUBA, _("Container Movement")
     MOVIMIENTO_MAQUINISTAS = SERVICE_TYPE_MAQUINISTAS, _("Machinist Movement")
+    AUTOPORTE_MAQUINA = SERVICE_TYPE_AUTOPORTE_MAQUINA, _("Machine Self-Transport")
 
 
 class AssetPlanningNotificationRecipient(CompanyOwnedModel, Timestampable):
@@ -797,6 +799,7 @@ SERVICE_TYPE_COLORS = {
     SERVICE_TYPE_GRUA: "#8B5CF6",
     SERVICE_TYPE_CUBA: "#F59E0B",
     SERVICE_TYPE_MAQUINISTAS: "#EC4899",
+    SERVICE_TYPE_AUTOPORTE_MAQUINA: "#6366F1",
 }
 DEFAULT_SERVICE_TYPE_COLOR = "#64748B"
 URGENCY_COLORS = {
@@ -1453,8 +1456,8 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
     # Set once the request is approved.
     resulting_planning = models.OneToOneField(AssetPlanning, on_delete=models.SET_NULL, null=True, blank=True, related_name="source_request", verbose_name=_("Asset Planning"))
 
-    # No-AssetPlanning types only (e.g. Machinist Movement, see
-    # apply_machinist_zone_change()): when the zone change actually applied.
+    # planning_type == NONE requests only (Machinist Movement, Machine
+    # Self-Transport — see apply_zone_change()): when the zone change applied.
     zone_sync_applied_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Zone Sync Applied At"))
 
     history = HistoricalRecords()
@@ -1547,8 +1550,9 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
             self.cuba_size = ""
 
         # Not tracked in SERVICE_TYPE_FIELDS: AssetPlanningRequestDraft shares
-        # that dict and has no estimated_duration field at all.
-        if self.service_type == SERVICE_TYPE_MAQUINISTAS:
+        # that dict and has no estimated_duration field at all. No route to
+        # estimate for planning_type == NONE requests (nothing gets dispatched).
+        if self.planning_type == PlanningType.NONE:
             self.estimated_duration = None
         elif not self.estimated_duration:
             raise ValidationError({"estimated_duration": _("Estimated duration is required for this service type.")})
@@ -1570,19 +1574,43 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
         from assets.services.route_optimizer import GoogleRouteOptimizer
         return GoogleRouteOptimizer().estimate_duration(self.from_zone, self.to_zone)
 
-    def apply_machinist_zone_change(self):
-        """Move every selected employee's current_working_zone to to_zone and mark this applied.
+    @property
+    def is_zone_sync_due(self) -> bool:
+        """Whether needed_date/needed_time has arrived — only meaningful for
+        planning_type == NONE requests, see apply_zone_change()."""
+        if self.zone_sync_applied_at is not None:
+            return False
+        now = timezone.localtime()
+        if self.needed_date > now.date():
+            return False
+        if self.needed_date == now.date() and self.needed_time and self.needed_time > now.time():
+            return False
+        return True
 
-        Only meaningful for MOVIMIENTO_MAQUINISTAS requests, which never get an
-        AssetPlanning — approve_submit_action calls this immediately when
-        needed_date is due, otherwise apply_due_machinist_movements() (Celery
-        beat) calls it once that date arrives.
+    def apply_zone_change(self) -> bool:
+        """Move this request's asset (if any) and every selected employee's
+        current_working_zone to to_zone, then mark this applied.
+
+        Only meaningful for planning_type == NONE requests (Machinist Movement,
+        Machine Self-Transport), which never get an AssetPlanning —
+        approve_submit_action calls this immediately when due, otherwise
+        apply_due_zone_sync_requests() (Celery beat) calls it once due.
+        Locked so a concurrent beat tick can't double-apply.
         """
-        for employee in self.moved_employees.all():
-            employee.current_working_zone = self.to_zone
-            employee.save()
-        self.zone_sync_applied_at = timezone.now()
-        self.save(update_fields=["zone_sync_applied_at"])
+        with transaction.atomic():
+            locked = AssetPlanningRequest.objects.select_for_update().get(pk=self.pk)
+            if locked.zone_sync_applied_at is not None:
+                return False
+            if locked.asset_id:
+                locked.asset.current_working_zone = locked.to_zone
+                locked.asset.save()
+            for employee in locked.moved_employees.all():
+                employee.current_working_zone = locked.to_zone
+                employee.save()
+            locked.zone_sync_applied_at = timezone.now()
+            locked.save(update_fields=["zone_sync_applied_at"])
+        self.zone_sync_applied_at = locked.zone_sync_applied_at
+        return True
 
 
 class AssetPlanningRequestDraftStatus(models.TextChoices):

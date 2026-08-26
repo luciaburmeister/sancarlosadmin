@@ -144,6 +144,27 @@ class AssetAssignViewTests(APITestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("cuba pendiente", response.json()["error"])
 
+    def test_allows_scanning_another_cuba_when_pending_has_no_planning(self):
+        """Home omits pending_dropoff without planning_id — assign must match,
+        otherwise drivers are blocked with no card to resolve the leftover."""
+        self.client.force_authenticate(user=self.user)
+        obra = make_zone(self.company, name="Obra")
+        held = make_asset(self.company, self.asset_type, employee=self.employee, zone=obra, name="HELD")
+        other = make_asset(self.company, self.asset_type, name="OTHER")
+        next_plan = make_planning(
+            self.company, asset=None, assigned_to=self.employee, status=PlanningStatus.PENDING,
+        )
+        AssetTransaction.objects.create(
+            company=self.company, asset=held, from_zone=obra,
+            transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(),
+            performed_by=self.employee, planning=None, data={"vasAVerter": ""},
+        )
+
+        response = self.client.post(f"/en/api/assets/{other.id}/assign/")
+        self.assertEqual(response.status_code, 200)
+        next_plan.refresh_from_db()
+        self.assertEqual(next_plan.asset_id, other.id)
+
     def test_use_pending_cuba_is_rejected_while_verteo_is_owed(self):
         self.client.force_authenticate(user=self.user)
         obra = make_zone(self.company, name="Obra")

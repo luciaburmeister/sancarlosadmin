@@ -205,21 +205,8 @@ class PlanningNextTaskView(APIView):
     permission_classes = [IsAuthenticated]
 
     @staticmethod
-    def _pending_cuba_dropoff(employee):
-        stuck_asset = Asset.objects.needing_driver_attention(employee, include_porte=True)
-        if stuck_asset is None:
-            return None
-        last_movement = stuck_asset.transactions.filter(
-            transaction_type__in=[TransactionTypeChoices.MOVEMENT, TransactionTypeChoices.PORTE_MOVEMENT],
-        ).order_by("-date").first()
-        if last_movement is None or last_movement.planning_id is None:
-            return None
-        return {
-            "planning_id": last_movement.planning_id,
-            "asset_id": stuck_asset.id,
-            "asset_name": stuck_asset.name,
-            "verteo_pending": stuck_asset.verteo_pending_transaction is not None,
-        }
+    def _pending_cuba_dropoff(employee, planning=None):
+        return Asset.objects.visible_pending_dropoff(employee, planning)
 
     def get(self, request):
         employee = get_current_employee(request.user)
@@ -242,10 +229,7 @@ class PlanningNextTaskView(APIView):
                 status=PlanningStatus.PENDING,
             ).order_by("scheduled_time", "route_order", "pk").first()
 
-        pending_dropoff = self._pending_cuba_dropoff(employee)
-        if pending_dropoff is not None and planning is not None:
-            if planning.suppresses_pending_dropoff_warning(pending_dropoff):
-                pending_dropoff = None
+        pending_dropoff = self._pending_cuba_dropoff(employee, planning)
         if pending_dropoff is not None:
             pending_dropoff["can_use_for_next_task"] = (
                 planning.can_claim_pending_cuba_for_next_task(pending_dropoff)

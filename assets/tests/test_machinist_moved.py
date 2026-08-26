@@ -20,8 +20,10 @@ from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.test import RequestFactory, TestCase
 
+from django.core.exceptions import ValidationError
+
 from assets.admin.asset_planning_request import AssetPlanningRequestAdmin
-from assets.models import Asset, AssetPlanningRequest, AssetType, AssetTypeCategory
+from assets.models import Asset, AssetPlanning, AssetPlanningRequest, AssetType, AssetTypeCategory
 from company.models import Company
 from management.models import ProjectFile
 from sales.models import Client
@@ -52,7 +54,7 @@ class MachinistMovedCleanTests(TestCase):
         self.assertFalse(request.machinist_moved)
 
     def test_kept_when_service_type_is_maquina_propia(self):
-        asset = Asset.objects.create(company=self.company, asset_type=make_asset_type(self.company), name="Machine 1")
+        machine = Asset.objects.create(company=self.company, asset_type=make_asset_type(self.company), name="Machine 1")
         from_zone = make_zone(self.company, name="From Zone")
         request = AssetPlanningRequest(
             company=self.company,
@@ -60,7 +62,7 @@ class MachinistMovedCleanTests(TestCase):
             to_zone=self.to_zone,
             from_zone=from_zone,
             needed_date=NEEDED_DATE,
-            asset=asset,
+            machine=machine,
             project_file=self.project_file,
             machinist_moved=True,
             estimated_duration=timedelta(hours=1),
@@ -89,6 +91,7 @@ class ApproveCopiesMachinistMovedTests(TestCase):
             to_zone=self.to_zone,
             needed_date=NEEDED_DATE,
             asset=self.asset,
+            machine=self.asset,
             project_file=self.project_file,
             machinist_moved=True,
             estimated_duration=timedelta(hours=1),
@@ -132,3 +135,102 @@ class ApproveCopiesMachinistMovedTests(TestCase):
         duplicate = AssetPlanningRequest.objects.exclude(pk=self.request_obj.pk).get()
         self.assertTrue(duplicate.machinist_moved)
         self.assertCountEqual(list(duplicate.moved_employees.all()), [self.mover_1, self.mover_2])
+
+
+class MachineFieldCleanTests(TestCase):
+    """AssetPlanning.machine / AssetPlanningRequest.machine — the machine
+    being transported inside a cuba for own-machine transport, separate from
+    the cuba (`asset`) itself. `asset` is a generic optional field now;
+    `machine` is the one that's required for porte_maquina."""
+
+    def setUp(self):
+        self.company = make_company()
+        self.to_zone = make_zone(self.company, name="To Zone")
+        self.from_zone = make_zone(self.company, name="From Zone")
+        self.machine = Asset.objects.create(company=self.company, asset_type=make_asset_type(self.company), name="Machine 1")
+        client = Client.objects.create(name="Client 1", company=self.company)
+        self.project_file = ProjectFile.objects.create(name="Project 1", client=client, company=self.company)
+
+    def test_request_requires_machine_for_maquina_propia(self):
+        request = AssetPlanningRequest(
+            company=self.company,
+            service_type="porte_maquina",
+            to_zone=self.to_zone,
+            from_zone=self.from_zone,
+            needed_date=NEEDED_DATE,
+            project_file=self.project_file,
+            estimated_duration=timedelta(hours=1),
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            request.clean()
+        self.assertIn("machine", ctx.exception.message_dict)
+
+    def test_request_does_not_require_asset_for_maquina_propia(self):
+        """asset is a generic optional field now — never required, never auto-cleared."""
+        request = AssetPlanningRequest(
+            company=self.company,
+            service_type="porte_maquina",
+            to_zone=self.to_zone,
+            from_zone=self.from_zone,
+            needed_date=NEEDED_DATE,
+            project_file=self.project_file,
+            machine=self.machine,
+            estimated_duration=timedelta(hours=1),
+        )
+        request.clean()
+        self.assertIsNone(request.asset_id)
+
+    def test_request_asset_is_not_cleared_by_clean(self):
+        asset = Asset.objects.create(company=self.company, asset_type=make_asset_type(self.company), name="Cuba 1")
+        request = AssetPlanningRequest(
+            company=self.company,
+            service_type="porte_maquina",
+            to_zone=self.to_zone,
+            from_zone=self.from_zone,
+            needed_date=NEEDED_DATE,
+            project_file=self.project_file,
+            asset=asset,
+            machine=self.machine,
+            estimated_duration=timedelta(hours=1),
+        )
+        request.clean()
+        self.assertEqual(request.asset_id, asset.id)
+
+    def test_request_machine_cleared_for_other_service_types(self):
+        request = AssetPlanningRequest(
+            company=self.company,
+            service_type="servicio_grua",
+            to_zone=self.to_zone,
+            needed_date=NEEDED_DATE,
+            project_file=self.project_file,
+            machine=self.machine,
+            estimated_duration=timedelta(hours=1),
+        )
+        request.clean()
+        self.assertIsNone(request.machine_id)
+
+    def test_planning_requires_machine_for_maquina_propia(self):
+        planning = AssetPlanning(
+            company=self.company,
+            origin=self.to_zone,
+            destination=self.to_zone,
+            scheduled_date=NEEDED_DATE,
+            planning_type="porte",
+            service_type="porte_maquina",
+            project_file=self.project_file,
+        )
+        with self.assertRaises(ValidationError):
+            planning.clean()
+
+    def test_planning_allows_blank_asset_for_maquina_propia(self):
+        planning = AssetPlanning(
+            company=self.company,
+            origin=self.to_zone,
+            destination=self.to_zone,
+            scheduled_date=NEEDED_DATE,
+            planning_type="porte",
+            service_type="porte_maquina",
+            project_file=self.project_file,
+            machine=self.machine,
+        )
+        planning.clean()

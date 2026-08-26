@@ -20,7 +20,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
-from assets.models import Asset, AssetPlanning, AssetType, AssetTypeCategory, AssignmentOrigin
+from assets.models import Asset, AssetPlanning, AssetType, AssetTypeCategory, AssignmentOrigin, PlanningStatus
 from api.fleet.tests.helpers import make_asset_type, make_company, make_employee, make_user, make_zone
 
 User = get_user_model()
@@ -195,3 +195,24 @@ class TraceabilityFilterTests(TestCase):
         response = self.client.get(self.url, {"traceability": "manual"})
         ids = {obj.pk for obj in response.context["cl"].queryset}
         self.assertEqual(ids, {self.manual.pk})
+
+
+class DriverClaimedCubaInvariantTests(TestCase):
+    def setUp(self):
+        self.company = make_company()
+        self.origin = make_zone(self.company, name="Origin")
+        self.destination = make_zone(self.company, name="Destination")
+        self.cargo = Asset.objects.create(
+            company=self.company, asset_type=make_asset_type(self.company, "Cuba"), name="Cuba 1",
+        )
+
+    def test_clearing_asset_clears_driver_claimed_cuba(self):
+        planning = AssetPlanning.objects.create(
+            company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
+            scheduled_date=TODAY, status=PlanningStatus.DELIVERED, driver_claimed_cuba=True,
+        )
+        planning.asset = None
+        planning.status = PlanningStatus.PENDING
+        planning.save(update_fields=["asset", "status"])
+        planning.refresh_from_db()
+        self.assertFalse(planning.driver_claimed_cuba)

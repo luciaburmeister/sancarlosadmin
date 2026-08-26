@@ -2,7 +2,7 @@ from datetime import date as date_, datetime, time, timedelta
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import OuterRef, Q, Subquery
+from django.db.models import Exists, F, OuterRef, Q, Subquery
 from django.utils.translation import gettext_lazy as _
 from simple_history.models import HistoricalRecords
 from sales.models import Client
@@ -171,24 +171,134 @@ class AssetCurrentStatus(models.TextChoices):
     DELIVERED = "DELIVERED", _("Delivered")
 
 
+class CubaTransactionKey:
+    ESTADO = "cubaEstado"
+    VAS_A_VERTER = "vasAVerter"
+
+
+class CubaFillState(models.TextChoices):
+    FULL = "Cuba llena", _("Full container")
+    EMPTY = "Cuba vacía", _("Empty container")
+
+
+class FormAffirmative(models.TextChoices):
+    YES = "Sí", _("Yes")
+    NO = "No", _("No")
+
+
+class PorteAction(models.TextChoices):
+    RECOGIDA = "recogida", _("Pickup")
+    CARGA = "carga", _("Load")
+    ENTREGA = "entrega", _("Delivery")
+
+
+class PorteTransactionDataKey:
+    MOVEMENT_TYPE = "movement_type"
+    ACTION = "action"
+    MATRICULA = "matricula"
+    PLANNING_ID = "planning_id"
+    LOAD_DESCRIPTION = "load_description"
+    CLIENT_ID = "client_id"
+    MACHINE_ID = "machine_id"
+
+
+class PorteMovementKind:
+    PORTE = "porte"
+
+
+class ChecklistStepKey:
+    RECOGER = "recoger"
+    RECOGER_CUBA = "recoger_cuba"
+    RECOGER_VIEJA = "recoger_vieja"
+    DEJAR = "dejar"
+    DEJAR_NUEVA = "dejar_nueva"
+    CARGA = "carga"
+    ENTREGA = "entrega"
+    VERTER = "verter"
+
+
+class ChecklistStepStatus:
+    DONE = "done"
+    PENDING = "pending"
+    SKIPPED = "skipped"
+
+
 class AssetQuerySet(models.QuerySet):
-    def with_pending_pickup_by(self, employee):
+    def with_pending_pickup_by(self, employee, include_porte=False):
         """Assets `employee` still has on their truck — their MOVEMENT is the most
         recent transaction once RECEIPT (verteo) rows are ignored, same as
         Asset.current_transaction_status treats RECEIPT as transparent, only
-        DELIVERY (or someone else's MOVEMENT) actually resolves it."""
+        DELIVERY (or someone else's MOVEMENT) actually resolves it.         Full or empty. See Asset.verteo_pending_transaction for the narrower
+        "still owes a verteo" signal.
+
+        include_porte=True also treats PORTE_MOVEMENT as pickup and PORTE_LOAD /
+        PORTE_DELIVERY as transparent (like RECEIPT), so a cuba stays on the truck
+        through a full porte cycle.
+        """
+        pickup_types = [TransactionTypeChoices.MOVEMENT]
+        transparent_types = [TransactionTypeChoices.RECEIPT]
+        if include_porte:
+            pickup_types.append(TransactionTypeChoices.PORTE_MOVEMENT)
+            transparent_types.extend([
+                TransactionTypeChoices.PORTE_LOAD,
+                TransactionTypeChoices.PORTE_DELIVERY,
+            ])
         latest_relevant_transaction = AssetTransaction.objects.filter(
             asset=OuterRef("pk"),
         ).exclude(
-            transaction_type=TransactionTypeChoices.RECEIPT,
+            transaction_type__in=transparent_types,
         ).order_by("-date").values("id")[:1]
-        return self.filter(company=employee.company).annotate(
+        pending_pickups = AssetTransaction.objects.filter(
+            transaction_type__in=pickup_types, performed_by=employee,
+        )
+        return self.filter(company=employee.company).exclude(
+            asset_type__category__in=[AssetTypeCategory.MACHINE, AssetTypeCategory.TRUCK],
+        ).annotate(
             latest_relevant_transaction_id=Subquery(latest_relevant_transaction),
         ).filter(
-            latest_relevant_transaction_id__in=AssetTransaction.objects.filter(
-                transaction_type=TransactionTypeChoices.MOVEMENT, performed_by=employee,
-            ).values("id"),
+            latest_relevant_transaction_id__in=pending_pickups.values("id"),
+        ).annotate(
+            pending_pickup_date=Subquery(
+                pending_pickups.filter(
+                    pk=OuterRef("latest_relevant_transaction_id"),
+                ).values("date")[:1],
+            ),
+        ).order_by("-pending_pickup_date")
+
+    def with_verteo_pending_by(self, employee):
+        """Assets `employee` picked up full and hasn't verted yet — survives a
+        DELIVERY on purpose, unlike with_pending_pickup_by above: a full cuba can
+        be dropped off at an almacén and still owe its verteo. Only a RECEIPT
+        resolves this one."""
+        my_last_movement = AssetTransaction.objects.filter(
+            asset=OuterRef("pk"), transaction_type=TransactionTypeChoices.MOVEMENT, performed_by=employee,
+        ).order_by("-date")
+        return self.filter(company=employee.company).annotate(
+            my_last_movement_id=Subquery(my_last_movement.values("id")[:1]),
+            my_last_movement_date=Subquery(my_last_movement.values("date")[:1]),
+        ).annotate(
+            my_last_movement_full=Exists(
+                AssetTransaction.objects.filter(pk=OuterRef("my_last_movement_id")).filter(
+                    Q(**{f"data__{CubaTransactionKey.ESTADO}": CubaFillState.FULL})
+                    | Q(**{f"data__{CubaTransactionKey.VAS_A_VERTER}": FormAffirmative.YES}),
+                ),
+            ),
+        ).filter(
+            my_last_movement_full=True,
+        ).exclude(
+            transactions__transaction_type=TransactionTypeChoices.RECEIPT,
+            transactions__date__gt=F("my_last_movement_date"),
         )
+
+    def needing_driver_attention(self, employee, include_porte=False):
+        """Verteo-pending first, else still physically on the truck. Verteo
+        never applies to porte (it never tracks llena/vacía), so include_porte
+        only widens the second check. When several assets qualify, the one whose
+        pickup is most recent wins."""
+        stuck = self.with_verteo_pending_by(employee).order_by("-my_last_movement_date").first()
+        if stuck is not None:
+            return stuck
+        return self.with_pending_pickup_by(employee, include_porte=include_porte).first()
 
 
 class Asset(CompanyOwnedModel):
@@ -254,14 +364,27 @@ class Asset(CompanyOwnedModel):
             last_transaction = self.transactions.order_by("-date").first()
         if last_transaction is None:
             return AssetCurrentStatus.AVAILABLE
-        if last_transaction.transaction_type == TransactionTypeChoices.MOVEMENT:
+        if last_transaction.transaction_type in (
+            TransactionTypeChoices.MOVEMENT,
+            TransactionTypeChoices.PORTE_MOVEMENT,
+        ):
             return AssetCurrentStatus.PICKED_UP
         if last_transaction.transaction_type == TransactionTypeChoices.DELIVERY:
             return AssetCurrentStatus.DELIVERED
-        if last_transaction.transaction_type == TransactionTypeChoices.RECEIPT:
+        if last_transaction.transaction_type in (
+            TransactionTypeChoices.RECEIPT,
+            TransactionTypeChoices.PORTE_LOAD,
+            TransactionTypeChoices.PORTE_DELIVERY,
+        ):
             prev = self.transactions.filter(
                 date__lt=last_transaction.date,
-            ).exclude(transaction_type=TransactionTypeChoices.RECEIPT).order_by("-date").first()
+            ).exclude(
+                transaction_type__in=(
+                    TransactionTypeChoices.RECEIPT,
+                    TransactionTypeChoices.PORTE_LOAD,
+                    TransactionTypeChoices.PORTE_DELIVERY,
+                ),
+            ).order_by("-date").first()
             return self.current_transaction_status(prev)
         return AssetCurrentStatus.AVAILABLE
 
@@ -281,7 +404,7 @@ class Asset(CompanyOwnedModel):
         last_movement = self.last_movement_transaction
         if last_movement is None:
             return None
-        if last_movement.data.get("vasAVerter", "") != "Sí":
+        if not last_movement.is_full_cuba:
             return None
         already_done = self.transactions.filter(
             transaction_type=TransactionTypeChoices.RECEIPT, date__gt=last_movement.date,
@@ -403,9 +526,17 @@ class TransactionTypeChoices(models.TextChoices):
     MOVEMENT = "movement", _("Movement")
     RECEIPT = "receipt", _("Receipt")
     PORTE_MOVEMENT = "porte_movement", _("Movement Porte")
+    PORTE_LOAD = "porte_load", _("Load Porte")
     PORTE_DELIVERY = "porte_delivery", _("Delivery Porte")
     MACHINE_HOURS = "machine_hours", _("Machine Hours")
     LABORER_HOURS = "laborer_hours", _("Laborer Hours")
+
+
+PORTE_ACTION_TRANSACTION_TYPES = {
+    PorteAction.RECOGIDA: TransactionTypeChoices.PORTE_MOVEMENT,
+    PorteAction.CARGA: TransactionTypeChoices.PORTE_LOAD,
+    PorteAction.ENTREGA: TransactionTypeChoices.PORTE_DELIVERY,
+}
 
 
 class BillingStatus(models.TextChoices):
@@ -460,11 +591,26 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
         if is_new:
             self._sync_zones_on_porte_delivery()
 
+    @classmethod
+    def payload_is_full(cls, data) -> bool:
+        data = data or {}
+        return (
+            data.get(CubaTransactionKey.ESTADO) == CubaFillState.FULL
+            or data.get(CubaTransactionKey.VAS_A_VERTER) == FormAffirmative.YES
+        )
+
+    @property
+    def is_full_cuba(self) -> bool:
+        return self.payload_is_full(self.data)
+
     def _sync_zones_on_porte_delivery(self):
-        """An own-machine porte delivery means the machine — and, if the plan
-        says the operator(s) moved with it, those employees too — are now at
-        to_zone. Keeps Asset/Employee.current_working_zone in sync with what
-        actually happened in the field.
+        """An own-machine porte delivery means the machine — linked via
+        AssetPlanning.machine (separate from this transaction's own asset,
+        the cuba it travels in) — and, if the plan says the operator(s) moved
+        with it, those employees too, are now at to_zone. Keeps
+        Asset/Employee.current_working_zone in sync with what actually
+        happened in the field. Scoped to own-machine transport only — other
+        porte service types don't track a zone this way.
         """
         if self.transaction_type != TransactionTypeChoices.PORTE_DELIVERY:
             return
@@ -473,9 +619,9 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
         planning = self.planning
         if planning.service_type != SERVICE_TYPE_MAQUINA_PROPIA:
             return
-        if self.asset_id:
-            self.asset.current_working_zone = self.to_zone
-            self.asset.save()
+        if planning.machine_id:
+            planning.machine.current_working_zone = self.to_zone
+            planning.machine.save(update_fields=["current_working_zone"])
         if planning.machinist_moved:
             for employee in planning.moved_employees.all():
                 employee.current_working_zone = self.to_zone
@@ -569,6 +715,28 @@ class CubaOperationType(models.TextChoices):
     RETIRADA = "retirada", _("Container Pickup")
     CAMBIO = "cambio", _("Container Swap")
     CAMBIO_AGUA = "cambio_agua", _("Engine Water Tank Refill")
+    CAMBIO_MISMA_CUBA = "cambio_misma_cuba", _("Same Container Swap")
+
+
+# Operation types whose destination-zone pickup must be resolved before the
+# planning can close, and that also require a dropoff back at that zone.
+# CAMBIO swaps in a different physical asset for the one picked up.
+# CAMBIO_AGUA and CAMBIO_MISMA_CUBA pick up and drop off the very same asset
+# at the obra — the truck must arrive empty, see requires_empty_truck_pickup().
+# CAMBIO_MISMA_CUBA may need a verteo between pickup and dropoff when full.
+CUBA_TWO_LEG_OPERATION_TYPES = frozenset({
+    CubaOperationType.CAMBIO,
+    CubaOperationType.CAMBIO_AGUA,
+    CubaOperationType.CAMBIO_MISMA_CUBA,
+})
+
+# Same-asset round trips: there's no second physical asset to swap in, so the
+# pickup can never be resolved via a cuba the driver is still carrying from an
+# earlier job — see AssetPlanning.requires_empty_truck_pickup().
+CUBA_REQUIRES_EMPTY_TRUCK_TYPES = frozenset({
+    CubaOperationType.CAMBIO_MISMA_CUBA,
+    CubaOperationType.CAMBIO_AGUA,
+})
 
 
 class CubaSize(models.TextChoices):
@@ -644,6 +812,10 @@ class PlanningType(models.TextChoices):
 DRIVER_TASK_PLANNING_TYPES = [PlanningType.CUBA, PlanningType.PORTE]
 
 
+# Shown as the schedule grid block's left border stripe (AssetPlanning.status_color) —
+# distinct from a plain in_transit block, an open verteo needs the driver's attention.
+VERTEO_PENDING_COLOR = "#D946EF"
+
 STATUS_COLORS = {
     PlanningStatus.PENDING: "#64748B",
     PlanningStatus.IN_TRANSIT: "#3B82F6",
@@ -660,6 +832,12 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
     asset = models.ForeignKey(
         Asset, on_delete=models.PROTECT, null=True, blank=True,
         related_name="plannings", verbose_name=_("Asset"),
+    )
+    machine = models.ForeignKey(
+        Asset, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="machine_plannings", verbose_name=_("Machine"),
+        limit_choices_to={"asset_type__category": AssetTypeCategory.MACHINE},
+        help_text=_("Own-machine transport only — the machine being carried, separate from the cuba used to transport it."),
     )
     origin = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="plannings_origin", verbose_name=_("From Zone"))
     destination = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="plannings_destination", verbose_name=_("To Zone"))
@@ -726,6 +904,16 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         'company.Employee', on_delete=models.SET_NULL, null=True, blank=True,
         related_name="abandoned_plannings", verbose_name=_("Abandoned By"),
     )
+    driver_claimed_cuba = models.BooleanField(
+        default=False,
+        verbose_name=_("Driver Claimed Cuba"),
+        help_text=_(
+            "True once the driver explicitly claimed this plan's cuba — an empty "
+            "pickup, or 'usar esta cuba' / a QR scan of a cuba already on the truck. "
+            "Dispatch pre-assigning an asset does not set this, so a leftover cuba "
+            "is never treated as already collected."
+        ),
+    )
     skip_auto_assignment = models.BooleanField(
         default=False, verbose_name=_("Skip Automatic Assignment"),
         help_text=_(
@@ -750,25 +938,14 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         ordering = ["-scheduled_date"]
         indexes = [models.Index(fields=["assigned_to", "scheduled_date"])]
 
-    def _is_porte(self) -> bool:
-        return (
-            self.planning_type == "porte"
-            or SERVICE_TYPE_PLANNING_TYPE.get(self.service_type) == "porte"
-        )
-
-    def _sync_porte_asset_from_transport(self) -> bool:
-        """Fallback: porte plannings without a specifically chosen `asset`
-        use the truck as `asset` so the mobile QR/submit flow and admin
-        lists always have something to display. A specifically chosen
-        `asset` (e.g. the machine for SERVICE_TYPE_MAQUINA_PROPIA) is never
-        overwritten. Returns True when `asset` was changed.
-        """
-        if not self._is_porte() or not self.transport_asset_id:
-            return False
-        if self.asset_id:
-            return False
-        self.asset_id = self.transport_asset_id
-        return True
+    def reset_execution_state_for_schedule_clone(self):
+        """Fresh schedule block — drop yesterday's driver-side progress."""
+        self.status = PlanningStatus.PENDING
+        self.driver_claimed_cuba = False
+        self.abandoned_stage = ""
+        self.abandoned_at = None
+        self.abandoned_reason = ""
+        self.abandoned_by = None
 
     def save(self, *args, **kwargs):
         # Auto-tag assignment_origin unless the caller explicitly set it
@@ -777,9 +954,10 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         if update_fields is not None:
             update_fields = list(update_fields)
             kwargs["update_fields"] = update_fields
-        if self._sync_porte_asset_from_transport() and update_fields is not None and "asset" not in update_fields:
-            update_fields = [*update_fields, "asset"]
-            kwargs["update_fields"] = update_fields
+        if not self.asset_id and self.driver_claimed_cuba:
+            self.driver_claimed_cuba = False
+            if update_fields is not None and "driver_claimed_cuba" not in update_fields:
+                kwargs["update_fields"] = [*update_fields, "driver_claimed_cuba"]
         origin_explicit = update_fields is not None and "assignment_origin" in update_fields
         if not origin_explicit:
             new_origin = None
@@ -805,7 +983,6 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
 
     def clean(self):
         super().clean()
-        self._sync_porte_asset_from_transport()
         if not self.project_file_id:
             raise ValidationError({"project_file": _("Project File is required.")})
         if self.project_file_id and self.company_id and self.project_file.company_id != self.company_id:
@@ -815,6 +992,230 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         required = SERVICE_TYPE_FIELDS.get(self.service_type, set())
         if "asset" in required and not self.asset_id:
             raise ValidationError({"asset": _("Asset is required for this service type.")})
+        if "machine" in required and not self.machine_id:
+            raise ValidationError({"machine": _("Machine is required for this service type.")})
+        if "machine" not in required:
+            self.machine = None
+
+    def requires_empty_truck_pickup(self) -> bool:
+        return self.cuba_operation_type in CUBA_REQUIRES_EMPTY_TRUCK_TYPES
+
+    def mark_cuba_claimed_by_driver(self):
+        if self.driver_claimed_cuba:
+            return
+        self.driver_claimed_cuba = True
+        self.save(update_fields=["driver_claimed_cuba"])
+
+    def has_own_cuba_pickup(self) -> bool:
+        return self.transactions.filter(
+            transaction_type__in=[
+                TransactionTypeChoices.MOVEMENT,
+                TransactionTypeChoices.PORTE_MOVEMENT,
+            ]
+        ).exists()
+
+    def _destination_dropoff_transactions(self):
+        """DELIVERY transactions linked to this planning that resolve the
+        dropoff leg (to_zone == destination, or any obra when destination isn't
+        set)."""
+        qs = self.transactions.filter(transaction_type=TransactionTypeChoices.DELIVERY)
+        if self.destination_id:
+            return qs.filter(to_zone_id=self.destination_id)
+        return qs.filter(to_zone__zone_type=WorkingZone.ZoneType.OBRA)
+
+    def _destination_pickup_transactions(self):
+        """MOVEMENT transactions linked to this planning that resolve the
+        pickup leg (from_zone == destination, or any obra when destination
+        isn't set).
+
+        Deliberately asset-agnostic, even for CAMBIO: the "vieja" pickup is
+        very often the very same physical cuba that was just dropped off as
+        "nueva" — dejar la cuba, esperar un rato, recoger esa misma para
+        verterla y quedársela en el camión is normal for CAMBIO, not an edge
+        case. CAMBIO_AGUA/CAMBIO_MISMA_CUBA also pick up at the obra but must
+        drop the same asset back there (see requires_empty_truck_pickup())."""
+        qs = self.transactions.filter(transaction_type=TransactionTypeChoices.MOVEMENT)
+        if self.cuba_operation_type not in CUBA_TWO_LEG_OPERATION_TYPES:
+            return qs
+        if self.destination_id:
+            return qs.filter(from_zone_id=self.destination_id)
+        return qs.filter(from_zone__zone_type=WorkingZone.ZoneType.OBRA)
+
+    def has_destination_dropoff(self) -> bool:
+        return self._destination_dropoff_transactions().exists()
+
+    def _destination_pickup_transaction(self):
+        """The MOVEMENT transaction that resolves this plan's pickup leg — the
+        most recent one matching, in case an earlier attempt was redone."""
+        return self._destination_pickup_transactions().order_by("-date").first()
+
+    def has_resolved_pickup(self) -> bool:
+        """An empty pickup resolves itself. A full one only resolves once ITS
+        OWN verteo is registered — not just any verteo anywhere else on this
+        planning. A planning can rack up an unrelated receipt earlier (e.g. a
+        prep pickup at an almacén, for cambio/cambio_agua's leg 1) that has
+        nothing to do with THIS pickup; checking "any receipt exists on the
+        planning" would wrongly treat that as resolving this one too. Tying it
+        to AssetTransactionReceipt.movement_transaction — set by ReceiptStrategy
+        to the pickup it actually verted — avoids that."""
+        pickup_tx = self._destination_pickup_transaction()
+        if pickup_tx is None:
+            return False
+        if not pickup_tx.is_full_cuba:
+            return True
+        return pickup_tx.receipt_links.exists()
+
+    def has_pending_verteo(self) -> bool:
+        """True once a full pickup has been logged for this plan but its own
+        verteo hasn't — drives the horario schedule's distinct 'en tránsito,
+        verteo pendiente' block color."""
+        if self.planning_type != PlanningType.CUBA:
+            return False
+        pickup_tx = self._destination_pickup_transaction()
+        if pickup_tx is None or not pickup_tx.is_full_cuba:
+            return False
+        return not pickup_tx.receipt_links.exists()
+
+    def is_cuba_operation_complete(self) -> bool:
+        dropoff_done = self.has_destination_dropoff()
+        pickup_done = self.has_resolved_pickup()
+        if self.cuba_operation_type == CubaOperationType.PUESTA:
+            return dropoff_done
+        if self.cuba_operation_type in CUBA_TWO_LEG_OPERATION_TYPES:
+            return dropoff_done and pickup_done
+        return pickup_done
+
+    def _checklist_step(self, key, label, done):
+        return {
+            "key": key,
+            "label": label,
+            "status": ChecklistStepStatus.DONE if done else ChecklistStepStatus.PENDING,
+        }
+
+    def cuba_checklist(self):
+        if self.planning_type != PlanningType.CUBA or not self.cuba_operation_type:
+            return []
+
+        pickup_tx = self._destination_pickup_transaction()
+        dropoff_done = self.has_destination_dropoff()
+        zone_name = self.destination.name if self.destination_id else "la obra"
+
+        def verter_step():
+            label = "Verter (solo si sale llena)"
+            if pickup_tx is None:
+                return self._checklist_step(ChecklistStepKey.VERTER, label, False)
+            if not pickup_tx.is_full_cuba:
+                return {
+                    "key": ChecklistStepKey.VERTER,
+                    "label": label,
+                    "status": ChecklistStepStatus.SKIPPED,
+                }
+            return self._checklist_step(
+                ChecklistStepKey.VERTER, label, pickup_tx.receipt_links.exists(),
+            )
+
+        checklist = [self._checklist_step(
+            ChecklistStepKey.RECOGER_CUBA, "Recoger cuba",
+            self.driver_claimed_cuba or self.has_own_cuba_pickup(),
+        )]
+
+        op = self.cuba_operation_type
+        if op == CubaOperationType.PUESTA:
+            checklist.append(self._checklist_step(ChecklistStepKey.DEJAR, f"Dejar en {zone_name}", dropoff_done))
+        elif op == CubaOperationType.RETIRADA:
+            checklist.append(self._checklist_step(ChecklistStepKey.RECOGER, f"Recoger en {zone_name}", pickup_tx is not None))
+            checklist.append(verter_step())
+        elif op == CubaOperationType.CAMBIO_MISMA_CUBA:
+            checklist.append(self._checklist_step(ChecklistStepKey.RECOGER, f"Recoger en {zone_name}", pickup_tx is not None))
+            checklist.append(verter_step())
+            checklist.append(self._checklist_step(ChecklistStepKey.DEJAR, f"Dejar en {zone_name}", dropoff_done))
+        elif op == CubaOperationType.CAMBIO_AGUA:
+            checklist.append(self._checklist_step(ChecklistStepKey.RECOGER, f"Recoger en {zone_name}", pickup_tx is not None))
+            checklist.append(self._checklist_step(ChecklistStepKey.DEJAR, f"Dejar en {zone_name}", dropoff_done))
+        elif op == CubaOperationType.CAMBIO:
+            checklist.append(self._checklist_step(ChecklistStepKey.DEJAR_NUEVA, f"Dejar la cuba nueva en {zone_name}", dropoff_done))
+            checklist.append(self._checklist_step(ChecklistStepKey.RECOGER_VIEJA, f"Recoger la cuba vieja en {zone_name}", pickup_tx is not None))
+            checklist.append(verter_step())
+        return checklist
+
+    def porte_checklist(self):
+        if self.planning_type != PlanningType.PORTE:
+            return []
+        is_machine = self.service_type == SERVICE_TYPE_MAQUINA_PROPIA
+        pickup_done = self.driver_claimed_cuba or self.transactions.filter(
+            transaction_type=TransactionTypeChoices.PORTE_MOVEMENT,
+        ).exists()
+        load_done = self.transactions.filter(
+            transaction_type=TransactionTypeChoices.PORTE_LOAD,
+        ).exists()
+        dropoff_done = self.transactions.filter(
+            transaction_type=TransactionTypeChoices.PORTE_DELIVERY,
+        ).exists()
+        origin_name = self.origin.name if self.origin_id else "el almacén"
+        destination_name = self.destination.name if self.destination_id else "destino"
+        carga_label = "Escanear máquina" if is_machine else f"Cargar material en {origin_name}"
+        return [
+            self._checklist_step(ChecklistStepKey.RECOGER, "Recoger cuba vacía", pickup_done),
+            self._checklist_step(ChecklistStepKey.CARGA, carga_label, load_done),
+            self._checklist_step(ChecklistStepKey.ENTREGA, f"Entrega en {destination_name}", dropoff_done),
+        ]
+
+    def porte_progress_flags(self):
+        by_key = {step["key"]: step["status"] for step in self.porte_checklist()}
+        done = ChecklistStepStatus.DONE
+        return {
+            "pickup_done": by_key.get(ChecklistStepKey.RECOGER) == done,
+            "load_done": by_key.get(ChecklistStepKey.CARGA) == done,
+        }
+
+    def suppresses_pending_dropoff_warning(self, pending_dropoff):
+        if pending_dropoff is None:
+            return False
+        same_asset = self.asset_id == pending_dropoff["asset_id"]
+        same_plan = self.id == pending_dropoff["planning_id"]
+        if same_asset and self.driver_claimed_cuba:
+            return True
+        if (
+            same_plan
+            and self.cuba_operation_type in CUBA_REQUIRES_EMPTY_TRUCK_TYPES
+            and not pending_dropoff["verteo_pending"]
+        ):
+            return True
+        asset = Asset.objects.filter(pk=pending_dropoff["asset_id"]).first()
+        last_mv = asset.last_movement_transaction if asset is not None else None
+        if (
+            same_plan
+            and last_mv is not None
+            and not last_mv.is_full_cuba
+            and not pending_dropoff["verteo_pending"]
+        ):
+            return True
+        return False
+
+    def can_claim_pending_cuba_for_next_task(self, pending_dropoff):
+        return bool(
+            pending_dropoff is not None
+            and not pending_dropoff["verteo_pending"]
+            and not self.requires_empty_truck_pickup()
+            and not self.driver_claimed_cuba
+            and (self.asset_id is None or self.asset_id == pending_dropoff["asset_id"])
+        )
+
+    def sync_cuba_operation_status(self):
+        if self.planning_type != PlanningType.CUBA:
+            return
+        if self.status in (
+            PlanningStatus.DELIVERED,
+            PlanningStatus.NOT_COMPLETED,
+            PlanningStatus.CANCELLED,
+        ):
+            return
+        self.status = (
+            PlanningStatus.DELIVERED
+            if self.is_cuba_operation_complete()
+            else PlanningStatus.IN_TRANSIT
+        )
+        self.save(update_fields=["status"])
 
     @property
     def scheduled_end_time(self) -> time | None:
@@ -899,6 +1300,8 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
 
     @property
     def status_color(self) -> str:
+        if self.status == PlanningStatus.IN_TRANSIT and self.has_pending_verteo():
+            return VERTEO_PENDING_COLOR
         return STATUS_COLORS.get(self.status, STATUS_COLORS[PlanningStatus.PENDING])
 
     @property
@@ -920,7 +1323,7 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         return self.has_pending_request_changes or self.is_superseded
 
     def compute_abandoned_stage(self) -> str:
-        """Where a driver left this job — used when abandoning it via "No puedo hacer más"."""
+        """Where a driver left this job — stored when they skip or abandon it."""
         if self.planning_type == PlanningType.PORTE:
             return (
                 AbandonedStageChoices.PICKED_UP_PENDING_DELIVERY if self.status == PlanningStatus.IN_TRANSIT
@@ -992,6 +1395,11 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
         help_text=_("Optional — leave blank to let route assignment pick an available driver."),
     )
     asset = models.ForeignKey(Asset, on_delete=models.SET_NULL, null=True, blank=True, related_name="planning_requests", verbose_name=_("Asset"))
+    machine = models.ForeignKey(
+        Asset, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="machine_planning_requests", verbose_name=_("Machine"),
+        limit_choices_to={"asset_type__category": AssetTypeCategory.MACHINE},
+    )
     project_file = models.ForeignKey(
         "management.ProjectFile",
         on_delete=models.PROTECT,
@@ -1050,7 +1458,7 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
     REVIEW_TRACKED_FIELDS = [
         "service_type", "to_zone_id", "from_zone_id", "needed_date", "needed_time", "estimated_duration",
         "urgency", "cuba_operation_type", "cuba_size", "machinist_moved", "load_description", "notes",
-        "assigned_to_id", "asset_id", "transport_asset_id", "project_file_id",
+        "assigned_to_id", "asset_id", "machine_id", "transport_asset_id", "project_file_id",
     ]
 
     def save(self, *args, **kwargs):
@@ -1085,12 +1493,20 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
         elif self.from_zone_id and self.company_id and self.from_zone.company_id != self.company_id:
             raise ValidationError({"from_zone": _("From Zone belongs to a different company than To Zone.")})
 
+        # asset is a generic optional field (no service type currently
+        # requires it) — never auto-cleared, unlike machine/cuba_operation_type
+        # below, which are exclusive to specific service types.
         if "asset" in required and not self.asset_id:
             raise ValidationError({"asset": _("Asset is required for this service type.")})
-        if "asset" not in required:
-            self.asset = None
-        elif self.asset_id and self.company_id and self.asset.company_id != self.company_id:
+        if self.asset_id and self.company_id and self.asset.company_id != self.company_id:
             raise ValidationError({"asset": _("This asset belongs to a different company than the selected zone.")})
+
+        if "machine" in required and not self.machine_id:
+            raise ValidationError({"machine": _("Machine is required for this service type.")})
+        if "machine" not in required:
+            self.machine = None
+        elif self.machine_id and self.company_id and self.machine.company_id != self.company_id:
+            raise ValidationError({"machine": _("This machine belongs to a different company than the selected zone.")})
 
         if "load_description" in required and not self.load_description:
             raise ValidationError({"load_description": _("Load description is required for this service type.")})
@@ -1199,6 +1615,11 @@ class AssetPlanningRequestDraft(CompanyOwnedModel, Timestampable):
     cuba_operation_type = models.CharField(max_length=20, choices=CubaOperationType.choices, blank=True, verbose_name=_("Cuba Operation Type"))
     cuba_size = models.CharField(max_length=10, choices=CubaSize.choices, blank=True, verbose_name=_("Cuba Size"))
     asset = models.ForeignKey(Asset, on_delete=models.SET_NULL, null=True, blank=True, related_name="planning_request_drafts", verbose_name=_("Asset"))
+    machine = models.ForeignKey(
+        Asset, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="machine_planning_request_drafts", verbose_name=_("Machine"),
+        limit_choices_to={"asset_type__category": AssetTypeCategory.MACHINE},
+    )
     load_description = models.TextField(blank=True, verbose_name=_("Load Description"))
     requested_by = models.ForeignKey('company.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name="asset_planning_request_drafts", verbose_name=_("Requested By"))
     status = models.CharField(max_length=20, choices=AssetPlanningRequestDraftStatus.choices, default=AssetPlanningRequestDraftStatus.DRAFT, verbose_name=_("Status"))
@@ -1250,7 +1671,7 @@ class AssetPlanningRequestDraft(CompanyOwnedModel, Timestampable):
 
         missing = []
         for field_name in required:
-            value = getattr(self, f"{field_name}_id" if field_name == "asset" else field_name)
+            value = getattr(self, f"{field_name}_id" if field_name in ("asset", "machine") else field_name)
             if not value:
                 missing.append(field_name)
         if not self.client_id and not self.new_client_name.strip():

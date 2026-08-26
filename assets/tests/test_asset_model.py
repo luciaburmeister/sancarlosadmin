@@ -142,3 +142,10 @@ class AssetStatusTests(TestCase):
         self._make_tx(TransactionTypeChoices.MOVEMENT, seconds_offset=0)
         latest = self._make_tx(TransactionTypeChoices.DELIVERY, seconds_offset=10)
         self.assertEqual(self.asset.current_transaction_status(latest), "DELIVERED")
+
+    def test_status_stays_picked_up_after_porte_delivery(self):
+        """Porte entrega leaves the empty cuba on the truck — status unchanged."""
+        self._make_tx(TransactionTypeChoices.PORTE_MOVEMENT, seconds_offset=0)
+        self._make_tx(TransactionTypeChoices.PORTE_LOAD, seconds_offset=5)
+        latest = self._make_tx(TransactionTypeChoices.PORTE_DELIVERY, seconds_offset=10)
+        self.assertEqual(self.asset.current_transaction_status(latest), "PICKED_UP")

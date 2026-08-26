@@ -8,7 +8,7 @@ Usage:
     from api.fleet.tests.helpers import make_company, make_user, make_employee, make_asset_type, make_asset, make_zone
 """
 
-from datetime import date
+from datetime import date, time
 
 from django.contrib.auth import get_user_model
 from django.utils import timezone
@@ -90,12 +90,13 @@ def make_planning(
     scheduled_date=None, **overrides,
 ):
     """Create an AssetPlanning — the plan a driver must have to operate a cuba/porte."""
+    overrides.setdefault("scheduled_time", time(8, 0))
     return AssetPlanning.objects.create(
         company=company,
         asset=asset,
         assigned_to=assigned_to,
         planning_type=planning_type,
         status=status,
-        scheduled_date=scheduled_date or date.today(),
+        scheduled_date=scheduled_date or timezone.localdate(),
         **overrides,
     )

@@ -47,6 +47,10 @@ class PorteDeliveryZoneSyncTests(TestCase):
         overrides.setdefault("planning_type", "porte")
         overrides.setdefault("origin", self.origin)
         overrides.setdefault("destination", self.destination)
+        # asset is the cuba the machine travels in (irrelevant to zone-sync);
+        # machine is what AssetPlanning.machine / _sync_zones_on_porte_delivery
+        # actually tracks — see assets/models.py.
+        overrides.setdefault("machine", self.machine)
         return make_planning(self.company, asset=self.machine, assigned_to=self.driver, **overrides)
 
     def test_delivery_updates_machine_zone(self):

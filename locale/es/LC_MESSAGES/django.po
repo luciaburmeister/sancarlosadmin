@@ -1686,6 +1686,9 @@ msgstr "Cambio de Cuba"
 msgid "Engine Water Tank Refill"
 msgstr "Relleno con Cuba de Agua Motor"
 
+msgid "Same Container Swap"
+msgstr "Cambio de Misma Cuba"
+
 msgid "3 M3"
 msgstr "3 M3"
 

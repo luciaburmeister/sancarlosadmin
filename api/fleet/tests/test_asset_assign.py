@@ -9,6 +9,7 @@ it block a driver mid-pickup.
 """
 from datetime import date, timedelta
 
+from django.utils import timezone
 from rest_framework.test import APIClient, APITestCase
 
 from api.fleet.tests.helpers import (
@@ -18,8 +19,10 @@ from api.fleet.tests.helpers import (
     make_employee,
     make_planning,
     make_user,
+    make_zone,
 )
-from assets.models import PlanningStatus, PlanningType
+from assets.models import AssetTransaction, CubaOperationType, PlanningStatus, PlanningType, TransactionTypeChoices
+from assets.constants import AssignRequestKey
 
 
 class AssetAssignViewTests(APITestCase):
@@ -94,6 +97,23 @@ class AssetAssignViewTests(APITestCase):
         response = self.client.post(f"/en/api/assets/{self.asset.id}/assign/")
         self.assertEqual(response.status_code, 400)
 
+    def test_assigns_scanned_asset_to_a_pending_porte_too(self):
+        """The Home 'usar esta cuba' shortcut and a plain QR scan both need this
+        to work for a porte's recogida, not just cuba."""
+        self.client.force_authenticate(user=self.user)
+        planning = make_planning(
+            self.company, asset=None, assigned_to=self.employee, status=PlanningStatus.PENDING,
+            planning_type=PlanningType.PORTE,
+        )
+
+        response = self.client.post(f"/en/api/assets/{self.asset.id}/assign/")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["planning_id"], planning.id)
+        planning.refresh_from_db()
+        self.assertEqual(planning.asset, self.asset)
+
     def test_rejects_asset_from_another_company(self):
         other_company = make_company(name="Other Co")
         other_user = make_user(username="other_company_user")
@@ -104,3 +124,71 @@ class AssetAssignViewTests(APITestCase):
 
         response = self.client.post(f"/en/api/assets/{other_asset.id}/assign/")
         self.assertEqual(response.status_code, 403)
+
+    def test_rejects_scanning_a_different_cuba_while_one_is_pending(self):
+        self.client.force_authenticate(user=self.user)
+        obra = make_zone(self.company, name="Obra")
+        held = make_asset(self.company, self.asset_type, employee=self.employee, zone=obra, name="HELD")
+        other = make_asset(self.company, self.asset_type, name="OTHER")
+        held_plan = make_planning(
+            self.company, asset=held, assigned_to=self.employee, status=PlanningStatus.DELIVERED,
+        )
+        make_planning(self.company, asset=None, assigned_to=self.employee, status=PlanningStatus.PENDING)
+        AssetTransaction.objects.create(
+            company=self.company, asset=held, from_zone=obra,
+            transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(),
+            performed_by=self.employee, planning=held_plan, data={"vasAVerter": ""},
+        )
+
+        response = self.client.post(f"/en/api/assets/{other.id}/assign/")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("cuba pendiente", response.json()["error"])
+
+    def test_use_pending_cuba_is_rejected_while_verteo_is_owed(self):
+        self.client.force_authenticate(user=self.user)
+        obra = make_zone(self.company, name="Obra")
+        held = make_asset(self.company, self.asset_type, employee=self.employee, zone=obra, name="HELD")
+        held_plan = make_planning(
+            self.company, asset=held, assigned_to=self.employee, status=PlanningStatus.DELIVERED,
+        )
+        next_plan = make_planning(
+            self.company, asset=None, assigned_to=self.employee, status=PlanningStatus.PENDING,
+        )
+        AssetTransaction.objects.create(
+            company=self.company, asset=held, from_zone=obra,
+            transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(),
+            performed_by=self.employee, planning=held_plan, data={"vasAVerter": "Sí"},
+        )
+
+        response = self.client.post(
+            f"/en/api/assets/{held.id}/assign/",
+            data={AssignRequestKey.USE_PENDING_CUBA: True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        next_plan.refresh_from_db()
+        self.assertFalse(next_plan.driver_claimed_cuba)
+
+    def test_use_pending_cuba_is_rejected_for_cambio_misma_cuba(self):
+        self.client.force_authenticate(user=self.user)
+        obra = make_zone(self.company, name="Obra")
+        held = make_asset(self.company, self.asset_type, employee=self.employee, zone=obra, name="HELD")
+        held_plan = make_planning(
+            self.company, asset=held, assigned_to=self.employee, status=PlanningStatus.DELIVERED,
+        )
+        make_planning(
+            self.company, asset=None, assigned_to=self.employee, status=PlanningStatus.PENDING,
+            cuba_operation_type=CubaOperationType.CAMBIO_MISMA_CUBA,
+        )
+        AssetTransaction.objects.create(
+            company=self.company, asset=held, from_zone=obra,
+            transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(),
+            performed_by=self.employee, planning=held_plan, data={"vasAVerter": ""},
+        )
+
+        response = self.client.post(
+            f"/en/api/assets/{held.id}/assign/",
+            data={AssignRequestKey.USE_PENDING_CUBA: True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)

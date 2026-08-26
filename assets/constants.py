@@ -22,8 +22,12 @@ SERVICE_TYPE_PLANNING_TYPE = {
 # Fields relevant per service_type. Drives AssetPlanningRequest.clean(), the admin
 # form's show/hide, and AssetPlanningRequestDraft.missing_fields_for_submit() — only
 # add a field name that exists on *both* models, since that method does a plain getattr().
+class AssignRequestKey:
+    USE_PENDING_CUBA = "use_pending_cuba"
+
+
 SERVICE_TYPE_FIELDS = {
-    SERVICE_TYPE_MAQUINA_PROPIA: {"from_zone", "to_zone", "asset", "suggested_trucks"},
+    SERVICE_TYPE_MAQUINA_PROPIA: {"from_zone", "to_zone", "machine", "suggested_trucks"},
     SERVICE_TYPE_MATERIAL_EXTERNO: {"from_zone", "to_zone", "load_description", "suggested_trucks"},
     SERVICE_TYPE_MATERIAL_PROPIO: {"from_zone", "to_zone", "load_description", "suggested_trucks"},
     SERVICE_TYPE_GRUA: {"to_zone", "suggested_trucks"},

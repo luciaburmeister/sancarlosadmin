@@ -214,6 +214,8 @@ class AssetScheduleViewTests(TestCase):
         self.assertEqual(clones.count(), 1)
         clone = clones.get()
         self.assertEqual(clone.scheduled_date, TODAY + timedelta(days=1))
+        self.assertEqual(clone.status, PlanningStatus.PENDING)
+        self.assertFalse(clone.driver_claimed_cuba)
         self.assertEqual(clone.asset_id, self.planning.asset_id)
         self.assertEqual(clone.assigned_to_id, self.employee.pk)
         self.assertEqual(clone.transport_asset_id, self.truck.pk)
@@ -231,6 +233,22 @@ class AssetScheduleViewTests(TestCase):
         # Original untouched.
         self.planning.refresh_from_db()
         self.assertEqual(self.planning.scheduled_date, TODAY)
+
+    def test_duplicate_next_day_resets_delivered_execution_state(self):
+        self.planning.status = PlanningStatus.DELIVERED
+        self.planning.driver_claimed_cuba = True
+        self.planning.save(update_fields=["status", "driver_claimed_cuba"])
+
+        response = self.client.post(
+            self.url,
+            data={"action": "duplicate_next_day", "id": self.planning.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+
+        clone = AssetPlanning.objects.exclude(pk=self.planning.pk).get()
+        self.assertEqual(clone.status, PlanningStatus.PENDING)
+        self.assertFalse(clone.driver_claimed_cuba)
 
     def test_context_exposes_add_and_change_urls(self):
         response = self.client.get(self.url)

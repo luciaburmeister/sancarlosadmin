@@ -54,6 +54,7 @@ class PortePlanningTests(TestCase):
             destination=self.destination,
             assigned_to=self.employee,
             scheduled_date=date.today(),
+            scheduled_time=time(8, 0),
             planning_type=planning_type,
             status=status,
         )
@@ -124,7 +125,7 @@ class PorteWithoutAssetTests(TestCase):
         )
         self.api_client.force_authenticate(user=self.user)
 
-    def _make_planning(self, *, transport_asset=None, scheduled_time=None, status="pending"):
+    def _make_planning(self, *, transport_asset=None, scheduled_time=time(8, 0), status="pending"):
         return AssetPlanning.objects.create(
             company=self.company,
             asset=None,

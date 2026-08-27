@@ -759,10 +759,13 @@ CUBA_TWO_LEG_OPERATION_TYPES = frozenset({
 
 # Same-asset round trips: there's no second physical asset to swap in, so the
 # pickup can never be resolved via a cuba the driver is still carrying from an
-# earlier job — see AssetPlanning.requires_empty_truck_pickup().
+# earlier job — see AssetPlanning.requires_empty_truck_pickup(). RETIRADA is
+# a plain pickup at the client's site: the cuba being picked up is theirs, not
+# whatever the driver is still carrying, so it needs the same empty-truck rule.
 CUBA_REQUIRES_EMPTY_TRUCK_TYPES = frozenset({
     CubaOperationType.CAMBIO_MISMA_CUBA,
     CubaOperationType.CAMBIO_AGUA,
+    CubaOperationType.RETIRADA,
 })
 
 

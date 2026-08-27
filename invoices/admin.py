@@ -1,6 +1,7 @@
 from unfold.contrib.filters.admin import RangeNumericFilter
 from unfold.contrib.filters.admin import BooleanRadioFilter
 import logging
+from decimal import Decimal
 
 from assets import urls
 from unfold.admin import StackedInline
@@ -16,6 +17,7 @@ from datetime import timedelta
 from unfold.admin import ModelAdmin, GenericTabularInline, TabularInline
 from django.utils.html import format_html
 from django.db import models
+from django.db.models import OuterRef, Subquery, Sum
 from invoices.views.invoice.aging_export_view import AgingExportView
 from general.djangoql.admin import DjangoQLSearchAdminMixin
 
@@ -53,6 +55,7 @@ from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
 from invoices.views.sales_invoice_register_payment import RegisterPaymentView
 from invoices.views.invoice.review_invoice import InvoiceReviewAdminView
 from invoices.views.invoice.match_po import InvoiceMatchPOView
+from invoices.views.invoice.ai_match_view import InvoiceAIMatchView, InvoiceToggleSkipPOMatchingView
 from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from invoices.views.invoice.import_invoice import InvoiceImportAdminView
 from invoices.views.invoice_register_payment import InvoiceRegisterPaymentView
@@ -333,6 +336,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
         "balance_status",
         "get_payment_status_label",
         "confirmation_badge",
+        "po_match_status_badge",
     )
 
     list_filter = (
@@ -415,6 +419,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
                 "register_payment_detail_action",
                 "run_invoice_matcher_detail_action",
                 "match_po_detail_action",
+                "ai_match_detail_action",
             ],
         },
         {
@@ -425,9 +430,87 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
         },
     ]
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        # Independent Subquery annotations — avoids the Django fan-out bug
+        # that a single Sum("items__po_allocations__quantity") would hit
+        # when an item has multiple allocations. Powers po_match_status_badge.
+        total_qty_sq = (
+            InvoiceItem.objects.filter(invoice=OuterRef("pk"))
+            .values("invoice")
+            .annotate(total=Sum("quantity"))
+            .values("total")
+        )
+        matched_qty_sq = (
+            InvoicePOAllocation.objects.filter(invoice_item__invoice=OuterRef("pk"))
+            .values("invoice_item__invoice")
+            .annotate(total=Sum("quantity"))
+            .values("total")
+        )
+        return qs.annotate(
+            _total_item_qty=Subquery(total_qty_sq),
+            _matched_item_qty=Subquery(matched_qty_sq),
+        )
+
+    @display(
+        description=_("PO Match"),
+        label={
+            "Matched": "success",
+            "Partial": "warning",
+            "Unmatched": "danger",
+            "No relevant PO": "default",
+        },
+    )
+    def po_match_status_badge(self, obj):
+        if obj.skip_po_matching:
+            return "No relevant PO"
+
+        total = obj._total_item_qty or Decimal("0")
+        matched = obj._matched_item_qty or Decimal("0")
+
+        if total <= 0:
+            return "Unmatched"
+        if matched >= total:
+            return "Matched"
+        if matched > 0:
+            return "Partial"
+        return "Unmatched"
+
     @action(description=_("Match Purchase Order"), icon="link")
     def match_po_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_invoice_match_po", args=[object_id]))
+
+    @action(description=_("AI Suggest Match"), icon="auto_awesome")
+    def ai_match_detail_action(self, request, object_id):
+        return self._dispatch_ai_match(request, object_id)
+
+    def _dispatch_ai_match(self, request, object_id):
+        """
+        Shared dispatch for the AI matcher: queues suggest_ai_po_matches_task
+        and redirects to the polling status page. Called both from this
+        admin action and from the "Try AI Suggest Match" link inside
+        match_po.html (invoices_invoice_run_ai_match URL below) — both
+        entry points must actually run the matcher, not just navigate to
+        the (possibly empty) review screen.
+        """
+        from invoices.tasks import suggest_ai_po_matches_task
+
+        invoice = get_object_or_404(Invoice, pk=object_id)
+
+        if invoice.skip_po_matching:
+            messages.warning(
+                request,
+                _("This invoice is marked as having no relevant purchase order."),
+            )
+            return redirect(reverse("admin:invoices_invoice_change", args=[invoice.pk]))
+
+        result = suggest_ai_po_matches_task.delay(invoice.pk)
+        back_url = reverse("admin:invoices_invoice_ai_match", args=[invoice.pk])
+        status_url = (
+            reverse("admin:banking_matcher_status")
+            + f"?task_id={result.id}&task_type=ai_po_match&back_url={back_url}"
+        )
+        return redirect(status_url)
 
     @action(description=_("Review"), icon="rate_review")
     def review_invoice_row_action(self, request, object_id):
@@ -535,6 +618,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
                 "fields": (
                     "account",
                     "observations",
+                    "skip_po_matching",
                 )
             },
         ),
@@ -656,6 +740,25 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
                     InvoiceMatchPOView.as_view(model_admin=self)
                 ),
                 name="invoices_invoice_match_po",
+            ),
+            path(
+                "<int:object_id>/ai-match/",
+                self.admin_site.admin_view(
+                    InvoiceAIMatchView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_ai_match",
+            ),
+            path(
+                "<int:object_id>/run-ai-match/",
+                self.admin_site.admin_view(self._dispatch_ai_match),
+                name="invoices_invoice_run_ai_match",
+            ),
+            path(
+                "<int:object_id>/toggle-skip-po-matching/",
+                self.admin_site.admin_view(
+                    InvoiceToggleSkipPOMatchingView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_toggle_skip_po_matching",
             ),
             path(
                 "bulk-mark-paid/",

@@ -46,6 +46,15 @@ class InvoiceMatchPOView(UnfoldModelAdminViewMixin, TemplateView):
             "selected_po": po,
             "opts": Invoice._meta,
         })
+        # Shared with ai_match_review.html so both matchers show the same
+        # "already matched" picture regardless of which one was used.
+        match_progress = POInvoiceMatchService.match_progress(invoice)
+        context.update(match_progress)
+        context["all_matched"] = (
+            match_progress["total_quantity"] > 0
+            and match_progress["matched_quantity"] >= match_progress["total_quantity"]
+        )
+
         if po is None:
             candidates = POInvoiceMatchService.candidate_pos_for_invoice(invoice)
             for candidate in candidates:

@@ -61,6 +61,11 @@ class InvoiceDocumentType(models.TextChoices):
     INVOICE = "invoice", _("Invoice")
     CREDIT_NOTE = "credit_note", _("Credit Note")
 
+class AIMatchSuggestionStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    CONFIRMED = "confirmed", _("Confirmed")
+    REJECTED = "rejected", _("Rejected")
+
 def invoice_file_path(instance, filename):
     """
     Determines the path where the invoice file will be stored.
@@ -139,6 +144,12 @@ class Invoice(Timestampable, Payable):
         limit_choices_to={"document_type": InvoiceDocumentType.INVOICE},
         verbose_name=_("Rectifies"),
         help_text=_("Original invoice this credit note rectifies."),
+    )
+
+    skip_po_matching = models.BooleanField(
+        default=False,
+        verbose_name=_("No relevant PO"),
+        help_text=_("This invoice does not correspond to a purchase order (e.g. bank charges)."),
     )
 
     # Stores the path to the file, actual file saved locally
@@ -1237,6 +1248,12 @@ class InvoicePOAllocation(Timestampable):
         validators=[MinValueValidator(Decimal("0.001"))],
         verbose_name=_("Quantity"),
     )
+    gemini_match_response = models.JSONField(
+        null=True,
+        blank=True,
+        verbose_name=_("AI Match Data"),
+        help_text=_("Raw Gemini response when this allocation originated from a confirmed AI match suggestion."),
+    )
 
     class Meta:
         verbose_name = _("PO Allocation")
@@ -1351,3 +1368,85 @@ def _resync_po_item_on_allocation_delete(sender, instance, **kwargs):
         po_item = PurchaseOrderItem.objects.filter(pk=instance.po_item_id).first()
         if po_item:
             po_item.recalculate_invoiced_quantity()
+
+
+class AIMatchSuggestion(Timestampable):
+    """
+    Candidate PO-item match proposed by GeminiPOItemMatcher for an invoice
+    line, pending human review. Regenerated from scratch on every run of
+    the AI matcher for a given invoice (see invoices.tasks.suggest_ai_po_matches_task,
+    which deletes PENDING rows for the invoice before creating new ones).
+    Confirming a suggestion creates the real InvoicePOAllocation via
+    POInvoiceMatchService.confirm() — this row is never itself the source
+    of truth for the match.
+    """
+    invoice = models.ForeignKey(
+        Invoice,
+        on_delete=models.CASCADE,
+        related_name="ai_match_suggestions",
+        verbose_name=_("Invoice"),
+    )
+    invoice_item = models.ForeignKey(
+        InvoiceItem,
+        on_delete=models.CASCADE,
+        related_name="ai_match_suggestions",
+        verbose_name=_("Invoice Line"),
+    )
+    po_item = models.ForeignKey(
+        'purchasing.PurchaseOrderItem',
+        on_delete=models.CASCADE,
+        related_name="ai_match_suggestions",
+        verbose_name=_("PO Line"),
+    )
+    quantity = models.DecimalField(
+        max_digits=10,
+        decimal_places=3,
+        validators=[MinValueValidator(Decimal("0.001"))],
+        verbose_name=_("Suggested Quantity"),
+    )
+    confidence = models.CharField(
+        max_length=10,
+        default="high",
+        verbose_name=_("Confidence"),
+        help_text=_("Only high-confidence suggestions are persisted."),
+    )
+    reasoning = models.TextField(
+        blank=True,
+        default="",
+        verbose_name=_("Reasoning"),
+        help_text=_("Gemini's justification for this pairing."),
+    )
+    raw_response = models.JSONField(
+        null=True,
+        blank=True,
+        verbose_name=_("Raw Gemini Response"),
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=AIMatchSuggestionStatus.choices,
+        default=AIMatchSuggestionStatus.PENDING,
+        verbose_name=_("Status"),
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_ai_match_suggestions",
+        verbose_name=_("Reviewed By"),
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Reviewed At"))
+
+    class Meta:
+        verbose_name = _("AI Match Suggestion")
+        verbose_name_plural = _("AI Match Suggestions")
+        ordering = ["invoice_item_id"]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(quantity__gt=0),
+                name="aimatchsuggestion_qty_positive",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.invoice_item} → {self.po_item} ({self.quantity}, {self.confidence})"

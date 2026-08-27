@@ -18,113 +18,210 @@
 {% block content %}
 <div class="max-w-6xl mx-auto py-10 px-6">
     <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div class="p-8 border-b border-gray-100 bg-gray-50/50 flex flex-wrap items-start justify-between gap-4">
-            <div>
-                <h1 class="text-2xl font-bold text-gray-900">
-                    {% if selected_po %}{% trans "Match Invoice Lines" %}{% else %}{% trans "Match Purchase Order" %}{% endif %}
+        <div class="p-8 border-b border-gray-100 bg-gradient-header">
+            <div class="flex flex-wrap items-start justify-between gap-4">
+                <div>
+                    <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                        <svg class="w-6 h-6 text-primary-600" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clip-rule="evenodd"/></svg>
+                        {% if selected_po %}{% trans "Match Invoice Lines" %}{% else %}{% trans "Match Purchase Order" %}{% endif %}
+                        {% if invoice.is_credit_note %}
+                        <span class="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">{% trans "Credit Note" %}</span>
+                        {% endif %}
+                    </h1>
                     {% if invoice.is_credit_note %}
-                    <span class="ml-2 inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800 align-middle">{% trans "Credit Note" %}</span>
+                    <p class="mt-1 text-xs text-amber-700">{% trans "Matched quantities will be subtracted from the purchase order's invoiced quantity." %}</p>
                     {% endif %}
-                </h1>
-                {% if invoice.is_credit_note %}
-                <p class="mt-1 text-xs text-amber-700">{% trans "Matched quantities will be subtracted from the purchase order's invoiced quantity." %}</p>
+                    <p class="mt-2 text-sm text-gray-600">
+                        <span class="font-semibold text-gray-800">{{ invoice.invoice_number|default:invoice.id }}</span>
+                        <span class="text-gray-400 mx-1">·</span>{{ invoice.provider.name|default:_("Unknown provider") }}
+                        {% if invoice.date_issued %}<span class="text-gray-400 mx-1">·</span>{{ invoice.date_issued }}{% endif %}
+                        {% if invoice.net_amount %}
+                            <span class="text-gray-400 mx-1">·</span>{{ invoice.net_amount }} <span class="text-gray-400">({% trans "excl. tax" %})</span>
+                            {% if invoice.total_amount %}<span class="text-gray-400"> · {{ invoice.total_amount }} {% trans "incl. tax" %}</span>{% endif %}
+                        {% elif invoice.total_amount %}
+                            <span class="text-gray-400 mx-1">·</span>{{ invoice.total_amount }}
+                        {% endif %}
+                    </p>
+                </div>
+                {% if selected_po %}
+                <div class="text-right text-sm flex-shrink-0 bg-white rounded-lg border border-gray-200 px-4 py-3 shadow-sm">
+                    <div class="text-gray-400 uppercase text-xs tracking-wider font-semibold">{% trans "Matching against" %}</div>
+                    <div class="font-bold text-gray-900 text-base">{{ selected_po.number }}</div>
+                    <a href="{{ request.path }}" class="text-primary-600 hover:underline text-xs font-medium">{% trans "Choose another PO" %}</a>
+                </div>
                 {% endif %}
-                <p class="mt-2 text-sm text-gray-600">
-                    {{ invoice.invoice_number|default:invoice.id }} — {{ invoice.provider.name|default:_("Unknown provider") }}
-                    {% if invoice.date_issued %} — {{ invoice.date_issued }}{% endif %}
-                    {% if invoice.net_amount %}
-                        — {{ invoice.net_amount }} <span class="text-gray-400">({% trans "excl. tax" %})</span>
-                        {% if invoice.total_amount %}<span class="text-gray-400"> · {{ invoice.total_amount }} {% trans "incl. tax" %}</span>{% endif %}
-                    {% elif invoice.total_amount %}
-                        — {{ invoice.total_amount }}
-                    {% endif %}
-                </p>
             </div>
-            {% if selected_po %}
-            <div class="text-right text-sm flex-shrink-0">
-                <div class="text-gray-400 uppercase text-xs tracking-wider">{% trans "Matching against" %}</div>
-                <div class="font-bold text-gray-900">{{ selected_po.number }}</div>
-                <a href="{{ request.path }}" class="text-primary-600 hover:underline text-xs">{% trans "Choose another PO" %}</a>
+
+            <div class="flex items-center gap-3 mt-5">
+                <a href="{% url 'admin:invoices_invoice_run_ai_match' invoice.id %}" class="btn-ai">
+                    <svg class="w-4 h-4" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2l1.5 4.5L16 8l-4.5 1.5L10 14l-1.5-4.5L4 8l4.5-1.5L10 2z"/><path d="M16 14l0.7 2 2 0.7-2 0.7-0.7 2-0.7-2-2-0.7 2-0.7z"/></svg>
+                    {% trans "Try AI Suggest Match" %}
+                </a>
+                <form method="post" action="{% url 'admin:invoices_invoice_toggle_skip_po_matching' invoice.id %}">
+                    {% csrf_token %}
+                    <input type="hidden" name="next" value="{{ request.path }}">
+                    {% if invoice.skip_po_matching %}
+                    <button type="submit" class="btn-secondary">
+                        {% trans "Undo: this invoice does have a PO" %}
+                    </button>
+                    {% else %}
+                    <button type="submit" class="btn-no-po">
+                        {% trans "No relevant PO" %}
+                    </button>
+                    {% endif %}
+                </form>
+            </div>
+        </div>
+
+        {% if not invoice.skip_po_matching and total_quantity %}
+        <div class="p-8 pb-0">
+            <div class="progress-card">
+                <div class="flex items-center justify-between gap-4 {% if item_progress %}mb-3{% endif %}">
+                    <span class="text-sm font-semibold" style="color:#085041">
+                        {% blocktrans %}{{ matched_quantity }} of {{ total_quantity }} units matched{% endblocktrans %}
+                    </span>
+                    <div class="w-40 rounded-full h-2 flex-shrink-0" style="background-color:#cdece2">
+                        {% widthratio matched_quantity total_quantity 100 as percent %}
+                        <div class="h-2 rounded-full transition-all" style="width: {{ percent }}%; background-color:#68A7A5"></div>
+                    </div>
+                </div>
+                {% if item_progress %}
+                <div class="space-y-1 pt-2" style="border-top:1px solid #bbf3e3">
+                    {% for row in item_progress %}
+                    <div class="flex items-center justify-between text-xs gap-4" style="color:#0f6e56">
+                        <span class="truncate">{{ row.description }}</span>
+                        <span class="flex-shrink-0 font-mono">{{ row.matched|floatformat:2 }} / {{ row.total|floatformat:2 }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+
+            {% if matched_items %}
+            <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3 mt-6">{% trans "Already matched" %}</h2>
+            <div class="space-y-2 mb-2">
+                {% for row in matched_items %}
+                <div class="matched-card">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <span class="check-badge">&#10003;</span>
+                        <div class="min-w-0">
+                            <div class="font-medium text-gray-800 text-sm">{{ row.description }}</div>
+                            <div class="text-xs text-gray-500 mt-0.5">
+                                {% for alloc in row.allocations %}
+                                    {{ alloc.po_number }} ({{ alloc.quantity|floatformat:2 }})
+                                    {% if alloc.from_ai %}<span class="ai-tag">{% trans "AI" %}</span>{% endif %}
+                                    {% if not forloop.last %}<span class="text-gray-300 mx-1">·</span>{% endif %}
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 flex-shrink-0">
+                        <span class="text-xs font-mono font-semibold" style="color:#0f6e56">
+                            {{ row.matched|floatformat:2 }} / {{ row.total|floatformat:2 }}
+                        </span>
+                        <a href="{% url 'admin:invoices_invoice_change' invoice.id %}#tab-3" class="change-link">
+                            {% trans "Change" %}
+                        </a>
+                    </div>
+                </div>
+                {% endfor %}
             </div>
             {% endif %}
         </div>
+        {% endif %}
 
-        {% if not selected_po %}
+        {% if invoice.skip_po_matching %}
+        <div class="p-8">
+            <div class="empty-state">
+                <p class="text-sm text-gray-600">{% trans "This invoice is marked as having no relevant purchase order." %}</p>
+            </div>
+            <div class="pt-8 flex justify-end">
+                <a href="{% url 'admin:invoices_invoice_change' invoice.id %}" class="btn-secondary">
+                    {% trans "Back to Invoice" %}
+                </a>
+            </div>
+        </div>
+
+        {% elif not selected_po %}
         <!-- Step 1: pick a candidate PO -->
         <div class="p-8">
-            <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4">{% trans "Suggested purchase orders" %}</h2>
-            {% if candidates %}
-            <div class="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{% trans "PO Number" %}</th>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{% trans "Provider" %}</th>
-                            <th class="px-6 py-4 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">{% trans "Date" %}</th>
-                            <th class="px-6 py-4 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">{% trans "Total" %}</th>
-                            <th class="px-6 py-4 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">{% if invoice.is_credit_note %}{% trans "Creditable" %}{% else %}{% trans "Pending to Invoice" %}{% endif %}</th>
-                            <th class="px-6 py-4"></th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-100">
-                        {% for po in candidates %}
-                        <tr class="hover:bg-gray-50/50 transition-colors">
-                            <td class="px-6 py-5 text-sm font-medium text-gray-900">
-                                {{ po.number }}
-                                <button type="button" data-toggle-items="po-items-{{ po.pk }}"
-                                    class="mt-1 flex items-center text-xs font-normal text-primary-600 hover:underline">
-                                    {% trans "View items" %} ({{ po.items_with_pending|length }})
-                                    <span class="chevron ml-1 inline-block transition-transform">&#9662;</span>
-                                </button>
-                            </td>
-                            <td class="px-6 py-5 text-sm text-gray-600">{{ po.provider.name }}</td>
-                            <td class="px-6 py-5 text-sm text-gray-600 text-center">{{ po.date_ordered }}</td>
-                            <td class="px-6 py-5 text-sm text-gray-600 text-center font-mono">{{ po.total_amount }}</td>
-                            <td class="px-6 py-5 text-sm font-bold text-primary-600 text-center font-mono">{{ po.pending_to_invoice|floatformat:2 }}</td>
-                            <td class="px-6 py-5 text-right">
-                                <a href="?po={{ po.pk }}"
-                                    class="px-4 py-2 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 shadow-sm transition-all">
-                                    {% trans "Select" %}
-                                </a>
-                            </td>
-                        </tr>
-                        <tr id="po-items-{{ po.pk }}" style="display:none">
-                            <td colspan="6" class="px-6 py-4 bg-gray-50 border-t border-gray-100">
-                                <table class="min-w-full">
-                                    <thead>
-                                        <tr>
-                                            <th class="px-4 py-2 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">{% trans "Item" %}</th>
-                                            <th class="px-4 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">{% trans "Ordered" %}</th>
-                                            <th class="px-4 py-2 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">{% if invoice.is_credit_note %}{% trans "Creditable" %}{% else %}{% trans "Pending to Invoice" %}{% endif %}</th>
-                                            <th class="px-4 py-2 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">{% trans "Unit Price" %}</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-gray-100">
-                                        {% for po_item, pending in po.items_with_pending %}
-                                        <tr>
-                                            <td class="px-4 py-2 text-xs text-gray-700">
-                                                {{ po_item.inventory_item.name }}
-                                                {% if po_item.description %}<span class="text-gray-400">— {{ po_item.description|truncatechars:60 }}</span>{% endif %}
-                                            </td>
-                                            <td class="px-4 py-2 text-xs text-gray-600 text-center font-mono">{{ po_item.quantity|floatformat:2 }}</td>
-                                            <td class="px-4 py-2 text-xs font-bold text-primary-600 text-center font-mono">{{ pending|floatformat:2 }}</td>
-                                            <td class="px-4 py-2 text-xs text-gray-600 text-right font-mono">{{ po_item.unit_price }}</td>
-                                        </tr>
-                                        {% endfor %}
-                                    </tbody>
-                                </table>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+            {% if all_matched %}
+            <div class="all-matched-state">
+                <span class="check-badge-lg">&#10003;</span>
+                <div>
+                    <div class="font-semibold text-gray-900">{% trans "Everything has been matched." %}</div>
+                    <p class="text-sm text-gray-500 mt-1">{% trans "All invoice lines are already allocated to a purchase order. Use \"Change\" above if something looks wrong." %}</p>
+                </div>
             </div>
             {% else %}
-            <p class="text-sm text-gray-500">{% trans "No matching purchase orders found for this invoice's provider with quantities pending to invoice." %}</p>
+            <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-5">{% trans "Suggested purchase orders" %}</h2>
+            {% if candidates %}
+            <div class="grid grid-cols-1 gap-4">
+                {% for po in candidates %}
+                <div class="po-card">
+                    <div class="flex flex-wrap items-center justify-between gap-4 p-5">
+                        <div class="flex items-center gap-4 min-w-0">
+                            <div class="po-badge">{{ po.number|slice:"-2:" }}</div>
+                            <div class="min-w-0">
+                                <div class="font-bold text-gray-900">{{ po.number }}</div>
+                                <div class="text-sm text-gray-500">{{ po.provider.name }}</div>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-8 flex-shrink-0">
+                            <div class="text-center">
+                                <div class="text-xs text-gray-400 uppercase tracking-wider">{% trans "Date" %}</div>
+                                <div class="text-sm font-medium text-gray-700">{{ po.date_ordered }}</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-xs text-gray-400 uppercase tracking-wider">{% trans "Total" %}</div>
+                                <div class="text-sm font-mono font-medium text-gray-700">{{ po.total_amount }}</div>
+                            </div>
+                            <div class="text-center">
+                                <div class="text-xs text-gray-400 uppercase tracking-wider">{% if invoice.is_credit_note %}{% trans "Creditable" %}{% else %}{% trans "Pending" %}{% endif %}</div>
+                                <div class="text-sm font-mono font-bold text-primary-600">{{ po.pending_to_invoice|floatformat:2 }}</div>
+                            </div>
+                            <a href="?po={{ po.pk }}" class="btn-primary">
+                                {% trans "Select" %}
+                            </a>
+                        </div>
+                    </div>
+                    <div class="po-items-list">
+                        {% for po_item, pending in po.items_with_pending %}
+                        <div class="po-item-row">
+                            <div class="min-w-0">
+                                <div class="text-sm text-gray-800">
+                                    {{ po_item.inventory_item.name }}
+                                    {% if po_item.description %}<span class="text-gray-400 text-xs"> — {{ po_item.description|truncatechars:60 }}</span>{% endif %}
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-6 flex-shrink-0">
+                                <div class="text-right">
+                                    <div class="text-xs text-gray-400 uppercase tracking-wider">{% trans "Ordered" %}</div>
+                                    <div class="text-sm font-mono text-gray-600">{{ po_item.quantity|floatformat:2 }}</div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-xs text-gray-400 uppercase tracking-wider">{% if invoice.is_credit_note %}{% trans "Creditable" %}{% else %}{% trans "Pending" %}{% endif %}</div>
+                                    <div class="text-sm font-mono font-bold text-primary-600">{{ pending|floatformat:2 }}</div>
+                                </div>
+                                <div class="text-right">
+                                    <div class="text-xs text-gray-400 uppercase tracking-wider">{% trans "Unit Price" %}</div>
+                                    <div class="text-sm font-mono text-gray-600">{{ po_item.unit_price }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <p class="text-sm text-gray-500">{% trans "No matching purchase orders found for this invoice's provider with quantities pending to invoice." %}</p>
+            </div>
+            {% endif %}
             {% endif %}
             <div class="pt-8 flex justify-end">
-                <a href="{% url 'admin:invoices_invoice_change' invoice.id %}"
-                    class="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-all">
+                <a href="{% url 'admin:invoices_invoice_change' invoice.id %}" class="btn-secondary">
                     {% trans "Back to Invoice" %}
                 </a>
             </div>
@@ -132,34 +229,12 @@
 
         {% else %}
         <!-- Step 2: checklist review of suggested line pairings -->
-        <div class="mx-8 mt-6 mb-2 p-5 rounded-lg bg-amber-50 border border-amber-100">
-            <div class="flex flex-wrap items-center justify-between gap-4 mb-3">
-                <span class="text-sm font-semibold text-amber-800">
-                    {% blocktrans with matched=progress.matched_count total=progress.total_count %}{{ matched }} of {{ total }} lines matched{% endblocktrans %}
-                </span>
-                <div class="flex items-center gap-8">
-                    <span class="text-sm font-bold text-amber-800">{{ progress.percent }}%</span>
-                    <div class="text-right">
-                        <div class="text-xs font-semibold text-gray-500 uppercase tracking-wider">{% trans "Matched" %}</div>
-                        <div class="text-sm font-bold text-gray-900">{{ progress.matched_total }}</div>
-                    </div>
-                    <div class="text-right">
-                        <div class="text-xs font-semibold text-amber-700 uppercase tracking-wider">{% trans "Needs Attention" %}</div>
-                        <div class="text-sm font-bold text-amber-800">{{ progress.attention_total }}</div>
-                    </div>
-                </div>
-            </div>
-            <div class="w-full bg-amber-100 rounded-full h-2">
-                <div class="bg-amber-500 h-2 rounded-full" style="width: {{ progress.percent }}%"></div>
-            </div>
-        </div>
-
-        <form method="post" action="?po={{ selected_po.pk }}" class="px-8 pb-8 space-y-3">
+        <form method="post" action="?po={{ selected_po.pk }}" class="px-8 pb-8 pt-6 space-y-3">
             {% csrf_token %}
             <input type="hidden" name="po" value="{{ selected_po.pk }}">
 
             {% for row in rows %}
-            <div class="rounded-lg border {% if row.is_matched %}border-gray-200 bg-white{% else %}border-amber-200 bg-amber-50/40{% endif %}">
+            <div class="rounded-lg border {% if row.is_matched %}border-gray-200 bg-white{% else %}border-amber-200 bg-amber-50/40{% endif %} transition-colors">
                 <div class="flex items-start justify-between gap-4 px-5 py-4">
                     <div class="flex items-start gap-3 min-w-0">
                         <span class="mt-0.5 flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center text-white text-xs font-bold {% if row.is_matched %}bg-emerald-600{% else %}bg-amber-500{% endif %}">
@@ -186,8 +261,7 @@
                 <div class="px-5 pb-5 pt-3 border-t border-amber-100 grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-4">
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{% trans "Match to PO Line" %}</label>
-                        <select name="target_{{ row.item.pk }}"
-                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2">
+                        <select name="target_{{ row.item.pk }}" class="field-input">
                             <option value="">{% trans "— No matching PO line —" %}</option>
                             {% for po_item, pending in target_lines %}
                             <option value="{{ po_item.pk }}" {% if po_item.pk == row.suggested_target %}selected{% endif %}>
@@ -199,8 +273,7 @@
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{% trans "Qty to Match" %}</label>
                         <input type="number" name="qty_{{ row.item.pk }}" step="0.001" min="0"
-                            value="{{ row.suggested_qty }}" placeholder="0"
-                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500 sm:text-sm py-2">
+                            value="{{ row.suggested_qty }}" placeholder="0" class="field-input">
                     </div>
                 </div>
                 {% if row.allocations %}
@@ -222,12 +295,10 @@
                     {% endif %}
                 </p>
                 <div class="flex items-center space-x-4">
-                    <a href="{% url 'admin:invoices_invoice_change' invoice.id %}"
-                        class="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-all">
+                    <a href="{% url 'admin:invoices_invoice_change' invoice.id %}" class="btn-secondary">
                         {% trans "Cancel" %}
                     </a>
-                    <button type="submit"
-                        class="px-8 py-2.5 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 shadow-sm transition-all focus:ring-2 focus:ring-primary-500 focus:ring-offset-2">
+                    <button type="submit" class="btn-primary text-base px-8 py-2.5">
                         {% trans "Confirm Matching" %}
                     </button>
                 </div>
@@ -238,23 +309,112 @@
 </div>
 
 <style>
-    .bg-primary-600 { background-color: #68A7A5; }
-    .hover\:bg-primary-700:hover { background-color: #568c8a; }
+    .bg-gradient-header { background: linear-gradient(180deg, #fafbfb 0%, #f7f8f8 100%); }
     .text-primary-600 { color: #68A7A5; }
-    select, input[type="number"] {
-        border-radius: 0.375rem;
-        border: 1px solid #d1d5db;
-        padding: 0.375rem 0.625rem;
+
+    .btn-primary {
+        display: inline-flex; align-items: center; gap: 0.375rem;
+        padding: 0.5rem 1.25rem; font-size: 0.875rem; font-weight: 600;
+        color: #fff; background-color: #68A7A5; border-radius: 0.5rem;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        transition: all 0.15s ease;
+    }
+    .btn-primary:hover { background-color: #568c8a; transform: translateY(-1px); box-shadow: 0 4px 8px rgba(104,167,165,0.25); }
+
+    .btn-secondary {
+        display: inline-flex; align-items: center; gap: 0.375rem;
+        padding: 0.625rem 1.25rem; font-size: 0.875rem; font-weight: 500;
+        color: #374151; background-color: #fff; border: 1px solid #d1d5db; border-radius: 0.5rem;
+        transition: all 0.15s ease;
+    }
+    .btn-secondary:hover { background-color: #f9fafb; border-color: #9ca3af; }
+
+    .btn-no-po {
+        display: inline-flex; align-items: center; gap: 0.375rem;
+        padding: 0.5rem 1rem; font-size: 0.8125rem; font-weight: 600;
+        color: #085041; background-color: #e1f5ee; border: 1px solid #9fe1cb; border-radius: 0.5rem;
+        transition: all 0.15s ease;
+    }
+    .btn-no-po:hover { background-color: #9fe1cb; }
+
+    .btn-ai {
+        display: inline-flex; align-items: center; gap: 0.375rem;
+        padding: 0.5rem 1rem; font-size: 0.8125rem; font-weight: 600;
+        color: #0f6e56; background-color: #e1f5ee; border: 1px solid #9fe1cb; border-radius: 0.5rem;
+        transition: all 0.15s ease;
+    }
+    .btn-ai:hover { background-color: #9fe1cb; transform: translateY(-1px); box-shadow: 0 4px 8px rgba(31,158,117,0.2); }
+
+    .progress-card {
+        padding: 1.25rem; border-radius: 0.75rem;
+        background-color: #e1f5ee; border: 1px solid #9fe1cb;
+    }
+
+    .matched-card {
+        display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+        padding: 0.875rem 1.125rem; border-radius: 0.625rem;
+        background-color: #f0fdf9; border: 1px solid #bbf3e3;
+    }
+
+    .check-badge {
+        flex-shrink: 0; width: 24px; height: 24px; border-radius: 9999px;
+        background-color: #0f6e56; color: #fff; font-size: 0.75rem; font-weight: 700;
+        display: flex; align-items: center; justify-content: center;
+    }
+
+    .check-badge-lg {
+        flex-shrink: 0; width: 40px; height: 40px; border-radius: 9999px;
+        background-color: #0f6e56; color: #fff; font-size: 1.125rem; font-weight: 700;
+        display: flex; align-items: center; justify-content: center;
+    }
+
+    .all-matched-state {
+        display: flex; align-items: flex-start; gap: 1rem;
+        padding: 1.5rem; border-radius: 0.75rem;
+        background-color: #f0fdf9; border: 1px solid #bbf3e3;
+    }
+
+    .ai-tag {
+        display: inline-flex; align-items: center; margin-left: 0.25rem;
+        padding: 0.0625rem 0.375rem; border-radius: 9999px;
+        background-color: #e1f5ee; color: #0f6e56; font-size: 0.625rem; font-weight: 700;
+    }
+
+    .change-link { font-size: 0.75rem; font-weight: 500; color: #68A7A5; }
+    .change-link:hover { text-decoration: underline; }
+
+    .po-card {
+        border: 1px solid #e5e7eb; border-radius: 0.75rem; overflow: hidden;
+        background: #fff; transition: all 0.15s ease;
+    }
+    .po-card:hover { border-color: #68A7A5; box-shadow: 0 2px 10px rgba(104,167,165,0.12); }
+
+    .po-badge {
+        width: 44px; height: 44px; border-radius: 0.5rem; flex-shrink: 0;
+        background: linear-gradient(135deg, #68A7A5, #568c8a);
+        color: #fff; font-weight: 700; font-size: 0.8125rem;
+        display: flex; align-items: center; justify-content: center;
+    }
+
+    .po-items-list {
+        border-top: 1px solid #f3f4f6; background-color: #f9fafb;
+    }
+    .po-item-row {
+        display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+        padding: 0.75rem 1.25rem;
+    }
+    .po-item-row:not(:last-child) { border-bottom: 1px solid #f3f4f6; }
+
+    .field-input {
+        width: 100%; border-radius: 0.5rem; border: 1px solid #d1d5db;
+        padding: 0.5rem 0.75rem; font-size: 0.875rem;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .field-input:focus { outline: none; border-color: #68A7A5; box-shadow: 0 0 0 3px rgba(104,167,165,0.15); }
+
+    .empty-state {
+        border: 1px dashed #d1d5db; border-radius: 0.75rem;
+        background-color: #f9fafb; padding: 2rem; text-align: center;
     }
 </style>
-<script>
-    document.querySelectorAll("[data-toggle-items]").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-            var row = document.getElementById(btn.dataset.toggleItems);
-            var isHidden = row.style.display === "none";
-            row.style.display = isHidden ? "" : "none";
-            btn.querySelector(".chevron").style.transform = isHidden ? "rotate(180deg)" : "";
-        });
-    });
-</script>
 {% endblock %}

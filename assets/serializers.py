@@ -1,6 +1,7 @@
 from rest_framework import serializers
-from company.models import WorkingZone
-from assets.models import Asset, AssetIdentifier, AssetPlanningRequestDraft, Client
+from company.models import Employee, WorkingZone
+from assets.constants import SERVICE_TYPE_PLANNING_TYPE
+from assets.models import Asset, AssetIdentifier, AssetPlanningRequestDraft, Client, PlanningType
 
 
 class WorkingZoneSerializer(serializers.ModelSerializer):
@@ -31,6 +32,8 @@ class AssetPlanningRequestDraftSerializer(serializers.ModelSerializer):
     status_display = serializers.CharField(source="get_status_display", read_only=True)
     urgency_display = serializers.CharField(source="get_urgency_display", read_only=True, default="")
     missing_fields = serializers.SerializerMethodField()
+    moved_employees = serializers.PrimaryKeyRelatedField(many=True, required=False, queryset=Employee.objects.all())
+    moved_employee_names = serializers.SerializerMethodField()
 
     class Meta:
         model = AssetPlanningRequestDraft
@@ -44,6 +47,7 @@ class AssetPlanningRequestDraftSerializer(serializers.ModelSerializer):
             "urgency", "urgency_display", "notes",
             "cuba_operation_type", "cuba_size",
             "asset", "asset_name", "machine", "machine_name", "load_description",
+            "moved_employees", "moved_employee_names",
             "status", "status_display", "missing_fields",
             "resulting_request_id", "created_at", "updated_at",
         ]
@@ -51,6 +55,11 @@ class AssetPlanningRequestDraftSerializer(serializers.ModelSerializer):
 
     def get_missing_fields(self, obj):
         return obj.missing_fields_for_submit()
+
+    def get_moved_employee_names(self, obj):
+        if not obj.pk:
+            return []
+        return [f"{e.first_name} {e.last_name}".strip() for e in obj.moved_employees.all()]
 
     def to_internal_value(self, data):
         # The app always sends needed_time, using "" for "not set" — TimeField
@@ -96,15 +105,26 @@ class AssetPlanningRequestDraftSerializer(serializers.ModelSerializer):
         # update that doesn't touch client/new_client_name at all must still
         # see whichever one is already set.
         company = self.context.get("company")
+        service_type = self._current(attrs, "service_type")
+        # planning_type == NONE requests (e.g. Laborer Movement) never become a
+        # dispatched job tied to a client site — no client required for those.
+        needs_client = SERVICE_TYPE_PLANNING_TYPE.get(service_type) != PlanningType.NONE
         client = self._current(attrs, "client")
         new_client_name = (self._current(attrs, "new_client_name") or "").strip()
         if client:
             if company and client.company_id != company.id:
                 raise serializers.ValidationError({"client": "Valid client is required."})
-        elif not new_client_name:
+        elif needs_client and not new_client_name:
             raise serializers.ValidationError(
                 {"client": "Either a client or a new client name is required."}
             )
+
+        if company and attrs.get("moved_employees"):
+            for employee in attrs["moved_employees"]:
+                if employee.company_id != company.id:
+                    raise serializers.ValidationError(
+                        {"moved_employees": "One or more employees belong to a different company."}
+                    )
 
         return attrs
 

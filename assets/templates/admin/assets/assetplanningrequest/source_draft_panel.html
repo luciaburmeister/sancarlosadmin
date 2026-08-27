@@ -90,6 +90,14 @@
       <p class="m-0 text-font-default-light dark:text-font-default-dark">{{ draft.asset }}</p>
     </div>
     {% endif %}
+    {% if draft.moved_employees.exists %}
+    <div class="sm:col-span-2">
+      <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Moved Employees" %}</p>
+      <p class="m-0 text-font-default-light dark:text-font-default-dark">
+        {% for employee in draft.moved_employees.all %}{{ employee }}{% if not forloop.last %}, {% endif %}{% endfor %}
+      </p>
+    </div>
+    {% endif %}
     {% if draft.load_description %}
     <div class="sm:col-span-2">
       <p class="m-0 text-xs font-medium text-font-subtle-light dark:text-font-subtle-dark">{% trans "Load Description" %}</p>

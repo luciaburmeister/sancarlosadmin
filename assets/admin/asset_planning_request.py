@@ -15,7 +15,7 @@ from core.admin.company_access import get_user_companies
 from company.models import Employee
 from assets.constants import (
     SERVICE_TYPE_FIELDS, SERVICE_TYPE_MAQUINA_PROPIA, SERVICE_TYPE_MAQUINISTAS,
-    SERVICE_TYPE_AUTOPORTE_MAQUINA, SERVICE_TYPE_PLANNING_TYPE,
+    SERVICE_TYPE_AUTOPORTE_MAQUINA, SERVICE_TYPE_PEONES, SERVICE_TYPE_PLANNING_TYPE,
 )
 from assets.forms import AssetPlanningRequestForm
 from assets.models import (
@@ -43,7 +43,8 @@ CONDITIONAL_FIELDS["machinist_moved"] = f"service_type == '{SERVICE_TYPE_MAQUINA
 CONDITIONAL_FIELDS["moved_employees"] = (
     f"(service_type == '{SERVICE_TYPE_MAQUINA_PROPIA}' && machinist_moved) "
     f"|| service_type == '{SERVICE_TYPE_MAQUINISTAS}' "
-    f"|| service_type == '{SERVICE_TYPE_AUTOPORTE_MAQUINA}'"
+    f"|| service_type == '{SERVICE_TYPE_AUTOPORTE_MAQUINA}' "
+    f"|| service_type == '{SERVICE_TYPE_PEONES}'"
 )
 
 
@@ -206,6 +207,9 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
             initial["to_zone"] = draft.to_zone_id
         if draft.from_zone_id:
             initial["from_zone"] = draft.from_zone_id
+        moved_employee_ids = list(draft.moved_employees.values_list("id", flat=True))
+        if moved_employee_ids:
+            initial["moved_employees"] = moved_employee_ids
         return initial
 
     def response_add(self, request, obj, post_url_continue=None):

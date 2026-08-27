@@ -9,6 +9,8 @@ owning client.
 Run just this file:
     python manage.py test api.fleet.tests.test_planning_drafts
 """
+from datetime import date
+
 from rest_framework.test import APIClient
 
 from django.test import TestCase
@@ -17,6 +19,7 @@ from assets.models import (
     Asset, AssetPlanningRequestDraft, AssetPlanningRequestDraftStatus,
     AssetType, AssetTypeCategory, ServiceType,
 )
+from company.models import Employee
 from api.fleet.tests.helpers import make_company, make_employee, make_user, make_zone
 from sales.models import Client
 
@@ -523,4 +526,79 @@ class CancelRequestTests(TestCase):
     def test_cannot_cancel_an_already_cancelled_request(self):
         draft = self._make_draft(AssetPlanningRequestDraftStatus.CANCELLED)
         response = self.client_api.delete(f"/es/api/planning-drafts/{draft.pk}/")
+        self.assertEqual(response.status_code, 400)
+
+
+class LaborerMovementDraftTests(TestCase):
+    """SERVICE_TYPE_PEONES drafts — same mobile draft pipeline as porte/cuba,
+    but no client (planning_type == NONE) and moved_employees required instead."""
+
+    def setUp(self):
+        self.client_api = APIClient()
+        self.company = make_company()
+        self.user = make_user()
+        self.employee = make_employee(self.company, self.user)
+        self.client_api.force_authenticate(user=self.user)
+        self.from_zone = make_zone(self.company, name="Obra A")
+        self.to_zone = make_zone(self.company, name="Obra B")
+        self.peon1 = Employee.objects.create(
+            company=self.company, first_name="Juan", last_name="Perez", hired_at=date.today(),
+        )
+        self.peon2 = Employee.objects.create(
+            company=self.company, first_name="Ana", last_name="Gomez", hired_at=date.today(),
+        )
+
+    def _payload(self, **overrides):
+        payload = {
+            "service_type": ServiceType.MOVIMIENTO_PEONES,
+            "from_zone": self.from_zone.pk,
+            "to_zone": self.to_zone.pk,
+            "moved_employees": [self.peon1.pk, self.peon2.pk],
+            "needed_date": "2026-09-01",
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_create_does_not_require_client(self):
+        response = self.client_api.post(
+            "/es/api/planning-drafts/", self._payload(), format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        draft = AssetPlanningRequestDraft.objects.get(pk=response.json()["id"])
+        self.assertIsNone(draft.client_id)
+        self.assertEqual(draft.missing_fields_for_submit(), [])
+        self.assertCountEqual(
+            draft.moved_employees.values_list("id", flat=True), [self.peon1.pk, self.peon2.pk],
+        )
+
+    def test_missing_moved_employees_blocks_submit(self):
+        response = self.client_api.post(
+            "/es/api/planning-drafts/", self._payload(moved_employees=[]), format="json",
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        draft = AssetPlanningRequestDraft.objects.get(pk=response.json()["id"])
+        self.assertIn("moved_employees", draft.missing_fields_for_submit())
+        submit_response = self.client_api.post(f"/es/api/planning-drafts/{draft.pk}/submit/")
+        self.assertEqual(submit_response.status_code, 400)
+
+    def test_submit_succeeds_once_moved_employees_set(self):
+        response = self.client_api.post(
+            "/es/api/planning-drafts/", self._payload(), format="json",
+        )
+        draft_id = response.json()["id"]
+        submit_response = self.client_api.post(f"/es/api/planning-drafts/{draft_id}/submit/")
+        self.assertEqual(submit_response.status_code, 200)
+        draft = AssetPlanningRequestDraft.objects.get(pk=draft_id)
+        self.assertEqual(draft.status, AssetPlanningRequestDraftStatus.SUBMITTED)
+
+    def test_rejects_employee_from_another_company(self):
+        other_company = make_company(name="Other Company")
+        other_employee = Employee.objects.create(
+            company=other_company, first_name="Other", last_name="Co", hired_at=date.today(),
+        )
+        response = self.client_api.post(
+            "/es/api/planning-drafts/",
+            self._payload(moved_employees=[other_employee.pk]),
+            format="json",
+        )
         self.assertEqual(response.status_code, 400)

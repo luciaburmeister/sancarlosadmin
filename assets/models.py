@@ -22,8 +22,10 @@ from assets.constants import (
     SERVICE_TYPE_CUBA,
     SERVICE_TYPE_MAQUINISTAS,
     SERVICE_TYPE_AUTOPORTE_MAQUINA,
+    SERVICE_TYPE_PEONES,
     SERVICE_TYPE_PLANNING_TYPE,
     SERVICE_TYPE_FIELDS,
+    SERVICE_TYPES_NEEDING_MOVED_EMPLOYEES,
 )
 User = get_user_model()
 
@@ -720,6 +722,7 @@ class ServiceType(models.TextChoices):
     MOVIMIENTO_CUBA = SERVICE_TYPE_CUBA, _("Container Movement")
     MOVIMIENTO_MAQUINISTAS = SERVICE_TYPE_MAQUINISTAS, _("Machinist Movement")
     AUTOPORTE_MAQUINA = SERVICE_TYPE_AUTOPORTE_MAQUINA, _("Machine Self-Transport")
+    MOVIMIENTO_PEONES = SERVICE_TYPE_PEONES, _("Laborer Movement")
 
 
 class AssetPlanningNotificationRecipient(CompanyOwnedModel, Timestampable):
@@ -803,6 +806,7 @@ SERVICE_TYPE_COLORS = {
     SERVICE_TYPE_CUBA: "#F59E0B",
     SERVICE_TYPE_MAQUINISTAS: "#EC4899",
     SERVICE_TYPE_AUTOPORTE_MAQUINA: "#6366F1",
+    SERVICE_TYPE_PEONES: "#F97316",
 }
 DEFAULT_SERVICE_TYPE_COLOR = "#64748B"
 URGENCY_COLORS = {
@@ -1435,9 +1439,10 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
         "management.ProjectFile",
         on_delete=models.PROTECT,
         null=True,
-        blank=False,
+        blank=True,
         related_name="asset_planning_requests",
         verbose_name=_("Project File"),
+        help_text=_("Not applicable to planning_type == NONE requests (e.g. Laborer/Machinist Movement)."),
     )
     suggested_trucks = models.ManyToManyField(
         Asset, blank=True, related_name="planning_request_truck_suggestions", verbose_name=_("Suggested Trucks"),
@@ -1568,7 +1573,10 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
         if self.assigned_to_id and self.company_id and self.assigned_to.company_id != self.company_id:
             raise ValidationError({"assigned_to": _("This employee belongs to a different company than the selected zone.")})
 
-        if not self.project_file_id:
+        # Not applicable to planning_type == NONE requests (Machinist/Laborer
+        # Movement, Machine Self-Transport) — they never produce an
+        # AssetPlanning, so there's nothing to link a project file to.
+        if self.planning_type != PlanningType.NONE and not self.project_file_id:
             raise ValidationError({"project_file": _("Project File is required.")})
         if self.project_file_id and self.company_id and self.project_file.company_id != self.company_id:
             raise ValidationError({"project_file": _("This project file belongs to a different company than the selected zone.")})
@@ -1677,6 +1685,12 @@ class AssetPlanningRequestDraft(CompanyOwnedModel, Timestampable):
         limit_choices_to={"asset_type__category": AssetTypeCategory.MACHINE},
     )
     load_description = models.TextField(blank=True, verbose_name=_("Load Description"))
+    # SERVICE_TYPE_PEONES only (see SERVICE_TYPES_NEEDING_MOVED_EMPLOYEES) —
+    # the peones/laborers to move from from_zone to to_zone.
+    moved_employees = models.ManyToManyField(
+        'company.Employee', blank=True, related_name="laborer_moved_request_drafts",
+        verbose_name=_("Moved Employees"),
+    )
     requested_by = models.ForeignKey('company.Employee', on_delete=models.SET_NULL, null=True, blank=True, related_name="asset_planning_request_drafts", verbose_name=_("Requested By"))
     status = models.CharField(max_length=20, choices=AssetPlanningRequestDraftStatus.choices, default=AssetPlanningRequestDraftStatus.DRAFT, verbose_name=_("Status"))
     resulting_request = models.OneToOneField(
@@ -1730,12 +1744,19 @@ class AssetPlanningRequestDraft(CompanyOwnedModel, Timestampable):
             value = getattr(self, f"{field_name}_id" if field_name in ("asset", "machine") else field_name)
             if not value:
                 missing.append(field_name)
-        if not self.client_id and not self.new_client_name.strip():
+        # planning_type == NONE requests (e.g. Laborer Movement) never become a
+        # dispatched job tied to a client site — no client required for those.
+        needs_client = SERVICE_TYPE_PLANNING_TYPE.get(self.service_type) != PlanningType.NONE
+        if needs_client and not self.client_id and not self.new_client_name.strip():
             missing.append("client")
         if not self.to_zone_id and not self.destination_text.strip():
             missing.append("destination_text")
         if "from_zone" in needed and not self.from_zone_id and not self.origin_text.strip():
             missing.append("origin_text")
+        if self.service_type in SERVICE_TYPES_NEEDING_MOVED_EMPLOYEES and (
+            self.pk is None or not self.moved_employees.exists()
+        ):
+            missing.append("moved_employees")
         return missing
 
 

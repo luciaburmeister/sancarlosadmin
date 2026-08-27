@@ -371,6 +371,22 @@ class BaseTransactionStrategy:
             pending = self.asset.pending_pickup_by(self.employee)
             if pending is not None and str(pending.id) == str(planning_id):
                 planning = pending
+        # Fourth try: porte leftovers. Home's pending_dropoff uses include_porte
+        # (PORTE_MOVEMENT keeps the cuba on the truck), but pending_pickup_by only
+        # sees MOVEMENT — so after a finished porte with no next CUBA plan the app
+        # still sends that porte planning_id and must be allowed to leave the cuba.
+        if planning is None:
+            dropoff = Asset.objects.visible_pending_dropoff(self.employee)
+            if (
+                dropoff is not None
+                and dropoff["asset_id"] == self.asset.id
+                and str(dropoff["planning_id"]) == str(planning_id)
+            ):
+                planning = AssetPlanning.objects.filter(
+                    id=planning_id,
+                    company=self.asset.company,
+                    assigned_to=self.employee,
+                ).first()
         # Verteo of a full cuba already left at an almacén: not PICKED_UP, so
         # pending_pickup_by misses it, but verteo_pending_transaction is still set.
         if planning is None and allow_stale_verteo:

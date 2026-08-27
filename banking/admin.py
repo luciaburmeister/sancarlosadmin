@@ -1,4 +1,5 @@
 """Banking admin — BankTransaction and BankReconciliation."""
+from unfold.contrib.filters.admin import RangeNumericFilter
 from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.company_access import get_user_companies
 from unfold.contrib.filters.admin import RangeDateFilter
@@ -203,11 +204,12 @@ class BankTransactionAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "bank_account",
     )
     list_filter = (
+        ("company",AutocompleteSelectMultipleFilter),
         ("reconciliation_status",MultipleChoicesDropdownFilter),
+        ("amount",RangeNumericFilter),
         ("bank_account",AutocompleteSelectMultipleFilter),
         ("category",AutocompleteSelectMultipleFilter),
-        ("transaction_date",RangeDateFilter),
-        ("company",AutocompleteSelectMultipleFilter)
+        ("transaction_date",RangeDateFilter)
     )
     list_filter_submit = True
     search_fields = (

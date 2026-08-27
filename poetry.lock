@@ -1375,6 +1375,21 @@ Django = ">=4.2"
 django-filter = ">=2.3.0"
 
 [[package]]
+name = "djangoql"
+version = "0.19.1"
+description = "DjangoQL: Advanced search language for Django"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "djangoql-0.19.1-py2.py3-none-any.whl", hash = "sha256:70cf53218b15557ed02baaace1387de1caffb6809cdfb3c633e4fd4e53a36111"},
+    {file = "djangoql-0.19.1.tar.gz", hash = "sha256:bce09d52857857b22744f93241f16d5c62a1b118a7834e1c8afa14bebb964eee"},
+]
+
+[package.dependencies]
+ply = ">=3.8"
+
+[[package]]
 name = "djangorestframework"
 version = "3.17.1"
 description = "Web APIs for Django, made easy."
@@ -2535,6 +2550,18 @@ groups = ["main"]
 files = [
     {file = "platformdirs-4.10.0-py3-none-any.whl", hash = "sha256:fb516cdb12eb0d857d0cd85a7c57cea4d060bee4578d6cf5a14dfdf8cbf8784a"},
     {file = "platformdirs-4.10.0.tar.gz", hash = "sha256:31e761a6a0ca04faf7353ea759bdba55652be214725111e5aac52dfa29d4bef7"},
+]
+
+[[package]]
+name = "ply"
+version = "3.11"
+description = "Python Lex & Yacc"
+optional = false
+python-versions = "*"
+groups = ["main"]
+files = [
+    {file = "ply-3.11-py2.py3-none-any.whl", hash = "sha256:096f9b8350b65ebd2fd1346b12452efe5b9607f7482813ffca50c22722a807ce"},
+    {file = "ply-3.11.tar.gz", hash = "sha256:00c7c1aaa88358b9c765b6d3000c6eec0ba42abca5351b095321aef446081da3"},
 ]
 
 [[package]]
@@ -3961,4 +3988,4 @@ test = ["pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "b0d25ae59a3674aefbc74fd8f26546391489d4c89ebee6acc7f00ad6510ec925"
+content-hash = "3dc43ab030238e120eec5d62692d0718947d9ba39ad9970cbb9aecd10825b0d8"

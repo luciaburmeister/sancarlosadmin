@@ -11,6 +11,7 @@ import json
 from unittest.mock import patch
 
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from assets.models import (
@@ -23,6 +24,9 @@ from assets.models import (
     CubaTransactionKey,
     PlanningStatus,
     PlanningType,
+    PorteAction,
+    PorteMovementKind,
+    PorteTransactionDataKey,
     TransactionTypeChoices,
 )
 from api.fleet.tests.helpers import (
@@ -267,6 +271,66 @@ class DeliveryStrategyTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("error", json.loads(response.content))
         self.assertEqual(AssetTransaction.objects.count(), 0)
+
+    def test_delivery_after_porte_with_no_next_cuba_plan(self):
+        """Finished porte → pending_dropoff still points at that porte id.
+        Leaving the cuba must work with no next CUBA plan (don't 400)."""
+        from company.models import WorkingZone
+
+        almacen = make_zone(self.company, name="Almacen", lat=40.42, lon=-3.71)
+        almacen.zone_type = WorkingZone.ZoneType.ALMACEN
+        almacen.save(update_fields=["zone_type"])
+        porte = make_planning(
+            self.company,
+            asset=self.asset,
+            assigned_to=self.employee,
+            planning_type=PlanningType.PORTE,
+            status=PlanningStatus.DELIVERED,
+            service_type="porte_material",
+        )
+        AssetTransaction.objects.create(
+            asset=self.asset,
+            company=self.company,
+            from_zone=self.origin_zone,
+            transaction_type=TransactionTypeChoices.PORTE_MOVEMENT,
+            date=timezone.now(),
+            performed_by=self.employee,
+            planning=porte,
+            data={
+                PorteTransactionDataKey.MOVEMENT_TYPE: PorteMovementKind.PORTE,
+                PorteTransactionDataKey.ACTION: PorteAction.RECOGIDA,
+            },
+        )
+        AssetTransaction.objects.create(
+            asset=self.asset,
+            company=self.company,
+            from_zone=self.origin_zone,
+            to_zone=self.dest_zone,
+            transaction_type=TransactionTypeChoices.PORTE_DELIVERY,
+            date=timezone.now(),
+            performed_by=self.employee,
+            planning=porte,
+            data={
+                PorteTransactionDataKey.MOVEMENT_TYPE: PorteMovementKind.PORTE,
+                PorteTransactionDataKey.ACTION: PorteAction.ENTREGA,
+            },
+        )
+        response = self._run_delivery(
+            extra_data={
+                "planning_id": porte.id,
+                "zone_id": almacen.id,
+                CubaTransactionKey.ESTADO: CubaFillState.EMPTY,
+            },
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(
+            AssetTransaction.objects.filter(
+                transaction_type=TransactionTypeChoices.DELIVERY,
+            ).count(),
+            1,
+        )
+        self.asset.refresh_from_db()
+        self.assertEqual(self.asset.current_working_zone_id, almacen.id)
 
     def test_delivery_with_planning_id_links_fk_and_syncs_status(self):
         self.planning.status = PlanningStatus.IN_TRANSIT

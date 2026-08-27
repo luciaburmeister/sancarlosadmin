@@ -34,7 +34,12 @@ from production.models import (
     AssemblyLine,
     AssemblyLineStatus,
 )
-from production.filters.ticket_filters import TicketStageFilter, TicketStageStatusFilter, TicketIncompleteStageFilter
+from production.filters.ticket_filters import (
+    TicketStageFilter,
+    TicketStageStatusFilter,
+    TicketIncompleteStageFilter,
+    TicketLastStageLabelFilter,
+)
 from production.services.scheduler import ScheduleProposalApplier, proposal_from_dict
 from production.services.scheduler.reasons import describe_reason
 from production.views.configuration_autocomplete import ConfigurationAutocompleteView
@@ -157,7 +162,7 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         ("status",MultipleChoicesDropdownFilter),
         TicketStageFilter,
         TicketStageStatusFilter,
-        "last_stage_label",
+        TicketLastStageLabelFilter,
     )
 
     search_fields = ("object_id",)

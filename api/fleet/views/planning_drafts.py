@@ -10,10 +10,12 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 
 from api._utils import CompanyAPIView
-from assets.constants import SERVICE_TYPE_FIELDS
+from assets.constants import (
+    SERVICE_TYPE_FIELDS, SERVICE_TYPE_PLANNING_TYPE, SERVICE_TYPES_NEEDING_MOVED_EMPLOYEES,
+)
 from assets.models import (
     Asset, AssetPlanningRequestDraft, AssetPlanningRequestDraftStatus, AssetTypeCategory,
-    CubaOperationType, CubaSize, PlanningUrgency, ServiceType,
+    CubaOperationType, CubaSize, PlanningType, PlanningUrgency, ServiceType,
 )
 from assets.serializers import AssetPlanningRequestDraftSerializer, MachineAssetSerializer
 
@@ -101,6 +103,8 @@ class PlanningDraftServiceTypesView(CompanyAPIView):
                     "needs_machine": "machine" in SERVICE_TYPE_FIELDS.get(value, set()),
                     "needs_load_description": "load_description" in SERVICE_TYPE_FIELDS.get(value, set()),
                     "needs_cuba_fields": "cuba_operation_type" in SERVICE_TYPE_FIELDS.get(value, set()),
+                    "needs_client": SERVICE_TYPE_PLANNING_TYPE.get(value) != PlanningType.NONE,
+                    "needs_moved_employees": value in SERVICE_TYPES_NEEDING_MOVED_EMPLOYEES,
                 }
                 for value, label in ServiceType.choices
             ],

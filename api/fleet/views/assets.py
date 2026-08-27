@@ -519,6 +519,13 @@ class DeliveryStrategy(BaseTransactionStrategy):
                 {"error": "No puedes dejar una cuba llena en una obra. Llévala a un almacén o vierte primero."},
                 status=400,
             )
+        # Only a verteo empties a cuba picked up full — server-side backstop
+        # for the same rule the app already enforces in its picker.
+        if asset.verteo_pending_transaction is not None and not AssetTransaction.payload_is_full(form_data):
+            return JsonResponse(
+                {"error": "Esta cuba está pendiente de verter, no se puede dejar vacía. Vierte primero."},
+                status=400,
+            )
         if destination_zone.location_confirmed_at is None and latitude and longitude:
             confirm_zone_location(destination_zone, latitude, longitude)
         form_data["cliente"] = destination_zone.client.name if destination_zone.client else ""

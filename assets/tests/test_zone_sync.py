@@ -26,7 +26,7 @@ from django.utils import timezone
 from assets.admin.asset_planning_request import AssetPlanningRequestAdmin
 from assets.constants import (
     SERVICE_TYPE_MAQUINA_PROPIA, SERVICE_TYPE_MAQUINISTAS, SERVICE_TYPE_MATERIAL_EXTERNO,
-    SERVICE_TYPE_AUTOPORTE_MAQUINA,
+    SERVICE_TYPE_AUTOPORTE_MAQUINA, SERVICE_TYPE_PEONES,
 )
 from assets.models import AssetPlanningRequest, AssetPlanningRequestStatus, AssetTransaction, PlanningType, TransactionTypeChoices
 from assets.tasks import apply_due_zone_sync_requests
@@ -195,6 +195,64 @@ class MachinistMovementRequestTests(TestCase):
         self._approve(req)
         req.refresh_from_db()
         self.assertEqual(req.status, AssetPlanningRequestStatus.PENDING_REVIEW)
+
+
+class LaborerMovementRequestTests(TestCase):
+    """Same mechanism as MachinistMovementRequestTests, but for SERVICE_TYPE_PEONES."""
+
+    def setUp(self):
+        self.company = make_company()
+        self.from_zone = make_zone(self.company, name="From Zone")
+        self.to_zone = make_zone(self.company, name="To Zone")
+        self.laborer = make_employee(self.company, make_user(username="laborer1"))
+
+        self.superuser = User.objects.create_superuser(username="admin2", password="testpass123", email="b@a.com")
+        make_employee(self.company, self.superuser)
+
+    def _make_request(self, needed_date):
+        req = AssetPlanningRequest(
+            company=self.company,
+            service_type=SERVICE_TYPE_PEONES,
+            to_zone=self.to_zone,
+            from_zone=self.from_zone,
+            needed_date=needed_date,
+        )
+        # No project_file — no longer required for planning_type == NONE.
+        req.full_clean(exclude=["planning_type"])
+        req.save()
+        req.moved_employees.set([self.laborer])
+        return req
+
+    def _approve(self, req):
+        request = RequestFactory().post("/")
+        SessionMiddleware(lambda r: None).process_request(request)
+        request.session.save()
+        MessageMiddleware(lambda r: None).process_request(request)
+        request.user = self.superuser
+        AssetPlanningRequestAdmin(AssetPlanningRequest, admin_site=None).approve_submit_action(request, req)
+
+    def test_clean_does_not_require_project_file(self):
+        req = self._make_request(date.today())
+        self.assertIsNone(req.project_file_id)
+        self.assertEqual(req.planning_type, PlanningType.NONE)
+
+    def test_approve_today_moves_laborer_immediately_without_planning(self):
+        req = self._make_request(date.today())
+        self._approve(req)
+        req.refresh_from_db()
+        self.assertEqual(req.status, AssetPlanningRequestStatus.APPROVED)
+        self.assertIsNone(req.resulting_planning)
+        self.assertIsNotNone(req.zone_sync_applied_at)
+        self.laborer.refresh_from_db()
+        self.assertEqual(self.laborer.current_working_zone_id, self.to_zone.id)
+
+    def test_approve_future_date_does_not_move_laborer_yet(self):
+        req = self._make_request(date.today() + timedelta(days=3))
+        self._approve(req)
+        req.refresh_from_db()
+        self.assertIsNone(req.zone_sync_applied_at)
+        self.laborer.refresh_from_db()
+        self.assertIsNone(self.laborer.current_working_zone_id)
 
 
 class AutoporteMaquinaRequestTests(TestCase):

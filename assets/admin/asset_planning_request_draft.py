@@ -73,6 +73,7 @@ class AssetPlanningRequestDraftAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "from_zone", "origin_text", "origin_city",
         "needed_date", "needed_time", "urgency", "notes",
         "cuba_operation_type", "cuba_size", "asset", "machine", "load_description",
+        "moved_employees",
         "requested_by", "status", "resulting_request",
     ]
     actions_row = ["create_request_action"]
@@ -88,6 +89,7 @@ class AssetPlanningRequestDraftAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ("needed_date", "needed_time"), "urgency", "notes",
                 ("cuba_operation_type", "cuba_size"),
                 ("asset", "machine", "load_description"),
+                "moved_employees",
             )
         }),
         (_("Status"), {"fields": ("status", "requested_by", "resulting_request")}),

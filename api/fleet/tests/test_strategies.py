@@ -369,6 +369,21 @@ class DeliveryStrategyTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.DELIVERY).exists())
 
+    def test_delivery_rejects_empty_cuba_at_an_almacen_when_verteo_pending(self):
+        """A cuba picked up full and not yet verted can't be marked empty
+        just by dropping it at an almacén instead of an obra."""
+        AssetTransaction.objects.create(
+            asset=self.asset, company=self.company, from_zone=self.origin_zone,
+            transaction_type=TransactionTypeChoices.MOVEMENT, performed_by=self.employee,
+            planning=self.planning, data={"cubaEstado": "Cuba llena"},
+        )
+        almacen = make_zone(self.company, name="Almacen", lat=40.42, lon=-3.71)
+        almacen.zone_type = WorkingZone.ZoneType.ALMACEN
+        almacen.save()
+        response = self._run_delivery(extra_data={"cubaEstado": "Cuba vacía", "zone_id": almacen.id})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.DELIVERY).count(), 0)
+
 
 class ReceiptStrategyTests(TestCase):
     """Tests for ReceiptStrategy — when a driver registers a verteo."""
@@ -884,6 +899,21 @@ class CubaOperationCompletionTests(TestCase):
         make_planning(
             self.company, asset=None, assigned_to=self.employee,
             cuba_operation_type=CubaOperationType.CAMBIO_AGUA, destination=self.almacen,
+        )
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        body = client.get("/en/api/plannings/next/").json()
+        self.assertIsNotNone(body["pending_dropoff"])
+        self.assertFalse(body["pending_dropoff"]["can_use_for_next_task"])
+
+    def test_retirada_next_task_hides_the_use_pending_cuba_shortcut(self):
+        """A retirada can't be satisfied with a cuba already on the truck —
+        the driver must drop it off first."""
+        planning = self._plan(CubaOperationType.RETIRADA, asset=self.old_cuba)
+        self._move(planning, self.old_cuba, self.obra)
+        make_planning(
+            self.company, asset=None, assigned_to=self.employee,
+            cuba_operation_type=CubaOperationType.RETIRADA, destination=self.almacen,
         )
         client = APIClient()
         client.force_authenticate(user=self.user)

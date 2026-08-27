@@ -204,6 +204,120 @@ class POInvoiceMatchService:
             "attention_total": Money(attention_total, currency),
         }
 
+    @classmethod
+    def match_progress(cls, invoice):
+        """
+        Quantity-based progress summary + already-matched breakdown, shared
+        by both the manual matcher (match_po.html) and the AI matcher
+        (ai_match_review.html) so both screens present the same "what's
+        already matched" picture regardless of which matcher was used.
+
+        Returns:
+        {
+            "matched_quantity": Decimal,
+            "total_quantity": Decimal,
+            "item_progress": [{"description", "matched", "total"}, ...]   # lines still pending
+            "matched_items": [{"description", "matched", "total", "is_complete",
+                                "allocations": [{"po_number", "quantity", "from_ai"}, ...]}, ...]
+        }
+        """
+        items_with_remaining = cls.invoice_items_with_remaining(invoice)
+        total_quantity = sum((item.quantity for item, _ in items_with_remaining), Decimal("0"))
+        remaining_quantity = sum((remaining for _, remaining in items_with_remaining), Decimal("0"))
+        matched_quantity = total_quantity - remaining_quantity
+
+        item_progress = [
+            {
+                "description": item.description,
+                "matched": item.quantity - remaining,
+                "total": item.quantity,
+            }
+            for item, remaining in items_with_remaining
+            if remaining > 0
+        ]
+
+        matched_items = []
+        for item, remaining in items_with_remaining:
+            allocations = list(item.po_allocations.select_related("po_item__purchase_order").all())
+            if not allocations:
+                continue
+            matched_items.append({
+                "description": item.description,
+                "matched": item.quantity - remaining,
+                "total": item.quantity,
+                "is_complete": remaining <= 0,
+                "allocations": [
+                    {
+                        "po_number": alloc.po_item.purchase_order.number,
+                        "quantity": alloc.quantity,
+                        "from_ai": alloc.gemini_match_response is not None,
+                    }
+                    for alloc in allocations
+                ],
+            })
+
+        return {
+            "matched_quantity": matched_quantity,
+            "total_quantity": total_quantity,
+            "item_progress": item_progress,
+            "matched_items": matched_items,
+        }
+
+    # ------------------------------------------------------------------
+    # AI matcher pool (data assembly for GeminiPOItemMatcher)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def ai_match_pool(cls, invoice):
+        """
+        Builds the two data structures fed to GeminiPOItemMatcher: invoice
+        lines still without a full match, and candidate PO lines grouped by
+        PO, flagging POs already used elsewhere on this same invoice — a
+        strong prior for providers billed repeatedly with near-identical POs.
+        """
+        invoice_items_data = []
+        for item, remaining in cls.invoice_items_with_remaining(invoice):
+            if remaining <= 0:
+                continue
+            invoice_items_data.append({
+                "id": item.pk,
+                "description": item.description,
+                "quantity": str(remaining),
+                "unit_price": str(cls._money_amount(item.unit_price) or ""),
+            })
+
+        if not invoice_items_data:
+            return [], []
+
+        already_matched_po_ids = set(
+            invoice.linked_purchase_orders().values_list("pk", flat=True)
+        )
+
+        po_candidates_data = []
+        for po in cls.candidate_pos_for_invoice(invoice):
+            items_data = [
+                {
+                    "id": pi.pk,
+                    "name": pi.inventory_item.name if pi.inventory_item_id else "",
+                    "description": pi.description,
+                    "unit_price": str(cls._money_amount(pi.unit_price) or ""),
+                    "pending_quantity": str(pending),
+                }
+                for pi, pending in cls.po_items_with_pending(po, for_credit=invoice.is_credit_note)
+                if pending > 0
+            ]
+            if not items_data:
+                continue
+            po_candidates_data.append({
+                "po_id": po.pk,
+                "po_number": po.number,
+                "date_ordered": po.date_ordered.isoformat() if po.date_ordered else None,
+                "already_matched_in_this_invoice": po.pk in already_matched_po_ids,
+                "items": items_data,
+            })
+
+        return invoice_items_data, po_candidates_data
+
     # ------------------------------------------------------------------
     # Confirmation
     # ------------------------------------------------------------------
@@ -211,8 +325,15 @@ class POInvoiceMatchService:
     @staticmethod
     def confirm(pairs):
         """
-        Creates one InvoicePOAllocation per pair, atomically. Each pair:
-        {"invoice_item": InvoiceItem, "po_item": PurchaseOrderItem, "quantity": Decimal}.
+        Creates or updates one InvoicePOAllocation per pair, atomically. Each
+        pair: {"invoice_item": InvoiceItem, "po_item": PurchaseOrderItem, "quantity": Decimal}.
+
+        If an allocation already exists for this exact (invoice_item, po_item)
+        pair — e.g. the AI matcher suggests the same PO line again for an
+        invoice line that was only partially matched before, since the PO
+        being "already matched in this invoice" is itself a signal the
+        matcher is told to prefer — its quantity is increased instead of
+        violating the uniqueness constraint on (invoice_item, po_item).
         Model validation raises ValidationError and rolls back everything.
 
         Also auto-links each involved invoice to its matched PO's project_file,
@@ -224,13 +345,22 @@ class POInvoiceMatchService:
         created = []
         with transaction.atomic():
             for pair in pairs:
-                alloc = InvoicePOAllocation(
+                existing = InvoicePOAllocation.objects.filter(
                     invoice_item=pair["invoice_item"],
                     po_item=pair["po_item"],
-                    quantity=pair["quantity"],
-                )
-                alloc.save()
-                created.append(alloc)
+                ).first()
+                if existing:
+                    existing.quantity = existing.quantity + pair["quantity"]
+                    existing.save()
+                    created.append(existing)
+                else:
+                    alloc = InvoicePOAllocation(
+                        invoice_item=pair["invoice_item"],
+                        po_item=pair["po_item"],
+                        quantity=pair["quantity"],
+                    )
+                    alloc.save()
+                    created.append(alloc)
 
             linked_invoices = set()
             for alloc in created:

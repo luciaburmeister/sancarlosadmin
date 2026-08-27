@@ -12,6 +12,7 @@ import os
 import shutil
 from company.models import CompanyEmailConfig
 from .services.email_processor import EmailInvoiceProcessor
+from decimal import Decimal, InvalidOperation
 
 logger = logging.getLogger(__name__)
 
@@ -275,4 +276,105 @@ def build_invoice_pdf_zip_task(kind: str, invoice_ids: list[int], user_id: int |
         invoice_ids=list(invoice_ids or []),
         user_id=user_id,
     )
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=60)
+def suggest_ai_po_matches_task(self, invoice_id: int):
+    """
+    Run GeminiPOItemMatcher for a single Invoice. Deletes any PENDING
+    AIMatchSuggestion rows for this invoice first, then regenerates from
+    scratch — so a re-run never leaves stale suggestions mixed with new ones.
+
+    Only "high" confidence matches from Gemini are persisted; "medium"/"low"
+    are discarded (Gemini uses them internally for calibration only).
+
+    Returns a result dict consumed by the matcher status page:
+        {"status": "done", "invoice_id": X, "has_match": bool, "suggestions_count": N}
+        {"status": "no_match", "invoice_id": X, "has_match": False, "suggestions_count": 0}
+    """
+    from django.conf import settings
+
+    from invoices.models import (
+        AIMatchSuggestion,
+        AIMatchSuggestionStatus,
+        Invoice,
+        InvoiceItem,
+    )
+    from invoices.services.gemini_po_matcher import GeminiPOItemMatcher
+    from invoices.services.po_matching import POInvoiceMatchService
+    from purchasing.models import PurchaseOrderItem
+
+    try:
+        invoice = Invoice.objects.get(pk=invoice_id)
+
+        AIMatchSuggestion.objects.filter(
+            invoice=invoice, status=AIMatchSuggestionStatus.PENDING
+        ).delete()
+
+        invoice_items_data, po_candidates_data = POInvoiceMatchService.ai_match_pool(invoice)
+
+        if not invoice_items_data or not po_candidates_data:
+            logger.info(
+                "AI PO matcher: nothing to match for invoice %s (no unmatched lines "
+                "or no candidate POs with pending quantity).",
+                invoice_id,
+            )
+            return {
+                "status": "no_match",
+                "invoice_id": invoice_id,
+                "has_match": False,
+                "suggestions_count": 0,
+            }
+
+        matcher = GeminiPOItemMatcher(api_key=settings.GEMINI_API_KEY)
+        raw_matches = matcher.find_matches(invoice_items_data, po_candidates_data)
+
+        invoice_item_ids = {item["id"] for item in invoice_items_data}
+        po_item_ids = {
+            pi["id"] for po in po_candidates_data for pi in po["items"]
+        }
+
+        created = []
+        for match in raw_matches:
+            if match.get("confidence") != "high":
+                continue
+            if match.get("invoice_item_id") not in invoice_item_ids:
+                continue
+            if match.get("po_item_id") not in po_item_ids:
+                continue
+            try:
+                quantity = Decimal(str(match["quantity"]))
+            except (InvalidOperation, KeyError, TypeError):
+                continue
+            if quantity <= 0:
+                continue
+
+            created.append(AIMatchSuggestion(
+                invoice=invoice,
+                invoice_item_id=match["invoice_item_id"],
+                po_item_id=match["po_item_id"],
+                quantity=quantity,
+                confidence=match["confidence"],
+                reasoning=match.get("reasoning", ""),
+                raw_response=match,
+            ))
+
+        AIMatchSuggestion.objects.bulk_create(created)
+
+        logger.info(
+            "AI PO matcher ran for invoice %s: %d high-confidence suggestion(s) "
+            "out of %d raw match(es).",
+            invoice_id, len(created), len(raw_matches),
+        )
+        return {
+            "status": "done" if created else "no_match",
+            "invoice_id": invoice_id,
+            "has_match": bool(created),
+            "suggestions_count": len(created),
+        }
+    except Invoice.DoesNotExist:
+        logger.error("Invoice %s does not exist, skipping AI PO matcher.", invoice_id)
+        return {"status": "error", "message": f"Invoice {invoice_id} not found."}
+    except Exception as exc:
+        logger.exception("AI PO matcher failed for invoice %s", invoice_id)
+        raise self.retry(exc=exc)
 

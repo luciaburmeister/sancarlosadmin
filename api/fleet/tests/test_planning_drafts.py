@@ -530,8 +530,7 @@ class CancelRequestTests(TestCase):
 
 
 class LaborerMovementDraftTests(TestCase):
-    """SERVICE_TYPE_PEONES drafts — same mobile draft pipeline as porte/cuba,
-    but no client (planning_type == NONE) and moved_employees required instead."""
+    """SERVICE_TYPE_PEONES drafts — no client required, moved_employees instead."""
 
     def setUp(self):
         self.client_api = APIClient()

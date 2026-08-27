@@ -1,8 +1,7 @@
 """
 api/fleet/tests/test_employees.py
 
-Tests for GET /es/api/employees/ — the active-employees list the mobile app
-uses to populate the "peones" picker on the Laborer Movement planning draft.
+Tests for GET /es/api/employees/ — active employees for the Laborer Movement picker.
 
 Run just this file:
     python manage.py test api.fleet.tests.test_employees
@@ -35,7 +34,7 @@ class EmployeesListEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200)
         names = [r["name"] for r in response.json()["results"]]
         self.assertIn("Juan Perez", names)
-        self.assertIn("Test Driver", names)  # self.employee, from make_employee
+        self.assertIn("Test Driver", names)  # self.employee
 
     def test_excludes_inactive_employees(self):
         Employee.objects.create(

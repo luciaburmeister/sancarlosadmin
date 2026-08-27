@@ -103,9 +103,6 @@ class PlanningDraftServiceTypesView(CompanyAPIView):
                     "needs_machine": "machine" in SERVICE_TYPE_FIELDS.get(value, set()),
                     "needs_load_description": "load_description" in SERVICE_TYPE_FIELDS.get(value, set()),
                     "needs_cuba_fields": "cuba_operation_type" in SERVICE_TYPE_FIELDS.get(value, set()),
-                    # planning_type == NONE requests (Machinist/Laborer Movement,
-                    # Machine Self-Transport) never become a dispatched job tied
-                    # to a client site.
                     "needs_client": SERVICE_TYPE_PLANNING_TYPE.get(value) != PlanningType.NONE,
                     "needs_moved_employees": value in SERVICE_TYPES_NEEDING_MOVED_EMPLOYEES,
                 }

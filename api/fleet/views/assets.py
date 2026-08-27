@@ -519,10 +519,8 @@ class DeliveryStrategy(BaseTransactionStrategy):
                 {"error": "No puedes dejar una cuba llena en una obra. Llévala a un almacén o vierte primero."},
                 status=400,
             )
-        # A cuba picked up full doesn't become empty just by being dropped off
-        # somewhere else (e.g. an almacén) — only a verteo empties it. The app
-        # already hides "vacía" from the picker while a verteo is owed, but the
-        # server must reject it too in case a client sends it anyway.
+        # Only a verteo empties a cuba picked up full — server-side backstop
+        # for the same rule the app already enforces in its picker.
         if asset.verteo_pending_transaction is not None and not AssetTransaction.payload_is_full(form_data):
             return JsonResponse(
                 {"error": "Esta cuba está pendiente de verter, no se puede dejar vacía. Vierte primero."},

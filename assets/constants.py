@@ -36,20 +36,14 @@ SERVICE_TYPE_FIELDS = {
     SERVICE_TYPE_MATERIAL_PROPIO: {"from_zone", "to_zone", "load_description", "suggested_trucks"},
     SERVICE_TYPE_GRUA: {"to_zone", "suggested_trucks"},
     SERVICE_TYPE_CUBA: {"to_zone", "cuba_operation_type", "cuba_size", "suggested_trucks"},
-    # No AssetPlanning, so no route/estimated_duration endpoints for these —
-    # moved_employees is handled separately, see SERVICE_TYPES_NEEDING_MOVED_EMPLOYEES.
+    # moved_employees handled separately, see SERVICE_TYPES_NEEDING_MOVED_EMPLOYEES.
     SERVICE_TYPE_MAQUINISTAS: {"from_zone", "to_zone"},
     # Self-moving machine, no truck/dispatch — only the destination matters,
     # same shape as SERVICE_TYPE_GRUA minus the truck.
     SERVICE_TYPE_AUTOPORTE_MAQUINA: {"to_zone", "asset"},
-    # Same shape as SERVICE_TYPE_MAQUINISTAS — laborers, not machinists.
     SERVICE_TYPE_PEONES: {"from_zone", "to_zone"},
 }
 
-# Service types whose draft/request needs at least one Employee picked in
-# moved_employees before it can be submitted/approved — see
-# AssetPlanningRequestDraft.missing_fields_for_submit() and
-# AssetPlanningRequestAdmin._approve_zone_sync_request(). Not part of
-# SERVICE_TYPE_FIELDS since moved_employees is a M2M — missing_fields_for_submit()
-# needs an .exists() check, not the plain getattr() truthy check the rest use.
+# Service types requiring at least one Employee in moved_employees to submit/approve.
+# Separate from SERVICE_TYPE_FIELDS since it's a M2M, not a plain getattr() check.
 SERVICE_TYPES_NEEDING_MOVED_EMPLOYEES = frozenset({SERVICE_TYPE_PEONES})

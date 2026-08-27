@@ -762,9 +762,8 @@ CUBA_TWO_LEG_OPERATION_TYPES = frozenset({
 
 # Same-asset round trips: there's no second physical asset to swap in, so the
 # pickup can never be resolved via a cuba the driver is still carrying from an
-# earlier job — see AssetPlanning.requires_empty_truck_pickup(). RETIRADA is
-# a plain pickup at the client's site: the cuba being picked up is theirs, not
-# whatever the driver is still carrying, so it needs the same empty-truck rule.
+# earlier job — see AssetPlanning.requires_empty_truck_pickup(). RETIRADA picks
+# up a specific cuba at the client's site, so it needs the same rule.
 CUBA_REQUIRES_EMPTY_TRUCK_TYPES = frozenset({
     CubaOperationType.CAMBIO_MISMA_CUBA,
     CubaOperationType.CAMBIO_AGUA,
@@ -1573,9 +1572,7 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
         if self.assigned_to_id and self.company_id and self.assigned_to.company_id != self.company_id:
             raise ValidationError({"assigned_to": _("This employee belongs to a different company than the selected zone.")})
 
-        # Not applicable to planning_type == NONE requests (Machinist/Laborer
-        # Movement, Machine Self-Transport) — they never produce an
-        # AssetPlanning, so there's nothing to link a project file to.
+        # planning_type == NONE requests never produce an AssetPlanning.
         if self.planning_type != PlanningType.NONE and not self.project_file_id:
             raise ValidationError({"project_file": _("Project File is required.")})
         if self.project_file_id and self.company_id and self.project_file.company_id != self.company_id:
@@ -1685,8 +1682,7 @@ class AssetPlanningRequestDraft(CompanyOwnedModel, Timestampable):
         limit_choices_to={"asset_type__category": AssetTypeCategory.MACHINE},
     )
     load_description = models.TextField(blank=True, verbose_name=_("Load Description"))
-    # SERVICE_TYPE_PEONES only (see SERVICE_TYPES_NEEDING_MOVED_EMPLOYEES) —
-    # the peones/laborers to move from from_zone to to_zone.
+    # SERVICE_TYPE_PEONES only — the laborers to move from from_zone to to_zone.
     moved_employees = models.ManyToManyField(
         'company.Employee', blank=True, related_name="laborer_moved_request_drafts",
         verbose_name=_("Moved Employees"),
@@ -1744,8 +1740,7 @@ class AssetPlanningRequestDraft(CompanyOwnedModel, Timestampable):
             value = getattr(self, f"{field_name}_id" if field_name in ("asset", "machine") else field_name)
             if not value:
                 missing.append(field_name)
-        # planning_type == NONE requests (e.g. Laborer Movement) never become a
-        # dispatched job tied to a client site — no client required for those.
+        # planning_type == NONE requests aren't tied to a client site.
         needs_client = SERVICE_TYPE_PLANNING_TYPE.get(self.service_type) != PlanningType.NONE
         if needs_client and not self.client_id and not self.new_client_name.strip():
             missing.append("client")

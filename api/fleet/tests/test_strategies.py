@@ -370,8 +370,8 @@ class DeliveryStrategyTests(TestCase):
         self.assertTrue(AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.DELIVERY).exists())
 
     def test_delivery_rejects_empty_cuba_at_an_almacen_when_verteo_pending(self):
-        """A cuba picked up full and never vertida can't be marked empty just
-        because it's being dropped at an almacén instead of an obra."""
+        """A cuba picked up full and not yet verted can't be marked empty
+        just by dropping it at an almacén instead of an obra."""
         AssetTransaction.objects.create(
             asset=self.asset, company=self.company, from_zone=self.origin_zone,
             transaction_type=TransactionTypeChoices.MOVEMENT, performed_by=self.employee,
@@ -907,9 +907,8 @@ class CubaOperationCompletionTests(TestCase):
         self.assertFalse(body["pending_dropoff"]["can_use_for_next_task"])
 
     def test_retirada_next_task_hides_the_use_pending_cuba_shortcut(self):
-        """A recogida (retirada) is a pickup of a specific cuba at the client's
-        site — the driver can't satisfy it by reusing a cuba they're already
-        carrying from a previous job; they must drop that one off first."""
+        """A retirada can't be satisfied with a cuba already on the truck —
+        the driver must drop it off first."""
         planning = self._plan(CubaOperationType.RETIRADA, asset=self.old_cuba)
         self._move(planning, self.old_cuba, self.obra)
         make_planning(

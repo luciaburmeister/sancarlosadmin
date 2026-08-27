@@ -198,13 +198,7 @@ class MachinistMovementRequestTests(TestCase):
 
 
 class LaborerMovementRequestTests(TestCase):
-    """Same mechanism as MachinistMovementRequestTests above, but for
-    SERVICE_TYPE_PEONES — requested from solicitudes_app as an
-    AssetPlanningRequestDraft (see api.fleet.tests.test_planning_drafts) and
-    turned into this real AssetPlanningRequest by office, same as any other
-    draft. Confirms the shared approve/apply_zone_change machinery needs no
-    changes for the new service_type, and that project_file really is
-    optional for it now."""
+    """Same mechanism as MachinistMovementRequestTests, but for SERVICE_TYPE_PEONES."""
 
     def setUp(self):
         self.company = make_company()
@@ -223,7 +217,7 @@ class LaborerMovementRequestTests(TestCase):
             from_zone=self.from_zone,
             needed_date=needed_date,
         )
-        # No project_file — proves it's no longer required for planning_type == NONE.
+        # No project_file — no longer required for planning_type == NONE.
         req.full_clean(exclude=["planning_type"])
         req.save()
         req.moved_employees.set([self.laborer])

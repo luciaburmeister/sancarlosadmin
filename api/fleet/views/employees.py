@@ -1,5 +1,4 @@
-"""GET /es/api/employees/ — the company's active employees, for the mobile
-"peones"/laborer picker on the Laborer Movement planning draft."""
+"""GET /es/api/employees/ — active employees, for the Laborer Movement picker."""
 from django.http import JsonResponse
 
 from api._utils import CompanyAPIView

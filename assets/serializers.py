@@ -106,8 +106,7 @@ class AssetPlanningRequestDraftSerializer(serializers.ModelSerializer):
         # see whichever one is already set.
         company = self.context.get("company")
         service_type = self._current(attrs, "service_type")
-        # planning_type == NONE requests (e.g. Laborer Movement) never become a
-        # dispatched job tied to a client site — no client required for those.
+        # planning_type == NONE requests aren't tied to a client site.
         needs_client = SERVICE_TYPE_PLANNING_TYPE.get(service_type) != PlanningType.NONE
         client = self._current(attrs, "client")
         new_client_name = (self._current(attrs, "new_client_name") or "").strip()

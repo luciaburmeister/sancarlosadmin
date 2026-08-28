@@ -1702,6 +1702,9 @@ msgstr "Movimiento de Maquinistas"
 msgid "Machine Self-Transport"
 msgstr "Autoporte de Máquina"
 
+msgid "Laborer Movement"
+msgstr "Movimiento de Peones"
+
 msgid "Container Drop-off"
 msgstr "Puesta de Cuba"
 

@@ -13,7 +13,7 @@ from django.utils.translation import gettext_lazy as _
 from company.models import CompanyOwnedModel
 from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
-from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from invoices.models import AppliedTax, PaymentMethod
 from company.models import Company, CompanyOwnedModel, BaseBankAccount, BankAccount, BaseDocumentType, BaseDocument
 from django_countries.fields import CountryField
@@ -1566,6 +1566,40 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
         verbose_name=_("Subtotal"),
         help_text=_("Sum of delivery order item line totals."),
     )
+    discount_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Discount Amount"),
+        help_text=_("Discount carried from the source quotes; reduces the taxable base."),
+    )
+    discount_breakdown = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name=_("Discount Breakdown"),
+        help_text=_("Stores each applied discount rule with its base and amount."),
+    )
+    tax_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Tax Amount"),
+    )
+    total_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Total"),
+        help_text=_("Subtotal - discount + taxes."),
+    )
+    applied_taxes = GenericRelation(
+        "invoices.AppliedTax",
+        content_type_field="content_type",
+        object_id_field="object_id",
+    )
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
 
     # Shipping information
@@ -1631,15 +1665,68 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
         return ""
 
     def recalculate_subtotal(self, save=True):
-        """Recompute subtotal_amount from item line_totals."""
-        total = sum(
+        """Deprecated alias — use recalculate_totals()."""
+        self.recalculate_totals(save=save)
+        return self.subtotal_amount
+
+    def recalculate_totals(self, save=True):
+        """Recompute subtotal, tax and total from items and own AppliedTax rows.
+
+        Mirrors SalesInvoice.recalculate_totals: subtotal from item
+        line_totals (discount lines included — they are real lines), taxable
+        base = subtotal - discount_amount, then sequential application of the
+        delivery order's own AppliedTax records honoring each tax's stored
+        base_amount and add/subtract behavior.
+        """
+        subtotal = sum(
             (item.line_total.amount for item in self.items.all() if item.line_total),
             Decimal("0.00"),
         )
-        self.subtotal_amount = total
+        self.subtotal_amount = subtotal
+
+        discount = (
+            Decimal(str(self.discount_amount.amount))
+            if self.discount_amount else Decimal("0.00")
+        )
+        taxable_base = subtotal - discount
+        current_total = taxable_base
+        total_tax = Decimal("0.00")
+
+        for tax in self.applied_taxes.order_by("order", "id"):
+            if tax.base_amount is not None:
+                tax_base = Decimal(str(tax.base_amount.amount))
+            else:
+                tax_base = taxable_base
+            tax.base_amount = tax_base
+
+            res = tax.calculate(tax_base)
+            tax.calculated_amount = res["tax_amount"]
+            tax.save(update_fields=["base_amount", "calculated_amount"])
+
+            amt = Decimal(str(tax.calculated_amount.amount))
+            if tax.tax_type.behavior == "add":
+                total_tax += amt
+                current_total += amt
+            else:
+                total_tax -= amt
+                current_total -= amt
+
+        self.tax_amount = total_tax
+        self.total_amount = current_total
+
         if save:
-            self.save(update_fields=["subtotal_amount", "subtotal_amount_currency"])
-        return self.subtotal_amount
+            self.save(update_fields=[
+                "subtotal_amount", "subtotal_amount_currency",
+                "tax_amount", "tax_amount_currency",
+                "total_amount", "total_amount_currency",
+            ])
+
+        return {
+            "subtotal": self.subtotal_amount,
+            "discount": self.discount_amount,
+            "tax": self.tax_amount,
+            "total": self.total_amount,
+        }
 
 
 class DeliveryOrderDocumentType(BaseDocumentType):

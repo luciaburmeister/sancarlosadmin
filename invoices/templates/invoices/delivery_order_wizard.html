@@ -36,7 +36,7 @@
             <div class="flex items-center justify-between text-sm bg-gray-50 dark:bg-gray-800 rounded px-3 py-1.5 mb-1">
                 <span>{{ do.number }}</span>
                 <span class="text-gray-400">{{ do.date }}</span>
-                <span class="font-medium">{{ do.subtotal_amount|floatformat:2 }} €</span>
+                <span class="font-medium">{% if do.total_amount.amount %}{{ do.total_amount|floatformat:2 }}{% else %}{{ do.subtotal_amount|floatformat:2 }}{% endif %} €</span>
             </div>
             {% endfor %}
         </div>

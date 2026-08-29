@@ -108,12 +108,15 @@ class BulkProjectFileInvoiceService:
         # ---------- create line items + aggregate taxes ----------
         from configurator.models import Configuration
         from sales.models import QuoteInventoryItem
+        from invoices.services.discounts import QuoteDiscountResolver, SourceLine, source_kind
 
         config_ct = ContentType.objects.get_for_model(Configuration)
         inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
 
         subtotal = Decimal("0.00")
         tax_agg: dict[tuple, dict] = {}
+        line_taxes = []    # (line_total, source_taxes, quote_id, kind) — taxed after the discount is known
+        source_lines = []  # SourceLine records for the discount resolver
 
         for item_data in all_items_data:
             item = SalesInvoiceItem.objects.create(
@@ -129,9 +132,10 @@ class BulkProjectFileInvoiceService:
             line_total = item.line_total.amount
             subtotal += line_total
 
-            # Resolve source taxes
+            # Resolve source taxes and owning quote
             source_id = item_data.get("source_id", "")
             source_taxes = []
+            quote_id = item_data.get("quote_id")
 
             if source_id.startswith("config_") or source_id.startswith("direct_"):
                 obj_id = source_id.split("_", 1)[1]
@@ -148,12 +152,45 @@ class BulkProjectFileInvoiceService:
                     ).select_related("tax_type")
                 )
 
+            kind = source_kind(source_id)
+            source_lines.append(SourceLine(source_id, line_total, quote_id, kind))
+            line_taxes.append((line_total, source_taxes, quote_id, kind))
+
+        # Carry each quote's discount onto the invoice via the per-level
+        # strategies, scaled by how much of that quote's base is invoiced.
+        source_quotes = [
+            qd["quote"]
+            for summary in pf_summaries.values()
+            for qd in summary["quotes"]
+        ]
+        resolution = QuoteDiscountResolver().resolve(source_quotes, source_lines)
+
+        # Financing discounts appear as their own negative invoice line.
+        quote_pf = {}
+        for pf_pk, summary in pf_summaries.items():
+            for qd in summary["quotes"]:
+                quote_pf[qd["quote"].id] = pf_pk
+        for line in resolution.discount_lines:
+            SalesInvoiceItem.objects.create(
+                invoice=invoice,
+                description=line["description"],
+                quantity=Decimal("1"),
+                unit_price=-line["amount"],
+                source_id=line["source_id"],
+                project_file_id=quote_pf.get(line["quote_id"]),
+            )
+            subtotal -= line["amount"]
+
+        # Taxes apply to each line's discounted base.
+        for line_total, source_taxes, quote_id, kind in line_taxes:
+            frac = resolution.taxable_fraction(quote_id, kind)
+            taxable = (line_total * (Decimal("1") - frac)).quantize(Decimal("0.01"))
             for tax in source_taxes:
                 if tax.selected_percentage <= 0:
                     continue
                 key = (tax.tax_type_id, tax.tax_type.behavior, tax.selected_percentage)
                 rate = tax.selected_percentage / Decimal("100")
-                calc = (line_total * rate).quantize(Decimal("0.01"))
+                calc = (taxable * rate).quantize(Decimal("0.01"))
 
                 if key not in tax_agg:
                     tax_agg[key] = {
@@ -162,7 +199,7 @@ class BulkProjectFileInvoiceService:
                         "base_amount": Decimal("0.00"),
                         "calculated_amount": Decimal("0.00"),
                     }
-                tax_agg[key]["base_amount"] += line_total
+                tax_agg[key]["base_amount"] += taxable
                 tax_agg[key]["calculated_amount"] += calc
 
         # Create aggregated AppliedTax records
@@ -183,10 +220,13 @@ class BulkProjectFileInvoiceService:
 
         # ---------- update invoice totals ----------
         invoice.subtotal_amount = subtotal
+        invoice.discount_amount = resolution.discount_amount
+        invoice.discount_breakdown = resolution.breakdown
         invoice.tax_amount = total_tax
-        invoice.total_amount = subtotal + total_tax
+        invoice.total_amount = subtotal - resolution.discount_amount + total_tax
         invoice.save(update_fields=[
-            "subtotal_amount", "tax_amount", "total_amount",
+            "subtotal_amount", "discount_amount", "discount_amount_currency",
+            "discount_breakdown", "tax_amount", "total_amount",
         ])
 
         # Link M2M
@@ -236,6 +276,7 @@ class BulkProjectFileInvoiceService:
                     "unit_price": up,
                     "discount_percentage": Decimal("0.00"),
                     "project_file_id": project_file.pk,
+                    "quote_id": quote.id,
                 })
 
             for item in quote.items.all():
@@ -250,6 +291,7 @@ class BulkProjectFileInvoiceService:
                     "unit_price": line_amt,
                     "discount_percentage": Decimal("0.00"),
                     "project_file_id": project_file.pk,
+                    "quote_id": quote.id,
                 })
 
             for inv_item in quote.inventory_items.select_related("inventory_item").all():
@@ -263,8 +305,10 @@ class BulkProjectFileInvoiceService:
                     "quote_name": quote.project_name or "",
                     "quantity": inv_item.quantity,
                     "unit_price": inv_item.unit_price.amount,
-                    "discount_percentage": Decimal("0.00"),
+                    # Line-item level discounts travel with the line itself
+                    "discount_percentage": inv_item.discount or Decimal("0.00"),
                     "project_file_id": project_file.pk,
+                    "quote_id": quote.id,
                 })
 
         # Direct configurations (not linked to any quote)

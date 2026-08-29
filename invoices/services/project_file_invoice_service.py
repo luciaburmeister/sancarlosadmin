@@ -406,12 +406,13 @@ class ProjectFileInvoiceService:
 
         from configurator.models import Configuration
         from sales.models import QuoteInventoryItem, QuoteItem
+        from invoices.services.discounts import QuoteDiscountResolver, SourceLine, source_kind
 
         config_ct = ContentType.objects.get_for_model(Configuration)
         inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
 
-        line_taxes = []  # (line_total, source_taxes, quote_id) — taxed after the discount is known
-        per_quote_invoiced: dict[int, Decimal] = {}  # quote_id → invoiced line subtotal
+        line_taxes = []  # (line_total, source_taxes, quote_id, kind) — taxed after the discount is known
+        source_lines = []  # SourceLine records for the discount resolver
 
         for item_data in items_data:
             item = SalesInvoiceItem.objects.create(
@@ -461,42 +462,39 @@ class ProjectFileInvoiceService:
                     .values_list("quote_id", flat=True).first()
                 )
 
-            if quote_id is not None:
-                per_quote_invoiced[quote_id] = (
-                    per_quote_invoiced.get(quote_id, Decimal("0")) + line_total
-                )
-            line_taxes.append((line_total, source_taxes, quote_id))
+            kind = source_kind(source_id)
+            source_lines.append(SourceLine(source_id, line_total, quote_id, kind))
+            line_taxes.append((line_total, source_taxes, quote_id, kind))
 
-        # Carry discounts from source quotes, each scaled by how much of THAT
-        # quote this invoice covers — a quote's discount must not bleed into
-        # lines invoiced from other quotes.
-        invoice_discount = Decimal("0.00")
-        invoice_discount_breakdown = []
-        quote_discount_fraction: dict[int, Decimal] = {}  # quote_id → discount / quote subtotal
+        # Carry discounts from source quotes via the per-level strategies,
+        # each scaled by how much of THAT quote's base this invoice covers —
+        # a quote's discount must not bleed into lines invoiced from other
+        # quotes.
+        resolution = QuoteDiscountResolver().resolve(
+            [qd['quote'] for qd in summary['quotes']], source_lines,
+        )
+        invoice_discount = resolution.discount_amount
+        invoice_discount_breakdown = resolution.breakdown
 
-        for qd in summary['quotes']:
-            quote = qd['quote']
-            if not (quote.discount_amount and quote.discount_amount.amount > 0):
-                continue
-            quote_sub = Decimal(str(quote.subtotal_price.amount))
-            invoiced_for_quote = per_quote_invoiced.get(quote.id, Decimal("0"))
-            if quote_sub <= 0 or invoiced_for_quote <= 0:
-                continue
-            ratio = invoiced_for_quote / quote_sub
-            scaled = (quote.discount_amount.amount * ratio).quantize(Decimal("0.01"))
-            invoice_discount += scaled
-            quote_discount_fraction[quote.id] = quote.discount_amount.amount / quote_sub
-            for entry in (quote.discount_breakdown or []):
-                invoice_discount_breakdown.append({
-                    **entry,
-                    "amount": str((Decimal(entry["amount"]) * ratio).quantize(Decimal("0.01"))),
-                    "base": str((Decimal(entry["base"]) * ratio).quantize(Decimal("0.01"))),
-                })
+        # Financing discounts materialize as their own negative invoice line
+        # (they are not item-level discounts); they reduce the subtotal
+        # directly instead of going through discount_amount.
+        for line in resolution.discount_lines:
+            SalesInvoiceItem.objects.create(
+                invoice=invoice,
+                description=line['description'],
+                quantity=Decimal("1"),
+                unit_price=-line['amount'],
+                source_id=line['source_id'],
+            )
+            subtotal -= line['amount']
 
         # Taxes apply to the discounted base (the quote's "taxable base"),
-        # so reduce each line by its own quote's discount fraction.
-        for line_total, source_taxes, quote_id in line_taxes:
-            frac = quote_discount_fraction.get(quote_id, Decimal("0"))
+        # so reduce each line by its own quote's discount fraction for its
+        # line kind. Lines materialized from financing discounts are already
+        # accounted for here — they carry no tax of their own.
+        for line_total, source_taxes, quote_id, kind in line_taxes:
+            frac = resolution.taxable_fraction(quote_id, kind)
             taxable = (line_total * (Decimal("1") - frac)).quantize(Decimal("0.01"))
             for tax in source_taxes:
                 if tax.selected_percentage <= 0:

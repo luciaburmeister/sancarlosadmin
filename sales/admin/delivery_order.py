@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.shortcuts import redirect
 from django.urls import reverse, path
 from django.utils.translation import gettext_lazy as _
-from unfold.admin import ModelAdmin, StackedInline, TabularInline
+from unfold.admin import ModelAdmin, StackedInline, TabularInline, GenericTabularInline
 from unfold.contrib.inlines.admin import NonrelatedTabularInline
 from unfold.decorators import action, display
 from unfold.contrib.filters.admin import (
@@ -12,6 +12,7 @@ from unfold.contrib.filters.admin import (
 )
 
 from core.admin.company_admin import CompanyRestrictedAdmin
+from invoices.models import AppliedTax
 from core.admin.company_access import get_user_companies
 from core.admin.email_log import EmailLogInline
 from company.forms import BaseDocumentForm
@@ -115,6 +116,21 @@ class DeliveryOrderIdentityCodeInline(NonrelatedTabularInline):
         return obj.delivery_order_item
 
 
+class DeliveryOrderAppliedTaxInline(GenericTabularInline):
+    hide_ordering_field = True
+    ordering_field = "order"
+    model = AppliedTax
+    extra = 0
+    autocomplete_fields = ("tax_type",)
+    ordering = ("order",)
+    fieldset = {
+        "Applied tax": (("tax_type", "selected_percentage"), ("base_amount", "calculated_amount"), "order")
+    }
+    verbose_name = _("Applied tax")
+    verbose_name_plural = _("Applied taxes")
+    tab = True
+
+
 class DeliveryOrderItemInline(StackedInline):
     model = DeliveryOrderItem
     extra = 0
@@ -135,12 +151,12 @@ class DeliveryOrderItemInline(StackedInline):
 
 @admin.register(DeliveryOrder)
 class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["number", "get_status_label", "client", "date", "subtotal_amount", "get_invoiced_label","company"]
+    list_display = ["number", "get_status_label", "client", "date", "total_amount", "get_invoiced_label","company"]
     list_filter = [("company",AutocompleteSelectMultipleFilter), ("status",MultipleChoicesDropdownFilter), ("date",RangeDateFilter)]
     search_fields = ["number", "external_id", "client__name", "shipment_number", "shipping_agency__name"]
     autocomplete_fields = ["company", "client", "sales_invoice", "configuration", "project_file", "shipping_agency"]
-    inlines = [DeliveryOrderItemInline, DeliveryOrderIdentityCodeInline, DeliveryOrderDocumentInline, EmailLogInline]
-    readonly_fields = ["number", "date", "subtotal_amount"]
+    inlines = [DeliveryOrderItemInline, DeliveryOrderAppliedTaxInline, DeliveryOrderIdentityCodeInline, DeliveryOrderDocumentInline, EmailLogInline]
+    readonly_fields = ["number", "date", "subtotal_amount", "discount_amount", "tax_amount", "total_amount"]
     list_filter_submit = True
 
     fieldsets = (
@@ -151,6 +167,7 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ("company", "client"),
                 ("project_file", "external_id"),
                 ("status", "subtotal_amount"),
+                ("discount_amount", "tax_amount", "total_amount"),
                 "sales_invoice",
                 "notes",
             )
@@ -250,7 +267,7 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
-        form.instance.recalculate_subtotal()
+        form.instance.recalculate_totals()
 
     @action(description=_("Create Invoice"), icon="receipt_long")
     def create_invoice_from_do_row_action(self, request, object_id):

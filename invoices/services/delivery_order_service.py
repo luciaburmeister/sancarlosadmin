@@ -70,10 +70,6 @@ class DeliveryOrderService:
         )
 
         for quote in accepted_quotes:
-            # Ratio of discounted to original subtotal
-            quote_sub = quote.subtotal_price.amount if quote.subtotal_price else Decimal("0")
-            discounted_sub = quote.discounted_subtotal.amount if quote.discounted_subtotal else quote_sub
-
             for config in quote.configurations.all():
                 key = (config_ct.id, config.id)
                 total_qty = config.units if config.units and config.units > 0 else Decimal("1")
@@ -82,13 +78,12 @@ class DeliveryOrderService:
                 if remaining <= 0:
                     continue
 
-                # Config's share of the discounted subtotal
+                # Gross (pre-discount) price — the quote's discount is carried
+                # onto the delivery order explicitly (header discount and/or
+                # financing discount line) by create_delivery_order, never
+                # baked into item prices.
                 config_sub = config.subtotal_price.amount
-                if quote_sub > 0:
-                    actual_sub = (discounted_sub * config_sub / quote_sub).quantize(Decimal("0.01"))
-                else:
-                    actual_sub = config_sub
-                up = (actual_sub / total_qty).quantize(Decimal("0.01")) if total_qty > 0 else actual_sub
+                up = (config_sub / total_qty).quantize(Decimal("0.01")) if total_qty > 0 else config_sub
 
                 items.append({
                     'source_content_type_id': config_ct.id,
@@ -225,7 +220,10 @@ class DeliveryOrderService:
         Returns:
             DeliveryOrder instance
         """
+        from configurator.models import Configuration
+        from sales.models import QuoteInventoryItem
         from invoices.services.sales_invoice_service import SalesInvoiceService
+        from invoices.services.discounts import QuoteDiscountResolver, SourceLine, source_kind
 
         if not items_data:
             raise ValidationError(_("At least one item is required."))
@@ -243,11 +241,17 @@ class DeliveryOrderService:
             status=DeliveryOrderStatus.DRAFT,
         )
 
+        config_ct = ContentType.objects.get_for_model(Configuration)
+        inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
+
+        line_taxes = []    # (line_total, source_taxes, quote_id, kind) — taxed after the discount is known
+        source_lines = []  # SourceLine records for the discount resolver
+
         for item_data in items_data:
             ct_id = item_data.get('source_content_type_id')
             obj_id = item_data.get('source_object_id')
 
-            DeliveryOrderItem.objects.create(
+            item = DeliveryOrderItem.objects.create(
                 delivery_order=delivery_order,
                 description=item_data['description'],
                 quantity=item_data.get('quantity', Decimal("1")),
@@ -257,15 +261,111 @@ class DeliveryOrderService:
                 source_object_id=obj_id,
                 reference=item_data.get('reference', ''),
             )
+            line_total = item.line_total.amount
 
-        delivery_order.recalculate_subtotal()
+            # Resolve the source's taxes and owning quote from its GenericFK
+            source_taxes = []
+            quote_id = None
+            if ct_id == config_ct.id and obj_id:
+                source_taxes = list(
+                    AppliedTax.objects.filter(
+                        content_type=config_ct, object_id=obj_id,
+                    ).select_related("tax_type")
+                )
+                quote_id = (
+                    Configuration.objects.filter(pk=obj_id)
+                    .values_list("quote_id", flat=True).first()
+                )
+            elif ct_id == inv_item_ct.id and obj_id:
+                source_taxes = list(
+                    AppliedTax.objects.filter(
+                        content_type=inv_item_ct, object_id=obj_id,
+                    ).select_related("tax_type")
+                )
+                quote_id = (
+                    QuoteInventoryItem.objects.filter(pk=obj_id)
+                    .values_list("quote_id", flat=True).first()
+                )
+
+            source_id = cls._build_source_id(item)
+            kind = source_kind(source_id)
+            source_lines.append(SourceLine(source_id, line_total, quote_id, kind))
+            line_taxes.append((line_total, source_taxes, quote_id, kind))
+
+        # Carry the source quotes' discounts via the per-level strategies:
+        # standard rules → header discount_amount, financing rules → their
+        # own negative delivery order line.
+        quote_ids = {line.quote_id for line in source_lines if line.quote_id is not None}
+        quotes = list(Quote.objects.filter(id__in=quote_ids))
+        resolution = QuoteDiscountResolver().resolve(quotes, source_lines)
+
+        quote_ct = ContentType.objects.get_for_model(Quote)
+        for line in resolution.discount_lines:
+            # The Quote GenericFK marks this as a materialized discount line —
+            # it never collides with delivered-quantity tracking and lets the
+            # invoicing flow copy it verbatim.
+            DeliveryOrderItem.objects.create(
+                delivery_order=delivery_order,
+                description=line['description'],
+                quantity=Decimal("1"),
+                unit_price=-line['amount'],
+                source_content_type=quote_ct,
+                source_object_id=line['quote_id'],
+            )
+
+        delivery_order.discount_amount = resolution.discount_amount
+        delivery_order.discount_breakdown = resolution.breakdown
+        delivery_order.save(update_fields=[
+            'discount_amount', 'discount_amount_currency', 'discount_breakdown',
+        ])
+
+        # Aggregate the sources' taxes onto the delivery order, computed on
+        # each line's discounted base.
+        tax_agg: dict[tuple, dict] = {}
+        for line_total, source_taxes, quote_id, kind in line_taxes:
+            frac = resolution.taxable_fraction(quote_id, kind)
+            taxable = (line_total * (Decimal("1") - frac)).quantize(Decimal("0.01"))
+            for tax in source_taxes:
+                if tax.selected_percentage <= 0:
+                    continue
+                key = (tax.tax_type_id, tax.tax_type.behavior, tax.selected_percentage)
+                rate = tax.selected_percentage / Decimal("100")
+                calc = (taxable * rate).quantize(Decimal("0.01"))
+
+                if key not in tax_agg:
+                    tax_agg[key] = {
+                        "tax_type": tax.tax_type,
+                        "selected_percentage": tax.selected_percentage,
+                        "base_amount": Decimal("0.00"),
+                        "calculated_amount": Decimal("0.00"),
+                    }
+                tax_agg[key]["base_amount"] += taxable
+                tax_agg[key]["calculated_amount"] += calc
+
+        do_ct = ContentType.objects.get_for_model(delivery_order)
+        for order, entry in enumerate(tax_agg.values()):
+            AppliedTax.objects.create(
+                content_type=do_ct,
+                object_id=delivery_order.id,
+                tax_type=entry["tax_type"],
+                selected_percentage=entry["selected_percentage"],
+                base_amount=entry["base_amount"],
+                calculated_amount=entry["calculated_amount"],
+                order=order,
+            )
+
+        delivery_order.recalculate_totals()
 
         logger.info(
-            "Created DeliveryOrder %s from ProjectFile %s. Items: %d, Subtotal: %s",
+            "Created DeliveryOrder %s from ProjectFile %s. Items: %d, "
+            "Subtotal: %s, Discount: %s, Tax: %s, Total: %s",
             delivery_order.number,
             project_file.reference,
             len(items_data),
             delivery_order.subtotal_amount,
+            delivery_order.discount_amount,
+            delivery_order.tax_amount,
+            delivery_order.total_amount,
         )
 
         return delivery_order
@@ -343,9 +443,18 @@ class DeliveryOrderService:
         inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
 
         subtotal = Decimal("0.00")
+        invoice_discount = Decimal("0.00")
+        invoice_discount_breakdown = []
         tax_agg = {}  # (tax_type_id, behavior, percentage) → aggregated amounts
 
         for do in delivery_orders:
+            # A self-contained DO already carries its own discount and taxes
+            # (gross lines + header discount + financing lines + AppliedTax);
+            # copy them verbatim — the discount resolver is NOT re-run, so
+            # nothing is double-carried. Legacy DOs (net-priced config lines,
+            # no DO-level data) keep the old source-object tax path.
+            self_contained = cls._is_self_contained(do)
+
             for item in do.items.all():
                 source_id = cls._build_source_id(item)
 
@@ -361,7 +470,10 @@ class DeliveryOrderService:
                 line_total = inv_item.line_total.amount
                 subtotal += line_total
 
-                # Resolve taxes from the source object
+                if self_contained:
+                    continue  # taxes come from the DO's own AppliedTax rows
+
+                # Legacy path: resolve taxes from the source object
                 source_taxes = []
                 if item.source_content_type_id == config_ct.id and item.source_object_id:
                     source_taxes = list(
@@ -395,6 +507,24 @@ class DeliveryOrderService:
                     tax_agg[key]["base_amount"] += line_total
                     tax_agg[key]["calculated_amount"] += calc
 
+            if self_contained:
+                if do.discount_amount and do.discount_amount.amount > 0:
+                    invoice_discount += do.discount_amount.amount
+                    invoice_discount_breakdown.extend(do.discount_breakdown or [])
+                for tax in do.applied_taxes.select_related("tax_type").order_by("order", "id"):
+                    if tax.selected_percentage <= 0:
+                        continue
+                    key = (tax.tax_type_id, tax.tax_type.behavior, tax.selected_percentage)
+                    if key not in tax_agg:
+                        tax_agg[key] = {
+                            "tax_type": tax.tax_type,
+                            "selected_percentage": tax.selected_percentage,
+                            "base_amount": Decimal("0.00"),
+                            "calculated_amount": Decimal("0.00"),
+                        }
+                    tax_agg[key]["base_amount"] += tax.base_amount.amount
+                    tax_agg[key]["calculated_amount"] += tax.calculated_amount.amount
+
             # Link the delivery order to the invoice
             do.sales_invoice = invoice
             do.save(update_fields=["sales_invoice"])
@@ -416,9 +546,14 @@ class DeliveryOrderService:
             )
 
         invoice.subtotal_amount = subtotal
+        invoice.discount_amount = invoice_discount
+        invoice.discount_breakdown = invoice_discount_breakdown
         invoice.tax_amount = computed_total_tax
-        invoice.total_amount = subtotal + computed_total_tax
-        invoice.save(update_fields=['subtotal_amount', 'tax_amount', 'total_amount'])
+        invoice.total_amount = subtotal - invoice_discount + computed_total_tax
+        invoice.save(update_fields=[
+            'subtotal_amount', 'discount_amount', 'discount_amount_currency',
+            'discount_breakdown', 'tax_amount', 'total_amount',
+        ])
 
         logger.info(
             "Created SalesInvoice #%s from %d DeliveryOrders. "
@@ -431,6 +566,18 @@ class DeliveryOrderService:
         )
 
         return invoice
+
+    @classmethod
+    def _is_self_contained(cls, delivery_order):
+        """Whether this DO carries its own discount/tax data (gross lines +
+        header discount + financing lines + AppliedTax rows), as opposed to a
+        legacy DO whose config lines were priced net of the quote discount."""
+        quote_ct = ContentType.objects.get_for_model(Quote)
+        return (
+            delivery_order.applied_taxes.exists()
+            or (delivery_order.discount_amount and delivery_order.discount_amount.amount > 0)
+            or delivery_order.items.filter(source_content_type=quote_ct).exists()
+        )
 
     @classmethod
     def _build_source_id(cls, delivery_order_item):
@@ -446,11 +593,16 @@ class DeliveryOrderService:
 
         config_ct = ContentType.objects.get_for_model(Configuration)
         inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
+        quote_ct = ContentType.objects.get_for_model(Quote)
 
         if delivery_order_item.source_content_type_id == config_ct.id:
             return f"config_{delivery_order_item.source_object_id}"
         elif delivery_order_item.source_content_type_id == inv_item_ct.id:
             return f"inv_item_{delivery_order_item.source_object_id}"
+        elif delivery_order_item.source_content_type_id == quote_ct.id:
+            # Materialized discount line (e.g. financing) — same source_id the
+            # discount resolver emits, so DO-sourced invoices match direct ones.
+            return f"discount_quote_{delivery_order_item.source_object_id}"
 
         return f"source_{delivery_order_item.source_content_type_id}_{delivery_order_item.source_object_id}"
 
@@ -475,10 +627,19 @@ class DeliveryOrderService:
             (i['unit_price'] * i['total_quantity'] * (1 - i['discount_percentage'] / 100) for i in items),
             Decimal("0.00"),
         )
-        total_delivered = sum(
-            (do.subtotal_amount.amount for do in existing_dos if do.subtotal_amount),
-            Decimal("0.00"),
-        )
+        # Delivered value from item line totals, excluding materialized
+        # discount lines (quote-sourced), so both sides compare on the same
+        # gross basis. Legacy DOs with net-priced config lines may read
+        # slightly low against the gross deliverable value; the quantity
+        # tracking that gates over-delivery is unaffected.
+        quote_ct = ContentType.objects.get_for_model(Quote)
+        total_delivered = Decimal("0.00")
+        for do in existing_dos:
+            for item in do.items.all():
+                if item.source_content_type_id == quote_ct.id:
+                    continue
+                if item.line_total:
+                    total_delivered += item.line_total.amount
 
         return {
             'deliverable_items': items,

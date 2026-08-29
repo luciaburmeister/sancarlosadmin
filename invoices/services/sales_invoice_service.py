@@ -60,21 +60,38 @@ class SalesInvoiceService:
             payment_terms_days=payment_terms_days,
         )
 
-        # ponytail: carry discount from the config's quote if present
-        if quote and quote.discount_amount and quote.discount_amount.amount > 0:
-            sales_invoice.discount_amount = quote.discount_amount
-            sales_invoice.discount_breakdown = quote.discount_breakdown or []
-            sales_invoice.save(update_fields=['discount_amount', 'discount_amount_currency',
-                                              'discount_breakdown'])
-
-        SalesInvoiceItem.objects.create(
+        item = SalesInvoiceItem.objects.create(
             invoice=sales_invoice,
             description=str(configuration.product.description or configuration.product.name),
             quantity=Decimal("1.000"),
             unit_price=pre_discount_subtotal,
             discount_percentage=discount_percentage,
+            source_id=f"config_{configuration.id}",
             # discount_amount and line_total are auto-calculated in model's save()
         )
+
+        # Carry the quote's discount via the per-level strategies (standard
+        # rules → invoice-level discount, financing rules → their own line).
+        if quote is not None:
+            from invoices.services.discounts import QuoteDiscountResolver, SourceLine
+
+            resolution = QuoteDiscountResolver().resolve(
+                [quote],
+                [SourceLine(item.source_id, item.line_total.amount, quote.id)],
+            )
+            for line in resolution.discount_lines:
+                SalesInvoiceItem.objects.create(
+                    invoice=sales_invoice,
+                    description=line['description'],
+                    quantity=Decimal("1.000"),
+                    unit_price=-line['amount'],
+                    source_id=line['source_id'],
+                )
+            if resolution.discount_amount > 0:
+                sales_invoice.discount_amount = resolution.discount_amount
+                sales_invoice.discount_breakdown = resolution.breakdown
+                sales_invoice.save(update_fields=['discount_amount', 'discount_amount_currency',
+                                                  'discount_breakdown'])
 
         cls._copy_taxes(configuration, sales_invoice)
         
@@ -244,7 +261,9 @@ class SalesInvoiceService:
             description=str(configuration.product),
             quantity=Decimal("1.000")
         )
-        
+
+        delivery_order.recalculate_totals()
+
         return delivery_order
 
     @classmethod

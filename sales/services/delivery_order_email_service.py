@@ -64,7 +64,14 @@ class DeliveryOrderEmailService:
             if delivery_order.number
             else f"Albarán #{delivery_order.pk}"
         )
-        total_str = f"{number_format(delivery_order.subtotal_amount.amount, 2)} €"
+        # Legacy delivery orders predate the total_amount field — fall back
+        # to the subtotal there.
+        total_money = (
+            delivery_order.total_amount
+            if delivery_order.total_amount and delivery_order.total_amount.amount > 0
+            else delivery_order.subtotal_amount
+        )
+        total_str = f"{number_format(total_money.amount, 2)} €"
 
         body_html = EmailService.render_document_email(
             document_type="Albarán",

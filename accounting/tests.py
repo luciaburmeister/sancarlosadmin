@@ -1,4 +1,4 @@
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase
 from accounting.models import Journal, JournalEntry, EntryStatus, CompanyAccount, JournalType, FiscalYear, CompanyChartOfAccounts, ChartOfAccountsTemplate, JournalEntryLine, AccountType, BalanceSide, TemplateAccount
 from company.models import Company
 from datetime import date
@@ -8,7 +8,7 @@ from django.db import transaction
 from django.utils.translation import gettext_lazy as _, activate
 
 
-class JournalEntryNumberingTest(TransactionTestCase):
+class JournalEntryNumberingTest(TestCase):
     def setUp(self):
         self.company = Company.objects.create(name='Test Company', tax_identifier='B12345678', logo="logos/test.png")
         activate("es")

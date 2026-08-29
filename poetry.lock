@@ -3538,6 +3538,18 @@ xlsx = ["openpyxl (>=2.6.0)"]
 yaml = ["pyyaml"]
 
 [[package]]
+name = "tblib"
+version = "3.2.2"
+description = "Traceback serialization library."
+optional = false
+python-versions = ">=3.9"
+groups = ["dev"]
+files = [
+    {file = "tblib-3.2.2-py3-none-any.whl", hash = "sha256:26bdccf339bcce6a88b2b5432c988b266ebbe63a4e593f6b578b1d2e723d2b76"},
+    {file = "tblib-3.2.2.tar.gz", hash = "sha256:e9a652692d91bf4f743d4a15bc174c0b76afc750fe8c7b6d195cc1c1d6d2ccec"},
+]
+
+[[package]]
 name = "tenacity"
 version = "9.1.4"
 description = "Retry code until it succeeds"
@@ -3988,4 +4000,4 @@ test = ["pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "3dc43ab030238e120eec5d62692d0718947d9ba39ad9970cbb9aecd10825b0d8"
+content-hash = "270aa3c36e5223c87c255ab995be43cb0621ca09620114006288dbf599535301"

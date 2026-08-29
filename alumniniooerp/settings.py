@@ -208,6 +208,13 @@ if TESTING:
         "disable_existing_loggers": False,
         "root": {"level": "CRITICAL"},
     }
+    # PBKDF2 (the production hasher) is deliberately slow (~1M iterations).
+    # Tests create users/employees in nearly every setUp, so use the fast
+    # MD5 hasher — behaviour is identical, only the hashing cost changes.
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+
+# Resets the active language before each test; see general/test_runner.py.
+TEST_RUNNER = "general.test_runner.ProjectTestRunner"
 
 
 INTERNAL_IPS = ["127.0.0.1", "localhost:8000"]

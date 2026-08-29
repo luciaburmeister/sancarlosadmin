@@ -12,6 +12,11 @@ that old schema, migrates forward through 0060 (AddField) and 0061
 See assets/migrations/0060_assettransaction_planning.py and
 assets/migrations/0061_backfill_assettransaction_planning.py.
 
+The replay (rolling the whole schema back to 0059 and forward again) costs
+~15s, so it runs ONCE per class and every check lives in a single test
+method as a subTest — one test method per assertion would multiply that
+cost by the number of assertions.
+
 Run just this file:
     python manage.py test assets.tests.test_planning_backfill_migration
 """
@@ -25,8 +30,20 @@ MIGRATE_FROM = [("assets", "0059_assetplanningrequestdraft_destination_city_and_
 MIGRATE_TO = [("assets", "0061_backfill_assettransaction_planning")]
 
 
+def migrate_to_head():
+    """Bring the schema fully current (the real latest migration state)."""
+    executor = MigrationExecutor(connection)
+    executor.loader.build_graph()
+    executor.migrate(executor.loader.graph.leaf_nodes())
+
+
 class PlanningBackfillMigrationTests(TransactionTestCase):
     def setUp(self):
+        # Whatever happens below, leave the DB on the latest migration state
+        # for the other tests in this worker. addCleanup (unlike tearDown)
+        # still runs when setUp itself blows up halfway through the replay.
+        self.addCleanup(migrate_to_head)
+
         executor = MigrationExecutor(connection)
         executor.migrate(MIGRATE_FROM)
         old_apps = executor.loader.project_state(MIGRATE_FROM).apps
@@ -79,38 +96,30 @@ class PlanningBackfillMigrationTests(TransactionTestCase):
         ).pk
 
         MigrationExecutor(connection).migrate(MIGRATE_TO)
-        # Finish bringing the schema fully current — the test bodies below query
+        # Finish bringing the schema fully current — the test body below queries
         # through the real `assets.models.AssetTransaction`/`AssetPlanning`, which
         # expect every column any migration ever added, not just the ones added
         # by MIGRATE_TO.
-        executor = MigrationExecutor(connection)
-        executor.loader.build_graph()
-        executor.migrate(executor.loader.graph.leaf_nodes())
+        migrate_to_head()
 
-    def tearDown(self):
-        # Leave the DB on the real latest migration state for other tests.
-        executor = MigrationExecutor(connection)
-        executor.loader.build_graph()
-        executor.migrate(executor.loader.graph.leaf_nodes())
-
-    def test_matching_same_company_planning_is_backfilled(self):
+    def test_backfill_of_live_shaped_rows(self):
         from assets.models import AssetTransaction
-        tx = AssetTransaction.objects.get(pk=self.matching_id)
-        self.assertEqual(tx.planning_id, self.planning_id)
-        # The soft JSON reference is left exactly as it was.
-        self.assertEqual(tx.data["planning_id"], self.planning_id)
 
-    def test_cross_company_reference_is_not_backfilled(self):
-        from assets.models import AssetTransaction
-        tx = AssetTransaction.objects.get(pk=self.cross_company_id)
-        self.assertIsNone(tx.planning_id)
+        matching = AssetTransaction.objects.get(pk=self.matching_id)
+        cross_company = AssetTransaction.objects.get(pk=self.cross_company_id)
+        garbage = AssetTransaction.objects.get(pk=self.garbage_id)
+        no_planning = AssetTransaction.objects.get(pk=self.no_planning_id)
 
-    def test_garbage_planning_id_is_skipped_without_raising(self):
-        from assets.models import AssetTransaction
-        tx = AssetTransaction.objects.get(pk=self.garbage_id)
-        self.assertIsNone(tx.planning_id)
+        with self.subTest("matching same-company planning is backfilled"):
+            self.assertEqual(matching.planning_id, self.planning_id)
+            # The soft JSON reference is left exactly as it was.
+            self.assertEqual(matching.data["planning_id"], self.planning_id)
 
-    def test_row_without_planning_id_is_left_untouched(self):
-        from assets.models import AssetTransaction
-        tx = AssetTransaction.objects.get(pk=self.no_planning_id)
-        self.assertIsNone(tx.planning_id)
+        with self.subTest("cross-company reference is not backfilled"):
+            self.assertIsNone(cross_company.planning_id)
+
+        with self.subTest("garbage planning_id is skipped without raising"):
+            self.assertIsNone(garbage.planning_id)
+
+        with self.subTest("row without planning_id is left untouched"):
+            self.assertIsNone(no_planning.planning_id)

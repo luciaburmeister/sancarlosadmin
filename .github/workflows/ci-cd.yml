@@ -86,8 +86,21 @@ jobs:
       - name: Install dependencies
         run: poetry install
 
+      # The test database is throwaway, so trade crash-safety for speed:
+      # skipping fsync/WAL durability makes the 700+ migrations, per-test
+      # flushes and inserts several times faster on the CI runner's disk.
+      - name: Tune PostgreSQL for a throwaway test database
+        run: |
+          docker exec ${{ job.services.postgres.id }} psql -U postgres -d test_db -c "
+            ALTER SYSTEM SET fsync = off;
+            ALTER SYSTEM SET synchronous_commit = off;
+            ALTER SYSTEM SET full_page_writes = off;
+            SELECT pg_reload_conf();"
+
       - name: Run tests (PostgreSQL)
-        run: poetry run python manage.py test --parallel
+        # --durations prints the slowest tests so a new slow test is visible
+        # in the CI log instead of silently inflating the total.
+        run: poetry run python manage.py test --parallel --durations 25 --timing
 
   deploy:
     runs-on: ubuntu-latest

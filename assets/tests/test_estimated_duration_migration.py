@@ -13,6 +13,11 @@ old schema, migrates forward to the current head, then asserts what a real
 production row would look like afterward. See assets/migrations/0052_estimated_duration.py
 and 0055_assetplanningrequest_estimated_duration_required.py.
 
+The replay (rolling the whole schema back to 0051 and forward again) costs
+~25s, so it runs ONCE per class and every check lives in a single test
+method as a subTest — one test method per assertion would multiply that
+cost by the number of assertions.
+
 Run just this file:
     python manage.py test assets.tests.test_estimated_duration_migration
 """
@@ -26,8 +31,20 @@ MIGRATE_FROM = [("assets", "0051_assetplanning_skip_auto_assignment_and_more")]
 MIGRATE_TO = [("assets", "0055_assetplanningrequest_estimated_duration_required")]
 
 
+def migrate_to_head():
+    """Bring the schema fully current (the real latest migration state)."""
+    executor = MigrationExecutor(connection)
+    executor.loader.build_graph()
+    executor.migrate(executor.loader.graph.leaf_nodes())
+
+
 class EstimatedDurationBackfillMigrationTests(TransactionTestCase):
     def setUp(self):
+        # Whatever happens below, leave the DB on the latest migration state
+        # for the other tests in this worker. addCleanup (unlike tearDown)
+        # still runs when setUp itself blows up halfway through the replay.
+        self.addCleanup(migrate_to_head)
+
         executor = MigrationExecutor(connection)
         executor.migrate(MIGRATE_FROM)
         old_apps = executor.loader.project_state(MIGRATE_FROM).apps
@@ -76,52 +93,41 @@ class EstimatedDurationBackfillMigrationTests(TransactionTestCase):
 
         MigrationExecutor(connection).migrate(MIGRATE_TO)
         # Finish bringing the schema fully current — later migrations don't touch
-        # scheduled_time/estimated_duration, but the test bodies below query through
+        # scheduled_time/estimated_duration, but the test body below queries through
         # the real `assets.models.AssetPlanning`, which expects every column any
         # migration ever added (e.g. `planning`, `abandoned_stage`), not just the
         # ones added by MIGRATE_TO.
-        executor = MigrationExecutor(connection)
-        executor.loader.build_graph()
-        executor.migrate(executor.loader.graph.leaf_nodes())
+        migrate_to_head()
 
-    def tearDown(self):
-        # Leave the DB on the real latest migration state for other tests.
-        executor = MigrationExecutor(connection)
-        executor.loader.build_graph()
-        executor.migrate(executor.loader.graph.leaf_nodes())
+    def test_backfill_of_live_shaped_rows(self):
+        from assets.models import AssetPlanning, AssetPlanningRequest
 
-    def test_scheduled_time_survives_untouched(self):
-        from assets.models import AssetPlanning
-        planning = AssetPlanning.objects.get(pk=self.normal_id)
-        self.assertEqual(planning.scheduled_time, time(9, 0))
-
-    def test_estimated_duration_is_computed_from_the_old_end_time(self):
-        from assets.models import AssetPlanning
-        planning = AssetPlanning.objects.get(pk=self.normal_id)
-        self.assertEqual(planning.estimated_duration, timedelta(hours=2, minutes=30))
-        self.assertEqual(planning.scheduled_end_time, time(11, 30))  # round-trips via the property
-
-    def test_start_only_row_keeps_a_blank_duration(self):
-        from assets.models import AssetPlanning
-        planning = AssetPlanning.objects.get(pk=self.start_only_id)
-        self.assertEqual(planning.scheduled_time, time(8, 0))
-        self.assertIsNone(planning.estimated_duration)
-
-    def test_bad_legacy_data_is_left_blank_not_guessed(self):
-        from assets.models import AssetPlanning
-        planning = AssetPlanning.objects.get(pk=self.bad_data_id)
-        self.assertEqual(planning.scheduled_time, time(14, 0))
-        self.assertIsNone(planning.estimated_duration)
-
-    def test_needed_time_survives_and_duration_is_computed_for_requests(self):
-        from assets.models import AssetPlanningRequest
+        normal = AssetPlanning.objects.get(pk=self.normal_id)
+        start_only = AssetPlanning.objects.get(pk=self.start_only_id)
+        bad_data = AssetPlanning.objects.get(pk=self.bad_data_id)
         req = AssetPlanningRequest.objects.get(pk=self.request_id)
-        self.assertEqual(req.needed_time, time(7, 30))
-        self.assertEqual(req.estimated_duration, timedelta(hours=1, minutes=30))
+        req_no_end = AssetPlanningRequest.objects.get(pk=self.request_no_end_id)
 
-    def test_request_without_an_old_end_time_gets_the_one_hour_default(self):
-        # 0055 makes estimated_duration required and defaults any still-blank
-        # ones to 1h — this request never had an end_time to backfill from.
-        from assets.models import AssetPlanningRequest
-        req = AssetPlanningRequest.objects.get(pk=self.request_no_end_id)
-        self.assertEqual(req.estimated_duration, timedelta(hours=1))
+        with self.subTest("scheduled_time survives untouched"):
+            self.assertEqual(normal.scheduled_time, time(9, 0))
+
+        with self.subTest("estimated_duration is computed from the old end time"):
+            self.assertEqual(normal.estimated_duration, timedelta(hours=2, minutes=30))
+            self.assertEqual(normal.scheduled_end_time, time(11, 30))  # round-trips via the property
+
+        with self.subTest("start-only row keeps a blank duration"):
+            self.assertEqual(start_only.scheduled_time, time(8, 0))
+            self.assertIsNone(start_only.estimated_duration)
+
+        with self.subTest("bad legacy data is left blank, not guessed"):
+            self.assertEqual(bad_data.scheduled_time, time(14, 0))
+            self.assertIsNone(bad_data.estimated_duration)
+
+        with self.subTest("needed_time survives and duration is computed for requests"):
+            self.assertEqual(req.needed_time, time(7, 30))
+            self.assertEqual(req.estimated_duration, timedelta(hours=1, minutes=30))
+
+        with self.subTest("request without an old end_time gets the one hour default"):
+            # 0055 makes estimated_duration required and defaults any still-blank
+            # ones to 1h — this request never had an end_time to backfill from.
+            self.assertEqual(req_no_end.estimated_duration, timedelta(hours=1))

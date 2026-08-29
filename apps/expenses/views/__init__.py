@@ -1,2 +1,3 @@
 from .expense_ticket_upload import ExpenseTicketUploadAdminView
 from .expense_claim_add_ticket import ExpenseClaimAddTicketAdminView
+from .expense_claim_register_payment import ExpenseClaimRegisterPaymentView

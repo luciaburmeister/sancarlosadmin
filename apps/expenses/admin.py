@@ -15,6 +15,8 @@ from unfold.decorators import action, display
 from core.admin.company_access import get_user_companies
 from core.admin.company_admin import CompanyRestrictedAdmin
 from apps.expenses.forms import ExpenseClaimRejectForm, ExpenseTicketExchangeRateOverrideForm
+from invoices.models import InvoicePaymentStatus
+from payments.admin_inlines import DocumentPaymentsInline
 from apps.expenses.models import (
     ExchangeRate,
     ExchangeRateSource,
@@ -25,6 +27,7 @@ from apps.expenses.models import (
 from apps.expenses.tasks import process_expense_ticket
 from apps.expenses.views.expense_ticket_upload import ExpenseTicketUploadAdminView
 from apps.expenses.views.expense_claim_add_ticket import ExpenseClaimAddTicketAdminView
+from apps.expenses.views.expense_claim_register_payment import ExpenseClaimRegisterPaymentView
 
 
 class ExpenseTicketInline(TabularInline):
@@ -62,20 +65,74 @@ class ExpenseTicketInline(TabularInline):
 
 @admin.register(ExpenseClaim)
 class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ("__str__", "submitted_by", "status_badge", "total_claimed", "total_reimbursed", "created_at")
-    list_filter = ("status", "company")
+    list_display = (
+        "__str__",
+        "submitted_by",
+        "status_badge",
+        "payment_status_badge",
+        "total_claimed",
+        "total_reimbursed",
+        "amount_outstanding",
+        "created_at",
+    )
+    list_filter = ("status", "payment_status", "company")
     search_fields = ("submitted_by__email", "submitted_by__first_name")
     autocomplete_fields = ("company", "submitted_by")
     # status/total_reimbursed/rejection_reason only ever change through the
     # Submit/Approve/Reject actions below, never by direct editing.
-    readonly_fields = ("status", "total_claimed", "total_reimbursed", "rejection_reason", "created_at", "updated_at")
-    inlines = [ExpenseTicketInline]
+    readonly_fields = (
+        "status",
+        "payment_status",
+        "total_claimed",
+        "total_reimbursed",
+        "amount_outstanding",
+        "rejection_reason",
+        "created_at",
+        "updated_at",
+    )
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    ("company", "submitted_by"),
+                    "status",
+                    "rejection_reason",
+                )
+            },
+        ),
+        (
+            _("Payment Tracking"),
+            {
+                "fields": (
+                    "payment_status",
+                    "total_claimed",
+                    "total_reimbursed",
+                    "amount_outstanding",
+                )
+            },
+        ),
+        (
+            _("Notes"),
+            {
+                "fields": ("notes",)
+            },
+        ),
+        (
+            _("Timestamps"),
+            {
+                "fields": (("created_at", "updated_at"),)
+            },
+        ),
+    )
+    inlines = [ExpenseTicketInline, DocumentPaymentsInline]
     actions_detail = [
         "add_ticket_detail_action",
         "submit_claim_detail_action",
         "approve_claim_detail_action",
         "reject_claim_detail_action",
         "revise_claim_detail_action",
+        "register_payment_detail_action",
         "run_matcher_detail_action",
     ]
 
@@ -114,6 +171,23 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def status_badge(self, obj):
         return obj.get_status_display()
 
+    @display(
+        description=_("Payment"),
+        label={
+            InvoicePaymentStatus.UNPAID.label: "danger",
+            InvoicePaymentStatus.PARTIAL.label: "warning",
+            InvoicePaymentStatus.PAID.label: "success",
+        },
+    )
+    def payment_status_badge(self, obj):
+        return obj.get_payment_status_display()
+
+    @display(description=_("Outstanding"))
+    def amount_outstanding(self, obj):
+        # amount_remaining is total_claimed - total_reimbursed; both are always
+        # set (they default to 0), so this never needs a null guard.
+        return obj.amount_remaining
+
     def save_formset(self, request, form, formset, change):
         if formset.model is ExpenseTicket:
             instances = formset.save(commit=False)
@@ -128,11 +202,6 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
             super().save_formset(request, form, formset, change)
 
     def add_view(self, request, form_url="", extra_context=None):
-        # Skip Django's generic blank "Add" form entirely - like the ticket-first
-        # "Create Claim" flow, a brand-new claim never shows a form. It's created
-        # immediately as a draft and the user lands on its real change page,
-        # where the "Add Ticket" button and other detail actions actually exist
-        # (they require a saved object_id, which the add form doesn't have yet).
         company = get_user_companies(request.user).first()
         if company is None:
             self.message_user(request, _("You don't have access to any company yet - contact an admin."), level="error")
@@ -245,6 +314,25 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
             return False
         return request.user.is_superuser or claim.submitted_by_id == request.user.id
 
+    @action(
+        description=_("Register Payment"),
+        url_path="register-payment",
+        icon="payments",
+        permissions=["register_payment_detail_action"],
+    )
+    def register_payment_detail_action(self, request, object_id):
+        return redirect(reverse("admin:expenses_expenseclaim_register_payment", args=[object_id]))
+
+    def has_register_payment_detail_action_permission(self, request, object_id):
+        claim = self.get_object(request, object_id)
+        if not claim or claim.status != ExpenseClaimStatus.APPROVED:
+            return False
+        if claim.amount_remaining.amount <= 0:
+            return False
+        # Reimbursing is a finance job, not something the claimant does for
+        # themselves - same bar as approving.
+        return request.user.is_superuser or request.user.has_perm("expenses.approve_expenseclaim")
+
     @action(description=_("Run Matcher"), url_path="run-matcher", icon="compare_arrows", permissions=["run_matcher_detail_action"])
     def run_matcher_detail_action(self, request, object_id):
         from banking.tasks import run_invoice_matcher_task
@@ -275,6 +363,13 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
                     ExpenseClaimAddTicketAdminView.as_view(model_admin=self)
                 ),
                 name="expenses_expenseclaim_add_ticket",
+            ),
+            path(
+                "<path:object_id>/register-payment/",
+                self.admin_site.admin_view(
+                    ExpenseClaimRegisterPaymentView.as_view(model_admin=self)
+                ),
+                name="expenses_expenseclaim_register_payment",
             ),
         ]
         return custom + urls
@@ -375,6 +470,7 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
                     "exchange_rate_value",
                     "converted_amount",
                     "date_of_purchase",
+                    "notes"
                 )
             },
         ),

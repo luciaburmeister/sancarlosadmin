@@ -1,6 +1,7 @@
 from django import forms
 from django.core.exceptions import ValidationError
-from unfold.widgets import UnfoldAdminSelectWidget
+from django.utils.translation import gettext_lazy as _
+from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminTextareaWidget
 from apps.expenses.models import ExpenseTicket
 from apps.expenses.services.expense_ticket_duplicate_service import ExpenseTicketDuplicateService, ExpenseTicketHashError
 from core.admin.company_access import get_user_companies
@@ -9,11 +10,16 @@ from core.admin.company_access import get_user_companies
 class ExpenseTicketUploadForm(forms.ModelForm):
     class Meta:
         model = ExpenseTicket
-        fields = ("company", "photo")
-        widgets = {"company": UnfoldAdminSelectWidget}
+        fields = ("company", "photo", "notes")
+        widgets = {
+            "company": UnfoldAdminSelectWidget,
+            "notes": UnfoldAdminTextareaWidget(attrs={"rows": 3}),
+        }
 
     def __init__(self, *args, user=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["notes"].required = False
+        self.fields["notes"].label = _("Notes")
         if user is not None:
             self.fields["company"].queryset = get_user_companies(user)
 

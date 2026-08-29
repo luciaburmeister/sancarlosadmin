@@ -14802,6 +14802,15 @@ msgstr "apellidos"
 #~ msgid "Warehouse must belong to the same company as the item."
 #~ msgstr "El almacén debe pertenecer a la misma empresa."
 
+#: apps/expenses/templates/admin/expenses/expenseticket_upload.html:131
+msgid "Optional - anything worth remembering about this receipt."
+msgstr "Opcional: cualquier cosa que merezca la pena recordar sobre este ticket."
+
+#: payments/views/register_payment.py:100
+#, python-format
+msgid "Cannot pay more than the %(max)s still outstanding."
+msgstr "No se puede pagar más de los %(max)s que quedan pendientes."
+
 #~ msgid "employees in the file could not be matched."
 #~ msgstr "No se pudieron emparejar %(counter)s empleados del archivo."
 

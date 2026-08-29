@@ -120,6 +120,22 @@
                         });
                     })();
                 </script>
+
+                <div class="space-y-1 mt-4">
+                    <label for="{{ form.notes.id_for_label }}"
+                           class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                        {% trans "Notes" %}
+                    </label>
+                    {{ form.notes }}
+                    <p class="text-xs text-font-subtle-light dark:text-font-subtle-dark">
+                        {% trans "Optional - anything worth remembering about this receipt." %}
+                    </p>
+                    {% if form.notes.errors %}
+                        <div class="text-sm text-red-600 dark:text-red-400 mt-1">
+                            {% for error in form.notes.errors %}<p>{{ error }}</p>{% endfor %}
+                        </div>
+                    {% endif %}
+                </div>
             </div>
 
             <div class="px-6 py-4 bg-gray-50 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex justify-end space-x-3">

@@ -35,7 +35,7 @@ from invoices.models import (
     InvoicePOAllocation
 )
 from invoices.views.invoice.aging_export_view import AgingExportView
-from payments.models import PaymentAllocation
+from payments.admin_inlines import DocumentPaymentsInline
 from django.utils import timezone
 from invoices.services.invoice_pdf_download import InvoicePdfDownloadService
 from invoices.tasks import build_invoice_pdf_zip_task
@@ -209,46 +209,6 @@ class AppliedTaxInline(GenericTabularInline):
             return False
         return super().has_delete_permission(request, obj)
 
-class PaymentAllocationInline(GenericTabularInline):
-    model = PaymentAllocation
-    ct_field = "content_type"
-    fk_field = "object_id"
-    extra = 0
-    tab = True
-    verbose_name = _("Payment")
-    verbose_name_plural = _("Payments")
-    fields = ("get_payment_date", "get_method", "get_reference", "amount_applied", "get_status", "get_payment_link")
-    readonly_fields = ("get_payment_date", "get_method", "get_reference", "amount_applied", "get_status", "get_payment_link")
-    can_delete = False
-
-    def get_payment_date(self, obj):
-        return obj.payment.payment_date
-    get_payment_date.short_description = _("Payment Date")
-
-    def get_payment_link(self, obj):
-        from payments.models import PaymentCreatedBy
-
-        url = reverse("admin:payments_payment_change", args=[obj.payment_id])
-        label = _("Edit") if obj.payment.created_by == PaymentCreatedBy.MANUAL else _("View")
-        return format_html('<a href="{}" class="text-primary-600 underline">{}</a>', url, label)
-    get_payment_link.short_description = _("Payment")
-
-    def get_method(self, obj):
-        return obj.payment.get_method_display()
-    get_method.short_description = _("Method")
-
-    def get_reference(self, obj):
-        return obj.payment.reference or "—"
-    get_reference.short_description = _("Reference")
-
-    def get_status(self, obj):
-        return obj.payment.get_status_display()
-    get_status.short_description = _("Status")
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).select_related("payment")
-
-
 class InvoiceItemInline(StackedInline):
     model = InvoiceItem
     extra = 0
@@ -393,7 +353,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
         AppliedTaxInline,
         InvoiceItemInline,
         InvoicePOAllocationInline,
-        PaymentAllocationInline,
+        DocumentPaymentsInline,
     ]
 
     actions = [
@@ -1013,7 +973,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
     )
     search_fields = ("invoice_number", "client__name")
     autocomplete_fields = ("company", "client", "configuration", "project_file")
-    inlines = [SalesInvoiceItemInline, AppliedTaxInline, PaymentAllocationInline, EmailLogInline, EInvoicingSubmissionInline]
+    inlines = [SalesInvoiceItemInline, AppliedTaxInline, DocumentPaymentsInline, EmailLogInline, EInvoicingSubmissionInline]
     list_filter_submit = True
     list_select_related = ["company","client"]
     

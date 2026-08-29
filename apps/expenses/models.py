@@ -9,6 +9,7 @@ from django_countries.fields import CountryField
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
 from company.models import CompanyOwnedModel
+from invoices.models import InvoicePaymentStatus
 from payments.mixins import Payable
 from decimal import Decimal
 import requests
@@ -181,11 +182,24 @@ class ExpenseClaim(CompanyOwnedModel, Payable):
         verbose_name=_("Total Reimbursed"),
         help_text="Amount actually reimbursed so far, cannot exceed total_claimed"
     )
+    payment_status = models.CharField(
+        max_length=20,
+        choices=InvoicePaymentStatus.choices,
+        default=InvoicePaymentStatus.UNPAID,
+        verbose_name=_("Payment Status"),
+        help_text="Auto-calculated from the payments allocated to this claim"
+    )
     rejection_reason = models.TextField(
         blank=True,
         null=True,
         verbose_name=_("Rejection Reason"),
         help_text="Required when rejecting a claim"
+    )
+    notes = models.TextField(
+        blank=True,
+        default='',
+        verbose_name=_("Notes"),
+        help_text="Free-text notes about this claim"
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -228,9 +242,19 @@ class ExpenseClaim(CompanyOwnedModel, Payable):
         total_applied = min(total_applied, self.total_claimed.amount)
 
         self.total_reimbursed = Money(total_applied, self.total_claimed_currency)
+        self.payment_status = self._resolve_payment_status(total_applied)
         if total_applied >= self.total_claimed.amount and self.status == ExpenseClaimStatus.APPROVED:
             self.status = ExpenseClaimStatus.REIMBURSED
-        self.save(update_fields=["total_reimbursed", "status"])
+        self.save(update_fields=["total_reimbursed", "payment_status", "status"])
+
+    def _resolve_payment_status(self, total_applied: Decimal) -> str:
+        """Mirrors Invoice.recalculate_payment_status() so both read the same."""
+        claimed = self.total_claimed.amount if self.total_claimed else Decimal("0.00")
+        if total_applied <= 0:
+            return InvoicePaymentStatus.UNPAID
+        if claimed and total_applied >= claimed:
+            return InvoicePaymentStatus.PAID
+        return InvoicePaymentStatus.PARTIAL
 
     def recalculate_total(self, save=True):
         tickets = self.tickets.all()
@@ -407,6 +431,13 @@ class ExpenseTicket(CompanyOwnedModel):
         default_currency='EUR',
         verbose_name=_("Converted Amount"),
         help_text="Amount in company base currency. Null if no conversion needed."
+    )
+
+    notes = models.TextField(
+        blank=True,
+        default='',
+        verbose_name=_("Notes"),
+        help_text="Free-text notes about this receipt"
     )
 
     file_hash = models.CharField(

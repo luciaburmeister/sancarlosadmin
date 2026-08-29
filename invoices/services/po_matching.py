@@ -211,6 +211,8 @@ class POInvoiceMatchService:
         by both the manual matcher (match_po.html) and the AI matcher
         (ai_match_review.html) so both screens present the same "what's
         already matched" picture regardless of which matcher was used.
+        `allocation_objs` carries the real InvoicePOAllocation rows so the
+        template can offer an "Unmatch" action per allocation.
 
         Returns:
         {
@@ -218,6 +220,7 @@ class POInvoiceMatchService:
             "total_quantity": Decimal,
             "item_progress": [{"description", "matched", "total"}, ...]   # lines still pending
             "matched_items": [{"description", "matched", "total", "is_complete",
+                                "allocation_objs": [InvoicePOAllocation, ...],
                                 "allocations": [{"po_number", "quantity", "from_ai"}, ...]}, ...]
         }
         """
@@ -246,6 +249,7 @@ class POInvoiceMatchService:
                 "matched": item.quantity - remaining,
                 "total": item.quantity,
                 "is_complete": remaining <= 0,
+                "allocation_objs": allocations,
                 "allocations": [
                     {
                         "po_number": alloc.po_item.purchase_order.number,

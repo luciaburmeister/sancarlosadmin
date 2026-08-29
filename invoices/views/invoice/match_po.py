@@ -8,15 +8,11 @@ from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
 from unfold.views import UnfoldModelAdminViewMixin
 
-from invoices.models import Invoice
+from invoices.models import Invoice, InvoicePOAllocation
 from invoices.services.po_matching import POInvoiceMatchService
 
 
 class InvoiceMatchPOView(UnfoldModelAdminViewMixin, TemplateView):
-    """
-    Guided matching from the invoice side: pick a candidate PO, review the
-    suggested line pairings, confirm to create the allocations.
-    """
     template_name = "admin/invoices/invoice/match_po.html"
     title = _("Match Purchase Order")
     permission_required = ("invoices.add_invoicepoallocation",)
@@ -46,8 +42,6 @@ class InvoiceMatchPOView(UnfoldModelAdminViewMixin, TemplateView):
             "selected_po": po,
             "opts": Invoice._meta,
         })
-        # Shared with ai_match_review.html so both matchers show the same
-        # "already matched" picture regardless of which one was used.
         match_progress = POInvoiceMatchService.match_progress(invoice)
         context.update(match_progress)
         context["all_matched"] = (
@@ -101,6 +95,12 @@ class InvoiceMatchPOView(UnfoldModelAdminViewMixin, TemplateView):
 
     def post(self, request, *args, **kwargs):
         invoice = self.get_invoice()
+
+        # IMPORTANT: unmatch must be checked before get_selected_po(), since
+        # the unmatch form doesn't submit a "po" field at all.
+        if request.POST.get("action") == "unmatch":
+            return self._handle_unmatch(request, invoice)
+
         po = self.get_selected_po()
         if po is None:
             messages.error(request, _("No purchase order was selected."))
@@ -141,3 +141,20 @@ class InvoiceMatchPOView(UnfoldModelAdminViewMixin, TemplateView):
             % {"count": len(created), "number": po.number},
         )
         return redirect("admin:invoices_invoice_change", invoice.pk)
+
+    def _handle_unmatch(self, request, invoice):
+        allocation_id = request.POST.get("allocation_id")
+        allocation = get_object_or_404(
+            InvoicePOAllocation.objects.select_related("invoice_item", "po_item__purchase_order"),
+            pk=allocation_id,
+            invoice_item__invoice=invoice,
+        )
+        po_number = allocation.po_item.purchase_order.number
+        description = allocation.invoice_item.description
+        allocation.delete()
+        messages.info(
+            request,
+            _("Removed match for \"%(description)s\" (was %(po)s). Choose a new match below.")
+            % {"description": description, "po": po_number},
+        )
+        return redirect(request.path)

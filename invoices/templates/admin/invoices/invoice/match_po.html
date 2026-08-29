@@ -75,6 +75,16 @@
 
         {% if not invoice.skip_po_matching and total_quantity %}
         <div class="p-8 pb-0">
+            {% if messages %}
+            <div class="mb-6 space-y-2">
+                {% for message in messages %}
+                <div class="message-banner {% if message.tags == 'error' %}message-error{% elif message.tags == 'warning' %}message-warning{% else %}message-info{% endif %}">
+                    {{ message }}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
             <div class="progress-card">
                 <div class="flex items-center justify-between gap-4 {% if item_progress %}mb-3{% endif %}">
                     <span class="text-sm font-semibold" style="color:#085041">
@@ -119,9 +129,16 @@
                         <span class="text-xs font-mono font-semibold" style="color:#0f6e56">
                             {{ row.matched|floatformat:2 }} / {{ row.total|floatformat:2 }}
                         </span>
-                        <a href="{% url 'admin:invoices_invoice_change' invoice.id %}#tab-3" class="change-link">
-                            {% trans "Change" %}
-                        </a>
+                        {% for alloc in row.allocation_objs %}
+                        <form method="post" class="inline">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="unmatch">
+                            <input type="hidden" name="allocation_id" value="{{ alloc.pk }}">
+                            <button type="submit" class="unmatch-link" title="{% trans 'Remove this match' %}">
+                                {% trans "Unmatch" %} {{ alloc.po_item.purchase_order.number }}
+                            </button>
+                        </form>
+                        {% endfor %}
                     </div>
                 </div>
                 {% endfor %}
@@ -150,7 +167,7 @@
                 <span class="check-badge-lg">&#10003;</span>
                 <div>
                     <div class="font-semibold text-gray-900">{% trans "Everything has been matched." %}</div>
-                    <p class="text-sm text-gray-500 mt-1">{% trans "All invoice lines are already allocated to a purchase order. Use \"Change\" above if something looks wrong." %}</p>
+                    <p class="text-sm text-gray-500 mt-1">{% trans "All invoice lines are already allocated to a purchase order. Use \"Unmatch\" above if something looks wrong." %}</p>
                 </div>
             </div>
             {% else %}
@@ -380,8 +397,18 @@
         background-color: #e1f5ee; color: #0f6e56; font-size: 0.625rem; font-weight: 700;
     }
 
-    .change-link { font-size: 0.75rem; font-weight: 500; color: #68A7A5; }
-    .change-link:hover { text-decoration: underline; }
+    .unmatch-link {
+        font-size: 0.75rem; font-weight: 500; color: #9f1239;
+        background: none; border: none; padding: 0; cursor: pointer;
+    }
+    .unmatch-link:hover { text-decoration: underline; }
+
+    .message-banner {
+        padding: 0.75rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500;
+    }
+    .message-error { background-color: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+    .message-warning { background-color: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+    .message-info { background-color: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
 
     .po-card {
         border: 1px solid #e5e7eb; border-radius: 0.75rem; overflow: hidden;

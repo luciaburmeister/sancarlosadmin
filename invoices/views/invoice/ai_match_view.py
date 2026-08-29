@@ -10,7 +10,7 @@ from django.views import View
 from django.views.generic import TemplateView
 from unfold.views import UnfoldModelAdminViewMixin
 
-from invoices.models import AIMatchSuggestion, AIMatchSuggestionStatus, Invoice
+from invoices.models import AIMatchSuggestion, AIMatchSuggestionStatus, Invoice, InvoicePOAllocation
 from invoices.services.po_matching import POInvoiceMatchService
 
 
@@ -20,7 +20,8 @@ class InvoiceAIMatchView(UnfoldModelAdminViewMixin, TemplateView):
     (which locks to one PO chosen up front), each AIMatchSuggestion here
     already carries its own suggested PO — different suggestions on the
     same invoice can point at different POs. Confirm/reject happens per
-    suggestion via individual POST forms, not a single wizard submit.
+    suggestion via individual POST forms; unmatch/re-review reuses the
+    same allocation-removal flow as the manual matcher.
     """
     template_name = "admin/invoices/invoice/ai_match_review.html"
     title = _("AI Suggested Matches")
@@ -55,9 +56,12 @@ class InvoiceAIMatchView(UnfoldModelAdminViewMixin, TemplateView):
 
     def post(self, request, *args, **kwargs):
         invoice = self.get_invoice()
-        suggestion_id = request.POST.get("suggestion_id")
         action = request.POST.get("action")
 
+        if action == "unmatch":
+            return self._handle_unmatch(request, invoice)
+
+        suggestion_id = request.POST.get("suggestion_id")
         suggestion = get_object_or_404(
             AIMatchSuggestion,
             pk=suggestion_id,
@@ -106,6 +110,29 @@ class InvoiceAIMatchView(UnfoldModelAdminViewMixin, TemplateView):
             return redirect(request.path)
 
         messages.error(request, _("Unknown action."))
+        return redirect(request.path)
+
+    def _handle_unmatch(self, request, invoice):
+        """
+        Removes a single InvoicePOAllocation and stays on this same page so
+        the user can immediately pick a new match — whether that match
+        originally came from AI or the manual matcher (mirrors
+        InvoiceMatchPOView._handle_unmatch).
+        """
+        allocation_id = request.POST.get("allocation_id")
+        allocation = get_object_or_404(
+            InvoicePOAllocation.objects.select_related("invoice_item", "po_item__purchase_order"),
+            pk=allocation_id,
+            invoice_item__invoice=invoice,
+        )
+        po_number = allocation.po_item.purchase_order.number
+        description = allocation.invoice_item.description
+        allocation.delete()
+        messages.info(
+            request,
+            _("Removed match for \"%(description)s\" (was %(po)s). Run the AI matcher again or use the manual matcher to pick a new one.")
+            % {"description": description, "po": po_number},
+        )
         return redirect(request.path)
 
 

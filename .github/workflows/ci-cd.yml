@@ -90,12 +90,15 @@ jobs:
       # skipping fsync/WAL durability makes the 700+ migrations, per-test
       # flushes and inserts several times faster on the CI runner's disk.
       - name: Tune PostgreSQL for a throwaway test database
+        # One -c per statement: psql runs a multi-statement -c string as a
+        # single transaction, and ALTER SYSTEM refuses to run inside one.
         run: |
-          docker exec ${{ job.services.postgres.id }} psql -U postgres -d test_db -c "
-            ALTER SYSTEM SET fsync = off;
-            ALTER SYSTEM SET synchronous_commit = off;
-            ALTER SYSTEM SET full_page_writes = off;
-            SELECT pg_reload_conf();"
+          docker exec ${{ job.services.postgres.id }} psql -U postgres -d test_db \
+            -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET fsync = off" \
+            -c "ALTER SYSTEM SET synchronous_commit = off" \
+            -c "ALTER SYSTEM SET full_page_writes = off" \
+            -c "SELECT pg_reload_conf()"
 
       - name: Run tests (PostgreSQL)
         # --durations prints the slowest tests so a new slow test is visible

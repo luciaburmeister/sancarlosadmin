@@ -1,3 +1,4 @@
+from django.contrib.admin.widgets import AutocompleteSelectMultiple
 import os
 
 from django.contrib import admin
@@ -28,7 +29,7 @@ from apps.expenses.tasks import process_expense_ticket
 from apps.expenses.views.expense_ticket_upload import ExpenseTicketUploadAdminView
 from apps.expenses.views.expense_claim_add_ticket import ExpenseClaimAddTicketAdminView
 from apps.expenses.views.expense_claim_register_payment import ExpenseClaimRegisterPaymentView
-
+from unfold.contrib.filters.admin import RangeDateFilter
 
 class ExpenseTicketInline(TabularInline):
     model = ExpenseTicket
@@ -387,7 +388,13 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "reimbursed_status",
         "ocr_status",
     )
-    list_filter = ("company","date_of_purchase","claim", "needs_manual_review", "ocr_processed")
+    list_filter = (("company",AutocompleteSelectMultiple),
+    ("date_of_purchase",RangeDateFilter),
+    ("claim",AutocompleteSelectMultiple), 
+    ("submitted_by",AutocompleteSelectMultiple),
+    "needs_manual_review", 
+    "ocr_processed")
+    list_filter_submit = True
     search_fields = ("vendor_name", "vendor_tax_id", "ticket_number", "submitted_by__email")
     autocomplete_fields = ("company", "submitted_by", "provider", "invoice")
     readonly_fields = (
@@ -411,10 +418,6 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return super().get_queryset(request).select_related("claim")
 
     def has_change_permission(self, request, obj=None):
-        # Mirrors the lock in ExpenseTicket.save(): once a ticket's claim has
-        # moved past draft, its fields can no longer be edited here either -
-        # this is what the "Change" link on the claim's Linked Tickets tab
-        # opens directly, bypassing the inline's own permission checks.
         if obj is not None and obj.claim_id and obj.claim.status != ExpenseClaimStatus.DRAFT:
             return False
         return super().has_change_permission(request, obj)

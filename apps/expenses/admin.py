@@ -376,6 +376,42 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return custom + urls
 
 
+class HasClaimFilter(admin.SimpleListFilter):
+    title = _("Claim assignment")
+    parameter_name = "has_claim"
+
+    def lookups(self, request, model_admin):
+        return [
+            ("no", _("Without claim")),
+            ("yes", _("With claim")),
+        ]
+
+    def queryset(self, request, queryset):
+        if self.value() == "no":
+            return queryset.filter(claim__isnull=True)
+        if self.value() == "yes":
+            return queryset.filter(claim__isnull=False)
+        return queryset
+
+
+class HasInvoiceFilter(admin.SimpleListFilter):
+    title = _("Invoice assignment")
+    parameter_name = "has_invoice"
+
+    def lookups(self, request, model_admin):
+        return [
+            ("no", _("Without invoice")),
+            ("yes", _("With invoice")),
+        ]
+
+    def queryset(self, request, queryset):
+        if self.value() == "no":
+            return queryset.filter(invoice__isnull=True)
+        if self.value() == "yes":
+            return queryset.filter(invoice__isnull=False)
+        return queryset
+
+
 @admin.register(ExpenseTicket)
 class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = (
@@ -384,16 +420,20 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "date_of_purchase",
         "original_amount",
         "ticket_number",
-        "claim",
+        "has_claim",
+        "has_invoice",
         "reimbursed_status",
-        "ocr_status",
     )
-    list_filter = (("company",AutocompleteSelectMultiple),
-    ("date_of_purchase",RangeDateFilter),
-    ("claim",AutocompleteSelectMultiple), 
-    ("submitted_by",AutocompleteSelectMultiple),
-    "needs_manual_review", 
-    "ocr_processed")
+    list_filter = (
+        ("company", AutocompleteSelectMultiple),
+        ("date_of_purchase", RangeDateFilter),
+        HasClaimFilter,
+        HasInvoiceFilter,
+        ("claim", AutocompleteSelectMultiple),
+        ("submitted_by", AutocompleteSelectMultiple),
+        "needs_manual_review",
+        "ocr_processed",
+    )
     list_filter_submit = True
     search_fields = ("vendor_name", "vendor_tax_id", "ticket_number", "submitted_by__email")
     autocomplete_fields = ("company", "submitted_by", "provider", "invoice")
@@ -659,6 +699,14 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return self.has_change_permission(request, ticket)
 
     # ── Display helpers ──────────────────────────────────────────────────────
+
+    @display(description=_("Has claim"), boolean=True, ordering="claim")
+    def has_claim(self, obj):
+        return obj.claim_id is not None
+
+    @display(description=_("Has invoice"), boolean=True, ordering="invoice")
+    def has_invoice(self, obj):
+        return obj.invoice_id is not None
 
     @display(
         description=_("OCR Status"),

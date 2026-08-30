@@ -1,3 +1,4 @@
+from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 from django.contrib.admin.widgets import AutocompleteSelectMultiple
 import os
 
@@ -29,7 +30,8 @@ from apps.expenses.tasks import process_expense_ticket
 from apps.expenses.views.expense_ticket_upload import ExpenseTicketUploadAdminView
 from apps.expenses.views.expense_claim_add_ticket import ExpenseClaimAddTicketAdminView
 from apps.expenses.views.expense_claim_register_payment import ExpenseClaimRegisterPaymentView
-from unfold.contrib.filters.admin import RangeDateFilter
+from unfold.contrib.filters.admin import RangeDateFilter,RadioFilter
+
 
 class ExpenseTicketInline(TabularInline):
     model = ExpenseTicket
@@ -376,7 +378,7 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return custom + urls
 
 
-class HasClaimFilter(admin.SimpleListFilter):
+class HasClaimFilter(RadioFilter):
     title = _("Claim assignment")
     parameter_name = "has_claim"
 
@@ -394,7 +396,7 @@ class HasClaimFilter(admin.SimpleListFilter):
         return queryset
 
 
-class HasInvoiceFilter(admin.SimpleListFilter):
+class HasInvoiceFilter(RadioFilter):
     title = _("Invoice assignment")
     parameter_name = "has_invoice"
 
@@ -425,12 +427,12 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "reimbursed_status",
     )
     list_filter = (
-        ("company", AutocompleteSelectMultiple),
+        ("company", AutocompleteSelectMultipleFilter),
         ("date_of_purchase", RangeDateFilter),
         HasClaimFilter,
         HasInvoiceFilter,
-        ("claim", AutocompleteSelectMultiple),
-        ("submitted_by", AutocompleteSelectMultiple),
+        ("claim", AutocompleteSelectMultipleFilter),
+        ("submitted_by", AutocompleteSelectMultipleFilter),
         "needs_manual_review",
         "ocr_processed",
     )

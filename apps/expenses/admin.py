@@ -5,6 +5,7 @@ import os
 from django.contrib import admin
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
+from django.db import transaction
 from django.http import HttpResponse
 from django.urls import path, reverse
 from django.shortcuts import redirect
@@ -615,6 +616,7 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     )
     def create_invoice_from_ticket_detail_action(self, request, object_id):
         from invoices.models import Invoice
+        from invoices.tasks import process_manual_invoice
 
         ticket = ExpenseTicket.objects.select_related("provider", "company").get(pk=object_id)
 
@@ -644,7 +646,15 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         ticket.invoice = invoice
         ticket.save(update_fields=["invoice"])
 
-        self.message_user(request, _("Invoice created and linked to this ticket."))
+        # The ticket only carries a handful of fields (number, date, amount,
+        # provider); run the invoice OCR over the same file so tax IDs, tax
+        # breakdown and line items get filled in as on any manual upload.
+        transaction.on_commit(lambda: process_manual_invoice.delay(invoice_id=invoice.pk))
+
+        self.message_user(
+            request,
+            _("Invoice created and linked to this ticket. We're processing it with AI in the background."),
+        )
         return redirect(reverse("admin:invoices_invoice_change", args=[invoice.pk]))
 
     def has_create_invoice_from_ticket_detail_action_permission(self, request, object_id):

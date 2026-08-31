@@ -15,11 +15,12 @@ Run just this file:
 from datetime import datetime, time, timedelta
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import RequestFactory, TestCase
 from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
+from assets.admin.asset_planning import TraceabilityFilter
 from assets.models import Asset, AssetPlanning, AssetType, AssetTypeCategory, AssignmentOrigin, PlanningStatus
 from api.fleet.tests.helpers import make_asset_type, make_company, make_employee, make_user, make_zone
 
@@ -200,41 +201,43 @@ class TraceabilityFilterTests(TestCase):
 class TraceabilityChangelistConflictTests(TestCase):
     """Covers the batched conflict path (attach_conflict_flags), not just the per-object one in HasConflictTests."""
 
-    def setUp(self):
-        self.company = make_company()
-        self.origin = make_zone(self.company, name="Origin")
-        self.destination = make_zone(self.company, name="Destination")
-        self.cargo = Asset.objects.create(company=self.company, asset_type=make_asset_type(self.company, "Cuba"), name="Cuba 1")
-        self.truck = make_truck(self.company)
-        self.driver = make_employee(self.company, make_user(username="driver1"))
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = make_company()
+        cls.cargo = Asset.objects.create(
+            company=cls.company, asset_type=make_asset_type(cls.company, "Cuba"), name="Cuba 1",
+        )
+        cls.truck = make_truck(cls.company)
+        cls.driver = make_employee(cls.company, make_user(username="driver1"))
 
-        def make(start, end, driver=None, truck=None):
+        def make(start, end):
             return AssetPlanning.objects.create(
-                company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
+                company=cls.company, asset=cls.cargo,
                 scheduled_date=TODAY, scheduled_time=start, estimated_duration=_duration(start, end),
-                assigned_to=driver or self.driver, transport_asset=truck or self.truck,
+                assigned_to=cls.driver, transport_asset=cls.truck,
             )
 
-        self.conflict_a = make(time(8, 0), time(9, 0))
-        self.conflict_b = make(time(8, 30), time(9, 30))
-        self.clean = make(time(11, 0), time(12, 0))
-        self.pending = AssetPlanning.objects.create(
-            company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
-            scheduled_date=TODAY,
+        cls.conflict_a = make(time(8, 0), time(9, 0))
+        cls.conflict_b = make(time(8, 30), time(9, 30))
+        cls.clean = make(time(11, 0), time(12, 0))
+        cls.pending = AssetPlanning.objects.create(
+            company=cls.company, asset=cls.cargo, scheduled_date=TODAY,
         )
 
-        superuser = User.objects.create_superuser(username="admin2", password="testpass123", email="a2@a.com")
-        make_employee(self.company, superuser)
-        self.client.force_login(superuser)
-        self.url = reverse("admin:assets_assetplanning_changelist")
-
     def test_conflict_filter_shows_only_conflicting_via_batch_path(self):
-        response = self.client.get(self.url, {"traceability": "conflict"})
-        ids = {obj.pk for obj in response.context["cl"].queryset}
+        request = RequestFactory().get("/")
+        filt = TraceabilityFilter(
+            request, {"traceability": ["conflict"]}, AssetPlanning, None,
+        )
+        qs = filt.queryset(request, AssetPlanning.objects.filter(company=self.company))
+        ids = set(qs.values_list("pk", flat=True))
         self.assertEqual(ids, {self.conflict_a.pk, self.conflict_b.pk})
 
     def test_unfiltered_changelist_column_matches_per_object_has_conflict(self):
-        response = self.client.get(self.url)
+        superuser = User.objects.create_superuser(username="admin2", password="testpass123", email="a2@a.com")
+        make_employee(self.company, superuser)
+        self.client.force_login(superuser)
+        response = self.client.get(reverse("admin:assets_assetplanning_changelist"))
         result_list = {obj.pk: obj for obj in response.context["cl"].result_list}
         self.assertTrue(result_list[self.conflict_a.pk].has_conflict)
         self.assertTrue(result_list[self.conflict_b.pk].has_conflict)

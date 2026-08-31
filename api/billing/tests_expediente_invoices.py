@@ -5,6 +5,7 @@ Tests for the project-file invoice creation API
 import json
 from datetime import date
 from decimal import Decimal
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth.models import User
 from django.contrib.contenttypes.models import ContentType
@@ -20,39 +21,37 @@ from sales.models import Client, Quote, QuoteInventoryItem, QuoteStatus
 
 
 class _ProjectFileInvoiceTestBase(TestCase):
-    """Shared setUp for all project-file invoice API tests."""
+    """Shared fixtures for all project-file invoice API tests."""
 
-    def setUp(self):
-        # Auth
-        self.user = User.objects.create_user("tester", password="pass")
-        self.company = Company.objects.create(name="Test Co")
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user("tester", password="pass")
+        cls.company = Company.objects.create(name="Test Co")
         Employee.objects.create(
-            user=self.user,
-            company=self.company,
+            user=cls.user,
+            company=cls.company,
             first_name="Test",
             last_name="User",
             is_active=True,
             hired_at=date(2020, 1, 1),
         )
-        self.api = APIClient()
-        self.api.force_authenticate(user=self.user)
-
-        # Client, product, project file
-        self.client_obj = Client.objects.create(name="Acme", company=self.company)
-        self.product = ProductTemplate.objects.create(name="Door", company=self.company)
-        self.project_file = ProjectFile.objects.create(
+        cls.client_obj = Client.objects.create(name="Acme", company=cls.company)
+        cls.product = ProductTemplate.objects.create(name="Door", company=cls.company)
+        cls.project_file = ProjectFile.objects.create(
             name="PF Test",
-            company=self.company,
-            client=self.client_obj,
+            company=cls.company,
+            client=cls.client_obj,
         )
-
-        # Tax types
-        self.iva21, _ = TaxType.objects.get_or_create(
+        cls.iva21, _ = TaxType.objects.get_or_create(
             tax_name="IVA", country="ES", defaults={"behavior": "add"}
         )
-        self.iva10, _ = TaxType.objects.get_or_create(
+        cls.iva10, _ = TaxType.objects.get_or_create(
             tax_name="IVA Reducido", country="ES", defaults={"behavior": "add"}
         )
+
+    def setUp(self):
+        self.api = APIClient()
+        self.api.force_authenticate(user=self.user)
 
     # ── helpers ──────────────────────────────────────────────────────────
     def _create_config(self, quote, subtotal, total, name="Config"):
@@ -335,10 +334,55 @@ class BulkEmitQuoteObservationsTests(_ProjectFileInvoiceTestBase):
 
     def test_company_flag_appends_observations_after_notes(self):
         self.company.bulk_emit_copy_quote_observations = True
-        self.company.save()
-        self._setup_invoiceable_pf()
-        invoice = self._created_invoice(self._post_bulk(notes="Nota común"))
-        self.assertEqual(invoice.notes, "Nota común\n---\nCambio de aceite incluido")
+        self.company.save(update_fields=["bulk_emit_copy_quote_observations"])
+        Quote.objects.create(
+            project_name="Q Test",
+            company=self.company,
+            client=self.client_obj,
+            project_file=self.project_file,
+            status=QuoteStatus.ACCEPTED,
+            observations="Cambio de aceite incluido",
+            subtotal_price=100,
+            tax_amount=21,
+            total_price=121,
+        )
+
+        captured = {}
+
+        def fake_create(**kwargs):
+            captured["notes"] = kwargs["notes"]
+            invoice = MagicMock()
+            invoice.id = 1
+            invoice.invoice_number = "INV-1"
+            invoice.total_amount = None
+            return invoice
+
+        with (
+            patch(
+                "api.billing.serializers.ProjectFileInvoiceService.get_invoiceable_summary",
+                return_value={"total_invoiceable": Decimal("121"), "remaining": Decimal("121")},
+            ),
+            patch(
+                "api.billing.serializers.build_items_from_summary",
+                return_value=[{"description": "Door"}],
+            ),
+            patch(
+                "api.billing.serializers.ProjectFileInvoiceService.create_invoice_from_project_file",
+                side_effect=fake_create,
+            ),
+            patch(
+                "api.billing.serializers.SalesInvoiceService.finalize_invoice",
+                side_effect=lambda invoice, send_email=True: invoice,
+            ),
+            patch(
+                "api.billing.serializers.SalesInvoiceService.get_finalize_email_status",
+                return_value={},
+            ),
+        ):
+            resp = self._post_bulk(notes="Nota común")
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual(captured["notes"], "Nota común\n---\nCambio de aceite incluido")
 
     def test_company_flag_without_common_notes(self):
         self.company.bulk_emit_copy_quote_observations = True

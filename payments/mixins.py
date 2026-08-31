@@ -108,3 +108,37 @@ def annotate_outstanding_balance(
             output_field=_DECIMAL_FIELD,
         )
     })
+
+
+def annotate_amount_remaining(queryset: QuerySet, invoice_model) -> QuerySet:
+    """
+    Annotate an invoice queryset (`Invoice`, `SalesInvoice`, …) with
+    `db_amount_paid` and `db_amount_remaining`, computed at the database
+    level via PaymentAllocation.
+
+    Eliminates the N+1 caused by the model's Python `amount_paid` /
+    `amount_remaining` properties when listing or aggregating invoices.
+    """
+    from payments.models import PaymentAllocation
+
+    ct_id = ContentType.objects.get_for_model(invoice_model).pk
+
+    paid_subquery = Subquery(
+        PaymentAllocation.objects.filter(
+            content_type_id=ct_id,
+            object_id=OuterRef("pk"),
+        )
+        .values("object_id")
+        .annotate(total=Sum("amount_applied"))
+        .values("total"),
+        output_field=_DECIMAL_FIELD,
+    )
+
+    return queryset.annotate(
+        db_amount_paid=Coalesce(paid_subquery, _ZERO, output_field=_DECIMAL_FIELD),
+        db_amount_remaining=Coalesce(
+            F("total_amount") - Coalesce(paid_subquery, _ZERO, output_field=_DECIMAL_FIELD),
+            _ZERO,
+            output_field=_DECIMAL_FIELD,
+        ),
+    )

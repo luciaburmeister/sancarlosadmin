@@ -1,7 +1,6 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
-from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.db.models import (
     DecimalField,
@@ -21,6 +20,7 @@ from unfold.views import UnfoldModelAdminViewMixin
 
 from core.admin.company_access import get_user_companies
 from invoices.models import Invoice, InvoicePaymentStatus
+from payments.mixins import annotate_amount_remaining
 from payments.models import PaymentAllocation
 from payroll.services.cashflow import build_week_ranges, get_payroll_outflows
 
@@ -47,46 +47,13 @@ class AccountsPayableDashboardView(UnfoldModelAdminViewMixin, TemplateView):
     # ── Queryset helpers ───────────────────────────────────────────
 
     @staticmethod
-    def _invoice_ct_id():
-        """Return the ContentType id for Invoice (cached after first call)."""
-        return ContentType.objects.get_for_model(Invoice).pk
-
-    @staticmethod
     def _annotate_remaining(qs):
         """
         Annotate a queryset with `db_amount_paid` and `db_amount_remaining`
         computed at the database level via PaymentAllocation.
-        Eliminates the N+1 caused by the model's Python properties.
+        Delegates to payments.mixins.annotate_amount_remaining.
         """
-        ct_id = AccountsPayableDashboardView._invoice_ct_id()
-
-        paid_subquery = Subquery(
-            PaymentAllocation.objects.filter(
-                content_type_id=ct_id,
-                object_id=OuterRef("pk"),
-            )
-            .values("object_id")
-            .annotate(total=Sum("amount_applied"))
-            .values("total"),
-            output_field=DecimalField(max_digits=12, decimal_places=2),
-        )
-
-        return qs.annotate(
-            db_amount_paid=Coalesce(
-                paid_subquery,
-                Value(Decimal("0.00")),
-                output_field=DecimalField(max_digits=12, decimal_places=2),
-            ),
-            db_amount_remaining=Coalesce(
-                F("total_amount") - Coalesce(
-                    paid_subquery,
-                    Value(Decimal("0.00")),
-                    output_field=DecimalField(max_digits=12, decimal_places=2),
-                ),
-                Value(Decimal("0.00")),
-                output_field=DecimalField(max_digits=12, decimal_places=2),
-            ),
-        )
+        return annotate_amount_remaining(qs, Invoice)
 
     # ── Main view ──────────────────────────────────────────────────
 

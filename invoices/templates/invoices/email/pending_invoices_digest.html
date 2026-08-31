@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f4f7f6; margin: 0; padding: 0; }
+        .container { padding: 40px; max-width: 800px; margin: 20px auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        h3 { color: #2c3e50; margin-top: 35px; margin-bottom: 0; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+        h4 { color: #2c3e50; margin-top: 25px; margin-bottom: 0; }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0 10px; }
+        th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #eee; }
+        th { background-color: #f8f9fa; color: #2c3e50; font-weight: 600; }
+        .amount { font-weight: bold; color: #2c3e50; white-space: nowrap; }
+        .overdue { color: #c0392b; }
+        .totals { margin: 5px 0 15px; }
+        .empty { color: #7f8c8d; font-style: italic; }
+        .more { color: #7f8c8d; font-size: 0.9em; margin-top: 0; }
+        .btn { display: inline-block; padding: 10px 20px; background-color: #3498db; color: #ffffff !important; text-decoration: none; border-radius: 5px; font-weight: 600; }
+        .btn-wrapper { margin: 10px 0 20px; }
+        .summary-table td.amount { font-size: 1.05em; }
+        .footer { margin-top: 40px; font-size: 0.85em; color: #7f8c8d; border-top: 1px solid #eee; padding-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Resumen de Facturas Pendientes</h2>
+        <p>Hola,</p>
+        {% if companies|length == 1 %}
+        <p>Este es el resumen del {{ report_date }} de las facturas pendientes de pago y de cobro de <strong>{{ companies.0.name }}</strong>:</p>
+        {% else %}
+        <p>Este es el resumen consolidado del {{ report_date }} de las facturas pendientes de pago y de cobro de sus empresas:</p>
+        {% endif %}
+
+        <table class="summary-table">
+            <thead>
+                <tr>
+                    <th></th>
+                    <th>Total a pagar</th>
+                    <th>Total a cobrar</th>
+                    <th>Posición neta</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for line in summary_lines %}
+                <tr>
+                    <th>Total ({{ line.currency }})</th>
+                    <td class="amount overdue">{{ line.to_pay }}</td>
+                    <td class="amount">{{ line.to_receive }}</td>
+                    <td class="amount">{{ line.net }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% for company in companies %}
+        {% if companies|length > 1 %}
+        <h3>{{ company.name }}</h3>
+        {% endif %}
+
+        <h4>Pendiente de pago a proveedores{% if company.payables.count %} ({{ company.payables.count }}){% endif %}</h4>
+        {% if company.payables.rows %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Proveedor</th>
+                    <th>Factura</th>
+                    <th>Vencimiento</th>
+                    <th>Pendiente</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in company.payables.rows %}
+                <tr>
+                    <td>{{ row.counterparty }}</td>
+                    <td>{{ row.number }}</td>
+                    <td{% if row.overdue %} class="overdue"{% endif %}>{{ row.due_date }}{% if row.overdue %} (vencida){% endif %}</td>
+                    <td class="amount{% if row.overdue %} overdue{% endif %}">{{ row.remaining }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% if company.payables.extra_count %}
+        <p class="more">… y {{ company.payables.extra_count }} factura{{ company.payables.extra_count|pluralize }} más.</p>
+        {% endif %}
+        <p class="totals">Total pendiente de pago: <strong>{{ company.payables.total_display }}</strong>{% if company.payables.overdue_count %} &middot; Vencido: <strong class="overdue">{{ company.payables.overdue_display }}</strong> ({{ company.payables.overdue_count }}){% endif %}</p>
+        {% else %}
+        <p class="empty">Sin facturas pendientes de pago.</p>
+        {% endif %}
+        <div class="btn-wrapper">
+            <a href="{{ company.payables.url }}" class="btn">Ver facturas por pagar</a>
+        </div>
+
+        <h4>Pendiente de cobro de clientes{% if company.receivables.count %} ({{ company.receivables.count }}){% endif %}</h4>
+        {% if company.receivables.rows %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Cliente</th>
+                    <th>Factura</th>
+                    <th>Vencimiento</th>
+                    <th>Pendiente</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in company.receivables.rows %}
+                <tr>
+                    <td>{{ row.counterparty }}</td>
+                    <td>{{ row.number }}</td>
+                    <td{% if row.overdue %} class="overdue"{% endif %}>{{ row.due_date }}{% if row.overdue %} (vencida){% endif %}</td>
+                    <td class="amount{% if row.overdue %} overdue{% endif %}">{{ row.remaining }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% if company.receivables.extra_count %}
+        <p class="more">… y {{ company.receivables.extra_count }} factura{{ company.receivables.extra_count|pluralize }} más.</p>
+        {% endif %}
+        <p class="totals">Total pendiente de cobro: <strong>{{ company.receivables.total_display }}</strong>{% if company.receivables.overdue_count %} &middot; Vencido: <strong class="overdue">{{ company.receivables.overdue_display }}</strong> ({{ company.receivables.overdue_count }}){% endif %}</p>
+        {% else %}
+        <p class="empty">Sin facturas pendientes de cobro.</p>
+        {% endif %}
+        <div class="btn-wrapper">
+            <a href="{{ company.receivables.url }}" class="btn">Ver facturas por cobrar</a>
+        </div>
+        {% endfor %}
+
+        <div class="footer">
+            <p>Este es un mensaje generado automáticamente por su sistema <strong>ERP Polipus</strong>.</p>
+        </div>
+    </div>
+</body>
+</html>

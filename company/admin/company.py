@@ -434,6 +434,7 @@ class CompanyAdmin(ModelAdmin):
                 "bulk_emit_copy_quote_observations",
                 ("document_reminder_emails"),
                 ("bank_summary_emails"),
+                ("invoice_digest_emails"),
                 ("purchase_order_notification_emails"),
                 ("asset_plan_draft_notification_emails"),
                 "invoice_number_format",

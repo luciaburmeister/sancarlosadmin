@@ -378,3 +378,79 @@ def suggest_ai_po_matches_task(self, invoice_id: int):
         logger.exception("AI PO matcher failed for invoice %s", invoice_id)
         raise self.retry(exc=exc)
 
+
+
+# ── Pending invoices daily digest ─────────────────────────────────────
+# Data: invoices.services.pending_invoices_digest_service
+# Email construction: invoices.services.pending_invoices_digest_email_service
+# This task only orchestrates: fetch -> build -> send -> report.
+
+
+@shared_task(name="invoices.tasks.send_pending_invoices_digest")
+def send_pending_invoices_digest():
+    """Daily task: emails a bank-report-style digest of pending invoices —
+    what each company owes its providers (unpaid/partially-paid purchase
+    invoices, credit notes netted) and what its clients owe it (final,
+    unpaid sales invoices) — to Company.invoice_digest_emails recipients.
+
+    Recipients configured on several companies receive ONE consolidated
+    email covering all of their companies, with a global totals block
+    (to pay / to receive / net position) and links to the corresponding
+    admin changelists pre-filtered to each company's pending documents.
+
+    Companies with no recipients configured are skipped — opt-in per
+    company, like banking.tasks.send_bank_accounts_summary.
+
+    Not wired into settings.CELERY_BEAT_SCHEDULE: schedule it via a
+    django-celery-beat PeriodicTask (admin > Periodic Tasks, e.g. daily
+    at 07:00) pointing at "invoices.tasks.send_pending_invoices_digest".
+    """
+    from django.utils import timezone
+
+    from company.models import Company
+    from invoices.services.pending_invoices_digest_email_service import (
+        PendingInvoicesDigestEmailService,
+    )
+    from invoices.services.pending_invoices_digest_service import (
+        PendingInvoicesDigestService,
+    )
+
+    today = timezone.localdate()
+    companies = list(Company.objects.exclude(invoice_digest_emails=[]))
+    digests = PendingInvoicesDigestService.get_company_digests(companies, today=today)
+    emails = PendingInvoicesDigestEmailService.build_emails(
+        companies, digests, today=today
+    )
+
+    emails_sent = 0
+    errors = []
+
+    for email in emails:
+        recipients_label = ", ".join(email.recipients)
+        try:
+            success = EmailService.send_email(
+                to=email.recipients,
+                subject=email.subject,
+                body_html=email.body_html,
+                related_object=email.company,
+                company=email.company,
+            )
+            if success:
+                emails_sent += 1
+            else:
+                errors.append(f"Failed to send invoices digest to [{recipients_label}]")
+        except Exception as e:
+            errors.append(
+                f"Error sending invoices digest to [{recipients_label}]: {str(e)}"
+            )
+
+    if errors:
+        raise Exception(
+            f"Pending invoices digest task completed with errors: {'; '.join(errors)}"
+        )
+
+    return {
+        "task": "send_pending_invoices_digest",
+        "status": "ok",
+        "emails_sent": emails_sent,
+    }

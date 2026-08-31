@@ -96,6 +96,13 @@ class Company(models.Model):
         verbose_name=_("Purchase Order Notification Emails"),
         help_text=_("Emails that will be notified whenever a new Purchase Order is created"),
     )
+    invoice_digest_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Invoice Digest Emails"),
+        help_text=_("Emails that will receive the daily summary of pending invoices to pay and to collect"),
+    )
     asset_plan_draft_notification_emails = ArrayField(
         base_field=models.EmailField(),
         default=list,

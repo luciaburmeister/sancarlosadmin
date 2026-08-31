@@ -1,3 +1,4 @@
+from collections import defaultdict
 from datetime import date as date_, datetime, time, timedelta
 
 from django.contrib.postgres.fields import ArrayField
@@ -973,13 +974,14 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         indexes = [models.Index(fields=["assigned_to", "scheduled_date"])]
 
     def reset_execution_state_for_schedule_clone(self):
-        """Fresh schedule block — drop yesterday's driver-side progress."""
+        """Fresh schedule block — drop yesterday's driver-side progress and the asset."""
         self.status = PlanningStatus.PENDING
         self.driver_claimed_cuba = False
         self.abandoned_stage = ""
         self.abandoned_at = None
         self.abandoned_reason = ""
         self.abandoned_by = None
+        self.asset = None
 
     def save(self, *args, **kwargs):
         # Auto-tag assignment_origin unless the caller explicitly set it
@@ -1297,14 +1299,70 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
                 return True
         return False
 
+    @classmethod
+    def attach_conflict_flags(cls, plannings) -> None:
+        """Batch version of has_conflict — one query for the whole list instead of one per planning."""
+        candidates = [
+            p for p in plannings
+            if p.scheduled_time and (p.assigned_to_id or p.transport_asset_id)
+            and (p.scheduled_end_time or _default_end_time(p.scheduled_time)) is not None
+        ]
+        if not candidates:
+            return
+
+        dates = {p.scheduled_date for p in candidates}
+        driver_ids = {p.assigned_to_id for p in candidates if p.assigned_to_id}
+        truck_ids = {p.transport_asset_id for p in candidates if p.transport_asset_id}
+
+        q = Q()
+        if driver_ids:
+            q |= Q(assigned_to_id__in=driver_ids)
+        if truck_ids:
+            q |= Q(transport_asset_id__in=truck_ids)
+
+        others_by_date = defaultdict(list)
+        others = cls.objects.filter(
+            q, scheduled_date__in=dates,
+            status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT, PlanningStatus.NOT_COMPLETED],
+        ).only("scheduled_date", "scheduled_time", "estimated_duration", "assigned_to_id", "transport_asset_id")
+        for other in others:
+            others_by_date[other.scheduled_date].append(other)
+
+        for p in candidates:
+            p_end = p.scheduled_end_time or _default_end_time(p.scheduled_time)
+            conflict = False
+            for other in others_by_date.get(p.scheduled_date, ()):
+                if other.pk == p.pk:
+                    continue
+                if not (
+                    (other.assigned_to_id and other.assigned_to_id == p.assigned_to_id)
+                    or (other.transport_asset_id and other.transport_asset_id == p.transport_asset_id)
+                ):
+                    continue
+                if not other.scheduled_time:
+                    continue
+                other_end = other.scheduled_end_time or _default_end_time(other.scheduled_time)
+                if other_end is None:
+                    continue
+                if p.scheduled_time < other_end and other.scheduled_time < p_end:
+                    conflict = True
+                    break
+            p._has_conflict = conflict
+
     @property
     def has_conflict(self) -> bool:
-        """Does this (already scheduled) planning overlap another one for the same driver/truck, same day?"""
+        """Does this (already scheduled) planning overlap another one for the same driver/truck, same day?
+
+        Uses the cached value from attach_conflict_flags when available.
+        """
         if not self.scheduled_time or not (self.assigned_to_id or self.transport_asset_id):
             return False
         end = self.scheduled_end_time or _default_end_time(self.scheduled_time)
         if end is None:
             return False
+        cached = getattr(self, "_has_conflict", None)
+        if cached is not None:
+            return cached
         return type(self).has_overlap(
             scheduled_date=self.scheduled_date,
             start=self.scheduled_time,

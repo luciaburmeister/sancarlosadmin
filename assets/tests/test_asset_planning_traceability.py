@@ -197,6 +197,61 @@ class TraceabilityFilterTests(TestCase):
         self.assertEqual(ids, {self.manual.pk})
 
 
+class TraceabilityChangelistConflictTests(TestCase):
+    """Covers the batched conflict path (attach_conflict_flags), not just the per-object one in HasConflictTests."""
+
+    def setUp(self):
+        self.company = make_company()
+        self.origin = make_zone(self.company, name="Origin")
+        self.destination = make_zone(self.company, name="Destination")
+        self.cargo = Asset.objects.create(company=self.company, asset_type=make_asset_type(self.company, "Cuba"), name="Cuba 1")
+        self.truck = make_truck(self.company)
+        self.driver = make_employee(self.company, make_user(username="driver1"))
+
+        def make(start, end, driver=None, truck=None):
+            return AssetPlanning.objects.create(
+                company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
+                scheduled_date=TODAY, scheduled_time=start, estimated_duration=_duration(start, end),
+                assigned_to=driver or self.driver, transport_asset=truck or self.truck,
+            )
+
+        self.conflict_a = make(time(8, 0), time(9, 0))
+        self.conflict_b = make(time(8, 30), time(9, 30))
+        self.clean = make(time(11, 0), time(12, 0))
+        self.pending = AssetPlanning.objects.create(
+            company=self.company, asset=self.cargo, origin=self.origin, destination=self.destination,
+            scheduled_date=TODAY,
+        )
+
+        superuser = User.objects.create_superuser(username="admin2", password="testpass123", email="a2@a.com")
+        make_employee(self.company, superuser)
+        self.client.force_login(superuser)
+        self.url = reverse("admin:assets_assetplanning_changelist")
+
+    def test_conflict_filter_shows_only_conflicting_via_batch_path(self):
+        response = self.client.get(self.url, {"traceability": "conflict"})
+        ids = {obj.pk for obj in response.context["cl"].queryset}
+        self.assertEqual(ids, {self.conflict_a.pk, self.conflict_b.pk})
+
+    def test_unfiltered_changelist_column_matches_per_object_has_conflict(self):
+        response = self.client.get(self.url)
+        result_list = {obj.pk: obj for obj in response.context["cl"].result_list}
+        self.assertTrue(result_list[self.conflict_a.pk].has_conflict)
+        self.assertTrue(result_list[self.conflict_b.pk].has_conflict)
+        self.assertFalse(result_list[self.clean.pk].has_conflict)
+        self.assertFalse(result_list[self.pending.pk].has_conflict)
+
+        # Must match the unbatched per-object query.
+        self.assertEqual(
+            result_list[self.conflict_a.pk].has_conflict,
+            AssetPlanning.objects.get(pk=self.conflict_a.pk).has_conflict,
+        )
+        self.assertEqual(
+            result_list[self.clean.pk].has_conflict,
+            AssetPlanning.objects.get(pk=self.clean.pk).has_conflict,
+        )
+
+
 class DriverClaimedCubaInvariantTests(TestCase):
     def setUp(self):
         self.company = make_company()

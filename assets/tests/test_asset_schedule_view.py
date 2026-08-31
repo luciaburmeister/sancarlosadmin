@@ -225,7 +225,7 @@ class AssetScheduleViewTests(TestCase):
         self.assertEqual(clone.scheduled_date, TODAY + timedelta(days=1))
         self.assertEqual(clone.status, PlanningStatus.PENDING)
         self.assertFalse(clone.driver_claimed_cuba)
-        self.assertEqual(clone.asset_id, self.planning.asset_id)
+        self.assertIsNone(clone.asset_id)
         self.assertEqual(clone.assigned_to_id, self.employee.pk)
         self.assertEqual(clone.transport_asset_id, self.truck.pk)
         self.assertEqual(clone.scheduled_time, time(8, 0))

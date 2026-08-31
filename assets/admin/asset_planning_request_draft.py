@@ -65,6 +65,7 @@ class AssetPlanningRequestDraftAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "requested_by__first_name", "requested_by__last_name",
     )
     autocomplete_fields = ["company", "client", "to_zone", "from_zone", "asset", "machine", "resulting_request"]
+    list_select_related = ["client", "to_zone", "requested_by", "company"]
     readonly_fields = [
         "service_type", "new_client_request_notice", "client",
         "new_client_name", "new_client_tax_id", "new_client_fiscal_address",

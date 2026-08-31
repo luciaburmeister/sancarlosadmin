@@ -108,6 +108,13 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         "resulting_planning", "zone_sync_applied_at",
         "rereview_notice",
     ]
+    list_select_related = [
+        "to_zone", "from_zone",
+        "requested_by", "assigned_to",
+        "asset", "asset__asset_type",
+        "machine", "machine__asset_type",
+        "company",
+    ]
     actions_row = ["duplicate_action"]
     actions_submit_line = ["approve_submit_action", "reject_submit_action"]
     conditional_fields = CONDITIONAL_FIELDS

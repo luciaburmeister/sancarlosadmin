@@ -186,7 +186,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
     autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file", "planning"]
     exclude = ["company", "firma"]
     readonly_fields = ["firma_preview", "imagen_link", "performed_by", "material_vertido_display", "peso_neto_display"]
-    list_select_related = ["from_zone__company", "to_zone__company", "company", "performed_by__company", "asset__asset_type"]
+    list_select_related = ["from_zone__company", "to_zone__company", "company", "performed_by__company", "asset__asset_type", "project_file"]
     list_filter_submit = True
     inlines = [AssetTransactionEmailLogInline, AssetTransactionReceiptInline, AssetTransactionPhotoInline, RelatedMovementReceiptInline]
 

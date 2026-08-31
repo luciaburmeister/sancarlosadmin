@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django import forms
 from django.contrib import admin
@@ -8,6 +8,7 @@ from django.http import HttpResponse
 from django.urls import reverse
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.forms import BaseDialogForm
+from unfold.views import ChangeList
 from core.admin.company_access import get_user_companies
 from core.admin.company_admin import CompanyRestrictedAdmin
 from simple_history.admin import SimpleHistoryAdmin
@@ -73,6 +74,9 @@ class AssetPlanningTransactionInline(TabularInline):
     def has_add_permission(self, request, obj=None):
         return False
 
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("asset", "from_zone", "to_zone")
+
 
 class TraceabilityFilter(admin.SimpleListFilter):
     """Filters on the derived Pending/Conflict/Auto-assigned/Manual status (see AssetPlanning.traceability_label)."""
@@ -96,24 +100,34 @@ class TraceabilityFilter(admin.SimpleListFilter):
                 Q(assigned_to__isnull=True) | Q(transport_asset__isnull=True) | Q(scheduled_time__isnull=True)
             )
 
-        fully_assigned = queryset.filter(
+        if value not in ("conflict", "auto", "manual"):
+            return queryset
+
+        # Batched so has_conflict below doesn't query per row.
+        fully_assigned = list(queryset.filter(
             assigned_to__isnull=False, transport_asset__isnull=False, scheduled_time__isnull=False,
-        )
+        ))
+        AssetPlanning.attach_conflict_flags(fully_assigned)
         if value == "conflict":
             ids = [p.pk for p in fully_assigned if p.has_conflict]
         elif value == "auto":
             ids = [
-                p.pk for p in fully_assigned.filter(assignment_origin=AssignmentOrigin.AUTO)
-                if not p.has_conflict
+                p.pk for p in fully_assigned
+                if p.assignment_origin == AssignmentOrigin.AUTO and not p.has_conflict
             ]
-        elif value == "manual":
+        else:  # manual
             ids = [
-                p.pk for p in fully_assigned.exclude(assignment_origin=AssignmentOrigin.AUTO)
-                if not p.has_conflict
+                p.pk for p in fully_assigned
+                if p.assignment_origin != AssignmentOrigin.AUTO and not p.has_conflict
             ]
-        else:
-            return queryset
         return queryset.filter(pk__in=ids)
+
+
+class AssetPlanningChangeList(ChangeList):
+    def get_results(self, request):
+        super().get_results(request)
+        # Avoids one has_conflict query per row (see attach_conflict_flags).
+        AssetPlanning.attach_conflict_flags(self.result_list)
 
 
 @admin.register(AssetPlanning)
@@ -150,7 +164,17 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "assignment_origin", "computed_end_time_display",
         "abandoned_stage", "abandoned_at", "abandoned_reason", "abandoned_by",
     ]
+    list_select_related = [
+        "asset", "asset__asset_type",
+        "origin", "destination",
+        "assigned_to", "transport_asset", "transport_asset__asset_type",
+        "company",
+    ]
     inlines = [AssetPlanningStopInline, AssetPlanningTransactionInline]
+
+    def get_changelist(self, request, **kwargs):
+        return AssetPlanningChangeList
+
     actions_list = ["auto_assign_action", "optimize_daily_routes_action"]
     actions_row = ["auto_assign_row_action"]
     conditional_fields = CONDITIONAL_FIELDS
@@ -214,6 +238,18 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
                 help_text=db_field.help_text,
             )
         return super().formfield_for_dbfield(db_field, request, **kwargs)
+
+    def get_changeform_initial_data(self, request):
+        # scheduled_time arrives as "HH:MM" from the schedule grid; TimeChoiceField
+        # only preselects a real datetime.time, not a raw string.
+        initial = super().get_changeform_initial_data(request)
+        scheduled_time = initial.get("scheduled_time")
+        if scheduled_time:
+            try:
+                initial["scheduled_time"] = datetime.strptime(scheduled_time, "%H:%M").time()
+            except ValueError:
+                pass
+        return initial
 
     def formfield_for_manytomany(self, db_field, request, **kwargs):
         obj = getattr(request, "_obj_", None)

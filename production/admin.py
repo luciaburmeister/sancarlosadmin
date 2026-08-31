@@ -165,7 +165,7 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         TicketLastStageLabelFilter,
     )
 
-    search_fields = ("object_id",)
+    search_fields = ("=pk","object_id",)
     actions_row = ["view_work_order", "generate_invoice_action"]
 
     inlines = [ProductionItemInline]

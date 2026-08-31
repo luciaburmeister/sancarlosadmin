@@ -35,6 +35,7 @@ from sales.models import (
 from sales.resources import QuoteItemImportResource, QuoteExportResource
 from sales.views.quote_dashboard_view import QuoteDashboardView
 from sales.views.quote_export_view import QuoteExportView
+from sales.views.quote_pdf_download_view import QuotePdfDownloadView
 from sales.views.quote_send_email_view import QuoteSendEmailView
 from sales.views_analysis import ConversionAnalysisView
 
@@ -320,8 +321,24 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
 
 
     actions_list = [ "quote_dashboard_action"]
-    actions_row = ["add_configuration_to_quote", "export_quote_action", "send_email_row_action"]
-    actions_detail = ["add_configuration_detail_action", "send_email_detail_action"]
+    actions_row = [
+        "add_configuration_to_quote",
+        "export_quote_action",
+        "download_pdf_row_action",
+        "send_email_row_action",
+    ]
+    actions_detail = [
+        {
+            "title": _("Quote Actions"),
+            "icon": "more_horiz",
+            "items": [
+                "add_configuration_detail_action",
+                "export_quote_detail_action",
+                "download_pdf_detail_action",
+                "send_email_detail_action",
+            ],
+        },
+    ]
 
     fieldsets = (
         ("Quote Details", {
@@ -529,6 +546,11 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
                 name="sales_quote_export",
             ),
             path(
+                "<int:quote_id>/download-pdf/",
+                self.admin_site.admin_view(QuotePdfDownloadView.as_view(model_admin=self)),
+                name="sales_quote_download_pdf",
+            ),
+            path(
                 "<int:quote_id>/send-email/",
                 self.admin_site.admin_view(QuoteSendEmailView.as_view(model_admin=self)),
                 name="sales_quote_send_email",
@@ -536,9 +558,21 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
         ]
         return custom + urls
 
-    @action(description=_("Export Quote"), attrs={"target": "_blank"})
+    @action(description=_("Export Quote"), icon="picture_as_pdf", attrs={"target": "_blank"})
     def export_quote_action(self, request, object_id: int):
         return redirect(reverse("admin:sales_quote_export", args=[object_id]))
+
+    @action(description=_("Export Quote"), icon="picture_as_pdf")
+    def export_quote_detail_action(self, request, object_id: int):
+        return redirect(reverse("admin:sales_quote_export", args=[object_id]))
+
+    @action(description=_("Download PDF"), icon="download")
+    def download_pdf_row_action(self, request, object_id: int):
+        return redirect(reverse("admin:sales_quote_download_pdf", args=[object_id]))
+
+    @action(description=_("Download PDF"), icon="download")
+    def download_pdf_detail_action(self, request, object_id: int):
+        return redirect(reverse("admin:sales_quote_download_pdf", args=[object_id]))
 
     @action(
         description=_("Quote Dashboard"),

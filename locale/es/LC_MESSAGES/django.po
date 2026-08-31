@@ -12796,10 +12796,11 @@ msgstr "Margen después del descuento (%)"
 msgid "Add Configuration"
 msgstr "Agregar Configuración"
 
-#, fuzzy
-#| msgid "Accepted"
 msgid "Export Quote"
-msgstr "Aceptado"
+msgstr "Exportar Presupuesto"
+
+msgid "Quote Actions"
+msgstr "Acciones del Presupuesto"
 
 msgid "Quote Dashboard"
 msgstr "Tablero de Cotizaciones"

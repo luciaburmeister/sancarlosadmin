@@ -255,7 +255,6 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
         claim = self.get_object(request, object_id)
         return (
             bool(claim)
-            and claim.submitted_by_id != request.user.id
             and request.user.has_perm("expenses.approve_expenseclaim")
             and claim.status == ExpenseClaimStatus.SUBMITTED
         )

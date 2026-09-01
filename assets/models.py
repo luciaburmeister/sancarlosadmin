@@ -180,6 +180,10 @@ class CubaTransactionKey:
     VAS_A_VERTER = "vasAVerter"
 
 
+class AssetDataKey:
+    CAPACIDAD = "capacidad"
+
+
 class CubaFillState(models.TextChoices):
     FULL = "Cuba llena", _("Full container")
     EMPTY = "Cuba vacía", _("Empty container")
@@ -452,6 +456,18 @@ class Asset(CompanyOwnedModel):
         if self.current_transaction_status() != AssetCurrentStatus.PICKED_UP:
             return None
         return last_movement.planning
+
+    @property
+    def capacidad(self):
+        return (self.data or {}).get(AssetDataKey.CAPACIDAD, "") or ""
+
+    def is_currently_empty(self) -> bool:
+        last_tx = self.transactions.order_by("-date").first()
+        if last_tx is None:
+            return True
+        if self.current_transaction_status(last_tx) == AssetCurrentStatus.PICKED_UP:
+            return False
+        return not AssetTransaction.payload_is_full(last_tx.data)
 
     @property
     def matricula(self):
@@ -868,6 +884,14 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         Asset, on_delete=models.PROTECT, null=True, blank=True,
         related_name="plannings", verbose_name=_("Asset"),
     )
+    reserved_asset = models.ForeignKey(
+        Asset, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="planning_reservations", verbose_name=_("Reserved Asset"),
+        help_text=_(
+            "Empty cuba held until the driver scans a QR. Cleared if they scan "
+            "a different cuba, cancel, or the daily cleanup runs."
+        ),
+    )
     machine = models.ForeignKey(
         Asset, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="machine_plannings", verbose_name=_("Machine"),
@@ -982,6 +1006,54 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         self.abandoned_reason = ""
         self.abandoned_by = None
         self.asset = None
+        self.reserved_asset = None
+
+    @staticmethod
+    def normalize_cuba_size(value: str) -> str:
+        value = value.strip().lower()
+        leading_digits = ""
+        for ch in value:
+            if not ch.isdigit():
+                break
+            leading_digits += ch
+        return leading_digits or value
+
+    def matches_cuba_size(self, capacidad: str) -> bool:
+        if not self.cuba_size:
+            return True
+        if not capacidad:
+            return False
+        return self.normalize_cuba_size(capacidad) == self.normalize_cuba_size(self.cuba_size)
+
+    @classmethod
+    def locked_cuba_ids(cls, company, exclude_planning_id=None) -> set[int]:
+        open_plannings = cls.objects.filter(
+            company=company,
+            status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
+            scheduled_date=timezone.localdate(),
+        )
+        if exclude_planning_id is not None:
+            open_plannings = open_plannings.exclude(pk=exclude_planning_id)
+        ids = set(open_plannings.exclude(asset_id=None).values_list("asset_id", flat=True))
+        ids |= set(
+            open_plannings.filter(asset_id__isnull=True)
+            .exclude(reserved_asset_id=None)
+            .values_list("reserved_asset_id", flat=True)
+        )
+        return ids
+
+    def release_reservation_if_scanned_other(self, scanned_asset) -> bool:
+        if not self.reserved_asset_id or self.reserved_asset_id == scanned_asset.pk:
+            return False
+        self.reserved_asset = None
+        return True
+
+    def cancel_cuba_reservation(self):
+        if self.reserved_asset_id is None:
+            return self
+        self.reserved_asset = None
+        self.save(update_fields=["reserved_asset"])
+        return self
 
     def save(self, *args, **kwargs):
         # Auto-tag assignment_origin unless the caller explicitly set it

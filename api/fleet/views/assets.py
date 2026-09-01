@@ -7,14 +7,20 @@ from datetime import datetime
 import qrcode
 from company.models import WorkingZone, WorkingZoneAuthorization
 from django.core.files.base import ContentFile
-from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType, CubaFillState, CubaTransactionKey
+from assets.constants import AssignRequestKey
+from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType, CubaFillState, CubaTransactionKey, AssetDataKey
 from core.tasks import send_asset_transaction_email_task
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from api.constants import MAX_ZONE_RADIUS_M, FIRST_TRANSACTION_RADIUS_M
-from api.fleet.serializers import AssetTransactionSerializer
+from api.fleet.serializers import (
+    AssetTransactionSerializer,
+    CubaCandidateSerializer,
+    CubaReservationRequestSerializer,
+    CubaReservationResultSerializer,
+)
 from api.fleet.utils import find_zone_within_radius, get_zone_coordinates, haversine_distance, find_zones_within_radius, confirm_zone_location
 from company.utils import get_current_employee
 
@@ -116,7 +122,7 @@ def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
         asset=asset,
         transaction_type__in=[TransactionTypeChoices.MOVEMENT, TransactionTypeChoices.DELIVERY],
     ).order_by("-date").first()
-    last_cuba_estado = last_state_tx.data.get("cubaEstado") or None if last_state_tx else None
+    last_cuba_estado = last_state_tx.data.get(CubaTransactionKey.ESTADO) or None if last_state_tx else None
 
     return {
         "id": asset.id,
@@ -258,6 +264,8 @@ class AssetAssignView(APIView):
 
         planning.asset = asset
         update_fields = ["asset"]
+        if planning.release_reservation_if_scanned_other(asset):
+            update_fields.append("reserved_asset")
         if claiming_pending:
             planning.driver_claimed_cuba = True
             update_fields.append("driver_claimed_cuba")
@@ -273,6 +281,72 @@ class AssetAssignView(APIView):
             "message": f"Cubo {asset.name} asignado a {employee.full_name}",
             "planning_id": planning.id,
         })
+
+
+class CubaReservationMixin:
+    def planning_for_employee(self, request, planning_id):
+        employee = get_current_employee(request.user)
+        if employee is None:
+            return None, None, JsonResponse({"error": "No employee profile found"}, status=400)
+        planning = AssetPlanning.objects.filter(id=planning_id, assigned_to=employee).first()
+        if planning is None:
+            return None, None, JsonResponse({"error": "Plan not found"}, status=404)
+        return employee, planning, None
+
+
+class CubaSuggestionsView(CubaReservationMixin, APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, planning_id):
+        from assets.services.cuba_reservation import find_candidates
+
+        _employee, planning, error = self.planning_for_employee(request, planning_id)
+        if error:
+            return error
+        return JsonResponse({
+            "candidates": CubaCandidateSerializer(find_candidates(planning), many=True).data,
+        })
+
+
+class CubaReservationView(CubaReservationMixin, APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, planning_id):
+        from assets.services.cuba_reservation import CubaReservationConflict, reserve_cuba
+
+        employee, planning, error = self.planning_for_employee(request, planning_id)
+        if error:
+            return error
+
+        request_serializer = CubaReservationRequestSerializer(data=request.data)
+        if not request_serializer.is_valid():
+            return JsonResponse({"error": "Asset not found"}, status=404)
+        asset = Asset.objects.filter(
+            id=request_serializer.validated_data[AssignRequestKey.ASSET_ID],
+            company=employee.company,
+        ).first()
+        if asset is None:
+            return JsonResponse({"error": "Asset not found"}, status=404)
+
+        try:
+            planning = reserve_cuba(planning, asset)
+        except CubaReservationConflict as exc:
+            return JsonResponse({
+                "error": "Esta cuba ya no está disponible — otro conductor se la ha quedado.",
+                "candidates": CubaCandidateSerializer(exc.remaining_candidates, many=True).data,
+            }, status=409)
+
+        return JsonResponse({
+            "success": True,
+            **CubaReservationResultSerializer(planning).data,
+        })
+
+    def delete(self, request, planning_id):
+        _employee, planning, error = self.planning_for_employee(request, planning_id)
+        if error:
+            return error
+        planning.cancel_cuba_reservation()
+        return JsonResponse({"success": True, "planning_id": planning.id})
 
 
 class AssetCapacidadUpdateView(APIView):
@@ -291,12 +365,12 @@ class AssetCapacidadUpdateView(APIView):
             return JsonResponse({"error": "Asset not found"}, status=404)
         if asset.company != employee.company:
             return JsonResponse({"error": "Este cubo no pertenece a tu empresa"}, status=403)
-        capacidad = json.loads(request.body).get("capacidad", "").strip()
+        capacidad = json.loads(request.body).get(AssetDataKey.CAPACIDAD, "").strip()
         if not capacidad:
             return JsonResponse({"error": "Capacidad vacía"}, status=400)
-        asset.data = {**(asset.data or {}), "capacidad": capacidad}
+        asset.data = {**(asset.data or {}), AssetDataKey.CAPACIDAD: capacidad}
         asset.save(update_fields=["data"])
-        return JsonResponse({"success": True, "capacidad": capacidad})
+        return JsonResponse({"success": True, AssetDataKey.CAPACIDAD: capacidad})
 
 
 class AssetQRView(APIView):

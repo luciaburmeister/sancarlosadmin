@@ -105,6 +105,8 @@ def _serialize_cuba_planning(p):
     origin_lat, origin_lon = get_zone_coordinates(p.origin) if p.origin else (None, None)
     dest_lat, dest_lon = get_zone_coordinates(p.destination) if p.destination else (None, None)
     stops = [{"zone": s.zone.name, "address": s.zone.full_address, "sequence": s.sequence} for s in p.stops.all()]
+    reserved_zone = p.reserved_asset.current_working_zone if p.reserved_asset else None
+    reserved_lat, reserved_lon = get_zone_coordinates(reserved_zone) if reserved_zone else (None, None)
     return {
         "id": p.id, "planning_type": p.planning_type, "asset_id": p.asset.id if p.asset else 0,
         "asset_name": p.asset.name if p.asset else None,
@@ -127,7 +129,13 @@ def _serialize_cuba_planning(p):
         "cuba_operation_type_label": p.get_cuba_operation_type_display() if p.cuba_operation_type else None,
         "cuba_size": p.cuba_size,
         "cuba_size_label": p.get_cuba_size_display() if p.cuba_size else None,
-        "cuba_capacidad": p.asset.data.get("capacidad") if p.asset and p.asset.data else None,
+        "cuba_capacidad": (p.asset.capacidad or None) if p.asset else None,
+        "reserved_asset_id": p.reserved_asset_id,
+        "reserved_asset_name": p.reserved_asset.name if p.reserved_asset else None,
+        "reserved_asset_zone_name": reserved_zone.name if reserved_zone else None,
+        "reserved_asset_zone_address": reserved_zone.full_address if reserved_zone else None,
+        "reserved_asset_zone_lat": reserved_lat,
+        "reserved_asset_zone_lon": reserved_lon,
         "checklist": p.cuba_checklist(),
     }
 
@@ -219,7 +227,8 @@ class PlanningNextTaskView(APIView):
             scheduled_date=today,
             scheduled_time__isnull=False,
         ).select_related(
-            "asset", "origin", "destination", "transport_asset",
+            "asset", "reserved_asset", "reserved_asset__current_working_zone",
+            "origin", "destination", "transport_asset",
         ).prefetch_related("stops__zone")
         planning = today_jobs.filter(
             status=PlanningStatus.IN_TRANSIT,

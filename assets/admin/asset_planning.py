@@ -133,7 +133,7 @@ class AssetPlanningChangeList(ChangeList):
 @admin.register(AssetPlanning)
 class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin):
     list_display = (
-        "asset", "origin", "destination",
+        "asset", "reserved_asset", "origin", "destination",
         "assigned_to", "transport_asset",
         "scheduled_date", "scheduled_time", "urgency", "show_traceability",
         "route_order", "status", "abandoned_stage", "service_type", "company",
@@ -141,6 +141,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
     list_filter = (TraceabilityFilter, "status", "abandoned_stage", "urgency", "service_type", "company", "origin", "destination")
     search_fields = (
         "asset__name",
+        "reserved_asset__name",
         "machine__name",
         "assigned_to__first_name",
         "assigned_to__last_name",
@@ -152,6 +153,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         "company",
         "project_file",
         "asset",
+        "reserved_asset",
         "machine",
         "origin",
         "destination",
@@ -166,6 +168,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
     ]
     list_select_related = [
         "asset", "asset__asset_type",
+        "reserved_asset",
         "origin", "destination",
         "assigned_to", "transport_asset", "transport_asset__asset_type",
         "company",
@@ -188,6 +191,7 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
         (_("Asset"), {
             "fields": (
                 "asset",
+                "reserved_asset",
                 "machine",
             )
         }),

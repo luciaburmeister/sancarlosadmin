@@ -213,3 +213,33 @@ class AssetAssignViewTests(APITestCase):
             format="json",
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_scanning_a_different_cuba_releases_the_reservation(self):
+        self.client.force_authenticate(user=self.user)
+        reserved = make_asset(self.company, self.asset_type, name="RESERVED")
+        planning = make_planning(
+            self.company, asset=None, assigned_to=self.employee, status=PlanningStatus.PENDING,
+            reserved_asset=reserved,
+        )
+
+        response = self.client.post(f"/en/api/assets/{self.asset.id}/assign/")
+
+        self.assertEqual(response.status_code, 200)
+        planning.refresh_from_db()
+        self.assertEqual(planning.asset, self.asset)
+        self.assertIsNone(planning.reserved_asset_id)
+
+    def test_scanning_the_reserved_cuba_keeps_the_reservation(self):
+        self.client.force_authenticate(user=self.user)
+        reserved = make_asset(self.company, self.asset_type, name="RESERVED")
+        planning = make_planning(
+            self.company, asset=None, assigned_to=self.employee, status=PlanningStatus.PENDING,
+            reserved_asset=reserved,
+        )
+
+        response = self.client.post(f"/en/api/assets/{reserved.id}/assign/")
+
+        self.assertEqual(response.status_code, 200)
+        planning.refresh_from_db()
+        self.assertEqual(planning.asset, reserved)
+        self.assertEqual(planning.reserved_asset_id, reserved.id)

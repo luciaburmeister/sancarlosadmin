@@ -175,6 +175,22 @@ class AssetCurrentStatus(models.TextChoices):
     DELIVERED = "DELIVERED", _("Delivered")
 
 
+class AssetOperationalStatus(models.TextChoices):
+    ACTIVE   = "active",   _("Active")
+    PARTIAL  = "partial",  _("Partial")
+    INACTIVE = "inactive", _("Inactive")
+
+
+class AssetFaultSeverity(models.TextChoices):
+    PARTIAL = "partial", _("Partial")
+    TOTAL   = "total",   _("Total")
+
+
+class AssetFaultStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    FIXED   = "fixed",   _("Fixed")
+
+
 class CubaTransactionKey:
     ESTADO = "cubaEstado"
     VAS_A_VERTER = "vasAVerter"
@@ -341,6 +357,13 @@ class Asset(CompanyOwnedModel):
     client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True, related_name="assets", verbose_name=_("Owner/Client"))
     name = models.CharField(max_length=200, verbose_name=_("Name/Label"))
     is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+    operational_status = models.CharField(
+        max_length=20,
+        choices=AssetOperationalStatus.choices,
+        default=AssetOperationalStatus.ACTIVE,
+        editable=False,
+        verbose_name=_("Operational Status"),
+    )
     data = models.JSONField(default=dict, blank=True, verbose_name=_("Flexible Data"))
     current_working_zone = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="current_assets", verbose_name=_("Current Working Zone"))
     zone_changed_at = models.DateTimeField(
@@ -420,6 +443,16 @@ class Asset(CompanyOwnedModel):
             ).order_by("-date").first()
             return self.current_transaction_status(prev)
         return AssetCurrentStatus.AVAILABLE
+
+    def recalculate_operational_status(self):
+        pending = self.faults.filter(status=AssetFaultStatus.PENDING)
+        if not pending.exists():
+            new_status = AssetOperationalStatus.ACTIVE
+        elif pending.filter(severity=AssetFaultSeverity.TOTAL).exists():
+            new_status = AssetOperationalStatus.INACTIVE
+        else:
+            new_status = AssetOperationalStatus.PARTIAL
+        Asset.objects.filter(pk=self.pk).update(operational_status=new_status)
 
     @property
     def last_movement_transaction(self):
@@ -1938,3 +1971,55 @@ class AssetDocument(BaseDocument):
         if not self.company_id and self.asset:
             self.company = self.asset.company
         super().save(*args, **kwargs)
+
+
+class AssetFaultType(CompanyOwnedModel):
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+
+    class Meta:
+        verbose_name = _("Asset Fault Type")
+        verbose_name_plural = _("Asset Fault Types")
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.company})"
+
+
+class AssetFault(CompanyOwnedModel, Timestampable):
+    asset = models.ForeignKey(
+        Asset, on_delete=models.CASCADE, related_name="faults",
+        verbose_name=_("Asset"),
+    )
+    fault_type = models.ForeignKey(
+        AssetFaultType, on_delete=models.PROTECT,
+        verbose_name=_("Fault Type"),
+    )
+    description = models.TextField(blank=True, verbose_name=_("Description"))
+    severity = models.CharField(
+        max_length=10, choices=AssetFaultSeverity.choices,
+        verbose_name=_("Severity"),
+    )
+    status = models.CharField(
+        max_length=10, choices=AssetFaultStatus.choices,
+        default=AssetFaultStatus.PENDING,
+        verbose_name=_("Status"),
+    )
+
+    class Meta:
+        verbose_name = _("Asset Fault")
+        verbose_name_plural = _("Asset Faults")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.fault_type} — {self.asset} ({self.get_status_display()})"
+
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.asset:
+            self.company = self.asset.company
+        super().save(*args, **kwargs)
+        self.asset.recalculate_operational_status()
+
+    def delete(self, *args, **kwargs):
+        asset = self.asset
+        super().delete(*args, **kwargs)
+        asset.recalculate_operational_status()

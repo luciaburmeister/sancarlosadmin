@@ -6,7 +6,7 @@ from simple_history.admin import SimpleHistoryAdmin
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django_json_widget.widgets import JSONEditorWidget
-from assets.models import Asset, AssetIdentifier, AssetTransaction, AssetDocument, AssetDocumentType, MachinePermission
+from assets.models import Asset, AssetIdentifier, AssetTransaction, AssetDocument, AssetDocumentType, MachinePermission, AssetFaultType, AssetFault
 from assets.forms import AssetForm, AssetAddForm, build_asset_data_form_fields, DATA_FIELD_PREFIX
 from assets.resources import AssetResource
 from unfold.widgets import UnfoldAdminSelectWidget
@@ -54,6 +54,23 @@ class AssetDocumentTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ("name", "company")
     search_fields = ("name",)
     autocomplete_fields = ["company"]
+
+
+@admin.register(AssetFaultType)
+class AssetFaultTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ("name", "company")
+    search_fields = ("name",)
+    autocomplete_fields = ["company"]
+
+
+class AssetFaultInline(TabularInline):
+    model = AssetFault
+    extra = 0
+    tab = True
+    fields = ("fault_type", "severity", "status", "description", "created_at")
+    readonly_fields = ("created_at",)
+    autocomplete_fields = ["fault_type"]
+    exclude = ["company"]
 
 
 class AssetIdentifierInline(TabularInline):
@@ -137,10 +154,10 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
     resource_classes = [AssetResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
-    list_display = ("name", "asset_type", "client", "current_working_zone", "zone_client", "provider", "assigned_to", "qr_link", "get_identifiers","is_active")
-    list_filter = (("asset_type",AutocompleteSelectMultipleFilter), ("client",AutocompleteSelectMultipleFilter), ("provider",AutocompleteSelectMultipleFilter), ("assigned_to",AutocompleteSelectMultipleFilter),("company",AutocompleteSelectMultipleFilter),"is_active")
+    list_display = ("name", "asset_type", "client", "current_working_zone", "zone_client", "provider", "assigned_to", "qr_link", "get_identifiers", "is_active", "operational_status")
+    list_filter = (("asset_type",AutocompleteSelectMultipleFilter), ("client",AutocompleteSelectMultipleFilter), ("provider",AutocompleteSelectMultipleFilter), ("assigned_to",AutocompleteSelectMultipleFilter),("company",AutocompleteSelectMultipleFilter),"is_active","operational_status")
     search_fields = ("name", "identifiers__value")
-    inlines = [AssetIdentifierInline, AssetTransactionInline, AssetDocumentInline, MachinePermissionInline]
+    inlines = [AssetIdentifierInline, AssetTransactionInline, AssetDocumentInline, MachinePermissionInline, AssetFaultInline]
     actions = ["download_qr_grid"]
     form = AssetForm
     list_editable = ("is_active",)
@@ -153,7 +170,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
         "assigned_to",
         "provider",
         "excluded_assets"]
-    readonly_fields = ("qr_code_preview",)
+    readonly_fields = ("qr_code_preview", "operational_status")
     list_select_related = ["asset_type","client","provider","assigned_to","current_working_zone","current_working_zone__client","company",]
     fieldsets = (
         (
@@ -164,6 +181,7 @@ class AssetAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin, ImportE
                     ("client", "company"),
                     ("assigned_to", "provider"),
                     ("current_working_zone", "is_active"),
+                    "operational_status",
                     "description",
                 )
             },

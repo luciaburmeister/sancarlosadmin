@@ -14541,6 +14541,26 @@ msgctxt "djangoql field"
 msgid "last_name"
 msgstr "apellidos"
 
+msgctxt "djangoql field"
+msgid "cost_center"
+msgstr "centro_coste"
+
+msgctxt "djangoql field"
+msgid "default_cost_center"
+msgstr "centro_coste_defecto"
+
+msgctxt "djangoql field"
+msgid "has_cost_center"
+msgstr "tiene_centro_coste"
+
+msgctxt "djangoql field"
+msgid "is_assignable"
+msgstr "es_imputable"
+
+msgctxt "djangoql field"
+msgid "parent"
+msgstr "padre"
+
 #, fuzzy
 #~ msgid "Configuration ID"
 #~ msgstr "Configuración"

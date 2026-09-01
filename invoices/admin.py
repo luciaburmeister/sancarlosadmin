@@ -316,6 +316,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
         # Accounting diagnostics
         BalanceStatusFilter,
         ItemsMissingAccountFilter,
+        ("cost_center", AutocompleteSelectMultipleFilter),
     )
 
     search_fields = (
@@ -327,6 +328,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
         "provider",
         "account",
         "project_file",
+        "cost_center",
         "rectifies",
     )
 
@@ -343,6 +345,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
     list_select_related = (
         "provider",
         "company",
+        "cost_center",
     )
 
     date_hierarchy = "date_issued"
@@ -551,7 +554,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
                     ("net_amount", "total_amount"),
                     "file",
                     "company",
-                    "project_file",
+                    ("project_file", "cost_center"),
                 )
             },
         ),

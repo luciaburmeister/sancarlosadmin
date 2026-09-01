@@ -340,11 +340,13 @@ class POInvoiceMatchService:
         violating the uniqueness constraint on (invoice_item, po_item).
         Model validation raises ValidationError and rolls back everything.
 
-        Also auto-links each involved invoice to its matched PO's project_file,
-        when the invoice doesn't already have one — this is what makes the
-        Purchase Order's committed cost show up as an actual expense against
-        the right project as soon as it's matched, instead of relying on the
-        invoice being tagged manually or by OCR.
+        Also auto-links each involved invoice to its matched PO's project_file
+        and cost_center, so the Purchase Order's committed cost shows up as an
+        actual expense against the right project and cost center as soon as it's
+        matched, instead of relying on the invoice being tagged manually or by
+        OCR. The project_file is only filled in when empty; the cost_center also
+        replaces a value merely inherited from the provider's default, since the
+        order is the more specific source — but never one set by hand.
         """
         created = []
         with transaction.atomic():
@@ -371,10 +373,26 @@ class POInvoiceMatchService:
                 if alloc.invoice_id in linked_invoices:
                     continue
                 linked_invoices.add(alloc.invoice_id)
-                po_project_file_id = alloc.po_item.purchase_order.project_file_id
-                if po_project_file_id and not alloc.invoice.project_file_id:
-                    alloc.invoice.project_file_id = po_project_file_id
-                    alloc.invoice.save(update_fields=["project_file"])
+                invoice = alloc.invoice
+                po = alloc.po_item.purchase_order
+                dirty = []
+
+                if po.project_file_id and not invoice.project_file_id:
+                    invoice.project_file_id = po.project_file_id
+                    dirty.append("project_file")
+
+                # The order beats the provider default the invoice may have been
+                # created with, but never a cost center someone chose by hand.
+                provider_default_id = (
+                    invoice.provider.default_cost_center_id if invoice.provider_id else None
+                )
+                if po.cost_center_id and invoice.cost_center_id in (None, provider_default_id):
+                    if invoice.cost_center_id != po.cost_center_id:
+                        invoice.cost_center_id = po.cost_center_id
+                        dirty.append("cost_center")
+
+                if dirty:
+                    invoice.save(update_fields=dirty)
         return created
 
     # ------------------------------------------------------------------

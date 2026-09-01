@@ -14,10 +14,14 @@ from unfold.decorators import action, display
 from core.admin.company_admin import CompanyRestrictedAdmin
 from django.urls import path, reverse
 from copy import deepcopy
+from import_export.admin import ExportActionModelAdmin
+from unfold.contrib.import_export.forms import SelectableFieldsExportForm
+from core.admin.xlsx_export import FormattedXlsxExportMixin
 from .models import (
     PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus, PurchaseOrderType,
     PurchaseOrderReceipt, PurchaseOrderReceiptItem
 )
+from .resources import PurchaseOrderResource
 from inventory.models import ItemIdentityCode
 from django.shortcuts import redirect
 
@@ -78,13 +82,15 @@ class PurchaseOrderItemInline(StackedInline):
         return super().has_delete_permission(request, obj)
 
 @admin.register(PurchaseOrder)
-class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["number", "provider","external_reference", "po_type", "project_file", "requested_by", "get_status_label", "date_ordered", "total_amount", "get_billing_label", "company"]
-    list_filter = [("status",MultipleChoicesDropdownFilter), ("po_type",MultipleChoicesDropdownFilter), ("date_ordered",RangeDateFilter), ("company",AutocompleteSelectMultipleFilter), ("project_file",AutocompleteSelectMultipleFilter)]
-    search_fields = ["number", "external_reference","provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name"]
-    autocomplete_fields = ["provider", "company", "approved_by", "requested_by", "project_file"]
+class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
+    resource_classes = [PurchaseOrderResource]
+    export_form_class = SelectableFieldsExportForm
+    list_display = ["number", "provider","external_reference", "po_type", "cost_center", "project_file", "requested_by", "get_status_label", "date_ordered", "total_amount", "get_billing_label", "company"]
+    list_filter = [("status",MultipleChoicesDropdownFilter), ("po_type",MultipleChoicesDropdownFilter), ("date_ordered",RangeDateFilter), ("company",AutocompleteSelectMultipleFilter), ("cost_center",AutocompleteSelectMultipleFilter), ("project_file",AutocompleteSelectMultipleFilter)]
+    search_fields = ["number", "external_reference","provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name", "cost_center__code", "cost_center__name"]
+    autocomplete_fields = ["provider", "company", "approved_by", "requested_by", "project_file", "cost_center"]
     readonly_fields = ["number", "total_amount", "approved_at", "approved_by", "rejected_at", "rejected_by", "rejection_reason", "requested_by", "status", "linked_invoices_display"]
-    list_select_related = ["provider", "company", "requested_by", "project_file"]
+    list_select_related = ["provider", "company", "requested_by", "project_file", "cost_center"]
     list_filter_submit = True
     fieldsets = (
         (_("General Information"), {
@@ -97,6 +103,7 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 "status"),
                 "po_type",
                 "project_file",
+                "cost_center",
                 ("external_reference","file")
             )
         }),
@@ -233,7 +240,13 @@ class PurchaseOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         if obj and obj.status != PurchaseOrderStatus.DRAFT:
-            return [f.name for f in self.model._meta.fields if f.name != "id"] + list(self.readonly_fields)
+            # cost_center stays editable: it is a reporting tag rather than part
+            # of the commitment to the provider, and a mis-tagged order would
+            # otherwise be impossible to correct once it leaves DRAFT.
+            return [
+                f.name for f in self.model._meta.fields
+                if f.name not in ("id", "cost_center")
+            ] + list(self.readonly_fields)
         return super().get_readonly_fields(request, obj)
 
     def _send_to_approval(self, request, po):

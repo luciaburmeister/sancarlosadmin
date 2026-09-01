@@ -184,6 +184,7 @@ class ProviderResource(resources.ModelResource):
     tax_identifier = fields.Field(column_name=_("Tax identifier"), attribute="tax_identifier", readonly=True)
     associated_emails = fields.Field(column_name=_("Associated Emails"), readonly=True)
     account = fields.Field(column_name=_("Accounting Account"), readonly=True)
+    default_cost_center = fields.Field(column_name=_("Default Cost Center"), readonly=True)
     company = fields.Field(column_name=_("Company"), readonly=True)
     balance_owed = fields.Field(column_name=_("Balance owed"), readonly=True)
 
@@ -198,6 +199,7 @@ class ProviderResource(resources.ModelResource):
             "tax_identifier",
             "associated_emails",
             "account",
+            "default_cost_center",
             "company",
             "balance_owed",
         )
@@ -208,6 +210,9 @@ class ProviderResource(resources.ModelResource):
 
     def dehydrate_account(self, provider):
         return str(provider.account) if provider.account else ""
+
+    def dehydrate_default_cost_center(self, provider):
+        return str(provider.default_cost_center) if provider.default_cost_center else ""
 
     def dehydrate_company(self, provider):
         return provider.company.name if provider.company else ""

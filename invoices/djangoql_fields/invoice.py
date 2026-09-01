@@ -52,6 +52,7 @@ class InvoiceSearchFields(SearchFields):
         "company",
         "account",
         "project_file",
+        "cost_center",
         "rectifies",
         "uploaded_by",
         "items",

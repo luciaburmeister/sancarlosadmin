@@ -748,6 +748,14 @@ UNFOLD = {
                             "banking.connect_bank"
                         ),
                     },
+                    {
+                        "title": _("Cost Centers"),
+                        "icon": "account_tree",
+                        "link": reverse_lazy("admin:accounting_costcenter_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "accounting.view_costcenter"
+                        ),
+                    },
                 ],
             },
             {

@@ -276,6 +276,110 @@ class AccountReportingMap(Timestampable,CompanyOwnedModel):
         return f"{self.company_id} {self.account.code} -> {self.line.code} (w={self.weight})"
 
 
+class CostCenter(Timestampable, CompanyOwnedModel):
+    """
+    Centro de coste: dimensión analítica del gasto, independiente del PGC.
+
+    Los centros forman un árbol por empresa. Cada documento (pedido de compra,
+    factura recibida) apunta a UN solo centro, y los informes agregan hacia
+    arriba por el árbol — así no hay que repartir importes por porcentajes.
+
+    A diferencia de CompanyAccount, cuya jerarquía va implícita en el prefijo
+    numérico del código, aquí el código lo elige el usuario, así que la
+    jerarquía se recorre por `parent`.
+    """
+    code = models.CharField(max_length=32, verbose_name=_("Code"))
+    name = models.CharField(max_length=255, verbose_name=_("Name"))
+    parent = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="children",
+        verbose_name=_("Parent"),
+    )
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+    is_assignable = models.BooleanField(
+        default=True,
+        verbose_name=_("Assignable"),
+        help_text=_("Uncheck for grouping nodes that only aggregate their children."),
+    )
+
+    class Meta:
+        verbose_name = _("Cost Center")
+        verbose_name_plural = _("Cost Centers")
+        ordering = ["code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["company", "code"],
+                name="uniq_cost_center_company_code",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["company", "code"]),
+            models.Index(fields=["company", "parent"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.code} {self.name}"
+
+    def ancestors(self):
+        """Root-first list of ancestors, excluding self. Stops on a cycle."""
+        chain = []
+        seen = {self.pk}
+        node = self.parent
+        while node is not None and node.pk not in seen:
+            seen.add(node.pk)
+            chain.append(node)
+            node = node.parent
+        chain.reverse()
+        return chain
+
+    @property
+    def full_name(self) -> str:
+        """e.g. 'Operaciones / Flota / Flota Cuba'."""
+        return " / ".join([node.name for node in self.ancestors()] + [self.name])
+
+    def descendant_ids(self, include_self=True):
+        """
+        Every id in this subtree — the set to filter spend by when rolling a
+        report up to this node.
+        """
+        ids = {self.pk} if include_self else set()
+        frontier = [self.pk]
+        while frontier:
+            children = list(
+                CostCenter.objects
+                .filter(parent_id__in=frontier)
+                .exclude(pk__in=ids)
+                .values_list("pk", flat=True)
+            )
+            if not children:
+                break
+            ids.update(children)
+            frontier = children
+        return ids
+
+    def clean(self):
+        super().clean()
+        if not self.parent_id:
+            return
+        if self.pk and self.parent_id == self.pk:
+            raise ValidationError({"parent": _("A cost center cannot be its own parent.")})
+        if self.company_id and self.parent.company_id != self.company_id:
+            raise ValidationError({"parent": _("Parent must belong to the same company.")})
+        # Walk up from the proposed parent; hitting self means a cycle.
+        seen = set()
+        node = self.parent
+        while node is not None:
+            if node.pk == self.pk:
+                raise ValidationError({"parent": _("This parent would create a cycle.")})
+            if node.pk in seen:
+                break
+            seen.add(node.pk)
+            node = node.parent
+
+
 # ... (omitted parts) ...
 
 

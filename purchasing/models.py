@@ -57,6 +57,15 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         verbose_name=_("Project File"),
         help_text=_("Required for project purchases; not used for stock, investment, or maintenance orders."),
     )
+    cost_center = models.ForeignKey(
+        "accounting.CostCenter",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="purchase_orders",
+        verbose_name=_("Cost Center"),
+        help_text=_("Defaults to the provider's cost center when the order is created."),
+    )
     external_reference = models.CharField(
         max_length=100,
         blank=True,
@@ -153,12 +162,31 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
 
     def clean(self):
         super().clean()
+        # Collected rather than raised one at a time, so the form reports every
+        # problem in a single pass.
+        errors = {}
         if self.po_type == PurchaseOrderType.PROJECT and not self.project_file:
-            raise ValidationError({"project_file": _("A project file is required for project purchases.")})
+            errors["project_file"] = _("A project file is required for project purchases.")
+        if self.cost_center_id:
+            if self.company_id and self.cost_center.company_id != self.company_id:
+                errors["cost_center"] = _("Cost center must belong to the same company.")
+            elif not self.cost_center.is_assignable:
+                errors["cost_center"] = _(
+                    "This cost center only groups its children; pick one of them instead."
+                )
+        if errors:
+            raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
         if self.po_type != PurchaseOrderType.PROJECT:
             self.project_file = None
+        # Stamp the provider's cost center at creation only, so clearing it on an
+        # existing order sticks instead of being silently refilled. Done here
+        # rather than in the admin so every write path is covered.
+        if self._state.adding and not self.cost_center_id and self.provider_id:
+            default = self.provider.default_cost_center
+            if default and default.is_active and default.is_assignable:
+                self.cost_center = default
         if not self.number and self.company:
             self.number = next_scoped_code(
                 model=PurchaseOrder,

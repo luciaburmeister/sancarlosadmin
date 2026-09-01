@@ -1,6 +1,6 @@
-"""Fields exposed to DjangoQL search for accounting accounts."""
+"""Fields exposed to DjangoQL search for accounting accounts and cost centers."""
 
-from accounting.models import CompanyAccount
+from accounting.models import CompanyAccount, CostCenter
 from general.djangoql import SearchFields, register
 
 
@@ -13,5 +13,18 @@ class CompanyAccountSearchFields(SearchFields):
         "account_type",
         "is_active",
         "is_postable",
+        "company",
+    )
+
+
+@register(CostCenter)
+class CostCenterSearchFields(SearchFields):
+    fields = (
+        "id",
+        "code",
+        "name",
+        "parent",
+        "is_active",
+        "is_assignable",
         "company",
     )

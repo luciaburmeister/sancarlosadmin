@@ -33,6 +33,15 @@ class Provider(Timestampable,CompanyOwnedModel):
         related_name="providers",
         verbose_name=_("Accounting Account")
     )
+    default_cost_center = models.ForeignKey(
+        'accounting.CostCenter',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="providers",
+        verbose_name=_("Default Cost Center"),
+        help_text=_("Automatically assigned to new purchase orders and invoices for this provider.")
+    )
 
     def __str__(self):
         return self.name

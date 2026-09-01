@@ -192,11 +192,11 @@ class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     form = ProviderForm
     resource_classes = [ProviderResource]
     export_form_class = SelectableFieldsExportForm
-    list_display = ("name", "contact", "phone", "email", "tax_identifier", "account", "company", "balance_owed_display")
+    list_display = ("name", "contact", "phone", "email", "tax_identifier", "account", "default_cost_center", "company", "balance_owed_display")
     search_fields = ("name", "contact", "phone", "email", "tax_identifier", "associated_emails")
-    list_select_related = ["company", "account"]
-    autocomplete_fields = ["company", "account"]
-    list_filter = [("company",AutocompleteSelectMultipleFilter)]
+    list_select_related = ["company", "account", "default_cost_center"]
+    autocomplete_fields = ["company", "account", "default_cost_center"]
+    list_filter = [("company",AutocompleteSelectMultipleFilter), ("default_cost_center",AutocompleteSelectMultipleFilter)]
     list_filter_submit = True
     actions = ["merge_providers"]
 

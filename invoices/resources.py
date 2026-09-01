@@ -2,6 +2,7 @@ from import_export import resources, fields
 from import_export.widgets import ForeignKeyWidget
 from .models import Invoice, SalesInvoice, InvoiceItem, SalesInvoiceItem, AppliedTax
 from materials.models import Provider
+from accounting.models import CostCenter
 from company.models import Company
 from sales.models import Client
 from django.utils.translation import gettext_lazy as _
@@ -105,6 +106,11 @@ class InvoiceResource(resources.ModelResource):
         widget=ForeignKeyWidget(Company, 'name')
     )
     company_tax_identifier = fields.Field(column_name=_('Company NIF/CIF'))
+    cost_center = fields.Field(
+        column_name=_('Cost Center'),
+        attribute='cost_center',
+        widget=ForeignKeyWidget(CostCenter, 'code')
+    )
     total_amount_value = fields.Field(column_name=_('Total Amount'))
     amount_paid_value = fields.Field(column_name=_('Amount Paid'))
     amount_remaining_value = fields.Field(column_name=_('Amount Remaining'))
@@ -132,6 +138,7 @@ class InvoiceResource(resources.ModelResource):
             'provider_tax_identifier',
             'company',
             'company_tax_identifier',
+            'cost_center',
             'payment_method',
             'total_amount_value',
             'amount_paid_value',

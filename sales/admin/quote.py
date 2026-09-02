@@ -199,7 +199,6 @@ class ConfigurationReadOnlyInline(TabularInline):
         "subtotal_price", "total_price_display",
         "convert_to_production_link",
     ]
-    autocomplete_fields = ["quote_group"]
     can_delete = True
     max_num = 0
 

@@ -122,6 +122,15 @@ def send_asset_planning_draft_created_notification(self, draft_id: int):
 
 
 @shared_task
+def release_stale_cuba_reservations():
+    """Clear reserved_asset on plans whose scheduled_date is before today."""
+    from assets.services.cuba_reservation import release_stale_reservations
+
+    released_ids = release_stale_reservations()
+    return {"status": "ok", "released_planning_ids": released_ids}
+
+
+@shared_task
 def apply_due_zone_sync_requests():
     """Beat: apply approved planning_type == NONE requests (Machinist Movement,
     Machine Self-Transport) whose needed_date/needed_time has arrived — covers

@@ -11,6 +11,8 @@ urlpatterns = [
     path("assets/<int:asset_id>/", assets.AssetDetailView.as_view(), name="asset_by_id"),
     path("assets/<int:asset_id>/transaction/", assets.AssetTransactionView.as_view(), name="asset_transaction"),
     path("assets/<int:asset_id>/assign/", assets.AssetAssignView.as_view(), name="assign"),
+    path("plannings/<int:planning_id>/cuba-suggestions/", assets.CubaSuggestionsView.as_view(), name="cuba_suggestions"),
+    path("plannings/<int:planning_id>/reserve-cuba/", assets.CubaReservationView.as_view(), name="reserve_cuba"),
     path("assets/<int:asset_id>/capacidad/", assets.AssetCapacidadUpdateView.as_view(), name="asset_capacidad"),
     path("assets/<int:asset_id>/qr/", assets.AssetQRView.as_view(), name="asset_qr"),
     path(

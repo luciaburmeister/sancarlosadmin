@@ -50,3 +50,38 @@ class AssetTransactionSerializer(serializers.Serializer):
         allow_null=True,
         default=None,
     )
+
+
+class CubaCandidateSerializer(serializers.Serializer):
+    asset_id = serializers.IntegerField(source="asset.id")
+    name = serializers.CharField(source="asset.name")
+    capacidad = serializers.SerializerMethodField()
+    zone_id = serializers.SerializerMethodField()
+    zone_name = serializers.SerializerMethodField()
+    distance_m = serializers.FloatField(allow_null=True)
+
+    def get_capacidad(self, candidate):
+        return candidate.asset.capacidad or None
+
+    def get_zone_id(self, candidate):
+        zone = candidate.asset.current_working_zone
+        return zone.id if zone else None
+
+    def get_zone_name(self, candidate):
+        zone = candidate.asset.current_working_zone
+        return zone.name if zone else None
+
+
+class CubaReservationRequestSerializer(serializers.Serializer):
+    asset_id = serializers.IntegerField()
+
+
+class CubaReservationResultSerializer(serializers.Serializer):
+    reserved_asset_id = serializers.IntegerField(source="reserved_asset.id")
+    reserved_asset_name = serializers.CharField(source="reserved_asset.name")
+    zone_name = serializers.SerializerMethodField()
+    planning_id = serializers.IntegerField(source="id")
+
+    def get_zone_name(self, planning):
+        zone = planning.reserved_asset.current_working_zone if planning.reserved_asset else None
+        return zone.name if zone else None

@@ -6,3 +6,4 @@ from .asset_planning_request import AssetPlanningRequestAdmin
 from .asset_planning_request_draft import AssetPlanningRequestDraftAdmin
 from .asset_map import AssetMapAdmin
 from .transport_compatibility_rule import TransportCompatibilityRuleAdmin
+from .asset_fault import AssetFaultAdmin

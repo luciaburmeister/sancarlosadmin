@@ -175,9 +175,29 @@ class AssetCurrentStatus(models.TextChoices):
     DELIVERED = "DELIVERED", _("Delivered")
 
 
+class AssetOperationalStatus(models.TextChoices):
+    ACTIVE   = "active",   _("Active")
+    PARTIAL  = "partial",  _("Partial")
+    INACTIVE = "inactive", _("Inactive")
+
+
+class AssetFaultSeverity(models.TextChoices):
+    PARTIAL = "partial", _("Partial")
+    TOTAL   = "total",   _("Total")
+
+
+class AssetFaultStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    FIXED   = "fixed",   _("Fixed")
+
+
 class CubaTransactionKey:
     ESTADO = "cubaEstado"
     VAS_A_VERTER = "vasAVerter"
+
+
+class AssetDataKey:
+    CAPACIDAD = "capacidad"
 
 
 class CubaFillState(models.TextChoices):
@@ -337,6 +357,13 @@ class Asset(CompanyOwnedModel):
     client = models.ForeignKey(Client, on_delete=models.SET_NULL, null=True, blank=True, related_name="assets", verbose_name=_("Owner/Client"))
     name = models.CharField(max_length=200, verbose_name=_("Name/Label"))
     is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+    operational_status = models.CharField(
+        max_length=20,
+        choices=AssetOperationalStatus.choices,
+        default=AssetOperationalStatus.ACTIVE,
+        editable=False,
+        verbose_name=_("Operational Status"),
+    )
     data = models.JSONField(default=dict, blank=True, verbose_name=_("Flexible Data"))
     current_working_zone = models.ForeignKey(WorkingZone, on_delete=models.SET_NULL, null=True, blank=True, related_name="current_assets", verbose_name=_("Current Working Zone"))
     zone_changed_at = models.DateTimeField(
@@ -417,6 +444,16 @@ class Asset(CompanyOwnedModel):
             return self.current_transaction_status(prev)
         return AssetCurrentStatus.AVAILABLE
 
+    def recalculate_operational_status(self):
+        pending = self.faults.filter(status=AssetFaultStatus.PENDING)
+        if not pending.exists():
+            new_status = AssetOperationalStatus.ACTIVE
+        elif pending.filter(severity=AssetFaultSeverity.TOTAL).exists():
+            new_status = AssetOperationalStatus.INACTIVE
+        else:
+            new_status = AssetOperationalStatus.PARTIAL
+        Asset.objects.filter(pk=self.pk).update(operational_status=new_status)
+
     @property
     def last_movement_transaction(self):
         """Most recent pickup (MOVEMENT) transaction for this asset, or None."""
@@ -452,6 +489,18 @@ class Asset(CompanyOwnedModel):
         if self.current_transaction_status() != AssetCurrentStatus.PICKED_UP:
             return None
         return last_movement.planning
+
+    @property
+    def capacidad(self):
+        return (self.data or {}).get(AssetDataKey.CAPACIDAD, "") or ""
+
+    def is_currently_empty(self) -> bool:
+        last_tx = self.transactions.order_by("-date").first()
+        if last_tx is None:
+            return True
+        if self.current_transaction_status(last_tx) == AssetCurrentStatus.PICKED_UP:
+            return False
+        return not AssetTransaction.payload_is_full(last_tx.data)
 
     @property
     def matricula(self):
@@ -868,6 +917,14 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         Asset, on_delete=models.PROTECT, null=True, blank=True,
         related_name="plannings", verbose_name=_("Asset"),
     )
+    reserved_asset = models.ForeignKey(
+        Asset, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="planning_reservations", verbose_name=_("Reserved Asset"),
+        help_text=_(
+            "Empty cuba held until the driver scans a QR. Cleared if they scan "
+            "a different cuba, cancel, or the daily cleanup runs."
+        ),
+    )
     machine = models.ForeignKey(
         Asset, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="machine_plannings", verbose_name=_("Machine"),
@@ -982,6 +1039,54 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         self.abandoned_reason = ""
         self.abandoned_by = None
         self.asset = None
+        self.reserved_asset = None
+
+    @staticmethod
+    def normalize_cuba_size(value: str) -> str:
+        value = value.strip().lower()
+        leading_digits = ""
+        for ch in value:
+            if not ch.isdigit():
+                break
+            leading_digits += ch
+        return leading_digits or value
+
+    def matches_cuba_size(self, capacidad: str) -> bool:
+        if not self.cuba_size:
+            return True
+        if not capacidad:
+            return False
+        return self.normalize_cuba_size(capacidad) == self.normalize_cuba_size(self.cuba_size)
+
+    @classmethod
+    def locked_cuba_ids(cls, company, exclude_planning_id=None) -> set[int]:
+        open_plannings = cls.objects.filter(
+            company=company,
+            status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT],
+            scheduled_date=timezone.localdate(),
+        )
+        if exclude_planning_id is not None:
+            open_plannings = open_plannings.exclude(pk=exclude_planning_id)
+        ids = set(open_plannings.exclude(asset_id=None).values_list("asset_id", flat=True))
+        ids |= set(
+            open_plannings.filter(asset_id__isnull=True)
+            .exclude(reserved_asset_id=None)
+            .values_list("reserved_asset_id", flat=True)
+        )
+        return ids
+
+    def release_reservation_if_scanned_other(self, scanned_asset) -> bool:
+        if not self.reserved_asset_id or self.reserved_asset_id == scanned_asset.pk:
+            return False
+        self.reserved_asset = None
+        return True
+
+    def cancel_cuba_reservation(self):
+        if self.reserved_asset_id is None:
+            return self
+        self.reserved_asset = None
+        self.save(update_fields=["reserved_asset"])
+        return self
 
     def save(self, *args, **kwargs):
         # Auto-tag assignment_origin unless the caller explicitly set it
@@ -1866,3 +1971,55 @@ class AssetDocument(BaseDocument):
         if not self.company_id and self.asset:
             self.company = self.asset.company
         super().save(*args, **kwargs)
+
+
+class AssetFaultType(CompanyOwnedModel):
+    name = models.CharField(max_length=100, verbose_name=_("Name"))
+
+    class Meta:
+        verbose_name = _("Asset Fault Type")
+        verbose_name_plural = _("Asset Fault Types")
+        ordering = ["name"]
+
+    def __str__(self):
+        return f"{self.name} ({self.company})"
+
+
+class AssetFault(CompanyOwnedModel, Timestampable):
+    asset = models.ForeignKey(
+        Asset, on_delete=models.CASCADE, related_name="faults",
+        verbose_name=_("Asset"),
+    )
+    fault_type = models.ForeignKey(
+        AssetFaultType, on_delete=models.PROTECT,
+        verbose_name=_("Fault Type"),
+    )
+    description = models.TextField(blank=True, verbose_name=_("Description"))
+    severity = models.CharField(
+        max_length=10, choices=AssetFaultSeverity.choices,
+        verbose_name=_("Severity"),
+    )
+    status = models.CharField(
+        max_length=10, choices=AssetFaultStatus.choices,
+        default=AssetFaultStatus.PENDING,
+        verbose_name=_("Status"),
+    )
+
+    class Meta:
+        verbose_name = _("Asset Fault")
+        verbose_name_plural = _("Asset Faults")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.fault_type} — {self.asset} ({self.get_status_display()})"
+
+    def save(self, *args, **kwargs):
+        if not self.company_id and self.asset:
+            self.company = self.asset.company
+        super().save(*args, **kwargs)
+        self.asset.recalculate_operational_status()
+
+    def delete(self, *args, **kwargs):
+        asset = self.asset
+        super().delete(*args, **kwargs)
+        asset.recalculate_operational_status()

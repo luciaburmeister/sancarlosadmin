@@ -10,10 +10,10 @@ from decimal import Decimal, InvalidOperation
 class MoneyAmountWidget(DecimalWidget):
     """Widget that handles Money objects for the amount portion of a MoneyField."""
 
-    def render(self, value, obj=None):
+    def render(self, value, obj=None, **kwargs):
         if isinstance(value, Money):
-            return super().render(value.amount, obj)
-        return super().render(value, obj)
+            return super().render(value.amount, obj, **kwargs)
+        return super().render(value, obj, **kwargs)
 
     def clean(self, value, row=None, **kwargs):
         if isinstance(value, Money):

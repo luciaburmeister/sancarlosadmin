@@ -131,6 +131,7 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'simple_history.middleware.HistoryRequestMiddleware',
     'hijack.middleware.HijackUserMiddleware',
+    'company.middleware.ActiveCompanyMiddleware',
 ]
 
 X_FRAME_OPTIONS = 'SAMEORIGIN'
@@ -413,6 +414,9 @@ UNFOLD = {
     "SITE_HEADER": "Polipus",
     "SHOW_LANGUAGES": True,
     "TABS": "assets.admin.tabs.asset_planning_tabs",
+    # Active-company switcher (sidebar-header dropdown) + current-company badge
+    "SITE_DROPDOWN": "company.unfold.company_switch_dropdown",
+    "ENVIRONMENT": "company.unfold.active_company_badge",
     "SITE_LOGO": {
         "light": lambda request: static("site-logos/polipus_negro.png"),  # light mode
         "dark": lambda request: static("site-logos/polipus_blanco.png"),  # dark mode

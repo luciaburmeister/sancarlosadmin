@@ -317,12 +317,12 @@ class WorkEntryInline(TabularInline):
 class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     resource_classes = [ProjectFileResource]
     export_form_class = SelectableFieldsExportForm
-    list_display = ["reference", "name", "client", "show_status_customized_color", "total_amount", "total_invoiced", "total_purchased", "start_date", "invoicing_status", "company"]
+    list_display = ["reference", "name", "client", "show_status_customized_color", "total_amount", "total_invoiced", "total_purchased", "start_date", "invoicing_status"]
     list_filter = [("client", AutocompleteSelectMultipleFilter), ("status", MultipleChoicesDropdownFilter), ("company", AutocompleteSelectMultipleFilter), ("created_at", RangeDateFilter)]
     search_fields = ["reference", "name", "client__name"]
     autocomplete_fields = ["client", "company", "asset"]
     form = ProjectFileAdminForm
-    list_select_related = ["client","company"]
+    list_select_related = ["client"]
     list_filter_submit = True
     readonly_fields = ["reference", "incremental_id", "invoicing_summary_display"]
 

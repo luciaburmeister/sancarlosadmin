@@ -287,18 +287,17 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
     resource_classes = [QuoteExportResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
-    list_display = ["id", "project_name", "client", "show_status_customized_color", "production_planning_badge", "total_price_display", "company"]
+    list_display = ["id", "project_name", "client", "show_status_customized_color", "production_planning_badge", "total_price_display"]
     list_sections = [QuoteDetailsSection]
     list_filter = [
         ("status",MultipleChoicesDropdownFilter),
         HasProductionFilter,
         ProductionSchedulingFilter,
-        ("company",AutocompleteSelectMultipleFilter),
         ("created_at",RangeDateFilter),
         ("date_sent", RangeDateFilter),
         ("date_accepted",RangeDateFilter)]
     search_fields = ["project_name", "client__name", "id", "external_id"]
-    autocomplete_fields = ["client", "agent", "project_file", "company","discount_policies"]
+    autocomplete_fields = ["client", "agent", "project_file","discount_policies"]
     readonly_fields = [
         "subtotal_price", "tax_amount", "total_price", "tax_breakdown",
         "discount_amount", "discount_breakdown", "date_sent", "date_accepted", "date_rejected",
@@ -307,7 +306,7 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
         "margin_after_discount_display", "margin_after_discount_pct_display",
         "created_by",
     ]
-    list_select_related = ["client", "project_file__client", "company", "agent", "created_by"]
+    list_select_related = ["client", "project_file__client", "agent", "created_by"]
     list_filter_submit = True
 
     inlines = [ConfigurationReadOnlyInline,

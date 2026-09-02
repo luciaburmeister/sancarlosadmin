@@ -257,7 +257,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         # single-company filter here would let the autocomplete surface a
         # choice this queryset then rejects as invalid on save. clean()
         # still rejects mismatched company combinations.
-        companies = None if request.user.is_superuser else get_user_companies(request.user)
+        companies = get_user_companies(request.user)
         if db_field.name in ("asset", "machine"):
             qs = Asset.objects.filter(asset_type__category=AssetTypeCategory.MACHINE, is_active=True)
             if companies is not None:
@@ -287,7 +287,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def formfield_for_manytomany(self, db_field, request, **kwargs):
-        companies = None if request.user.is_superuser else get_user_companies(request.user)
+        companies = get_user_companies(request.user)
         if db_field.name == "suggested_trucks":
             qs = Asset.objects.filter(asset_type__category=AssetTypeCategory.TRUCK, is_active=True)
             if companies is not None:

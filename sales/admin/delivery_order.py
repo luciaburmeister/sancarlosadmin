@@ -151,8 +151,8 @@ class DeliveryOrderItemInline(StackedInline):
 
 @admin.register(DeliveryOrder)
 class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["number", "get_status_label", "client", "date", "total_amount", "get_invoiced_label","company"]
-    list_filter = [("company",AutocompleteSelectMultipleFilter), ("status",MultipleChoicesDropdownFilter), ("date",RangeDateFilter)]
+    list_display = ["number", "get_status_label", "client", "date", "total_amount", "get_invoiced_label"]
+    list_filter = [ ("status",MultipleChoicesDropdownFilter), ("date",RangeDateFilter)]
     search_fields = ["number", "external_id", "client__name", "shipment_number", "shipping_agency__name"]
     autocomplete_fields = ["company", "client", "sales_invoice", "configuration", "project_file", "shipping_agency"]
     inlines = [DeliveryOrderItemInline, DeliveryOrderAppliedTaxInline, DeliveryOrderIdentityCodeInline, DeliveryOrderDocumentInline, EmailLogInline]

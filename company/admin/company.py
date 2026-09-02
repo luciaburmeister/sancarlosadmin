@@ -397,6 +397,19 @@ class CompanyAdminForm(ModelForm):
 @admin.register(Company)
 class CompanyAdmin(ModelAdmin):
     form = CompanyAdminForm
+
+    def get_urls(self):
+        from django.urls import path
+        from company.views.switch_company import SwitchActiveCompanyView
+
+        return [
+            path(
+                "switch-active/",
+                self.admin_site.admin_view(SwitchActiveCompanyView.as_view()),
+                name="company_switch_active",
+            ),
+        ] + super().get_urls()
+
     readonly_fields = ("terms_import_hint",)
     autocomplete_fields = ("asset_reception_product",)
     inlines = [
@@ -488,8 +501,6 @@ class CompanyAdmin(ModelAdmin):
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
-        if request.user.is_superuser:
-            return qs
         return qs.filter(id__in=get_user_companies(request.user))
 
     @action(

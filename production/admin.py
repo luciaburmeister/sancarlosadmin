@@ -154,11 +154,10 @@ class ProductionItemInline(TabularInline):
 class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
     change_form_template = "admin/production/productionticket/change_form.html"
 
-    list_display = ("id", "company", "source_object", "show_status_customized_color", "last_stage_label", "created_at", "go_to_stages_display")
+    list_display = ("id",  "source_object", "show_status_customized_color", "last_stage_label", "created_at", "go_to_stages_display")
 
     list_filter = (
         TicketIncompleteStageFilter,
-        ("company",AutocompleteSelectMultipleFilter),
         ("status",MultipleChoicesDropdownFilter),
         TicketStageFilter,
         TicketStageStatusFilter,
@@ -270,7 +269,7 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return (
             super()
             .get_queryset(request)
-            .select_related("company", "content_type", "project_file")
+            .select_related("content_type", "project_file")
             .prefetch_related(
                 GenericPrefetch(
                     "source_object",

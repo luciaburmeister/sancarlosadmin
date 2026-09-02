@@ -1,0 +1,32 @@
+{% load i18n %}
+{% comment %}
+Project override of unfold 0.99.1's unfold/helpers/site_dropdown.html.
+Used as the active-company switcher: each item POSTs to
+admin:company_switch_active (item.link) with the company id and a `next`
+redirect carried in item.attrs (set in company/unfold.py), so the switch
+is a CSRF-protected POST instead of the vendor GET <a> link.
+If unfold is upgraded, re-sync the wrapper markup with the vendor file.
+{% endcomment %}
+
+{% if site_dropdown %}
+    <div class="absolute bg-white border border-base-200 flex flex-col left-3 py-1 rounded-default shadow-lg top-[73px] w-[264px] z-50 dark:bg-base-800 dark:border-base-700" x-cloak x-show="openDropdown" x-transition x-on:click.outside="openDropdown = false">
+        {% for item in site_dropdown %}
+            <form method="post" action="{{ item.link }}" class="contents">
+                {% csrf_token %}
+                <input type="hidden" name="company" value="{{ item.attrs.company_id }}">
+                <input type="hidden" name="next" value="{{ item.attrs.next }}">
+                <button type="submit" class="flex flex-row items-center gap-3 max-h-[30px] mx-1 px-2 py-2 rounded-default text-left w-full text-font-default-light dark:text-font-default-dark hover:bg-base-100 hover:text-font-important-light dark:hover:bg-base-700 dark:hover:text-font-important-dark">
+                    {% if item.icon %}
+                        <span class="material-symbols-outlined">
+                            {{ item.icon }}
+                        </span>
+                    {% endif %}
+
+                    <span class="grow truncate">
+                        {{ item.title }}
+                    </span>
+                </button>
+            </form>
+        {% endfor %}
+    </div>
+{% endif %}

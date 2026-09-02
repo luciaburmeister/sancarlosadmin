@@ -1,35 +1,37 @@
 # core/admin/company_access.py
 
-from django.core.cache import cache
 from django.db.models import QuerySet
-from company.models import Company, CompanyUser
 
-CACHE_TIMEOUT = 60 * 5  # 5 minutes
+from company.active_company import ActiveCompany
+from company.models import Company
+
+# Kept for backwards compatibility with tests/utilities that import it.
+CACHE_TIMEOUT = ActiveCompany.CACHE_TIMEOUT
+
+
+def get_user_allowed_companies(user) -> QuerySet[Company]:
+    """
+    Every company the user has access to, ignoring the active-company
+    selection. Superusers get all companies. Cached per-user.
+    """
+    return ActiveCompany.allowed_for(user)
 
 
 def get_user_companies(user) -> QuerySet[Company]:
     """
-    Returns a queryset of companies the user has access to.
-    Superusers get all companies.
-    Cached per-user.
+    Companies visible to the user RIGHT NOW.
+
+    Inside a request, ActiveCompanyMiddleware has set the active company,
+    so this returns just that one. Outside requests (celery, shell,
+    management commands) the holder is unset and the full allowed list is
+    returned, matching the pre-switcher behavior.
     """
-    if not user.is_authenticated:
-        return Company.objects.none()
+    allowed = ActiveCompany.allowed_for(user)
+    active_id = ActiveCompany.get_current_id()
 
-    if user.is_superuser:
-        return Company.objects.all()
+    if active_id is not None:
+        # Intersection: the narrowing can only shrink the allowed set,
+        # never widen it, even if a different user object is passed.
+        return allowed.filter(pk=active_id)
 
-    cache_key = f"admin:user_companies:{user.pk}"
-    company_ids = cache.get(cache_key)
-
-    if company_ids is None:
-        company_ids = list(
-            CompanyUser.objects.filter(
-                user=user,
-                is_active=True,
-                company__is_active=True,
-            ).values_list("company_id", flat=True)
-        )
-        cache.set(cache_key, company_ids, CACHE_TIMEOUT)
-
-    return Company.objects.filter(id__in=company_ids)
+    return allowed

@@ -96,14 +96,13 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
     import_form_class = ClientImportForm
     export_form_class = ClientExportForm
 
-    list_display = ["name", "commercial_name", "tax_identifier", "industry_identifier", "phone", "address_truncated", "company",  "has_signed_terms", "balance_owed_display"]
+    list_display = ["name", "commercial_name", "tax_identifier", "industry_identifier", "phone", "address_truncated",  "has_signed_terms", "balance_owed_display"]
     search_fields = [
         "name", "commercial_name", "tax_identifier", "industry_identifier", "email", "phone", "address",
         "contacts__name", "contacts__email", "contacts__phone", "contacts__mobile_phone", "contacts__department",
     ]
-    list_filter = ["sale_zone", "is_insured", "company", "contacts__role"]
+    list_filter = ["sale_zone", "is_insured", "contacts__role"]
     autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account","discount_policies","default_client_bank_account"]
-    list_select_related = ["company"]
     
 
 

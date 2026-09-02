@@ -244,7 +244,6 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
         "total_price_display",
         "show_status_customized_color",
         "show_planning_status_badge",
-        "company"
     )
 
     list_filter = (("company",AutocompleteSelectMultipleFilter),
@@ -254,7 +253,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
                    ("product",AutocompleteSelectMultipleFilter),
                    ("created_at",RangeDateTimeFilter))
     search_fields = ("name", "client__name")
-    list_select_related = ["client","company","product"]
+    list_select_related = ["client","product"]
 
     readonly_fields = ("total_price","total_cost","subtotal_price","company","planning_status","planned_at")
     actions_row = ["export_configuration_to_template",

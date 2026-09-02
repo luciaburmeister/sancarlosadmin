@@ -1,6 +1,7 @@
 # company/active_company.py
 
 import time
+from collections.abc import Iterable
 
 from asgiref.local import Local
 from django.core.cache import cache
@@ -11,12 +12,14 @@ from company.models import Company, CompanyUser
 
 class ActiveCompany:
     """
-    Owns everything about the per-user active company:
+    Owns everything about the per-user active companies:
 
     - which companies a user is ALLOWED to see (cached, 5 min)
-    - which single company is ACTIVE right now (session, ~1 day)
+    - which companies are ACTIVE right now (session, ~1 day). One or more:
+      the switcher toggles companies in and out of the set, so a user can
+      work on several at the same time.
     - a request-scoped holder so code without ``request`` access
-      (``get_user_companies``) can read the active id.
+      (``get_user_companies``) can read the active ids.
 
     The session is the persistent store (DB-backed, shared across all
     workers); the ``Local`` is per-request transport, repopulated by
@@ -27,7 +30,7 @@ class ActiveCompany:
     allowed list, exactly as before this feature existed.
     """
 
-    SESSION_KEY = "active_company_id"
+    SESSION_KEY = "active_company_ids"
     SESSION_SET_AT_KEY = "active_company_set_at"
     MAX_AGE = 60 * 60 * 24  # ~1 day
 
@@ -106,59 +109,104 @@ class ActiveCompany:
     # ---- request-scoped holder ---------------------------------------
 
     @classmethod
-    def set_current_id(cls, company_id: int | None) -> None:
-        cls._state.company_id = company_id
+    def set_current_ids(cls, company_ids: Iterable[int] | None) -> None:
+        """``None`` means "no narrowing" (outside a request / nothing active)."""
+        cls._state.company_ids = None if company_ids is None else list(company_ids)
 
     @classmethod
     def clear_current(cls) -> None:
-        cls._state.company_id = None
+        cls._state.company_ids = None
 
     @classmethod
-    def get_current_id(cls) -> int | None:
-        return getattr(cls._state, "company_id", None)
+    def get_current_ids(cls) -> list[int] | None:
+        return getattr(cls._state, "company_ids", None)
 
     # ---- session persistence -----------------------------------------
 
     @classmethod
-    def activate(cls, request, company: Company) -> None:
-        """Persist the choice: session keys + fresh timestamp + holder."""
-        request.session[cls.SESSION_KEY] = company.pk
-        request.session[cls.SESSION_SET_AT_KEY] = time.time()
-        cache.set(
-            cls.COMPANY_OBJ_CACHE_KEY.format(company_pk=company.pk),
-            company,
-            cls.CACHE_TIMEOUT,
-        )
-        cls.set_current_id(company.pk)
+    def activate(cls, request, companies: Iterable[Company]) -> list[Company]:
+        """
+        Persist the active set: session keys + fresh timestamp + holder.
+        Returns the stored companies, sorted by name.
+        """
+        companies = sorted(companies, key=lambda c: (c.name, c.pk))
+        for company in companies:
+            cache.set(
+                cls.COMPANY_OBJ_CACHE_KEY.format(company_pk=company.pk),
+                company,
+                cls.CACHE_TIMEOUT,
+            )
+        cls._store_ids(request, [c.pk for c in companies])
+        return companies
 
     @classmethod
-    def resolve(cls, request) -> Company | None:
+    def toggle(cls, request, company: Company) -> bool | None:
+        """
+        Add ``company`` to the active set if absent, remove it if present.
+        Returns True when added, False when removed, ``None`` when the
+        removal was refused because it would leave the set empty (at least
+        one company must stay active).
+        """
+        current = list(cls.get_current_ids() or [])
+
+        if company.pk in current:
+            if len(current) == 1:
+                return None
+            current.remove(company.pk)
+            cls._store_ids(request, current)
+            return False
+
+        cls.activate(request, [*cls.get_companies(current), company])
+        return True
+
+    @classmethod
+    def _store_ids(cls, request, company_ids: list[int]) -> None:
+        request.session[cls.SESSION_KEY] = company_ids
+        request.session[cls.SESSION_SET_AT_KEY] = time.time()
+        cls.set_current_ids(company_ids or None)
+
+    @classmethod
+    def resolve(cls, request) -> list[Company]:
         """
         Called by the middleware on every request. Returns the active
-        company for ``request.user``, defaulting silently when the stored
-        choice is missing, invalid or older than ``MAX_AGE``.
+        companies for ``request.user`` (sorted by name), defaulting
+        silently to the first switchable company when the stored choice is
+        missing, invalid or older than ``MAX_AGE``. Ids the user has lost
+        access to are dropped silently; the rest survive.
         Steady-state cost: session read + cache gets, no DB queries.
         """
         switchable_ids = cls.switchable_ids_for(request.user)
 
-        company_id = request.session.get(cls.SESSION_KEY)
+        raw = request.session.get(cls.SESSION_KEY)
         set_at = request.session.get(cls.SESSION_SET_AT_KEY)
 
+        # Sessions written before the multi-company switcher hold a bare int.
+        stored = raw if isinstance(raw, list) else ([raw] if raw is not None else [])
+        valid_ids = [cid for cid in stored if cid in switchable_ids]
+
         if (
-            company_id in switchable_ids
+            valid_ids
             and set_at is not None
             and time.time() - set_at < cls.MAX_AGE
         ):
-            return cls.get_company(company_id)
+            companies = cls.get_companies(valid_ids)
+            if isinstance(raw, list) and len(companies) == len(stored):
+                cls.set_current_ids([c.pk for c in companies])
+                return companies
+            # Legacy int value, or some ids revoked/deleted: persist the
+            # cleaned-up list.
+            if companies:
+                return cls.activate(request, companies)
 
         # Missing / invalid / expired -> deterministic silent default.
         default = cls.switchable_for(request.user).order_by("name").first()
         if default is not None:
-            cls.activate(request, default)
-        else:
-            request.session.pop(cls.SESSION_KEY, None)
-            request.session.pop(cls.SESSION_SET_AT_KEY, None)
-        return default
+            return cls.activate(request, [default])
+
+        request.session.pop(cls.SESSION_KEY, None)
+        request.session.pop(cls.SESSION_SET_AT_KEY, None)
+        cls.set_current_ids(None)
+        return []
 
     @classmethod
     def get_company(cls, company_id: int) -> Company | None:
@@ -172,3 +220,11 @@ class ActiveCompany:
                 cache.set(cache_key, company, cls.CACHE_TIMEOUT)
 
         return company
+
+    @classmethod
+    def get_companies(cls, company_ids: Iterable[int]) -> list[Company]:
+        """Cached instances for ``company_ids`` (unknown ids skipped), sorted by name."""
+        companies = (cls.get_company(cid) for cid in company_ids)
+        return sorted(
+            (c for c in companies if c is not None), key=lambda c: (c.name, c.pk)
+        )

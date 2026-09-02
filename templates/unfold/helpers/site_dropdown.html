@@ -3,8 +3,10 @@
 Project override of unfold 0.99.1's unfold/helpers/site_dropdown.html.
 Used as the active-company switcher: each item POSTs to
 admin:company_switch_active (item.link) with the company id and a `next`
-redirect carried in item.attrs (set in company/unfold.py), so the switch
-is a CSRF-protected POST instead of the vendor GET <a> link.
+redirect carried in item.attrs (set in company/unfold.py), so the toggle
+is a CSRF-protected POST instead of the vendor GET <a> link. Clicking a
+company adds it to (or removes it from) the set of active companies, so
+several can be worked on at the same time.
 If unfold is upgraded, re-sync the wrapper markup with the vendor file.
 {% endcomment %}
 
@@ -15,14 +17,14 @@ If unfold is upgraded, re-sync the wrapper markup with the vendor file.
                 {% csrf_token %}
                 <input type="hidden" name="company" value="{{ item.attrs.company_id }}">
                 <input type="hidden" name="next" value="{{ item.attrs.next }}">
-                <button type="submit" class="flex flex-row items-center gap-3 max-h-[30px] mx-1 px-2 py-2 rounded-default text-left w-full text-font-default-light dark:text-font-default-dark hover:bg-base-100 hover:text-font-important-light dark:hover:bg-base-700 dark:hover:text-font-important-dark">
+                <button type="submit" class="flex flex-row items-center gap-3 max-h-[30px] mx-1 px-2 py-2 rounded-default text-left w-full {% if item.attrs.active %}text-font-important-light dark:text-font-important-dark{% else %}text-font-default-light dark:text-font-default-dark{% endif %} hover:bg-base-100 hover:text-font-important-light dark:hover:bg-base-700 dark:hover:text-font-important-dark">
                     {% if item.icon %}
-                        <span class="material-symbols-outlined">
+                        <span class="material-symbols-outlined {% if item.attrs.active %}text-primary-600 dark:text-primary-500{% endif %}">
                             {{ item.icon }}
                         </span>
                     {% endif %}
 
-                    <span class="grow truncate">
+                    <span class="grow truncate{% if item.attrs.active %} font-semibold{% endif %}">
                         {{ item.title }}
                     </span>
                 </button>

@@ -24,8 +24,11 @@ class SwitchActiveCompanyForm(forms.Form):
 
 class SwitchActiveCompanyView(FormView):
     """
-    Sets the active company for the current session. Mounted inside the
-    Company admin (see CompanyAdmin.get_urls) as `admin:company_switch_active`.
+    Toggles a company in/out of the session's active set: clicking a
+    company that is not active adds it (so several companies can be worked
+    on at once); clicking an active one removes it, unless it is the last
+    one. Mounted inside the Company admin (see CompanyAdmin.get_urls) as
+    `admin:company_switch_active`.
     """
 
     form_class = SwitchActiveCompanyForm
@@ -36,11 +39,22 @@ class SwitchActiveCompanyView(FormView):
 
     def form_valid(self, form):
         company = form.cleaned_data["company"]
-        ActiveCompany.activate(self.request, company)
-        messages.success(
-            self.request,
-            _("Empresa activa: %(name)s") % {"name": company.name},
-        )
+        added = ActiveCompany.toggle(self.request, company)
+
+        if added is None:
+            messages.warning(
+                self.request, _("Debe haber al menos una empresa activa.")
+            )
+        elif added:
+            messages.success(
+                self.request,
+                _("Empresa añadida: %(name)s") % {"name": company.name},
+            )
+        else:
+            messages.success(
+                self.request,
+                _("Empresa quitada: %(name)s") % {"name": company.name},
+            )
         return redirect(self._safe_next(form.cleaned_data.get("next")))
 
     def form_invalid(self, form):

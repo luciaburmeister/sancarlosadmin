@@ -146,6 +146,18 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
             return qs
         return qs.filter(submitted_by=request.user)
 
+    def get_object(self, request, object_id, from_field=None):
+        """
+        Memoize per request. Unfold calls every ``has_*_detail_action_permission``
+        while rendering the change page, and each one fetches the claim
+        again — a dozen identical SELECTs per page load without this.
+        """
+        cache = request.__dict__.setdefault("_expense_claim_admin_objects", {})
+        key = (str(object_id), from_field)
+        if key not in cache:
+            cache[key] = super().get_object(request, object_id, from_field)
+        return cache[key]
+
     def has_change_permission(self, request, obj=None):
         if obj is None or request.user.is_superuser:
             return super().has_change_permission(request, obj)

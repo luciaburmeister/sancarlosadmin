@@ -262,11 +262,20 @@ class ChangelistScopingTests(BaseActiveCompanyTestCase):
         self.assertIn(self.doc_orphan, objects)
         self.assertNotIn(self.doc_b, objects)
 
-    def test_company_admin_still_lists_all_companies_for_superuser(self):
+    def test_company_admin_scoped_to_active_company_for_superuser(self):
+        """The Company changelist follows the switcher too: one company at a
+        time, even for superusers. Other companies become visible by switching."""
         superuser = User.objects.create_superuser("super", "s@example.com", "x")
         self.client.force_login(superuser)
-        response = self.client.get(reverse("admin:company_company_changelist"))
-        self.assertEqual(response.status_code, 200)
-        companies = list(response.context["cl"].queryset)
-        self.assertIn(self.company_a, companies)
-        self.assertIn(self.company_b, companies)
+
+        def listed_companies():
+            response = self.client.get(reverse("admin:company_company_changelist"))
+            self.assertEqual(response.status_code, 200)
+            return list(response.context["cl"].queryset)
+
+        self.assertEqual(listed_companies(), [self.company_a])  # default: Alpha
+
+        self.client.post(
+            reverse(SWITCH_URL_NAME), {"company": self.company_b.pk}
+        )
+        self.assertEqual(listed_companies(), [self.company_b])

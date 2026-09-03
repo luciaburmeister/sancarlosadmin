@@ -24,13 +24,14 @@ from .models import (
 from .resources import PurchaseOrderResource
 from inventory.models import ItemIdentityCode
 from django.shortcuts import redirect
+from .views import DirectReceiptView, IdentityCodesView, POMatchInvoiceView, POAIMatchView, DispatchPOAIMatchView, RejectPurchaseOrderView
 
 class PurchaseOrderItemInline(StackedInline):
     model = PurchaseOrderItem
     extra = 1
     tab = True
     autocomplete_fields = ["inventory_item"]
-    readonly_fields = ["line_total","formatted_received", "formatted_pending", "formatted_invoiced", "formatted_pending_invoice"]
+    readonly_fields = ["line_total","formatted_received", "formatted_pending", "formatted_invoiced", "formatted_pending_invoice", "formatted_invoice_match"]
     fieldsets = (
         (None, {
             "fields": (
@@ -38,6 +39,7 @@ class PurchaseOrderItemInline(StackedInline):
                 ("quantity", "unit_price", ),
                 ("line_total","description"),
                 ("formatted_received", "formatted_pending", "formatted_invoiced", "formatted_pending_invoice"),
+                ("formatted_invoice_match",),
             )
         }),
     )
@@ -65,6 +67,25 @@ class PurchaseOrderItemInline(StackedInline):
         if obj.pk:
             return obj.pending_invoice_quantity
         return "-"
+
+    @display(
+        description=_("Invoice Match"),
+        label={
+            "Matched": "success",
+            "Partial": "warning",
+            "Not matched": "danger",
+        },
+    )
+    def formatted_invoice_match(self, obj):
+        if not obj.pk:
+            return "-"
+        if obj.quantity <= 0:
+            return "Not matched"
+        if obj.invoiced_quantity >= obj.quantity:
+            return "Matched"
+        if obj.invoiced_quantity > 0:
+            return "Partial"
+        return "Not matched"
 
     def has_add_permission(self, request, obj=None):
         if obj and obj.status != PurchaseOrderStatus.DRAFT:
@@ -331,7 +352,6 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
         return redirect(reverse("admin:purchasing_purchaseorder_match_invoice", args=[object_id]))
 
     def get_urls(self):
-        from .views import DirectReceiptView, IdentityCodesView, POMatchInvoiceView, RejectPurchaseOrderView
         urls = super().get_urls()
         custom_urls = [
             path(
@@ -343,6 +363,16 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
                 "<int:po_id>/match-invoice/",
                 self.admin_site.admin_view(POMatchInvoiceView.as_view(model_admin=self)),
                 name="purchasing_purchaseorder_match_invoice",
+            ),
+            path(
+                "<int:po_id>/ai-match-invoice/",
+                self.admin_site.admin_view(POAIMatchView.as_view(model_admin=self)),
+                name="purchasing_purchaseorder_ai_match_invoice",
+            ),
+            path(
+                "<int:po_id>/run-ai-match-invoice/",
+                self.admin_site.admin_view(DispatchPOAIMatchView.as_view(model_admin=self)),
+                name="purchasing_purchaseorder_run_ai_match_invoice",
             ),
             path(
                 "<int:po_id>/receive-directly",

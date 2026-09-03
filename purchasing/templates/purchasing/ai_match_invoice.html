@@ -1,0 +1,292 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="px-4 py-3 bg-gray-50 border-b border-gray-200">
+    <div class="flex items-center text-sm text-gray-500">
+        <a href="{% url 'admin:index' %}" class="hover:text-primary-600">{% trans 'Home' %}</a>
+        <span class="mx-2">&raquo;</span>
+        <a href="{% url 'admin:purchasing_purchaseorder_changelist' %}" class="hover:text-primary-600">{% trans 'Purchase Orders' %}</a>
+        <span class="mx-2">&raquo;</span>
+        <a href="{% url 'admin:purchasing_purchaseorder_change' po.id %}" class="hover:text-primary-600">{{ po.number }}</a>
+        <span class="mx-2">&raquo;</span>
+        <span>{% trans 'AI Suggested Matches' %}</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto py-10 px-6">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="p-8 border-b border-gray-100 bg-gradient-header">
+            <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                <svg class="w-6 h-6" style="color:#0f6e56" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2l1.5 4.5L16 8l-4.5 1.5L10 14l-1.5-4.5L4 8l4.5-1.5L10 2z"/><path d="M16 14l0.7 2 2 0.7-2 0.7-0.7 2-0.7-2-2-0.7 2-0.7z"/></svg>
+                {% trans "AI Suggested Matches" %}
+            </h1>
+            <p class="mt-2 text-sm text-gray-600">
+                <span class="font-semibold text-gray-800">{{ po.number }}</span>
+                <span class="text-gray-400 mx-1">·</span>{{ po.provider.name }}
+                <span class="text-gray-400 mx-1">·</span>{{ po.date_ordered }}
+                <span class="text-gray-400 mx-1">·</span>{{ po.total_amount }}
+            </p>
+        </div>
+
+        <div class="p-8">
+            {% if messages %}
+            <div class="mb-6 space-y-2">
+                {% for message in messages %}
+                <div class="message-banner {% if message.tags == 'error' %}message-error{% elif message.tags == 'warning' %}message-warning{% else %}message-info{% endif %}">
+                    {{ message }}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if total_quantity %}
+            <div class="progress-card">
+                <div class="flex items-center justify-between gap-4 {% if item_progress %}mb-3{% endif %}">
+                    <span class="text-sm font-semibold" style="color:#085041">
+                        {% blocktrans %}{{ matched_quantity }} of {{ total_quantity }} units matched{% endblocktrans %}
+                    </span>
+                    <div class="w-40 rounded-full h-2 flex-shrink-0" style="background-color:#cdece2">
+                        {% widthratio matched_quantity total_quantity 100 as percent %}
+                        <div class="h-2 rounded-full transition-all" style="width: {{ percent }}%; background-color:#68A7A5"></div>
+                    </div>
+                </div>
+                {% if item_progress %}
+                <div class="space-y-1 pt-2" style="border-top:1px solid #bbf3e3">
+                    {% for row in item_progress %}
+                    <div class="flex items-center justify-between text-xs gap-4" style="color:#0f6e56">
+                        <span class="truncate">{{ row.description }}</span>
+                        <span class="flex-shrink-0 font-mono">{{ row.matched|floatformat:2 }} / {{ row.total|floatformat:2 }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+
+            {% if matched_items %}
+            <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3 mt-6">{% trans "Already matched" %}</h2>
+            <div class="space-y-2 mb-6">
+                {% for row in matched_items %}
+                <div class="matched-card">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <span class="check-badge">&#10003;</span>
+                        <div class="min-w-0">
+                            <div class="font-medium text-gray-800 text-sm">{{ row.description }}</div>
+                            <div class="text-xs text-gray-500 mt-0.5">
+                                {% for alloc in row.allocations %}
+                                    {% trans "Invoice" %} {{ alloc.invoice_number }} ({{ alloc.quantity|floatformat:2 }})
+                                    {% if alloc.from_ai %}<span class="ai-tag">{% trans "AI" %}</span>{% endif %}
+                                    {% if not forloop.last %}<span class="text-gray-300 mx-1">·</span>{% endif %}
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-3 flex-shrink-0">
+                        <span class="text-xs font-mono font-semibold" style="color:#0f6e56">
+                            {{ row.matched|floatformat:2 }} / {{ row.total|floatformat:2 }}
+                        </span>
+                        {% for alloc in row.allocation_objs %}
+                        <form method="post" class="inline">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="unmatch">
+                            <input type="hidden" name="allocation_id" value="{{ alloc.pk }}">
+                            <button type="submit" class="unmatch-link" title="{% trans 'Remove this match' %}">
+                                {% trans "Unmatch" %} {% trans "invoice" %} {{ alloc.invoice_item.invoice.invoice_number|default:alloc.invoice_item.invoice.pk }}
+                            </button>
+                        </form>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endif %}
+
+            {% if not suggestions %}
+            <div class="empty-state">
+                <p class="text-sm text-gray-600">{% trans "No pending AI suggestions for this purchase order." %}</p>
+                <p class="text-xs text-gray-400 mt-1">{% trans "Run the AI matcher again from the purchase order detail page to generate new suggestions." %}</p>
+            </div>
+
+            {% else %}
+            <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4">
+                {% blocktrans count counter=suggestions|length %}{{ counter }} suggestion pending review{% plural %}{{ counter }} suggestions pending review{% endblocktrans %}
+            </h2>
+
+            <div class="space-y-3">
+                {% for suggestion in suggestions %}
+                <div class="suggestion-card">
+                    <div class="px-5 py-4 flex flex-wrap items-start justify-between gap-4">
+                        <div class="min-w-0">
+                            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{% trans "PO line" %}</div>
+                            <div class="font-semibold text-gray-900">
+                                {{ suggestion.po_item.inventory_item.name|default:suggestion.po_item.description }}
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">{% trans "Pending" %} {{ suggestion.po_item.pending_invoice_quantity|floatformat:2 }} / {{ suggestion.po_item.quantity|floatformat:2 }} · {{ suggestion.po_item.unit_price }}</div>
+                        </div>
+                        <svg class="w-5 h-5 text-gray-300 flex-shrink-0 mt-1 hidden sm:block" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                        <div class="text-right min-w-0">
+                            <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{% trans "Suggested invoice line" %}</div>
+                            <div class="font-semibold text-gray-900">
+                                {{ suggestion.invoice_item.invoice.invoice_number|default:suggestion.invoice_item.invoice.pk }} —
+                                {{ suggestion.invoice_item.description|truncatechars:60 }}
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">
+                                {% trans "Qty" %} {{ suggestion.invoice_item.quantity|floatformat:2 }} · {{ suggestion.invoice_item.unit_price }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="px-5 pb-3 -mt-1">
+                        <span class="confidence-badge">
+                            {% trans "High confidence" %}
+                        </span>
+                        {% if suggestion.reasoning %}
+                        <span class="text-xs text-gray-500 ml-2">{{ suggestion.reasoning }}</span>
+                        {% endif %}
+                    </div>
+
+                    <div class="px-5 pb-5 pt-4 border-t border-gray-100">
+                        <div class="action-row">
+                            <div class="qty-group">
+                                <label class="qty-label" for="qty-{{ suggestion.pk }}">{% trans "Quantity" %}</label>
+                                <form method="post" id="confirm-form-{{ suggestion.pk }}">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="suggestion_id" value="{{ suggestion.pk }}">
+                                    <input type="hidden" name="action" value="confirm">
+                                    <input type="number" id="qty-{{ suggestion.pk }}" name="quantity" step="0.001" min="0"
+                                        value="{{ suggestion.quantity }}" class="qty-input">
+                                </form>
+                            </div>
+                            <div class="btn-group">
+                                <button type="submit" form="confirm-form-{{ suggestion.pk }}" class="btn-confirm">
+                                    {% trans "Confirm" %}
+                                </button>
+                                <form method="post">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="suggestion_id" value="{{ suggestion.pk }}">
+                                    <input type="hidden" name="action" value="reject">
+                                    <button type="submit" class="btn-reject">
+                                        {% trans "Reject" %}
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <div class="pt-8 flex justify-end">
+                <a href="{% url 'admin:purchasing_purchaseorder_change' po.id %}" class="btn-secondary">
+                    {% trans "Back to PO" %}
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .bg-gradient-header { background: linear-gradient(180deg, #fafbfb 0%, #f7f8f8 100%); }
+    .text-primary-600 { color: #68A7A5; }
+
+    .btn-secondary {
+        display: inline-flex; align-items: center; gap: 0.375rem;
+        padding: 0.625rem 1.25rem; font-size: 0.875rem; font-weight: 500;
+        color: #374151; background-color: #fff; border: 1px solid #d1d5db; border-radius: 0.5rem;
+        transition: all 0.15s ease;
+    }
+    .btn-secondary:hover { background-color: #f9fafb; border-color: #9ca3af; }
+
+    .progress-card {
+        padding: 1.25rem; border-radius: 0.75rem;
+        background-color: #e1f5ee; border: 1px solid #9fe1cb;
+        margin-bottom: 1.5rem;
+    }
+
+    .matched-card {
+        display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+        padding: 0.875rem 1.125rem; border-radius: 0.625rem;
+        background-color: #f0fdf9; border: 1px solid #bbf3e3;
+    }
+
+    .check-badge {
+        flex-shrink: 0; width: 24px; height: 24px; border-radius: 9999px;
+        background-color: #0f6e56; color: #fff; font-size: 0.75rem; font-weight: 700;
+        display: flex; align-items: center; justify-content: center;
+    }
+
+    .ai-tag {
+        display: inline-flex; align-items: center; margin-left: 0.25rem;
+        padding: 0.0625rem 0.375rem; border-radius: 9999px;
+        background-color: #e1f5ee; color: #0f6e56; font-size: 0.625rem; font-weight: 700;
+    }
+
+    .unmatch-link {
+        font-size: 0.75rem; font-weight: 500; color: #9f1239;
+        background: none; border: none; padding: 0; cursor: pointer;
+    }
+    .unmatch-link:hover { text-decoration: underline; }
+
+    .message-banner {
+        padding: 0.75rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500;
+    }
+    .message-error { background-color: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+    .message-warning { background-color: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+    .message-info { background-color: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+
+    .suggestion-card {
+        border: 1px solid #e5e7eb; border-radius: 0.75rem; overflow: hidden;
+        background: #fff; transition: all 0.15s ease;
+    }
+    .suggestion-card:hover { border-color: #9fe1cb; box-shadow: 0 2px 10px rgba(15,110,86,0.08); }
+
+    .confidence-badge {
+        display: inline-flex; align-items: center;
+        padding: 0.125rem 0.625rem; border-radius: 9999px;
+        background-color: #e1f5ee; color: #085041; font-size: 0.75rem; font-weight: 600;
+    }
+
+    .action-row {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 1rem; flex-wrap: wrap;
+    }
+    .qty-group { display: flex; align-items: center; gap: 0.625rem; }
+    .btn-group { display: flex; align-items: center; gap: 0.625rem; }
+    .qty-label {
+        font-size: 0.75rem; font-weight: 600; color: #6b7280;
+        text-transform: uppercase; letter-spacing: 0.03em; white-space: nowrap;
+    }
+    .qty-input {
+        width: 88px; height: 40px; border-radius: 0.5rem;
+        border: 1px solid #d1d5db; padding: 0 0.75rem;
+        font-size: 0.875rem; font-variant-numeric: tabular-nums; text-align: center;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .qty-input:focus { outline: none; border-color: #68A7A5; box-shadow: 0 0 0 3px rgba(104,167,165,0.15); }
+
+    .btn-confirm {
+        height: 40px; padding: 0 1.5rem; border-radius: 0.5rem;
+        font-size: 0.875rem; font-weight: 600; color: #fff;
+        background-color: #68A7A5; box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        transition: all 0.15s ease; white-space: nowrap;
+    }
+    .btn-confirm:hover { background-color: #568c8a; box-shadow: 0 4px 8px rgba(104,167,165,0.25); }
+
+    .btn-reject {
+        height: 40px; padding: 0 1.25rem; border-radius: 0.5rem;
+        font-size: 0.875rem; font-weight: 500; color: #374151;
+        background-color: #fff; border: 1px solid #d1d5db;
+        transition: all 0.15s ease; white-space: nowrap;
+    }
+    .btn-reject:hover { background-color: #f9fafb; border-color: #9ca3af; }
+
+    .empty-state {
+        border: 1px dashed #d1d5db; border-radius: 0.75rem;
+        background-color: #f9fafb; padding: 2rem; text-align: center;
+    }
+</style>
+{% endblock %}

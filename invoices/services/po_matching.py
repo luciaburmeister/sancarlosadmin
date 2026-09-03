@@ -266,6 +266,60 @@ class POInvoiceMatchService:
             "item_progress": item_progress,
             "matched_items": matched_items,
         }
+    
+    @classmethod
+    def match_progress_for_po(cls, po):
+        """
+        Mirror of match_progress(), built from the PO side: progress is
+        measured over this PO's own lines instead of an invoice's lines.
+        Used by POAIMatchView (and could be reused by the manual
+        POMatchInvoiceView) so both screens present the same "what's
+        already matched" picture for a PO regardless of which matcher
+        confirmed it.
+        """
+        items_with_pending = cls.po_items_with_pending(po)
+        total_quantity = sum((item.quantity for item, _ in items_with_pending), Decimal("0"))
+        pending_quantity = sum((pending for _, pending in items_with_pending), Decimal("0"))
+        matched_quantity = total_quantity - pending_quantity
+
+        item_progress = [
+            {
+                "description": item.inventory_item.name if item.inventory_item_id else item.description,
+                "matched": item.quantity - pending,
+                "total": item.quantity,
+            }
+            for item, pending in items_with_pending
+            if pending > 0
+        ]
+
+        matched_items = []
+        for item, pending in items_with_pending:
+            allocations = list(item.invoice_allocations.select_related("invoice_item__invoice").all())
+            if not allocations:
+                continue
+            matched_items.append({
+                "description": item.inventory_item.name if item.inventory_item_id else item.description,
+                "matched": item.quantity - pending,
+                "total": item.quantity,
+                "is_complete": pending <= 0,
+                "allocation_objs": allocations,
+                "allocations": [
+                    {
+                        "invoice_number": alloc.invoice_item.invoice.invoice_number or str(alloc.invoice_item.invoice.pk),
+                        "invoice_pk": alloc.invoice_item.invoice.pk,
+                        "quantity": alloc.quantity,
+                        "from_ai": alloc.gemini_match_response is not None,
+                    }
+                    for alloc in allocations
+                ],
+            })
+
+        return {
+            "matched_quantity": matched_quantity,
+            "total_quantity": total_quantity,
+            "item_progress": item_progress,
+            "matched_items": matched_items,
+        }
 
     # ------------------------------------------------------------------
     # AI matcher pool (data assembly for GeminiPOItemMatcher)
@@ -321,6 +375,61 @@ class POInvoiceMatchService:
             })
 
         return invoice_items_data, po_candidates_data
+    
+    @classmethod
+    def ai_match_pool_for_po(cls, po):
+        """
+        Mirror of ai_match_pool(), built from the PO side: this PO's own
+        pending lines are the source, and candidate invoices (grouped, each
+        flagged if already linked to this PO) are the targets. Same
+        signal priority as the invoice-side pool — price, quantity, and
+        prior-match-on-this-PO as a strong prior for providers billed
+        repeatedly against near-identical orders.
+        """
+        po_items_data = [
+            {
+                "id": pi.pk,
+                "name": pi.inventory_item.name if pi.inventory_item_id else "",
+                "description": pi.description,
+                "unit_price": str(cls._money_amount(pi.unit_price) or ""),
+                "quantity": str(pending),
+            }
+            for pi, pending in cls.po_items_with_pending(po)
+            if pending > 0
+        ]
+
+        if not po_items_data:
+            return [], []
+
+        already_matched_invoice_ids = set(
+            Invoice.objects.filter(
+                po_allocations__po_item__purchase_order=po
+            ).values_list("pk", flat=True)
+        )
+
+        invoice_candidates_data = []
+        for invoice in cls.candidate_invoices_for_po(po):
+            items_data = [
+                {
+                    "id": item.pk,
+                    "description": item.description,
+                    "unit_price": str(cls._money_amount(item.unit_price) or ""),
+                    "pending_quantity": str(remaining),
+                }
+                for item, remaining in cls.invoice_items_with_remaining(invoice)
+                if remaining > 0
+            ]
+            if not items_data:
+                continue
+            invoice_candidates_data.append({
+                "invoice_id": invoice.pk,
+                "invoice_number": invoice.invoice_number or str(invoice.pk),
+                "date_issued": invoice.date_issued.isoformat() if invoice.date_issued else None,
+                "already_matched_to_this_po": invoice.pk in already_matched_invoice_ids,
+                "items": items_data,
+            })
+
+        return po_items_data, invoice_candidates_data
 
     # ------------------------------------------------------------------
     # Confirmation

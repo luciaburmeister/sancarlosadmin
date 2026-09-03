@@ -62,13 +62,19 @@ class MatcherTaskStatusAPIView(UnfoldModelAdminViewMixin, View):
                         "admin:banking_reconciliation_review",
                         args=[recon_id],
                     )
-
             elif task_type == "ai_po_match":
                 invoice_id = data.get("invoice_id")
                 if status == "done" and data.get("has_match") and invoice_id:
                     redirect_url = reverse(
                         "admin:invoices_invoice_ai_match",
                         args=[invoice_id],
+                    )
+            elif task_type == "ai_invoice_match":
+                po_id = data.get("po_id")
+                if status == "done" and data.get("has_match") and po_id:
+                    redirect_url = reverse(
+                        "admin:purchasing_purchaseorder_ai_match_invoice",
+                        args=[po_id],
                     )
             else:
                 # invoice / salesinvoice

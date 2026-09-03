@@ -7,6 +7,7 @@ from django.db.models import Max
 from django.db.models import Sum
 from django.utils import timezone
 from djmoney.models.fields import MoneyField
+from djmoney.money import Money
 from materials.models import Material
 from timestamps.models import Timestampable
 from django.utils.translation import gettext_lazy as _
@@ -1230,7 +1231,13 @@ class QuoteItem(Timestampable):
 
 
 class QuoteInventoryItem(Timestampable):
-    """A line item inside a Quote that references an InventoryItem."""
+    """A line item inside a Quote that references an InventoryItem.
+
+    ``override_line_total`` lets a user holding ``sales.can_override_line_total``
+    pin the final line amount; ``discount`` is then derived from it instead of
+    being an input, and automatic line-item discount policies leave the line
+    alone.
+    """
 
     quote = models.ForeignKey(
         Quote,
@@ -1284,14 +1291,68 @@ class QuoteInventoryItem(Timestampable):
         verbose_name=_("Total with tax"),
     )
 
+    override_line_total = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency="EUR",
+        null=True,
+        blank=True,
+        verbose_name=_("Override line total"),
+        help_text=_(
+            "Manually set the final line amount. When set, the discount % is "
+            "derived from it and the entered discount is ignored."
+        ),
+    )
+
     class Meta:
         verbose_name = _("Quote inventory item")
         verbose_name_plural = _("Quote inventory items")
+        permissions = [
+            ("can_override_line_total", _("Can override sale item line total")),
+        ]
 
     def __str__(self):
         if self.inventory_item_id:
             return f"{self.inventory_item.name} × {self.quantity}"
         return f"QuoteInventoryItem #{self.pk}"
+
+    # -- Override handling -------------------------------------------------
+
+    @property
+    def has_override(self) -> bool:
+        return self.override_line_total is not None
+
+    def _gross_amount(self) -> Decimal:
+        unit = self.unit_price.amount if self.unit_price else Decimal("0")
+        return unit * (self.quantity or Decimal("0"))
+
+    def _derive_discount_from_override(self) -> Decimal:
+        """Discount % such that gross * (1 - d/100) == override_line_total.
+
+        A zero gross amount cannot carry a percentage, so the discount is 0
+        and the override simply becomes the line total.
+        """
+        gross = self._gross_amount()
+        if not gross:
+            return Decimal("0.00")
+        target = self.override_line_total.amount
+        return ((gross - target) / gross * Decimal("100")).quantize(Decimal("0.01"))
+
+    def clean(self):
+        super().clean()
+        if not self.has_override:
+            return
+        errors = {}
+        if self.override_line_total.amount < 0:
+            errors["override_line_total"] = _("The override amount cannot be negative.")
+        else:
+            max_pct = Decimal("999.99")  # discount is DecimalField(5, 2)
+            if abs(self._derive_discount_from_override()) > max_pct:
+                errors["override_line_total"] = _(
+                    "The override amount implies a discount outside the allowed range."
+                )
+        if errors:
+            raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
         # Auto-fill unit_price from the item's selling_price when not provided
@@ -1300,8 +1361,16 @@ class QuoteInventoryItem(Timestampable):
             if sp and sp.amount:
                 self.unit_price = sp
 
-        discount_factor = (Decimal("100") - self.discount) / Decimal("100")
-        self.line_total = self.unit_price * self.quantity * discount_factor
+        if self.has_override:
+            # The typed amount is the line total; the discount % is a
+            # consequence of it (so PDFs and invoices can still show a %).
+            self.discount = self._derive_discount_from_override()
+            self.line_total = Money(
+                self.override_line_total.amount, self.override_line_total.currency
+            )
+        else:
+            discount_factor = (Decimal("100") - self.discount) / Decimal("100")
+            self.line_total = self.unit_price * self.quantity * discount_factor
         is_new = self.pk is None
         super().save(*args, **kwargs)
 

@@ -45,6 +45,9 @@ class LineItemLevelHandler(DiscountLevelHandler):
         effective_pct, breakdown = DiscountService.compute_effective_pct(rules, context)
 
         for inv_item in quote.inventory_items.all():
+            # A manually pinned line total wins over policy discounts.
+            if inv_item.has_override:
+                continue
             inv_item.discount = effective_pct
             inv_item._skip_quote_recalc = True
             inv_item.save()

@@ -13189,6 +13189,25 @@ msgstr "Fecha de entrega estimada"
 msgid "Can view quote dashboard"
 msgstr "Puede ver el panel de cotizaciones."
 
+msgid "Override line total"
+msgstr "Total de línea manual"
+
+msgid ""
+"Manually set the final line amount. When set, the discount % is derived from "
+"it and the entered discount is ignored."
+msgstr ""
+"Fija manualmente el importe final de la línea. Si se indica, el % de "
+"descuento se calcula a partir de él y el descuento introducido se ignora."
+
+msgid "Can override sale item line total"
+msgstr "Puede fijar manualmente el total de línea de artículos de venta"
+
+msgid "The override amount cannot be negative."
+msgstr "El importe manual no puede ser negativo."
+
+msgid "The override amount implies a discount outside the allowed range."
+msgstr "El importe manual implica un descuento fuera del rango permitido."
+
 msgid "Configuration Group"
 msgstr "Grupo de Configuraciones"
 

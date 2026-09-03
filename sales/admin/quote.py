@@ -115,13 +115,31 @@ class QuoteItemInline(TabularInline):
         return format_html('<span style="color:{};font-weight:600;">{}</span>', color, margin_str)
 
 
-class QuoteInventoryItemInline(TabularInline):
+class _OverrideLineTotalGateMixin:
+    """Make ``override_line_total`` editable only for users holding
+    ``sales.can_override_line_total``; everyone else sees it read-only."""
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = list(super().get_readonly_fields(request, obj))
+        if (
+            not request.user.has_perm("sales.can_override_line_total")
+            and "override_line_total" not in readonly
+        ):
+            readonly.append("override_line_total")
+        return readonly
+
+
+class QuoteInventoryItemInline(_OverrideLineTotalGateMixin, TabularInline):
     model = QuoteInventoryItem
     extra = 0
     tab = True
     autocomplete_fields = ["inventory_item"]
     readonly_fields = ["unit_price", "line_total", "total_with_tax", "cost_display", "margin_display", "margin_pct_display"]
-    fields = ["inventory_item", "quantity", "discount", "unit_price", "cost_display", "line_total", "total_with_tax", "margin_display", "margin_pct_display"]
+    fields = [
+        "inventory_item", "quantity", "discount", "unit_price", "cost_display",
+        "override_line_total", "line_total", "total_with_tax",
+        "margin_display", "margin_pct_display",
+    ]
     verbose_name = _("Sale item")
     verbose_name_plural = _("Sale items")
 
@@ -671,8 +689,8 @@ class QuoteInventoryItemAppliedTaxInline(_GenericTabularInline):
 
 
 @admin.register(QuoteInventoryItem)
-class QuoteInventoryItemAdmin(ModelAdmin):
-    list_display = ["quote_name", "inventory_item_name", "unit_price", "discount", "line_total"]
+class QuoteInventoryItemAdmin(_OverrideLineTotalGateMixin, ModelAdmin):
+    list_display = ["quote_name", "inventory_item_name", "unit_price", "discount", "override_line_total", "line_total"]
     search_fields = ["quote__project_name", "inventory_item__code", "inventory_item__name"]
     autocomplete_fields = ["quote", "inventory_item"]
     readonly_fields = ["line_total"]

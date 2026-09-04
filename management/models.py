@@ -141,6 +141,39 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         pct = self.percentage_invoiced or Decimal("0.00")
         return bool(total and total > 0 and pct >= Decimal("99.99"))
 
+    def production_hours_summary(self):
+        """Worked hours on this project file: total, per employee, and each employee's sessions."""
+        from production.models import ProductionItemSession, ProductionItemSessionStatus
+
+        sessions = list(
+            ProductionItemSession.objects.for_project_file(self)
+            .completed()
+            .select_related("created_by")
+            .order_by("created_by__last_name", "created_by__first_name", "start_time")
+        )
+
+        employees = {}
+        for session in sessions:
+            if not session.created_by_id:
+                continue
+            entry = employees.setdefault(
+                session.created_by_id,
+                {"employee": session.created_by, "sessions": [], "total_seconds": 0},
+            )
+            entry["sessions"].append(session)
+            entry["total_seconds"] += int(session.duration.total_seconds())
+
+        employee_entries = sorted(employees.values(), key=lambda e: -e["total_seconds"])
+        open_sessions = ProductionItemSession.objects.for_project_file(self).filter(
+            status=ProductionItemSessionStatus.IN_PROGRESS,
+        ).count()
+
+        return {
+            "total_seconds": sum(e["total_seconds"] for e in employee_entries),
+            "employees": employee_entries,
+            "open_sessions": open_sessions,
+        }
+
     def recalculate_total_amount(self):
         """
         Recompute total_amount, total_invoiced, and percentage_invoiced.

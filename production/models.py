@@ -83,6 +83,9 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
                 name="unique_production_ticket_per_source"
             )
         ]
+        permissions = [
+            ("production_hours_dashboard", "Can view Production Hours Dashboard"),
+        ]
 
     @property
     def resolved_project_file(self):
@@ -397,6 +400,13 @@ class ProductionItemSessionKind(models.TextChoices):
     SESSION_FINISHED = "session_finished", _("Session finished")
 
 
+class HoursGranularity(models.TextChoices):
+    DAY = "day", _("Day")
+    WEEK = "week", _("Week")
+    MONTH = "month", _("Month")
+    YEAR = "year", _("Year")
+
+
 class ProductionItemSessionQuerySet(models.QuerySet):
     def completed(self):
         """Sessions that represent finished, measurable work."""
@@ -417,6 +427,21 @@ class ProductionItemSessionQuerySet(models.QuerySet):
         ticket_ids = ProductionTicket.objects.filter(
             content_type=config_ct,
             object_id__in=config_ids,
+        ).values_list("id", flat=True)
+        return self.filter(production_item__ticket_id__in=ticket_ids)
+
+    def for_project_file(self, project_file):
+        """Sessions belonging to tickets of the given ProjectFile, including
+        legacy tickets without a direct FK (matched through their Configuration's quote)."""
+        from configurator.models import Configuration
+
+        config_ct = ContentType.objects.get_for_model(Configuration)
+        fallback_config_ids = Configuration.objects.filter(
+            quote__project_file=project_file,
+        ).values_list("id", flat=True)
+        ticket_ids = ProductionTicket.objects.filter(
+            Q(project_file=project_file)
+            | Q(project_file__isnull=True, content_type=config_ct, object_id__in=fallback_config_ids)
         ).values_list("id", flat=True)
         return self.filter(production_item__ticket_id__in=ticket_ids)
 
@@ -514,6 +539,16 @@ class ProductionItemSession(Timestampable, CompanyOwnedModel):
         if not self.end_time:
             return None
         return self.end_time - self.start_time
+
+    @property
+    def formatted_duration(self):
+        """Duration as `Xh Ym`, or an em dash when the session isn't closed."""
+        if not self.duration:
+            return "—"
+        total_seconds = int(self.duration.total_seconds())
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes = remainder // 60
+        return f"{hours}h {minutes}m"
 
     def start(self, started_by: Employee | None = None):
         if self.status != ProductionItemSessionStatus.PENDING:

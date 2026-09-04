@@ -378,186 +378,417 @@ def suggest_ai_po_matches_task(self, invoice_id: int):
         logger.exception("AI PO matcher failed for invoice %s", invoice_id)
         raise self.retry(exc=exc)
 
-@shared_task(bind=True, max_retries=2, default_retry_delay=60)
-def suggest_ai_invoice_matches_task(self, po_id: int):
+@shared_task(name="invoices.tasks.process_payment_reminders")
+def process_payment_reminders():
     """
-    Mirror of suggest_ai_po_matches_task, run from the PO side: finds
-    candidate invoices for a single PurchaseOrder and asks Gemini which of
-    their lines match this PO's pending lines. Deletes any PENDING
-    AIMatchSuggestion rows tied to this PO first, then regenerates from
-    scratch — same idempotency guarantee as the invoice-side task.
+    Celery-beat entry point (POL-xxx), scheduled every 30 minutes.
 
-    Only "high" confidence matches from Gemini are persisted; "medium"/"low"
-    are discarded (Gemini uses them internally for calibration only).
-
-    A single run can produce suggestions spanning several different
-    invoices (this PO's lines may each be billed by a different invoice),
-    so AIMatchSuggestion.invoice is set per-suggestion from the matched
-    invoice_item, not from a single invoice_id passed to the task.
-
-    Returns a result dict consumed by the matcher status page:
-        {"status": "done", "po_id": X, "has_match": bool, "suggestions_count": N}
-        {"status": "no_match", "po_id": X, "has_match": False, "suggestions_count": 0}
+    For each company whose PaymentReminderSettings.send_time falls inside
+    the current 30-minute window and hasn't run yet today, checks every
+    eligible SalesInvoice against that company's PaymentReminderRule rows
+    (pre-due) and overdue_repeat_days (post-due), creating a PENDING
+    PaymentReminderLog and queuing send_payment_reminder_email for each
+    reminder that's due. Idempotency is enforced by the unique constraint
+    on (invoice, reminder_type, scheduled_for) — a duplicate get_or_create
+    just returns the existing row without queuing another send.
     """
-    from django.conf import settings
+    from datetime import datetime, timedelta
 
-    from invoices.models import AIMatchSuggestion, AIMatchSuggestionStatus, InvoiceItem
-    from invoices.services.gemini_po_matcher import GeminiPOItemMatcher
-    from invoices.services.po_matching import POInvoiceMatchService
-    from purchasing.models import PurchaseOrder, PurchaseOrderItem
-
-    try:
-        po = PurchaseOrder.objects.get(pk=po_id)
-
-        AIMatchSuggestion.objects.filter(
-            po_item__purchase_order=po, status=AIMatchSuggestionStatus.PENDING
-        ).delete()
-
-        po_items_data, invoice_candidates_data = POInvoiceMatchService.ai_match_pool_for_po(po)
-
-        if not po_items_data or not invoice_candidates_data:
-            logger.info(
-                "AI invoice matcher: nothing to match for PO %s (no unmatched lines "
-                "or no candidate invoices with pending quantity).",
-                po_id,
-            )
-            return {
-                "status": "no_match",
-                "po_id": po_id,
-                "has_match": False,
-                "suggestions_count": 0,
-            }
-
-        matcher = GeminiPOItemMatcher(api_key=settings.GEMINI_API_KEY)
-        raw_matches = matcher.find_matches_for_po(po_items_data, invoice_candidates_data)
-
-        po_item_ids = {item["id"] for item in po_items_data}
-        invoice_item_ids = {
-            item["id"] for invoice in invoice_candidates_data for item in invoice["items"]
-        }
-        invoice_id_by_item_id = {
-            item["id"]: invoice["invoice_id"]
-            for invoice in invoice_candidates_data
-            for item in invoice["items"]
-        }
-
-        created = []
-        for match in raw_matches:
-            if match.get("confidence") != "high":
-                continue
-            if match.get("po_item_id") not in po_item_ids:
-                continue
-            if match.get("invoice_item_id") not in invoice_item_ids:
-                continue
-            try:
-                quantity = Decimal(str(match["quantity"]))
-            except (InvalidOperation, KeyError, TypeError):
-                continue
-            if quantity <= 0:
-                continue
-
-            created.append(AIMatchSuggestion(
-                invoice_id=invoice_id_by_item_id[match["invoice_item_id"]],
-                invoice_item_id=match["invoice_item_id"],
-                po_item_id=match["po_item_id"],
-                quantity=quantity,
-                confidence=match["confidence"],
-                reasoning=match.get("reasoning", ""),
-                raw_response=match,
-            ))
-
-        AIMatchSuggestion.objects.bulk_create(created)
-
-        logger.info(
-            "AI invoice matcher ran for PO %s: %d high-confidence suggestion(s) "
-            "out of %d raw match(es).",
-            po_id, len(created), len(raw_matches),
-        )
-        return {
-            "status": "done" if created else "no_match",
-            "po_id": po_id,
-            "has_match": bool(created),
-            "suggestions_count": len(created),
-        }
-    except PurchaseOrder.DoesNotExist:
-        logger.error("PurchaseOrder %s does not exist, skipping AI invoice matcher.", po_id)
-        return {"status": "error", "message": f"PurchaseOrder {po_id} not found."}
-    except Exception as exc:
-        logger.exception("AI invoice matcher failed for PO %s", po_id)
-        raise self.retry(exc=exc)
-
-
-# ── Pending invoices daily digest ─────────────────────────────────────
-# Data: invoices.services.pending_invoices_digest_service
-# Email construction: invoices.services.pending_invoices_digest_email_service
-# This task only orchestrates: fetch -> build -> send -> report.
-
-
-@shared_task(name="invoices.tasks.send_pending_invoices_digest")
-def send_pending_invoices_digest():
-    """Daily task: emails a bank-report-style digest of pending invoices —
-    what each company owes its providers (unpaid/partially-paid purchase
-    invoices, credit notes netted) and what its clients owe it (final,
-    unpaid sales invoices) — to Company.invoice_digest_emails recipients.
-
-    Recipients configured on several companies receive ONE consolidated
-    email covering all of their companies, with a global totals block
-    (to pay / to receive / net position) and links to the corresponding
-    admin changelists pre-filtered to each company's pending documents.
-
-    Companies with no recipients configured are skipped — opt-in per
-    company, like banking.tasks.send_bank_accounts_summary.
-
-    Not wired into settings.CELERY_BEAT_SCHEDULE: schedule it via a
-    django-celery-beat PeriodicTask (admin > Periodic Tasks, e.g. daily
-    at 07:00) pointing at "invoices.tasks.send_pending_invoices_digest".
-    """
     from django.utils import timezone
 
-    from company.models import Company
-    from invoices.services.pending_invoices_digest_email_service import (
-        PendingInvoicesDigestEmailService,
-    )
-    from invoices.services.pending_invoices_digest_service import (
-        PendingInvoicesDigestService,
-    )
-
-    today = timezone.localdate()
-    companies = list(Company.objects.exclude(invoice_digest_emails=[]))
-    digests = PendingInvoicesDigestService.get_company_digests(companies, today=today)
-    emails = PendingInvoicesDigestEmailService.build_emails(
-        companies, digests, today=today
+    from invoices.models import (
+        PaymentReminderSettings,
+        PaymentReminderRule,
+        PaymentReminderLog,
+        PaymentReminderLogStatus,
+        PaymentReminderType,
+        SalesInvoice,
+        SalesInvoiceStatus,
+        InvoicePaymentStatus,
     )
 
-    emails_sent = 0
-    errors = []
+    now = timezone.localtime()
+    today = now.date()
+    queued = 0
+    processed_companies = 0
 
-    for email in emails:
-        recipients_label = ", ".join(email.recipients)
-        try:
-            success = EmailService.send_email(
-                to=email.recipients,
-                subject=email.subject,
-                body_html=email.body_html,
-                related_object=email.company,
-                company=email.company,
+    settings_qs = PaymentReminderSettings.objects.filter(is_active=True).exclude(last_run_date=today)
+
+    for reminder_settings in settings_qs.select_related("company"):
+        scheduled_dt = timezone.make_aware(datetime.combine(today, reminder_settings.send_time))
+        if not (scheduled_dt <= now < scheduled_dt + timedelta(minutes=30)):
+            continue
+
+        company = reminder_settings.company
+        processed_companies += 1
+
+        invoices = (
+            SalesInvoice.objects.filter(
+                company=company,
+                status=SalesInvoiceStatus.FINAL,
+                due_date__isnull=False,
+                exclude_from_payment_reminders=False,
             )
-            if success:
-                emails_sent += 1
-            else:
-                errors.append(f"Failed to send invoices digest to [{recipients_label}]")
-        except Exception as e:
-            errors.append(
-                f"Error sending invoices digest to [{recipients_label}]: {str(e)}"
-            )
-
-    if errors:
-        raise Exception(
-            f"Pending invoices digest task completed with errors: {'; '.join(errors)}"
+            .exclude(payment_status=InvoicePaymentStatus.PAID)
+            .exclude(client__exclude_from_payment_reminders=True)
+            .select_related("client")
         )
 
-    return {
-        "task": "send_pending_invoices_digest",
-        "status": "ok",
-        "emails_sent": emails_sent,
-    }
+        rules = list(reminder_settings.rules.filter(is_active=True))
+
+        for invoice in invoices:
+            try:
+                for rule in rules:
+                    target_date = invoice.due_date - timedelta(days=rule.days_before_due)
+                    if target_date != today:
+                        continue
+                    log, created = PaymentReminderLog.objects.get_or_create(
+                        invoice=invoice,
+                        reminder_type=PaymentReminderType.PRE_DUE,
+                        scheduled_for=today,
+                        defaults={"company": company, "rule": rule},
+                    )
+                    if created:
+                        send_payment_reminder_email.delay(log.id)
+                        queued += 1
+
+                if invoice.due_date < today:
+                    last_sent = (
+                        PaymentReminderLog.objects.filter(
+                            invoice=invoice,
+                            reminder_type=PaymentReminderType.OVERDUE,
+                            status=PaymentReminderLogStatus.SENT,
+                        )
+                        .order_by("-scheduled_for")
+                        .first()
+                    )
+                    due_for_overdue_reminder = (
+                        last_sent is None
+                        or (today - last_sent.scheduled_for).days >= reminder_settings.overdue_repeat_days
+                    )
+                    if due_for_overdue_reminder:
+                        log, created = PaymentReminderLog.objects.get_or_create(
+                            invoice=invoice,
+                            reminder_type=PaymentReminderType.OVERDUE,
+                            scheduled_for=today,
+                            defaults={"company": company, "rule": None},
+                        )
+                        if created:
+                            send_payment_reminder_email.delay(log.id)
+                            queued += 1
+            except Exception:
+                logger.exception("Failed to evaluate payment reminders for invoice %s", invoice.pk)
+
+        reminder_settings.last_run_date = today
+        reminder_settings.save(update_fields=["last_run_date"])
+
+    logger.info(
+        "Payment reminder check complete: %d companies processed, %d reminder(s) queued.",
+        processed_companies, queued,
+    )
+    return {"companies_processed": processed_companies, "reminders_queued": queued}
+
+@shared_task(name="invoices.tasks.send_payment_reminder_email", bind=True, max_retries=2, default_retry_delay=60)
+def send_payment_reminder_email(self, log_id: int):
+    """
+    Sends the actual reminder email for a single PaymentReminderLog and
+    updates its status. Re-checks the invoice right before sending so a
+    payment or exclusion applied after the log was queued still stops it.
+    """
+    from django.template.loader import render_to_string
+    from django.utils import timezone, translation
+
+    from invoices.models import (
+        PaymentReminderLog,
+        PaymentReminderLogStatus,
+        PaymentReminderType,
+        InvoicePaymentStatus,
+        resolve_reminder_language,
+    )
+
+    try:
+        log = PaymentReminderLog.objects.select_related("invoice", "invoice__client", "company").get(pk=log_id)
+    except PaymentReminderLog.DoesNotExist:
+        logger.error("PaymentReminderLog %s does not exist, skipping send.", log_id)
+        return {"status": "error", "message": f"PaymentReminderLog {log_id} not found."}
+
+    if log.status != PaymentReminderLogStatus.PENDING:
+        return {"status": "skipped", "reason": f"log status is {log.status}"}
+
+    invoice = log.invoice
+    client = invoice.client
+
+    if (
+        invoice.payment_status == InvoicePaymentStatus.PAID
+        or invoice.exclude_from_payment_reminders
+        or client.exclude_from_payment_reminders
+    ):
+        log.status = PaymentReminderLogStatus.CANCELLED
+        log.save(update_fields=["status"])
+        return {"status": "cancelled", "log_id": log_id}
+
+    if not client.email:
+        log.status = PaymentReminderLogStatus.FAILED
+        log.error_message = "Client has no email address on file."
+        log.save(update_fields=["status", "error_message"])
+        logger.warning("Cannot send payment reminder for invoice %s: client has no email.", invoice.pk)
+        return {"status": "failed", "log_id": log_id, "reason": "no client email"}
+
+    language = resolve_reminder_language(invoice)
+
+    from invoices.services.payment_reminder_content import get_reminder_subject, get_reminder_template
+
+    subject = get_reminder_subject(language, log.reminder_type, invoice.invoice_number)
+    template_name = get_reminder_template(language)
+
+    inline_images = []
+    if log.company.logo:
+        try:
+            log.company.logo.open("rb")
+            logo_bytes = log.company.logo.read()
+            log.company.logo.close()
+            ext = log.company.logo.name.rsplit(".", 1)[-1].lower()
+            mimetype = f"image/{'jpeg' if ext in ('jpg', 'jpeg') else ext}"
+            inline_images.append(("company_logo", logo_bytes, mimetype))
+        except Exception:
+            logger.warning("Could not load logo for company %s, sending without it.", log.company.pk)
+
+    attachments = []
+    pdf_warning = None
+    try:
+        from core.services.pdf_service import PDFService
+        from configurator.models import ExportTemplateKind
+        from invoices.services.invoice_pdf_download import InvoicePdfDownloadService
+
+        pdf_bytes = PDFService.render_object_pdf(
+            invoice, ExportTemplateKind.SALES_INVOICE, company=invoice.company
+        )
+        if pdf_bytes:
+            filename = InvoicePdfDownloadService.sales_invoice_pdf_filename(invoice)
+            attachments.append((filename, pdf_bytes, "application/pdf"))
+        else:
+            pdf_warning = "No PDF template found for this invoice."
+            logger.warning(
+                "No PDF template found for invoice %s, sending reminder without attachment.",
+                invoice.pk,
+            )
+    except Exception as exc:
+        pdf_warning = f"PDF generation failed: {exc}"
+        logger.exception(
+            "Failed to render PDF for invoice %s, sending reminder without attachment.",
+            invoice.pk,
+        )
+
+    with translation.override(language):
+        body_html = render_to_string(
+            template_name,
+            {
+                "client_name": client.name,
+                "company_name": log.company.name,
+                "company_email": log.company.email,
+                "company_phone": log.company.phone,
+                "invoice_number": invoice.invoice_number,
+                "due_date": invoice.due_date,
+                "total_amount": invoice.total_amount,
+                "amount_remaining": invoice.amount_remaining,
+                "reminder_type": log.reminder_type,
+                "is_overdue": log.reminder_type == PaymentReminderType.OVERDUE,
+                "has_logo": bool(inline_images),
+                "has_attachment": bool(attachments),
+            },
+        )
+
+    try:
+        success = EmailService.send_email(
+            to=[client.email],
+            subject=subject,
+            body_html=body_html,
+            attachments=attachments or None,
+            inline_images=inline_images or None,
+            related_object=invoice,
+            company=log.company,
+        )
+    except Exception as exc:
+        logger.exception("Error sending payment reminder for invoice %s", invoice.pk)
+        log.status = PaymentReminderLogStatus.FAILED
+        log.error_message = str(exc)
+        log.save(update_fields=["status", "error_message"])
+        raise self.retry(exc=exc)
+
+    if success:
+        log.status = PaymentReminderLogStatus.SENT
+        log.sent_at = timezone.now()
+        if pdf_warning:
+            log.error_message = f"Warning: sent without PDF attachment — {pdf_warning}"
+            log.save(update_fields=["status", "sent_at", "error_message"])
+        else:
+            log.save(update_fields=["status", "sent_at"])
+        return {"status": "sent", "log_id": log_id, "pdf_attached": pdf_warning is None}
+    else:
+        log.status = PaymentReminderLogStatus.FAILED
+        log.error_message = "EmailService.send_email returned False."
+        log.save(update_fields=["status", "error_message"])
+        return {"status": "failed", "log_id": log_id}
+
+
+@shared_task(name="invoices.tasks.send_consolidated_payment_reminder_email", bind=True, max_retries=2, default_retry_delay=60)
+def send_consolidated_payment_reminder_email(self, log_ids: list[int]):
+    """
+    Sends ONE email covering several invoices of the same client, sharing
+    a batch_id across their PaymentReminderLog rows. Manual-only entry
+    point (from SendPaymentReminderNowAdminView's consolidated form) --
+    never called by process_payment_reminders -- so unlike the automatic
+    path it does not treat a given invoice's own "Exclude From Payment
+    Reminders" flag as a hard stop: the human already chose to include it
+    on the checklist, so that flag is not re-checked here. Payment status
+    and the client-level "Do Not Send Payment Reminders" flag are still
+    re-validated, since those reflect facts/decisions the human either
+    can't override (already paid) or didn't specifically opt out of here
+    (client-wide preference).
+    """
+    from datetime import date
+
+    from django.template.loader import render_to_string
+    from django.utils import timezone, translation
+
+    from invoices.models import (
+        PaymentReminderLog,
+        PaymentReminderLogStatus,
+        PaymentReminderType,
+        InvoicePaymentStatus,
+        resolve_reminder_language,
+    )
+    from invoices.services.payment_reminder_content import (
+        get_consolidated_reminder_subject,
+        get_consolidated_reminder_template,
+    )
+
+    logs = list(
+        PaymentReminderLog.objects.select_related("invoice", "invoice__client", "company")
+        .filter(pk__in=log_ids, status=PaymentReminderLogStatus.PENDING)
+    )
+    if not logs:
+        return {"status": "skipped", "reason": "no pending logs", "log_ids": log_ids}
+
+    client = logs[0].invoice.client
+    company = logs[0].company
+
+    if client.exclude_from_payment_reminders:
+        for log in logs:
+            log.status = PaymentReminderLogStatus.CANCELLED
+            log.save(update_fields=["status"])
+        return {"status": "cancelled", "log_ids": log_ids, "reason": "client excluded"}
+
+    if not client.email:
+        for log in logs:
+            log.status = PaymentReminderLogStatus.FAILED
+            log.error_message = "Client has no email address on file."
+            log.save(update_fields=["status", "error_message"])
+        return {"status": "failed", "log_ids": log_ids, "reason": "no client email"}
+
+    valid_logs = []
+    for log in logs:
+        if log.invoice.payment_status == InvoicePaymentStatus.PAID:
+            log.status = PaymentReminderLogStatus.CANCELLED
+            log.save(update_fields=["status"])
+            continue
+        valid_logs.append(log)
+
+    if not valid_logs:
+        return {"status": "cancelled", "log_ids": log_ids, "reason": "all invoices already paid"}
+
+    language = resolve_reminder_language(valid_logs[0].invoice)
+    subject = get_consolidated_reminder_subject(language, len(valid_logs))
+    template_name = get_consolidated_reminder_template(language)
+
+    inline_images = []
+    if company.logo:
+        try:
+            company.logo.open("rb")
+            logo_bytes = company.logo.read()
+            company.logo.close()
+            ext = company.logo.name.rsplit(".", 1)[-1].lower()
+            mimetype = f"image/{'jpeg' if ext in ('jpg', 'jpeg') else ext}"
+            inline_images.append(("company_logo", logo_bytes, mimetype))
+        except Exception:
+            logger.warning("Could not load logo for company %s, sending without it.", company.pk)
+
+    invoice_rows = []
+    attachments = []
+    total_amount = None
+    for log in valid_logs:
+        invoice = log.invoice
+        days_diff = (invoice.due_date - date.today()).days
+        is_overdue = days_diff < 0
+
+        invoice_rows.append({
+            "invoice_number": invoice.invoice_number,
+            "due_date": invoice.due_date,
+            "is_overdue": is_overdue,
+            "amount": str(invoice.amount_remaining),
+        })
+        total_amount = invoice.amount_remaining if total_amount is None else total_amount + invoice.amount_remaining
+
+        try:
+            from core.services.pdf_service import PDFService
+            from configurator.models import ExportTemplateKind
+            from invoices.services.invoice_pdf_download import InvoicePdfDownloadService
+
+            pdf_bytes = PDFService.render_object_pdf(
+                invoice, ExportTemplateKind.SALES_INVOICE, company=invoice.company
+            )
+            if pdf_bytes:
+                filename = InvoicePdfDownloadService.sales_invoice_pdf_filename(invoice)
+                attachments.append((filename, pdf_bytes, "application/pdf"))
+        except Exception:
+            logger.exception(
+                "Failed to render PDF for invoice %s in consolidated reminder, skipping its attachment.",
+                invoice.pk,
+            )
+
+    with translation.override(language):
+        body_html = render_to_string(
+            template_name,
+            {
+                "client_name": client.name,
+                "company_name": company.name,
+                "company_email": company.email,
+                "company_phone": company.phone,
+                "invoice_count": len(valid_logs),
+                "invoices": invoice_rows,
+                "total_amount": str(total_amount),
+                "has_logo": bool(inline_images),
+                "has_attachment": bool(attachments),
+            },
+        )
+
+    try:
+        success = EmailService.send_email(
+            to=[client.email],
+            subject=subject,
+            body_html=body_html,
+            attachments=attachments or None,
+            inline_images=inline_images or None,
+            related_object=client,
+            company=company,
+        )
+    except Exception as exc:
+        logger.exception("Error sending consolidated payment reminder for client %s", client.pk)
+        for log in valid_logs:
+            log.status = PaymentReminderLogStatus.FAILED
+            log.error_message = str(exc)
+            log.save(update_fields=["status", "error_message"])
+        raise self.retry(exc=exc)
+
+    if success:
+        for log in valid_logs:
+            log.status = PaymentReminderLogStatus.SENT
+            log.sent_at = timezone.now()
+            log.save(update_fields=["status", "sent_at"])
+        return {"status": "sent", "log_ids": [log.id for log in valid_logs], "invoice_count": len(valid_logs)}
+    else:
+        for log in valid_logs:
+            log.status = PaymentReminderLogStatus.FAILED
+            log.error_message = "EmailService.send_email returned False."
+            log.save(update_fields=["status", "error_message"])
+        return {"status": "failed", "log_ids": [log.id for log in valid_logs]}

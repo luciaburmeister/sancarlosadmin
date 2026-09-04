@@ -4,6 +4,7 @@ from django.core.mail import EmailMessage
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.contrib.contenttypes.models import ContentType
+from email.mime.image import MIMEImage
 
 logger = logging.getLogger(__name__)
 
@@ -20,19 +21,23 @@ class EmailService:
         subject: str,
         body_html: str,
         attachments: list[tuple] | None = None,
+        inline_images: list[tuple] | None = None,
         from_email: str | None = None,
         cc: list[str] | None = None,
         related_object=None,
         company=None,
     ) -> bool:
         """
-        Sends an HTML email with optional attachments.
+        Sends an HTML email with optional attachments and inline (CID) images.
 
         Args:
             to: List of recipient email addresses
             subject: Email subject line
             body_html: Rendered HTML body
             attachments: List of (filename, content_bytes, mimetype) tuples
+            inline_images: List of (content_id, content_bytes, mimetype) tuples
+                referenced from body_html via cid: (e.g. <img src="cid:logo">).
+                content_id should NOT include angle brackets.
             from_email: Sender address (defaults to DEFAULT_FROM_EMAIL)
             cc: Optional list of CC email addresses
             related_object: Optional model instance for EmailLog (GFK)
@@ -53,6 +58,15 @@ class EmailService:
         )
         msg.content_subtype = "html"
         msg.body = body_html
+
+        if inline_images:
+            msg.mixed_subtype = "related"
+            for content_id, content, mimetype in inline_images:
+                subtype = mimetype.split("/")[-1] if "/" in mimetype else "png"
+                image = MIMEImage(content, _subtype=subtype)
+                image.add_header("Content-ID", f"<{content_id}>")
+                image.add_header("Content-Disposition", "inline", filename=f"{content_id}.{subtype}")
+                msg.attach(image)
 
         if attachments:
             for filename, content, mimetype in attachments:

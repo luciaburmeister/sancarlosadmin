@@ -32,7 +32,11 @@ from invoices.models import (
     SalesInvoiceItem,
     SalesInvoiceStatus,
     InvoiceItem,
-    InvoicePOAllocation
+    InvoicePOAllocation,
+    PaymentReminderSettings,
+    PaymentReminderRule,
+    PaymentReminderLog,
+    PaymentReminderLogStatus,
 )
 from invoices.views.invoice.aging_export_view import AgingExportView
 from payments.admin_inlines import DocumentPaymentsInline
@@ -46,6 +50,7 @@ from invoices.views.invoice_pdf_zip_status import (
     redirect_to_pdf_zip_status,
 )
 from invoices.views.invoice.wizard_views import SalesInvoiceWizardView
+from invoices.views.invoice.send_reminder_now import SendPaymentReminderNowAdminView
 from invoices.views.invoice.download_invoice_file import PurchaseInvoiceFileDownloadView
 from invoices.views.sales_invoice_pdf import SalesInvoicePdfDownloadView, SalesInvoicePdfView
 from invoices.views.invoice.import_sales_invoice import SalesInvoiceImportAdminView
@@ -316,7 +321,6 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
         # Accounting diagnostics
         BalanceStatusFilter,
         ItemsMissingAccountFilter,
-        ("cost_center", AutocompleteSelectMultipleFilter),
     )
 
     search_fields = (
@@ -328,7 +332,6 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
         "provider",
         "account",
         "project_file",
-        "cost_center",
         "rectifies",
     )
 
@@ -345,7 +348,6 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
     list_select_related = (
         "provider",
         "company",
-        "cost_center",
     )
 
     date_hierarchy = "date_issued"
@@ -554,7 +556,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
                     ("net_amount", "total_amount"),
                     "file",
                     "company",
-                    ("project_file", "cost_center"),
+                    ("project_file"),
                 )
             },
         ),
@@ -946,6 +948,20 @@ class EmailLogInline(GenericTabularInline):
     def has_add_permission(self, request, obj=None):
         return False
 
+class PaymentReminderLogInline(TabularInline):
+    model = PaymentReminderLog
+    extra = 0
+    tab = True
+    verbose_name = _("Payment Reminder")
+    verbose_name_plural = _("Payment Reminders")
+    fields = ("reminder_type", "rule", "scheduled_for", "status", "sent_at", "error_message")
+    readonly_fields = ("reminder_type", "rule", "scheduled_for", "status", "sent_at", "error_message")
+    can_delete = False
+    ordering = ("-scheduled_for",)
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
 @admin.register(SalesInvoice)
 class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     resource_classes = [SalesInvoiceResource, SalesInvoiceItemResource]
@@ -976,7 +992,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
     )
     search_fields = ("invoice_number", "client__name")
     autocomplete_fields = ("company", "client", "configuration", "project_file")
-    inlines = [SalesInvoiceItemInline, AppliedTaxInline, DocumentPaymentsInline, EmailLogInline, EInvoicingSubmissionInline]
+    inlines = [SalesInvoiceItemInline, AppliedTaxInline, DocumentPaymentsInline, EmailLogInline, EInvoicingSubmissionInline, PaymentReminderLogInline]
     list_filter_submit = True
     list_select_related = ["company","client"]
     
@@ -990,7 +1006,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
                 [f.name for f in self.model._meta.many_to_many] +
                 list(readonly_fields)
             ))
-            excluded_from_readonly = {"payment_status"}
+            excluded_from_readonly = {"payment_status", "exclude_from_payment_reminders"}
             return [f for f in all_fields if f not in excluded_from_readonly]
         return readonly_fields
 
@@ -1009,7 +1025,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
                     ("date_issued", "due_date"),
                     "project_file",
                     ("reference"),
-                    "is_external",
+                    ("is_external", "exclude_from_payment_reminders"),
                 )
             },
         ),
@@ -1043,7 +1059,11 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
             },
         ),
     )
-    
+
+    @action(description=_("Send Payment Reminder Now"), icon="mail")
+    def send_reminder_now_detail_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_salesinvoice_send_reminder_now", args=[object_id]))
+
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         form.instance.recalculate_totals(save=True)
@@ -1094,6 +1114,12 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
             "title": _("Accounting"),
             "items": [
                 "view_journal_entry_detail_action",
+            ],
+        },
+        {
+            "title": _("Payment Reminders"),
+            "items": [
+                "send_reminder_now_detail_action",
             ],
         },
     ]
@@ -1234,6 +1260,13 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
                 "<int:object_id>/pdf/",
                 self.admin_site.admin_view(SalesInvoicePdfView.as_view(model_admin=self)),
                 name="invoices_salesinvoice_pdf",
+            ),
+            path(
+                "<int:object_id>/send-reminder-now/",
+                self.admin_site.admin_view(
+                    SendPaymentReminderNowAdminView.as_view(model_admin=self)
+                ),
+                name="invoices_salesinvoice_send_reminder_now",
             ),
             path(
                 "<int:object_id>/download-pdf/",
@@ -1389,3 +1422,68 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
             + f"?task_id={result.id}&task_type=salesinvoice&back_url={back_url}"
         )
         return redirect(status_url)
+
+
+class PaymentReminderRuleInline(TabularInline):
+    model = PaymentReminderRule
+    extra = 1
+    tab = False
+    fields = ("days_before_due", "is_active")
+
+@admin.register(PaymentReminderSettings)
+class PaymentReminderSettingsAdmin(ModelAdmin, CompanyRestrictedAdmin):
+    list_display = ("company", "send_time", "overdue_repeat_days", "language", "is_active", "last_run_date")
+    list_filter = (
+        ("company", AutocompleteSelectMultipleFilter),
+        ("is_active", BooleanRadioFilter),
+        ("language", ChoicesDropdownFilter),
+    )
+    autocomplete_fields = ("company",)
+    readonly_fields = ("last_run_date",)
+    inlines = [PaymentReminderRuleInline]
+
+    fieldsets = (
+        (
+            _("General Information"),
+            {
+                "fields": (
+                    "company",
+                    "is_active",
+                    "language",
+                )
+            },
+        ),
+        (
+            _("Timing"),
+            {
+                "fields": (
+                    "send_time",
+                    "overdue_repeat_days",
+                    "last_run_date",
+                )
+            },
+        ),
+    )
+
+@admin.register(PaymentReminderLog)
+class PaymentReminderLogAdmin(ModelAdmin, CompanyRestrictedAdmin):
+    list_display = ("invoice", "company", "reminder_type", "scheduled_for", "status", "sent_at")
+    list_filter = (
+        ("company", AutocompleteSelectMultipleFilter),
+        ("reminder_type", ChoicesDropdownFilter),
+        ("status", ChoicesDropdownFilter),
+        ("scheduled_for", RangeDateFilter),
+    )
+    search_fields = ("invoice__invoice_number", "invoice__client__name")
+    autocomplete_fields = ("invoice",)
+    list_select_related = ["invoice", "company", "rule"]
+    readonly_fields = (
+        "company", "invoice", "rule", "reminder_type",
+        "scheduled_for", "status", "sent_at", "error_message",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

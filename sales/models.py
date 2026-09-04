@@ -415,6 +415,21 @@ class Client(Timestampable, CompanyOwnedModel):
         verbose_name=_("Payment Terms (Days)"),
         help_text=_("Days after invoice issue date before payment is due. Used to compute invoice due dates."),
     )
+
+    language = models.CharField(
+        max_length=2,
+        blank=True,
+        default="",
+        choices=[("es", _("Español")), ("en", _("English"))],
+        verbose_name=_("Reminder Language"),
+        help_text=_("Default language for this client's payment reminders. Leave blank to use the company's default language."),
+    )
+    exclude_from_payment_reminders = models.BooleanField(
+        default=False,
+        verbose_name=_("Do Not Send Payment Reminders"),
+        help_text=_("Exclude all of this client's invoices from automatic payment reminders. This can also be disabled for a single invoice from that invoice's own record."),
+    )
+
     our_bank_account = models.ForeignKey(
         BankAccount,
         on_delete=models.SET_NULL,

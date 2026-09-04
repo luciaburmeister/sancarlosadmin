@@ -346,6 +346,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "assets.tasks.apply_due_zone_sync_requests",
         "schedule": crontab(minute="*/5"),  # needed_time precision requires frequent checks
     },
+    "process-payment-reminders": {
+        "task": "invoices.tasks.process_payment_reminders",
+        "schedule": crontab(minute="*/30"),  # matches the 30-min send_time window in the task
+    },
 }
 
 # E-invoicing: disable AEAT submissions in tests / staging

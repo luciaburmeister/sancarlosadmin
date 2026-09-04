@@ -221,6 +221,19 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
                 "default_client_bank_account",
             )
         }),
+        (_("Payment Reminders"), {
+            "classes": ["tab"],
+            "description": _(
+                "Controls whether this client receives automatic payment reminder "
+                "emails, and in what language. Reminders can be turned off entirely "
+                "for this client here, or for a single invoice from that invoice's "
+                "own record."
+            ),
+            "fields": (
+                "language",
+                "exclude_from_payment_reminders",
+            )
+        }),
         (_("Términos y Condiciones"), {
             "classes": ["tab"],
             "fields": (

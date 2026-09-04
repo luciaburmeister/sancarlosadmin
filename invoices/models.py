@@ -9,6 +9,7 @@ from company.models import  CompanyEmailConfig, CompanyOwnedModel
 from timestamps.models import Timestampable
 from django.core.validators import MinValueValidator, MaxValueValidator
 from decimal import Decimal, ROUND_HALF_UP
+from datetime import time
 from materials.models import Provider
 from django_countries.fields import CountryField
 from django.utils.translation import gettext_lazy as _ 
@@ -60,6 +61,10 @@ class InvoicePaymentStatus(models.TextChoices):
 class InvoiceDocumentType(models.TextChoices):
     INVOICE = "invoice", _("Invoice")
     CREDIT_NOTE = "credit_note", _("Credit Note")
+
+class PaymentReminderLanguage(models.TextChoices):
+    ES = "es", _("Español")
+    EN = "en", _("English")
 
 class AIMatchSuggestionStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
@@ -115,15 +120,6 @@ class Invoice(Timestampable, Payable):
         blank=True,
         related_name="purchase_invoices",
         verbose_name=_("Project File")
-    )
-    cost_center = models.ForeignKey(
-        "accounting.CostCenter",
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name="invoices",
-        verbose_name=_("Cost Center"),
-        help_text=_("Defaults to the provider's cost center, and is replaced by the matched purchase order's.")
     )
 
     observations = models.TextField(blank=True, null=True)
@@ -380,13 +376,6 @@ class Invoice(Timestampable, Payable):
         # Default accounting_date to date_issued if not set
         if not self.accounting_date and self.date_issued:
             self.accounting_date = self.date_issued
-        # Provider's cost center as a starting point, at creation only. A matched
-        # purchase order overrides it later in POInvoiceMatchService.confirm(),
-        # since the order is the more specific source.
-        if self._state.adding and not self.cost_center_id and self.provider_id:
-            default = self.provider.default_cost_center
-            if default and default.is_active and default.is_assignable:
-                self.cost_center = default
         # Automatic recalculation if already exists
         if self.pk and not kwargs.get('update_fields'):
             self.recalculate_totals(save=False)
@@ -887,6 +876,12 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         help_text=_("Snapshot of payment terms at issuance; used to compute due_date."),
     )
 
+    exclude_from_payment_reminders = models.BooleanField(
+        default=False,
+        verbose_name=_("Exclude From Payment Reminders"),
+        help_text=_("Exclude this specific invoice from automatic payment reminders. Reminders can also be disabled entirely for this client from the client's own record."),
+    )
+
     is_external = models.BooleanField(
         default=False,
         verbose_name=_("External Invoice"),
@@ -1077,6 +1072,13 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         if self.pk and not kwargs.get('update_fields'):
             self.recalculate_totals(save=False)
         super().save(*args, **kwargs)
+
+        update_fields = kwargs.get('update_fields')
+        if update_fields is None or 'payment_status' in update_fields:
+            if self.payment_status == InvoicePaymentStatus.PAID:
+                transaction.on_commit(
+                    lambda invoice_id=self.pk: _cancel_pending_payment_reminders(invoice_id)
+                )
 
 class SalesInvoiceItem(models.Model):
     invoice = models.ForeignKey(
@@ -1466,3 +1468,189 @@ class AIMatchSuggestion(Timestampable):
 
     def __str__(self):
         return f"{self.invoice_item} → {self.po_item} ({self.quantity}, {self.confidence})"
+
+
+class PaymentReminderType(models.TextChoices):
+    PRE_DUE = "pre_due", _("Before due date")
+    OVERDUE = "overdue", _("Overdue")
+
+
+class PaymentReminderLogStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    SENT = "sent", _("Sent")
+    CANCELLED = "cancelled", _("Cancelled")
+    FAILED = "failed", _("Failed")
+
+
+class PaymentReminderSettings(CompanyOwnedModel, Timestampable):
+    """
+    Per-company configuration for the automatic payment reminder system
+    (POL-xxx). Editable from the admin so timing can be adjusted without
+    touching code. Pre-due timing lives in the related PaymentReminderRule
+    rows; this model only holds the send time and the overdue cadence.
+    """
+    send_time = models.TimeField(
+        default=time(9, 0),
+        verbose_name=_("Send Time"),
+        help_text=_("Time of day reminders are processed for this company."),
+    )
+    overdue_repeat_days = models.PositiveIntegerField(
+        default=7,
+        verbose_name=_("Overdue Repeat (Days)"),
+        help_text=_("How often to repeat the reminder once an invoice is overdue."),
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name=_("Active"),
+    )
+    language = models.CharField(
+        max_length=2,
+        choices=PaymentReminderLanguage.choices,
+        default=PaymentReminderLanguage.ES,
+        verbose_name=_("Reminder Language"),
+        help_text=_("Language used for all payment reminder emails sent by this company."),
+    )
+    last_run_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Last Run Date"),
+        help_text=_("Date this company's reminders were last processed. Prevents duplicate runs on the same day."),
+    )
+
+    class Meta:
+        verbose_name = _("Payment Reminder Settings")
+        verbose_name_plural = _("Payment Reminder Settings")
+        constraints = [
+            models.UniqueConstraint(fields=["company"], name="uniq_payment_reminder_settings_company"),
+        ]
+
+    def __str__(self):
+        return f"{_('Payment Reminder Settings')} — {self.company}"
+
+
+class PaymentReminderRule(CompanyOwnedModel, Timestampable):
+    settings = models.ForeignKey(
+        PaymentReminderSettings,
+        on_delete=models.CASCADE,
+        related_name="rules",
+        verbose_name=_("Settings"),
+    )
+    days_before_due = models.PositiveIntegerField(
+        verbose_name=_("Days Before Due"),
+        help_text=_("Send a reminder this many days before the invoice due date."),
+    )
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Payment Reminder Rule")
+        verbose_name_plural = _("Payment Reminder Rules")
+        ordering = ["-days_before_due"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["settings", "days_before_due"],
+                name="uniq_payment_reminder_rule_days",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.days_before_due} {_('days before due')}"
+
+
+class PaymentReminderTriggeredBy(models.TextChoices):
+    AUTOMATIC = "automatic", _("Automatic")
+    MANUAL = "manual", _("Manual")
+
+
+class PaymentReminderLog(CompanyOwnedModel, Timestampable):
+    """
+    One row per reminder scheduled/sent for an invoice. Doubles as the
+    idempotency guard (unique per invoice+type+day+trigger) and as the
+    record cancelled when the invoice gets paid.
+    """
+    invoice = models.ForeignKey(
+        SalesInvoice,
+        on_delete=models.CASCADE,
+        related_name="payment_reminder_logs",
+        verbose_name=_("Invoice"),
+    )
+    rule = models.ForeignKey(
+        PaymentReminderRule,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="logs",
+        verbose_name=_("Rule"),
+        help_text=_("Rule that triggered this reminder. Empty for overdue recurring reminders or manual sends."),
+    )
+    reminder_type = models.CharField(
+        max_length=10,
+        choices=PaymentReminderType.choices,
+        verbose_name=_("Reminder Type"),
+    )
+    triggered_by = models.CharField(
+        max_length=10,
+        choices=PaymentReminderTriggeredBy.choices,
+        default=PaymentReminderTriggeredBy.AUTOMATIC,
+        verbose_name=_("Triggered By"),
+    )
+    scheduled_for = models.DateField(
+        verbose_name=_("Scheduled For"),
+        help_text=_("Date this reminder was due to be sent."),
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=PaymentReminderLogStatus.choices,
+        default=PaymentReminderLogStatus.PENDING,
+        verbose_name=_("Status"),
+    )
+    sent_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Sent At"))
+    error_message = models.TextField(blank=True, default="", verbose_name=_("Error Message"))
+    batch_id = models.UUIDField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name=_("Batch ID"),
+        help_text=_("Shared across all invoices included in the same consolidated manual reminder email. Empty for single-invoice sends."),
+    )
+
+    class Meta:
+        verbose_name = _("Payment Reminder Log")
+        verbose_name_plural = _("Payment Reminder Logs")
+        ordering = ["-scheduled_for"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["invoice", "reminder_type", "scheduled_for", "triggered_by"],
+                condition=models.Q(triggered_by=PaymentReminderTriggeredBy.AUTOMATIC),
+                name="uniq_payment_reminder_log_per_day",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.get_reminder_type_display()} — {self.invoice} ({self.scheduled_for})"
+
+
+def resolve_reminder_language(invoice):
+    """
+    Resolves the effective reminder language for an invoice, following the
+    override cascade: client.language -> company's PaymentReminderSettings.language
+    -> ES as a last-resort default. Shared by the automatic task and the
+    manual "send now" action so both paths stay in sync.
+    """
+    if invoice.client.language:
+        return invoice.client.language
+    settings_obj = PaymentReminderSettings.objects.filter(company=invoice.company).first()
+    if settings_obj:
+        return settings_obj.language
+    return PaymentReminderLanguage.ES
+
+
+def _cancel_pending_payment_reminders(invoice_id):
+    """
+    Called via transaction.on_commit from SalesInvoice.save() once an
+    invoice's payment_status flips to PAID. Cancels any reminder still
+    waiting to be sent so a paid invoice never gets chased.
+    """
+    PaymentReminderLog.objects.filter(
+        invoice_id=invoice_id,
+        status=PaymentReminderLogStatus.PENDING,
+    ).update(status=PaymentReminderLogStatus.CANCELLED)

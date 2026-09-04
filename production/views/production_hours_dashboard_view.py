@@ -1,5 +1,3 @@
-from datetime import date
-
 from django.db.models import Count, DurationField, ExpressionWrapper, F, Sum
 from django.db.models.functions import TruncDate, TruncMonth, TruncWeek, TruncYear
 from django.utils.translation import gettext_lazy as _
@@ -9,6 +7,7 @@ from unfold.views import UnfoldModelAdminViewMixin
 
 from company.models import Employee
 from core.admin.company_access import get_user_companies
+from production.forms.hours_dashboard_filters import ProductionHoursDashboardFilterForm
 from production.models import HoursGranularity, ProductionItemSession
 
 _TRUNC_FUNCTIONS = {
@@ -33,10 +32,10 @@ class ProductionHoursDashboardView(UnfoldModelAdminViewMixin, TemplateView):
 
         user_companies = get_user_companies(request.user)
         company = self._resolve_company(request, user_companies)
-        date_from, date_to = self._resolve_date_range(request)
+        filter_form = ProductionHoursDashboardFilterForm(request.GET)
+        date_from, date_to, day = self._resolve_dates(filter_form)
         granularity = self._resolve_granularity(request)
         employee = self._resolve_employee(request, company)
-        day = self._resolve_day(request)
 
         leaderboard = self._compute_leaderboard(company, date_from, date_to) if company else []
         buckets = (
@@ -57,6 +56,7 @@ class ProductionHoursDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         ctx.update({
             "companies": user_companies,
             "selected_company": company,
+            "filter_form": filter_form,
             "date_from": date_from.isoformat() if date_from else "",
             "date_to": date_to.isoformat() if date_to else "",
             "granularity": granularity,
@@ -95,24 +95,15 @@ class ProductionHoursDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         return user_companies.first()
 
     @staticmethod
-    def _resolve_date_range(request):
-        """Unbounded by default so the dashboard shows full history; narrow via GET params."""
-        date_from = None
-        date_to = None
-        try:
-            raw_from = request.GET.get("date_from")
-            date_from = date.fromisoformat(raw_from) if raw_from else None
-        except ValueError:
-            date_from = None
-        try:
-            raw_to = request.GET.get("date_to")
-            date_to = date.fromisoformat(raw_to) if raw_to else None
-        except ValueError:
-            date_to = None
+    def _resolve_dates(filter_form):
+        """Unbounded by default so the dashboard shows full history; narrow via GET params.
 
-        if date_from and date_to and date_from > date_to:
-            date_from, date_to = date_to, date_from
-        return date_from, date_to
+        Each field is read independently from cleaned_data so one invalid field
+        (e.g. a hand-typed date) doesn't discard the other, valid ones.
+        """
+        filter_form.is_valid()
+        cleaned = filter_form.cleaned_data
+        return cleaned.get("date_from"), cleaned.get("date_to"), cleaned.get("day")
 
     @staticmethod
     def _resolve_granularity(request):
@@ -125,14 +116,6 @@ class ProductionHoursDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         if not company or not employee_id:
             return None
         return Employee.objects.filter(pk=employee_id, company=company).first()
-
-    @staticmethod
-    def _resolve_day(request):
-        raw_day = request.GET.get("day")
-        try:
-            return date.fromisoformat(raw_day) if raw_day else None
-        except ValueError:
-            return None
 
     @staticmethod
     def _compute_leaderboard(company, date_from, date_to):

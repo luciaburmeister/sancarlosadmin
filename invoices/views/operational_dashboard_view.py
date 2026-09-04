@@ -17,6 +17,7 @@ from django.views.generic import TemplateView
 from unfold.views import UnfoldModelAdminViewMixin
 
 from core.admin.company_access import get_user_companies
+from invoices.forms.operational_dashboard_filters import OperationalDashboardFilterForm
 from invoices.models import AppliedTax, Invoice, InvoicePaymentStatus, SalesInvoice, SalesInvoiceStatus
 
 from production.models import (
@@ -66,21 +67,11 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         default_from = today.replace(day=1)
         default_to = today
 
-        date_from_str = request.GET.get("date_from", "")
-        date_to_str = request.GET.get("date_to", "")
-
-        try:
-            date_from = date.fromisoformat(date_from_str) if date_from_str else default_from
-        except ValueError:
-            date_from = default_from
-
-        try:
-            date_to = date.fromisoformat(date_to_str) if date_to_str else default_to
-        except ValueError:
-            date_to = default_to
-
-        if date_from > date_to:
-            date_from, date_to = date_to, date_from
+        filter_form = OperationalDashboardFilterForm(request.GET)
+        filter_form.is_valid()
+        cleaned = filter_form.cleaned_data
+        date_from = cleaned.get("date_from") or default_from
+        date_to = cleaned.get("date_to") or default_to
 
         # ── Cache ──────────────────────────────────────────────────
         company_pk = selected_company.pk if selected_company else 0
@@ -106,6 +97,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "opts": SalesInvoice._meta,
             "companies": user_companies,
             "selected_company": selected_company,
+            "filter_form": filter_form,
             "date_from": date_from.isoformat(),
             "date_to": date_to.isoformat(),
             "invoicing": invoicing_data,

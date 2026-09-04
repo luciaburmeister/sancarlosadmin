@@ -1,0 +1,6 @@
+from __future__ import annotations
+from core.forms.unfold_date_filters import DateRangeFilterForm
+
+
+class OperationalDashboardFilterForm(DateRangeFilterForm):
+    pass

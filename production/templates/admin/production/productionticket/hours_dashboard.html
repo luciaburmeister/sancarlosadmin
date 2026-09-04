@@ -3,6 +3,8 @@
 
 {% block extrahead %}
 {{ block.super }}
+<script src="{% url 'admin:jsi18n' %}"></script>
+{{ filter_form.media }}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -87,6 +89,20 @@
   .ph-date:focus {
     border-color: var(--ph-indigo-500);
     box-shadow: 0 0 0 3px rgba(99, 102, 241, .15);
+  }
+
+  /* Unfold's date widget wrapper is styled for a vertical form layout
+     (w-full/max-w-2xl); constrain it to fit our horizontal filter bar. */
+  .ph-filters .relative.w-full.max-w-2xl {
+    width: auto;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .ph-filters input.vDateField {
+    width: 160px;
+    min-width: 0;
+    max-width: none;
   }
 
   .ph-filter-label {
@@ -280,11 +296,11 @@
         {% endfor %}
       </select>
       <span class="ph-filter-label">{% trans "From" %}</span>
-      <input type="date" name="date_from" value="{{ date_from }}" class="ph-date">
+      {{ filter_form.date_from }}
       <span class="ph-filter-label">{% trans "To" %}</span>
-      <input type="date" name="date_to" value="{{ date_to }}" class="ph-date">
+      {{ filter_form.date_to }}
       <span class="ph-filter-label">{% trans "Day" %}</span>
-      <input type="date" name="day" value="{{ selected_day }}" class="ph-date">
+      {{ filter_form.day }}
       <button type="submit" class="ph-btn">{% trans "Apply" %}</button>
       <a href="{{ request.path }}" class="ph-link">{% trans "Reset" %}</a>
     </form>
@@ -328,6 +344,8 @@
     </div>
     {% if granularity == day_granularity %}
     <p class="ph-hint">{% trans "Click a bar to see that day's individual sessions." %}</p>
+    {% else %}
+    <p class="ph-hint">{% trans "Click a bar to zoom into that period, day by day." %}</p>
     {% endif %}
   </div>
 
@@ -418,6 +436,24 @@
 </div>
 
 <script>
+  // Last day of the bucket a chart bar represents, so clicking a week/month/year
+  // bar can zoom the chart into that whole period (date_from/date_to) at day granularity.
+  function bucketEndDate(startIso, granularity) {
+    const [y, m, d] = startIso.split('-').map(Number);
+    const start = new Date(Date.UTC(y, m - 1, d));
+    const end = new Date(start);
+    if (granularity === 'week') {
+      end.setUTCDate(end.getUTCDate() + 6);
+    } else if (granularity === 'month') {
+      end.setUTCMonth(end.getUTCMonth() + 1);
+      end.setUTCDate(end.getUTCDate() - 1);
+    } else if (granularity === 'year') {
+      end.setUTCFullYear(end.getUTCFullYear() + 1);
+      end.setUTCDate(end.getUTCDate() - 1);
+    }
+    return end.toISOString().slice(0, 10);
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     const isDark = document.documentElement.classList.contains('dark') ||
       document.body.classList.contains('dark') ||
@@ -467,16 +503,24 @@
             y: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 11, family: 'Inter' } } },
           },
           onClick: (evt) => {
-            if (granularity !== dayGranularity) return;
             const points = chart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
             if (!points.length) return;
             const bucket = buckets[points[0].index];
             const params = new URLSearchParams(window.location.search);
-            params.set('day', bucket.iso);
+            if (granularity === dayGranularity) {
+              // Already at day granularity: drill into that day's session list.
+              params.set('day', bucket.iso);
+            } else {
+              // Week/month/year bar: zoom the chart into that period at day granularity.
+              params.set('date_from', bucket.iso);
+              params.set('date_to', bucketEndDate(bucket.iso, granularity));
+              params.set('granularity', dayGranularity);
+              params.delete('day');
+            }
             window.location.search = params.toString();
           },
           onHover: (evt, elements) => {
-            evt.native.target.style.cursor = (granularity === dayGranularity && elements.length) ? 'pointer' : 'default';
+            evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
           },
         },
       });

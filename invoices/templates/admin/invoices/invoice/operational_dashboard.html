@@ -3,6 +3,8 @@
 
 {% block extrahead %}
 {{ block.super }}
+<script src="{% url 'admin:jsi18n' %}"></script>
+{{ filter_form.media }}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -96,6 +98,20 @@
   .od-date:focus {
     border-color: var(--od-teal-500);
     box-shadow: 0 0 0 3px rgba(20, 184, 166, .15);
+  }
+
+  /* Unfold's date widget wrapper is styled for a vertical form layout
+     (w-full/max-w-2xl); constrain it to fit our horizontal filter bar. */
+  .od-filters .relative.w-full.max-w-2xl {
+    width: auto;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .od-filters input.vDateField {
+    width: 160px;
+    min-width: 0;
+    max-width: none;
   }
 
   .od-btn {
@@ -380,9 +396,9 @@
         {% endfor %}
       </select>
       <label style="font-size:.8rem;font-weight:600;color:var(--od-text-sub)">{% trans "From" %}</label>
-      <input type="date" name="date_from" value="{{ date_from }}" class="od-date">
+      {{ filter_form.date_from }}
       <label style="font-size:.8rem;font-weight:600;color:var(--od-text-sub)">{% trans "To" %}</label>
-      <input type="date" name="date_to" value="{{ date_to }}" class="od-date">
+      {{ filter_form.date_to }}
       <button type="submit" class="od-btn">{% trans "Apply" %}</button>
     </form>
   </div>

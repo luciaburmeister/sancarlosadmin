@@ -47,6 +47,7 @@ from production.views.planned_sessions_schedule_view import PlannedSessionsSched
 from production.views.production_item_stages_view import ProductionItemAdvanceStageView
 from production.views.production_ticket_stages_view import ProductionTicketStagesView
 from production.views.production_control_view import ProductionControlView
+from production.views.production_hours_dashboard_view import ProductionHoursDashboardView
 from production.views.assembly_line_view import AssemblyLineActionView
 from production.views import ProductionTicketHtmlRender
 from production.components.status_badge import StatusBadge
@@ -310,6 +311,13 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ),
                 name="production_productionticket_order_html",
             ),
+            path(
+                "dashboard/hours/",
+                self.admin_site.admin_view(
+                    ProductionHoursDashboardView.as_view(model_admin=self)
+                ),
+                name="production_productionticket_hours_dashboard",
+            ),
         ]
         return custom + urls
 
@@ -362,12 +370,7 @@ class ProductionItemSessionInline(StackedInline):
     comments_display.short_description = _("Comments")
 
     def duration_display(self, obj):
-        if not obj.duration:
-            return "—"
-        total_seconds = int(obj.duration.total_seconds())
-        hours, remainder = divmod(total_seconds, 3600)
-        minutes = remainder // 60
-        return f"{hours}h {minutes}m"
+        return obj.formatted_duration
 
     duration_display.short_description = _("Duration")
 

@@ -13,7 +13,8 @@ from django.db.models import Q, Sum
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
+from django.utils.timezone import localtime
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.decorators import action, display
 from import_export.admin import ExportActionModelAdmin
@@ -324,7 +325,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
     form = ProjectFileAdminForm
     list_select_related = ["client"]
     list_filter_submit = True
-    readonly_fields = ["reference", "incremental_id", "invoicing_summary_display"]
+    readonly_fields = ["reference", "incremental_id", "invoicing_summary_display", "production_hours_summary_display"]
 
     inlines = [
         QuoteInline,
@@ -355,6 +356,11 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         (_("Invoicing"), {
             "fields": (
                 "invoicing_summary_display",
+            )
+        }),
+        (_("Production Hours"), {
+            "fields": (
+                "production_hours_summary_display",
             )
         }),
         (_("Timeline"), {
@@ -579,3 +585,79 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         </div>
         """
         return format_html(html)
+
+    @admin.display(description=_("Production Hours"))
+    def production_hours_summary_display(self, obj):
+        """Detail page read-only field: total worked hours, per employee, per session."""
+        if not obj.pk:
+            return "—"
+
+        summary = obj.production_hours_summary()
+        if not summary["employees"]:
+            return format_html(
+                '<span style="color: #6b7280;">{}</span>',
+                _("No completed production sessions yet."),
+            )
+
+        total_hours, total_remainder = divmod(summary["total_seconds"], 3600)
+        total_minutes = total_remainder // 60
+
+        open_note = format_html(
+            '<div style="font-size: 11px; color: #d97706; margin-top: 2px;">{} {}</div>',
+            summary["open_sessions"],
+            _("session(s) currently in progress (not counted below)"),
+        ) if summary["open_sessions"] else ""
+
+        header = format_html(
+            '<div style="margin-bottom: 12px;">'
+            '<div style="font-size: 11px; color: #6b7280;">{}</div>'
+            '<div style="font-size: 20px; font-weight: 700; color: #111827;">{}h {}m</div>'
+            '{}'
+            '</div>',
+            _("Total worked"),
+            total_hours,
+            total_minutes,
+            open_note,
+        )
+
+        employee_blocks = []
+        for entry in summary["employees"]:
+            hours, remainder = divmod(entry["total_seconds"], 3600)
+            minutes = remainder // 60
+
+            session_rows = format_html_join(
+                "",
+                '<tr>'
+                '<td style="padding: 2px 6px 2px 0;">{}</td>'
+                '<td style="padding: 2px 6px;">{}</td>'
+                '<td style="padding: 2px 6px;">{}–{}</td>'
+                '<td style="padding: 2px 0 2px 6px; text-align: right;">{}</td>'
+                '</tr>',
+                (
+                    (
+                        localtime(session.start_time).strftime("%d/%m/%Y") if session.start_time else "—",
+                        session.production_stage,
+                        localtime(session.start_time).strftime("%H:%M") if session.start_time else "—",
+                        localtime(session.end_time).strftime("%H:%M") if session.end_time else "—",
+                        session.formatted_duration,
+                    )
+                    for session in entry["sessions"]
+                ),
+            )
+
+            employee_blocks.append(format_html(
+                '<div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px;">'
+                '<div style="display: flex; justify-content: space-between; font-weight: 600; font-size: 13px; color: #111827;">'
+                '<span>{}</span><span>{}h {}m · {} {}</span>'
+                '</div>'
+                '<table style="width: 100%; margin-top: 6px; font-size: 12px; color: #374151;">{}</table>'
+                '</div>',
+                entry["employee"].full_name,
+                hours,
+                minutes,
+                len(entry["sessions"]),
+                _("session(s)"),
+                session_rows,
+            ))
+
+        return format_html_join("", "{}", ((part,) for part in [header, *employee_blocks]))

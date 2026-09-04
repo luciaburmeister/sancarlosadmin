@@ -489,6 +489,14 @@ UNFOLD = {
                         ),
                     },
                     {
+                        "title": _("Production Hours Dashboard"),
+                        "icon": "schedule",
+                        "link": reverse_lazy("admin:production_productionticket_hours_dashboard"),
+                        "permission": lambda request: request.user.has_perm(
+                            "production.production_hours_dashboard"
+                        ),
+                    },
+                    {
                         "title": _("ERP Chatbot"),
                         "icon": "chat",
                         "link": reverse_lazy("admin:chatbot_chat"),

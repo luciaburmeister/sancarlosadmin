@@ -1,0 +1,486 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ph-bg: #f8fafc;
+    --ph-card: #ffffff;
+    --ph-border: #e2e8f0;
+    --ph-text: #0f172a;
+    --ph-text-sub: #64748b;
+    --ph-indigo-500: #6366f1;
+    --ph-indigo-600: #4f46e5;
+    --ph-indigo-50: #eef2ff;
+    --ph-blue-500: #3b82f6;
+    --ph-blue-50: #eff6ff;
+    --ph-emerald-500: #10b981;
+    --ph-emerald-50: #ecfdf5;
+    --ph-amber-500: #f59e0b;
+    --ph-amber-50: #fffbeb;
+    --ph-shadow: 0 1px 3px rgba(0, 0, 0, .06), 0 1px 2px rgba(0, 0, 0, .04);
+    --ph-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, .07), 0 4px 6px -4px rgba(0, 0, 0, .05);
+  }
+
+  .dark {
+    --ph-bg: #0f172a;
+    --ph-card: #1e293b;
+    --ph-border: #334155;
+    --ph-text: #f1f5f9;
+    --ph-text-sub: #94a3b8;
+    --ph-indigo-50: rgba(99, 102, 241, .1);
+    --ph-blue-50: rgba(59, 130, 246, .1);
+    --ph-emerald-50: rgba(16, 185, 129, .1);
+    --ph-amber-50: rgba(245, 158, 11, .1);
+    --ph-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+    --ph-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, .4);
+  }
+
+  .ph-wrap {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ph-text);
+    padding: 24px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .ph-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+
+  .ph-title {
+    font-size: 1.75rem;
+    font-weight: 800;
+    letter-spacing: -.02em;
+  }
+
+  .ph-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .ph-select,
+  .ph-date {
+    font-family: inherit;
+    font-size: .875rem;
+    padding: 8px 14px;
+    border: 1px solid var(--ph-border);
+    border-radius: 10px;
+    background: var(--ph-card);
+    color: var(--ph-text);
+    outline: none;
+    transition: border .2s, box-shadow .2s;
+  }
+
+  .ph-select:focus,
+  .ph-date:focus {
+    border-color: var(--ph-indigo-500);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, .15);
+  }
+
+  .ph-filter-label {
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--ph-text-sub);
+  }
+
+  .ph-btn {
+    font-family: inherit;
+    font-size: .875rem;
+    font-weight: 600;
+    padding: 8px 20px;
+    border: none;
+    border-radius: 10px;
+    background: linear-gradient(135deg, var(--ph-indigo-500), var(--ph-indigo-600));
+    color: #fff;
+    cursor: pointer;
+    transition: transform .15s, box-shadow .15s;
+  }
+
+  .ph-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--ph-shadow-lg);
+  }
+
+  .ph-link { color: var(--ph-indigo-600); text-decoration: none; font-weight: 600; font-size: .85rem; }
+  .ph-link:hover { text-decoration: underline; }
+
+  .ph-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  @media(max-width:900px) { .ph-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media(max-width:600px) { .ph-kpi-grid { grid-template-columns: 1fr; } }
+
+  .ph-kpi {
+    background: var(--ph-card);
+    border: 1px solid var(--ph-border);
+    border-radius: 14px;
+    padding: 20px 22px;
+    box-shadow: var(--ph-shadow);
+    transition: transform .2s, box-shadow .2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .ph-kpi:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--ph-shadow-lg);
+  }
+
+  .ph-kpi-label {
+    font-size: .78rem;
+    font-weight: 500;
+    color: var(--ph-text-sub);
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    margin-bottom: 4px;
+  }
+
+  .ph-kpi-value {
+    font-size: 1.55rem;
+    font-weight: 800;
+    letter-spacing: -.01em;
+  }
+
+  .ph-kpi-accent {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 80px;
+    height: 80px;
+    border-radius: 0 14px 0 80px;
+    opacity: .08;
+  }
+
+  .ph-kpi--indigo .ph-kpi-accent { background: var(--ph-indigo-500); }
+  .ph-kpi--indigo .ph-kpi-value { color: var(--ph-indigo-500); }
+  .ph-kpi--blue .ph-kpi-accent { background: var(--ph-blue-500); }
+  .ph-kpi--blue .ph-kpi-value { color: var(--ph-blue-500); }
+  .ph-kpi--emerald .ph-kpi-accent { background: var(--ph-emerald-500); }
+  .ph-kpi--emerald .ph-kpi-value { color: var(--ph-emerald-500); }
+  .ph-kpi--amber .ph-kpi-accent { background: var(--ph-amber-500); }
+  .ph-kpi--amber .ph-kpi-value { color: var(--ph-amber-500); }
+
+  .ph-panel {
+    background: var(--ph-card);
+    border: 1px solid var(--ph-border);
+    border-radius: 14px;
+    padding: 22px;
+    box-shadow: var(--ph-shadow);
+    margin-bottom: 24px;
+  }
+
+  .ph-panel-title {
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 16px;
+  }
+
+  .ph-hint { font-size: .75rem; color: var(--ph-text-sub); margin-top: 10px; }
+
+  .ph-table-wrap {
+    background: var(--ph-card);
+    border: 1px solid var(--ph-border);
+    border-radius: 14px;
+    box-shadow: var(--ph-shadow);
+    overflow: hidden;
+    margin-bottom: 24px;
+  }
+
+  .ph-table-header {
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--ph-border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .ph-table-header h3 { font-size: 1rem; font-weight: 700; margin: 0; }
+
+  .ph-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .85rem;
+  }
+
+  .ph-table thead th {
+    padding: 12px 16px;
+    text-align: left;
+    font-weight: 600;
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    color: var(--ph-text-sub);
+    border-bottom: 1px solid var(--ph-border);
+    background: var(--ph-bg);
+  }
+
+  .ph-table tbody tr { transition: background .15s; }
+  .ph-table tbody tr:hover { background: var(--ph-indigo-50); }
+
+  .ph-table tbody td {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--ph-border);
+    vertical-align: middle;
+  }
+
+  .ph-table tbody tr:last-child td { border-bottom: none; }
+
+  .ph-empty { text-align: center; padding: 48px 16px; color: var(--ph-text-sub); }
+  .ph-empty-icon { font-size: 3rem; margin-bottom: 8px; }
+
+  .ph-employee-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+  .ph-employee-name { width: 170px; font-size: .82rem; font-weight: 600; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ph-employee-bar-wrap { flex: 1; height: 24px; background: var(--ph-bg); border-radius: 8px; overflow: hidden; }
+  .ph-employee-bar { height: 100%; border-radius: 8px; transition: width .6s ease; display: flex; align-items: center; padding-left: 8px; background: linear-gradient(135deg, var(--ph-indigo-500), var(--ph-blue-500)); }
+  .ph-employee-bar span { font-size: .72rem; font-weight: 700; color: #fff; white-space: nowrap; }
+  .ph-employee-sessions { width: 110px; text-align: right; font-size: .78rem; color: var(--ph-text-sub); flex-shrink: 0; }
+
+  #hoursBucketChart { cursor: default; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ph-wrap">
+
+  <div class="ph-header">
+    <h1 class="ph-title">{% trans "Production Hours Dashboard" %}</h1>
+    <form method="get" class="ph-filters" id="ph-filter-form">
+      {% if companies|length > 1 %}
+      <select name="company" class="ph-select" onchange="this.form.submit()">
+        {% for c in companies %}
+        <option value="{{ c.id }}" {% if selected_company.id == c.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+      <select name="employee" class="ph-select" onchange="this.form.submit()">
+        <option value="">{% trans "All employees" %}</option>
+        {% for e in employees %}
+        <option value="{{ e.id }}" {% if selected_employee.id == e.id %}selected{% endif %}>{{ e.full_name }}</option>
+        {% endfor %}
+      </select>
+      <select name="granularity" class="ph-select" onchange="this.form.submit()">
+        {% for value, label in granularity_choices %}
+        <option value="{{ value }}" {% if granularity == value %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+      <span class="ph-filter-label">{% trans "From" %}</span>
+      <input type="date" name="date_from" value="{{ date_from }}" class="ph-date">
+      <span class="ph-filter-label">{% trans "To" %}</span>
+      <input type="date" name="date_to" value="{{ date_to }}" class="ph-date">
+      <span class="ph-filter-label">{% trans "Day" %}</span>
+      <input type="date" name="day" value="{{ selected_day }}" class="ph-date">
+      <button type="submit" class="ph-btn">{% trans "Apply" %}</button>
+      <a href="{{ request.path }}" class="ph-link">{% trans "Reset" %}</a>
+    </form>
+  </div>
+
+  {# ── KPIs ── #}
+  <div class="ph-kpi-grid">
+    <div class="ph-kpi ph-kpi--indigo">
+      <div class="ph-kpi-accent"></div>
+      <div class="ph-kpi-label">{% trans "Total worked" %}</div>
+      <div class="ph-kpi-value">{{ total_hours }}h</div>
+    </div>
+    <div class="ph-kpi ph-kpi--blue">
+      <div class="ph-kpi-accent"></div>
+      <div class="ph-kpi-label">{% trans "Sessions" %}</div>
+      <div class="ph-kpi-value">{{ session_count }}</div>
+    </div>
+    <div class="ph-kpi ph-kpi--emerald">
+      <div class="ph-kpi-accent"></div>
+      <div class="ph-kpi-label">{% trans "Employees" %}</div>
+      <div class="ph-kpi-value">{{ employee_count }}</div>
+    </div>
+    <div class="ph-kpi ph-kpi--amber">
+      <div class="ph-kpi-accent"></div>
+      <div class="ph-kpi-label">{% trans "Avg / employee" %}</div>
+      <div class="ph-kpi-value">{{ avg_hours_per_employee }}h</div>
+    </div>
+  </div>
+
+  {# ── Chart ── #}
+  <div class="ph-panel">
+    <div class="ph-panel-title">
+      {% if selected_employee %}
+        {% blocktrans with name=selected_employee.full_name %}Hours worked by {{ name }}{% endblocktrans %}
+      {% else %}
+        {% trans "Total hours worked" %}
+      {% endif %}
+    </div>
+    <div style="position:relative;height:300px;max-height:300px">
+      <canvas id="hoursBucketChart"></canvas>
+    </div>
+    {% if granularity == day_granularity %}
+    <p class="ph-hint">{% trans "Click a bar to see that day's individual sessions." %}</p>
+    {% endif %}
+  </div>
+
+  {# ── Day drill-down ── #}
+  {% if selected_day %}
+  <div class="ph-table-wrap">
+    <div class="ph-table-header">
+      <h3>{% blocktrans with day=selected_day %}Sessions on {{ day }}{% endblocktrans %}</h3>
+      <a href="?{{ request.GET.urlencode }}&day=" class="ph-link">{% trans "Clear day" %}</a>
+    </div>
+    {% if day_sessions %}
+    <table class="ph-table">
+      <thead>
+        <tr>
+          <th>{% trans "Start" %}</th>
+          <th>{% trans "End" %}</th>
+          <th>{% trans "Duration" %}</th>
+          <th>{% trans "Stage" %}</th>
+          {% if not selected_employee %}<th>{% trans "Employee" %}</th>{% endif %}
+          <th>{% trans "Expediente" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in day_sessions %}
+        <tr>
+          <td>{{ s.start_time|date:"H:i" }}</td>
+          <td>{{ s.end_time|date:"H:i" }}</td>
+          <td style="font-weight:600">{{ s.duration_label }}</td>
+          <td>{{ s.stage }}</td>
+          {% if not selected_employee %}<td>{{ s.employee_name }}</td>{% endif %}
+          <td>
+            {% if s.project_file %}
+            <a class="ph-link" href="{% url 'admin:management_projectfile_change' s.project_file.pk %}">
+              {{ s.project_file.reference|default:"—" }} — {{ s.project_file.name }}
+            </a>
+            {% else %}
+            <span style="color:var(--ph-text-sub)">{% trans "Unlinked ticket" %}</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="ph-empty">
+      <p>{% trans "No completed sessions on this day for the selected filters." %}</p>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {# ── Leaderboard ── #}
+  {% if not selected_employee %}
+  <div class="ph-table-wrap">
+    <div class="ph-table-header">
+      <h3>{% trans "Hours per employee" %}</h3>
+    </div>
+    <div style="padding:20px 22px">
+      {% if leaderboard %}
+        {% for row in leaderboard %}
+        {% with max_seconds=leaderboard.0.total_seconds %}
+        <div class="ph-employee-row">
+          <div class="ph-employee-name" title="{{ row.employee_name }}">
+            <a class="ph-link" href="?{{ request.GET.urlencode }}&employee={{ row.employee_id }}">{{ row.employee_name }}</a>
+          </div>
+          <div class="ph-employee-bar-wrap">
+            <div class="ph-employee-bar" style="width:{% widthratio row.total_seconds max_seconds 100 %}%">
+              <span>{{ row.total_hours_label }}</span>
+            </div>
+          </div>
+          <div class="ph-employee-sessions">{{ row.sessions }} {% trans "sessions" %}</div>
+        </div>
+        {% endwith %}
+        {% endfor %}
+      {% else %}
+      <div class="ph-empty">
+        <p>{% trans "No completed sessions found for the selected filters." %}</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% else %}
+  <div style="margin-bottom:24px">
+    <a href="?{{ request.GET.urlencode }}&employee=" class="ph-link">← {% trans "Clear employee filter" %}</a>
+  </div>
+  {% endif %}
+
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const isDark = document.documentElement.classList.contains('dark') ||
+      document.body.classList.contains('dark') ||
+      window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    const gridColor = isDark ? 'rgba(148,163,184,.15)' : 'rgba(0,0,0,.06)';
+    const textColor = isDark ? '#94a3b8' : '#64748b';
+    const granularity = "{{ granularity }}";
+    const dayGranularity = "{{ day_granularity }}";
+
+    const buckets = [
+      {% for b in buckets %}
+      { label: "{{ b.period_start|date:'d M Y' }}", iso: "{{ b.period_start|date:'Y-m-d' }}", seconds: {{ b.total_seconds }} },
+      {% endfor %}
+    ];
+
+    const ctx = document.getElementById('hoursBucketChart');
+    if (ctx && buckets.length) {
+      const chart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: buckets.map(b => b.label),
+          datasets: [{
+            label: '{% trans "Hours" %}',
+            data: buckets.map(b => Math.round((b.seconds / 3600) * 100) / 100),
+            backgroundColor: 'rgba(99, 102, 241, .75)',
+            hoverBackgroundColor: 'rgba(79, 70, 229, .9)',
+            borderColor: '#4f46e5',
+            borderWidth: 1.5, borderRadius: 6, borderSkipped: false,
+          }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: isDark ? '#1e293b' : '#fff',
+              titleColor: isDark ? '#f1f5f9' : '#0f172a',
+              bodyColor: isDark ? '#cbd5e1' : '#334155',
+              borderColor: isDark ? '#334155' : '#e2e8f0',
+              borderWidth: 1, padding: 12, cornerRadius: 8,
+              callbacks: { label: ctx => ctx.parsed.y + ' h' },
+            },
+          },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: textColor, font: { size: 11, family: 'Inter' } } },
+            y: { grid: { color: gridColor }, ticks: { color: textColor, font: { size: 11, family: 'Inter' } } },
+          },
+          onClick: (evt) => {
+            if (granularity !== dayGranularity) return;
+            const points = chart.getElementsAtEventForMode(evt, 'nearest', { intersect: true }, true);
+            if (!points.length) return;
+            const bucket = buckets[points[0].index];
+            const params = new URLSearchParams(window.location.search);
+            params.set('day', bucket.iso);
+            window.location.search = params.toString();
+          },
+          onHover: (evt, elements) => {
+            evt.native.target.style.cursor = (granularity === dayGranularity && elements.length) ? 'pointer' : 'default';
+          },
+        },
+      });
+    }
+  });
+</script>
+{% endblock %}

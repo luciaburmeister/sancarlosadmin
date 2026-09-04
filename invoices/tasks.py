@@ -378,6 +378,190 @@ def suggest_ai_po_matches_task(self, invoice_id: int):
         logger.exception("AI PO matcher failed for invoice %s", invoice_id)
         raise self.retry(exc=exc)
 
+@shared_task(bind=True, max_retries=2, default_retry_delay=60)
+def suggest_ai_invoice_matches_task(self, po_id: int):
+    """
+    Mirror of suggest_ai_po_matches_task, run from the PO side: finds
+    candidate invoices for a single PurchaseOrder and asks Gemini which of
+    their lines match this PO's pending lines. Deletes any PENDING
+    AIMatchSuggestion rows tied to this PO first, then regenerates from
+    scratch — same idempotency guarantee as the invoice-side task.
+
+    Only "high" confidence matches from Gemini are persisted; "medium"/"low"
+    are discarded (Gemini uses them internally for calibration only).
+
+    A single run can produce suggestions spanning several different
+    invoices (this PO's lines may each be billed by a different invoice),
+    so AIMatchSuggestion.invoice is set per-suggestion from the matched
+    invoice_item, not from a single invoice_id passed to the task.
+
+    Returns a result dict consumed by the matcher status page:
+        {"status": "done", "po_id": X, "has_match": bool, "suggestions_count": N}
+        {"status": "no_match", "po_id": X, "has_match": False, "suggestions_count": 0}
+    """
+    from django.conf import settings
+
+    from invoices.models import AIMatchSuggestion, AIMatchSuggestionStatus, InvoiceItem
+    from invoices.services.gemini_po_matcher import GeminiPOItemMatcher
+    from invoices.services.po_matching import POInvoiceMatchService
+    from purchasing.models import PurchaseOrder, PurchaseOrderItem
+
+    try:
+        po = PurchaseOrder.objects.get(pk=po_id)
+
+        AIMatchSuggestion.objects.filter(
+            po_item__purchase_order=po, status=AIMatchSuggestionStatus.PENDING
+        ).delete()
+
+        po_items_data, invoice_candidates_data = POInvoiceMatchService.ai_match_pool_for_po(po)
+
+        if not po_items_data or not invoice_candidates_data:
+            logger.info(
+                "AI invoice matcher: nothing to match for PO %s (no unmatched lines "
+                "or no candidate invoices with pending quantity).",
+                po_id,
+            )
+            return {
+                "status": "no_match",
+                "po_id": po_id,
+                "has_match": False,
+                "suggestions_count": 0,
+            }
+
+        matcher = GeminiPOItemMatcher(api_key=settings.GEMINI_API_KEY)
+        raw_matches = matcher.find_matches_for_po(po_items_data, invoice_candidates_data)
+
+        po_item_ids = {item["id"] for item in po_items_data}
+        invoice_item_ids = {
+            item["id"] for invoice in invoice_candidates_data for item in invoice["items"]
+        }
+        invoice_id_by_item_id = {
+            item["id"]: invoice["invoice_id"]
+            for invoice in invoice_candidates_data
+            for item in invoice["items"]
+        }
+
+        created = []
+        for match in raw_matches:
+            if match.get("confidence") != "high":
+                continue
+            if match.get("po_item_id") not in po_item_ids:
+                continue
+            if match.get("invoice_item_id") not in invoice_item_ids:
+                continue
+            try:
+                quantity = Decimal(str(match["quantity"]))
+            except (InvalidOperation, KeyError, TypeError):
+                continue
+            if quantity <= 0:
+                continue
+
+            created.append(AIMatchSuggestion(
+                invoice_id=invoice_id_by_item_id[match["invoice_item_id"]],
+                invoice_item_id=match["invoice_item_id"],
+                po_item_id=match["po_item_id"],
+                quantity=quantity,
+                confidence=match["confidence"],
+                reasoning=match.get("reasoning", ""),
+                raw_response=match,
+            ))
+
+        AIMatchSuggestion.objects.bulk_create(created)
+
+        logger.info(
+            "AI invoice matcher ran for PO %s: %d high-confidence suggestion(s) "
+            "out of %d raw match(es).",
+            po_id, len(created), len(raw_matches),
+        )
+        return {
+            "status": "done" if created else "no_match",
+            "po_id": po_id,
+            "has_match": bool(created),
+            "suggestions_count": len(created),
+        }
+    except PurchaseOrder.DoesNotExist:
+        logger.error("PurchaseOrder %s does not exist, skipping AI invoice matcher.", po_id)
+        return {"status": "error", "message": f"PurchaseOrder {po_id} not found."}
+    except Exception as exc:
+        logger.exception("AI invoice matcher failed for PO %s", po_id)
+        raise self.retry(exc=exc)
+
+
+# ── Pending invoices daily digest ─────────────────────────────────────
+# Data: invoices.services.pending_invoices_digest_service
+# Email construction: invoices.services.pending_invoices_digest_email_service
+# This task only orchestrates: fetch -> build -> send -> report.
+
+
+@shared_task(name="invoices.tasks.send_pending_invoices_digest")
+def send_pending_invoices_digest():
+    """Daily task: emails a bank-report-style digest of pending invoices —
+    what each company owes its providers (unpaid/partially-paid purchase
+    invoices, credit notes netted) and what its clients owe it (final,
+    unpaid sales invoices) — to Company.invoice_digest_emails recipients.
+
+    Recipients configured on several companies receive ONE consolidated
+    email covering all of their companies, with a global totals block
+    (to pay / to receive / net position) and links to the corresponding
+    admin changelists pre-filtered to each company's pending documents.
+
+    Companies with no recipients configured are skipped — opt-in per
+    company, like banking.tasks.send_bank_accounts_summary.
+
+    Not wired into settings.CELERY_BEAT_SCHEDULE: schedule it via a
+    django-celery-beat PeriodicTask (admin > Periodic Tasks, e.g. daily
+    at 07:00) pointing at "invoices.tasks.send_pending_invoices_digest".
+    """
+    from django.utils import timezone
+
+    from company.models import Company
+    from invoices.services.pending_invoices_digest_email_service import (
+        PendingInvoicesDigestEmailService,
+    )
+    from invoices.services.pending_invoices_digest_service import (
+        PendingInvoicesDigestService,
+    )
+
+    today = timezone.localdate()
+    companies = list(Company.objects.exclude(invoice_digest_emails=[]))
+    digests = PendingInvoicesDigestService.get_company_digests(companies, today=today)
+    emails = PendingInvoicesDigestEmailService.build_emails(
+        companies, digests, today=today
+    )
+
+    emails_sent = 0
+    errors = []
+
+    for email in emails:
+        recipients_label = ", ".join(email.recipients)
+        try:
+            success = EmailService.send_email(
+                to=email.recipients,
+                subject=email.subject,
+                body_html=email.body_html,
+                related_object=email.company,
+                company=email.company,
+            )
+            if success:
+                emails_sent += 1
+            else:
+                errors.append(f"Failed to send invoices digest to [{recipients_label}]")
+        except Exception as e:
+            errors.append(
+                f"Error sending invoices digest to [{recipients_label}]: {str(e)}"
+            )
+
+    if errors:
+        raise Exception(
+            f"Pending invoices digest task completed with errors: {'; '.join(errors)}"
+        )
+
+    return {
+        "task": "send_pending_invoices_digest",
+        "status": "ok",
+        "emails_sent": emails_sent,
+    }
+
 @shared_task(name="invoices.tasks.process_payment_reminders")
 def process_payment_reminders():
     """

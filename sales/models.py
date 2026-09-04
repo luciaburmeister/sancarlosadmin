@@ -1131,6 +1131,17 @@ class QuoteConfigurationGroup(Timestampable):
     def __str__(self):
         return self.name
 
+    def save(self, *args, **kwargs):
+        # Append new groups; order=0 is the field default, so treat it as unset
+        # or they sort to the top of an already-reordered quote.
+        if self._state.adding and not self.order:
+            last_order = (
+                QuoteConfigurationGroup.objects.filter(quote_id=self.quote_id)
+                .aggregate(max_order=Max("order"))["max_order"]
+            )
+            self.order = 0 if last_order is None else last_order + 1
+        super().save(*args, **kwargs)
+
     @property
     def subtotal(self):
         """Sum of subtotal_price of all member configurations."""

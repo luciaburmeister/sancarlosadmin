@@ -184,13 +184,16 @@ class QuoteInventoryItemInline(_OverrideLineTotalGateMixin, TabularInline):
 
 class QuoteConfigurationGroupInline(StackedInline):
     model = QuoteConfigurationGroup
-    extra = 1
+    extra = 0
     tab = True
     ordering_field= "order"
     hide_ordering_field=True
     tab_title = _("Configuration Groups")
     fields = ["name", "notes", "order"]
     ordering = ["order"]
+
+    class Media:
+        js = ("js/admin/configuration_group_collapse.js",)
 
 
 @admin.register(QuoteConfigurationGroup)

@@ -2,9 +2,12 @@
 Maps raw responses to extracted_dataclass structure
 """
 
+import re
 from typing import Dict, Optional
 from decimal import Decimal
 from datetime import datetime
+
+from moneyed import CURRENCIES
 
 from core.services.gemini_extraction_service import BaseGeminiExtractor, GeminiJSONParseError
 from .ocr_interface import OcrInterface, InvoiceData, LineItem, TaxItem
@@ -15,6 +18,16 @@ __all__ = ["GeminiInvoiceProcessor", "GeminiJSONParseError"]
 class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
 
     MODEL_NAME = "gemini-3-flash-preview"
+
+    CURRENCY_SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY"}
+
+    CURRENCY_NAMES = {
+        "EURO": "EUR", "EUROS": "EUR", "EURS": "EUR",
+        "DOLLAR": "USD", "DOLLARS": "USD", "DOLAR": "USD", "DOLARES": "USD",
+        "USDOLLAR": "USD", "USDOLLARS": "USD",
+        "POUND": "GBP", "POUNDS": "GBP", "STERLING": "GBP", "LIBRA": "GBP", "LIBRAS": "GBP",
+        "YEN": "JPY", "FRANC": "CHF", "FRANCS": "CHF",
+    }
 
     SCHEMA = {
     "type": "OBJECT",
@@ -60,7 +73,11 @@ class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
             "description": "Invoice subtotal before taxes (Base Imponible)"
         },
         "total_amount": {"type": "NUMBER", "nullable": True},
-        "currency": {"type": "STRING", "nullable": True},
+        "currency": {
+            "type": "STRING",
+            "nullable": True,
+            "description": "3-letter ISO 4217 code, e.g. EUR, USD. Never a symbol or name.",
+        },
 
         "payment_method": {
             "type": "STRING",
@@ -216,7 +233,7 @@ class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
             due_date=self._parse_date(data.get("due_date")),
             net_amount=self._to_decimal(data.get("net_amount")),
             total_amount=self._to_decimal(data.get("total_amount")),
-            currency=data.get("currency", "EUR"),
+            currency=self._normalize_currency(data.get("currency")),
             payment_method=self._normalize_payment_method(
                 data.get("payment_method")
             ),
@@ -281,6 +298,23 @@ class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
         if any(k in m for k in ("card", "tarjeta", "credit")):
             return "card"
         return None
+
+    def _normalize_currency(self, currency: Optional[str]) -> Optional[str]:
+        """
+        Coerce whatever the model returns ("€", "Euro", "EUROS", "USD $") into a
+        3-letter ISO code. Invoice.currency is varchar(3), so anything longer
+        would blow up on save; returning None lets the caller keep its default.
+        """
+        if not currency:
+            return None
+        raw = currency.strip()
+        for symbol, code in self.CURRENCY_SYMBOLS.items():
+            if symbol in raw:
+                return code
+        letters = re.sub(r"[^A-Za-z]", "", raw).upper()
+        if letters in CURRENCIES:
+            return letters
+        return self.CURRENCY_NAMES.get(letters)
 
     def _parse_date(self, date_str: Optional[str]) -> Optional[str]:
         """

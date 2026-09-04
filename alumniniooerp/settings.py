@@ -489,14 +489,6 @@ UNFOLD = {
                         ),
                     },
                     {
-                        "title": _("Production Hours Dashboard"),
-                        "icon": "schedule",
-                        "link": reverse_lazy("admin:production_productionticket_hours_dashboard"),
-                        "permission": lambda request: request.user.has_perm(
-                            "production.production_hours_dashboard"
-                        ),
-                    },
-                    {
                         "title": _("ERP Chatbot"),
                         "icon": "chat",
                         "link": reverse_lazy("admin:chatbot_chat"),
@@ -574,9 +566,21 @@ UNFOLD = {
                 "collapsible": True,
                 "items": [
                     {
+                        "title": _("Production Hours Dashboard"),
+                        "icon": "schedule",
+                        "link": reverse_lazy("admin:production_productionticket_hours_dashboard"),
+                        "permission": lambda request: request.user.has_perm(
+                            "production.production_hours_dashboard"
+                        ),
+                    },
+                    {
                         "title": _("Production Tickets"),
                         "icon": "brick",
                         "link": lazy(lambda: f"{reverse('admin:production_productionticket_changelist')}?status__exact=pending&status__exact=in_progress", str)(),
+                        "active": lambda request: (
+                            reverse("admin:production_productionticket_changelist") in request.path
+                            and reverse("admin:production_productionticket_hours_dashboard") not in request.path
+                        ),
                         "permission": lambda request: request.user.has_perm(
                             "production.view_productionticket"
                         ),

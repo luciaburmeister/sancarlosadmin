@@ -400,13 +400,21 @@ class CompanyAdmin(ModelAdmin):
 
     def get_urls(self):
         from django.urls import path
-        from company.views.switch_company import SwitchActiveCompanyView
+        from company.views.switch_company import (
+            SetActiveCompaniesView,
+            SwitchActiveCompanyView,
+        )
 
         return [
             path(
                 "switch-active/",
                 self.admin_site.admin_view(SwitchActiveCompanyView.as_view()),
                 name="company_switch_active",
+            ),
+            path(
+                "switch-active/apply/",
+                self.admin_site.admin_view(SetActiveCompaniesView.as_view()),
+                name="company_switch_active_apply",
             ),
         ] + super().get_urls()
 

@@ -27,6 +27,7 @@ from api.fleet.tests.helpers import make_company, make_user
 User = get_user_model()
 
 SWITCH_URL_NAME = "admin:company_switch_active"
+APPLY_URL_NAME = "admin:company_switch_active_apply"
 CHANGELIST_URL_NAME = "admin:company_employeedocumenttype_changelist"
 
 
@@ -53,6 +54,12 @@ class BaseActiveCompanyTestCase(TestCase):
         if next_url is not None:
             data["next"] = next_url
         return self.client.post(reverse(SWITCH_URL_NAME), data)
+
+    def apply(self, *companies, next_url=None):
+        data = {"companies": [c.pk for c in companies]}
+        if next_url is not None:
+            data["next"] = next_url
+        return self.client.post(reverse(APPLY_URL_NAME), data)
 
 
 class ActiveCompanyServiceTests(BaseActiveCompanyTestCase):
@@ -266,6 +273,73 @@ class SwitchActiveCompanyViewTests(BaseActiveCompanyTestCase):
         self.assertIn("login", response["Location"])
         # The toggle was rejected: the default (Alpha) is untouched.
         self.assertEqual(self.active_ids(), [self.company_a.pk])
+
+
+class SetActiveCompaniesViewTests(BaseActiveCompanyTestCase):
+    """The dropdown's "Apply" button: replaces the active set in one request."""
+
+    def test_apply_replaces_active_set(self):
+        user = self.make_member("multi", self.company_a, self.company_b, staff=True)
+        self.client.force_login(user)
+        self.client.get(reverse("admin:index"))  # default: Alpha
+
+        response = self.apply(self.company_b)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.active_ids(), [self.company_b.pk])
+
+    def test_apply_can_select_several_at_once(self):
+        company_c = make_company(name="Gamma")
+        user = self.make_member(
+            "multi", self.company_a, self.company_b, company_c, staff=True
+        )
+        self.client.force_login(user)
+        self.client.get(reverse("admin:index"))  # default: Alpha
+
+        response = self.apply(self.company_b, company_c)
+        self.assertEqual(response.status_code, 302)
+        self.assertCountEqual(
+            self.active_ids(), [self.company_b.pk, company_c.pk]
+        )
+
+    def test_apply_with_no_companies_is_rejected(self):
+        user = self.make_member("multi", self.company_a, self.company_b, staff=True)
+        self.client.force_login(user)
+        self.client.get(reverse("admin:index"))  # default: Alpha
+
+        response = self.client.post(reverse(APPLY_URL_NAME), {})
+        self.assertEqual(response.status_code, 302)  # form_invalid -> admin index
+        self.assertEqual(self.active_ids(), [self.company_a.pk])  # untouched
+
+    def test_apply_cannot_select_foreign_company(self):
+        user = self.make_member("solo", self.company_a, staff=True)
+        self.client.force_login(user)
+        self.client.get(reverse("admin:index"))  # establish default (A)
+
+        response = self.apply(self.company_b)  # not a member
+        self.assertEqual(response.status_code, 302)  # form_invalid -> admin index
+        self.assertEqual(self.active_ids(), [self.company_a.pk])
+
+    def test_apply_safe_next_redirect(self):
+        user = self.make_member("multi", self.company_a, self.company_b, staff=True)
+        self.client.force_login(user)
+        response = self.apply(
+            self.company_b, next_url="/admin/company/company/"
+        )
+        self.assertEqual(response["Location"], "/admin/company/company/")
+
+    def test_apply_unsafe_next_falls_back_to_admin_index(self):
+        user = self.make_member("multi", self.company_a, self.company_b, staff=True)
+        self.client.force_login(user)
+        response = self.apply(
+            self.company_b, next_url="https://evil.example.com/"
+        )
+        self.assertEqual(response["Location"], reverse("admin:index"))
+
+    def test_apply_get_not_allowed(self):
+        user = self.make_member("solo", self.company_a, staff=True)
+        self.client.force_login(user)
+        response = self.client.get(reverse(APPLY_URL_NAME))
+        self.assertEqual(response.status_code, 405)
 
 
 class ChangelistScopingTests(BaseActiveCompanyTestCase):

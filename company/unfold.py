@@ -12,11 +12,15 @@ from company.active_company import ActiveCompany
 def company_switch_dropdown(request):
     """
     Items for the sidebar-header dropdown: one entry per switchable
-    company, POSTing to admin:company_switch_active (see the template
-    override at templates/unfold/helpers/site_dropdown.html, which reads
-    company_id/next from item.attrs). Each click toggles that company in
-    or out of the active set, so the icon is a checkbox. Hidden for
-    single-company non-superusers.
+    company (see the template override at
+    templates/unfold/helpers/site_dropdown.html). Checking/unchecking items
+    is purely client-side (Alpine state) — nothing is submitted until the
+    dropdown's "Apply" button POSTs the whole pending selection at once to
+    admin:company_switch_active_apply, which replaces the active set in a
+    single request. `link` is unused by our template but required by
+    Unfold's DropdownItem; it points at the legacy single-company toggle
+    endpoint for parity if the vendor template is ever restored.
+    Hidden for single-company non-superusers.
     """
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated:
@@ -28,7 +32,6 @@ def company_switch_dropdown(request):
 
     active_ids = {c.pk for c in getattr(request, "active_companies", [])}
     switch_url = reverse("admin:company_switch_active")
-    next_url = request.get_full_path()
 
     return [
         {
@@ -37,7 +40,6 @@ def company_switch_dropdown(request):
             "icon": "check_box" if company.pk in active_ids else "check_box_outline_blank",
             "attrs": {
                 "company_id": company.pk,
-                "next": next_url,
                 "active": company.pk in active_ids,
             },
         }

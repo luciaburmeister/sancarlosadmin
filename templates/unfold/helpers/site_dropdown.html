@@ -1,34 +1,49 @@
-{% load i18n %}
 {% comment %}
 Project override of unfold 0.99.1's unfold/helpers/site_dropdown.html.
-Used as the active-company switcher: each item POSTs to
-admin:company_switch_active (item.link) with the company id and a `next`
-redirect carried in item.attrs (set in company/unfold.py), so the toggle
-is a CSRF-protected POST instead of the vendor GET <a> link. Clicking a
-company adds it to (or removes it from) the set of active companies, so
-several can be worked on at the same time.
+Used as the active-company switcher. Several companies can be active at
+once, so items behave like checkboxes — but checking/unchecking one used
+to POST immediately (admin:company_switch_active), forcing a full page
+reload — and the dropdown closing — on every single click. Now checking
+items only flips local Alpine state (no reload) inside ONE form; nothing
+is submitted until "Apply" POSTs the whole pending selection at once to
+admin:company_switch_active_apply.
+Note: icon/label toggling uses x-show, not Tailwind's peer-checked:/has-[]
+variants — Unfold ships a precompiled CSS bundle (not a JIT compiler), and
+those exact utility strings aren't used anywhere in its vendor templates,
+so they wouldn't be in the bundle and would silently no-op.
 If unfold is upgraded, re-sync the wrapper markup with the vendor file.
 {% endcomment %}
 
 {% if site_dropdown %}
-    <div class="absolute bg-white border border-base-200 flex flex-col left-3 py-1 rounded-default shadow-lg top-[73px] w-[264px] z-50 dark:bg-base-800 dark:border-base-700" x-cloak x-show="openDropdown" x-transition x-on:click.outside="openDropdown = false">
-        {% for item in site_dropdown %}
-            <form method="post" action="{{ item.link }}" class="contents">
-                {% csrf_token %}
-                <input type="hidden" name="company" value="{{ item.attrs.company_id }}">
-                <input type="hidden" name="next" value="{{ item.attrs.next }}">
-                <button type="submit" class="flex flex-row items-center gap-3 max-h-[30px] mx-1 px-2 py-2 rounded-default text-left w-full {% if item.attrs.active %}text-font-important-light dark:text-font-important-dark{% else %}text-font-default-light dark:text-font-default-dark{% endif %} hover:bg-base-100 hover:text-font-important-light dark:hover:bg-base-700 dark:hover:text-font-important-dark">
-                    {% if item.icon %}
-                        <span class="material-symbols-outlined {% if item.attrs.active %}text-primary-600 dark:text-primary-500{% endif %}">
-                            {{ item.icon }}
-                        </span>
-                    {% endif %}
+    <div class="absolute bg-white border border-base-200 flex flex-col left-3 py-1 rounded-default shadow-lg top-[73px] z-50 dark:bg-base-800 dark:border-base-700" x-cloak x-show="openDropdown" x-transition x-on:click.outside="openDropdown = false" x-bind:style="{ width: (sidebarWidth - 24) + 'px' }">
+        <form method="post" action="{% url 'admin:company_switch_active_apply' %}" class="contents">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
 
-                    <span class="grow truncate{% if item.attrs.active %} font-semibold{% endif %}">
+            {% for item in site_dropdown %}
+                <label class="flex flex-row items-center gap-3 max-h-[30px] mx-1 px-2 py-2 rounded-default cursor-pointer text-font-default-light dark:text-font-default-dark hover:bg-base-100 hover:text-font-important-light dark:hover:bg-base-700 dark:hover:text-font-important-dark"
+                       x-data="{ checked: {{ item.attrs.active|yesno:'true,false' }} }"
+                       x-bind:class="{ 'font-semibold text-font-important-light dark:text-font-important-dark': checked }">
+                    <input type="checkbox" name="companies" value="{{ item.attrs.company_id }}" x-model="checked" class="hidden">
+
+                    <span class="material-symbols-outlined text-primary-600 dark:text-primary-500" x-show="checked">
+                        check_box
+                    </span>
+                    <span class="material-symbols-outlined" x-show="!checked">
+                        check_box_outline_blank
+                    </span>
+
+                    <span class="grow truncate">
                         {{ item.title }}
                     </span>
+                </label>
+            {% endfor %}
+
+            <div class="border-t border-base-200 mt-1 mx-1 pt-1 dark:border-base-700">
+                <button type="submit" class="bg-primary-600 font-semibold mb-1 px-2 py-2 rounded-default text-center text-white w-full hover:bg-primary-700">
+                    Apply
                 </button>
-            </form>
-        {% endfor %}
+            </div>
+        </form>
     </div>
 {% endif %}

@@ -121,6 +121,15 @@ class Invoice(Timestampable, Payable):
         related_name="purchase_invoices",
         verbose_name=_("Project File")
     )
+    cost_center = models.ForeignKey(
+        "accounting.CostCenter",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="invoices",
+        verbose_name=_("Cost Center"),
+        help_text=_("Defaults to the provider's cost center, and is replaced by the matched purchase order's.")
+    )
 
     observations = models.TextField(blank=True, null=True)
 
@@ -376,6 +385,13 @@ class Invoice(Timestampable, Payable):
         # Default accounting_date to date_issued if not set
         if not self.accounting_date and self.date_issued:
             self.accounting_date = self.date_issued
+        # Provider's cost center as a starting point, at creation only. A matched
+        # purchase order overrides it later in POInvoiceMatchService.confirm(),
+        # since the order is the more specific source.
+        if self._state.adding and not self.cost_center_id and self.provider_id:
+            default = self.provider.default_cost_center
+            if default and default.is_active and default.is_assignable:
+                self.cost_center = default
         # Automatic recalculation if already exists
         if self.pk and not kwargs.get('update_fields'):
             self.recalculate_totals(save=False)

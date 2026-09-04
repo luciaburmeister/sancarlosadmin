@@ -9,10 +9,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="invoice",
-            name="cost_center",
-        ),
         migrations.AddField(
             model_name="paymentreminderlog",
             name="batch_id",

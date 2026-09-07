@@ -52,7 +52,7 @@ class CustomContentTypeAdmin(admin.ModelAdmin):
 # ─────────────────────────────────────────────────────────────────────────────
 
 @admin.register(Warehouse)
-class WarehouseAdmin(ModelAdmin):
+class WarehouseAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = ("id", "code", "name", "city", "country", "is_active", "created_at")
     list_filter = ("is_active", "country", "city")
     search_fields = ("code", "name", "city", "postal_code", "address_line1", "address_line2")

@@ -193,14 +193,14 @@ class _DiscountPipelineBase(TestCase):
             unit_price=unit_price,
         )
 
-    def _make_policy(self, rules_spec, assign_to_quote=None, assign_to_client=None):
+    def _make_policy(self, rules_spec, assign_to_quote=None, assign_to_client=None, name="Test Policy"):
         """Create a DiscountPolicy with rules.
 
         rules_spec: list of dicts with keys: name, percentage, level,
                     and optionally: mode, condition, order.
         """
         policy = DiscountPolicy.objects.create(
-            name="Test Policy", company=self.company, is_active=True,
+            name=name, company=self.company, is_active=True,
         )
         for i, spec in enumerate(rules_spec):
             DiscountRule.objects.create(
@@ -392,6 +392,67 @@ class TestMixedDiscounts(_DiscountPipelineBase):
         levels = [e["level"] for e in quote.discount_breakdown]
         self.assertIn("line_item", levels)
         self.assertIn("basket", levels)
+
+
+class TestMultiplePolicyOrdering(_DiscountPipelineBase):
+    """Rules are applied one policy at a time; ``order`` never interleaves
+    across policies."""
+
+    def test_policies_run_one_after_another(self):
+        quote = self._make_quote()
+        self._make_inv_item(quote, Decimal("1000.00"), Decimal("1"))
+
+        # Rule orders are chosen so that a global sort by ``order`` would
+        # interleave the two policies (A1, B1, B2, A2).
+        self._make_policy(
+            [
+                {"name": "A1", "percentage": 10, "order": 0},
+                {"name": "A2", "percentage": 5, "order": 9, "mode": "accumulated"},
+            ],
+            assign_to_quote=quote, name="A policy",
+        )
+        self._make_policy(
+            [
+                {"name": "B1", "percentage": 2, "order": 1, "mode": "accumulated"},
+                {"name": "B2", "percentage": 1, "order": 2, "mode": "accumulated"},
+            ],
+            assign_to_quote=quote, name="B policy",
+        )
+
+        quote.recalc_totals()
+        quote.refresh_from_db()
+
+        self.assertEqual(
+            [e["rule_name"] for e in quote.discount_breakdown],
+            ["A1", "A2", "B1", "B2"],
+        )
+        # A1: 10% of 1000 = 100 → 900; A2: 5% of 900 = 45 → 855;
+        # B1: 2% of 855 = 17.10 → 837.90; B2: 1% of 837.90 = 8.38
+        self.assertEqual(quote.discount_amount.amount, Decimal("170.48"))
+
+    def test_quote_policy_runs_before_client_policy(self):
+        client = self._make_client()
+        quote = self._make_quote(client=client)
+        self._make_inv_item(quote, Decimal("1000.00"), Decimal("1"))
+
+        # Client policy sorts first by name and by rule order, but the quote's
+        # own policy has precedence and must run first.
+        self._make_policy(
+            [{"name": "Client rule", "percentage": 5, "order": 0}],
+            assign_to_client=client, name="A client policy",
+        )
+        self._make_policy(
+            [{"name": "Quote rule", "percentage": 10, "order": 5}],
+            assign_to_quote=quote, name="Z quote policy",
+        )
+
+        quote.recalc_totals()
+        quote.refresh_from_db()
+
+        self.assertEqual(
+            [e["rule_name"] for e in quote.discount_breakdown],
+            ["Quote rule", "Client rule"],
+        )
 
 
 class TestLineItemsBasketDiscounts(_DiscountPipelineBase):

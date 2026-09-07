@@ -1083,13 +1083,21 @@ class Quote(Timestampable, CompanyOwnedModel):
         }
 
     def _discount_rules_for_level(self, level):
-        """Active discount rules for the given DiscountLevel, from all active policies."""
+        """Active discount rules for the given DiscountLevel, from all active policies.
+
+        Rules are grouped by policy: one policy's rules run to completion (in
+        their own ``order``) before the next policy starts, following the
+        precedence of ``_get_discount_policies`` (quote, then client, then
+        company auto-apply). Rule ``order`` never interleaves across policies.
+        """
         policies = self._get_discount_policies()
-        return list(
-            DiscountRule.objects.filter(
-                policy__in=policies, is_active=True, level=level,
-            ).order_by("order", "id")
+        if not policies:
+            return []
+        position = {p.id: i for i, p in enumerate(policies)}
+        rules = DiscountRule.objects.filter(
+            policy__in=policies, is_active=True, level=level,
         )
+        return sorted(rules, key=lambda r: (position[r.policy_id], r.order, r.id))
 
     def _calculate_total(self, item_total):
         """

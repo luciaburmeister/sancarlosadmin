@@ -42,7 +42,8 @@ class LineItemLevelHandler(DiscountLevelHandler):
 
         # Effective percentage: run the rules against a 100-unit base so the
         # returned discount amount equals the combined percentage directly.
-        effective_pct, breakdown = DiscountService.compute_effective_pct(rules, context)
+        # ``base`` is passed so conditions see ``accumulated`` in money.
+        effective_pct, breakdown = DiscountService.compute_effective_pct(rules, context, base=base)
 
         for inv_item in quote.inventory_items.all():
             # A manually pinned line total wins over policy discounts.

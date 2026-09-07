@@ -114,6 +114,38 @@ class TestDiscountServiceComputeEffectivePct(TestCase):
         _, breakdown = DiscountService.compute(Decimal("1000"), rules, {"subtotal": 1000})
         self.assertEqual(len(breakdown), 1)
 
+    def test_effective_pct_condition_sees_accumulated_in_money(self):
+        """With ``base`` given, 'accumulated' is the running money total, not a
+        percentage out of 100, so tier thresholds in euros work."""
+        rules = [
+            self._make_rule("Descuento 35", 35),
+            self._make_rule("Tramo 3%", 3, mode="accumulated",
+                            condition="accumulated >= 5000 and accumulated <= 10000"),
+        ]
+        # Base 8000: after 35% the running total is 5200 → tramo applies.
+        # Effective = 35 + 3% of the remaining 65 = 36.95.
+        pct, breakdown = DiscountService.compute_effective_pct(
+            rules, {"subtotal": 8000}, base=Decimal("8000"),
+        )
+        self.assertEqual(pct, Decimal("36.95"))
+        self.assertEqual(len(breakdown), 2)
+
+        # Base 6000: after 35% the running total is 3900 → tramo skipped.
+        pct, breakdown = DiscountService.compute_effective_pct(
+            rules, {"subtotal": 6000}, base=Decimal("6000"),
+        )
+        self.assertEqual(pct, Decimal("35.00"))
+        self.assertEqual(len(breakdown), 1)
+
+    def test_effective_pct_without_base_keeps_percentage_cascade(self):
+        """Without ``base`` the cascade still runs on 100 and the rates are exact."""
+        rules = [
+            self._make_rule("R1", 35),
+            self._make_rule("R2", 3, mode="accumulated"),
+        ]
+        pct, _ = DiscountService.compute_effective_pct(rules, {})
+        self.assertEqual(pct, Decimal("36.95"))
+
 
 # ---------------------------------------------------------------------------
 # Integration tests for the two-phase pipeline
@@ -248,6 +280,38 @@ class TestLineItemDiscounts(_DiscountPipelineBase):
 
         # The manual 5% should remain
         self.assertEqual(item.discount, Decimal("5.00"))
+
+    def test_line_item_tier_condition_uses_money_accumulated(self):
+        """A line-item tier rule conditioned on ``accumulated`` in euros applies
+        exactly like the same rule at basket level (regression: it used to see
+        the 100-unit percentage base and never fire)."""
+        rules = [
+            {"name": "Descuento 35", "percentage": 35, "level": DiscountLevel.LINE_ITEM, "order": 0},
+            {"name": "Tramo 3%", "percentage": 3, "level": DiscountLevel.LINE_ITEM, "order": 1,
+             "mode": "accumulated", "condition": "accumulated >= 5000 and accumulated <= 10000"},
+        ]
+
+        # 8000 € of items: 35% leaves 5200 → within the tier → 36.95 % effective.
+        quote = self._make_quote()
+        item = self._make_inv_item(quote, Decimal("1000.00"), Decimal("8"))
+        self._make_policy(rules, assign_to_quote=quote)
+        quote.recalc_totals()
+        item.refresh_from_db()
+        quote.refresh_from_db()
+        self.assertEqual(item.discount, Decimal("36.95"))
+        self.assertEqual(quote.subtotal_price.amount, Decimal("5044.00"))  # 8000 * (1 - 0.3695)
+        self.assertEqual(
+            [e["rule_name"] for e in quote.discount_breakdown],
+            ["Descuento 35", "Tramo 3%"],
+        )
+
+        # 6000 € of items: 35% leaves 3900 → below the tier → only 35 %.
+        quote = self._make_quote()
+        item = self._make_inv_item(quote, Decimal("1000.00"), Decimal("6"))
+        self._make_policy(rules, assign_to_quote=quote)
+        quote.recalc_totals()
+        item.refresh_from_db()
+        self.assertEqual(item.discount, Decimal("35.00"))
 
 
 class TestBasketDiscounts(_DiscountPipelineBase):

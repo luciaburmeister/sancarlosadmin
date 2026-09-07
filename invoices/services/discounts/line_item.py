@@ -9,8 +9,9 @@ class LineItemPassThroughStrategy(InvoiceDiscountStrategy):
     ``discount_percentage`` — nothing to add at invoice level.
 
     Note: line_item breakdown entries store the effective *percentage* in
-    ``amount`` (they run against a 100-unit base), never money — they must not
-    be summed with the other entries.
+    ``amount`` (the cascade runs against a 100-unit base; only the
+    ``accumulated`` condition variable is scaled to money), never money — they
+    must not be summed with the other entries.
     """
 
     materialization = PASS_THROUGH

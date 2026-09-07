@@ -627,7 +627,12 @@ class ItemIdentityCode(Timestampable):
 
     @property
     def is_received(self) -> bool:
-        return self.receipt_item_id is not None
+        """Whether this unit is physically in. Keyed on received_at rather than
+        receipt_item so that codes registered without a purchase order behind
+        them (historic imports, stock counted in by hand) still count as
+        received. save() guarantees received_at whenever receipt_item is set,
+        so receipt-linked codes are unaffected."""
+        return self.received_at is not None
 
     @property
     def is_delivered(self) -> bool:

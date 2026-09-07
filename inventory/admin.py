@@ -1,7 +1,9 @@
 from django import forms
 from django.contrib import admin
 from django.contrib.contenttypes.models import ContentType
+from django.utils.formats import date_format
 from django.utils.html import format_html
+from django.utils.timezone import localtime
 from django.utils.translation import gettext_lazy as _
 from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.company_access import get_user_companies
@@ -18,7 +20,7 @@ from inventory.resources import InventoryItemResource
 from django.urls import path, reverse
 from django.shortcuts import redirect
 
-from .views import AdjustStockView, ReceiveStockView, TransferStockView
+from .views import AdjustStockView, ItemIdentityCodesView, ReceiveStockView, TransferStockView
 from .qr_views import item_qr_view
 from .models import (
     Warehouse,
@@ -181,45 +183,175 @@ class ItemProviderInfoInline(TabularInline):
     tab = True
 
 
-class ItemIdentityCodeInline(TabularInline):
+def _muted_dash():
+    return format_html('<span style="color:#9ca3af;">—</span>')
+
+
+def _stacked(main_html, sub_text):
+    """A bold primary line with a small muted line underneath."""
+    if not sub_text:
+        return main_html
+    return format_html(
+        '{}<div style="font-size:11px;color:#9ca3af;">{}</div>', main_html, sub_text
+    )
+
+
+def _short_date(value):
+    return date_format(localtime(value), "SHORT_DATE_FORMAT") if value else ""
+
+
+class _BaseItemIdentityCodeInline(TabularInline):
+    """Shared read-only plumbing for the two identity-code inlines.
+
+    Both point at ItemIdentityCode through the same FK, so they would collide
+    on the default formset prefix ("identity_codes") and share one management
+    form. prefix_suffix keeps them apart.
+    """
+
     model = ItemIdentityCode
     extra = 0
+    max_num = 0
+    can_delete = False
     tab = True
+    prefix_suffix = None
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def get_formset(self, request, obj=None, **kwargs):
+        formset = super().get_formset(request, obj, **kwargs)
+        suffix = self.prefix_suffix
+        base_prefix = formset.get_default_prefix()
+
+        class PrefixedFormSet(formset):
+            @classmethod
+            def get_default_prefix(cls):
+                return f"{base_prefix}-{suffix}"
+
+        return PrefixedFormSet
+
+    def code_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        return format_html(
+            '<a href="{}" style="font-family:ui-monospace,monospace;font-weight:600;">{}</a>',
+            reverse("admin:inventory_itemidentitycode_change", args=[obj.pk]),
+            obj.code,
+        )
+    code_display.short_description = _("Code")
+
+    def source_display(self, obj):
+        if not obj or not obj.pk or not obj.receipt_item_id:
+            return _muted_dash()
+        po = obj.receipt_item.receipt.purchase_order
+        return _stacked(
+            format_html(
+                '<a href="{}" style="font-weight:600;">{}</a>',
+                reverse("admin:purchasing_purchaseorder_change", args=[po.pk]),
+                po.number or po.pk,
+            ),
+            _short_date(obj.received_at),
+        )
+    source_display.short_description = _("Received in")
+
+
+class ItemIdentityCodeInline(_BaseItemIdentityCodeInline):
+    """Units still held: received and not yet shipped, plus any registered by
+    hand without a receipt behind them. Delivered units move to
+    DeliveredItemIdentityCodeInline."""
+
     verbose_name = _("Identity Code")
-    verbose_name_plural = _("Identity Codes")
-    fields = (
-        "code",
-        "receipt_item",
-        "received_at",
-        "delivery_order_item",
-        "delivered_at",
-        "status_display",
-        "note",
-    )
-    readonly_fields = ("received_at", "delivered_at", "status_display")
-    autocomplete_fields = ("receipt_item", "delivery_order_item")
+    verbose_name_plural = _("Identity Codes — In Stock")
+    prefix_suffix = "stock"
+    template_before = "admin/inventory/identity_codes_actions.html"
+    fields = ("code_display", "status_display", "source_display", "note")
+    readonly_fields = fields
+
+    def get_queryset(self, request):
+        return (
+            super().get_queryset(request)
+            .filter(delivery_order_item__isnull=True)
+            .select_related("receipt_item__receipt__purchase_order")
+            .order_by("code")
+        )
 
     def status_display(self, obj):
         if not obj or not obj.pk:
             return "—"
-        parts = []
-        if obj.is_received:
-            parts.append(format_html(
-                '<span style="color:#16a34a;font-weight:600;">✓ {}</span>',
-                _("Received"),
-            ))
-        if obj.is_delivered:
-            parts.append(format_html(
-                '<span style="color:#2563eb;font-weight:600;">✓ {}</span>',
-                _("Delivered"),
-            ))
-        if not parts:
-            return format_html(
-                '<span style="color:#9ca3af;">{}</span>',
-                _("Registered"),
-            )
-        return format_html(" · ".join(str(p) for p in parts))
+        label, color = (
+            (_("In stock"), "#16a34a") if obj.is_received
+            else (_("Registered"), "#9ca3af")
+        )
+        return format_html(
+            '<span style="display:inline-flex;align-items:center;gap:5px;'
+            'white-space:nowrap;font-weight:600;color:{};">'
+            '<span style="width:7px;height:7px;border-radius:50%;background:{};"></span>{}'
+            '</span>',
+            color, color, label,
+        )
     status_display.short_description = _("Status")
+
+
+class DeliveredItemIdentityCodeInline(_BaseItemIdentityCodeInline):
+    """Units already shipped, with the delivery-order side of the trail:
+    which order, which client, which line, and when."""
+
+    verbose_name = _("Delivered Identity Code")
+    verbose_name_plural = _("Identity Codes — Delivered")
+    prefix_suffix = "delivered"
+    fields = ("code_display", "delivery_order_display", "client_display",
+              "delivery_line_display", "source_display", "note")
+    readonly_fields = fields
+
+    def get_queryset(self, request):
+        return (
+            super().get_queryset(request)
+            .filter(delivery_order_item__isnull=False)
+            .select_related(
+                "receipt_item__receipt__purchase_order",
+                "delivery_order_item__delivery_order__client",
+            )
+            .order_by("-delivered_at", "code")
+        )
+
+    def delivery_order_display(self, obj):
+        if not obj or not obj.pk or not obj.delivery_order_item_id:
+            return _muted_dash()
+        do = obj.delivery_order_item.delivery_order
+        return _stacked(
+            format_html(
+                '<a href="{}" style="font-weight:600;">{}</a>',
+                reverse("admin:sales_deliveryorder_change", args=[do.pk]),
+                do.number or do.pk,
+            ),
+            _short_date(obj.delivered_at),
+        )
+    delivery_order_display.short_description = _("Delivery Order")
+
+    def client_display(self, obj):
+        if not obj or not obj.pk or not obj.delivery_order_item_id:
+            return _muted_dash()
+        client = obj.delivery_order_item.delivery_order.client
+        return format_html(
+            '<a href="{}">{}</a>',
+            reverse("admin:sales_client_change", args=[client.pk]),
+            client.name,
+        )
+    client_display.short_description = _("Client")
+
+    def delivery_line_display(self, obj):
+        if not obj or not obj.pk or not obj.delivery_order_item_id:
+            return _muted_dash()
+        line = obj.delivery_order_item
+        return _stacked(
+            format_html('<span style="font-weight:600;">{}</span>',
+                        line.item_number or "—"),
+            line.description,
+        )
+    delivery_line_display.short_description = _("Delivery Line")
 
 
 class BillOfMaterialsInline(TabularInline):
@@ -429,8 +561,9 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
     form = InventoryItemForm
-    inlines = [BillOfMaterialsInline, ItemProviderInfoInline, ItemIdentityCodeInline, PurchaseHistoryInline, ItemTransactionInline, ItemAppliedTaxInline]
+    inlines = [BillOfMaterialsInline, ItemProviderInfoInline, ItemIdentityCodeInline, DeliveredItemIdentityCodeInline, PurchaseHistoryInline, ItemTransactionInline, ItemAppliedTaxInline]
     actions_row = ["row_receive_stock", "row_transfer_stock", "row_adjust_stock"]
+    actions_detail = ["register_identity_codes"]
 
     list_display = (
         "code",
@@ -728,8 +861,19 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
                 ),
                 name="inventory_item_adjust",
             ),
+            path(
+                "<int:object_id>/identity-codes/",
+                self.admin_site.admin_view(
+                    ItemIdentityCodesView.as_view(model_admin=self)
+                ),
+                name="inventory_item_identity_codes",
+            ),
         ]
         return custom_urls + urls
+
+    @action(description=_("Register Identity Codes"), icon="qr_code_2")
+    def register_identity_codes(self, request, object_id: int):
+        return redirect(reverse("admin:inventory_item_identity_codes", args=[object_id]))
 
 
 # ─────────────────────────────────────────────────────────────────────────────

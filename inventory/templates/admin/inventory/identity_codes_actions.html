@@ -1,0 +1,20 @@
+{% load i18n %}
+
+{% comment %}
+  Bulk-registration link for ItemIdentityCodeInline, rendered through the
+  inline's template_before hook so it sits above Unfold's tabular table
+  without forking that template.
+
+  NB: {# #} is single-line only in Django templates — a multi-line one is not
+  parsed as a comment and renders as visible text.
+{% endcomment %}
+
+{% if original and original.pk %}
+<div class="mb-3 flex items-center justify-end">
+    <a href="{% url 'admin:inventory_item_identity_codes' original.pk %}"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-default text-xs font-semibold bg-primary-600 hover:bg-primary-700 text-white transition-colors no-underline">
+        <span class="material-symbols-outlined text-[15px] leading-none">qr_code_2</span>
+        {% trans "Register codes" %}
+    </a>
+</div>
+{% endif %}

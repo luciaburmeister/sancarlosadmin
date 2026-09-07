@@ -1,5 +1,6 @@
 """
-Inventory stock-movement views — Receive, Transfer, Adjust, InvoiceInfo.
+Inventory stock-movement views — Receive, Transfer, Adjust, InvoiceInfo,
+plus bulk identity-code registration.
 """
 
 import datetime
@@ -11,15 +12,24 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
+from django.views.generic import FormView
 
 from unfold.views import UnfoldModelAdminViewMixin
 from unfold.widgets import UnfoldAdminRelatedFieldWrapperWidget
 
+from core.admin.company_access import get_user_companies
 from inventory.choices import MovementType
-from inventory.forms import AdjustmentMovementForm, ReceiptMovementForm, TransferMovementForm
-from inventory.models import InventoryItem, ItemTransaction
+from inventory.forms import (
+    UNLINKED,
+    AdjustmentMovementForm,
+    ItemIdentityCodesForm,
+    ReceiptMovementForm,
+    TransferMovementForm,
+)
+from inventory.models import InventoryItem, ItemIdentityCode, ItemTransaction
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -348,3 +358,82 @@ class AdjustStockView(_MovementViewMixin):
             "movement_icon": "balance",
         }
         return TemplateResponse(request, self.template_name, context)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Identity Codes — bulk registration, one textarea per receipt line
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ItemIdentityCodesView(UnfoldModelAdminViewMixin, FormView):
+    """Mirror of purchasing.views.identity_codes.IdentityCodesView, pivoted on
+    the InventoryItem: lists every receipt line this item came in through and
+    takes a paste of codes for each."""
+
+    template_name = "admin/inventory/identity_codes.html"
+    form_class = ItemIdentityCodesForm
+    title = _("Register Identity Codes")
+    permission_required = ("inventory.add_itemidentitycode",)
+
+    def get_item(self):
+        qs = InventoryItem.objects.select_related("company")
+        if not self.request.user.is_superuser:
+            qs = qs.filter(company__in=get_user_companies(self.request.user))
+        return get_object_or_404(qs, pk=self.kwargs["object_id"])
+
+    def get_form_kwargs(self):
+        kwargs = super().get_form_kwargs()
+        kwargs["item"] = self.get_item()
+        return kwargs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        form = context["form"]
+        context["item"] = self.get_item()
+        context["receipt_items"] = [
+            (ri, form[f"codes_{ri.id}"]) for ri in form.receipt_items
+        ]
+        context["opts"] = InventoryItem._meta
+        return context
+
+    def form_valid(self, form):
+        item = self.get_item()
+        ri_map = {ri.id: ri for ri in form.receipt_items}
+        codes_created = 0
+
+        with transaction.atomic():
+            for key, codes in form.parsed_codes.items():
+                # key is UNLINKED (None) for the no-purchase-order textarea.
+                # Those rows carry no receipt, but registering them is still a
+                # statement that the units are physically in — so stamp
+                # received_at explicitly and they read as In stock rather than
+                # sitting in limbo as merely Registered.
+                if key is UNLINKED:
+                    defaults = {"receipt_item": None, "received_at": timezone.now()}
+                else:
+                    receipt_item = ri_map.get(key)
+                    if receipt_item is None:
+                        continue
+                    # save() stamps received_at from the receipt link itself.
+                    defaults = {"receipt_item": receipt_item}
+                for code in codes:
+                    _obj, created = ItemIdentityCode.objects.get_or_create(
+                        item=item, code=code, defaults=defaults,
+                    )
+                    if created:
+                        codes_created += 1
+
+        if codes_created:
+            messages.success(self.request, _("%(count)d identity codes registered.") % {"count": codes_created})
+        else:
+            messages.info(self.request, _("No new identity codes were added."))
+
+        if form.skipped_codes:
+            messages.warning(self.request, _(
+                "%(count)d code(s) were already registered for this item and "
+                "were left untouched: %(codes)s"
+            ) % {
+                "count": len(form.skipped_codes),
+                "codes": ", ".join(sorted(set(form.skipped_codes))),
+            })
+
+        return redirect(reverse("admin:inventory_item_identity_codes", args=[item.pk]))

@@ -13,7 +13,8 @@ from unfold.widgets import (
 
 from materials.models import Provider
 from invoices.models import Invoice
-from .models import Warehouse
+from purchasing.models import PurchaseOrderReceiptItem
+from .models import ItemIdentityCode, Warehouse
 
 
 class _BaseMovementForm(forms.Form):
@@ -140,3 +141,117 @@ class ReceiptMovementForm(_BaseMovementForm):
         super().__init__(*args, **kwargs)
         if not self.initial.get("received_date"):
             self.initial["received_date"] = datetime.date.today()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Identity codes — bulk registration from the InventoryItem side
+# ─────────────────────────────────────────────────────────────────────────────
+
+#: parsed_codes key for the textarea that is not tied to any receipt line.
+UNLINKED = None
+
+
+class ItemIdentityCodesForm(forms.Form):
+    """
+    Dynamically builds one textarea per receipt line through which this
+    InventoryItem was received, mirroring purchasing.forms.IdentityCodesForm
+    but pivoted on the item instead of the purchase order — plus one always
+    present textarea for codes with no purchase order behind them (historic
+    imports, stock counted in by hand).
+    After clean(), self.parsed_codes = {receipt_item_id | UNLINKED: [code, ...]}.
+
+    Unlike the PO-side form, every textarea here belongs to the *same* item,
+    so a code repeated across two of them would collide on the
+    uniq_identity_code_per_item constraint. clean() rejects that outright
+    instead of letting get_or_create silently bind it to whichever textarea
+    was processed first.
+    """
+
+    #: Name of the field holding codes with no receipt line.
+    UNLINKED_FIELD = "codes_unlinked"
+
+    codes_unlinked = forms.CharField(
+        required=False,
+        widget=UnfoldAdminTextareaWidget(attrs={
+            "rows": 3,
+            "placeholder": "SN-001\nSN-002\nSN-003",
+        }),
+        label=_("New codes"),
+    )
+
+    def __init__(self, *args, item=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.item = item
+        self.receipt_items = list(
+            PurchaseOrderReceiptItem.objects
+            .filter(po_item__inventory_item=item)
+            .select_related("receipt__purchase_order", "po_item")
+            .prefetch_related("identity_codes")
+            .order_by("-receipt__received_at", "pk")
+        ) if item else []
+
+        self.existing_codes = set(
+            ItemIdentityCode.objects
+            .filter(item=item)
+            .values_list("code", flat=True)
+        ) if item else set()
+
+        for ri in self.receipt_items:
+            self.fields[f"codes_{ri.id}"] = forms.CharField(
+                required=False,
+                widget=UnfoldAdminTextareaWidget(attrs={
+                    "rows": 3,
+                    "placeholder": "SN-001\nSN-002\nSN-003",
+                }),
+                label=_("New codes"),
+            )
+
+    @property
+    def unlinked_field(self):
+        """The bound field for the no-purchase-order textarea."""
+        return self[self.UNLINKED_FIELD]
+
+    def _buckets(self):
+        """(key, field_name) pairs in the order the template renders them —
+        the no-purchase-order box first, then each receipt line. Order decides
+        which textarea keeps a code entered twice; the other one gets the
+        clash error, so following display order keeps that predictable."""
+        return (
+            [(UNLINKED, self.UNLINKED_FIELD)]
+            + [(ri.id, f"codes_{ri.id}") for ri in self.receipt_items]
+        )
+
+    def clean(self):
+        cleaned = super().clean()
+        self.parsed_codes = {}
+        self.skipped_codes = []
+        # Which textarea each code was first claimed by, to flag the clash.
+        seen = {}
+
+        for key, field_name in self._buckets():
+            raw = cleaned.get(field_name, "")
+            codes, clashes = [], []
+            for code in (c.strip() for c in raw.splitlines()):
+                if not code:
+                    continue
+                if code in self.existing_codes:
+                    self.skipped_codes.append(code)
+                    continue
+                if code in seen and seen[code] != key:
+                    clashes.append(code)
+                    continue
+                if code in codes:
+                    continue
+                seen[code] = key
+                codes.append(code)
+
+            if clashes:
+                self.add_error(field_name, _(
+                    "These codes are already entered elsewhere on this form: "
+                    "%(codes)s"
+                ) % {"codes": ", ".join(sorted(set(clashes)))})
+
+            if codes:
+                self.parsed_codes[key] = codes
+
+        return cleaned

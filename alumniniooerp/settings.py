@@ -281,6 +281,16 @@ if DB_SSLMODE:
         "sslmode": DB_SSLMODE,
     }
 
+if TESTING:
+    # Building the test database by replaying the ~340 migrations takes
+    # minutes (4 min on CI); creating the tables straight from the current
+    # models takes seconds. Tests don't depend on rows seeded by data
+    # migrations, and CI still checks that the migrations apply to a fresh
+    # database in a separate job. Set TEST_MIGRATE=1 to run them anyway.
+    # The pg_trgm extension a migration normally provides is created by the
+    # test runner instead (general/test_runner.py).
+    DATABASES["default"]["TEST"] = {"MIGRATE": os.getenv("TEST_MIGRATE") == "1"}
+
 
 
 # Password validation

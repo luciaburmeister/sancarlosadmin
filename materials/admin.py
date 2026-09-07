@@ -24,8 +24,10 @@ from unfold.contrib.import_export.forms import (
     ImportForm,
     SelectableFieldsExportForm,
 )
+from invoices.models import Invoice
 from materials.resources import MaterialResource, PriceSheetItemResource, ProviderResource
-from payments.mixins import annotate_outstanding_balance
+from payments.admin_mixins import OutstandingBalanceAdminMixin, PendingInvoicesSection
+from payments.mixins import currency_symbol
 
 class ComponentPriceRuleInline(TabularInline):
     model = ComponentPriceRule
@@ -188,11 +190,12 @@ class ProviderForm(forms.ModelForm):
 
 
 @admin.register(Provider)
-class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
+class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     form = ProviderForm
     resource_classes = [ProviderResource]
     export_form_class = SelectableFieldsExportForm
-    list_display = ("name", "contact", "phone", "email", "tax_identifier", "account", "default_cost_center", "company", "balance_owed_display")
+    list_display = ("name", "contact", "phone", "email", "tax_identifier", "account", "default_cost_center", "company", "balance_overdue_display", "balance_not_due_display")
+    list_sections = [PendingInvoicesSection]
     search_fields = ("name", "contact", "phone", "email", "tax_identifier", "associated_emails")
     list_select_related = ["company", "account", "default_cost_center"]
     autocomplete_fields = ["company", "account", "default_cost_center"]
@@ -200,16 +203,14 @@ class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     list_filter_submit = True
     actions = ["merge_providers"]
 
+    balance_invoice_model = Invoice
+    balance_counterparty_field = "provider"
+
     formfield_overrides = {
         ArrayField: {
             "widget": ArrayWidget,
         }
     }
-
-    def get_queryset(self, request):
-        from invoices.models import Invoice
-        qs = super().get_queryset(request)
-        return annotate_outstanding_balance(qs, Invoice, "provider", "balance_owed")
 
     @admin.action(description=_("Merge selected providers (choose which to keep)"))
     def merge_providers(self, request, queryset):
@@ -238,26 +239,6 @@ class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
         ]
         return custom + urls
 
-    @staticmethod
-    def _pending_invoices_url(obj):
-        return (
-            reverse("admin:invoices_invoice_changelist")
-            + f"?provider__id__exact={obj.pk}&payment_status__in=unpaid,partial"
-        )
-
-    @display(description=_("Balance owed"))
-    def balance_owed_display(self, obj):
-        if not obj or not obj.pk:
-            return "—"
-        amount = getattr(obj, "balance_owed", None)
-        if not amount:
-            return "—"
-        return format_html(
-            '<a href="{}" target="_blank" rel="noopener" style="color:#dc2626;font-weight:600;">{} €</a>',
-            self._pending_invoices_url(obj), amount,
-        )
-    balance_owed_display.admin_order_field = "balance_owed"
-
     @display(description=_("Balance owed"))
     def balance_owed_detail_display(self, obj):
         if not obj or not obj.pk:
@@ -265,13 +246,19 @@ class ProviderAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
         amount = getattr(obj, "balance_owed", None)
         if not amount:
             return "—"
+        symbol = currency_symbol(getattr(obj, "balance_currency", "EUR"))
         return format_html(
-            '<span style="color:#dc2626;font-weight:600;">{} €</span> '
+            '<span style="color:#dc2626;font-weight:600;">{} {}</span> '
+            '<span style="margin-left:10px;color:#6b7280;">'
+            '{}: <span style="color:#dc2626;font-weight:600;">{} {}</span> · {}: {} {}</span> '
             '<a href="{}" target="_blank" rel="noopener" '
             'style="display:inline-block;margin-left:10px;padding:4px 12px;border-radius:6px;'
             'background:#dc2626;color:#fff;font-weight:600;text-decoration:none;white-space:nowrap;">'
             '{}</a>',
-            amount, self._pending_invoices_url(obj), _("See pending invoices"),
+            amount, symbol,
+            _("Overdue"), getattr(obj, "balance_overdue", 0) or 0, symbol,
+            _("Not overdue"), getattr(obj, "balance_not_due", 0) or 0, symbol,
+            self._pending_invoices_url(obj), _("See pending invoices"),
         )
 
     readonly_fields = ["balance_owed_detail_display"]

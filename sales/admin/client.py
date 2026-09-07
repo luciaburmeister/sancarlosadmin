@@ -6,11 +6,10 @@ from unfold.admin import GenericTabularInline as _GenericTabularInline
 from unfold.decorators import display
 from import_export.admin import ImportExportModelAdmin
 
-from django.urls import reverse
-
 from core.admin.company_admin import CompanyRestrictedAdmin
 from invoices.models import AppliedTax, SalesInvoice, SalesInvoiceStatus
-from payments.mixins import annotate_outstanding_balance
+from payments.admin_mixins import OutstandingBalanceAdminMixin, PendingInvoicesSection
+from payments.mixins import currency_symbol
 from sales.models import Client, ClientAddress, ClientContact, ClientBankAccount
 from sales.forms import ClientImportForm, ClientExportForm, ClientConfirmImportForm
 from sales.resources import ClientResource
@@ -91,12 +90,18 @@ class ClientAppliedTaxInline(_GenericTabularInline):
     tab = True
 
 @admin.register(Client)
-class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
+class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
     resource_classes = [ClientResource]
     import_form_class = ClientImportForm
     export_form_class = ClientExportForm
 
-    list_display = ["name", "commercial_name", "tax_identifier", "industry_identifier", "phone", "address_truncated",  "has_signed_terms", "balance_owed_display"]
+    # Proformas and cancelled invoices are not money anybody owes us yet.
+    balance_invoice_model = SalesInvoice
+    balance_counterparty_field = "client"
+    balance_invoice_filters = {"status": SalesInvoiceStatus.FINAL}
+
+    list_display = ["name", "commercial_name", "tax_identifier", "industry_identifier", "phone", "address_truncated",  "has_signed_terms", "balance_overdue_display", "balance_not_due_display"]
+    list_sections = [PendingInvoicesSection]
     search_fields = [
         "name", "commercial_name", "tax_identifier", "industry_identifier", "email", "phone", "address",
         "contacts__name", "contacts__email", "contacts__phone", "contacts__mobile_phone", "contacts__department",
@@ -109,34 +114,6 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
     def get_list_filter(self, request):
         return self.list_filter
 
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return annotate_outstanding_balance(
-            qs, SalesInvoice, "client", "balance_owed",
-            invoice_filters={"status": SalesInvoiceStatus.FINAL},
-        )
-
-    @staticmethod
-    def _pending_invoices_url(obj):
-        return (
-            reverse("admin:invoices_salesinvoice_changelist")
-            + f"?client__id__exact={obj.pk}&payment_status__in=unpaid,partial"
-            + f"&status__exact={SalesInvoiceStatus.FINAL}"
-        )
-
-    @display(description=_("Balance owed"))
-    def balance_owed_display(self, obj):
-        if not obj or not obj.pk:
-            return "—"
-        amount = getattr(obj, "balance_owed", None)
-        if not amount:
-            return "—"
-        return format_html(
-            '<a href="{}" target="_blank" rel="noopener" style="color:#16a34a;font-weight:600;">{} €</a>',
-            self._pending_invoices_url(obj), amount,
-        )
-    balance_owed_display.admin_order_field = "balance_owed"
-
     @display(description=_("Balance owed (they owe us)"))
     def balance_owed_detail_display(self, obj):
         if not obj or not obj.pk:
@@ -144,13 +121,19 @@ class ClientAdmin(_CompanyImportMixin, CompanyRestrictedAdmin, ImportExportModel
         amount = getattr(obj, "balance_owed", None)
         if not amount:
             return "—"
+        symbol = currency_symbol(getattr(obj, "balance_currency", "EUR"))
         return format_html(
-            '<span style="color:#16a34a;font-weight:600;">{} €</span> '
+            '<span style="color:#16a34a;font-weight:600;">{} {}</span> '
+            '<span style="margin-left:10px;color:#6b7280;">'
+            '{}: <span style="color:#dc2626;font-weight:600;">{} {}</span> · {}: {} {}</span> '
             '<a href="{}" target="_blank" rel="noopener" '
             'style="display:inline-block;margin-left:10px;padding:4px 12px;border-radius:6px;'
             'background:#16a34a;color:#fff;font-weight:600;text-decoration:none;white-space:nowrap;">'
             '{}</a>',
-            amount, self._pending_invoices_url(obj), _("See pending invoices"),
+            amount, symbol,
+            _("Overdue"), getattr(obj, "balance_overdue", 0) or 0, symbol,
+            _("Not overdue"), getattr(obj, "balance_not_due", 0) or 0, symbol,
+            self._pending_invoices_url(obj), _("See pending invoices"),
         )
 
     def get_confirm_form_class(self, request):

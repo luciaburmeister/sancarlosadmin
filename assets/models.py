@@ -4,7 +4,7 @@ from datetime import date as date_, datetime, time, timedelta
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.db.models import Exists, F, OuterRef, Q, Subquery
-from django.utils.translation import gettext_lazy as _
+from django.utils.translation import gettext_lazy as _, pgettext_lazy
 from simple_history.models import HistoricalRecords
 from sales.models import Client
 from company.models import CompanyOwnedModel, WorkingZone, BaseDocumentType, BaseDocument
@@ -188,7 +188,7 @@ class AssetFaultSeverity(models.TextChoices):
 
 class AssetFaultStatus(models.TextChoices):
     PENDING = "pending", _("Pending")
-    FIXED   = "fixed",   _("Fixed")
+    FIXED   = "fixed",   pgettext_lazy("asset_fault_status", "Fixed")
 
 
 class CubaTransactionKey:

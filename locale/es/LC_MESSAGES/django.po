@@ -8750,6 +8750,10 @@ msgstr "Transacciónes bancarias"
 msgid "Fixed"
 msgstr "Fijo"
 
+msgctxt "asset_fault_status"
+msgid "Fixed"
+msgstr "Arreglado"
+
 #, fuzzy
 #| msgid "Variable Name"
 msgid "Variable"

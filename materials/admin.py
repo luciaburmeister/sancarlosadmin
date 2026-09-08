@@ -271,7 +271,7 @@ class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelA
             "fields": ("contact", ("phone", "email"), "associated_emails")
         }),
         (_("Finance"), {
-            "fields": ("tax_identifier", "account")
+            "fields": ("tax_identifier", "account", ("payment_method", "payment_terms_days"))
         }),
     )
 

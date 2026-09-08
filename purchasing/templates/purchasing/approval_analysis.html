@@ -1,0 +1,279 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block title %}{% trans "Approval Analysis" %} — {{ po.number }}{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+
+    {# ── PO header ─────────────────────────────────────────────────────── #}
+    <div class="rounded-lg border border-base-200 bg-base-50 dark:bg-base-800 dark:border-base-700 p-6 mb-4">
+        <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+            <span class="material-symbols-outlined">task_alt</span>
+            {{ po.number }} — {{ po.provider.name }}
+        </h2>
+
+        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-1">
+                    {% trans "Provider" %}
+                </p>
+                <p class="text-sm font-medium">{{ po.provider.name }}</p>
+            </div>
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-1">
+                    {% trans "Cost Center" %}
+                </p>
+                <p class="text-sm font-medium">{{ po.cost_center|default:"—" }}</p>
+            </div>
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-1">
+                    {% trans "Payment Method" %}
+                </p>
+                <p class="text-sm font-medium">{{ po.get_payment_method_display }}</p>
+            </div>
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-1">
+                    {% trans "Payment Terms" %}
+                </p>
+                <p class="text-sm font-medium">{% blocktrans with days=po.payment_terms_days %}{{ days }} days{% endblocktrans %}</p>
+            </div>
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-1">
+                    {% trans "Type" %}
+                </p>
+                <p class="text-sm font-medium">{{ po.get_po_type_display }}</p>
+            </div>
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-1">
+                    {% trans "Date Ordered" %}
+                </p>
+                <p class="text-sm font-medium">{{ po.date_ordered }}</p>
+            </div>
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-1">
+                    {% trans "Requested By" %}
+                </p>
+                <p class="text-sm font-medium">{{ po.requested_by|default:"—" }}</p>
+            </div>
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-1">
+                    {% trans "Total Amount" %}
+                </p>
+                <p class="text-2xl font-bold text-primary-600 dark:text-primary-400">{{ po.total_amount }}</p>
+            </div>
+        </div>
+
+        {% if po.file %}
+        <div class="mt-4 pt-4 border-t border-base-200 dark:border-base-700">
+            <a href="{{ po.file.url }}" target="_blank"
+               class="inline-flex items-center gap-2 text-sm font-semibold text-primary-600 dark:text-primary-400 hover:underline">
+                <span class="material-symbols-outlined" style="font-size: 18px;">description</span>
+                {% trans "View provider quote" %}
+            </a>
+        </div>
+        {% endif %}
+    </div>
+
+    {# ── PO lines ──────────────────────────────────────────────────────── #}
+    <div class="rounded-lg border border-base-200 bg-white dark:bg-base-900 dark:border-base-700 mb-4 overflow-hidden">
+        <h3 class="text-base font-semibold px-6 pt-6 pb-2">{% trans "Order Lines" %}</h3>
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark bg-base-50 dark:bg-base-800">
+                    <th class="text-left px-6 py-3">{% trans "Item" %}</th>
+                    <th class="text-right px-6 py-3">{% trans "Quantity" %}</th>
+                    <th class="text-right px-6 py-3">{% trans "Unit Price" %}</th>
+                    <th class="text-right px-6 py-3">{% trans "Line Total" %}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr class="border-t border-base-100 dark:border-base-800">
+                    <td class="px-6 py-3">{{ item.description }}</td>
+                    <td class="px-6 py-3 text-right tabular-nums">{{ item.quantity }} {{ item.get_unit_display }}</td>
+                    <td class="px-6 py-3 text-right tabular-nums">{{ item.unit_price }}</td>
+                    <td class="px-6 py-3 text-right tabular-nums font-semibold">{{ item.line_total }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                    <td colspan="4" class="px-6 py-6 text-center text-font-subtle-light dark:text-font-subtle-dark">
+                        {% trans "No lines on this order." %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {# ── Project file budget context ──────────────────────────────────── #}
+    {% if project_file %}
+    <div class="rounded-lg border border-base-200 bg-white dark:bg-base-900 dark:border-base-700 p-6 mb-4">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-4">
+            <h3 class="text-base font-semibold flex items-center gap-2">
+                <span class="material-symbols-outlined">folder_open</span>
+                {% trans "Project File" %} — {{ project_file }}
+            </h3>
+            {% if primary_quote %}
+            <span class="text-xs font-bold uppercase tracking-wide px-3 py-1 rounded-full
+                {% if primary_quote.status == 'accepted' %}bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-400
+                {% elif primary_quote.status == 'rejected' %}bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400
+                {% else %}bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-400{% endif %}">
+                {% trans "Quote" %}: {{ primary_quote.get_status_display }}
+            </span>
+            {% else %}
+            <span class="text-xs font-bold uppercase tracking-wide px-3 py-1 rounded-full bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400">
+                {% trans "No Quote Yet" %}
+            </span>
+            {% endif %}
+        </div>
+
+        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 mb-6 pb-6 border-b border-base-100 dark:border-base-800">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-1">
+                    {% trans "Client" %}
+                </p>
+                <p class="text-sm font-medium">{{ project_file.client }}</p>
+            </div>
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-1">
+                    {% trans "Payment Method" %}
+                </p>
+                <p class="text-sm font-medium">{{ effective_payment_source.get_payment_method_display|default:"—" }}</p>
+            </div>
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-1">
+                    {% trans "Payment Terms" %}
+                </p>
+                <p class="text-sm font-medium">
+                    {% if effective_payment_source %}{% blocktrans with days=effective_payment_source.payment_terms_days %}{{ days }} days{% endblocktrans %}{% else %}—{% endif %}
+                </p>
+            </div>
+        </div>
+
+        {% if payment_method_mismatch %}
+        <div class="rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-700 p-4 mb-6 flex gap-3">
+            <span class="material-symbols-outlined text-yellow-600 dark:text-yellow-400 shrink-0">warning</span>
+            <p class="text-sm text-yellow-800 dark:text-yellow-200">
+                {% blocktrans with quote_method=primary_quote.get_payment_method_display quote_days=primary_quote.payment_terms_days effective_method=effective_payment_source.get_payment_method_display effective_days=effective_payment_source.payment_terms_days %}
+                The quote's payment terms ({{ quote_method }}, {{ quote_days }} days) no longer match the client's current terms ({{ effective_method }}, {{ effective_days }} days). The current value is shown above.
+                {% endblocktrans %}
+            </p>
+        </div>
+        {% endif %}
+
+        <div class="grid grid-cols-2 gap-6 mb-6">
+            <div class="pr-6 border-r border-base-100 dark:border-base-800">
+                <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-3">
+                    {% trans "Revenue (Invoicing)" %}
+                </p>
+                <div class="flex justify-between items-baseline mb-2">
+                    <span class="text-sm text-font-subtle-light dark:text-font-subtle-dark">{% trans "Invoiceable" %}</span>
+                    <span class="text-sm font-semibold">{{ project_file.total_amount }}</span>
+                </div>
+                <div class="flex justify-between items-baseline mb-2">
+                    <span class="text-sm text-font-subtle-light dark:text-font-subtle-dark">{% trans "Already Invoiced" %}</span>
+                    <span class="text-sm font-semibold">{{ project_file.total_invoiced }} <span class="text-font-subtle-light dark:text-font-subtle-dark">({{ project_file.percentage_invoiced }}%)</span></span>
+                </div>
+                <div class="flex justify-between items-baseline">
+                    <span class="text-sm text-font-subtle-light dark:text-font-subtle-dark">{% trans "Already Collected" %}</span>
+                    <span class="text-sm font-semibold">{{ already_collected }}</span>
+                </div>
+            </div>
+
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-3">
+                    {% trans "Cost (Purchasing)" %}
+                </p>
+                <div class="flex justify-between items-baseline mb-2">
+                    <span class="text-sm text-font-subtle-light dark:text-font-subtle-dark">{% trans "Already Committed (Approved POs)" %}</span>
+                    <span class="text-sm font-semibold">{{ project_file.total_purchased }}</span>
+                </div>
+                <div class="flex justify-between items-baseline mb-2">
+                    <span class="text-sm text-font-subtle-light dark:text-font-subtle-dark">{% trans "This PO" %}</span>
+                    <span class="text-sm font-semibold">{{ po.total_amount }}</span>
+                </div>
+                <div class="flex justify-between items-baseline pt-2 border-t border-base-100 dark:border-base-800">
+                    <span class="text-sm font-semibold">{% trans "Committed if Approved" %}</span>
+                    <span class="text-sm font-bold">{{ projected_purchased }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="rounded-lg border-2 {% if margin_after.amount < 0 %}border-red-200 dark:border-red-900 bg-red-50/40 dark:bg-red-900/10{% else %}border-primary-200 dark:border-primary-900 bg-primary-50/40 dark:bg-primary-900/10{% endif %} p-5">
+            <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-4">
+                {% trans "Project Margin (Invoiceable − Committed Cost)" %}
+            </p>
+            <div class="flex items-center gap-8 flex-wrap">
+                <div>
+                    <p class="text-[11px] uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-1">
+                        {% trans "Before this PO" %}
+                    </p>
+                    <p class="text-2xl font-semibold text-font-subtle-light dark:text-font-subtle-dark">
+                        {{ margin_before }}
+                        {% if margin_before_pct is not None %}<span class="text-sm font-medium">({{ margin_before_pct }}%)</span>{% endif %}
+                    </p>
+                </div>
+                <span class="material-symbols-outlined text-3xl text-font-subtle-light dark:text-font-subtle-dark">
+                    arrow_forward
+                </span>
+                <div>
+                    <p class="text-[11px] uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-1">
+                        {% trans "After this PO" %}
+                    </p>
+                    <p class="text-3xl font-bold {% if margin_after.amount < 0 %}text-red-600 dark:text-red-400{% else %}text-primary-600 dark:text-primary-400{% endif %}">
+                        {{ margin_after }}
+                        {% if margin_after_pct is not None %}<span class="text-base font-medium">({{ margin_after_pct }}%)</span>{% endif %}
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ── Other pending POs on the same project file ───────────────────── #}
+    {% if other_pending_pos %}
+    <div class="rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-700 p-4 mb-4 flex gap-3">
+        <span class="material-symbols-outlined text-yellow-600 dark:text-yellow-400 shrink-0">info</span>
+        <div class="text-sm text-yellow-800 dark:text-yellow-200">
+            <p class="font-semibold mb-1">
+                {% blocktrans count counter=other_pending_pos.count with total=other_pending_pos.total %}
+                {{ counter }} other PO from this project file is also pending approval ({{ total }} total).
+                {% plural %}
+                {{ counter }} other POs from this project file are also pending approval ({{ total }} total).
+                {% endblocktrans %}
+            </p>
+            <a href="{{ other_pending_pos.search_url }}" class="underline font-semibold">
+                {% trans "View them" %} →
+            </a>
+        </div>
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {# ── Actions ───────────────────────────────────────────────────────── #}
+    <div class="rounded-lg border border-base-200 bg-white dark:bg-base-900 dark:border-base-700 p-6 flex justify-between items-center">
+        <a href="{{ back_url }}"
+           class="flex items-center gap-2 px-4 py-2 rounded-md border border-base-200 dark:border-base-700 text-sm font-semibold hover:bg-base-100 dark:hover:bg-base-800 transition-colors">
+            <span class="material-symbols-outlined" style="font-size: 18px;">arrow_back</span>
+            {% trans "Back to PO" %}
+        </a>
+
+        <div class="flex gap-3">
+            <a href="{% url 'admin:purchasing_purchaseorder_reject' po.pk %}"
+               class="flex items-center gap-2 px-6 py-2 rounded-md border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm font-semibold hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors">
+                <span class="material-symbols-outlined" style="font-size: 18px;">cancel</span>
+                {% trans "Reject" %}
+            </a>
+            <form method="post">
+                {% csrf_token %}
+                <button type="submit"
+                        class="flex items-center gap-2 px-6 py-2 rounded-md bg-primary-600 hover:bg-primary-700 text-white text-sm font-semibold transition-colors">
+                    <span class="material-symbols-outlined" style="font-size: 18px;">check_circle</span>
+                    {% trans "Approve" %}
+                </button>
+            </form>
+        </div>
+    </div>
+
+</div>
+{% endblock %}

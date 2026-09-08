@@ -12,6 +12,15 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex
 from materials.validators import validate_rule_key
 
+class PaymentMethod(models.TextChoices):
+    TRANSFER = 'transfer', _('Bank Transfer')
+    CASH = 'cash', _('Cash')
+    CARD = 'card', _('Credit/Debit Card')
+    CHEQUE = 'cheque', _('Cheque')
+    SEPA_DIRECT_DEBIT = 'sepa_direct_debit', _('SEPA - Direct debit')
+    CONFIRMING = 'confirming', _('Confirming')
+
+
 class Provider(Timestampable,CompanyOwnedModel):
     name = models.CharField(max_length=200, db_index=True, verbose_name=_("Name"))
     contact = models.CharField(max_length=200, blank=True,verbose_name=_("Contact"))
@@ -42,7 +51,18 @@ class Provider(Timestampable,CompanyOwnedModel):
         verbose_name=_("Default Cost Center"),
         help_text=_("Automatically assigned to new purchase orders and invoices for this provider.")
     )
-
+    payment_method = models.CharField(
+        max_length=20,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.TRANSFER,
+        verbose_name=_("Payment Method"),
+        help_text=_("Default payment method for this provider; copied to new purchase orders and can be overridden per order."),
+    )
+    payment_terms_days = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name=_("Payment Terms (Days)"),
+        help_text=_("Default payment terms for this provider; copied to new purchase orders and can be overridden per order."),
+    )
     def __str__(self):
         return self.name
 

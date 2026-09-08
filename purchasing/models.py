@@ -5,7 +5,7 @@ from django.utils import timezone
 from djmoney.models.fields import MoneyField
 from timestamps.models import Timestampable
 from company.models import CompanyOwnedModel
-from materials.models import Provider, UnitChoices
+from materials.models import Provider, UnitChoices, PaymentMethod
 from inventory.models import InventoryItem, Warehouse, ItemTransaction
 from inventory.choices import ItemType, MovementType
 from configurator.utils.codegen import next_scoped_code
@@ -141,6 +141,18 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         verbose_name=_("Provider Quote/File"),
         help_text=_("Upload the quote from the provider to support approval.")
     )
+    payment_method = models.CharField(
+        max_length=20,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.TRANSFER,
+        verbose_name=_("Payment Method"),
+        help_text=_("Snapshot of the provider's payment method at creation; can be overridden per order."),
+    )
+    payment_terms_days = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name=_("Payment Terms (Days)"),
+        help_text=_("Snapshot of the provider's payment terms at creation; can be overridden per order."),
+    )
 
     class Meta:
         verbose_name = _("Purchase Order")
@@ -180,13 +192,14 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
     def save(self, *args, **kwargs):
         if self.po_type != PurchaseOrderType.PROJECT:
             self.project_file = None
-        # Stamp the provider's cost center at creation only, so clearing it on an
-        # existing order sticks instead of being silently refilled. Done here
-        # rather than in the admin so every write path is covered.
-        if self._state.adding and not self.cost_center_id and self.provider_id:
-            default = self.provider.default_cost_center
-            if default and default.is_active and default.is_assignable:
-                self.cost_center = default
+            
+        if self._state.adding and self.provider_id:
+            if not self.cost_center_id:
+                default = self.provider.default_cost_center
+                if default and default.is_active and default.is_assignable:
+                    self.cost_center = default
+            self.payment_method = self.provider.payment_method
+            self.payment_terms_days = self.provider.payment_terms_days
         if not self.number and self.company:
             self.number = next_scoped_code(
                 model=PurchaseOrder,

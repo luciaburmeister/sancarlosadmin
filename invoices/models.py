@@ -9,8 +9,8 @@ from company.models import  CompanyEmailConfig, CompanyOwnedModel
 from timestamps.models import Timestampable
 from django.core.validators import MinValueValidator, MaxValueValidator
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import date, datetime, time, timedelta
-from materials.models import Provider
+from datetime import time
+from materials.models import Provider, PaymentMethod
 from django_countries.fields import CountryField
 from django.utils.translation import gettext_lazy as _ 
 from django.contrib.contenttypes.fields import GenericForeignKey
@@ -39,14 +39,6 @@ class InvoiceGroup(models.Model):
     
     def __str__(self):
         return self.name
-
-class PaymentMethod(models.TextChoices):
-    TRANSFER = 'transfer', _('Bank Transfer')
-    CASH = 'cash', _('Cash')
-    CARD = 'card', _('Credit/Debit Card')
-    CHEQUE = 'cheque', _('Cheque')
-    SEPA_DIRECT_DEBIT = 'sepa_direct_debit', _('SEPA - Direct debit')
-    CONFIRMING = 'confirming', _('Confirming')
 
 class ConfirmationStatus(models.TextChoices):
     APPROVED = 'approved', _('Approved')

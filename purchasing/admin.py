@@ -24,7 +24,7 @@ from .models import (
 from .resources import PurchaseOrderResource
 from inventory.models import ItemIdentityCode
 from django.shortcuts import redirect
-from .views import DirectReceiptView, IdentityCodesView, POMatchInvoiceView, POAIMatchView, DispatchPOAIMatchView, RejectPurchaseOrderView
+from .views import DirectReceiptView, IdentityCodesView, POMatchInvoiceView, POAIMatchView, DispatchPOAIMatchView, RejectPurchaseOrderView, POApprovalAnalysisView
 
 class PurchaseOrderItemInline(StackedInline):
     model = PurchaseOrderItem
@@ -125,7 +125,8 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
                 "po_type",
                 "project_file",
                 "cost_center",
-                ("external_reference","file")
+                ("external_reference","file"),
+                ("payment_method", "payment_terms_days"),
             )
         }),
         (_("Financials & Approval"), {
@@ -147,9 +148,6 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
     
     inlines = [PurchaseOrderItemInline]
 
-    # On locked (non-draft) POs every field is readonly, so `po_type` is absent
-    # from the Alpine form data — the typeof guard keeps project_file visible
-    # there; get_fieldsets removes it for locked non-project POs instead.
     conditional_fields = {
         "project_file": "typeof po_type === 'undefined' || po_type == 'PROJECT'",
     }
@@ -172,12 +170,17 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
                 opts["fields"] = cleaned
         return fieldsets
 
-    actions_row = ["send_to_approval", "approve_po", "reject_po", "receive_directly"]
+    actions_row = ["send_to_approval", "review_approval", "approve_po", "reject_po", "receive_directly"]
     actions_detail = [
         {
             "title": _("Approval"),
             "icon": "task_alt",
-            "items": ["send_to_approval_detail_action", "approve_po_detail_action", "reject_po_detail_action"],
+            "items": [
+                "send_to_approval_detail_action",
+                "approval_analysis_detail_action",
+                "approve_po_detail_action",
+                "reject_po_detail_action",
+            ],
         },
         "register_identity_codes",
         "match_invoice_detail_action",
@@ -261,9 +264,6 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
 
     def get_readonly_fields(self, request, obj=None):
         if obj and obj.status != PurchaseOrderStatus.DRAFT:
-            # cost_center stays editable: it is a reporting tag rather than part
-            # of the commitment to the provider, and a mis-tagged order would
-            # otherwise be impossible to correct once it leaves DRAFT.
             return [
                 f.name for f in self.model._meta.fields
                 if f.name not in ("id", "cost_center")
@@ -343,6 +343,14 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
             return True
         return PurchaseOrder.objects.filter(pk=object_id, status=PurchaseOrderStatus.PENDING_APPROVAL).exists()
 
+    @action(description=_("Review"), icon="analytics", permissions=["can_approve_purchase_order", "po_is_pending_approval"])
+    def review_approval(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_purchaseorder_approval_analysis", args=[object_id]))
+
+    @action(description=_("Review"), icon="analytics", permissions=["can_approve_purchase_order", "po_is_pending_approval"])
+    def approval_analysis_detail_action(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_purchaseorder_approval_analysis", args=[object_id]))
+
     @action(description=_("Register Identity Codes"), icon="qr_code_2")
     def register_identity_codes(self, request, object_id: int):
         return redirect(reverse("admin:purchasing_purchaseorder_identity_codes", args=[object_id]))
@@ -358,6 +366,11 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
                 "<int:po_id>/reject/",
                 self.admin_site.admin_view(RejectPurchaseOrderView.as_view(model_admin=self)),
                 name="purchasing_purchaseorder_reject",
+            ),
+            path(
+                "<int:po_id>/approval-analysis/",
+                self.admin_site.admin_view(POApprovalAnalysisView.as_view(model_admin=self)),
+                name="purchasing_purchaseorder_approval_analysis",
             ),
             path(
                 "<int:po_id>/match-invoice/",
@@ -415,10 +428,6 @@ class PurchaseOrderReceiptAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def get_form(self, request, obj=None, **kwargs):
         form = super().get_form(request, obj, **kwargs)
         return form
-
-    # Optionally limit po_item choices in the inline to only items from the selected PO
-    # This usually requires some form JS or complex queryset filtering.
-    # For now we'll keep it simple as the user didn't ask for advanced UI filtering.
 
 @admin.register(PurchaseOrderItem)
 class PurchaseOrderItemAdmin(ModelAdmin):

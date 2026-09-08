@@ -3,7 +3,7 @@ from django.test import TestCase
 
 from company.models import Company
 from materials.admin import ProviderForm
-from materials.models import Provider
+from materials.models import PaymentMethod, Provider
 
 
 class ProviderTaxIdentifierUniquenessTest(TestCase):
@@ -84,27 +84,25 @@ class ProviderAdminFormRequiresTaxIdentifierTest(TestCase):
     def setUp(self):
         self.company = Company.objects.create(name="Company A")
 
+    def _form_data(self, **overrides):
+        data = {
+            "name": "Provider One",
+            "company": self.company.id,
+            "tax_identifier": "B12345678",
+            "associated_emails": "",
+            "payment_method": PaymentMethod.TRANSFER,
+            "payment_terms_days": 0,
+        }
+        data.update(overrides)
+        return data
+
     def test_form_rejects_blank_tax_identifier(self):
-        form = ProviderForm(
-            data={
-                "name": "Provider One",
-                "company": self.company.id,
-                "tax_identifier": "",
-                "associated_emails": "",
-            }
-        )
+        form = ProviderForm(data=self._form_data(tax_identifier=""))
 
         self.assertFalse(form.is_valid())
         self.assertIn("tax_identifier", form.errors)
 
     def test_form_accepts_a_tax_identifier(self):
-        form = ProviderForm(
-            data={
-                "name": "Provider One",
-                "company": self.company.id,
-                "tax_identifier": "B12345678",
-                "associated_emails": "",
-            }
-        )
+        form = ProviderForm(data=self._form_data())
 
         self.assertTrue(form.is_valid(), form.errors)

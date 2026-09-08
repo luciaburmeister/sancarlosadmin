@@ -206,6 +206,16 @@ class InvoiceFlagTest(DjangoQLSearchTestBase):
             self.overdue_invoice.pk, self.search(Invoice, "is_overdue = False")
         )
 
+    def test_invoice_without_due_date_is_overdue(self):
+        undated = self._invoice("F-NODATE", due_in_days=10)
+        Invoice.objects.filter(pk=undated.pk).update(due_date=None)
+
+        self.assertEqual(
+            self.search(Invoice, "is_overdue = True"),
+            {self.overdue_invoice.pk, undated.pk},
+        )
+        self.assertNotIn(undated.pk, self.search(Invoice, "is_overdue = False"))
+
     def test_paid_invoice_is_not_overdue(self):
         self.overdue_invoice.payment_status = InvoicePaymentStatus.PAID
         self.overdue_invoice.save(update_fields=["payment_status"])

@@ -1,7 +1,6 @@
 """Fields exposed to DjangoQL search for sales invoices."""
 
 from django.db.models import Q
-from django.utils import timezone
 
 from general.djangoql import SearchFields, flag, register
 from invoices.djangoql_fields.invoice import IS_PAID
@@ -11,6 +10,7 @@ from invoices.models import (
     SalesInvoiceItem,
     SalesInvoiceStatus,
 )
+from payments.mixins import overdue_q
 
 IS_FINAL = flag(
     "is_final",
@@ -20,10 +20,11 @@ IS_FINAL = flag(
 
 IS_OVERDUE = flag(
     "is_overdue",
-    lambda: Q(due_date__lt=timezone.localdate())
+    lambda: overdue_q()
     & ~Q(payment_status=InvoicePaymentStatus.PAID)
     & Q(status=SalesInvoiceStatus.FINAL),
-    "Past its due date and not fully paid; a proforma is never overdue.",
+    "Past its due date (or with no due date at all) and not fully paid; "
+    "a proforma is never overdue.",
 )
 
 

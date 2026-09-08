@@ -233,7 +233,7 @@ def flag(name, build_q, doc=None):
 
         IS_OVERDUE = flag(
             "is_overdue",
-            lambda: Q(due_date__lt=timezone.localdate()) & ~Q(payment_status="paid"),
+            lambda: overdue_q() & ~Q(payment_status="paid"),
         )
     """
     return type(

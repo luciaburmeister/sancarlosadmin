@@ -290,6 +290,20 @@ class PendingInvoicesDigestServiceTests(TestCase):
         self.assertEqual(digest.payables.overdue_count, 1)
         self.assertEqual(digest.receivables.count, 0)
 
+    def test_invoice_without_due_date_counts_as_overdue(self):
+        company = Company.objects.create(name="Beta")
+        provider = Provider.objects.create(company=company, name="ACME")
+        Invoice.objects.create(
+            company=company, provider=provider, invoice_number="F-NODATE",
+            total_amount=Money("75.00", "EUR"), due_date=None,
+        )
+
+        digest = PendingInvoicesDigestService.get_company_digests([company])[company.pk]
+
+        self.assertTrue(digest.payables.rows[0].overdue)
+        self.assertEqual(digest.payables.overdue_count, 1)
+        self.assertEqual(digest.payables.overdue_totals, {"EUR": Decimal("75.00")})
+
     def test_batches_to_two_queries_regardless_of_company_count(self):
         companies = []
         for i in range(3):

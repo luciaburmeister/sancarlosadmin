@@ -27,6 +27,7 @@ from payments.mixins import (
     annotate_outstanding_balance,
     annotate_split_outstanding_balance,
     currency_symbol,
+    overdue_q,
     pending_invoices_queryset,
 )
 from payments.models import Payment, PaymentAllocation, PaymentDirection, PaymentMethod
@@ -74,12 +75,14 @@ class SplitOutstandingBalanceTest(TestCase):
         self.assertEqual(provider.balance_overdue, Decimal("0.00"))
         self.assertEqual(provider.balance_not_due, Decimal("80.00"))
 
-    def test_invoice_without_due_date_counts_as_not_due(self):
+    def test_invoice_without_due_date_counts_as_overdue(self):
+        # Nobody agreed a term on it, so it is treated as already due rather
+        # than sitting in "not overdue" forever.
         self._invoice("F-NODATE", "60.00", None)
 
         provider = self._annotated_provider()
-        self.assertEqual(provider.balance_overdue, Decimal("0.00"))
-        self.assertEqual(provider.balance_not_due, Decimal("60.00"))
+        self.assertEqual(provider.balance_overdue, Decimal("60.00"))
+        self.assertEqual(provider.balance_not_due, Decimal("0.00"))
 
     def test_paid_invoices_are_excluded_from_both_halves(self):
         self._invoice(
@@ -180,8 +183,29 @@ class ClientBalanceFiltersTest(TestCase):
             )
         )
         self.assertEqual([i.pk for i in invoices], [earlier.pk, later.pk, undated.pk])
-        self.assertEqual([i.is_overdue for i in invoices], [True, False, False])
+        self.assertEqual([i.is_overdue for i in invoices], [True, False, True])
         self.assertEqual(invoices[0].db_amount_remaining, Decimal("80.00"))
+
+    def test_due_date_passed_filter_matches_the_balance_split(self):
+        # The overdue figure links to this filter, so an undated invoice has to
+        # land on the same side of both or the column and the list disagree.
+        overdue = self._sales_invoice(
+            "V-LATE", "80.00", self.today - timedelta(days=2), SalesInvoiceStatus.FINAL
+        )
+        undated = self._sales_invoice("V-UNDATED", "20.00", None, SalesInvoiceStatus.FINAL)
+        current = self._sales_invoice(
+            "V-SOON", "50.00", self.today + timedelta(days=10), SalesInvoiceStatus.FINAL
+        )
+
+        invoices = SalesInvoice.objects.all()
+        self.assertEqual(
+            set(invoices.filter(overdue_q()).values_list("pk", flat=True)),
+            {overdue.pk, undated.pk},
+        )
+        self.assertEqual(
+            set(invoices.exclude(overdue_q()).values_list("pk", flat=True)),
+            {current.pk},
+        )
 
 
 class CounterpartyChangelistTest(TestCase):
@@ -217,6 +241,9 @@ class CounterpartyChangelistTest(TestCase):
         self.assertIn("due_date_passed=no", body)
         # The dropdown lists the invoice itself, not just the total.
         self.assertIn("F-LATE", body)
+        # Total alongside the split: 100 overdue + 100 not due.
+        self.assertIn("200.00 €", body)
+        self.assertEqual(body.count("100.00 €"), 2)
 
     def test_dropdown_does_not_cost_a_query_per_row(self):
         # The section renders every row's invoices; without the prefetch in

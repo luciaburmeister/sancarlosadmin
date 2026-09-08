@@ -14593,6 +14593,9 @@ msgstr "Emitida"
 msgid "No pending invoices."
 msgstr "Sin facturas pendientes."
 
+msgid "Total balance"
+msgstr "Saldo total"
+
 #, fuzzy
 #~ msgid "Configuration ID"
 #~ msgstr "Configuración"

@@ -120,7 +120,7 @@ class ClientResource(resources.ModelResource):
             "balance_overdue",
             "balance_not_due",
             "balance_owed",
-            "company"
+            "company__name"
         )
 
     def get_queryset(self):

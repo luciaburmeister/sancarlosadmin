@@ -95,7 +95,6 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
     import_form_class = ClientImportForm
     export_form_class = ClientExportForm
 
-    # Proformas and cancelled invoices are not money anybody owes us yet.
     balance_invoice_model = SalesInvoice
     balance_counterparty_field = "client"
     balance_invoice_filters = {"status": SalesInvoiceStatus.FINAL}
@@ -108,8 +107,7 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
     ]
     list_filter = ["sale_zone", "is_insured", "contacts__role"]
     autocomplete_fields = ["company", "agent", "sale_zone", "our_bank_account","discount_policies","default_client_bank_account"]
-    
-
+    list_select_related = ["company"]   
 
     def get_list_filter(self, request):
         return self.list_filter

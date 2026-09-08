@@ -116,6 +116,7 @@ class ClientResource(resources.ModelResource):
             "phone",
             "email",
             "balance_owed",
+            "company"
         )
 
     def get_queryset(self):

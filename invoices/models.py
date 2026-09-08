@@ -385,14 +385,11 @@ class Invoice(Timestampable, Payable):
         # Default accounting_date to date_issued if not set
         if not self.accounting_date and self.date_issued:
             self.accounting_date = self.date_issued
-        # Provider's cost center as a starting point, at creation only. A matched
-        # purchase order overrides it later in POInvoiceMatchService.confirm(),
-        # since the order is the more specific source.
+        
         if self._state.adding and not self.cost_center_id and self.provider_id:
             default = self.provider.default_cost_center
             if default and default.is_active and default.is_assignable:
                 self.cost_center = default
-        # Automatic recalculation if already exists
         if self.pk and not kwargs.get('update_fields'):
             self.recalculate_totals(save=False)
         super().save(*args, **kwargs)

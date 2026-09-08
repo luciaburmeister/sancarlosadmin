@@ -309,13 +309,13 @@ class InvoiceService:
         Create the main Invoice record with image hash
         """
         # Parse dates
-        date_issued = self._parse_date(extracted_data.date_issued)
+        date_issued = self._parse_date(extracted_data.date_issued) or datetime.now().date()
         due_date = self._parse_date(extracted_data.due_date)
-        
+
         # Create invoice
         invoice = Invoice.objects.create(
             invoice_number=extracted_data.invoice_number or 'UNKNOWN',
-            date_issued=date_issued or datetime.now().date(),
+            date_issued=date_issued,
             due_date=due_date or datetime.now().date(),
             accounting_date=datetime.now().date(),
             provider=provider,  # Will be None if matching failed

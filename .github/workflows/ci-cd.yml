@@ -106,96 +106,36 @@ jobs:
       - name: Check for missing migrations
         run: poetry run python manage.py makemigrations --check --dry-run
 
-      - name: Run tests (PostgreSQL)
+      # The tests build their database from the models, so they no longer prove
+      # the migrations apply to a fresh install (which deploy does against
+      # production). Run `migrate` against the empty test_db in the background
+      # while the tests run against their own test_test_db; the ~4 minutes of
+      # migrations overlap with the tests instead of adding to them.
+      - name: Run tests and apply migrations to an empty database (in parallel)
         # --durations prints the slowest tests so a new slow test is visible
         # in the CI log instead of silently inflating the total.
-        run: poetry run python manage.py test --parallel --durations 25 --timing
-
-  # Tests no longer replay the migrations, so apply them to an empty database
-  # here, in parallel with the test job, to catch a migration that fails on a
-  # fresh install before deploy runs it against production.
-  migrate:
-    runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgis/postgis:15-3.4
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: migrate_db
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    env:
-      POETRY_VERSION: 2.4.1
-
-      DB_NAME: migrate_db
-      DB_USER: postgres
-      DB_PASSWORD: postgres
-      DB_HOST: localhost
-      DB_PORT: 5432
-
-      DEBUG: False
-      DB_SSLMODE: disable
-      AEAT_SUBMISSIONS_ENABLED: 'False'
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.14'
-
-      - name: Install GDAL
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gdal-bin libgdal-dev python3-gdal binutils libproj-dev
+          poetry run python manage.py migrate --noinput > migrate.log 2>&1 &
+          migrate_pid=$!
 
-      - name: Install pipx
-        run: python3 -m pip install --user pipx
+          test_status=0
+          poetry run python manage.py test --parallel --durations 25 --timing || test_status=$?
 
-      - name: Install Poetry with pipx
-        run: |
-          python3 -m pipx install poetry==${{ env.POETRY_VERSION }}
-          echo "${{ env.HOME }}/.local/bin" >> $GITHUB_PATH
+          migrate_status=0
+          wait "$migrate_pid" || migrate_status=$?
 
-      - name: Configure Poetry to use in-project virtualenv
-        run: poetry config virtualenvs.in-project true
+          echo "::group::migrate output"
+          cat migrate.log
+          echo "::endgroup::"
 
-      - name: Cache Poetry virtualenv
-        uses: actions/cache@v4
-        with:
-          path: .venv
-          key: poetry-venv-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
-          restore-keys: |
-            poetry-venv-${{ runner.os }}-
-
-      - name: Install dependencies
-        run: poetry install
-
-      - name: Tune PostgreSQL for a throwaway database
-        run: |
-          docker exec ${{ job.services.postgres.id }} psql -U postgres -d migrate_db \
-            -v ON_ERROR_STOP=1 \
-            -c "ALTER SYSTEM SET fsync = off" \
-            -c "ALTER SYSTEM SET synchronous_commit = off" \
-            -c "ALTER SYSTEM SET full_page_writes = off" \
-            -c "SELECT pg_reload_conf()"
-
-      - name: Apply all migrations to an empty database
-        run: poetry run python manage.py migrate --noinput
+          if [ "$migrate_status" -ne 0 ]; then
+            echo "::error::Applying the migrations to an empty database failed (see migrate output above)"
+          fi
+          [ "$test_status" -eq 0 ] && [ "$migrate_status" -eq 0 ]
 
   deploy:
     runs-on: ubuntu-latest
-    needs: [build, migrate]
+    needs: build
 
     env:
       POETRY_VERSION: 2.4.1

@@ -187,6 +187,8 @@ class ProviderResource(resources.ModelResource):
     default_cost_center = fields.Field(column_name=_("Default Cost Center"), readonly=True)
     company = fields.Field(column_name=_("Company"), readonly=True)
     balance_owed = fields.Field(column_name=_("Balance owed"), readonly=True)
+    balance_overdue = fields.Field(column_name=_("Overdue"), readonly=True)
+    balance_not_due = fields.Field(column_name=_("Not overdue"), readonly=True)
 
     class Meta:
         model = Provider
@@ -201,6 +203,8 @@ class ProviderResource(resources.ModelResource):
             "account",
             "default_cost_center",
             "company",
+            "balance_overdue",
+            "balance_not_due",
             "balance_owed",
         )
         export_order = fields
@@ -220,14 +224,26 @@ class ProviderResource(resources.ModelResource):
     def get_queryset(self):
         # Only used when the admin doesn't pass its (already annotated) queryset.
         from invoices.models import Invoice
-        from payments.mixins import annotate_outstanding_balance
+        from payments.mixins import (
+            annotate_outstanding_balance,
+            annotate_split_outstanding_balance,
+        )
 
-        return annotate_outstanding_balance(
-            super().get_queryset().select_related("company", "account"),
-            Invoice,
-            "provider",
-            "balance_owed",
+        qs = super().get_queryset().select_related("company", "account")
+        # Add total balance first, then split it
+        qs = annotate_outstanding_balance(
+            qs, Invoice, "provider", "balance_owed",
+        )
+        # Add the split (overdue / not due)
+        return annotate_split_outstanding_balance(
+            qs, Invoice, "provider",
         )
 
     def dehydrate_balance_owed(self, provider):
         return float(getattr(provider, "balance_owed", 0) or 0)
+
+    def dehydrate_balance_overdue(self, provider):
+        return float(getattr(provider, "balance_overdue", 0) or 0)
+
+    def dehydrate_balance_not_due(self, provider):
+        return float(getattr(provider, "balance_not_due", 0) or 0)

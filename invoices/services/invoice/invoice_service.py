@@ -250,7 +250,7 @@ class InvoiceService:
 
                 invoice.invoice_number = invoice_num
                 invoice.date_issued = self._parse_date(extracted_data.date_issued) or invoice.date_issued or timezone.now().date()
-                invoice.due_date = self._parse_date(extracted_data.due_date) or invoice.due_date or timezone.now().date()
+                invoice.due_date = self._parse_date(extracted_data.due_date) or invoice.due_date or invoice.date_issued
                 invoice.accounting_date = datetime.now().date()
                 invoice.provider = provider
                 invoice.net_amount = extracted_data.net_amount or invoice.net_amount
@@ -316,7 +316,7 @@ class InvoiceService:
         invoice = Invoice.objects.create(
             invoice_number=extracted_data.invoice_number or 'UNKNOWN',
             date_issued=date_issued,
-            due_date=due_date or datetime.now().date(),
+            due_date=due_date or date_issued,
             accounting_date=datetime.now().date(),
             provider=provider,  # Will be None if matching failed
             net_amount=extracted_data.net_amount,

@@ -4,6 +4,8 @@ from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin, StackedInline
 from unfold.admin import GenericTabularInline as _GenericTabularInline
 from unfold.decorators import display
+from unfold.contrib.forms.widgets import ArrayWidget
+from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from import_export.admin import ImportExportModelAdmin
 
 from core.admin.company_admin import CompanyRestrictedAdmin
@@ -11,7 +13,7 @@ from invoices.models import AppliedTax, SalesInvoice, SalesInvoiceStatus
 from payments.admin_mixins import OutstandingBalanceAdminMixin, PendingInvoicesSection
 from payments.mixins import currency_symbol
 from sales.models import Client, ClientAddress, ClientContact, ClientBankAccount
-from sales.forms import ClientImportForm, ClientExportForm, ClientConfirmImportForm
+from sales.forms import ClientImportForm, ClientConfirmImportForm
 from sales.resources import ClientResource
 
 from .mixins import _CompanyImportMixin
@@ -93,7 +95,7 @@ class ClientAppliedTaxInline(_GenericTabularInline):
 class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ImportExportModelAdmin, ModelAdmin):
     resource_classes = [ClientResource]
     import_form_class = ClientImportForm
-    export_form_class = ClientExportForm
+    export_form_class = SelectableFieldsExportForm
 
     balance_invoice_model = SalesInvoice
     balance_counterparty_field = "client"

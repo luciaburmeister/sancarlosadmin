@@ -217,6 +217,9 @@ class CounterpartyChangelistTest(TestCase):
         self.assertIn("due_date_passed=no", body)
         # The dropdown lists the invoice itself, not just the total.
         self.assertIn("F-LATE", body)
+        # Total alongside the split: 100 overdue + 100 not due.
+        self.assertIn("200.00 €", body)
+        self.assertEqual(body.count("100.00 €"), 2)
 
     def test_dropdown_does_not_cost_a_query_per_row(self):
         # The section renders every row's invoices; without the prefetch in

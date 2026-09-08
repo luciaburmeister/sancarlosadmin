@@ -100,7 +100,7 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
     balance_counterparty_field = "client"
     balance_invoice_filters = {"status": SalesInvoiceStatus.FINAL}
 
-    list_display = ["name", "commercial_name", "tax_identifier", "industry_identifier", "phone", "address_truncated",  "has_signed_terms", "balance_overdue_display", "balance_not_due_display"]
+    list_display = ["name", "commercial_name", "tax_identifier", "phone", "balance_overdue_display", "balance_not_due_display", "balance_owed_display"]
     list_sections = [PendingInvoicesSection]
     search_fields = [
         "name", "commercial_name", "tax_identifier", "industry_identifier", "email", "phone", "address",
@@ -138,12 +138,6 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
 
     def get_confirm_form_class(self, request):
         return ClientConfirmImportForm
-
-    @display(description=_("Address"))
-    def address_truncated(self, obj):
-        if not obj.address or obj.address == "-":
-            return "-"
-        return obj.address if len(obj.address) <= 40 else obj.address[:40] + "…"
 
     inlines = [ClientAddressInline, ClientContactInline, ClientBankAccountInline, ClientAppliedTaxInline]
 

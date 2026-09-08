@@ -21,8 +21,11 @@ from payments.mixins import (
 # Where get_queryset() prefetches each row's pending invoices for the section.
 PENDING_INVOICES_ATTR = "pending_invoices"
 
+# Colour carries urgency, not direction: red is the overdue money and nothing
+# else, so it stays the one figure that catches the eye on a row.
 _OVERDUE_COLOR = "#dc2626"
 _NOT_DUE_COLOR = "#6b7280"
+_TOTAL_COLOR = "#111827"
 
 
 class PendingInvoicesSection(TemplateSection):
@@ -60,8 +63,9 @@ class OutstandingBalanceAdminMixin:
 
     Subclasses set `balance_invoice_model` (the `Payable` holding the debt),
     `balance_counterparty_field` (its FK back here) and optionally
-    `balance_invoice_filters` (which invoices count at all), then add the two
-    displays to `list_display` and `PendingInvoicesSection` to `list_sections`.
+    `balance_invoice_filters` (which invoices count at all), then add the
+    balance displays to `list_display` and `PendingInvoicesSection` to
+    `list_sections`.
     """
 
     balance_invoice_model = None
@@ -134,6 +138,11 @@ class OutstandingBalanceAdminMixin:
             'style="color:{};font-weight:600;white-space:nowrap;">{} {}</a>',
             self._pending_invoices_url(obj, due_date_passed), color, amount, symbol,
         )
+
+    @display(description=_("Total balance"))
+    def balance_owed_display(self, obj):
+        return self._balance_link(obj, "balance_owed", _TOTAL_COLOR, None)
+    balance_owed_display.admin_order_field = "balance_owed"
 
     @display(description=_("Overdue"))
     def balance_overdue_display(self, obj):

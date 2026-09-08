@@ -52,11 +52,12 @@ class DueDatePassedFilter(DropdownFilter):
         )
 
     def queryset(self, request, queryset):
-        today = timezone.localdate()
+        from payments.mixins import overdue_q
+
         if self.value() == "yes":
-            return queryset.filter(due_date__lt=today)
+            return queryset.filter(overdue_q())
         if self.value() == "no":
-            return queryset.exclude(due_date__lt=today)
+            return queryset.exclude(overdue_q())
         return queryset
 
 

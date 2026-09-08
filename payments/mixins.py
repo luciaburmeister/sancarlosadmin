@@ -11,6 +11,7 @@ from django.db.models import (
     DecimalField,
     F,
     OuterRef,
+    Q,
     QuerySet,
     Subquery,
     Sum,
@@ -84,7 +85,7 @@ def annotate_outstanding_balance(
     counterparty_field: str,
     annotation_name: str = "outstanding_balance",
     invoice_filters: dict | None = None,
-    invoice_excludes: dict | None = None,
+    invoice_q: Q | None = None,
 ) -> QuerySet:
     """
     Annotate a Provider/Client queryset with the total outstanding balance
@@ -96,8 +97,8 @@ def annotate_outstanding_balance(
 
     `invoice_filters` optionally narrows which invoices count, e.g.
     ``{"status": SalesInvoiceStatus.FINAL}`` to ignore proforma/cancelled ones.
-    `invoice_excludes` drops invoices the same way, for the conditions that
-    can only be expressed as an exclude (see `annotate_split_outstanding_balance`).
+    `invoice_q` narrows them further with a `Q`, for conditions a dict of
+    lookups can't express (see `annotate_split_outstanding_balance`).
     """
     from invoices.models import InvoicePaymentStatus
     from payments.models import PaymentAllocation
@@ -118,8 +119,8 @@ def annotate_outstanding_balance(
     invoices = invoice_model.objects.filter(
         **{counterparty_field: OuterRef("pk")}, **(invoice_filters or {})
     ).exclude(payment_status=InvoicePaymentStatus.PAID)
-    if invoice_excludes:
-        invoices = invoices.exclude(**invoice_excludes)
+    if invoice_q is not None:
+        invoices = invoices.filter(invoice_q)
 
     remaining_per_invoice = (
         invoices
@@ -173,12 +174,27 @@ def annotate_balance_currency(
     })
 
 
-def overdue_lookup(today=None) -> dict:
+def overdue_q(today=None) -> Q:
     """
-    What makes an unpaid invoice overdue: a due date strictly before today, so
-    undated ones never are. Kept identical to `invoices.filters.DueDatePassedFilter`.
+    What makes an unpaid invoice overdue: a due date strictly before today, or
+    no due date at all - an invoice nobody put a term on is treated as already
+    due rather than indefinitely current.
+
+    Kept identical to `invoices.filters.DueDatePassedFilter`, so the same
+    invoice can't be overdue on a counterparty list and current on the invoice
+    list its figures link to.
     """
-    return {"due_date__lt": today or timezone.localdate()}
+    return Q(due_date__lt=today or timezone.localdate()) | Q(due_date__isnull=True)
+
+
+def is_overdue(invoice, today=None) -> bool:
+    """
+    `overdue_q` for an invoice already in memory, for the callers that walk
+    rows in Python instead of filtering in the database. Same rule - keep the
+    two in step.
+    """
+    due_date = getattr(invoice, "due_date", None)
+    return due_date is None or due_date < (today or timezone.localdate())
 
 
 def annotate_split_outstanding_balance(
@@ -195,15 +211,15 @@ def annotate_split_outstanding_balance(
     (`not_due_name`). They partition the same invoices, so the two always add
     up to `annotate_outstanding_balance` with the same `invoice_filters`.
     """
-    overdue = overdue_lookup()
+    overdue = overdue_q()
 
     queryset = annotate_outstanding_balance(
         queryset, invoice_model, counterparty_field, overdue_name,
-        invoice_filters={**(invoice_filters or {}), **overdue},
+        invoice_filters=invoice_filters, invoice_q=overdue,
     )
     return annotate_outstanding_balance(
         queryset, invoice_model, counterparty_field, not_due_name,
-        invoice_filters=invoice_filters, invoice_excludes=overdue,
+        invoice_filters=invoice_filters, invoice_q=~overdue,
     )
 
 
@@ -223,9 +239,9 @@ def pending_invoices_queryset(invoice_model, invoice_filters: dict | None = None
     return (
         annotate_amount_remaining(invoices, invoice_model)
         .annotate(
-            # Case/When, not a bare Q: comparing a NULL due date yields NULL.
+            # Case/When, not a bare Q: a Q alone yields NULL, never False.
             is_overdue=Case(
-                When(**overdue_lookup(), then=Value(True)),
+                When(overdue_q(), then=Value(True)),
                 default=Value(False),
                 output_field=BooleanField(),
             )

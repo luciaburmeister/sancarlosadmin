@@ -28,7 +28,7 @@ from invoices.models import (
     SalesInvoice,
     SalesInvoiceStatus,
 )
-from payments.mixins import annotate_amount_remaining
+from payments.mixins import annotate_amount_remaining, is_overdue
 
 _ZERO = Decimal("0.00")
 
@@ -145,8 +145,8 @@ class PendingInvoicesDigestService:
             currency = getattr(inv, "total_amount_currency", None) or "EUR"
             totals[currency] = totals.get(currency, _ZERO) + remaining
 
-            is_overdue = inv.due_date is not None and inv.due_date < today
-            if is_overdue:
+            overdue = is_overdue(inv, today)
+            if overdue:
                 overdue_count += 1
                 overdue_totals[currency] = (
                     overdue_totals.get(currency, _ZERO) + remaining
@@ -160,7 +160,7 @@ class PendingInvoicesDigestService:
                     due_date=inv.due_date,
                     remaining=remaining,
                     currency=currency,
-                    overdue=is_overdue,
+                    overdue=overdue,
                 )
             )
 

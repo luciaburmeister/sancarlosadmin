@@ -20,7 +20,7 @@ from unfold.views import UnfoldModelAdminViewMixin
 
 from core.admin.company_access import get_user_companies
 from invoices.models import Invoice, InvoicePaymentStatus
-from payments.mixins import annotate_amount_remaining
+from payments.mixins import annotate_amount_remaining, overdue_q
 from payments.models import PaymentAllocation
 from payroll.services.cashflow import build_week_ranges, get_payroll_outflows
 
@@ -176,7 +176,7 @@ class AccountsPayableDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             total_overdue=Coalesce(
                 Sum(
                     "db_amount_remaining",
-                    filter=Q(due_date__lt=today),
+                    filter=overdue_q(today),
                 ),
                 Value(Decimal("0.00")),
                 output_field=DecimalField(),
@@ -275,9 +275,9 @@ class AccountsPayableDashboardView(UnfoldModelAdminViewMixin, TemplateView):
                 output_field=field,
             )
 
-        # Overdue total: due before date_from
+        # Overdue total: due before date_from, plus anything with no due date
         agg_kwargs["overdue_total"] = Coalesce(
-            Sum("db_amount_remaining", filter=Q(due_date__lt=date_from)),
+            Sum("db_amount_remaining", filter=overdue_q(date_from)),
             zero,
             output_field=field,
         )

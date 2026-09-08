@@ -1,4 +1,5 @@
 import logging
+from datetime import timedelta
 from decimal import Decimal
 
 from django import forms
@@ -25,6 +26,7 @@ from banking.models import (
     ReconciliationStatus,
 )
 from banking.services.transaction_matching import TransactionMatcher
+from banking.services.transaction_matching.types import PAYMENT_DATE_TOLERANCE_DAYS
 from payments.models import Payment, PaymentAllocation, PaymentDirection
 
 logger = logging.getLogger(__name__)
@@ -386,12 +388,18 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
     @staticmethod
     def _get_candidate_documents(txn: BankTransaction) -> list:
         """Return unpaid invoices, sales invoices, loan installments, or
-        approved expense claims for this transaction's company."""
+        approved expense claims for this transaction's company.
+
+        Documents dated up to PAYMENT_DATE_TOLERANCE_DAYS after the
+        transaction date are included too, so a payment made slightly
+        before the document's date (early payments) is still selectable.
+        """
         Invoice = apps.get_model("invoices", "Invoice")
         SalesInvoice = apps.get_model("invoices", "SalesInvoice")
         LoanInstallment = apps.get_model("loans", "LoanInstallment")
         ExpenseClaim = apps.get_model("expenses", "ExpenseClaim")
 
+        cutoff_date = txn.transaction_date + timedelta(days=PAYMENT_DATE_TOLERANCE_DAYS)
         direction = PaymentDirection.INBOUND if txn.amount.amount > 0 else PaymentDirection.OUTBOUND
         results = []
 
@@ -399,7 +407,7 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
             qs = Invoice.objects.filter(
                 company=txn.company,
                 payment_status__in=["unpaid", "partial"],
-                date_issued__lte=txn.transaction_date,
+                date_issued__lte=cutoff_date,
             ).select_related("provider").order_by("-date_issued")
 
             ct = ContentType.objects.get_for_model(Invoice)
@@ -418,7 +426,7 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
                 loan__company=txn.company,
                 loan__bank_account=txn.bank_account,
                 payment_status__in=["unpaid", "partial"],
-                due_date__lte=txn.transaction_date,
+                due_date__lte=cutoff_date,
             ).select_related("loan", "loan__bank").order_by("due_date")
 
             ict = ContentType.objects.get_for_model(LoanInstallment)
@@ -437,7 +445,7 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
             claim_qs = ExpenseClaim.objects.filter(
                 company=txn.company,
                 status=ExpenseClaimStatus.APPROVED,
-                created_at__date__lte=txn.transaction_date,
+                created_at__date__lte=cutoff_date,
             ).select_related("submitted_by").order_by("-created_at")
 
             cct = ContentType.objects.get_for_model(ExpenseClaim)
@@ -457,7 +465,7 @@ class ManualReconcileView(UnfoldModelAdminViewMixin, TemplateView):
             qs = SalesInvoice.objects.filter(
                 company=txn.company,
                 payment_status__in=["unpaid", "partial"],
-                date_issued__lte=txn.transaction_date,
+                date_issued__lte=cutoff_date,
             ).select_related("client").order_by("-date_issued")
 
             ct = ContentType.objects.get_for_model(SalesInvoice)

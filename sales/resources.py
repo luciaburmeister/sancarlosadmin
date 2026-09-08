@@ -103,6 +103,8 @@ class ClientResource(resources.ModelResource):
     """
 
     balance_owed = fields.Field(column_name=_("Balance owed"), readonly=True)
+    balance_overdue = fields.Field(column_name=_("Overdue"), readonly=True)
+    balance_not_due = fields.Field(column_name=_("Not overdue"), readonly=True)
 
     class Meta:
         model = Client
@@ -115,6 +117,8 @@ class ClientResource(resources.ModelResource):
             "address",
             "phone",
             "email",
+            "balance_overdue",
+            "balance_not_due",
             "balance_owed",
             "company"
         )
@@ -122,15 +126,31 @@ class ClientResource(resources.ModelResource):
     def get_queryset(self):
         # Only used when the admin doesn't pass its (already annotated) queryset.
         from invoices.models import SalesInvoice, SalesInvoiceStatus
-        from payments.mixins import annotate_outstanding_balance
+        from payments.mixins import (
+            annotate_outstanding_balance,
+            annotate_split_outstanding_balance,
+        )
 
-        return annotate_outstanding_balance(
-            super().get_queryset(), SalesInvoice, "client", "balance_owed",
+        qs = super().get_queryset()
+        # Add total balance first, then split it
+        qs = annotate_outstanding_balance(
+            qs, SalesInvoice, "client", "balance_owed",
+            invoice_filters={"status": SalesInvoiceStatus.FINAL},
+        )
+        # Add the split (overdue / not due)
+        return annotate_split_outstanding_balance(
+            qs, SalesInvoice, "client",
             invoice_filters={"status": SalesInvoiceStatus.FINAL},
         )
 
     def dehydrate_balance_owed(self, client):
         return float(getattr(client, "balance_owed", 0) or 0)
+
+    def dehydrate_balance_overdue(self, client):
+        return float(getattr(client, "balance_overdue", 0) or 0)
+
+    def dehydrate_balance_not_due(self, client):
+        return float(getattr(client, "balance_not_due", 0) or 0)
 
     def __init__(self, *args, **kwargs):
         self._default_company = kwargs.pop("default_company", None)

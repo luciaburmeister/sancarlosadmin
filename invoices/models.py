@@ -9,7 +9,7 @@ from company.models import  CompanyEmailConfig, CompanyOwnedModel
 from timestamps.models import Timestampable
 from django.core.validators import MinValueValidator, MaxValueValidator
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import time
+from datetime import date, datetime, time, timedelta
 from materials.models import Provider
 from django_countries.fields import CountryField
 from django.utils.translation import gettext_lazy as _ 
@@ -1083,10 +1083,45 @@ class SalesInvoice(CompanyOwnedModel, Payable):
     def amount_remaining(self):
         return self.total_amount - self.amount_paid
 
+    def resolve_payment_terms_days(self):
+        """
+        Payment terms (days) for this invoice: its own snapshot when set,
+        otherwise the client's configured default.
+        """
+        if self.payment_terms_days:
+            return self.payment_terms_days
+        if self.client_id:
+            return self.client.payment_terms_days or 0
+        return 0
+
+    def _apply_default_due_date(self):
+        """
+        Derive `due_date` from the client's payment terms for internal invoices
+        that were created without one. External invoices carry the due date of
+        the document they were imported from, so they are left untouched.
+        """
+        if self.is_external or self.due_date or not self.client_id:
+            return
+
+        date_issued = self.date_issued
+        if isinstance(date_issued, datetime):
+            date_issued = timezone.localdate(date_issued) if timezone.is_aware(date_issued) else date_issued.date()
+        if not isinstance(date_issued, date):
+            return
+
+        terms_days = self.resolve_payment_terms_days()
+        self.due_date = date_issued + timedelta(days=terms_days)
+        if not self.payment_terms_days:
+            self.payment_terms_days = terms_days
+
     def save(self, *args, **kwargs):
         # Automatic recalculation if already exists
         if self.pk and not kwargs.get('update_fields'):
             self.recalculate_totals(save=False)
+
+        if self._state.adding:
+            self._apply_default_due_date()
+
         super().save(*args, **kwargs)
 
         update_fields = kwargs.get('update_fields')

@@ -130,7 +130,7 @@ class ClientBalanceFiltersTest(TestCase):
         self.client_obj = Client.objects.create(company=self.company, name="Cliente SA")
 
     def _sales_invoice(self, number, total, due_date, status):
-        return SalesInvoice.objects.create(
+        invoice = SalesInvoice.objects.create(
             company=self.company,
             client=self.client_obj,
             invoice_number=number,
@@ -139,6 +139,12 @@ class ClientBalanceFiltersTest(TestCase):
             due_date=due_date,
             total_amount=Money(total, "EUR"),
         )
+        if due_date is None:
+            # Internal invoices derive a due date from the client's payment
+            # terms on creation, so clear it to model an undated row.
+            SalesInvoice.objects.filter(pk=invoice.pk).update(due_date=None)
+            invoice.refresh_from_db()
+        return invoice
 
     def test_proforma_invoices_are_ignored(self):
         self._sales_invoice(

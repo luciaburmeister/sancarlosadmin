@@ -24,7 +24,9 @@ def build_asset_transaction_context(transaction):
     transaction's own fields, so pricing rules can reference e.g.
     `receipt.peso_neto` / `receipt.to_zone` (movement -> its later receipt)
     or `movement.from_zone` (receipt -> the movement it was filed against).
-    Zones are exposed as their string form, like every other FK in the context.
+    Zones are exposed as their string form ("Name (Company)"), like every
+    other FK in the context, plus `*_zone_name` with the bare zone name so
+    rule conditions don't have to include the company suffix.
     """
     from management.services.work_entry import WorkEntryService
 
@@ -33,10 +35,14 @@ def build_asset_transaction_context(transaction):
     receipt = get_related_receipt(transaction)
     if receipt:
         receipt_tx = receipt.transaction
+        from_zone = receipt_tx.from_zone if receipt_tx.from_zone_id else None
+        to_zone = receipt_tx.to_zone if receipt_tx.to_zone_id else None
         context["receipt"] = {
             "nro_albaran": receipt.nro_albaran,
-            "from_zone": str(receipt_tx.from_zone) if receipt_tx.from_zone_id else None,
-            "to_zone": str(receipt_tx.to_zone) if receipt_tx.to_zone_id else None,
+            "from_zone": str(from_zone) if from_zone else None,
+            "from_zone_name": from_zone.name if from_zone else None,
+            "to_zone": str(to_zone) if to_zone else None,
+            "to_zone_name": to_zone.name if to_zone else None,
             "date": receipt_tx.date,
             **receipt.data,
         }

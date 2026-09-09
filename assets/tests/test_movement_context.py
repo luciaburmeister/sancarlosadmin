@@ -42,7 +42,10 @@ class ReceiptZoneContextTests(TestCase):
         self.assertEqual(ctx["to_zone"], str(self.almacen))
         receipt = ctx["receipt"]
         self.assertEqual(receipt["to_zone"], str(self.vertedero))
+        self.assertEqual(receipt["to_zone"], "Vertedero Norte (Taller Co)")
+        self.assertEqual(receipt["to_zone_name"], "Vertedero Norte")
         self.assertEqual(receipt["from_zone"], str(self.almacen))
+        self.assertEqual(receipt["from_zone_name"], "Almacén")
         self.assertEqual(receipt["nro_albaran"], "ALB-1")
         self.assertEqual(receipt["peso_neto"], 1200)
         self.assertEqual(receipt["date"], self.receipt_tx.date)
@@ -63,7 +66,9 @@ class ReceiptZoneContextTests(TestCase):
         AssetTransactionReceipt.objects.create(transaction=bare_tx, nro_albaran="ALB-2", data={})
         ctx = build_asset_transaction_context(bare_tx)
         self.assertIsNone(ctx["receipt"]["to_zone"])
+        self.assertIsNone(ctx["receipt"]["to_zone_name"])
         self.assertIsNone(ctx["receipt"]["from_zone"])
+        self.assertIsNone(ctx["receipt"]["from_zone_name"])
 
     def test_applicability_expression_can_match_receipt_zone(self):
         wtype = WorkEntryType(
@@ -76,3 +81,6 @@ class ReceiptZoneContextTests(TestCase):
 
         wtype.applicability_expression = "receipt.to_zone == 'Otro'"
         self.assertFalse(wtype.evaluate_applicability(ctx))
+
+        wtype.applicability_expression = "receipt.to_zone_name == 'Vertedero Norte'"
+        self.assertTrue(wtype.evaluate_applicability(ctx))

@@ -95,6 +95,24 @@ class CreateEntryFromSourceTests(EntryFixtureMixin, TestCase):
         self.assertEqual(WorkEntry.objects.count(), 0)
 
 
+class PriceRoundingTests(EntryFixtureMixin, TestCase):
+    def test_unit_price_from_expression_is_rounded_half_up(self):
+        thirds = self._make_type("Thirds", WorkEntryDirection.COST, "10 / 3",
+                                 category=WorkEntryCategory.objects.create(company=self.company, name="R1", slug="r1"))
+        self.assertEqual(thirds.compute_unit_price({}), Decimal("3.33"))
+
+        half = self._make_type("Half", WorkEntryDirection.COST, "2.005",
+                               category=WorkEntryCategory.objects.create(company=self.company, name="R2", slug="r2"))
+        self.assertEqual(half.compute_unit_price({}), Decimal("2.01"))
+
+    def test_entry_created_from_float_expression_validates(self):
+        wtype = self._make_type("Per kg", WorkEntryDirection.COST, "1234.5 * 0.0375",
+                                category=WorkEntryCategory.objects.create(company=self.company, name="R3", slug="r3"))
+        entry = WorkEntryService.create_entry_from_source(wtype, self.source, self.project_file, quantity=Decimal("1.5"))
+        self.assertEqual(entry.unit_price, Money("46.29", "EUR"))   # 46.29375 → 46.29
+        self.assertEqual(entry.total_price, Money("69.44", "EUR"))  # 69.435 → 69.44 (half up)
+
+
 class TypeDirectionTests(EntryFixtureMixin, TestCase):
     def test_same_category_allows_one_type_per_direction(self):
         # Scoped to a project file so the unique constraint has no NULL column

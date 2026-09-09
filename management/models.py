@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.db import models
@@ -9,6 +9,7 @@ from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelatio
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from djmoney.models.fields import MoneyField
+from djmoney.money import Money
 from company.models import CompanyOwnedModel
 from timestamps.models import Timestampable
 from sales.models import Client
@@ -799,8 +800,9 @@ class WorkEntryType(CompanyOwnedModel):
     def compute_unit_price(self, context: dict) -> Decimal:
         """
         Execute pricing steps in order. Each step's output is added to the
-        context for subsequent steps. Returns the last step's result,
-        or Decimal('0.00') if no steps exist.
+        context for subsequent steps. Returns the last step's result rounded
+        to 2 decimals (half up), or Decimal('0.00') if no steps exist.
+        Intermediate steps keep full precision.
 
         If `context['components']` is a lazy accessor, it is kept in sync
         with the step_context so component price rules can use variables
@@ -829,7 +831,7 @@ class WorkEntryType(CompanyOwnedModel):
             except Exception:
                 pass
 
-        return result
+        return result.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
 class WorkEntryPricingStep(models.Model):
@@ -989,8 +991,11 @@ class ProjectFileEntryBase(Timestampable, CompanyOwnedModel):
             except Exception:
                 self.description = self.entry_type.name
 
-        # Compute total
-        self.total_price = self.unit_price * self.quantity
+        # Compute total (quantity may carry 2 decimals, so round the product)
+        total = self.unit_price * self.quantity
+        amount = getattr(total, "amount", total)
+        rounded = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        self.total_price = Money(rounded, total.currency) if hasattr(total, "currency") else rounded
         super().save(*args, **kwargs)
 
 

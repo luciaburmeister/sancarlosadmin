@@ -22,8 +22,9 @@ def build_asset_transaction_context(transaction):
     Pricing/applicability context builder for AssetTransaction, registered with
     WorkEntryService. Adds receipt and related-movement data on top of the
     transaction's own fields, so pricing rules can reference e.g.
-    `receipt.peso_neto` (movement -> its later receipt) or
-    `movement.from_zone` (receipt -> the movement it was filed against).
+    `receipt.peso_neto` / `receipt.to_zone` (movement -> its later receipt)
+    or `movement.from_zone` (receipt -> the movement it was filed against).
+    Zones are exposed as their string form, like every other FK in the context.
     """
     from management.services.work_entry import WorkEntryService
 
@@ -31,7 +32,14 @@ def build_asset_transaction_context(transaction):
 
     receipt = get_related_receipt(transaction)
     if receipt:
-        context["receipt"] = {"nro_albaran": receipt.nro_albaran, **receipt.data}
+        receipt_tx = receipt.transaction
+        context["receipt"] = {
+            "nro_albaran": receipt.nro_albaran,
+            "from_zone": str(receipt_tx.from_zone) if receipt_tx.from_zone_id else None,
+            "to_zone": str(receipt_tx.to_zone) if receipt_tx.to_zone_id else None,
+            "date": receipt_tx.date,
+            **receipt.data,
+        }
 
     movement = get_related_movement(transaction)
     if movement:

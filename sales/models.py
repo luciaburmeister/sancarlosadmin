@@ -415,6 +415,11 @@ class Client(Timestampable, CompanyOwnedModel):
         verbose_name=_("Payment Terms (Days)"),
         help_text=_("Days after invoice issue date before payment is due. Used to compute invoice due dates."),
     )
+    payment_terms_observations = models.TextField(
+        blank=True,
+        verbose_name=_("Observations"),
+        help_text=_("Internal comments about this client's payment terms, e.g. agreed exceptions. Not shown to the client."),
+    )
 
     language = models.CharField(
         max_length=2,

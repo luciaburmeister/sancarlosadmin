@@ -5,6 +5,7 @@ from unfold.admin import ModelAdmin, StackedInline
 from unfold.admin import GenericTabularInline as _GenericTabularInline
 from unfold.decorators import display
 from unfold.contrib.forms.widgets import ArrayWidget
+from unfold.widgets import UnfoldAdminTextareaWidget
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from import_export.admin import ImportExportModelAdmin
 
@@ -141,6 +142,11 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
 
     inlines = [ClientAddressInline, ClientContactInline, ClientBankAccountInline, ClientAppliedTaxInline]
 
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        if db_field.name == "payment_terms_observations":
+            kwargs["widget"] = UnfoldAdminTextareaWidget(attrs={"rows": 4})
+        return super().formfield_for_dbfield(db_field, request, **kwargs)
+
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "default_client_bank_account":
             import re
@@ -194,8 +200,9 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
             "classes": ["tab"],
             "fields": (
                 ("is_insured", "max_risk", "current_risk"),
-                ("payment_method", "payment_terms_days", "our_bank_account"),
-                "default_client_bank_account",
+                ("payment_method", "payment_terms_days"),
+                "payment_terms_observations",
+                ("our_bank_account", "default_client_bank_account"),
             )
         }),
         (_("Payment Reminders"), {

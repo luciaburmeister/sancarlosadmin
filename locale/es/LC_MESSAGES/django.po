@@ -7443,10 +7443,8 @@ msgstr ""
 "Método de pago esperado para esta factura (instantánea al momento de "
 "emisión)."
 
-#, fuzzy
-#| msgid "Payment Date"
 msgid "Payment Terms (Days)"
-msgstr "Fecha de Pago"
+msgstr "Plazo de Pago (Días)"
 
 msgid "Snapshot of payment terms at issuance; used to compute due_date."
 msgstr ""
@@ -13048,6 +13046,13 @@ msgid ""
 msgstr ""
 "Días después de la fecha de emisión de la factura antes de que se deba el "
 "pago. Se utiliza para calcular las fechas de vencimiento de las facturas."
+
+msgid ""
+"Internal comments about this client's payment terms, e.g. agreed exceptions."
+" Not shown to the client."
+msgstr ""
+"Comentarios internos sobre el plazo de pago de este cliente, p. ej. "
+"excepciones acordadas. No se muestran al cliente."
 
 msgid "Our Bank Account (for deposit)"
 msgstr "Nuestra Cuenta de banco"

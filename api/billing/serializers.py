@@ -194,6 +194,18 @@ def build_items_from_summary(summary, invoice_mode, percentage, custom_amount, s
             "discount_percentage": Decimal("0.00"),
         })
 
+    for entry_data in summary.get("work_entries", []):
+        item_price = (entry_data["total"] * ratio).quantize(Decimal("0.01"))
+        if item_price < 0:
+            continue
+        items.append({
+            "source_id": f"work_entry_{entry_data['id']}",
+            "description": entry_data["description"],
+            "quantity": Decimal("1"),
+            "unit_price": item_price,
+            "discount_percentage": Decimal("0.00"),
+        })
+
     return items
 
 

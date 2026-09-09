@@ -174,7 +174,7 @@ class WorkEntryService:
         Returns:
             dict with 'expected', 'existing_type_ids', 'missing', 'is_fully_processed'
         """
-        from management.models import WorkEntryType, WorkEntry
+        from management.models import WorkEntryType, WorkEntry, CostEntry
 
         ct = ContentType.objects.get_for_model(source_object)
         context = cls.build_source_context(source_object)
@@ -199,10 +199,11 @@ class WorkEntryService:
             )
             applicable_types = applicable_types.filter(project_file__isnull=True) | pf_types
 
-        # Evaluate applicability and deduplicate by category.
-        # Per category: project-file-scoped type wins over company-wide default.
+        # Evaluate applicability and deduplicate by (category, direction).
+        # Per key: project-file-scoped type wins over company-wide default.
+        # A category may hold one revenue and one cost type; both are expected.
         # Types without a category pass through without deduplication.
-        by_category = {}  # category_id → WorkEntryType
+        by_category = {}  # (category_id, direction) → WorkEntryType
         no_category = []  # types without a category (backward compat)
         for wtype in applicable_types.select_related("category"):
             if not wtype.evaluate_applicability(context):
@@ -213,22 +214,27 @@ class WorkEntryService:
                 no_category.append(wtype)
                 continue
 
-            existing = by_category.get(cat_id)
+            key = (cat_id, wtype.direction)
+            existing = by_category.get(key)
 
             if existing is None:
-                by_category[cat_id] = wtype
+                by_category[key] = wtype
             elif wtype.project_file_id and not existing.project_file_id:
                 # Project-file-scoped overrides company-wide default
-                by_category[cat_id] = wtype
+                by_category[key] = wtype
 
         expected = list(by_category.values()) + no_category
 
-        # Check which have been created
+        # Check which have been created (type ids are disjoint by direction,
+        # so the union across both entry tables is safe).
+        source_filter = {
+            "source_content_type": ct,
+            "source_object_id": source_object.pk,
+        }
         existing_type_ids = set(
-            WorkEntry.objects.filter(
-                source_content_type=ct,
-                source_object_id=source_object.pk,
-            ).values_list("entry_type_id", flat=True)
+            WorkEntry.objects.filter(**source_filter).values_list("entry_type_id", flat=True)
+        ) | set(
+            CostEntry.objects.filter(**source_filter).values_list("entry_type_id", flat=True)
         )
 
         missing = [t for t in expected if t.id not in existing_type_ids]
@@ -244,13 +250,15 @@ class WorkEntryService:
         }
 
     @classmethod
-    def create_work_entry_from_source(cls, entry_type, source_object, project_file, quantity=Decimal("1.00")):
+    def create_entry_from_source(cls, entry_type, source_object, project_file, quantity=Decimal("1.00")):
         """
-        Create a WorkEntry from a source object using the entry_type's
-        pricing steps and description template.
+        Create a WorkEntry (revenue type) or CostEntry (cost type) from a
+        source object using the entry_type's pricing steps and description
+        template. Applied taxes are copied onto WorkEntries only.
         """
         from management.models import WorkEntry
 
+        model_class = entry_type.entry_model
         context = cls.build_full_context(entry_type, source_object, quantity)
 
         # Compute unit price
@@ -279,7 +287,7 @@ class WorkEntryService:
 
         ct = ContentType.objects.get_for_model(source_object)
 
-        entry = WorkEntry(
+        entry = model_class(
             project_file=project_file,
             entry_type=entry_type,
             description=description,
@@ -290,7 +298,11 @@ class WorkEntryService:
             source_object_id=source_object.pk,
             company=project_file.company,
         )
+        entry.full_clean(exclude=["description"])
         entry.save()
+
+        if model_class is not WorkEntry:
+            return entry
 
         # Copy AppliedTax from the WorkEntryType to the new WorkEntry
         from invoices.models import AppliedTax

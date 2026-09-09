@@ -174,7 +174,7 @@ def generate_work_entries_task(transaction_ids: list[int]):
             status = WorkEntryService.get_billing_status(transaction)
             for wtype in status["missing"]:
                 try:
-                    WorkEntryService.create_work_entry_from_source(
+                    WorkEntryService.create_entry_from_source(
                         entry_type=wtype,
                         source_object=transaction,
                         project_file=transaction.project_file,

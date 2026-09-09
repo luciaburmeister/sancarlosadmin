@@ -109,6 +109,15 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         help_text=_("Cached committed cost of approved/closed Purchase Orders linked to this project file."),
     )
 
+    total_costs = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Total Costs"),
+        help_text=_("Cached sum of cost entries linked to this project file."),
+    )
+
     class Meta:
         verbose_name = _("Project File")
         verbose_name_plural = _("Project Files")
@@ -284,6 +293,35 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
 
         self.total_purchased = Decimal(str(purchased))
         self.save(update_fields=["total_purchased", "total_purchased_currency"])
+
+    def recalculate_total_costs(self):
+        """
+        Recompute total_costs: sum of CostEntry lines on this project file.
+        Call this whenever a related CostEntry changes.
+        """
+        costs = (
+            self.cost_entries.aggregate(total=Sum("total_price"))["total"]
+            or Decimal("0.00")
+        )
+        if hasattr(costs, "amount"):
+            costs = costs.amount
+
+        self.total_costs = Decimal(str(costs))
+        self.save(update_fields=["total_costs", "total_costs_currency"])
+
+    @property
+    def estimated_margin(self):
+        """total_amount minus committed purchases and cost entries (all pre-tax)."""
+        from djmoney.money import Money
+
+        def _amt(value):
+            return getattr(value, "amount", None) if value is not None else None
+
+        revenue = _amt(self.total_amount) or Decimal("0.00")
+        purchased = _amt(self.total_purchased) or Decimal("0.00")
+        costs = _amt(self.total_costs) or Decimal("0.00")
+        currency = getattr(self.total_amount, "currency", "EUR")
+        return Money(revenue - purchased - costs, currency)
 
 
 class ResourcePlanningType(CompanyOwnedModel):
@@ -629,14 +667,28 @@ class WorkEntryCategory(CompanyOwnedModel):
         return self.name
 
 
+class WorkEntryDirection(models.TextChoices):
+    REVENUE = "revenue", _("Revenue")
+    COST = "cost", _("Cost")
+
+
 class WorkEntryType(CompanyOwnedModel):
     """
-    Configurable template defining a category of billable work and how to price it.
+    Configurable template defining a category of work (revenue) or cost and
+    how to price it. The direction decides which entry model is produced:
+    WorkEntry for revenue, CostEntry for cost.
     Can be company-wide (project_file=NULL) or scoped to a specific Expediente.
-    When multiple types share the same category, the project-file-scoped one
-    takes priority over the company-wide default.
+    When multiple types share the same category and direction, the
+    project-file-scoped one takes priority over the company-wide default.
     """
 
+    direction = models.CharField(
+        max_length=10,
+        choices=WorkEntryDirection.choices,
+        default=WorkEntryDirection.REVENUE,
+        verbose_name=_("Direction"),
+        help_text=_("Revenue types create Work Entries; cost types create Cost Entries."),
+    )
     category = models.ForeignKey(
         WorkEntryCategory,
         on_delete=models.PROTECT,
@@ -720,14 +772,19 @@ class WorkEntryType(CompanyOwnedModel):
         ordering = ["name"]
         constraints = [
             models.UniqueConstraint(
-                fields=["company", "category", "project_file"],
-                name="unique_work_entry_type_per_company_category_project",
+                fields=["company", "category", "project_file", "direction"],
+                name="unique_work_entry_type_per_company_category_project_dir",
             ),
         ]
 
     def __str__(self):
         suffix = f" [{self.project_file.reference}]" if self.project_file else ""
         return f"{self.name}{suffix}"
+
+    @property
+    def entry_model(self):
+        """Concrete entry model this type produces."""
+        return CostEntry if self.direction == WorkEntryDirection.COST else WorkEntry
 
     def evaluate_applicability(self, context: dict) -> bool:
         """Check if this type applies to a source given its context."""
@@ -836,26 +893,16 @@ class WorkEntryPricingStep(models.Model):
                 raise ValidationError({"expression": str(e)})
 
 
-class WorkEntry(Timestampable, CompanyOwnedModel):
+class ProjectFileEntryBase(Timestampable, CompanyOwnedModel):
     """
-    A billable unit of work linked to a ProjectFile (Expediente).
-    Can optionally reference a source object (e.g. AssetTransaction)
-    via GenericFK. Multiple WorkEntries can point to the same source.
+    Shared shape of a priced line on a ProjectFile (Expediente): a quantity,
+    a unit price, an optional GenericFK source (e.g. AssetTransaction).
+    Concrete subclasses declare `project_file` and `entry_type` so their
+    related names stay explicit, and set DIRECTION to the WorkEntryDirection
+    their entry_type must have.
     """
 
-    project_file = models.ForeignKey(
-        "management.ProjectFile",
-        on_delete=models.CASCADE,
-        related_name="work_entries",
-        verbose_name=_("Project File"),
-    )
-
-    entry_type = models.ForeignKey(
-        WorkEntryType,
-        on_delete=models.PROTECT,
-        related_name="entries",
-        verbose_name=_("Work Entry Type"),
-    )
+    DIRECTION: str = WorkEntryDirection.REVENUE
 
     description = models.CharField(
         max_length=500,
@@ -905,42 +952,32 @@ class WorkEntry(Timestampable, CompanyOwnedModel):
 
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
 
-    is_locked = models.BooleanField(
-        default=False,
-        verbose_name=_("Locked"),
-        help_text=_("Locked after invoicing to prevent edits."),
-    )
-
-    applied_taxes = GenericRelation(
-        "invoices.AppliedTax",
-        content_type_field="content_type",
-        object_id_field="object_id",
-    )
-
     class Meta:
-        verbose_name = _("Work Entry")
-        verbose_name_plural = _("Work Entries")
+        abstract = True
         ordering = ["-date", "-created_at"]
-        indexes = [
-            models.Index(fields=["source_content_type", "source_object_id"]),
-            models.Index(fields=["project_file", "date"]),
-        ]
 
     def __str__(self):
         return f"{self.description} ({self.total_price})"
 
-    @property
-    def total_with_tax(self):
-        """total_price + sum of all applied tax amounts."""
-        from djmoney.money import Money
-        tax_sum = Decimal("0")
-        for tax in self.applied_taxes.all():
-            if tax.calculated_amount is not None:
-                amt = tax.calculated_amount.amount if isinstance(tax.calculated_amount, Money) else Decimal(str(tax.calculated_amount))
-                tax_sum += amt
-        base = self.total_price.amount if hasattr(self.total_price, 'amount') else Decimal(str(self.total_price or 0))
-        currency = self.total_price.currency if hasattr(self.total_price, 'currency') else 'EUR'
-        return Money(base + tax_sum, currency)
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.quantity is not None and self.quantity <= 0:
+            errors["quantity"] = _("Quantity must be greater than zero.")
+        unit_amount = getattr(self.unit_price, "amount", self.unit_price)
+        if unit_amount is not None and unit_amount < 0:
+            errors["unit_price"] = _("Unit price cannot be negative.")
+        entry_type = getattr(self, "entry_type", None)
+        if entry_type is not None and entry_type.direction != self.DIRECTION:
+            errors["entry_type"] = _(
+                "This type has direction '%(actual)s' but a %(model)s requires '%(expected)s'."
+            ) % {
+                "actual": entry_type.get_direction_display(),
+                "model": self._meta.verbose_name,
+                "expected": WorkEntryDirection(self.DIRECTION).label,
+            }
+        if errors:
+            raise ValidationError(errors)
 
     def save(self, *args, **kwargs):
         # Auto-fill description from template if empty
@@ -955,3 +992,121 @@ class WorkEntry(Timestampable, CompanyOwnedModel):
         # Compute total
         self.total_price = self.unit_price * self.quantity
         super().save(*args, **kwargs)
+
+
+class WorkEntry(ProjectFileEntryBase):
+    """
+    A billable unit of work linked to a ProjectFile (Expediente). Revenue side.
+    Can optionally reference a source object (e.g. AssetTransaction)
+    via GenericFK. Multiple WorkEntries can point to the same source.
+    """
+
+    DIRECTION = WorkEntryDirection.REVENUE
+
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.CASCADE,
+        related_name="work_entries",
+        verbose_name=_("Project File"),
+    )
+
+    entry_type = models.ForeignKey(
+        WorkEntryType,
+        on_delete=models.PROTECT,
+        related_name="entries",
+        verbose_name=_("Work Entry Type"),
+    )
+
+    is_locked = models.BooleanField(
+        default=False,
+        verbose_name=_("Locked"),
+        help_text=_("Locked after invoicing to prevent edits."),
+    )
+
+    applied_taxes = GenericRelation(
+        "invoices.AppliedTax",
+        content_type_field="content_type",
+        object_id_field="object_id",
+    )
+
+    class Meta(ProjectFileEntryBase.Meta):
+        verbose_name = _("Work Entry")
+        verbose_name_plural = _("Work Entries")
+        indexes = [
+            models.Index(fields=["source_content_type", "source_object_id"]),
+            models.Index(fields=["project_file", "date"]),
+        ]
+
+    # Fields frozen once the entry has been invoiced (is_locked=True).
+    LOCKED_FIELDS = ("project_file_id", "entry_type_id", "quantity", "unit_price", "date")
+
+    def clean(self):
+        super().clean()
+        if not self.pk:
+            return
+        stored = (
+            WorkEntry.objects.filter(pk=self.pk)
+            .values("is_locked", *self.LOCKED_FIELDS)
+            .first()
+        )
+        if not stored or not stored["is_locked"]:
+            return
+        for field in self.LOCKED_FIELDS:
+            current = getattr(self, field)
+            current = getattr(current, "amount", current)
+            previous = getattr(stored[field], "amount", stored[field])
+            if current != previous:
+                raise ValidationError(
+                    _("This work entry has been invoiced and is locked; its pricing fields cannot be changed.")
+                )
+
+    @property
+    def total_with_tax(self):
+        """total_price + sum of all applied tax amounts."""
+        from djmoney.money import Money
+        tax_sum = Decimal("0")
+        for tax in self.applied_taxes.all():
+            if tax.calculated_amount is not None:
+                amt = tax.calculated_amount.amount if isinstance(tax.calculated_amount, Money) else Decimal(str(tax.calculated_amount))
+                tax_sum += amt
+        base = self.total_price.amount if hasattr(self.total_price, 'amount') else Decimal(str(self.total_price or 0))
+        currency = self.total_price.currency if hasattr(self.total_price, 'currency') else 'EUR'
+        return Money(base + tax_sum, currency)
+
+
+class CostEntry(ProjectFileEntryBase):
+    """
+    A cost incurred on a ProjectFile (Expediente). Cost side, net amounts only
+    (input VAT lives on purchase invoices). Produced by cost-direction
+    WorkEntryTypes through the same pricing engine as WorkEntry.
+    """
+
+    DIRECTION = WorkEntryDirection.COST
+
+    project_file = models.ForeignKey(
+        "management.ProjectFile",
+        on_delete=models.CASCADE,
+        related_name="cost_entries",
+        verbose_name=_("Project File"),
+    )
+
+    entry_type = models.ForeignKey(
+        WorkEntryType,
+        on_delete=models.PROTECT,
+        related_name="cost_entries",
+        verbose_name=_("Cost Entry Type"),
+    )
+
+    class Meta(ProjectFileEntryBase.Meta):
+        verbose_name = _("Cost Entry")
+        verbose_name_plural = _("Cost Entries")
+        indexes = [
+            models.Index(fields=["source_content_type", "source_object_id"]),
+            models.Index(fields=["project_file", "date"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(quantity__gt=0),
+                name="cost_entry_quantity_positive",
+            ),
+        ]

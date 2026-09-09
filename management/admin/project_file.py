@@ -31,7 +31,7 @@ from management.views.project_file_export import ProjectFileRepairOrderExportVie
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.models import Configuration
 from company.models import WorkingZone
-from management.models import WorkEntry
+from management.models import WorkEntry, CostEntry
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter
 )
@@ -276,18 +276,23 @@ class WorkEntryAppliedTaxInline(GenericStackedInline):
         return False
 
 
-class WorkEntryInline(TabularInline):
-    model = WorkEntry
+class ProjectFileEntryInlineMixin:
+    """Shared bits of the Work Entry / Cost Entry inlines: source links and
+    an entry_type autocomplete restricted to the inline model's direction."""
+
     extra = 0
     tab = True
-    tab_title = _("Work Entries")
-    fields = ["entry_type", "description", "quantity", "unit_price", "total_price", "total_with_tax", "date", "source_link", "movement_link"]
-    readonly_fields = ["total_price", "total_with_tax", "source_link", "movement_link"]
     autocomplete_fields = ["entry_type"]
-    inlines = [WorkEntryAppliedTaxInline]
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("entry_type", "source_content_type")
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "entry_type":
+            kwargs["queryset"] = db_field.remote_field.model.objects.filter(
+                direction=self.model.DIRECTION,
+            )
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     @admin.display(description=_("Source Transaction"))
     def source_link(self, obj):
@@ -314,11 +319,26 @@ class WorkEntryInline(TabularInline):
         return format_html('<a href="{}">{}</a>', url, movement)
 
 
+class WorkEntryInline(ProjectFileEntryInlineMixin, TabularInline):
+    model = WorkEntry
+    tab_title = _("Work Entries")
+    fields = ["entry_type", "description", "quantity", "unit_price", "total_price", "total_with_tax", "date", "is_locked", "source_link", "movement_link"]
+    readonly_fields = ["total_price", "total_with_tax", "is_locked", "source_link", "movement_link"]
+    inlines = [WorkEntryAppliedTaxInline]
+
+
+class CostEntryInline(ProjectFileEntryInlineMixin, TabularInline):
+    model = CostEntry
+    tab_title = _("Cost Entries")
+    fields = ["entry_type", "description", "quantity", "unit_price", "total_price", "date", "source_link", "movement_link"]
+    readonly_fields = ["total_price", "source_link", "movement_link"]
+
+
 @admin.register(ProjectFile)
 class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     resource_classes = [ProjectFileResource]
     export_form_class = SelectableFieldsExportForm
-    list_display = ["reference", "name", "client", "show_status_customized_color", "total_amount", "total_invoiced", "total_purchased", "start_date", "invoicing_status"]
+    list_display = ["reference", "name", "client", "show_status_customized_color", "total_amount", "total_invoiced", "total_purchased", "total_costs", "start_date", "invoicing_status"]
     list_filter = [("client", AutocompleteSelectMultipleFilter), ("status", MultipleChoicesDropdownFilter), ("company", AutocompleteSelectMultipleFilter), ("created_at", RangeDateFilter)]
     search_fields = ["reference", "name", "client__name"]
     autocomplete_fields = ["client", "company", "asset"]
@@ -332,6 +352,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         ProjectFileWorkingZoneInline,
         DirectConfigurationInline,
         WorkEntryInline,
+        CostEntryInline,
         SalesInvoicesInline,
         ProductionTicketInline,
         DeliveryOrderInline,

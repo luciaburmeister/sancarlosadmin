@@ -359,14 +359,14 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         if not status["missing"]:
             transaction.billing_status = BillingStatus.PROCESSED
             transaction.save(update_fields=["billing_status"])
-            messages.info(request, _("All expected work entries already exist for this transaction."))
+            messages.info(request, _("All expected entries already exist for this transaction."))
             return redirect(reverse("admin:assets_assettransaction_changelist"))
 
         created = []
         errors = []
         for wtype in status["missing"]:
             try:
-                entry = WorkEntryService.create_work_entry_from_source(
+                entry = WorkEntryService.create_entry_from_source(
                     entry_type=wtype,
                     source_object=transaction,
                     project_file=transaction.project_file,
@@ -394,7 +394,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
 
         if created:
             messages.success(request, _(
-                "Created %(count)d work entries."
+                "Created %(count)d entries."
             ) % {"count": len(created)})
 
         return redirect(reverse("admin:assets_assettransaction_changelist"))

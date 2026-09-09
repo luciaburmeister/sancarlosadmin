@@ -42,6 +42,9 @@ PASS_THROUGH = "pass_through"     # already carried by the source line itself
 KIND_CONFIG = "config"        # config_<id> / direct_<id>
 KIND_INV_ITEM = "inv_item"    # inv_item_<id>
 KIND_QUOTE_ITEM = "quote_item"  # quote_item_<id>
+# work_entry_<id> lines come from management.WorkEntry, not from a quote, so
+# they never form part of a quote discount's base and are NOT in ALL_KINDS.
+KIND_WORK_ENTRY = "work_entry"
 
 ALL_KINDS = frozenset({KIND_CONFIG, KIND_INV_ITEM, KIND_QUOTE_ITEM})
 LINE_ITEM_KINDS = frozenset({KIND_INV_ITEM, KIND_QUOTE_ITEM})
@@ -57,6 +60,8 @@ def source_kind(source_id):
         return KIND_INV_ITEM
     if source_id.startswith("quote_item_"):
         return KIND_QUOTE_ITEM
+    if source_id.startswith("work_entry_"):
+        return KIND_WORK_ENTRY
     return None
 
 

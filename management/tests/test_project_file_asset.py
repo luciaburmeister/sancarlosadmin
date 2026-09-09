@@ -31,6 +31,8 @@ class ProjectFileAdminFormAssetTests(TestCase):
         "total_invoiced_1": "EUR",
         "total_purchased_0": "0",
         "total_purchased_1": "EUR",
+        "total_costs_0": "0",
+        "total_costs_1": "EUR",
         "percentage_invoiced": "0",
     }
 

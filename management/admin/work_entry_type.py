@@ -5,7 +5,7 @@ from unfold.admin import GenericTabularInline
 
 from core.admin.company_admin import CompanyRestrictedAdmin
 from invoices.models import AppliedTax
-from management.models import WorkEntryCategory, WorkEntryType, WorkEntryPricingStep
+from management.models import WorkEntryCategory, WorkEntryDirection, WorkEntryType, WorkEntryPricingStep
 
 
 
@@ -40,8 +40,8 @@ class WorkEntryCategoryAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
 @admin.register(WorkEntryType)
 class WorkEntryTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["name", "category", "unit_label", "project_file_display", "is_active"]
-    list_filter = ["is_active", "category"]
+    list_display = ["name", "direction", "category", "unit_label", "project_file_display", "is_active"]
+    list_filter = ["is_active", "direction", "category"]
     search_fields = ["name", "category__name"]
     autocomplete_fields = ["company", "category", "project_file", "source_content_type", "materials", "components"]
     inlines = [WorkEntryPricingStepInline, WorkEntryTypeAppliedTaxInline]
@@ -50,7 +50,7 @@ class WorkEntryTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
         (_("Basic"), {
             "fields": (
                 "company",
-                "category",
+                ("direction", "category"),
                 ("name", "unit_label"),
             ),
         }),
@@ -83,6 +83,12 @@ class WorkEntryTypeAdmin(CompanyRestrictedAdmin, ModelAdmin):
             ),
         }),
     )
+
+    def get_inlines(self, request, obj=None):
+        # Cost entries carry net amounts only, so cost types have no taxes.
+        if obj is not None and obj.direction == WorkEntryDirection.COST:
+            return [WorkEntryPricingStepInline]
+        return super().get_inlines(request, obj)
 
     @admin.display(description=_("Project File"))
     def project_file_display(self, obj):

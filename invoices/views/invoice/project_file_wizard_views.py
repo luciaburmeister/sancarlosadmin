@@ -50,9 +50,9 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
 
     def _build_items_initial(self):
         """
-        Builds the initial items list from the accepted quotes' configurations
-        and direct configurations, scaled by the selected percentage/amount.
-        Each configuration becomes a separate line item on the invoice.
+        Builds the initial items list from the accepted quotes' configurations,
+        direct configurations and work entries, scaled by the selected
+        percentage/amount. Each source becomes a separate line item on the invoice.
         Items use subtotal (pre-tax). Each item carries a unique source_id
         and its per-config tax amount for reliable lookup.
         """
@@ -159,6 +159,28 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
             items_initial.append({
                 'source_id': f"direct_{config_data['id']}",
                 'description': config_data['name'],
+                'quantity': qty,
+                'unit_price': up,
+                'discount_percentage': Decimal("0.00"),
+                '_tax_amount': item_tax,
+            })
+
+        # Work entries scale like configurations; their tax comes from the
+        # entry's own AppliedTax rows (already summarised as tax_amount).
+        for entry_data in summary.get('work_entries', []):
+            item_price = (entry_data['total'] * ratio).quantize(Decimal("0.01"))
+            item_tax = (entry_data['tax_amount'] * ratio).quantize(Decimal("0.01"))
+            if item_price < 0:
+                continue
+            qty = entry_data.get('quantity')
+            if qty and qty > 0:
+                up = (item_price / qty).quantize(Decimal("0.01"))
+            else:
+                qty = Decimal("1")
+                up = item_price
+            items_initial.append({
+                'source_id': f"work_entry_{entry_data['id']}",
+                'description': entry_data['description'],
                 'quantity': qty,
                 'unit_price': up,
                 'discount_percentage': Decimal("0.00"),

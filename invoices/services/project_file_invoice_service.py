@@ -112,18 +112,21 @@ class ProjectFileInvoiceService:
                 'status': config.get_status_display(),
             })
 
-        # Work entries (billable work linked to this project file)
+        # Work entries (billable work linked to this project file). Their
+        # total_price is pre-tax; taxes come from the entry's own AppliedTax
+        # rows, so total_invoiceable gets the taxed figure like configs do.
         from management.models import WorkEntry
 
         work_entries = WorkEntry.objects.filter(
             project_file=project_file,
-        ).select_related('entry_type')
+        ).select_related('entry_type').prefetch_related('applied_taxes')
 
         work_entries_data = []
         for entry in work_entries:
             entry_total = Decimal(str(entry.total_price.amount))
-            total_invoiceable += entry_total
-            total_invoiceable_subtotal += entry_total  # work entries have no separate subtotal/tax split at this level
+            entry_with_tax = Decimal(str(entry.total_with_tax.amount))
+            total_invoiceable += entry_with_tax
+            total_invoiceable_subtotal += entry_total
             total_invoiceable_subtotal_net += entry_total
             work_entries_data.append({
                 'id': entry.id,
@@ -131,8 +134,11 @@ class ProjectFileInvoiceService:
                 'quantity': entry.quantity,
                 'unit_price': Decimal(str(entry.unit_price.amount)),
                 'total': entry_total,
+                'total_with_tax': entry_with_tax,
+                'tax_amount': entry_with_tax - entry_total,
                 'entry_type': entry.entry_type.name,
                 'date': entry.date,
+                'is_locked': entry.is_locked,
             })
 
         # Sum existing invoices linked to this project file
@@ -376,7 +382,7 @@ class ProjectFileInvoiceService:
 
         if summary['total_invoiceable'] <= 0:
             raise ValidationError(
-                _("This project file has no accepted quotes or direct configurations. Cannot create an invoice.")
+                _("This project file has no accepted quotes, direct configurations or work entries. Cannot create an invoice.")
             )
 
         resolved_payment_method = resolve_sales_invoice_payment_method(
@@ -405,14 +411,17 @@ class ProjectFileInvoiceService:
         tax_agg: dict[tuple, dict] = {}
 
         from configurator.models import Configuration
+        from management.models import WorkEntry
         from sales.models import QuoteInventoryItem, QuoteItem
         from invoices.services.discounts import QuoteDiscountResolver, SourceLine, source_kind
 
         config_ct = ContentType.objects.get_for_model(Configuration)
         inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
+        work_entry_ct = ContentType.objects.get_for_model(WorkEntry)
 
         line_taxes = []  # (line_total, source_taxes, quote_id, kind) — taxed after the discount is known
         source_lines = []  # SourceLine records for the discount resolver
+        invoiced_source_ids = []
 
         for item_data in items_data:
             item = SalesInvoiceItem.objects.create(
@@ -461,10 +470,19 @@ class ProjectFileInvoiceService:
                     QuoteItem.objects.filter(pk=obj_id)
                     .values_list("quote_id", flat=True).first()
                 )
+            elif source_id.startswith("work_entry_"):
+                # Work entries carry their own AppliedTax and belong to no quote
+                obj_id = source_id.split("_", 2)[2]
+                source_taxes = list(
+                    AppliedTax.objects.filter(
+                        content_type=work_entry_ct, object_id=obj_id
+                    ).select_related("tax_type")
+                )
 
             kind = source_kind(source_id)
             source_lines.append(SourceLine(source_id, line_total, quote_id, kind))
             line_taxes.append((line_total, source_taxes, quote_id, kind))
+            invoiced_source_ids.append(source_id)
 
         # Carry discounts from source quotes via the per-level strategies,
         # each scaled by how much of THAT quote's base this invoice covers —
@@ -539,6 +557,8 @@ class ProjectFileInvoiceService:
             'discount_breakdown', 'tax_amount', 'total_amount',
         ])
 
+        cls.lock_invoiced_work_entries(invoiced_source_ids)
+
         # Validate: the new total should not exceed the remaining invoiceable amount.
         # Use a tolerance because per-config tax rounding may cause small differences.
         new_summary = cls.get_invoiceable_summary(project_file)
@@ -565,6 +585,31 @@ class ProjectFileInvoiceService:
         )
 
         return invoice
+
+    WORK_ENTRY_SOURCE_PREFIX = "work_entry_"
+
+    @classmethod
+    def work_entry_ids_from_source_ids(cls, source_ids):
+        """Extract WorkEntry pks from ``work_entry_<id>`` source ids."""
+        prefix = cls.WORK_ENTRY_SOURCE_PREFIX
+        ids = []
+        for source_id in source_ids:
+            if not source_id or not source_id.startswith(prefix):
+                continue
+            raw = source_id[len(prefix):]
+            if raw.isdigit():
+                ids.append(int(raw))
+        return ids
+
+    @classmethod
+    def lock_invoiced_work_entries(cls, source_ids):
+        """Lock every WorkEntry referenced by the given invoice line source ids
+        so its pricing can no longer be edited (see WorkEntry.clean)."""
+        from management.models import WorkEntry
+
+        ids = cls.work_entry_ids_from_source_ids(source_ids)
+        if ids:
+            WorkEntry.objects.filter(pk__in=ids, is_locked=False).update(is_locked=True)
 
     @classmethod
     def _compute_per_config_taxes(cls, project_file):

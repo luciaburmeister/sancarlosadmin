@@ -107,11 +107,13 @@ class BulkProjectFileInvoiceService:
 
         # ---------- create line items + aggregate taxes ----------
         from configurator.models import Configuration
+        from management.models import WorkEntry
         from sales.models import QuoteInventoryItem
         from invoices.services.discounts import QuoteDiscountResolver, SourceLine, source_kind
 
         config_ct = ContentType.objects.get_for_model(Configuration)
         inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
+        work_entry_ct = ContentType.objects.get_for_model(WorkEntry)
 
         subtotal = Decimal("0.00")
         tax_agg: dict[tuple, dict] = {}
@@ -149,6 +151,13 @@ class BulkProjectFileInvoiceService:
                 source_taxes = list(
                     AppliedTax.objects.filter(
                         content_type=inv_item_ct, object_id=obj_id,
+                    ).select_related("tax_type")
+                )
+            elif source_id.startswith("work_entry_"):
+                obj_id = source_id.split("_", 2)[2]
+                source_taxes = list(
+                    AppliedTax.objects.filter(
+                        content_type=work_entry_ct, object_id=obj_id,
                     ).select_related("tax_type")
                 )
 
@@ -228,6 +237,10 @@ class BulkProjectFileInvoiceService:
             "subtotal_amount", "discount_amount", "discount_amount_currency",
             "discount_breakdown", "tax_amount", "total_amount",
         ])
+
+        ProjectFileInvoiceService.lock_invoiced_work_entries(
+            [item_data.get("source_id", "") for item_data in all_items_data]
+        )
 
         # Link M2M
         invoice.project_files.set(pf_list)
@@ -327,6 +340,27 @@ class BulkProjectFileInvoiceService:
             items.append({
                 "source_id": f"direct_{config.id}",
                 "description": f"[{pf_ref}] {config.name}",
+                "quote_name": "",
+                "quantity": qty,
+                "unit_price": up,
+                "discount_percentage": Decimal("0.00"),
+                "project_file_id": project_file.pk,
+            })
+
+        # Work entries (billed at full price, like the other bulk lines)
+        for entry_data in summary.get("work_entries", []):
+            total = entry_data["total"]
+            if total < 0:
+                continue
+            qty = entry_data.get("quantity")
+            if qty and qty > 0:
+                up = (total / qty).quantize(Decimal("0.01"))
+            else:
+                qty = Decimal("1")
+                up = total
+            items.append({
+                "source_id": f"work_entry_{entry_data['id']}",
+                "description": f"[{pf_ref}] {entry_data['description']}",
                 "quote_name": "",
                 "quantity": qty,
                 "unit_price": up,

@@ -805,6 +805,12 @@ class SalesInvoice(CompanyOwnedModel, Payable):
     invoice_number = models.CharField(max_length=50, blank=True, null=True, verbose_name=_("Invoice Number"))
     date_issued = models.DateField(default=timezone.now, verbose_name=_("Date Issued"))
     due_date = models.DateField(null=True, blank=True, verbose_name=_("Due Date"))
+    payment_commitment_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Payment Commitment Date"),
+        help_text=_("Date the client committed to pay."),
+    )
     client = models.ForeignKey(
         'sales.Client', 
         on_delete=models.PROTECT, 

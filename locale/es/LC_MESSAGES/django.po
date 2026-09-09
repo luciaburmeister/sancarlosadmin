@@ -7257,6 +7257,9 @@ msgstr ""
 msgid "Due date"
 msgstr "Fecha de vencimiento"
 
+msgid "Payment commitment"
+msgstr "Fecha de compromiso"
+
 msgid "Payment Status"
 msgstr "Estado de pago"
 
@@ -7449,6 +7452,12 @@ msgid "Snapshot of payment terms at issuance; used to compute due_date."
 msgstr ""
 "Instantánea de los términos de pago al momento de la emisión; utilizada para"
 " calcular due_date."
+
+msgid "Payment Commitment Date"
+msgstr "Fecha de Compromiso de Pago"
+
+msgid "Date the client committed to pay."
+msgstr "Fecha en que el cliente se comprometió a pagar."
 
 msgid "External Invoice"
 msgstr "Facturas Externas"

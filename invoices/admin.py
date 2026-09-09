@@ -983,6 +983,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
         ("company", AutocompleteSelectMultipleFilter),
         ("client", AutocompleteSelectMultipleFilter),
         ("date_issued", RangeDateFilter),
+        ("payment_commitment_date", RangeDateFilter),
         ("total_amount",RangeNumericFilter),
         # Document state
         ("status", ChoicesDropdownFilter),
@@ -1009,7 +1010,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
                 [f.name for f in self.model._meta.many_to_many] +
                 list(readonly_fields)
             ))
-            excluded_from_readonly = {"payment_status", "exclude_from_payment_reminders"}
+            excluded_from_readonly = {"payment_status", "exclude_from_payment_reminders", "payment_commitment_date"}
             return [f for f in all_fields if f not in excluded_from_readonly]
         return readonly_fields
 
@@ -1026,6 +1027,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
                     ("company", "client"),
                     ("status", "invoice_number"),
                     ("date_issued", "due_date"),
+                    "payment_commitment_date",
                     "project_file",
                     ("reference"),
                     ("is_external", "exclude_from_payment_reminders"),

@@ -30,10 +30,8 @@ class InvoiceAIMatchView(UnfoldModelAdminViewMixin, TemplateView):
     def get_invoice(self):
         return get_object_or_404(Invoice, pk=self.kwargs["object_id"])
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        invoice = self.get_invoice()
-        suggestions = (
+    def get_pending_suggestions(self, invoice):
+        return (
             AIMatchSuggestion.objects
             .filter(invoice=invoice, status=AIMatchSuggestionStatus.PENDING)
             .select_related(
@@ -43,6 +41,11 @@ class InvoiceAIMatchView(UnfoldModelAdminViewMixin, TemplateView):
             )
             .order_by("invoice_item_id")
         )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        invoice = self.get_invoice()
+        suggestions = self.get_pending_suggestions(invoice)
 
         context.update({
             "invoice": invoice,
@@ -60,6 +63,9 @@ class InvoiceAIMatchView(UnfoldModelAdminViewMixin, TemplateView):
 
         if action == "unmatch":
             return self._handle_unmatch(request, invoice)
+
+        if action == "confirm_all":
+            return self._handle_confirm_all(request, invoice)
 
         suggestion_id = request.POST.get("suggestion_id")
         suggestion = get_object_or_404(
@@ -110,6 +116,36 @@ class InvoiceAIMatchView(UnfoldModelAdminViewMixin, TemplateView):
             return redirect(request.path)
 
         messages.error(request, _("Unknown action."))
+        return redirect(request.path)
+
+    def _handle_confirm_all(self, request, invoice):
+        """
+        Confirms every PENDING suggestion for this invoice in one go, using
+        whatever quantity is currently in each row's input (see the
+        "Approve All" button in ai_match_review.html, which collects those
+        values via JS before submitting) — falling back to the AI's own
+        suggested quantity for any row the JS didn't send. Mirror of
+        POAIMatchView._handle equivalent branch on the PO side.
+        """
+        suggestions = list(self.get_pending_suggestions(invoice))
+        quantity_by_suggestion_id = {
+            suggestion.pk: request.POST.get(f"quantity_{suggestion.pk}")
+            for suggestion in suggestions
+        }
+        confirmed_count, errors = POInvoiceMatchService.confirm_suggestions(
+            suggestions, quantity_by_suggestion_id, request.user
+        )
+        if confirmed_count:
+            messages.success(
+                request,
+                _("%(count)d match(es) confirmed.") % {"count": confirmed_count},
+            )
+        for suggestion, error_message in errors:
+            messages.error(
+                request,
+                _("Could not confirm \"%(description)s\": %(error)s")
+                % {"description": suggestion.invoice_item.description, "error": error_message},
+            )
         return redirect(request.path)
 
     def _handle_unmatch(self, request, invoice):

@@ -8,14 +8,17 @@ Confirming creates InvoicePOAllocation rows; all business validation
 """
 import re
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from django.apps import apps
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import F, Q, Sum
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from djmoney.money import Money
 
-from invoices.models import Invoice, InvoicePOAllocation
+from invoices.models import AIMatchSuggestionStatus, Invoice, InvoicePOAllocation
 
 
 def _tokens(text):
@@ -266,7 +269,7 @@ class POInvoiceMatchService:
             "item_progress": item_progress,
             "matched_items": matched_items,
         }
-    
+
     @classmethod
     def match_progress_for_po(cls, po):
         """
@@ -375,7 +378,7 @@ class POInvoiceMatchService:
             })
 
         return invoice_items_data, po_candidates_data
-    
+
     @classmethod
     def ai_match_pool_for_po(cls, po):
         """
@@ -503,6 +506,67 @@ class POInvoiceMatchService:
                 if dirty:
                     invoice.save(update_fields=dirty)
         return created
+
+    @classmethod
+    def confirm_suggestions(cls, suggestions, quantity_by_suggestion_id, reviewed_by):
+        """
+        Confirms an "Approve All" batch of AIMatchSuggestion rows, one at a
+        time — each through its own confirm() call, so each gets its own
+        transaction.atomic() and an invalid row (e.g. a hand-edited quantity
+        that now exceeds the PO line's pending_invoice_quantity) rolls back
+        only itself, not the whole batch. The alternative — a single call to
+        confirm() with every pair — would roll back every valid row in the
+        batch the moment one pair fails, since confirm() wraps its whole list
+        in one atomic block.
+
+        quantity_by_suggestion_id: {suggestion.pk: raw_quantity_string_or_None}.
+        A missing or blank entry falls back to the suggestion's own
+        AI-suggested quantity, so a plain "Approve All" click with nothing
+        hand-edited still works.
+
+        Returns (confirmed_count, errors), where errors is a list of
+        (suggestion, error_message) tuples for suggestions left PENDING
+        because they failed — the caller reports these to the user without
+        touching the suggestions that did succeed.
+        """
+        confirmed_count = 0
+        errors = []
+
+        for suggestion in suggestions:
+            raw_quantity = quantity_by_suggestion_id.get(suggestion.pk)
+            try:
+                quantity = (
+                    Decimal(str(raw_quantity).replace(",", "."))
+                    if raw_quantity not in (None, "")
+                    else suggestion.quantity
+                )
+            except (InvalidOperation, ValueError, AttributeError):
+                errors.append((suggestion, _("Invalid quantity.")))
+                continue
+            if quantity <= 0:
+                errors.append((suggestion, _("Quantity must be greater than zero.")))
+                continue
+
+            try:
+                created = cls.confirm([{
+                    "invoice_item": suggestion.invoice_item,
+                    "po_item": suggestion.po_item,
+                    "quantity": quantity,
+                }])
+            except ValidationError as e:
+                errors.append((suggestion, "; ".join(e.messages)))
+                continue
+
+            created[0].gemini_match_response = suggestion.raw_response
+            created[0].save(update_fields=["gemini_match_response"])
+
+            suggestion.status = AIMatchSuggestionStatus.CONFIRMED
+            suggestion.reviewed_by = reviewed_by
+            suggestion.reviewed_at = timezone.now()
+            suggestion.save(update_fields=["status", "reviewed_by", "reviewed_at"])
+            confirmed_count += 1
+
+        return confirmed_count, errors
 
     # ------------------------------------------------------------------
     # Private helpers

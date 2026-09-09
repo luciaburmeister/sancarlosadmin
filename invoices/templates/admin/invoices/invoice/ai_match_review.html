@@ -1,5 +1,5 @@
 {% extends "unfold/layouts/base.html" %}
-{% load i18n %}
+{% load i18n l10n %}
 
 {% block breadcrumbs %}
 <div class="px-4 py-3 bg-gray-50 border-b border-gray-200">
@@ -129,9 +129,16 @@
             </div>
 
             {% else %}
-            <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-4">
-                {% blocktrans count counter=suggestions|length %}{{ counter }} suggestion pending review{% plural %}{{ counter }} suggestions pending review{% endblocktrans %}
-            </h2>
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+                <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wider">
+                    {% blocktrans count counter=suggestions|length %}{{ counter }} suggestion pending review{% plural %}{{ counter }} suggestions pending review{% endblocktrans %}
+                </h2>
+                {% if suggestions|length > 1 %}
+                <button type="button" class="btn-approve-all" onclick="approveAllSuggestions()">
+                    {% trans "Approve All" %}
+                </button>
+                {% endif %}
+            </div>
 
             <div class="space-y-3">
                 {% for suggestion in suggestions %}
@@ -173,7 +180,7 @@
                                     <input type="hidden" name="suggestion_id" value="{{ suggestion.pk }}">
                                     <input type="hidden" name="action" value="confirm">
                                     <input type="number" id="qty-{{ suggestion.pk }}" name="quantity" step="0.001" min="0"
-                                        value="{{ suggestion.quantity }}" class="qty-input">
+                                        value="{{ suggestion.quantity|unlocalize }}" class="qty-input" data-suggestion-id="{{ suggestion.pk }}">
                                 </form>
                             </div>
                             <div class="btn-group">
@@ -194,6 +201,11 @@
                 </div>
                 {% endfor %}
             </div>
+
+            <form method="post" id="approve-all-form">
+                {% csrf_token %}
+                <input type="hidden" name="action" value="confirm_all">
+            </form>
             {% endif %}
             {% endif %}
 
@@ -205,6 +217,23 @@
         </div>
     </div>
 </div>
+
+<script>
+    function approveAllSuggestions() {
+        if (!window.confirm("{% trans 'Approve all pending suggestions with the quantities shown below?' %}")) {
+            return;
+        }
+        var form = document.getElementById('approve-all-form');
+        document.querySelectorAll('.qty-input[data-suggestion-id]').forEach(function (input) {
+            var hiddenQuantity = document.createElement('input');
+            hiddenQuantity.type = 'hidden';
+            hiddenQuantity.name = 'quantity_' + input.dataset.suggestionId;
+            hiddenQuantity.value = input.value;
+            form.appendChild(hiddenQuantity);
+        });
+        form.submit();
+    }
+</script>
 
 <style>
     .bg-gradient-header { background: linear-gradient(180deg, #fafbfb 0%, #f7f8f8 100%); }
@@ -225,6 +254,15 @@
         transition: all 0.15s ease;
     }
     .btn-no-po:hover { background-color: #9fe1cb; }
+
+    .btn-approve-all {
+        display: inline-flex; align-items: center;
+        height: 36px; padding: 0 1.125rem; border-radius: 0.5rem;
+        font-size: 0.8125rem; font-weight: 600; color: #085041;
+        background-color: #e1f5ee; border: 1px solid #9fe1cb;
+        transition: all 0.15s ease;
+    }
+    .btn-approve-all:hover { background-color: #9fe1cb; }
 
     .progress-card {
         padding: 1.25rem; border-radius: 0.75rem;

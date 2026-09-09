@@ -158,13 +158,10 @@ class POAIMatchView(UnfoldModelAdminViewMixin, TemplateView):
     def get_po(self):
         return get_object_or_404(PurchaseOrder, pk=self.kwargs["po_id"])
 
-    def get_context_data(self, **kwargs):
+    def get_pending_suggestions(self, po):
         from invoices.models import AIMatchSuggestion, AIMatchSuggestionStatus
-        from invoices.services.po_matching import POInvoiceMatchService
 
-        context = super().get_context_data(**kwargs)
-        po = self.get_po()
-        suggestions = (
+        return (
             AIMatchSuggestion.objects
             .filter(po_item__purchase_order=po, status=AIMatchSuggestionStatus.PENDING)
             .select_related(
@@ -173,6 +170,13 @@ class POAIMatchView(UnfoldModelAdminViewMixin, TemplateView):
             )
             .order_by("po_item_id")
         )
+
+    def get_context_data(self, **kwargs):
+        from invoices.services.po_matching import POInvoiceMatchService
+
+        context = super().get_context_data(**kwargs)
+        po = self.get_po()
+        suggestions = self.get_pending_suggestions(po)
 
         context.update({
             "po": po,
@@ -204,6 +208,33 @@ class POAIMatchView(UnfoldModelAdminViewMixin, TemplateView):
                 _("Removed match for \"%(description)s\" (was invoice %(invoice)s). Choose a new match below.")
                 % {"description": description, "invoice": invoice_number},
             )
+            return redirect(request.path)
+
+        if action == "confirm_all":
+            suggestions = list(self.get_pending_suggestions(po))
+            quantity_by_suggestion_id = {
+                suggestion.pk: request.POST.get(f"quantity_{suggestion.pk}")
+                for suggestion in suggestions
+            }
+            confirmed_count, errors = POInvoiceMatchService.confirm_suggestions(
+                suggestions, quantity_by_suggestion_id, request.user
+            )
+            if confirmed_count:
+                messages.success(
+                    request,
+                    _("%(count)d match(es) confirmed.") % {"count": confirmed_count},
+                )
+            for suggestion, error_message in errors:
+                description = (
+                    suggestion.po_item.inventory_item.name
+                    if suggestion.po_item.inventory_item_id
+                    else suggestion.po_item.description
+                )
+                messages.error(
+                    request,
+                    _("Could not confirm \"%(description)s\": %(error)s")
+                    % {"description": description, "error": error_message},
+                )
             return redirect(request.path)
 
         suggestion_id = request.POST.get("suggestion_id")

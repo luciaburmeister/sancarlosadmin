@@ -855,7 +855,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
         pre_discount_subtotal = Decimal("0.00")
         discount_total = Decimal("0.00")
 
-        if self.price_override and self.price_override.amount > 0:
+        if self.price_override is not None and self.price_override.amount >= 0:
             subtotal = Decimal(str(self.price_override.amount))
             pricing_lines.append(
                 {

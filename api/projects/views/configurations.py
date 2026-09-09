@@ -298,7 +298,7 @@ class ConfigurationReplaceView(CompanyAPIView):
                     new_config.price_override = Money(subtotal.quantize(Decimal("0.01")), "EUR")
                     new_config.save(update_fields=["price_override", "price_override_currency"])
                 # if null: no override, let recalculate_price use rules
-            elif old_config.price_override:
+            elif old_config.price_override is not None:
                 # Key absent: inherit old config's price_override
                 new_config.price_override = old_config.price_override
                 new_config.save(update_fields=["price_override", "price_override_currency"])

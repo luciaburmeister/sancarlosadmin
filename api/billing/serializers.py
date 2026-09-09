@@ -89,7 +89,7 @@ def get_config_component_lines(config) -> list:
     lines = pb.get("lines", [])
     is_override_only = (
         len(lines) == 1 and lines[0].get("type") == "override"
-    ) or (not lines and config.price_override and config.price_override.amount > 0)
+    ) or (not lines and config.price_override is not None and config.price_override.amount >= 0)
 
     if not is_override_only and lines:
         return [

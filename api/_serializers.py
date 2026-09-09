@@ -105,7 +105,7 @@ def serialize_product_config(config, stage_summary=None):
         "template_id": config.product_id,
         "template_name": config.product.name if config.product else None,
         "total_price": float(config.total_price.amount) if config.total_price else None,
-        "price_override": float(config.price_override.amount) if config.price_override else None,
+        "price_override": float(config.price_override.amount) if config.price_override is not None else None,
         "param_values": {
             pv.parameter.name: pv.value
             for pv in config.param_values.select_related("parameter").all()
@@ -214,7 +214,7 @@ def serialize_configuration(config):
         "status": config.status,
         "template_id": config.product_id,
         "template_name": config.product.name if config.product else None,
-        "price_override": float(config.price_override.amount) if config.price_override else None,
+        "price_override": float(config.price_override.amount) if config.price_override is not None else None,
         "total_price": float(config.total_price.amount) if config.total_price else None,
         "subtotal_price": float(config.subtotal_price.amount) if config.subtotal_price else None,
         "items": items_data,

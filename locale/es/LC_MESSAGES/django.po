@@ -14605,6 +14605,27 @@ msgstr "Sin facturas pendientes."
 msgid "Total balance"
 msgstr "Saldo total"
 
+msgid "Claim notes"
+msgstr "Notas de la reclamación"
+
+msgid "Ticket number"
+msgstr "Número de ticket"
+
+msgid "Converted"
+msgstr "Convertido"
+
+msgid "Unknown vendor"
+msgstr "Vendedor desconocido"
+
+msgid "Needs review"
+msgstr "Necesita revisión"
+
+msgid "Total claimed"
+msgstr "Total reclamado"
+
+msgid "No tickets attached to this claim."
+msgstr "Esta reclamación no tiene tickets asociados."
+
 #, fuzzy
 #~ msgid "Configuration ID"
 #~ msgstr "Configuración"

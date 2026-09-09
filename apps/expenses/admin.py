@@ -17,6 +17,7 @@ from unfold.decorators import action, display
 
 from core.admin.company_access import get_user_companies
 from core.admin.company_admin import CompanyRestrictedAdmin
+from apps.expenses.admin_sections import ClaimTicketsSection, claim_tickets_prefetch
 from apps.expenses.forms import ExpenseClaimRejectForm, ExpenseTicketExchangeRateOverrideForm
 from invoices.models import InvoicePaymentStatus
 from payments.admin_inlines import DocumentPaymentsInline
@@ -79,6 +80,7 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "amount_outstanding",
         "created_at",
     )
+    list_sections = [ClaimTicketsSection]
     list_filter = ("status", "payment_status", "company")
     search_fields = ("submitted_by__email", "submitted_by__first_name")
     autocomplete_fields = ("company", "submitted_by")
@@ -141,7 +143,10 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
     ]
 
     def get_queryset(self, request):
-        qs = super().get_queryset(request)
+        # The tickets prefetch feeds ClaimTicketsSection, which renders once per
+        # changelist row - without it that's a query per claim, plus one per
+        # ticket for the provider name.
+        qs = super().get_queryset(request).prefetch_related(claim_tickets_prefetch())
         if request.user.has_perm("expenses.approve_expenseclaim"):
             return qs
         return qs.filter(submitted_by=request.user)

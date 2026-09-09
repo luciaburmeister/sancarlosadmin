@@ -3,7 +3,9 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import translation
 from djmoney.money import Money
@@ -311,3 +313,69 @@ class ExpenseClaimRegisterPaymentTest(TestCase):
         draft = ExpenseClaim.objects.create(company=self.company, submitted_by=self.employee)
         response = self._get("admin:expenses_expenseclaim_register_payment", draft.pk)
         self.assertEqual(response.status_code, 403)
+
+
+class ExpenseClaimTicketsSectionTest(TestCase):
+    """The changelist dropdown showing which tickets make up each claim."""
+
+    def setUp(self):
+        self.company = Company.objects.create(name="Global Corp")
+        self.admin = User.objects.create_superuser(username="boss", password="pw", email="boss@example.com")
+        self.client.force_login(self.admin)
+        self.claim = ExpenseClaim.objects.create(
+            company=self.company,
+            submitted_by=self.admin,
+            notes="Trip to the Madrid fair",
+        )
+        ExpenseTicket.objects.create(
+            company=self.company,
+            submitted_by=self.admin,
+            photo="tickets/fake.jpg",
+            claim=self.claim,
+            vendor_name="Autopista del Sol",
+            ticket_number="T-4471",
+            date_of_purchase=date(2026, 7, 3),
+            original_amount=Money(Decimal("9.25"), "EUR"),
+            notes="Toll on the way to the fair",
+        )
+        self.claim.recalculate_total()
+
+    def _get_changelist(self):
+        # See ExpenseClaimAdminPaymentDisplayTest._get for why the language is
+        # pinned through the URL prefix rather than a header.
+        with translation.override("en"):
+            return self.client.get(reverse("admin:expenses_expenseclaim_changelist"))
+
+    def test_the_dropdown_lists_each_ticket_with_its_value_and_notes(self):
+        response = self._get_changelist()
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode()
+        self.assertIn("Autopista del Sol", body)
+        self.assertIn("T-4471", body)
+        self.assertIn("9.25", body)
+        self.assertIn("Toll on the way to the fair", body)
+        self.assertIn("Trip to the Madrid fair", body)   # the claim's own notes
+
+    def test_a_ticket_awaiting_review_is_flagged_in_the_dropdown(self):
+        response = self._get_changelist()
+        self.assertIn("Needs review", response.content.decode())
+
+    def test_a_claim_without_tickets_says_so(self):
+        ExpenseTicket.objects.filter(claim=self.claim).delete()
+        self.assertIn("No tickets attached to this claim.", self._get_changelist().content.decode())
+
+    def test_the_dropdown_does_not_add_a_query_per_claim(self):
+        with CaptureQueriesContext(connection) as one_claim:
+            self._get_changelist()
+        for _i in range(3):
+            claim = ExpenseClaim.objects.create(company=self.company, submitted_by=self.admin)
+            ExpenseTicket.objects.create(
+                company=self.company,
+                submitted_by=self.admin,
+                photo="tickets/fake.jpg",
+                claim=claim,
+                original_amount=Money(Decimal("5.00"), "EUR"),
+            )
+        with CaptureQueriesContext(connection) as four_claims:
+            self._get_changelist()
+        self.assertEqual(len(four_claims), len(one_claim))

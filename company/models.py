@@ -13,7 +13,7 @@ from django.core.exceptions import ValidationError
 from timestamps.models import Timestampable
 from simple_history.models import HistoricalRecords
 from djmoney.models.fields import MoneyField
-from datetime import timedelta
+from datetime import date, timedelta
 
 User = get_user_model()
 
@@ -102,6 +102,31 @@ class Company(models.Model):
         blank=True,
         verbose_name=_("Invoice Digest Emails"),
         help_text=_("Emails that will receive the daily summary of pending invoices to pay and to collect"),
+    )
+    unmatched_po_digest_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Unmatched PO Digest Emails"),
+        help_text=_("Emails that will receive the daily summary of purchase invoices still not linked to a purchase order"),
+    )
+    unmatched_po_digest_grace_hours = models.PositiveIntegerField(
+        default=48,
+        verbose_name=_("Unmatched PO Digest Grace Hours"),
+        help_text=_(
+            "Hours an invoice may go without a linked purchase order before it is reported, "
+            "counted from the moment it was registered in the ERP."
+        ),
+    )
+    unmatched_po_digest_start_date = models.DateField(
+        default=date(2026, 9, 1),
+        null=True,
+        blank=True,
+        verbose_name=_("Unmatched PO Digest Start Date"),
+        help_text=_(
+            "Only invoices registered on or after this date are reported as missing a purchase order, "
+            "so the digest is not flooded with historical invoices. Leave empty to report all invoices."
+        ),
     )
     asset_plan_draft_notification_emails = ArrayField(
         base_field=models.EmailField(),

@@ -562,6 +562,95 @@ def send_pending_invoices_digest():
         "emails_sent": emails_sent,
     }
 
+
+# ── Unmatched PO daily digest ─────────────────────────────────────────
+# Data: invoices.services.unmatched_po_digest_service
+# Email construction: invoices.services.unmatched_po_digest_email_service
+# This task only orchestrates: fetch -> build -> send -> report.
+
+
+@shared_task(name="invoices.tasks.send_unmatched_po_digest")
+def send_unmatched_po_digest(grace_hours: int | None = None, start_date=None):
+    """Daily task (POL-249): emails a report of purchase invoices that are
+    still not linked to a purchase order — fully unmatched or only
+    partially allocated — more than 48 hours after entering the ERP, to
+    Company.unmatched_po_digest_emails recipients.
+
+    Invoices flagged "No relevant PO" (Invoice.skip_po_matching) are
+    excluded: that flag is how the ERP marks a purchase as exempt from
+    needing a PO (fuel, landfill fees, bank charges). Credit notes are
+    excluded too — they reverse spend rather than commit it.
+
+    Recipients configured on several companies receive ONE consolidated
+    email covering all of them. Recipient groups with nothing to report
+    get no email — a daily "all clear" would train people to ignore it.
+
+    Each company sets its own grace period and start date on its Company
+    record (unmatched_po_digest_grace_hours, defaulting to 48, and
+    unmatched_po_digest_start_date) — so turning the digest on does not
+    surface years of historical invoices, and the threshold is editable
+    from the admin without a deploy. The task arguments override both for
+    every company, and exist for one-off previews rather than routine use.
+
+    Not wired into settings.CELERY_BEAT_SCHEDULE: schedule it via a
+    django-celery-beat PeriodicTask (admin > Periodic Tasks, e.g. daily
+    at 08:00) pointing at "invoices.tasks.send_unmatched_po_digest".
+    """
+    from django.utils import timezone
+
+    from company.models import Company
+    from invoices.services.unmatched_po_digest_email_service import (
+        UnmatchedPODigestEmailService,
+    )
+    from invoices.services.unmatched_po_digest_service import (
+        UnmatchedPODigestService,
+    )
+
+    today = timezone.localdate()
+    companies = list(Company.objects.exclude(unmatched_po_digest_emails=[]))
+    digests = UnmatchedPODigestService.get_company_digests(
+        companies, grace_hours=grace_hours, start_date=start_date
+    )
+    emails = UnmatchedPODigestEmailService.build_emails(
+        companies, digests, today=today
+    )
+
+    emails_sent = 0
+    errors = []
+
+    for email in emails:
+        recipients_label = ", ".join(email.recipients)
+        try:
+            success = EmailService.send_email(
+                to=email.recipients,
+                subject=email.subject,
+                body_html=email.body_html,
+                related_object=email.company,
+                company=email.company,
+            )
+            if success:
+                emails_sent += 1
+            else:
+                errors.append(
+                    f"Failed to send unmatched PO digest to [{recipients_label}]"
+                )
+        except Exception as e:
+            errors.append(
+                f"Error sending unmatched PO digest to [{recipients_label}]: {str(e)}"
+            )
+
+    if errors:
+        raise Exception(
+            f"Unmatched PO digest task completed with errors: {'; '.join(errors)}"
+        )
+
+    return {
+        "task": "send_unmatched_po_digest",
+        "status": "ok",
+        "emails_sent": emails_sent,
+    }
+
+
 @shared_task(name="invoices.tasks.process_payment_reminders")
 def process_payment_reminders():
     """

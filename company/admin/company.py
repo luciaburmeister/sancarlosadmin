@@ -456,6 +456,8 @@ class CompanyAdmin(ModelAdmin):
                 ("document_reminder_emails"),
                 ("bank_summary_emails"),
                 ("invoice_digest_emails"),
+                ("unmatched_po_digest_emails"),
+                ("unmatched_po_digest_grace_hours", "unmatched_po_digest_start_date"),
                 ("purchase_order_notification_emails"),
                 ("asset_plan_draft_notification_emails"),
                 "invoice_number_format",

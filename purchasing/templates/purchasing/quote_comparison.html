@@ -1,0 +1,289 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="px-4 py-3 bg-gray-50 border-b border-gray-200">
+    <div class="flex items-center text-sm text-gray-500">
+        <a href="{% url 'admin:index' %}" class="hover:text-primary-600">Home</a>
+        <span class="mx-2">&raquo;</span>
+        <a href="{% url 'admin:purchasing_quoterequest_changelist' %}" class="hover:text-primary-600">
+            Quote Requests</a>
+        <span class="mx-2">&raquo;</span>
+        <a href="{% url 'admin:purchasing_quoterequest_change' quote_request.id %}" class="hover:text-primary-600">
+            {{ quote_request.number }}</a>
+        <span class="mx-2">&raquo;</span>
+        <span>Compare Quotes</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto py-10 px-6">
+    <div class="mb-8">
+        <h1 class="text-2xl font-bold text-gray-900">Compare Quotes — {{ quote_request.number }}</h1>
+    </div>
+
+    {% if not cards %}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center text-gray-500">
+        No quotes have been requested yet for this request.
+    </div>
+    {% else %}
+    <form method="post">
+        {% csrf_token %}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {% for card in cards %}
+            <div class="quote-card {% if card.is_best_total %}quote-card-best{% endif %}">
+
+                <div class="quote-card-accent {% if card.is_best_total %}accent-best{% endif %}"></div>
+
+                <div class="p-5 pb-4">
+                    <div class="flex items-start justify-between gap-2 mb-3">
+                        <div class="flex items-center gap-3 min-w-0">
+                            <div class="avatar {% if card.is_best_total %}avatar-best{% endif %}">
+                                {{ card.quote.provider.name|slice:":1" }}
+                            </div>
+                            <div class="min-w-0">
+                                <h2 class="font-bold text-gray-900 truncate leading-tight">{{ card.quote.provider.name }}</h2>
+                                <p class="text-xs text-gray-400 mt-0.5">{{ card.quote.code }}</p>
+                            </div>
+                        </div>
+                        {% if card.is_best_total %}
+                        <span class="best-badge">★ Best Price</span>
+                        {% endif %}
+                    </div>
+                    <span class="status-pill status-{{ card.quote.status|lower }}">
+                        {% language "en" %}{{ card.quote.get_status_display }}{% endlanguage %}
+                    </span>
+                </div>
+
+                <div class="px-5 flex-1 space-y-0.5">
+                    {% for line in card.lines %}
+                    <div class="flex items-center justify-between text-sm py-2 border-b border-gray-50 last:border-0">
+                        <div class="pr-2">
+                            <div class="text-gray-800">{{ line.description }}</div>
+                            <div class="text-[11px] text-gray-400">
+                                {{ line.quantity|floatformat:2 }} {{ line.unit }}
+                                {% if line.unit_price %} × {{ line.unit_price }}{% endif %}
+                            </div>
+                        </div>
+                        <div class="font-mono text-sm font-semibold text-gray-800 whitespace-nowrap">
+                            {% if line.line_total %}{{ line.line_total }}{% else %}—{% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                {% if card.quote.shipping_cost.amount or card.quote.discount_amount.amount or card.quote.delivery_time_days or card.quote.valid_until %}
+                <div class="mx-5 mt-3 terms-panel">
+                    {% if card.quote.shipping_cost.amount %}
+                    <div class="terms-row">
+                        <span class="terms-icon">🚚</span>
+                        <span class="terms-label">Shipping</span>
+                        <span class="terms-value">{{ card.quote.shipping_cost }}</span>
+                    </div>
+                    {% endif %}
+                    {% if card.quote.discount_amount.amount %}
+                    <div class="terms-row">
+                        <span class="terms-icon">🏷️</span>
+                        <span class="terms-label">Discount</span>
+                        <span class="terms-value">-{{ card.quote.discount_amount }}</span>
+                    </div>
+                    {% endif %}
+                    {% if card.quote.delivery_time_days %}
+                    <div class="terms-row">
+                        <span class="terms-icon">⏱️</span>
+                        <span class="terms-label">Delivery</span>
+                        <span class="terms-value">{{ card.quote.delivery_time_days }} days</span>
+                    </div>
+                    {% endif %}
+                    {% if card.quote.valid_until %}
+                    <div class="terms-row">
+                        <span class="terms-icon">📅</span>
+                        <span class="terms-label">Valid until</span>
+                        <span class="terms-value">{{ card.quote.valid_until }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                {% if card.quote.provider_notes %}
+                <p class="mx-5 mt-3 text-xs text-gray-500 italic">"{{ card.quote.provider_notes }}"</p>
+                {% endif %}
+
+                <div class="p-5 mt-4">
+                    <div class="total-strip {% if card.is_best_total %}total-strip-best{% endif %}">
+                        <span class="text-xs uppercase tracking-wider opacity-70">Total</span>
+                        <span class="text-2xl font-bold">
+                            {% if card.quote.total_amount.amount %}{{ card.quote.total_amount }}{% else %}—{% endif %}
+                        </span>
+                    </div>
+
+                    {% if card.can_select %}
+                    <button type="submit" name="provider_quote_id" value="{{ card.quote.id }}"
+                        onclick="return confirm('Convert this quote into a Purchase Order?');"
+                        class="quote-btn-primary w-full text-center mt-3">
+                        Select this Quote
+                    </button>
+                    {% elif card.quote.status == "SELECTED" %}
+                    <div class="mt-3 text-center px-3 py-2 text-xs font-semibold rounded-lg bg-success-50 text-success-700 border border-success-200">
+                        ✓ Selected
+                    </div>
+                    {% elif card.quote.status == "REJECTED" %}
+                    <div class="mt-3 text-center px-3 py-2 text-xs font-semibold rounded-lg bg-gray-100 text-gray-500 border border-gray-200">
+                        Rejected
+                    </div>
+                    {% else %}
+                    <div class="mt-3 text-center px-3 py-2 text-xs text-gray-400">
+                        Awaiting provider pricing
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </form>
+    {% endif %}
+
+    <div class="mt-8">
+        <a href="{% url 'admin:purchasing_quoterequest_change' quote_request.id %}"
+            class="px-5 py-2.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-all">
+            Back
+        </a>
+    </div>
+</div>
+
+<style>
+    .quote-card {
+        background: #fff;
+        border-radius: 14px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        transition: box-shadow 0.15s ease;
+    }
+    .quote-card:hover {
+        box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+    }
+    .quote-card-best {
+        border-color: #99d6cf;
+        box-shadow: 0 8px 24px rgba(15, 118, 110, 0.12);
+    }
+    .quote-card-accent {
+        height: 5px;
+        background: #e5e7eb;
+    }
+    .accent-best {
+        background: linear-gradient(90deg, #0f766e, #34d399);
+    }
+    .avatar {
+        width: 38px;
+        height: 38px;
+        border-radius: 9999px;
+        background: #f3f4f6;
+        color: #4b5563;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 0.9rem;
+        flex-shrink: 0;
+    }
+    .avatar-best {
+        background: #0f766e;
+        color: #fff;
+    }
+    .best-badge {
+        flex-shrink: 0;
+        padding: 3px 10px;
+        font-size: 11px;
+        font-weight: 700;
+        border-radius: 9999px;
+        background: #ecfdf5;
+        color: #047857;
+        border: 1px solid #a7f3d0;
+        white-space: nowrap;
+    }
+    .status-pill {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 9999px;
+        font-size: 11px;
+        font-weight: 600;
+        background: #f3f4f6;
+        color: #4b5563;
+    }
+    .status-pending { background: #fef3c7; color: #92400e; }
+    .status-sent { background: #dbeafe; color: #1e40af; }
+    .status-responded { background: #d1fae5; color: #065f46; }
+    .status-selected { background: #d1fae5; color: #065f46; }
+    .status-rejected { background: #f3f4f6; color: #4b5563; }
+
+    .terms-panel {
+        background: #f8fafb;
+        border: 1px solid #eef1f1;
+        border-radius: 10px;
+        padding: 0.75rem 1rem;
+    }
+    .terms-row {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 12px;
+        color: #6b7280;
+        padding: 0.2rem 0;
+    }
+    .terms-icon {
+        font-size: 13px;
+        line-height: 1;
+    }
+    .terms-label {
+        flex: 1;
+    }
+    .terms-value {
+        font-weight: 600;
+        color: #374151;
+    }
+
+    .total-strip {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        padding: 0.85rem 1rem;
+        border-radius: 10px;
+        background: #f9fafb;
+        color: #111827;
+    }
+    .total-strip-best {
+        background: #ecfdf5;
+        color: #065f46;
+    }
+
+    .quote-btn-primary {
+        display: inline-block;
+        padding: 0.625rem 1.5rem;
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #ffffff;
+        background-color: #0f766e;
+        border-radius: 0.5rem;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        transition: background-color 0.15s ease;
+        border: none;
+        cursor: pointer;
+    }
+    .quote-btn-primary:hover {
+        background-color: #0c5d56;
+    }
+</style>
+
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        document.querySelectorAll('a[href*="create-quotes"], a[href*="compare-quotes"]').forEach(function (link) {
+            link.setAttribute("target", "_blank");
+            link.setAttribute("rel", "noopener");
+        });
+    });
+</script>
+{% endblock %}

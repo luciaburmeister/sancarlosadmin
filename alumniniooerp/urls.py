@@ -21,6 +21,7 @@ urlpatterns = [
     path('hijack/', include('hijack.urls')),
     path("api/chatbot/", include("chatbot.urls")),
     path("api/banking/", include("banking.urls")),  # Arcopay callbacks (no i18n)
+    path("presupuestos/", include("purchasing.urls")),
 ]
 
 

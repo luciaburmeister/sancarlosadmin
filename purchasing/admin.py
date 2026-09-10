@@ -6,9 +6,10 @@ from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 from django.contrib import admin
 from django.db import transaction
 from django.db.models import Sum
-from django.utils.html import format_html_join
+from django.utils.html import format_html_join, format_html
 from django.utils.translation import gettext_lazy as _
-from django.utils import timezone
+from django.utils import timezone, translation
+from django.core.exceptions import ValidationError
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.decorators import action, display
 from core.admin.company_admin import CompanyRestrictedAdmin
@@ -18,8 +19,10 @@ from import_export.admin import ExportActionModelAdmin
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from core.admin.xlsx_export import FormattedXlsxExportMixin
 from .models import (
-    PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus, PurchaseOrderType,
-    PurchaseOrderReceipt, PurchaseOrderReceiptItem
+    PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus,
+    PurchaseOrderReceipt, PurchaseOrderReceiptItem,
+    QuoteRequest, QuoteRequestItem, QuoteRequestStatus,
+    ProviderQuote, ProviderQuoteItem, ProviderQuoteStatus,
 )
 from .resources import PurchaseOrderResource
 from inventory.models import ItemIdentityCode
@@ -452,3 +455,345 @@ class PurchaseOrderReceiptItemAdmin(ModelAdmin):
     autocomplete_fields = ["po_item", "receipt"]
     search_fields = ["po_item__inventory_item__name", "receipt__number"]
     inlines = [IdentityCodeReceiptInline]
+
+
+# ---------------------------------------------------------------------------
+# Quote Requests (RFQ)
+# ---------------------------------------------------------------------------
+
+def _copy_link_button(token):
+    """
+    Renders a small "Copy Link" button. The path is relative; the button
+    prepends window.location.origin at click time, so it works
+    regardless of host/port.
+    """
+    path_ = reverse("purchasing_quote_public_response", args=[token])
+    return format_html(
+        '<button type="button" '
+        'onclick="navigator.clipboard.writeText(window.location.origin + \'{0}\').then(() => {{'
+        'const el = this; const original = el.textContent; el.textContent = \'{1}\'; '
+        'setTimeout(() => {{ el.textContent = original; }}, 1500); }})" '
+        'class="px-2 py-1 text-xs font-medium rounded-md border border-gray-300 hover:bg-gray-50 whitespace-nowrap">'
+        '{2}</button>',
+        path_, _("Copied!"), _("Copy Link"),
+    )
+
+
+class QuoteRequestItemInline(StackedInline):
+    model = QuoteRequestItem
+    extra = 1
+    tab = True
+    autocomplete_fields = ["inventory_item"]
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("inventory_item", "unit"),
+                ("quantity", "description"),
+            )
+        }),
+    )
+
+    def has_add_permission(self, request, obj=None):
+        if obj and obj.status != QuoteRequestStatus.DRAFT:
+            return False
+        return super().has_add_permission(request, obj)
+
+    def has_change_permission(self, request, obj=None):
+        if obj and obj.status != QuoteRequestStatus.DRAFT:
+            return False
+        return super().has_change_permission(request, obj)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status != QuoteRequestStatus.DRAFT:
+            return False
+        return super().has_delete_permission(request, obj)
+
+
+class ProviderQuoteSummaryInline(TabularInline):
+    """
+    Read-only summary of the ProviderQuotes generated for this
+    QuoteRequest, shown directly on the QuoteRequest detail page so the
+    user doesn't need to leave it to see progress. Creation, sending and
+    deleting happen from the "Create Quotes" screen or from the
+    Provider Quote itself.
+    """
+    model = ProviderQuote
+    extra = 0
+    tab = True
+    fields = ["code_link", "provider", "get_status_label", "total_amount", "copy_link_button"]
+    readonly_fields = ["code_link", "provider", "get_status_label", "total_amount", "copy_link_button"]
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @display(description=_("Code"))
+    def code_link(self, obj):
+        if not obj.pk:
+            return "-"
+        return format_html(
+            '<a href="{}" class="font-mono font-semibold" style="color:#0f766e;">{}</a>',
+            reverse("admin:purchasing_providerquote_change", args=[obj.pk]),
+            obj.code,
+        )
+
+    @display(description=_("Status"))
+    def get_status_label(self, obj):
+        colors = {
+            ProviderQuoteStatus.PENDING: ("#fef3c7", "#92400e"),
+            ProviderQuoteStatus.SENT: ("#dbeafe", "#1e40af"),
+            ProviderQuoteStatus.RESPONDED: ("#d1fae5", "#065f46"),
+            ProviderQuoteStatus.SELECTED: ("#d1fae5", "#065f46"),
+            ProviderQuoteStatus.REJECTED: ("#f3f4f6", "#4b5563"),
+        }
+        bg, fg = colors.get(obj.status, ("#f3f4f6", "#4b5563"))
+        with translation.override("en"):
+            status_text = obj.get_status_display()
+        return format_html(
+            '<span style="display:inline-block;padding:2px 10px;border-radius:9999px;'
+            'font-size:11px;font-weight:600;background-color:{};color:{};">{}</span>',
+            bg, fg, status_text,
+        )
+
+    @display(description=_("Link"))
+    def copy_link_button(self, obj):
+        if not obj.pk:
+            return "-"
+        return _copy_link_button(obj.token)
+
+
+@admin.register(QuoteRequest)
+class QuoteRequestAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ["number_display", "project_file", "requested_by", "get_status_label", "date_requested", "get_provider_quotes_count", "company"]
+    list_filter = [("status", MultipleChoicesDropdownFilter), ("date_requested", RangeDateFilter), ("company", AutocompleteSelectMultipleFilter)]
+    search_fields = ["number", "project_file__reference", "project_file__name", "requested_by__username"]
+    autocomplete_fields = ["company", "requested_by", "project_file"]
+    readonly_fields = ["number", "status", "awarded_quote", "purchase_order"]
+    list_select_related = ["company", "requested_by", "project_file"]
+    list_filter_submit = True
+
+    fieldsets = (
+        (_("General Information"), {
+            "fields": (
+                ("number", "company"),
+                ("requested_by", "date_requested"),
+                "project_file",
+                "status",
+            )
+        }),
+        (_("Result"), {
+            "fields": (
+                ("awarded_quote", "purchase_order"),
+            )
+        }),
+        (_("Notes"), {
+            "fields": ("notes",),
+        }),
+    )
+
+    inlines = [QuoteRequestItemInline, ProviderQuoteSummaryInline]
+
+    actions_detail = ["create_quotes_detail_action", "compare_quotes_detail_action"]
+
+    @display(description=_("Request Number"), ordering="number")
+    def number_display(self, obj):
+        return obj.number
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            QuoteRequestStatus.DRAFT: "warning",
+            QuoteRequestStatus.REQUESTED: "info",
+            QuoteRequestStatus.CONVERTED: "success",
+        },
+    )
+    def get_status_label(self, obj):
+        with translation.override("en"):
+            return obj.status, obj.get_status_display()
+
+    @display(description=_("Provider Quotes"))
+    def get_provider_quotes_count(self, obj):
+        return obj.provider_quotes.count()
+
+    def save_model(self, request, obj, form, change):
+        if not getattr(obj, "requested_by", None):
+            obj.requested_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj and obj.status == QuoteRequestStatus.CONVERTED:
+            return [f.name for f in self.model._meta.fields if f.name != "id"] + list(self.readonly_fields)
+        return super().get_readonly_fields(request, obj)
+
+    @action(description=_("Create Quotes"), icon="add_circle")
+    def create_quotes_detail_action(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_quoterequest_create_quotes", args=[object_id]))
+
+    @action(description=_("Compare Quotes"), icon="compare_arrows")
+    def compare_quotes_detail_action(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_quoterequest_compare_quotes", args=[object_id]))
+
+    def get_urls(self):
+        from .views import CreateQuotesView, QuoteComparisonView, ProviderAutocompleteView
+        urls = super().get_urls()
+        custom_urls = [
+            path(
+                "<int:quote_request_id>/create-quotes/",
+                self.admin_site.admin_view(CreateQuotesView.as_view(model_admin=self)),
+                name="purchasing_quoterequest_create_quotes",
+            ),
+            path(
+                "<int:quote_request_id>/compare-quotes/",
+                self.admin_site.admin_view(QuoteComparisonView.as_view(model_admin=self)),
+                name="purchasing_quoterequest_compare_quotes",
+            ),
+            path(
+                "autocomplete/providers/",
+                self.admin_site.admin_view(ProviderAutocompleteView.as_view()),
+                name="purchasing_provider_autocomplete",
+            ),
+        ]
+        return custom_urls + urls
+
+
+class ProviderQuoteItemInline(TabularInline):
+    model = ProviderQuoteItem
+    extra = 0
+    tab = True
+    fields = ["quote_request_item", "description", "quantity", "unit", "unit_price", "line_total"]
+    readonly_fields = ["quote_request_item", "description", "quantity", "unit", "line_total"]
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ProviderQuote)
+class ProviderQuoteAdmin(ModelAdmin):
+    list_display = ["code", "quote_request", "provider", "get_status_label", "sent_at", "responded_at", "total_amount", "copy_link_button"]
+    list_filter = [("status", MultipleChoicesDropdownFilter), "sent_at"]
+    search_fields = ["code", "quote_request__number", "provider__name"]
+    autocomplete_fields = ["quote_request", "provider"]
+    readonly_fields = ["code", "token", "status", "sent_at", "responded_at", "total_amount", "public_link_display"]
+    list_select_related = ["quote_request", "provider"]
+
+    fieldsets = (
+        (_("General Information"), {
+            "fields": (
+                ("code", "quote_request", "provider"),
+                ("status", "total_amount"),
+                ("sent_at", "responded_at"),
+                "public_link_display",
+            )
+        }),
+        (_("Quote Terms"), {
+            "fields": (
+                ("shipping_cost", "discount_amount"),
+                ("valid_until", "delivery_time_days"),
+                "provider_notes",
+            )
+        }),
+    )
+
+    inlines = [ProviderQuoteItemInline]
+
+    actions_row = ["send_email_es", "send_email_en", "mark_as_sent"]
+    actions_detail = ["send_email_es_detail_action", "send_email_en_detail_action", "mark_as_sent_detail_action", "select_quote_detail_action"]
+
+    @display(
+        description=_("Status"),
+        ordering="status",
+        label={
+            ProviderQuoteStatus.PENDING: "warning",
+            ProviderQuoteStatus.SENT: "info",
+            ProviderQuoteStatus.RESPONDED: "success",
+            ProviderQuoteStatus.SELECTED: "success",
+            ProviderQuoteStatus.REJECTED: "neutral",
+        },
+    )
+    def get_status_label(self, obj):
+        with translation.override("en"):
+            return obj.status, obj.get_status_display()
+
+    @display(description=_("Link"))
+    def copy_link_button(self, obj):
+        if not obj.pk:
+            return "-"
+        return _copy_link_button(obj.token)
+
+    @display(description=_("Public Link"))
+    def public_link_display(self, obj):
+        if not obj.pk:
+            return "-"
+        return _copy_link_button(obj.token)
+
+    def has_delete_permission(self, request, obj=None):
+        if obj and obj.status not in [ProviderQuoteStatus.PENDING, ProviderQuoteStatus.SENT]:
+            return False
+        return super().has_delete_permission(request, obj)
+
+    @action(description=_("Send Email (ES)"), url_path="send-email-es-row-action")
+    def send_email_es(self, request, object_id: int):
+        return self._send_email(request, object_id, "es", redirect_to_changelist=True)
+
+    @action(description=_("Send Email (EN)"), url_path="send-email-en-row-action")
+    def send_email_en(self, request, object_id: int):
+        return self._send_email(request, object_id, "en", redirect_to_changelist=True)
+
+    @action(description=_("Send Email (ES)"), icon="mail")
+    def send_email_es_detail_action(self, request, object_id: int):
+        return self._send_email(request, object_id, "es", redirect_to_changelist=False)
+
+    @action(description=_("Send Email (EN)"), icon="mail")
+    def send_email_en_detail_action(self, request, object_id: int):
+        return self._send_email(request, object_id, "en", redirect_to_changelist=False)
+
+    def _send_email(self, request, object_id, language, redirect_to_changelist):
+        quote = ProviderQuote.objects.get(pk=object_id)
+        try:
+            quote.queue_quote_email(language=language)
+        except ValidationError as e:
+            self.message_user(request, "; ".join(e.messages), level="error")
+        else:
+            self.message_user(request, _("Email queued to %(email)s.") % {"email": quote.provider.email})
+        if redirect_to_changelist:
+            return redirect("admin:purchasing_providerquote_changelist")
+        return redirect("admin:purchasing_providerquote_change", object_id)
+
+    @action(description=_("Mark as Sent"), url_path="mark-as-sent-row-action")
+    def mark_as_sent(self, request, object_id: int):
+        quote = ProviderQuote.objects.get(pk=object_id)
+        if quote.status != ProviderQuoteStatus.PENDING:
+            self.message_user(request, _("Only a Pending quote can be marked as sent."), level="error")
+        else:
+            quote.mark_as_sent()
+            self.message_user(request, _("Quote marked as sent."))
+        return redirect("admin:purchasing_providerquote_changelist")
+
+    @action(description=_("Mark as Sent"), icon="send", permissions=["quote_is_pending"])
+    def mark_as_sent_detail_action(self, request, object_id: int):
+        quote = ProviderQuote.objects.get(pk=object_id)
+        quote.mark_as_sent()
+        self.message_user(request, _("Quote marked as sent."))
+        return redirect("admin:purchasing_providerquote_change", object_id)
+
+    def has_quote_is_pending_permission(self, request, object_id=None):
+        if not object_id:
+            return True
+        return ProviderQuote.objects.filter(pk=object_id, status=ProviderQuoteStatus.PENDING).exists()
+
+    @action(description=_("Select this Quote"), icon="check_circle")
+    def select_quote_detail_action(self, request, object_id: int):
+        quote = ProviderQuote.objects.get(pk=object_id)
+        try:
+            po = quote.convert_to_purchase_order(user=request.user)
+        except Exception as e:
+            self.message_user(request, str(e), level="error")
+            return redirect("admin:purchasing_providerquote_change", object_id)
+        self.message_user(request, _("Purchase Order %(number)s created.") % {"number": po.number})
+        return redirect("admin:purchasing_purchaseorder_change", po.pk)

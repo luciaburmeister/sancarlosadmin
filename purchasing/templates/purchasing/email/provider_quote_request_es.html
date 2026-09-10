@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solicitud de Presupuesto</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f5f6f7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f6f7;">
+  <tr>
+    <td align="center" style="padding: 32px 16px;">
+      <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px; width:100%; background-color:#ffffff; border-radius:12px; overflow:hidden; border:1px solid #e5e7eb;">
+
+        <!-- Header -->
+        <tr>
+          <td style="background-color:#0f766e; padding: 28px 32px;">
+            <div style="color:#ffffff; font-size:18px; font-weight:700; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+              Solicitud de Presupuesto de {{ company_name }}
+            </div>
+          </td>
+        </tr>
+
+        <!-- Body -->
+        <tr>
+          <td style="padding: 36px 32px;">
+            <p style="margin:0 0 16px 0; font-size:14px; color:#1f2937; line-height:1.6;">
+              Estimado/a {{ provider_name }}:
+            </p>
+            <p style="margin:0 0 28px 0; font-size:14px; color:#1f2937; line-height:1.6;">
+              {{ company_name }} le solicita un presupuesto.
+              Por favor, utilice el siguiente botón para revisar la solicitud y completar su presupuesto.
+            </p>
+
+            <table role="presentation" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="border-radius:8px; background-color:#0f766e;">
+                  <a href="{{ link_url }}" target="_blank" style="display:inline-block; padding:12px 28px; font-size:14px; font-weight:600; color:#ffffff; text-decoration:none; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                    Completar Presupuesto
+                  </a>
+                </td>
+              </tr>
+            </table>
+
+            <p style="margin:28px 0 0 0; font-size:13px; color:#6b7280; line-height:1.6;">
+              Si tiene alguna consulta, no dude en contactar con nosotros.
+            </p>
+            <p style="margin:20px 0 0 0; font-size:13px; color:#1f2937; line-height:1.6;">
+              Un cordial saludo,<br>{{ company_name }}
+            </p>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="padding: 16px 32px; background-color:#f9fafb; border-top:1px solid #e5e7eb;">
+            <p style="margin:0; font-size:11px; color:#9ca3af; line-height:1.5;">
+              Este es un mensaje automático. Si el botón anterior no funciona, copie y pegue el siguiente enlace en su navegador:<br>
+              <a href="{{ link_url }}" style="color:#0f766e;">{{ link_url }}</a>
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+</body>
+</html>

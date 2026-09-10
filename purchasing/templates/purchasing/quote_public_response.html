@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+{% load i18n purchasing_extras %}
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quote Request from {{ provider_quote.quote_request.company.name }} — {{ provider_quote.provider.name }}</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background: linear-gradient(180deg, #f0f4f4 0%, #f5f6f7 220px);
+            margin: 0;
+            padding: 2.5rem 1rem;
+            color: #1f2937;
+        }
+        .card {
+            max-width: 900px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 16px;
+            border: 1px solid #e5e7eb;
+            box-shadow: 0 4px 16px rgba(15, 118, 110, 0.08);
+            overflow: hidden;
+        }
+        .card-header {
+            padding: 2rem;
+            background: linear-gradient(135deg, #0f766e 0%, #0d5c56 100%);
+            color: #fff;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+        .card-header .icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            background: rgba(255,255,255,0.15);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .card-header .icon svg {
+            width: 24px;
+            height: 24px;
+            stroke: #fff;
+        }
+        .card-header h1 {
+            margin: 0;
+            font-size: 1.375rem;
+            font-weight: 700;
+        }
+        .card-header p {
+            margin: 0.25rem 0 0 0;
+            color: rgba(255,255,255,0.85);
+            font-size: 0.875rem;
+        }
+        .card-body {
+            padding: 2rem;
+        }
+        .table-wrap {
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 2rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 0.85rem 1.1rem;
+            text-align: left;
+            font-size: 0.875rem;
+        }
+        thead th {
+            background: #f9fafb;
+            color: #6b7280;
+            text-transform: uppercase;
+            font-size: 0.7rem;
+            letter-spacing: 0.04em;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        tbody tr:nth-child(even) {
+            background: #fafafa;
+        }
+        tbody tr:not(:last-child) td {
+            border-bottom: 1px solid #f0f1f2;
+        }
+        input[type="text"], input[type="number"], input[type="date"], textarea {
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            border: 1.5px solid #d1d5db;
+            border-radius: 7px;
+            font-size: 0.875rem;
+            font-family: inherit;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #0f766e;
+            box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+        }
+        input[type="number"] {
+            max-width: 140px;
+        }
+        .terms-box {
+            border: 1px solid #d9ece9;
+            background: #f4faf9;
+            border-radius: 12px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .section-title {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #0f766e;
+            margin: 0 0 1.1rem 0;
+        }
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.25rem;
+        }
+        @media (max-width: 560px) {
+            .grid-2 { grid-template-columns: 1fr; }
+        }
+        .field-group {
+            margin-bottom: 1.25rem;
+        }
+        .field-group:last-child {
+            margin-bottom: 0;
+        }
+        label {
+            display: block;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            margin-bottom: 0.375rem;
+            color: #374151;
+        }
+        .help-text {
+            font-size: 0.75rem;
+            color: #9ca3af;
+            margin: 0.25rem 0 0 0;
+        }
+        .notes-group {
+            margin-bottom: 1.75rem;
+        }
+        .submit-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.8rem 2rem;
+            background-color: #0f766e;
+            color: #fff;
+            border: none;
+            border-radius: 9px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(15, 118, 110, 0.25);
+            transition: background-color 0.15s ease;
+        }
+        .submit-btn:hover {
+            background-color: #0c5d56;
+        }
+        .submit-btn svg {
+            width: 16px;
+            height: 16px;
+            stroke: #fff;
+        }
+        .notice {
+            padding: 1rem 1.25rem;
+            border-radius: 10px;
+            font-size: 0.875rem;
+        }
+        .notice-success {
+            background: #ecfdf5;
+            color: #047857;
+            border: 1px solid #a7f3d0;
+        }
+        .notice-info {
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #bfdbfe;
+        }
+        .errorlist {
+            color: #b91c1c;
+            font-size: 0.75rem;
+            margin: 0.25rem 0 0 0;
+            padding: 0;
+            list-style: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="card-header">
+            <div class="icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <path d="M14 2v6h6"/>
+                    <path d="M9 15h6"/>
+                    <path d="M9 11h1"/>
+                </svg>
+            </div>
+            <div>
+                <h1>Quote Request from {{ provider_quote.quote_request.company.name }}</h1>
+                <p>{{ provider_quote.provider.name }} &middot; {{ provider_quote.quote_request.number }}</p>
+            </div>
+        </div>
+        <div class="card-body">
+            {% if submitted %}
+            <div class="notice notice-success">
+                Thank you. Your quote has been submitted successfully.
+            </div>
+            {% elif already_closed %}
+            <div class="notice notice-info">
+                This request has already been closed and no longer accepts changes.
+            </div>
+            {% else %}
+            <form method="post">
+                {% csrf_token %}
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Item</th>
+                                <th>Quantity</th>
+                                <th>Unit</th>
+                                <th>Unit Price (€)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for line in form.quote_items %}
+                            <tr>
+                                <td>{{ line.description }}</td>
+                                <td>{{ line.quantity|floatformat:2 }}</td>
+                                <td>{{ line.get_unit_display }}</td>
+                                <td>
+                                    {{ form|get_field:line.price_field_name }}
+                                    {% with field=form|get_field:line.price_field_name %}
+                                    {% if field.errors %}
+                                    <ul class="errorlist">{% for e in field.errors %}<li>{{ e }}</li>{% endfor %}</ul>
+                                    {% endif %}
+                                    {% endwith %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="terms-box">
+                    <div class="section-title">Additional Terms (Optional)</div>
+
+                    <div class="grid-2">
+                        <div class="field-group">
+                            <label for="{{ form.shipping_cost.id_for_label }}">Shipping Cost (€)</label>
+                            {{ form.shipping_cost }}
+                            <p class="help-text">Leave blank if shipping is included in the price.</p>
+                        </div>
+                        <div class="field-group">
+                            <label for="{{ form.discount_amount.id_for_label }}">Discount (€)</label>
+                            {{ form.discount_amount }}
+                            <p class="help-text">Total amount to deduct from the quote, if applicable.</p>
+                        </div>
+                        <div class="field-group">
+                            <label for="{{ form.delivery_time_days.id_for_label }}">Delivery Time (days)</label>
+                            {{ form.delivery_time_days }}
+                        </div>
+                        <div class="field-group">
+                            <label for="{{ form.valid_until.id_for_label }}">Valid Until</label>
+                            {{ form.valid_until }}
+                            <p class="help-text">Expiration date of this quote.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="notes-group">
+                    <label for="{{ form.provider_notes.id_for_label }}">Notes</label>
+                    {{ form.provider_notes }}
+                    <p class="help-text">Any additional terms or clarifications about this quote.</p>
+                </div>
+
+                <button type="submit" class="submit-btn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 2 11 13"/>
+                        <path d="M22 2 15 22l-4-9-9-4 20-7z"/>
+                    </svg>
+                    Submit Quote
+                </button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

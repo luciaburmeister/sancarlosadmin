@@ -14632,6 +14632,21 @@ msgid "No tickets attached to this claim."
 msgstr "Esta reclamación no tiene tickets asociados."
 
 #, fuzzy
+msgid "Can import providers"
+msgstr "Puede importar proveedores"
+
+msgid "“%(value)s” is not a valid payment method. Valid values are: %(valid)s"
+msgstr ""
+"«%(value)s» no es un método de pago válido. Los valores válidos son: "
+"%(valid)s"
+
+msgid ""
+"No provider found with id “%(id)s”. The import only updates existing "
+"providers, so export them first and edit that file."
+msgstr ""
+"No se ha encontrado ningún proveedor con el id «%(id)s». La importación solo "
+"actualiza proveedores existentes: expÃ³rtalos primero y edita ese archivo."
+
 #~ msgid "Configuration ID"
 #~ msgstr "Configuración"
 

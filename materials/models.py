@@ -72,6 +72,9 @@ class Provider(Timestampable,CompanyOwnedModel):
             Index(Lower("name"), name="provider_name_ci_idx"),
             GinIndex(fields=['associated_emails'], name='provider_emails_gin_idx')
         ]
+        permissions = [
+            ("can_import_providers", _("Can import providers")),
+        ]
 
     def clean(self):
         super().clean()

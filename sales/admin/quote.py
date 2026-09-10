@@ -129,22 +129,41 @@ class _OverrideLineTotalGateMixin:
         return readonly
 
 
-class QuoteInventoryItemInline(_OverrideLineTotalGateMixin, TabularInline):
+class QuoteInventoryItemInline(
+    _OverrideLineTotalGateMixin,
+    TabularInline,
+):
     model = QuoteInventoryItem
     extra = 0
     tab = True
+
     ordering_field = "order"
-    hide_ordering_field=True
-    
+    hide_ordering_field = False  # Keep visible initially
+
     autocomplete_fields = ["inventory_item"]
-    readonly_fields = ["unit_price", "line_total", "total_with_tax", "cost_display", "margin_display", "margin_pct_display"]
-    fields = [
-        "order","inventory_item", "quantity", "discount", "unit_price", "cost_display",
-        "override_line_total", "line_total", "total_with_tax",
-        "margin_display", "margin_pct_display",
+
+    readonly_fields = [
+        "unit_price",
+        "line_total",
+        "total_with_tax",
+        "cost_display",
+        "margin_display",
+        "margin_pct_display",
     ]
-    verbose_name = _("Sale item")
-    verbose_name_plural = _("Sale items")
+
+    fields = [
+        "inventory_item",
+        "quantity",
+        "discount",
+        "unit_price",
+        "cost_display",
+        "override_line_total",
+        "line_total",
+        "total_with_tax",
+        "margin_display",
+        "margin_pct_display",
+        "order",  # Required so its input is rendered
+    ]
 
     def _get_item_cost(self, obj):
         """Last purchase price for this inventory item, fallback to cost_price."""

@@ -985,6 +985,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
         ("company", AutocompleteSelectMultipleFilter),
         ("client", AutocompleteSelectMultipleFilter),
         ("date_issued", RangeDateFilter),
+        ("due_date", RangeDateFilter),
         ("payment_commitment_date", RangeDateFilter),
         ("total_amount",RangeNumericFilter),
         # Document state

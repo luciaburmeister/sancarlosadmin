@@ -13,13 +13,14 @@ from unfold.admin import StackedInline, TabularInline
 from django_json_widget.widgets import JSONEditorWidget
 from django.db import models
 from django.utils.translation import gettext_lazy as _
+from core.admin.company_access import get_user_companies
 from core.admin.company_admin import CompanyRestrictedAdmin
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter
 )
-from import_export.admin import ImportExportModelAdmin, ExportActionModelAdmin
+from import_export.admin import ImportExportModelAdmin, ImportExportActionModelAdmin
 from unfold.contrib.import_export.forms import (
     ImportForm,
     SelectableFieldsExportForm,
@@ -214,9 +215,10 @@ class ProviderBankAccountInline(StackedInline):
 
 
 @admin.register(Provider)
-class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
+class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelAdmin, ImportExportActionModelAdmin):
     form = ProviderForm
     resource_classes = [ProviderResource]
+    import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
     list_display = ("name", "contact", "phone", "email", "tax_identifier", "account", "default_cost_center", "company", "balance_overdue_display", "balance_not_due_display", "balance_owed_display")
     list_sections = [PendingInvoicesSection]
@@ -236,6 +238,16 @@ class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelA
             "widget": ArrayWidget,
         }
     }
+
+    def has_import_permission(self, request):
+        return request.user.has_perm("materials.can_import_providers")
+
+    def get_import_resource_kwargs(self, request, **kwargs):
+        # Keep the import inside the companies the user has access to, so a
+        # hand-edited id can't reach another company's provider.
+        result = super().get_import_resource_kwargs(request, **kwargs)
+        result["allowed_companies"] = get_user_companies(request.user)
+        return result
 
     def save_formset(self, request, form, formset, change):
         # Bank accounts are company-owned but the company is not on the inline

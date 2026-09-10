@@ -352,7 +352,7 @@ class ProviderResource(resources.ModelResource):
 
     def before_import_row(self, row, **kwargs):
         """Drop a blank payment method so the provider keeps its current one."""
-        column = self.fields["payment_method"].column_name
+        column = str(self.fields["payment_method"].column_name)
         if column in row and not _normalize(row[column]):
             del row[column]
 

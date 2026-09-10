@@ -17,7 +17,9 @@ class DeliveryOrderExportStrategy(BaseExportStrategy):
         from decimal import Decimal
 
         from django.contrib.contenttypes.models import ContentType
+        from django.db.models import Prefetch
 
+        from inventory.models import ItemIdentityCode
         from sales.models import Quote
 
         do = self.delivery_order
@@ -25,11 +27,18 @@ class DeliveryOrderExportStrategy(BaseExportStrategy):
 
         items_data = []
         financing_discount_amount = Decimal("0.00")
-        for item in do.items.all():
+        # Codes default to newest-first; on a printed document they read better
+        # in code order.
+        code_prefetch = Prefetch(
+            "identity_codes",
+            queryset=ItemIdentityCode.objects.order_by("code"),
+        )
+        for item in do.items.prefetch_related(code_prefetch):
             # Quote-sourced items are materialized discount lines (financing)
             is_discount_line = item.source_content_type_id == quote_ct.id
             if is_discount_line and item.line_total:
                 financing_discount_amount += -item.line_total.amount
+            identity_codes = [c.code for c in item.identity_codes.all()]
             items_data.append({
                 "item_number": item.item_number,
                 "description": item.description,
@@ -39,6 +48,8 @@ class DeliveryOrderExportStrategy(BaseExportStrategy):
                 "discount_percentage": float(item.discount_percentage),
                 "line_total": float(item.line_total.amount) if item.line_total else 0,
                 "is_discount_line": is_discount_line,
+                "identity_codes": identity_codes,
+                "has_identity_codes": bool(identity_codes),
             })
 
         subtotal = do.subtotal_amount.amount if do.subtotal_amount else Decimal("0")
@@ -58,6 +69,7 @@ class DeliveryOrderExportStrategy(BaseExportStrategy):
             "sales_invoice": do.sales_invoice,
             "project_file": do.project_file,
             "items": items_data,
+            "has_identity_codes": any(i["has_identity_codes"] for i in items_data),
             "subtotal": float(subtotal),
             "discount_amount": float(discount),
             "discount_breakdown": do.discount_breakdown or [],

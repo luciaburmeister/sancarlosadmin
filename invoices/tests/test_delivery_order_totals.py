@@ -17,6 +17,7 @@ from django.test import TestCase
 from company.models import Company
 from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
 from configurator.services.export.delivery_order import DeliveryOrderExportStrategy
+from inventory.models import InventoryItem, ItemIdentityCode
 from invoices.models import AppliedTax, TaxType
 from invoices.services.delivery_order_service import DeliveryOrderService
 from management.models import ProjectFile
@@ -374,6 +375,32 @@ class DeliveryOrderExportContextTests(_DeliveryOrderTestBase):
         discount_lines = [i for i in context["items"] if i["is_discount_line"]]
         self.assertEqual(len(discount_lines), 1)
         self.assertEqual(discount_lines[0]["line_total"], -50.0)
+
+    def test_context_exposes_identity_codes_per_line(self):
+        do = self._financed_do()
+        inventory_item = InventoryItem.objects.create(company=self.company, name="Handle")
+        line = do.items.exclude(source_content_type_id=self.quote_ct.id).first()
+        for code in ("SN-002", "SN-001"):
+            ItemIdentityCode.objects.create(
+                item=inventory_item, code=code, delivery_order_item=line
+            )
+
+        context = DeliveryOrderExportStrategy(do).get_context()
+
+        self.assertTrue(context["has_identity_codes"])
+        by_number = {i["item_number"]: i for i in context["items"]}
+        traced = by_number[line.item_number]
+        self.assertEqual(traced["identity_codes"], ["SN-001", "SN-002"])
+        self.assertTrue(traced["has_identity_codes"])
+        untraced = [i for i in context["items"] if i["is_discount_line"]][0]
+        self.assertEqual(untraced["identity_codes"], [])
+        self.assertFalse(untraced["has_identity_codes"])
+
+    def test_context_without_identity_codes(self):
+        do = self._financed_do()
+        context = DeliveryOrderExportStrategy(do).get_context()
+        self.assertFalse(context["has_identity_codes"])
+        self.assertTrue(all(i["identity_codes"] == [] for i in context["items"]))
 
     def test_legacy_do_falls_back_to_subtotal_total(self):
         do = DeliveryOrder.objects.create(

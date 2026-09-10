@@ -5,6 +5,8 @@ from django.template.loader import render_to_string
 from django.urls import reverse
 import logging
 
+from general.email import resolve_reply_to
+
 logger = logging.getLogger(__name__)
 
 
@@ -29,7 +31,11 @@ EMAIL_COPY = {
 
 
 @shared_task(name="purchasing.tasks.send_provider_quote_email")
-def send_provider_quote_email(provider_quote_id: int, language: str = "es"):
+def send_provider_quote_email(
+    provider_quote_id: int,
+    language: str = "es",
+    reply_to: list[str] | None = None,
+):
     """
     Emails a provider the public link to fill in their ProviderQuote,
     then marks it as sent. Runs through Celery so the admin request
@@ -37,6 +43,10 @@ def send_provider_quote_email(provider_quote_id: int, language: str = "es"):
 
     `language` picks which of the two HTML templates (and subject/copy)
     to use — "es" or "en". Falls back to "es" for anything else.
+
+    `reply_to` is the sending user's own address, so the provider replies to
+    the person who asked them for a quote rather than to the shared mailbox.
+    Falls back to the company's configured Reply-To when absent.
 
     Can be triggered:
     - Manually:   send_provider_quote_email.delay(provider_quote_id, "en")
@@ -89,6 +99,9 @@ def send_provider_quote_email(provider_quote_id: int, language: str = "es"):
             body=text_body,
             from_email=f"{company_name} <{settings.DEFAULT_FROM_EMAIL}>",
             to=[quote.provider.email],
+            reply_to=reply_to or resolve_reply_to(
+                company=quote.quote_request.company, email_document="provider_quote"
+            ),
         )
         email.attach_alternative(html_body, "text/html")
         email.send()
@@ -160,6 +173,7 @@ def send_purchase_order_pending_approval_notification(self, purchase_order_id: i
             body_html=html_message,
             related_object=po,
             company=company,
+            email_document="purchase_order_approval",
         )
     except Exception as exc:
         logger.exception("Failed to send PO creation notification for PO %s", purchase_order_id)
@@ -221,6 +235,7 @@ def send_purchase_order_decision_notification(self, purchase_order_id: int, deci
             body_html=html_message,
             related_object=po,
             company=po.company,
+            email_document="purchase_order_decision",
         )
     except Exception as exc:
         logger.exception("Failed to send PO decision notification for PO %s", purchase_order_id)

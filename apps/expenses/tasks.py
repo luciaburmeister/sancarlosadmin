@@ -76,6 +76,7 @@ def process_expense_ticket(ticket_id: int):
                         ),
                         related_object=duplicate_of,
                         company=duplicate_of.company,
+                        email_document="duplicate_expense_ticket",
                     )
 
                 ticket_id_for_log = ticket.id

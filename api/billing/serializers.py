@@ -12,6 +12,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from company.models import EmailLog
+from general.email import sender_reply_to
 from invoices.models import SalesInvoice, SalesInvoiceStatus
 from invoices.services.sales_invoice_payment import ALLOWED_SALES_INVOICE_PAYMENT_METHODS
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
@@ -472,7 +473,13 @@ class SalesInvoiceFinalizeSerializer(serializers.Serializer):
         if invoice.status == SalesInvoiceStatus.FINAL:
             raise serializers.ValidationError("La factura ya está finalizada.")
         send_email = self.validated_data.get("send_email", True)
-        return SalesInvoiceService.finalize_invoice(invoice, send_email=send_email)
+        return SalesInvoiceService.finalize_invoice(
+            invoice, send_email=send_email, reply_to=self._sender_reply_to()
+        )
+
+    def _sender_reply_to(self):
+        request = self.context.get("request")
+        return sender_reply_to(getattr(request, "user", None))
 
 
 class SalesInvoiceSendEmailSerializer(serializers.Serializer):
@@ -485,9 +492,11 @@ class SalesInvoiceSendEmailSerializer(serializers.Serializer):
                 "Solo se puede reenviar el correo de facturas finalizadas."
             )
         raw_email = self.validated_data.get("email", "").strip()
+        request = self.context.get("request")
         email_meta = SalesInvoiceService.queue_client_email(
             invoice,
             to_email=raw_email or None,
+            reply_to=sender_reply_to(getattr(request, "user", None)),
         )
         if email_meta.get("email_skip_reason") == "no_client_email":
             self.email_meta = email_meta

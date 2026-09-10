@@ -756,7 +756,7 @@ class ProviderQuoteAdmin(ModelAdmin):
     def _send_email(self, request, object_id, language, redirect_to_changelist):
         quote = ProviderQuote.objects.get(pk=object_id)
         try:
-            quote.queue_quote_email(language=language)
+            quote.queue_quote_email(language=language, user=request.user)
         except ValidationError as e:
             self.message_user(request, "; ".join(e.messages), level="error")
         else:

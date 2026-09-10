@@ -111,7 +111,7 @@ class ClientListCreateView(CompanyAPIView):
                     "terms_accepted_at",
                 ]
             )
-            ClientTermsEmailService.queue_terms_acceptance_email(client)
+            ClientTermsEmailService.queue_terms_acceptance_email(client, user=request.user)
         return JsonResponse(serialize_client(client), status=201)
 
 
@@ -182,7 +182,7 @@ class ClientDetailView(CompanyAPIView):
                     "terms_accepted_at",
                 ]
             )
-            ClientTermsEmailService.queue_terms_acceptance_email(client)
+            ClientTermsEmailService.queue_terms_acceptance_email(client, user=request.user)
 
         client.save()
         return JsonResponse(serialize_client(client))

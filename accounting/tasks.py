@@ -9,6 +9,7 @@ from .services.a3_exporter import A3PurchaseExportService
 from company.models import Company
 from datetime import date
 from django.core.mail import EmailMessage
+from general.email import resolve_reply_to
 
 
 logger = logging.getLogger(__name__)
@@ -119,7 +120,8 @@ def export_a3_purchase_invoicing_task(company_id, user_email, start_date_str, en
             subject=subject,
             body=body,
             from_email=settings.DEFAULT_FROM_EMAIL,
-            to=[user_email]
+            to=[user_email],
+            reply_to=resolve_reply_to(company=company, email_document="a3_export"),
         )
         
         filename = f"export_a3_{company.name.lower().replace(' ', '_')}_{start_date_str}_{end_date_str}.xlsx"

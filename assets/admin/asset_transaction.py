@@ -22,6 +22,7 @@ from django_json_widget.widgets import JSONEditorWidget
 from django.utils.translation import gettext_lazy as _
 from company.models import EmailLog
 from core.tasks import send_asset_transaction_email_task
+from general.email import sender_reply_to
 import logging
 from import_export.admin import ImportExportModelAdmin
 
@@ -279,7 +280,9 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         if not client or not client.email:
             self.message_user(request, _("No client email found (check Expediente or Asset client)."), level="error")
         else:
-            send_asset_transaction_email_task.delay(transaction.id)
+            send_asset_transaction_email_task.delay(
+                transaction.id, reply_to=sender_reply_to(request.user)
+            )
             self.message_user(request, _("Transaction email queued for %s.") % client.email)
         return redirect(reverse("admin:assets_assettransaction_changelist"))
 
@@ -298,7 +301,9 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         if not client or not client.email:
             self.message_user(request, _("No client email found (check Expediente or Asset client)."), level="error")
         else:
-            send_asset_transaction_email_task.delay(transaction.id)
+            send_asset_transaction_email_task.delay(
+                transaction.id, reply_to=sender_reply_to(request.user)
+            )
             self.message_user(request, _("Transaction email queued for %s.") % client.email)
         return redirect(reverse("admin:assets_assettransaction_change", args=[object_id]))
 

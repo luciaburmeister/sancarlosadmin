@@ -12,7 +12,8 @@ import re
 
 from simple_history.admin import SimpleHistoryAdmin
 
-from company.models import Company, CompanyDefaultTax, CompanyScheduleSlot, CompanyUser, CompanyEmailConfig, BankAccount, CompanyDocument, CompanyDocumentType, ConfigurationList, ConsentStatus
+from company.models import Company, CompanyDefaultTax, CompanyScheduleSlot, CompanyUser, CompanyEmailConfig, BankAccount, CompanyDocument, CompanyDocumentType, ConfigurationList, ConsentStatus, EmailReplyTo
+from general.email import document_choices
 from assets.models import AssetPlanningNotificationRecipient
 from django.utils.translation import gettext_lazy as _
 from django.shortcuts import get_object_or_404, redirect
@@ -220,6 +221,34 @@ class AssetPlanningNotificationRecipientInline(TabularInline):
     verbose_name = _("Asset Planning Notification Recipient")
     verbose_name_plural = _("Asset Planning Notification Recipients")
 
+class EmailReplyToForm(ModelForm):
+    """
+    Picks the document type from the registry rather than from database
+    choices, so an app registering a new kind of email needs no migration.
+    """
+
+    class Meta:
+        model = EmailReplyTo
+        fields = ("email_document", "reply_to_email")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["email_document"] = forms.ChoiceField(
+            choices=document_choices(),
+            label=self.fields["email_document"].label,
+            widget=UnfoldAdminSelectWidget(),
+        )
+
+
+class EmailReplyToInline(TabularInline):
+    model = EmailReplyTo
+    form = EmailReplyToForm
+    extra = 0
+    fields = ("email_document", "reply_to_email")
+    verbose_name = _("Email Reply-To")
+    verbose_name_plural = _("Email Reply-To Addresses")
+
+
 class CompanyDocumentInline(StackedInline):
     model = CompanyDocument
     form = CompanyDocumentForm
@@ -422,7 +451,7 @@ class CompanyAdmin(ModelAdmin):
     autocomplete_fields = ("asset_reception_product",)
     inlines = [
         BankAccountInline, CompanyDocumentInline, CompanyScheduleSlotInline, CompanyDefaultTaxInline,
-        AssetPlanningNotificationRecipientInline,
+        AssetPlanningNotificationRecipientInline, EmailReplyToInline,
     ]
     list_display = ("name", "is_active")
     list_filter = ("is_active",)
@@ -443,6 +472,16 @@ class CompanyAdmin(ModelAdmin):
                 "is_active"
 
             )
+        }),
+        (_("Email"), {
+            "classes": ["tab"],
+            "fields": ("reply_to_email",),
+            "description": _(
+                "Where replies land. The Reply-To below applies to every email "
+                "the system sends; override it per document type in the "
+                "Reply-To Addresses table. A send triggered by a user always "
+                "replies to that user instead."
+            ),
         }),
         (_("Application Configurations"), {
             "fields": (

@@ -806,19 +806,26 @@ class ProviderQuote(Timestampable):
             self.sent_at = timezone.now()
             self.save(update_fields=["status", "sent_at"])
 
-    def queue_quote_email(self, language="es"):
+    def queue_quote_email(self, language="es", user=None):
         """
         Validates the provider has an email on file (synchronously, so
         the caller can show a friendly error right away), then queues
         the actual email send in Celery via purchasing.tasks — the
         SMTP round trip and the mark_as_sent() call both happen inside
         that task, not here. `language` is "es" or "en".
+
+        `user` is whoever asked for the quote: their address becomes the
+        Reply-To, so the provider answers them and not the shared mailbox.
         """
         if not self.provider.email:
             raise ValidationError(_("This provider has no email on file."))
 
+        from general.email import sender_reply_to
         from .tasks import send_provider_quote_email
-        send_provider_quote_email.delay(self.pk, language)
+
+        send_provider_quote_email.delay(
+            self.pk, language, reply_to=sender_reply_to(user)
+        )
 
     @transaction.atomic
     def convert_to_purchase_order(self, user=None):

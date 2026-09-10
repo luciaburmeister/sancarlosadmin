@@ -15,7 +15,11 @@ class InvoiceEmailService:
     """
 
     @staticmethod
-    def send_invoice_email(invoice, to_email: str | None = None) -> bool:
+    def send_invoice_email(
+        invoice,
+        to_email: str | None = None,
+        reply_to: list[str] | None = None,
+    ) -> bool:
         """
         Generates a PDF from the invoice's export template and emails it
         to the client.
@@ -23,6 +27,8 @@ class InvoiceEmailService:
         Args:
             invoice: SalesInvoice instance
             to_email: Override recipient (defaults to invoice.client.email)
+            reply_to: Sending user's address, if a person triggered this send
+                (otherwise the company's configured Reply-To applies)
 
         Returns:
             True if sent successfully, False otherwise
@@ -74,4 +80,6 @@ class InvoiceEmailService:
             attachments=[(filename, pdf_bytes, "application/pdf")],
             related_object=invoice,
             company=invoice.company,
+            email_document="sales_invoice",
+            reply_to=reply_to,
         )

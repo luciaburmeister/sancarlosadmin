@@ -1,10 +1,24 @@
+"""
+Celery tasks for the document emails an admin or API user triggers.
+
+Each task takes an optional `reply_to` — the sending user's own address, so a
+client replying to the document reaches the person who sent it rather than the
+shared mailbox. It is passed as a plain list because Celery has to serialize
+it; callers build it with `general.email.sender_reply_to(request.user)`. When
+it is empty the company's per-document-type Reply-To configuration applies.
+"""
+
 import logging
 from celery import shared_task
 logger = logging.getLogger(__name__)
 
 
 @shared_task(name="core.tasks.send_invoice_email_task")
-def send_invoice_email_task(invoice_id: int, to_email: str | None = None):
+def send_invoice_email_task(
+    invoice_id: int,
+    to_email: str | None = None,
+    reply_to: list[str] | None = None,
+):
     """
     Celery task to send a SalesInvoice email with PDF attachment.
     Runs asynchronously so the admin UI doesn't block.
@@ -18,7 +32,9 @@ def send_invoice_email_task(invoice_id: int, to_email: str | None = None):
         logger.error("send_invoice_email_task: SalesInvoice %s not found", invoice_id)
         return {"task": "send_invoice_email", "invoice_id": invoice_id, "status": "error", "detail": "not found"}
 
-    ok = InvoiceEmailService.send_invoice_email(invoice, to_email=to_email)
+    ok = InvoiceEmailService.send_invoice_email(
+        invoice, to_email=to_email, reply_to=reply_to
+    )
     return {
         "task": "send_invoice_email",
         "invoice_id": invoice_id,
@@ -32,6 +48,7 @@ def send_quote_email_task(
     quote_id: int,
     to_emails: list[str] | None = None,
     cc_emails: list[str] | None = None,
+    reply_to: list[str] | None = None,
 ):
     """
     Celery task to send a Quote email with PDF attachment.
@@ -47,7 +64,7 @@ def send_quote_email_task(
         return {"task": "send_quote_email", "quote_id": quote_id, "status": "error", "detail": "not found"}
 
     ok = QuoteEmailService.send_quote_email(
-        quote, to_emails=to_emails, cc_emails=cc_emails,
+        quote, to_emails=to_emails, cc_emails=cc_emails, reply_to=reply_to,
     )
     return {
         "task": "send_quote_email",
@@ -63,6 +80,7 @@ def send_delivery_order_email_task(
     delivery_order_id: int,
     to_emails: list[str] | None = None,
     cc_emails: list[str] | None = None,
+    reply_to: list[str] | None = None,
 ):
     """
     Celery task to send a DeliveryOrder email with PDF attachment.
@@ -78,7 +96,7 @@ def send_delivery_order_email_task(
         return {"task": "send_delivery_order_email", "delivery_order_id": delivery_order_id, "status": "error", "detail": "not found"}
 
     ok = DeliveryOrderEmailService.send_delivery_order_email(
-        delivery_order, to_emails=to_emails, cc_emails=cc_emails,
+        delivery_order, to_emails=to_emails, cc_emails=cc_emails, reply_to=reply_to,
     )
     return {
         "task": "send_delivery_order_email",
@@ -90,7 +108,11 @@ def send_delivery_order_email_task(
 
 
 @shared_task(name="core.tasks.send_client_terms_email_task")
-def send_client_terms_email_task(client_id: int, to_email: str | None = None):
+def send_client_terms_email_task(
+    client_id: int,
+    to_email: str | None = None,
+    reply_to: list[str] | None = None,
+):
     """
     Celery task to email signed T&C acceptance to the client.
     """
@@ -108,7 +130,7 @@ def send_client_terms_email_task(client_id: int, to_email: str | None = None):
         return {"task": "send_client_terms_email", "client_id": client_id, "status": "error", "detail": "not found"}
 
     ok = ClientTermsEmailService.send_terms_acceptance_email(
-        client, to_email=to_email
+        client, to_email=to_email, reply_to=reply_to
     )
     return {
         "task": "send_client_terms_email",
@@ -119,7 +141,11 @@ def send_client_terms_email_task(client_id: int, to_email: str | None = None):
 
 
 @shared_task(name="core.tasks.send_asset_transaction_email_task")
-def send_asset_transaction_email_task(transaction_id: int, to_email: str | None = None):
+def send_asset_transaction_email_task(
+    transaction_id: int,
+    to_email: str | None = None,
+    reply_to: list[str] | None = None,
+):
     """
     Celery task to send an AssetTransaction email with PDF attachment.
     Runs asynchronously so the admin UI doesn't block.
@@ -138,7 +164,9 @@ def send_asset_transaction_email_task(transaction_id: int, to_email: str | None 
         logger.error("send_asset_transaction_email_task: AssetTransaction %s not found", transaction_id)
         return {"task": "send_asset_transaction_email", "transaction_id": transaction_id, "status": "error", "detail": "not found"}
 
-    ok = AssetTransactionEmailService.send_transaction_email(transaction, to_email=to_email)
+    ok = AssetTransactionEmailService.send_transaction_email(
+        transaction, to_email=to_email, reply_to=reply_to
+    )
     return {
         "task": "send_asset_transaction_email",
         "transaction_id": transaction_id,

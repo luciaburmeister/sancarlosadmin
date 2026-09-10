@@ -2,9 +2,10 @@
 Reusable "send document by email" flow for admin documents tied to a client.
 
 Shows a recipient picker built from the client's primary email + contact
-emails, CCs the sender, and queues a Celery task chosen by the subclass.
-Used by quotes and delivery orders; new document types only need a small
-subclass of BaseSendDocumentEmailView plus two admin actions.
+emails, CCs the sender, points Reply-To at the sender, and queues a Celery
+task chosen by the subclass. Used by quotes and delivery orders; new document
+types only need a small subclass of BaseSendDocumentEmailView plus two admin
+actions.
 """
 
 from django import forms
@@ -15,6 +16,7 @@ from django.urls import reverse
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 
+from general.email import sender_reply_to
 from unfold.views import UnfoldModelAdminViewMixin
 from unfold.widgets import UnfoldAdminCheckboxSelectMultipleWidget
 
@@ -61,10 +63,11 @@ class ClientRecipientsForm(forms.Form):
 class BaseSendDocumentEmailView(UnfoldModelAdminViewMixin, View):
     """
     GET  → Show recipient picker (client email + contacts).
-    POST → Queue the email with selected recipients + CC the sender.
+    POST → Queue the email with selected recipients, CC the sender and send
+           the client's replies back to them.
 
     Subclasses set `model`, `pk_url_kwarg`, `title`, `permission_required`
-    and implement `queue_email(obj, to_emails, cc_emails)`.
+    and implement `queue_email(obj, to_emails, cc_emails, reply_to)`.
     """
 
     model = None
@@ -79,7 +82,7 @@ class BaseSendDocumentEmailView(UnfoldModelAdminViewMixin, View):
     def get_client(self, obj):
         return obj.client
 
-    def queue_email(self, obj, to_emails, cc_emails):
+    def queue_email(self, obj, to_emails, cc_emails, reply_to):
         raise NotImplementedError
 
     def has_permission(self):
@@ -110,12 +113,12 @@ class BaseSendDocumentEmailView(UnfoldModelAdminViewMixin, View):
 
         to_emails = form.cleaned_data["to_emails"]
 
-        # CC the sender if they have an email
+        # CC the sender if they have an email, and route replies back to them
         cc_emails = []
         if request.user.email:
             cc_emails.append(request.user.email)
 
-        self.queue_email(obj, to_emails, cc_emails)
+        self.queue_email(obj, to_emails, cc_emails, sender_reply_to(request.user))
 
         recipients_str = ", ".join(to_emails)
         messages.success(

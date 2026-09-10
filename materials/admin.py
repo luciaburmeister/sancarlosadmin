@@ -6,10 +6,10 @@ from django.utils.html import format_html
 from unfold.admin import ModelAdmin
 from unfold.decorators import display
 from materials.models import (
-    Category, MaterialFamily, Material, Provider,
+    Category, MaterialFamily, Material, Provider, ProviderBankAccount,
     Component, ComponentPriceRule, PriceSheet, PriceSheetItem,
 )
-from unfold.admin import TabularInline
+from unfold.admin import StackedInline, TabularInline
 from django_json_widget.widgets import JSONEditorWidget
 from django.db import models
 from django.utils.translation import gettext_lazy as _
@@ -189,6 +189,30 @@ class ProviderForm(forms.ModelForm):
         self.fields["tax_identifier"].required = True
 
 
+@admin.register(ProviderBankAccount)
+class ProviderBankAccountAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ["bank_name", "account_number", "provider"]
+    search_fields = ["bank_name", "account_number", "iban"]
+    autocomplete_fields = ["provider"]
+
+
+class ProviderBankAccountInline(StackedInline):
+    model = ProviderBankAccount
+    extra = 0
+    tab = True
+    tab_title = _("Bank Accounts")
+    fieldsets = (
+        (None, {
+            "fields": (
+                ("bank_name", "holder_name"),
+                ("iban", "swift_bic"),
+                ("account_number", "routing_number"),
+                ("country", "is_default"),
+            ),
+        }),
+    )
+
+
 @admin.register(Provider)
 class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     form = ProviderForm
@@ -202,6 +226,7 @@ class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelA
     list_filter = [("company",AutocompleteSelectMultipleFilter), ("default_cost_center",AutocompleteSelectMultipleFilter)]
     list_filter_submit = True
     actions = ["merge_providers"]
+    inlines = [ProviderBankAccountInline]
 
     balance_invoice_model = Invoice
     balance_counterparty_field = "provider"
@@ -211,6 +236,19 @@ class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelA
             "widget": ArrayWidget,
         }
     }
+
+    def save_formset(self, request, form, formset, change):
+        # Bank accounts are company-owned but the company is not on the inline
+        # form; inherit it from the provider so IBAN matching (which filters by
+        # company) can find these accounts.
+        instances = formset.save(commit=False)
+        for obj in formset.deleted_objects:
+            obj.delete()
+        for obj in instances:
+            if isinstance(obj, ProviderBankAccount) and obj.company_id is None:
+                obj.company_id = form.instance.company_id
+            obj.save()
+        formset.save_m2m()
 
     @admin.action(description=_("Merge selected providers (choose which to keep)"))
     def merge_providers(self, request, queryset):

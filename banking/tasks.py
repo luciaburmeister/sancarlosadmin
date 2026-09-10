@@ -236,6 +236,7 @@ def send_bank_accounts_summary():
                 body_html=html_message,
                 related_object=single_company,
                 company=single_company,
+                email_document="bank_summary",
             )
             if success:
                 emails_sent += 1

@@ -19,6 +19,7 @@ class QuoteEmailService:
         quote,
         to_emails: list[str] | None = None,
         cc_emails: list[str] | None = None,
+        reply_to: list[str] | None = None,
     ) -> bool:
         """
         Generates a PDF from the quote's consolidated quotation export template
@@ -28,6 +29,8 @@ class QuoteEmailService:
             quote: Quote instance
             to_emails: List of recipient addresses (defaults to [quote.client.email])
             cc_emails: List of CC addresses (e.g. the sender's own email)
+            reply_to: Sending user's address, if a person triggered this send
+                (otherwise the company's configured Reply-To applies)
 
         Returns:
             True if sent successfully, False otherwise
@@ -81,6 +84,8 @@ class QuoteEmailService:
             cc=cc_emails or [],
             related_object=quote,
             company=quote.company,
+            email_document="quote",
+            reply_to=reply_to,
         )
 
         if ok:

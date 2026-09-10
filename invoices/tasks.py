@@ -228,6 +228,7 @@ def process_manual_invoice(invoice_id: int):
                         ),
                         related_object=duplicate_of,
                         company=duplicate_of.company,
+                        email_document="duplicate_invoice_alert",
                     )
 
                 invoice_id_for_log = invoice.id
@@ -541,6 +542,7 @@ def send_pending_invoices_digest():
                 body_html=email.body_html,
                 related_object=email.company,
                 company=email.company,
+                email_document="pending_invoices_digest",
             )
             if success:
                 emails_sent += 1
@@ -627,6 +629,7 @@ def send_unmatched_po_digest(grace_hours: int | None = None, start_date=None):
                 body_html=email.body_html,
                 related_object=email.company,
                 company=email.company,
+                email_document="unmatched_po_digest",
             )
             if success:
                 emails_sent += 1
@@ -880,6 +883,7 @@ def send_payment_reminder_email(self, log_id: int):
             inline_images=inline_images or None,
             related_object=invoice,
             company=log.company,
+            email_document="payment_reminder",
         )
     except Exception as exc:
         logger.exception("Error sending payment reminder for invoice %s", invoice.pk)
@@ -1044,6 +1048,7 @@ def send_consolidated_payment_reminder_email(self, log_ids: list[int]):
             inline_images=inline_images or None,
             related_object=client,
             company=company,
+            email_document="payment_reminder",
         )
     except Exception as exc:
         logger.exception("Error sending consolidated payment reminder for client %s", client.pk)

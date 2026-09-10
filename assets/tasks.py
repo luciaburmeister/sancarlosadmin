@@ -59,6 +59,7 @@ def send_asset_planning_request_created_notification(self, request_id: int):
             body_html=html_message,
             related_object=req,
             company=company,
+            email_document="asset_planning_request",
         )
     except Exception as exc:
         logger.exception("Failed to send AssetPlanningRequest creation notification for %s", request_id)
@@ -113,6 +114,7 @@ def send_asset_planning_draft_created_notification(self, draft_id: int):
             body_html=html_message,
             related_object=draft,
             company=company,
+            email_document="asset_planning_draft",
         )
     except Exception as exc:
         logger.exception("Failed to send AssetPlanningRequestDraft creation notification for %s", draft_id)

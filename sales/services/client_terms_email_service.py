@@ -12,7 +12,11 @@ class ClientTermsEmailService:
     """Email signed T&C acceptance to the client."""
 
     @staticmethod
-    def send_terms_acceptance_email(client, to_email: str | None = None) -> bool:
+    def send_terms_acceptance_email(
+        client,
+        to_email: str | None = None,
+        reply_to: list[str] | None = None,
+    ) -> bool:
         """
         Sends accepted terms text and signature image to the client.
 
@@ -80,25 +84,37 @@ class ClientTermsEmailService:
             attachments=attachments or None,
             related_object=client,
             company=client.company,
+            email_document="client_terms",
+            reply_to=reply_to,
         )
 
     @staticmethod
-    def queue_terms_acceptance_email(client) -> bool:
-        """Enqueue terms acceptance email via Celery when the client has an email."""
+    def queue_terms_acceptance_email(client, user=None) -> bool:
+        """
+        Enqueue terms acceptance email via Celery when the client has an email.
+
+        `user` is whoever registered the acceptance, so the client replies to
+        them rather than to the shared mailbox.
+        """
         email = (client.email or "").strip()
         if not email:
             return False
         if not client.terms_accepted_at or not (client.accepted_terms_text or "").strip():
             return False
 
+        from general.email import sender_reply_to
         from core.tasks import send_client_terms_email_task
 
+        reply_to = sender_reply_to(user)
+
         try:
-            send_client_terms_email_task.delay(client.pk)
+            send_client_terms_email_task.delay(client.pk, reply_to=reply_to)
             return True
         except Exception:
             logger.warning(
                 "Celery unavailable for client %s terms email; sending synchronously",
                 client.pk,
             )
-            return ClientTermsEmailService.send_terms_acceptance_email(client)
+            return ClientTermsEmailService.send_terms_acceptance_email(
+                client, reply_to=reply_to
+            )

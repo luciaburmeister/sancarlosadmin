@@ -58,7 +58,7 @@ class CreateQuotesView(UnfoldModelAdminViewMixin, FormView):
         if send_email_quote_id:
             quote = get_object_or_404(ProviderQuote, pk=send_email_quote_id, quote_request=quote_request)
             try:
-                quote.queue_quote_email()
+                quote.queue_quote_email(user=request.user)
             except ValidationError as e:
                 messages.error(request, "; ".join(e.messages))
             else:

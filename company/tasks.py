@@ -1,7 +1,7 @@
 from celery import shared_task
 from django.utils import timezone
 from datetime import timedelta
-from django.core.mail import send_mail
+from django.core.mail import EmailMultiAlternatives
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Exists, OuterRef
@@ -10,6 +10,7 @@ from assets.models import AssetDocument
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.utils.translation import gettext_lazy as _
+from general.email import resolve_reply_to
 
 @shared_task(name="debug_env")
 def debug_env():
@@ -117,14 +118,17 @@ def send_document_reminders():
                 html_message = render_to_string('company/email/document_reminder.html', context)
                 plain_message = strip_tags(html_message)
 
-                send_mail(
+                message = EmailMultiAlternatives(
                     subject,
                     plain_message,
                     settings.DEFAULT_FROM_EMAIL,
                     recipients,
-                    html_message=html_message,
-                    fail_silently=False,
+                    reply_to=resolve_reply_to(
+                        company=company, email_document="document_reminder"
+                    ),
                 )
+                message.attach_alternative(html_message, "text/html")
+                message.send(fail_silently=False)
                 
                 # Mark all documents in this email as reminded
                 for item in items:

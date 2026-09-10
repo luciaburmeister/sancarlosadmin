@@ -75,6 +75,15 @@ class Company(models.Model):
         verbose_name=_("Business Activity"),
         help_text=_("Description of what the company does"),
     )
+    reply_to_email = models.EmailField(
+        blank=True,
+        verbose_name=_("Reply-To Email"),
+        help_text=_(
+            "Where replies to emails sent by the system land. Overridden per "
+            "document type below, and by the sender's own address when a user "
+            "triggers the send. Leave empty to reply to the sending mailbox."
+        ),
+    )
     document_reminder_emails = ArrayField(
         base_field=models.EmailField(),
         default=list,
@@ -1144,6 +1153,36 @@ class EmailLog(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.subject} → {self.to_email} ({self.get_status_display()})"
+
+
+class EmailReplyTo(CompanyOwnedModel):
+    """
+    Where replies to one kind of outgoing email should land for this company.
+
+    Falls back to `Company.reply_to_email` when a document type has no row, and
+    is itself overridden when a specific user triggered the send — see
+    `general.email.reply_to`.
+    """
+    email_document = models.CharField(
+        max_length=100,
+        verbose_name=_("Document Type"),
+        help_text=_("The kind of email this Reply-To applies to"),
+    )
+    reply_to_email = models.EmailField(
+        verbose_name=_("Reply-To Email"),
+        help_text=_("Address that receives replies to this kind of email"),
+    )
+
+    class Meta:
+        verbose_name = _("Email Reply-To")
+        verbose_name_plural = _("Email Reply-To Addresses")
+        unique_together = ("company", "email_document")
+        ordering = ["email_document"]
+
+    def __str__(self):
+        from general.email import document_label
+
+        return f"{document_label(self.email_document)} → {self.reply_to_email}"
 
 
 class ConfigurationList(CompanyOwnedModel):

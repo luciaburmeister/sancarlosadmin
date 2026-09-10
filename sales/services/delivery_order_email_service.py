@@ -19,6 +19,7 @@ class DeliveryOrderEmailService:
         delivery_order,
         to_emails: list[str] | None = None,
         cc_emails: list[str] | None = None,
+        reply_to: list[str] | None = None,
     ) -> bool:
         """
         Generates a PDF from the delivery order export template and emails
@@ -28,6 +29,8 @@ class DeliveryOrderEmailService:
             delivery_order: DeliveryOrder instance
             to_emails: List of recipient addresses (defaults to [client.email])
             cc_emails: List of CC addresses (e.g. the sender's own email)
+            reply_to: Sending user's address, if a person triggered this send
+                (otherwise the company's configured Reply-To applies)
 
         Returns:
             True if sent successfully, False otherwise
@@ -97,6 +100,8 @@ class DeliveryOrderEmailService:
             cc=cc_emails or [],
             related_object=delivery_order,
             company=delivery_order.company,
+            email_document="delivery_order",
+            reply_to=reply_to,
         )
 
         if ok:

@@ -6,6 +6,8 @@ from django.utils.html import strip_tags
 from django.contrib.contenttypes.models import ContentType
 from email.mime.image import MIMEImage
 
+from general.email import resolve_reply_to
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,6 +28,8 @@ class EmailService:
         cc: list[str] | None = None,
         related_object=None,
         company=None,
+        email_document: str | None = None,
+        reply_to: list[str] | None = None,
     ) -> bool:
         """
         Sends an HTML email with optional attachments and inline (CID) images.
@@ -42,6 +46,11 @@ class EmailService:
             cc: Optional list of CC email addresses
             related_object: Optional model instance for EmailLog (GFK)
             company: Optional company for EmailLog
+            email_document: Registered document-type key (see general.email)
+                used to look up the company's Reply-To for this kind of email
+            reply_to: Explicit Reply-To addresses, winning over the company
+                configuration — this is how a send triggered by a specific user
+                routes replies back to that user
 
         Returns:
             True if sent successfully, False otherwise
@@ -55,6 +64,9 @@ class EmailService:
             from_email=sender,
             to=to,
             cc=cc or [],
+            reply_to=reply_to or resolve_reply_to(
+                company=company, email_document=email_document
+            ),
         )
         msg.content_subtype = "html"
         msg.body = body_html

@@ -5,7 +5,7 @@ from django.core import mail
 from django.test import TestCase
 from django.urls import reverse
 
-from company.models import Company, EmailLog
+from company.models import Company, EmailLog, EmailReplyTo
 from core.services.pdf_service import PDFService
 from sales.models import (
     Client, ClientContact, DeliveryOrder, DeliveryOrderStatus, ShippingAgency,
@@ -58,7 +58,7 @@ class DeliveryOrderSendEmailViewTest(DeliveryOrderEmailTestBase):
         self.assertContains(response, "client@example.com")
         self.assertContains(response, "ana@example.com")
 
-    def test_post_queues_email_with_sender_cc(self):
+    def test_post_queues_email_with_sender_cc_and_reply_to(self):
         with patch(
             "sales.views.delivery_order_send_email_view.send_delivery_order_email_task"
         ) as task:
@@ -70,11 +70,47 @@ class DeliveryOrderSendEmailViewTest(DeliveryOrderEmailTestBase):
             self.delivery_order.id,
             to_emails=["client@example.com", "ana@example.com"],
             cc_emails=["admin@example.com"],
+            reply_to=["admin@example.com"],
         )
         self.assertRedirects(
             response,
             reverse("admin:sales_deliveryorder_change", args=[self.delivery_order.pk]),
         )
+
+    @patch.object(PDFService, "render_object_pdf", return_value=b"%PDF-fake")
+    def test_post_end_to_end_replies_to_the_sending_user(self, mock_pdf):
+        """
+        The whole chain with Celery eager: admin view → task → service →
+        message, so a broken hand-off anywhere shows up as a wrong header.
+        """
+        self.company.reply_to_email = "hola@acme.test"
+        self.company.save(update_fields=["reply_to_email"])
+        EmailReplyTo.objects.create(
+            company=self.company,
+            email_document="delivery_order",
+            reply_to_email="albaranes@acme.test",
+        )
+
+        self.client.post(self.url, {"to_emails": ["client@example.com"]})
+
+        self.assertEqual(len(mail.outbox), 1)
+        # The sender beats both the per-document and the generic address.
+        self.assertEqual(mail.outbox[0].reply_to, ["admin@example.com"])
+
+    @patch.object(PDFService, "render_object_pdf", return_value=b"%PDF-fake")
+    def test_post_end_to_end_falls_back_to_document_config(self, mock_pdf):
+        self.user.email = ""
+        self.user.save(update_fields=["email"])
+        EmailReplyTo.objects.create(
+            company=self.company,
+            email_document="delivery_order",
+            reply_to_email="albaranes@acme.test",
+        )
+
+        self.client.post(self.url, {"to_emails": ["client@example.com"]})
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].reply_to, ["albaranes@acme.test"])
 
     def test_post_without_recipients_shows_error(self):
         with patch(

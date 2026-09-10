@@ -16,7 +16,11 @@ class AssetTransactionEmailService:
     """
 
     @staticmethod
-    def send_transaction_email(transaction, to_email: str | None = None) -> bool:
+    def send_transaction_email(
+        transaction,
+        to_email: str | None = None,
+        reply_to: list[str] | None = None,
+    ) -> bool:
         """
         Generates a PDF from the transaction's export template and emails it.
 
@@ -94,4 +98,6 @@ class AssetTransactionEmailService:
             attachments=[(filename, pdf_bytes, "application/pdf")],
             related_object=transaction,
             company=transaction.company,
+            email_document="asset_transaction",
+            reply_to=reply_to,
         )

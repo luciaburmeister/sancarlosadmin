@@ -103,9 +103,12 @@ class SalesInvoiceService:
 
     @classmethod
     @transaction.atomic
-    def finalize_invoice(cls, sales_invoice, send_email=True):
+    def finalize_invoice(cls, sales_invoice, send_email=True, reply_to=None):
         """
         Converts Pro Forma to Final, assigns invoice number.
+
+        `reply_to` is forwarded to the invoice email so the client replies to
+        whoever finalized the invoice.
         """
         if sales_invoice.status == SalesInvoiceStatus.FINAL:
             sales_invoice._finalize_email_status = cls._email_queue_status(
@@ -132,7 +135,9 @@ class SalesInvoiceService:
                 logger.exception("Failed to queue AEAT submission for invoice %s", sales_invoice.pk)
 
         if send_email:
-            sales_invoice._finalize_email_status = cls.queue_client_email(sales_invoice)
+            sales_invoice._finalize_email_status = cls.queue_client_email(
+                sales_invoice, reply_to=reply_to
+            )
         else:
             sales_invoice._finalize_email_status = cls._email_queue_status(
                 queued=False, reason="disabled"
@@ -152,9 +157,12 @@ class SalesInvoiceService:
         return status
 
     @classmethod
-    def queue_client_email(cls, sales_invoice, to_email=None):
+    def queue_client_email(cls, sales_invoice, to_email=None, reply_to=None):
         """
         Enqueue invoice PDF email to the client (async via Celery).
+
+        `reply_to` is the sending user's own address when a person triggered
+        this, so the client's reply reaches them instead of the shared mailbox.
 
         Returns metadata for API/UI: email_queued, client_email, email_skip_reason.
         """
@@ -170,7 +178,9 @@ class SalesInvoiceService:
         from core.tasks import send_invoice_email_task
 
         try:
-            send_invoice_email_task.delay(sales_invoice.id, to_email=email)
+            send_invoice_email_task.delay(
+                sales_invoice.id, to_email=email, reply_to=reply_to or []
+            )
         except Exception:
             logger.exception(
                 "Failed to queue invoice email for SalesInvoice %s", sales_invoice.pk

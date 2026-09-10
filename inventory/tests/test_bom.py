@@ -5,12 +5,13 @@ Covers:
   • BillOfMaterialsLine model constraints & validation
   • InventoryItem.deduct_bom_components() — flat, nested, circular
   • AdjustStockView cascade on negative adjustments
-  • Quote._deduct_inventory() cascade on acceptance
+  • DeliveryOrderItem._deduct_inventory() cascade on delivery
 """
 
 from decimal import Decimal
 
 from django.contrib.auth.models import User
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.test import TestCase, RequestFactory
@@ -24,6 +25,9 @@ from inventory.models import (
     ItemTransaction,
     Warehouse,
 )
+from invoices.services.delivery_order_service import DeliveryOrderService
+from management.models import ProjectFile
+from sales.models import Client, Quote, QuoteInventoryItem, QuoteStatus
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -297,15 +301,65 @@ class AdjustStockBOMCascadeTest(_BOMBaseTestCase):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# 4. Quote acceptance cascade
+# 4. Delivery order stock-out cascade
 # ─────────────────────────────────────────────────────────────────────────────
 
-class QuoteAcceptanceBOMCascadeTest(_BOMBaseTestCase):
-    """Test that accepting a Quote cascades BOM deductions."""
+class DeliveryOrderBOMCascadeTest(_BOMBaseTestCase):
+    """Stock leaves when items are put on a delivery order, not when the
+    quote is accepted."""
 
-    def test_quote_acceptance_deducts_bom_components(self):
-        from sales.models import Quote, QuoteInventoryItem, QuoteStatus
+    def setUp(self):
+        super().setUp()
+        self.client_obj = Client.objects.create(name="Acme", company=self.company)
+        self.project_file = ProjectFile.objects.create(
+            name="PF BOM",
+            company=self.company,
+            client=self.client_obj,
+        )
+        self.inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
 
+    def _accepted_quote_line(self, item, quantity):
+        quote = Quote.objects.create(
+            company=self.company,
+            client=self.client_obj,
+            project_file=self.project_file,
+            project_name="BOM Test Quote",
+            status=QuoteStatus.ACCEPTED,
+        )
+        return QuoteInventoryItem.objects.create(
+            quote=quote,
+            inventory_item=item,
+            quantity=Decimal(quantity),
+            unit_price=Decimal("100"),
+        )
+
+    def _deliver(self, quote_line, quantity=None):
+        return DeliveryOrderService.create_delivery_order(
+            project_file=self.project_file,
+            company=self.company,
+            client=self.client_obj,
+            items_data=[{
+                "source_content_type_id": self.inv_item_ct.id,
+                "source_object_id": quote_line.pk,
+                "description": quote_line.inventory_item.name,
+                "quantity": quantity if quantity is not None else quote_line.quantity,
+                "unit_price": quote_line.unit_price.amount,
+            }],
+        )
+
+    def test_quote_acceptance_does_not_move_stock(self):
+        parent = self._make_item("Q-NOOP", stock=50)
+        comp = self._make_item("Q-NOOP-C", stock=200)
+        BillOfMaterialsLine.objects.create(parent=parent, component=comp, quantity=3)
+
+        tx_count_before = ItemTransaction.objects.count()
+        self._accepted_quote_line(parent, "4")
+
+        self.assertEqual(ItemTransaction.objects.count(), tx_count_before)
+        self.assertEqual(self._stock(parent), 50)
+        self.assertEqual(self._stock(comp), 200)
+
+    def test_delivery_order_deducts_bom_components(self):
         parent = self._make_item("Q-P", stock=50)
         comp_a = self._make_item("Q-CA", stock=200)
         comp_b = self._make_item("Q-CB", stock=100)
@@ -313,22 +367,8 @@ class QuoteAcceptanceBOMCascadeTest(_BOMBaseTestCase):
         BillOfMaterialsLine.objects.create(parent=parent, component=comp_a, quantity=3)
         BillOfMaterialsLine.objects.create(parent=parent, component=comp_b, quantity=1)
 
-        # Create a draft quote
-        quote = Quote.objects.create(
-            company=self.company,
-            project_name="BOM Test Quote",
-            status=QuoteStatus.DRAFT,
-        )
-        QuoteInventoryItem.objects.create(
-            quote=quote,
-            inventory_item=parent,
-            quantity=Decimal("4"),
-            unit_price=Decimal("100"),
-        )
-
-        # Accept the quote → triggers _deduct_inventory
-        quote.status = QuoteStatus.ACCEPTED
-        quote.save()
+        line = self._accepted_quote_line(parent, "4")
+        self._deliver(line)
 
         # Parent: 50 - 4 = 46
         self.assertEqual(self._stock(parent), 46)
@@ -337,40 +377,34 @@ class QuoteAcceptanceBOMCascadeTest(_BOMBaseTestCase):
         # comp_b: 100 - (1×4) = 96
         self.assertEqual(self._stock(comp_b), 96)
 
+    def test_stock_out_references_the_delivery_order(self):
+        parent = self._make_item("Q-REF", stock=10)
+        line = self._accepted_quote_line(parent, "2")
+        do = self._deliver(line)
+
+        tx = ItemTransaction.objects.filter(
+            item=parent, movement_type=MovementType.OUT
+        ).get()
+        self.assertEqual(tx.quantity_change, -2)
+        self.assertEqual(tx.reference_object, do)
+
     def test_service_items_not_cascaded(self):
         """Service-type items should not trigger BOM deduction (or any deduction)."""
-        from sales.models import Quote, QuoteInventoryItem, QuoteStatus
-
         service = self._make_item(
             "SRV-1", "Consulting",
             item_type=ItemType.SERVICE,
             default_warehouse=None,
         )
 
-        quote = Quote.objects.create(
-            company=self.company,
-            project_name="Service Quote",
-            status=QuoteStatus.DRAFT,
-        )
-        QuoteInventoryItem.objects.create(
-            quote=quote,
-            inventory_item=service,
-            quantity=Decimal("1"),
-            unit_price=Decimal("500"),
-        )
-
+        line = self._accepted_quote_line(service, "1")
         tx_count_before = ItemTransaction.objects.count()
-
-        quote.status = QuoteStatus.ACCEPTED
-        quote.save()
+        self._deliver(line)
 
         # No transactions should have been created for a service item
         self.assertEqual(ItemTransaction.objects.count(), tx_count_before)
 
-    def test_nested_bom_on_quote_acceptance(self):
-        """Nested BOMs are fully deducted when a quote is accepted."""
-        from sales.models import Quote, QuoteInventoryItem, QuoteStatus
-
+    def test_nested_bom_on_delivery(self):
+        """Nested BOMs are fully deducted when the delivery order is created."""
         raw = self._make_item("Q-RAW", stock=500)
         sub = self._make_item("Q-SUB", stock=100)
         top = self._make_item("Q-TOP", stock=30)
@@ -378,20 +412,8 @@ class QuoteAcceptanceBOMCascadeTest(_BOMBaseTestCase):
         BillOfMaterialsLine.objects.create(parent=sub, component=raw, quantity=10)
         BillOfMaterialsLine.objects.create(parent=top, component=sub, quantity=2)
 
-        quote = Quote.objects.create(
-            company=self.company,
-            project_name="Nested BOM Quote",
-            status=QuoteStatus.DRAFT,
-        )
-        QuoteInventoryItem.objects.create(
-            quote=quote,
-            inventory_item=top,
-            quantity=Decimal("5"),
-            unit_price=Decimal("200"),
-        )
-
-        quote.status = QuoteStatus.ACCEPTED
-        quote.save()
+        line = self._accepted_quote_line(top, "5")
+        self._deliver(line)
 
         # top: 30 - 5 = 25
         self.assertEqual(self._stock(top), 25)
@@ -399,3 +421,60 @@ class QuoteAcceptanceBOMCascadeTest(_BOMBaseTestCase):
         self.assertEqual(self._stock(sub), 90)
         # raw: 500 - (10 × (2×5)) = 500 - 100 = 400
         self.assertEqual(self._stock(raw), 400)
+
+    def test_partial_delivery_deducts_only_what_is_delivered(self):
+        parent = self._make_item("Q-PART", stock=20)
+        comp = self._make_item("Q-PART-C", stock=100)
+        BillOfMaterialsLine.objects.create(parent=parent, component=comp, quantity=2)
+
+        line = self._accepted_quote_line(parent, "10")
+
+        self._deliver(line, quantity=Decimal("4"))
+        # Parent: 20 - 4 = 16, comp: 100 - (2×4) = 92
+        self.assertEqual(self._stock(parent), 16)
+        self.assertEqual(self._stock(comp), 92)
+
+        self._deliver(line, quantity=Decimal("6"))
+        # Parent: 16 - 6 = 10, comp: 92 - (2×6) = 80
+        self.assertEqual(self._stock(parent), 10)
+        self.assertEqual(self._stock(comp), 80)
+
+    def test_configuration_lines_do_not_move_stock(self):
+        """Configuration lines are produced, not taken out of inventory."""
+        from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
+
+        product = ProductTemplate.objects.create(name="Door", company=self.company)
+        quote = Quote.objects.create(
+            company=self.company,
+            client=self.client_obj,
+            project_file=self.project_file,
+            project_name="Config Quote",
+            status=QuoteStatus.ACCEPTED,
+        )
+        config = Configuration.objects.create(
+            name="Config",
+            company=self.company,
+            product=product,
+            client=self.client_obj,
+            quote=quote,
+            project_file=self.project_file,
+            status=ConfigurationStatus.COMPLETED,
+            subtotal_price=Decimal("100"),
+            total_price=Decimal("121"),
+        )
+
+        tx_count_before = ItemTransaction.objects.count()
+        DeliveryOrderService.create_delivery_order(
+            project_file=self.project_file,
+            company=self.company,
+            client=self.client_obj,
+            items_data=[{
+                "source_content_type_id": ContentType.objects.get_for_model(Configuration).id,
+                "source_object_id": config.pk,
+                "description": config.name,
+                "quantity": Decimal("1"),
+                "unit_price": Decimal("100"),
+            }],
+        )
+
+        self.assertEqual(ItemTransaction.objects.count(), tx_count_before)

@@ -926,45 +926,7 @@ class Quote(Timestampable, CompanyOwnedModel):
 
         super().save(*args, **kwargs)
 
-        # Subtract inventory when the quote is accepted
-        if (
-            self.status == QuoteStatus.ACCEPTED
-            and self._original_status != QuoteStatus.ACCEPTED
-        ):
-            self._deduct_inventory()
-
         self._original_status = self.status
-
-    def _deduct_inventory(self):
-        """Create stock-out ItemTransactions for all stockable QuoteInventoryItems."""
-        from inventory.models import ItemTransaction
-        from inventory.choices import ItemType, MovementType
-
-        for line in self.inventory_items.select_related(
-            "inventory_item", "inventory_item__default_warehouse"
-        ):
-            item = line.inventory_item
-            if item.item_type != ItemType.STOCKABLE:
-                continue
-            if not item.default_warehouse:
-                continue
-
-            ItemTransaction.objects.create(
-                item=item,
-                warehouse=item.default_warehouse,
-                movement_type=MovementType.OUT,
-                quantity_change=-int(line.quantity),
-                reference_object=self,
-                note=f"Stock out from accepted Quote #{self.id}",
-            )
-
-            # Cascade BOM component deductions
-            item.deduct_bom_components(
-                quantity=int(line.quantity),
-                warehouse=item.default_warehouse,
-                reference_object=self,
-                note=f"BOM deduction from accepted Quote #{self.id}",
-            )
 
     def mark_as_sent(self):
         """Mark this quote as sent and stamp date_sent. Only transitions from DRAFT."""
@@ -1957,6 +1919,7 @@ class DeliveryOrderItem(Timestampable):
 
     @transaction.atomic
     def save(self, *args, **kwargs):
+        is_new = self.pk is None
         self.discount_amount = (self.unit_price * self.quantity) * (self.discount_percentage / Decimal("100"))
         self.line_total = (self.unit_price * self.quantity) - self.discount_amount
         if not self.item_number and self.delivery_order_id:
@@ -1975,6 +1938,60 @@ class DeliveryOrderItem(Timestampable):
             self.item_number = f"{prefix}{next_id:05d}"
             self.incremental_id = next_id
         super().save(*args, **kwargs)
+
+        if is_new:
+            self._deduct_inventory()
+
+    @property
+    def inventory_item(self):
+        """The InventoryItem this line takes out of stock, when it has one.
+
+        Only inventory-sourced lines carry one; configuration lines are
+        produced (their components are consumed in production) and
+        materialized discount lines have no goods at all.
+        """
+        source = self.source_object
+        if isinstance(source, QuoteInventoryItem):
+            return source.inventory_item
+        return None
+
+    def _deduct_inventory(self):
+        """Create the stock-out ItemTransaction for this delivery line.
+
+        Putting an item on a delivery order is the point where it physically
+        leaves the warehouse, so this is where stock is subtracted (BOM
+        components included).
+        """
+        from inventory.choices import ItemType, MovementType
+        from inventory.models import ItemTransaction
+
+        item = self.inventory_item
+        if item is None or item.item_type != ItemType.STOCKABLE:
+            return
+        if not item.default_warehouse:
+            return
+
+        quantity = int(self.quantity)
+        if quantity <= 0:
+            return
+
+        order = self.delivery_order
+        ItemTransaction.objects.create(
+            item=item,
+            warehouse=item.default_warehouse,
+            movement_type=MovementType.OUT,
+            quantity_change=-quantity,
+            reference_object=order,
+            note=f"Stock out from Delivery Order {order.number} ({self.item_number})",
+        )
+
+        # Cascade BOM component deductions
+        item.deduct_bom_components(
+            quantity=quantity,
+            warehouse=item.default_warehouse,
+            reference_object=order,
+            note=f"BOM deduction from Delivery Order {order.number}",
+        )
 
     def __str__(self):
         return f"{self.item_number or ''} {self.description} ({self.quantity})"

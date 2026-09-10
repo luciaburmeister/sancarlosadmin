@@ -296,11 +296,74 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
             _seen: Internal set used to prevent infinite loops from
                 circular BOM references.  Callers should **not** pass this.
         """
+        from .choices import MovementType
+
+        self._move_bom_components(
+            quantity,
+            warehouse,
+            movement_type=MovementType.OUT,
+            sign=-1,
+            reference_object=reference_object,
+            user=user,
+            note=note,
+            _seen=_seen,
+        )
+
+    def restock_bom_components(
+        self,
+        quantity: int,
+        warehouse,
+        *,
+        reference_object=None,
+        user=None,
+        note: str = "",
+        _seen: set | None = None,
+    ):
+        """Put back every BOM component consumed for ``quantity`` parent units.
+
+        Mirror image of :meth:`deduct_bom_components`, used when the document
+        that consumed the components is cancelled or deleted.  It records
+        compensating stock-in transactions instead of deleting the original
+        ones, so the movement history stays auditable.  Arguments are the
+        same as for the deduction.
+        """
+        from .choices import MovementType
+
+        self._move_bom_components(
+            quantity,
+            warehouse,
+            movement_type=MovementType.IN,
+            sign=1,
+            reference_object=reference_object,
+            user=user,
+            note=note,
+            _seen=_seen,
+        )
+
+    def _move_bom_components(
+        self,
+        quantity: int,
+        warehouse,
+        *,
+        movement_type: str,
+        sign: int,
+        reference_object=None,
+        user=None,
+        note: str = "",
+        _seen: set | None = None,
+    ):
+        """Walk this item's BOM tree, moving each component's stock by
+        ``sign × line quantity``.  Shared body of the deduct/restock pair."""
         if _seen is None:
             _seen = set()
         if self.pk in _seen:
             return  # circular reference guard
         _seen.add(self.pk)
+
+        default_note = (
+            f"BOM deduction for {self.code} ×{quantity}" if sign < 0
+            else f"BOM restock for {self.code} ×{quantity}"
+        )
 
         bom_lines = self.bom_lines.select_related(
             "component", "component__default_warehouse"
@@ -315,22 +378,23 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
                 ref_ct = ContentType.objects.get_for_model(reference_object)
                 ref_id = reference_object.pk
 
-            from .choices import MovementType
             ItemTransaction.objects.create(
                 item=component,
                 warehouse=target_wh,
-                movement_type=MovementType.OUT,
-                quantity_change=-total_qty,
+                movement_type=movement_type,
+                quantity_change=sign * total_qty,
                 reference_content_type=ref_ct,
                 reference_object_id=ref_id,
                 user=user,
-                note=note or f"BOM deduction for {self.code} ×{quantity}",
+                note=note or default_note,
             )
 
             # Recurse for nested BOMs
-            component.deduct_bom_components(
-                quantity=total_qty,
-                warehouse=target_wh,
+            component._move_bom_components(
+                total_qty,
+                target_wh,
+                movement_type=movement_type,
+                sign=sign,
                 reference_object=reference_object,
                 user=user,
                 note=note,

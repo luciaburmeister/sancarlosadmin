@@ -1,3 +1,4 @@
+from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
 from unfold.contrib.filters.admin import RangeNumericFilter
 from unfold.contrib.filters.admin import BooleanRadioFilter
 import logging
@@ -986,12 +987,12 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
         ("payment_commitment_date", RangeDateFilter),
         ("total_amount",RangeNumericFilter),
         # Document state
-        ("status", ChoicesDropdownFilter),
+        ("status", MultipleChoicesDropdownFilter),
         ("is_external", BooleanRadioFilter),
         # Payment
-        ("payment_status", ChoicesDropdownFilter),
+        ("payment_status", MultipleChoicesDropdownFilter),
         DueDatePassedFilter,
-        ("payment_method", ChoicesDropdownFilter),
+        ("payment_method", MultipleChoicesDropdownFilter),
         IsReconciledFilter,
     )
     search_fields = ("invoice_number", "client__name")

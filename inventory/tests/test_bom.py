@@ -6,6 +6,7 @@ Covers:
   • InventoryItem.deduct_bom_components() — flat, nested, circular
   • AdjustStockView cascade on negative adjustments
   • DeliveryOrderItem._deduct_inventory() cascade on delivery
+  • Restock on delivery order cancellation / deletion
 """
 
 from decimal import Decimal
@@ -27,7 +28,15 @@ from inventory.models import (
 )
 from invoices.services.delivery_order_service import DeliveryOrderService
 from management.models import ProjectFile
-from sales.models import Client, Quote, QuoteInventoryItem, QuoteStatus
+from sales.models import (
+    Client,
+    DeliveryOrder,
+    DeliveryOrderItem,
+    DeliveryOrderStatus,
+    Quote,
+    QuoteInventoryItem,
+    QuoteStatus,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -304,9 +313,8 @@ class AdjustStockBOMCascadeTest(_BOMBaseTestCase):
 # 4. Delivery order stock-out cascade
 # ─────────────────────────────────────────────────────────────────────────────
 
-class DeliveryOrderBOMCascadeTest(_BOMBaseTestCase):
-    """Stock leaves when items are put on a delivery order, not when the
-    quote is accepted."""
+class _DeliveryOrderStockTestCase(_BOMBaseTestCase):
+    """Fixtures and helpers for delivering quoted inventory items."""
 
     def setUp(self):
         super().setUp()
@@ -346,6 +354,11 @@ class DeliveryOrderBOMCascadeTest(_BOMBaseTestCase):
                 "unit_price": quote_line.unit_price.amount,
             }],
         )
+
+
+class DeliveryOrderBOMCascadeTest(_DeliveryOrderStockTestCase):
+    """Stock leaves when items are put on a delivery order, not when the
+    quote is accepted."""
 
     def test_quote_acceptance_does_not_move_stock(self):
         parent = self._make_item("Q-NOOP", stock=50)
@@ -478,3 +491,181 @@ class DeliveryOrderBOMCascadeTest(_BOMBaseTestCase):
         )
 
         self.assertEqual(ItemTransaction.objects.count(), tx_count_before)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 5. Delivery order cancellation / deletion restock
+# ─────────────────────────────────────────────────────────────────────────────
+
+class DeliveryOrderRestockTest(_DeliveryOrderStockTestCase):
+    """Cancelling or deleting a delivery order gives the goods back."""
+
+    def _delivered(self, parent_stock=50, comp_stock=200, bom_qty=3, delivered=4):
+        """Deliver `delivered` units of a BOM parent; return (do, parent, comp)."""
+        parent = self._make_item("R-P", stock=parent_stock)
+        comp = self._make_item("R-C", stock=comp_stock)
+        BillOfMaterialsLine.objects.create(
+            parent=parent, component=comp, quantity=bom_qty,
+        )
+        line = self._accepted_quote_line(parent, str(delivered))
+        return self._deliver(line), parent, comp
+
+    def test_cancelling_returns_stock_and_bom_components(self):
+        do, parent, comp = self._delivered()
+        self.assertEqual(self._stock(parent), 46)
+        self.assertEqual(self._stock(comp), 188)
+
+        do.status = DeliveryOrderStatus.CANCELLED
+        do.save()
+
+        self.assertEqual(self._stock(parent), 50)
+        self.assertEqual(self._stock(comp), 200)
+
+    def test_return_is_a_compensating_movement_not_a_deletion(self):
+        do, parent, _ = self._delivered()
+
+        do.status = DeliveryOrderStatus.CANCELLED
+        do.save()
+
+        out_tx = ItemTransaction.objects.get(
+            item=parent, movement_type=MovementType.OUT,
+        )
+        in_tx = ItemTransaction.objects.filter(
+            item=parent, movement_type=MovementType.IN,
+        ).exclude(note="Initial stock").get()
+        self.assertEqual(out_tx.quantity_change, -4)
+        self.assertEqual(in_tx.quantity_change, 4)
+        self.assertEqual(in_tx.reference_object, do)
+        self.assertIn("cancelled", in_tx.note)
+
+    def test_saving_a_cancelled_order_again_does_not_return_twice(self):
+        do, parent, comp = self._delivered()
+
+        do.status = DeliveryOrderStatus.CANCELLED
+        do.save()
+        do.notes = "Cancelled by mistake in the notes"
+        do.save()
+        DeliveryOrder.objects.get(pk=do.pk).save()
+
+        self.assertEqual(self._stock(parent), 50)
+        self.assertEqual(self._stock(comp), 200)
+
+    def test_reopening_a_cancelled_order_takes_the_stock_out_again(self):
+        do, parent, comp = self._delivered()
+
+        do.status = DeliveryOrderStatus.CANCELLED
+        do.save()
+        self.assertEqual(self._stock(parent), 50)
+
+        do.status = DeliveryOrderStatus.SENT
+        do.save()
+
+        self.assertEqual(self._stock(parent), 46)
+        self.assertEqual(self._stock(comp), 188)
+
+    def test_deleting_the_order_returns_stock(self):
+        do, parent, comp = self._delivered()
+        number = do.number
+
+        do.delete()
+
+        self.assertEqual(self._stock(parent), 50)
+        self.assertEqual(self._stock(comp), 200)
+        # The return is not left pointing at the row that just disappeared.
+        in_tx = ItemTransaction.objects.filter(
+            item=parent, movement_type=MovementType.IN,
+        ).exclude(note="Initial stock").get()
+        self.assertIsNone(in_tx.reference_object)
+        self.assertIn(number, in_tx.note)
+
+    def test_bulk_deleting_orders_returns_stock(self):
+        do, parent, comp = self._delivered()
+
+        DeliveryOrder.objects.filter(pk=do.pk).delete()
+
+        self.assertEqual(self._stock(parent), 50)
+        self.assertEqual(self._stock(comp), 200)
+
+    def test_deleting_a_cancelled_order_does_not_return_twice(self):
+        do, parent, comp = self._delivered()
+
+        do.status = DeliveryOrderStatus.CANCELLED
+        do.save()
+        do.delete()
+
+        self.assertEqual(self._stock(parent), 50)
+        self.assertEqual(self._stock(comp), 200)
+
+    def test_deleting_one_line_returns_only_that_line(self):
+        parent_a = self._make_item("R-A", stock=20)
+        parent_b = self._make_item("R-B", stock=30)
+        line_a = self._accepted_quote_line(parent_a, "5")
+        line_b = self._accepted_quote_line(parent_b, "7")
+
+        do = DeliveryOrderService.create_delivery_order(
+            project_file=self.project_file,
+            company=self.company,
+            client=self.client_obj,
+            items_data=[
+                {
+                    "source_content_type_id": self.inv_item_ct.id,
+                    "source_object_id": line_a.pk,
+                    "description": parent_a.name,
+                    "quantity": line_a.quantity,
+                    "unit_price": Decimal("100"),
+                },
+                {
+                    "source_content_type_id": self.inv_item_ct.id,
+                    "source_object_id": line_b.pk,
+                    "description": parent_b.name,
+                    "quantity": line_b.quantity,
+                    "unit_price": Decimal("100"),
+                },
+            ],
+        )
+        self.assertEqual(self._stock(parent_a), 15)
+        self.assertEqual(self._stock(parent_b), 23)
+
+        do.items.filter(source_object_id=line_a.pk).first().delete()
+
+        self.assertEqual(self._stock(parent_a), 20)
+        self.assertEqual(self._stock(parent_b), 23)
+        # The order survives, so the return keeps its link to it.
+        in_tx = ItemTransaction.objects.filter(
+            item=parent_a, movement_type=MovementType.IN,
+        ).exclude(note="Initial stock").get()
+        self.assertEqual(in_tx.reference_object, do)
+
+    def test_cancelling_an_order_with_no_stockable_lines_is_a_noop(self):
+        service = self._make_item(
+            "R-SRV", "Consulting",
+            item_type=ItemType.SERVICE,
+            default_warehouse=None,
+        )
+        do = self._deliver(self._accepted_quote_line(service, "1"))
+
+        tx_count_before = ItemTransaction.objects.count()
+        do.status = DeliveryOrderStatus.CANCELLED
+        do.save()
+
+        self.assertEqual(ItemTransaction.objects.count(), tx_count_before)
+
+    def test_adding_a_line_to_a_cancelled_order_does_not_move_stock(self):
+        do, parent, comp = self._delivered()
+
+        do.status = DeliveryOrderStatus.CANCELLED
+        do.save()
+
+        extra = self._make_item("R-EXTRA", stock=8)
+        extra_line = self._accepted_quote_line(extra, "3")
+        DeliveryOrderItem.objects.create(
+            delivery_order=do,
+            description=extra.name,
+            quantity=extra_line.quantity,
+            unit_price=Decimal("100"),
+            source_content_type=self.inv_item_ct,
+            source_object_id=extra_line.pk,
+        )
+
+        self.assertEqual(self._stock(extra), 8)
+        self.assertEqual(self._stock(parent), 50)

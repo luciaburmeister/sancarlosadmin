@@ -1710,6 +1710,10 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
     def __str__(self):
         return f"{self.number or 'Draft'} - {self.client}"
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._original_status = self.status
+
     @transaction.atomic
     def save(self, *args, **kwargs):
         if not self.number:
@@ -1724,6 +1728,36 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
             self.number = f"{prefix}{next_id:05d}"
             self.incremental_id = next_id
         super().save(*args, **kwargs)
+
+        # Cancelling gives the goods back to the warehouse; reopening a
+        # cancelled order takes them out again.
+        if self.status != self._original_status:
+            if self.status == DeliveryOrderStatus.CANCELLED:
+                self.return_inventory(cancelled=True)
+            elif self._original_status == DeliveryOrderStatus.CANCELLED:
+                self.deduct_inventory()
+
+        self._original_status = self.status
+
+    def deduct_inventory(self):
+        """Take every line's stock out of the warehouse (idempotent)."""
+        for item in self.items.all():
+            item.delivery_order = self
+            item._deduct_inventory()
+
+    def return_inventory(self, *, cancelled=False, keep_reference=True):
+        """Give every line's stock back to the warehouse (idempotent).
+
+        Args:
+            cancelled: Whether the return comes from cancelling the order,
+                which only changes the wording of the movement note.
+            keep_reference: Pass False when the order itself is being
+                deleted, so the compensating transactions are not left
+                pointing at a row that no longer exists.
+        """
+        for item in self.items.all():
+            item.delivery_order = self
+            item._return_inventory(cancelled=cancelled, keep_reference=keep_reference)
 
     @property
     def tracking_link(self):
@@ -1907,6 +1941,17 @@ class DeliveryOrderItem(Timestampable):
         help_text=_("Item reference code. Auto-filled from source when applicable."),
     )
 
+    stock_deducted = models.BooleanField(
+        default=False,
+        editable=False,
+        verbose_name=_("Stock deducted"),
+        help_text=_(
+            "Whether this line's goods are currently out of the warehouse. "
+            "Set when the line is created, cleared when the delivery order "
+            "is cancelled or the line is deleted."
+        ),
+    )
+
     class Meta:
         verbose_name = _("Delivery Order Item")
         verbose_name_plural = _("Delivery Order Items")
@@ -1960,10 +2005,13 @@ class DeliveryOrderItem(Timestampable):
 
         Putting an item on a delivery order is the point where it physically
         leaves the warehouse, so this is where stock is subtracted (BOM
-        components included).
+        components included). A no-op when this line's stock is already out.
         """
         from inventory.choices import ItemType, MovementType
         from inventory.models import ItemTransaction
+
+        if self.stock_deducted:
+            return
 
         item = self.inventory_item
         if item is None or item.item_type != ItemType.STOCKABLE:
@@ -1976,6 +2024,9 @@ class DeliveryOrderItem(Timestampable):
             return
 
         order = self.delivery_order
+        if order.status == DeliveryOrderStatus.CANCELLED:
+            return  # a cancelled order ships nothing
+
         ItemTransaction.objects.create(
             item=item,
             warehouse=item.default_warehouse,
@@ -1992,6 +2043,66 @@ class DeliveryOrderItem(Timestampable):
             reference_object=order,
             note=f"BOM deduction from Delivery Order {order.number}",
         )
+
+        self._set_stock_deducted(True)
+
+    def _return_inventory(self, *, cancelled=False, keep_reference=True):
+        """Give this line's stock back with compensating stock-in movements.
+
+        A no-op unless this line actually took stock out, so cancelling an
+        already-cancelled order — or deleting a cancelled one — never returns
+        the same goods twice. The original transactions are kept: the return
+        is recorded as its own movement so the history stays auditable.
+
+        Args:
+            cancelled: Whether the return comes from cancelling the order.
+            keep_reference: Pass False when the delivery order is being
+                deleted; the note then carries the trace instead of a
+                reference that would dangle.
+        """
+        from inventory.choices import MovementType
+        from inventory.models import ItemTransaction
+
+        if not self.stock_deducted:
+            return
+
+        item = self.inventory_item
+        if item is None or not item.default_warehouse:
+            return
+
+        quantity = int(self.quantity)
+        order = self.delivery_order
+        if cancelled:
+            reason = f"cancelled Delivery Order {order.number}"
+        elif keep_reference:
+            reason = f"Delivery Order {order.number}, line {self.item_number} removed"
+        else:
+            reason = f"deleted Delivery Order {order.number}"
+
+        ItemTransaction.objects.create(
+            item=item,
+            warehouse=item.default_warehouse,
+            movement_type=MovementType.IN,
+            quantity_change=quantity,
+            reference_object=order if keep_reference else None,
+            note=f"Stock returned from {reason} ({self.item_number})",
+        )
+
+        # Cascade BOM component restocks
+        item.restock_bom_components(
+            quantity=quantity,
+            warehouse=item.default_warehouse,
+            reference_object=order if keep_reference else None,
+            note=f"BOM restock from {reason}",
+        )
+
+        self._set_stock_deducted(False)
+
+    def _set_stock_deducted(self, value):
+        """Persist the flag without going through save() — the deduction and
+        the return both run inside another save()/delete() already."""
+        self.stock_deducted = value
+        DeliveryOrderItem.objects.filter(pk=self.pk).update(stock_deducted=value)
 
     def __str__(self):
         return f"{self.item_number or ''} {self.description} ({self.quantity})"

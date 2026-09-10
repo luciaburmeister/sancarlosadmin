@@ -551,7 +551,7 @@ class PlannedSessionResourceInline(TabularInline):
 
 
 @admin.register(PlannedProductionSession)
-class PlannedProductionSessionAdmin(ModelAdmin):
+class PlannedProductionSessionAdmin(CompanyRestrictedAdmin,ModelAdmin):
     list_display = (
         "id",
         "production_ticket",

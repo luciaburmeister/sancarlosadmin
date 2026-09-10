@@ -658,7 +658,7 @@ class PlannedProductionSessionSource(models.TextChoices):
     AUTOMATIC= "auto",_("Automatic")
     MANUAL = "manual", _("Manual")
 
-class PlannedProductionSession(Timestampable):
+class PlannedProductionSession(Timestampable,CompanyOwnedModel):
     production_ticket = models.ForeignKey(
         ProductionTicket,
         on_delete=models.CASCADE,

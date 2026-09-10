@@ -1239,6 +1239,7 @@ class QuoteInventoryItem(Timestampable):
     being an input, and automatic line-item discount policies leave the line
     alone.
     """
+    order = models.PositiveIntegerField(_("order"), default=0, db_index=True)
 
     quote = models.ForeignKey(
         Quote,
@@ -1311,6 +1312,7 @@ class QuoteInventoryItem(Timestampable):
         permissions = [
             ("can_override_line_total", _("Can override sale item line total")),
         ]
+        ordering = ["order"]
 
     def __str__(self):
         if self.inventory_item_id:

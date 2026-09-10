@@ -199,3 +199,14 @@ class QuotePublicResponseForm(forms.Form):
         ])
         provider_quote.recalculate_total()
         return provider_quote
+
+
+class RejectPurchaseOrderForm(forms.Form):
+    reason = forms.CharField(
+        required=True,
+        label=_("Rejection Reason"),
+        widget=UnfoldAdminTextareaWidget(attrs={
+            "rows": 4,
+            "placeholder": _("Explain why this Purchase Order is rejected."),
+        }),
+    )

@@ -133,6 +133,9 @@ class QuoteInventoryItemInline(_OverrideLineTotalGateMixin, TabularInline):
     model = QuoteInventoryItem
     extra = 0
     tab = True
+    ordering_field = "order"
+    hide_ordering_field=True
+    
     autocomplete_fields = ["inventory_item"]
     readonly_fields = ["unit_price", "line_total", "total_with_tax", "cost_display", "margin_display", "margin_pct_display"]
     fields = [

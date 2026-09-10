@@ -19,7 +19,7 @@ from import_export.admin import ExportActionModelAdmin
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from core.admin.xlsx_export import FormattedXlsxExportMixin
 from .models import (
-    PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus,
+    PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus, PurchaseOrderType,
     PurchaseOrderReceipt, PurchaseOrderReceiptItem,
     QuoteRequest, QuoteRequestItem, QuoteRequestStatus,
     ProviderQuote, ProviderQuoteItem, ProviderQuoteStatus,

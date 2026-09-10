@@ -62,10 +62,12 @@ class QuoteExportStrategy(BaseExportStrategy):
             for c in all_configs
             if c.quote_group_id is None
         ]
-
-        # Serialize inventory items (QuoteInventoryItem)
         inventory_items_data = []
-        for inv_item in self.quote.inventory_items.select_related("inventory_item").all():
+        for inv_item in (
+            self.quote.inventory_items
+            .select_related("inventory_item")
+            .order_by("order", "pk")
+        ):
             inventory_items_data.append({
                 "id": inv_item.pk,
                 "name": str(inv_item.inventory_item) if inv_item.inventory_item_id else "",

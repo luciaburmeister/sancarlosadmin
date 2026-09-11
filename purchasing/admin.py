@@ -6,6 +6,7 @@ from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 from django.contrib import admin
 from django.db import transaction
 from django.db.models import Sum
+from django.utils.formats import date_format
 from django.utils.html import format_html_join, format_html
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone, translation
@@ -109,7 +110,7 @@ class PurchaseOrderItemInline(StackedInline):
 class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     resource_classes = [PurchaseOrderResource]
     export_form_class = SelectableFieldsExportForm
-    list_display = ["number", "provider", "po_type", "cost_center", "project_file", "requested_by", "get_status_label", "date_ordered", "total_amount", "get_billing_label", "company"]
+    list_display = ["number", "provider", "po_type", "cost_center", "requested_by", "get_status_label", "get_date_ordered", "total_amount", "get_billing_label", "company"]
     list_filter = [("status",MultipleChoicesDropdownFilter), ("po_type",MultipleChoicesDropdownFilter), ("date_ordered",RangeDateFilter), ("company",AutocompleteSelectMultipleFilter), ("cost_center",AutocompleteSelectMultipleFilter), ("project_file",AutocompleteSelectMultipleFilter)]
     search_fields = ["number", "external_reference","provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name", "cost_center__code", "cost_center__name"]
     autocomplete_fields = ["provider", "company", "approved_by", "requested_by", "project_file", "cost_center"]
@@ -203,6 +204,10 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
     )
     def get_status_label(self, obj):
         return obj.status, obj.get_status_display()
+
+    @display(description=_("Date ordered"), ordering="date_ordered")
+    def get_date_ordered(self, obj):
+        return date_format(obj.date_ordered, "SHORT_DATE_FORMAT") if obj.date_ordered else ""
 
     def get_queryset(self, request):
         return super().get_queryset(request).annotate(

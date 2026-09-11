@@ -6220,7 +6220,7 @@ msgid "PO Number"
 msgstr "Número"
 
 msgid "Date Ordered"
-msgstr "Fecha de Orden"
+msgstr "Fecha OC"
 
 #, fuzzy
 #| msgid "Received"

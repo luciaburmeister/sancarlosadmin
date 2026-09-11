@@ -220,7 +220,7 @@ class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelA
     resource_classes = [ProviderResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
-    list_display = ("name", "contact", "phone", "email", "tax_identifier", "account", "default_cost_center", "company", "balance_overdue_display", "balance_not_due_display", "balance_owed_display")
+    list_display = ("name", "tax_identifier", "account", "default_cost_center",  "balance_overdue_display", "balance_not_due_display", "balance_owed_display","company")
     list_sections = [PendingInvoicesSection]
     search_fields = ("name", "contact", "phone", "email", "tax_identifier", "associated_emails")
     list_select_related = ["company", "account", "default_cost_center"]

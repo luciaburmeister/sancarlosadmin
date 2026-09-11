@@ -1,0 +1,96 @@
+{% load static %}
+/* ------------------------------------------------------------------------
+   Print defaults shared by every export template.
+
+   Injected by exports/base_export.html BEFORE the template's own CSS, so a
+   template can still override anything here with a rule of its own. Rules
+   that must win over template CSS live in _print_overrides.css instead.
+
+   WeasyPrint renders with media type "print"; browsers only apply the
+   @media print block when printing, so the on-screen HTML preview is left
+   alone. The @font-face rules sit outside the block on purpose: both the
+   PDF and the browser must resolve Inter from our own static files, never
+   from Google Fonts at render time (see PDFService.url_fetcher).
+   ------------------------------------------------------------------------ */
+
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400;
+    src: url('{% static "exports/fonts/Inter-Regular.ttf" %}') format('truetype');
+}
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 600;
+    src: url('{% static "exports/fonts/Inter-SemiBold.ttf" %}') format('truetype');
+}
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 700;
+    src: url('{% static "exports/fonts/Inter-Bold.ttf" %}') format('truetype');
+}
+
+@media print {
+    @page {
+        size: A4;
+        margin: 14mm 12mm 16mm 12mm;
+
+        @bottom-right {
+            content: counter(page) " / " counter(pages);
+            font-family: 'Inter', sans-serif;
+            font-size: 8pt;
+            color: #6b7280;
+        }
+    }
+
+    *, *::before, *::after {
+        box-sizing: border-box;
+    }
+
+    html, body {
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        background: #fff;
+    }
+
+    body {
+        font-family: 'Inter', sans-serif;
+        font-size: 10pt;
+        line-height: 1.4;
+        color: #1f2937;
+    }
+
+    img, svg {
+        max-width: 100%;
+        height: auto;
+    }
+
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        page-break-inside: auto;
+    }
+
+    thead {
+        display: table-header-group;
+    }
+
+    tfoot {
+        display: table-footer-group;
+    }
+
+    tr, td, th {
+        page-break-inside: avoid;
+    }
+
+    h1, h2, h3, h4 {
+        page-break-after: avoid;
+    }
+
+    header, footer, section, .no-break {
+        page-break-inside: avoid;
+    }
+}

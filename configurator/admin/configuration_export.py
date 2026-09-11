@@ -63,9 +63,10 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
         preview_url = reverse("admin:configurator_export_template_preview", args=[obj.pk]) if obj and obj.pk else ""
         live_preview_url = reverse("admin:configurator_export_template_preview_live")
         # Full-width, its own row (below the collapsible Contexto JSON) so the user
-        # always sees the rendered document. Wrapper uses Unfold border/radius tokens
-        # so the frame matches the rest of the admin in light and dark mode; the
-        # iframe body stays white because the exported PDF is always on white paper.
+        # always sees the rendered document. The frame shows the actual WeasyPrint
+        # PDF (browser PDF viewer), not the intermediate HTML, so the preview matches
+        # what gets emailed/downloaded. Wrapper uses Unfold border/radius tokens so
+        # the frame matches the rest of the admin in light and dark mode.
         return mark_safe(
             f'<div class="border border-base-200 rounded-default overflow-hidden dark:border-base-800">'
             f'<iframe id="export-template-preview" src="{preview_url}" '

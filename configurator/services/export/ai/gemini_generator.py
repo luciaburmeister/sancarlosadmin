@@ -41,9 +41,28 @@ class GeminiTemplateGenerator(TemplateAIInterface):
         full_prompt = f"""
 You are editing an HTML/CSS export template for a "{kind}" document in an ERP system.
 
-The html is rendered through Django's template engine, then converted to PDF via WeasyPrint.
-WeasyPrint has limited CSS support: avoid CSS Grid, verify flexbox usage, and avoid JavaScript
-(it is never executed).
+The html is rendered through Django's template engine, then converted to an A4 PDF via
+WeasyPrint. The output is PAPER, never a browser viewport. Design for a fixed-width page.
+
+PRINT RULES (mandatory):
+- A shared base stylesheet already provides: @page (A4, 12-14mm margins, page numbers),
+  the 'Inter' @font-face, box-sizing, repeating <thead> across pages and page-break rules
+  for table rows. Do NOT add @page, @import, @font-face or any web font URL yourself.
+- Do NOT wrap the document in a centred container with max-width, "margin: auto" or large
+  padding. The page margins already exist. The outer element should be width: 100%.
+- Use mm and pt units for sizes and spacing. Never use vw, vh, rem or media queries; there is
+  no viewport and @media screen rules are ignored.
+- Anything with columns (line items, totals, side-by-side address blocks, header with logo
+  left and title right) must be a <table> or floats with explicit percentage widths.
+  Flexbox is allowed only for simple single-row alignment; never rely on flex-wrap.
+  Do not use CSS Grid.
+- Percentages are relative to the page content width, so column widths in a table should
+  add up to 100%.
+- Mark blocks that must not split across pages (totals, signatures, address blocks) with
+  page-break-inside: avoid. Long tables may span pages; their header repeats automatically.
+- Images: set an explicit max-height in mm for logos; never let an image exceed 100% width.
+- No JavaScript (it is never executed), no external resources except image URLs provided
+  by the data variables.
 
 AVAILABLE DATA VARIABLES (JSON - these are SAMPLE values from one record, shown only so you
 understand the shape of the data):

@@ -49,6 +49,20 @@ KIND_WORK_ENTRY = "work_entry"
 ALL_KINDS = frozenset({KIND_CONFIG, KIND_INV_ITEM, KIND_QUOTE_ITEM})
 LINE_ITEM_KINDS = frozenset({KIND_INV_ITEM, KIND_QUOTE_ITEM})
 
+# source_id prefix of a materialized discount line (DISCOUNT_LINE): the line
+# is not goods, it carries the discount itself, and it belongs to a quote.
+DISCOUNT_LINE_PREFIX = "discount_quote_"
+
+
+def discount_line_source_id(quote_id) -> str:
+    """source_id for the materialized discount line of the given quote."""
+    return f"{DISCOUNT_LINE_PREFIX}{quote_id}"
+
+
+def is_discount_line_source(source_id) -> bool:
+    """Whether a source_id belongs to a materialized discount line."""
+    return bool(source_id) and source_id.startswith(DISCOUNT_LINE_PREFIX)
+
 
 def source_kind(source_id):
     """Map a SalesInvoiceItem.source_id to its line kind (None if unknown)."""

@@ -55,7 +55,36 @@ def strip_css_wrappers(raw_css: str) -> str:
     # Convert <br> to newlines
     cleaned = re.sub(r'<br\s*/?>', '\n', cleaned, flags=re.IGNORECASE)
 
+    cleaned = strip_hosted_font_imports(cleaned)
+
     return cleaned.strip()
+
+
+# Families we ship ourselves under static/exports/fonts and declare with
+# @font-face in exports/_print_defaults.css. A Google Fonts @import for one of
+# them is dropped so PDF rendering never depends on outbound network access
+# (Celery workers, locked-down hosts) and so the font metrics are the same on
+# every machine. Imports of other families are left untouched.
+SELF_HOSTED_FONT_FAMILIES = ("Inter",)
+
+_GOOGLE_FONTS_IMPORT_RE = re.compile(
+    r"@import\s+(?:url\()?\s*['\"]?https://fonts\.googleapis\.com/[^'\")]*['\"]?\s*\)?\s*;?",
+    flags=re.IGNORECASE,
+)
+
+
+def strip_hosted_font_imports(css: str) -> str:
+    if not css or "fonts.googleapis.com" not in css:
+        return css
+
+    def _replace(match):
+        statement = match.group(0)
+        for family in SELF_HOSTED_FONT_FAMILIES:
+            if re.search(rf"family={re.escape(family)}(?:[:&'\")]|$)", statement, flags=re.IGNORECASE):
+                return ""
+        return statement
+
+    return _GOOGLE_FONTS_IMPORT_RE.sub(_replace, css)
 
 def clean_final_html(rendered: str) -> str:
     if not rendered:

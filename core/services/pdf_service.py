@@ -1,9 +1,23 @@
 import logging
+import mimetypes
+from urllib.parse import urlsplit
+
+from django.conf import settings
+from django.contrib.staticfiles import finders
+from django.contrib.staticfiles.storage import staticfiles_storage
+from django.core.files.storage import default_storage
 
 from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
 from configurator.services.export.service import ConfigurationExportService
 
 logger = logging.getLogger(__name__)
+
+
+# Sentinel origin that relative URLs in the rendered HTML (/static/..., /media/...)
+# are resolved against. It is never contacted over the network: url_fetcher()
+# intercepts it and serves the bytes straight from Django's storages, so the
+# result is identical on a web worker, a Celery worker or a developer laptop.
+PDF_BASE_URL = "https://pdf.internal/"
 
 
 class PDFService:
@@ -13,7 +27,63 @@ class PDFService:
     """
 
     @staticmethod
-    def html_to_pdf(html_string: str) -> bytes:
+    def _read_static(name: str) -> bytes | None:
+        # Hashed name from ManifestStaticFilesStorage in production first,
+        # then the source file via finders (development, tests).
+        try:
+            if staticfiles_storage.exists(name):
+                with staticfiles_storage.open(name, "rb") as fh:
+                    return fh.read()
+        except Exception:
+            pass
+        path = finders.find(name)
+        if path:
+            with open(path, "rb") as fh:
+                return fh.read()
+        return None
+
+    @staticmethod
+    def _read_media(name: str) -> bytes | None:
+        try:
+            if default_storage.exists(name):
+                with default_storage.open(name, "rb") as fh:
+                    return fh.read()
+        except Exception:
+            logger.exception("Could not read media file %s for PDF rendering", name)
+        return None
+
+    @classmethod
+    def url_fetcher(cls, url: str, *args, **kwargs):
+        """
+        WeasyPrint URL fetcher that resolves STATIC_URL and MEDIA_URL paths
+        through Django storages instead of HTTP. Everything else (absolute
+        S3 URLs, remote images) falls through to WeasyPrint's default fetcher.
+        """
+        from weasyprint import default_url_fetcher
+
+        parts = urlsplit(url)
+        sentinel = urlsplit(PDF_BASE_URL)
+        if parts.netloc == sentinel.netloc:
+            path = parts.path
+            static_url = "/" + settings.STATIC_URL.strip("/") + "/"
+            media_url = "/" + settings.MEDIA_URL.strip("/") + "/"
+
+            content = None
+            if path.startswith(static_url):
+                content = cls._read_static(path[len(static_url):])
+            elif path.startswith(media_url):
+                content = cls._read_media(path[len(media_url):])
+
+            if content is None:
+                raise ValueError(f"PDF asset not found: {path}")
+
+            mime_type, _ = mimetypes.guess_type(path)
+            return {"string": content, "mime_type": mime_type or "application/octet-stream"}
+
+        return default_url_fetcher(url, *args, **kwargs)
+
+    @classmethod
+    def html_to_pdf(cls, html_string: str) -> bytes:
         """
         Converts an HTML string to PDF bytes.
         """
@@ -27,7 +97,11 @@ class PDFService:
             raise RuntimeError(
                 "PDF generation is unavailable: WeasyPrint system libraries are not installed."
             ) from exc
-        return HTML(string=html_string).write_pdf()
+        return HTML(
+            string=html_string,
+            base_url=PDF_BASE_URL,
+            url_fetcher=cls.url_fetcher,
+        ).write_pdf()
 
     @staticmethod
     def render_object_pdf(obj, template_kind: str, company=None, extra_context=None) -> bytes | None:

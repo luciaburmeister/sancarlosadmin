@@ -17,6 +17,7 @@ from django.test import TestCase
 from company.models import Company
 from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
 from configurator.services.export.delivery_order import DeliveryOrderExportStrategy
+from configurator.services.export.sales_invoice import SalesInvoiceExportStrategy
 from inventory.models import InventoryItem, ItemIdentityCode
 from invoices.models import AppliedTax, TaxType
 from invoices.services.delivery_order_service import DeliveryOrderService
@@ -292,6 +293,169 @@ class InvoiceFromDeliveryOrderTests(_DeliveryOrderTestBase):
         ct = ContentType.objects.get_for_model(invoice)
         applied = AppliedTax.objects.get(content_type=ct, object_id=invoice.pk)
         self.assertEqual(applied.base_amount.amount, Decimal("850.00"))
+
+    def test_export_context_calls_out_the_financing_discount(self):
+        """The printed invoice gets the same handles as the quote and the
+        albarán, so the financing line renders as a discount rather than as
+        goods with a negative unit price."""
+        invoice = self._invoice([self.do])
+        context = SalesInvoiceExportStrategy(invoice).get_context()
+
+        self.assertTrue(context["has_financing_discount"])
+        self.assertEqual(context["financing_discount_amount"], 50.0)
+        self.assertEqual(context["subtotal"], 950.0)
+        self.assertEqual(context["discount_amount"], 100.0)
+        # 10% of the 1000 gross the rule was computed on, not of the 950
+        # subtotal the financing line already netted itself out of
+        self.assertEqual(context["discount_percentage"], 10.0)
+        self.assertEqual(context["total_amount"], 1028.5)
+
+        discount_lines = [i for i in context["items"] if i["is_discount_line"]]
+        self.assertEqual(len(discount_lines), 1)
+        self.assertEqual(discount_lines[0]["line_total"], -50.0)
+        self.assertEqual(discount_lines[0]["quote_id"], self.quote.pk)
+        goods = [i for i in context["items"] if not i["is_discount_line"]]
+        self.assertEqual(len(goods), 1)
+        self.assertEqual(goods[0]["line_total"], 1000.0)
+
+    def test_export_context_without_financing(self):
+        self.quote.discount_breakdown = [
+            {"rule_name": "10%", "kind": "standard", "level": "basket",
+             "mode": "net", "percentage": "10.00",
+             "base": "1000.00", "amount": "100.00"},
+        ]
+        self.quote.discount_amount = Decimal("100.00")
+        self.quote.save()
+        do = self._create_do(
+            [self._config_item_data(self.config, Decimal("1000.00"))]
+        )
+        context = SalesInvoiceExportStrategy(self._invoice([do])).get_context()
+
+        self.assertFalse(context["has_financing_discount"])
+        self.assertEqual(context["financing_discount_amount"], 0.0)
+        self.assertEqual(context["discount_percentage"], 10.0)
+        self.assertFalse(any(i["is_discount_line"] for i in context["items"]))
+
+
+class RecomputeAfterLineEditTests(_DeliveryOrderTestBase):
+    """Editing the goods lines re-derives the carried discount, the financing
+    line and the tax bases — otherwise the document, and any invoice copied
+    from it, keeps amounts computed on lines that are no longer there."""
+
+    def setUp(self):
+        super().setUp()
+        # 1000 gross, 10% standard + 5% financing, 21% IVA
+        self.quote = self._make_quote(
+            subtotal_price=Decimal("1000.00"),
+            discount_amount=Decimal("150.00"),
+            discounted_subtotal=Decimal("850.00"),
+            tax_amount=Decimal("178.50"),
+            total_price=Decimal("1028.50"),
+            discount_breakdown=[
+                {"rule_name": "10%", "kind": "standard", "level": "basket",
+                 "mode": "net", "percentage": "10.00",
+                 "base": "1000.00", "amount": "100.00"},
+                {"rule_name": "Financiación 5%", "kind": "financing",
+                 "level": "basket", "mode": "net", "percentage": "5.00",
+                 "base": "1000.00", "amount": "50.00"},
+            ],
+        )
+        self.config = self._make_config(
+            self.quote, Decimal("1000.00"), Decimal("1210.00")
+        )
+        self.do = self._create_do(
+            [self._config_item_data(self.config, Decimal("1000.00"))]
+        )
+
+    def _goods_line(self):
+        return self.do.items.exclude(source_content_type=self.quote_ct).get()
+
+    def _financing_line(self):
+        return self.do.items.get(source_content_type=self.quote_ct)
+
+    def test_halving_a_line_rescales_discount_financing_and_tax(self):
+        line = self._goods_line()
+        line.unit_price = Decimal("500.00")
+        line.save()
+
+        DeliveryOrderService.recompute_discounts_and_taxes(self.do)
+        self.do.refresh_from_db()
+
+        self.assertEqual(self._financing_line().line_total.amount, Decimal("-25.00"))
+        self.assertEqual(self.do.discount_amount.amount, Decimal("50.00"))
+        self.assertEqual(self.do.subtotal_amount.amount, Decimal("475.00"))
+        applied = self.do.applied_taxes.get()
+        self.assertEqual(applied.base_amount.amount, Decimal("425.00"))
+        self.assertEqual(applied.calculated_amount.amount, Decimal("89.25"))
+        self.assertEqual(self.do.total_amount.amount, Decimal("514.25"))
+
+    def test_recompute_updates_the_financing_line_in_place(self):
+        original = self._financing_line()
+
+        DeliveryOrderService.recompute_discounts_and_taxes(self.do)
+
+        self.assertEqual(self.do.items.filter(source_content_type=self.quote_ct).count(), 1)
+        updated = self._financing_line()
+        self.assertEqual(updated.pk, original.pk)
+        self.assertEqual(updated.item_number, original.item_number)
+
+    def test_recompute_is_idempotent(self):
+        for _ in range(3):
+            DeliveryOrderService.recompute_discounts_and_taxes(self.do)
+        self.do.refresh_from_db()
+        self.assertEqual(self.do.items.count(), 2)
+        self.assertEqual(self.do.applied_taxes.count(), 1)
+        self.assertEqual(self.do.discount_amount.amount, Decimal("100.00"))
+        self.assertEqual(self._financing_line().line_total.amount, Decimal("-50.00"))
+        self.assertEqual(self.do.total_amount.amount, Decimal("1028.50"))
+
+    def test_removing_the_last_goods_line_drops_discount_and_taxes(self):
+        self._goods_line().delete()
+
+        DeliveryOrderService.recompute_discounts_and_taxes(self.do)
+        self.do.refresh_from_db()
+
+        self.assertFalse(self.do.items.exists())  # the financing line goes too
+        self.assertFalse(self.do.applied_taxes.exists())
+        self.assertEqual(self.do.discount_amount.amount, Decimal("0.00"))
+        self.assertEqual(self.do.total_amount.amount, Decimal("0.00"))
+
+    def test_edited_do_invoices_consistently(self):
+        line = self._goods_line()
+        line.unit_price = Decimal("500.00")
+        line.save()
+        DeliveryOrderService.recompute_discounts_and_taxes(self.do)
+
+        invoice = DeliveryOrderService.create_invoice_from_delivery_orders(
+            [self.do],
+            company=self.company,
+            client=self.client_obj,
+            date_issued=date(2026, 8, 1),
+        )
+
+        self.assertEqual(invoice.subtotal_amount.amount, Decimal("475.00"))
+        self.assertEqual(invoice.discount_amount.amount, Decimal("50.00"))
+        self.assertEqual(invoice.tax_amount.amount, Decimal("89.25"))
+        self.assertEqual(invoice.total_amount.amount, Decimal("514.25"))
+        fin = invoice.items.get(source_id=f"discount_quote_{self.quote.pk}")
+        self.assertEqual(fin.line_total.amount, Decimal("-25.00"))
+
+    def test_manual_line_without_a_source_is_kept_and_untaxed(self):
+        DeliveryOrderItem.objects.create(
+            delivery_order=self.do,
+            description="Portes",
+            quantity=Decimal("1"),
+            unit_price=Decimal("30.00"),
+        )
+
+        DeliveryOrderService.recompute_discounts_and_taxes(self.do)
+        self.do.refresh_from_db()
+
+        # Carried discount and tax base still follow the quote-sourced line only
+        self.assertEqual(self.do.discount_amount.amount, Decimal("100.00"))
+        self.assertEqual(self.do.applied_taxes.get().base_amount.amount, Decimal("850.00"))
+        self.assertEqual(self.do.subtotal_amount.amount, Decimal("980.00"))
+        self.assertEqual(self.do.total_amount.amount, Decimal("1058.50"))
 
 
 class LegacyDeliveryOrderInvoiceTests(_DeliveryOrderTestBase):

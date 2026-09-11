@@ -149,7 +149,15 @@ class ConfigurationExportService:
     @staticmethod
     def render_html(obj: Any, template: "ConfigurationExportTemplate", extra_context=None):
         rendered_body, clean_css, serialized_context = ConfigurationExportService.render_parts(obj, template, extra_context=extra_context)
+        return ConfigurationExportService.wrap_parts(rendered_body, clean_css, serialized_context)
 
+    @staticmethod
+    def wrap_parts(rendered_body: str, clean_css: str, serialized_context: str = "") -> str:
+        """
+        Wraps already-rendered body/CSS in the shared export page (print base
+        stylesheet, fonts, page setup). Kept separate from render_html so the
+        preview can render the parts once and reuse them.
+        """
         wrapper_tpl = get_template("exports/base_export.html")
 
         return wrapper_tpl.render({

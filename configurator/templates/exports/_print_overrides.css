@@ -1,0 +1,29 @@
+/* ------------------------------------------------------------------------
+   Print overrides injected AFTER the template's own CSS.
+
+   Existing templates were written for a browser viewport: a centred
+   container with max-width, auto margins and 40px padding. Inside a fixed
+   A4 page, whose margins @page already provides, that stacks three layers
+   of whitespace and squashes the content into roughly half the paper.
+   These rules neutralise the outer container for PDF output only; the
+   on-screen HTML preview keeps the template's own layout.
+   ------------------------------------------------------------------------ */
+
+@media print {
+    body > div,
+    body > main,
+    body > article {
+        max-width: none !important;
+        width: auto !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+    }
+
+    /* Viewport units have no meaning on paper; percentages of the page do. */
+    body > div[style*="vw"],
+    body > div[style*="vh"] {
+        width: auto !important;
+        height: auto !important;
+    }
+}

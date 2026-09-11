@@ -34,18 +34,41 @@
         function setupPreview() {
         const livePreviewUrl = previewIframe.dataset.livePreviewUrl;
 
-        function updateContextJson(iframeDoc) {
-            if (!contextContent) return;
-            const contextScript = iframeDoc.getElementById("context-json");
-            if (contextScript) {
-                try {
-                    const jsonData = JSON.parse(contextScript.textContent);
-                    contextContent.textContent = JSON.stringify(jsonData, null, 4);
-                } catch (e) {
-                    console.error("Error parsing context JSON:", e);
-                    contextContent.textContent = "Error parsing context JSON";
-                }
+        function updateContextJson(contextData) {
+            if (!contextContent || contextData === undefined) return;
+            try {
+                contextContent.textContent = JSON.stringify(contextData, null, 4);
+            } catch (e) {
+                console.error("Error serializing context JSON:", e);
+                contextContent.textContent = "Error serializing context JSON";
             }
+        }
+
+        // The preview is the real WeasyPrint PDF (see ExportTemplatePreviewView), so
+        // the iframe shows the browser's PDF viewer. Its document is opaque to us:
+        // the context JSON travels alongside the PDF in the live-preview response
+        // instead of being scraped out of the rendered page.
+        let currentBlobUrl = null;
+        function showPdf(base64Pdf) {
+            const binary = atob(base64Pdf);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            const blob = new Blob([bytes], { type: "application/pdf" });
+            if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+            currentBlobUrl = URL.createObjectURL(blob);
+            previewIframe.removeAttribute("srcdoc");
+            previewIframe.src = currentBlobUrl;
+        }
+
+        function showPreviewError(message) {
+            const escaped = String(message)
+                .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+            previewIframe.srcdoc =
+                '<body style="font-family: ui-monospace, monospace; font-size: 13px; ' +
+                'color: #991b1b; background: #fef2f2; padding: 24px; white-space: pre-wrap;">' +
+                escaped + "</body>";
         }
 
         function updatePreview() {
@@ -79,17 +102,19 @@
                     "X-CSRFToken": getCookie("csrftoken")
                 }
             })
-                .then(response => response.text())
-                .then(html => {
-                    const doc = previewIframe.contentDocument || previewIframe.contentWindow.document;
-                    doc.open();
-                    doc.write(html);
-                    doc.close();
-
-                    // Update the context JSON display
-                    updateContextJson(doc);
+                .then(response => response.json().then(data => ({ ok: response.ok, data })))
+                .then(({ ok, data }) => {
+                    if (!ok || !data.pdf) {
+                        showPreviewError(data.error || "Preview failed.");
+                        return;
+                    }
+                    showPdf(data.pdf);
+                    updateContextJson(data.context);
                 })
-                .catch(error => console.error("Error updating preview:", error));
+                .catch(error => {
+                    console.error("Error updating preview:", error);
+                    showPreviewError("Preview failed: " + error);
+                });
         }
 
         let timeout = null;
@@ -113,36 +138,13 @@
             cssInput.addEventListener("input", debouncedUpdate);
         }
 
-        // Initial preview and context load
-        previewIframe.addEventListener("load", () => {
-            const doc = previewIframe.contentDocument || previewIframe.contentWindow.document;
-            updateContextJson(doc);
-        });
-
-        // A brand-new (unsaved) template has no per-pk GET url to rewrite - its src
-        // starts blank and is only ever populated via the live POST endpoint below.
-        const hasPkPreviewUrl = !!previewIframe.getAttribute("src");
-
+        // The per-pk GET src (saved templates only) just paints something while the
+        // first live render is in flight; every later refresh, including a change
+        // of test object, goes through the live POST so it reflects the form's
+        // current html/css rather than the saved version.
         const testObjectSelector = document.getElementById("test-object-selector");
         if (testObjectSelector) {
-            testObjectSelector.addEventListener("change", () => {
-                const objectId = testObjectSelector.value;
-                if (hasPkPreviewUrl) {
-                    try {
-                        const currentUrl = new URL(previewIframe.src, window.location.origin);
-                        if (objectId) {
-                            currentUrl.searchParams.set("object_id", objectId);
-                        } else {
-                            currentUrl.searchParams.delete("object_id");
-                        }
-                        previewIframe.src = currentUrl.toString();
-                    } catch (e) {
-                        console.error("Error updating preview URL:", e);
-                    }
-                }
-                // Also trigger a live update to use this object in POST
-                updatePreview();
-            });
+            testObjectSelector.addEventListener("change", updatePreview);
         }
 
         // Populate the preview immediately - needed for a new/unsaved template,

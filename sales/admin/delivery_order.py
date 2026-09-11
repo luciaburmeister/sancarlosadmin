@@ -266,8 +266,39 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         return _("Yes") if obj.sales_invoice_id else _("No")
 
     def save_related(self, request, form, formsets, change):
+        from invoices.services.delivery_order_service import DeliveryOrderService
+
         super().save_related(request, form, formsets, change)
-        form.instance.recalculate_totals()
+        delivery_order = form.instance
+
+        # Editing the goods lines changes what the carried quote discount and
+        # the taxes were computed on, so they are re-derived from the sources —
+        # otherwise the financing line and the tax bases stay at their original
+        # amounts and the document (and any invoice made from it) is left
+        # inconsistent. Only self-contained delivery orders carry that data;
+        # legacy ones are priced net of the discount and must be left alone.
+        if self._items_changed(formsets) and DeliveryOrderService._is_self_contained(delivery_order):
+            DeliveryOrderService.recompute_discounts_and_taxes(delivery_order)
+        else:
+            delivery_order.recalculate_totals()
+
+    @staticmethod
+    def _items_changed(formsets):
+        """Whether this submission added, edited or removed a line item.
+
+        A submission that only touches the applied-tax inline keeps the taxes
+        the user just entered instead of re-deriving over them.
+        """
+        for formset in formsets:
+            if formset.model is not DeliveryOrderItem:
+                continue
+            if (
+                getattr(formset, "new_objects", None)
+                or getattr(formset, "changed_objects", None)
+                or getattr(formset, "deleted_objects", None)
+            ):
+                return True
+        return False
 
     @action(description=_("Create Invoice"), icon="receipt_long")
     def create_invoice_from_do_row_action(self, request, object_id):

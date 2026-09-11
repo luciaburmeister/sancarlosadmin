@@ -5,6 +5,7 @@ from .base import (
     INVOICE_LEVEL,
     DISCOUNT_LINE,
     PASS_THROUGH,
+    discount_line_source_id,
     source_kind,
 )
 from .registry import InvoiceDiscountStrategyRegistry
@@ -138,7 +139,7 @@ class QuoteDiscountResolver:
                     "quote_id": quote.id,
                     "description": strategy.line_description(quote, entry),
                     "amount": scaled,
-                    "source_id": f"discount_quote_{quote.id}",
+                    "source_id": discount_line_source_id(quote.id),
                 })
 
             # Either way the discount reduces the taxable base of the lines

@@ -20,6 +20,17 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
     def _quote_id_from_source(source_id: str):
         from configurator.models import Configuration
         from sales.models import QuoteItem, QuoteInventoryItem
+        from invoices.services.discounts import (
+            DISCOUNT_LINE_PREFIX,
+            is_discount_line_source,
+        )
+
+        # A materialized discount line names its quote directly.
+        if is_discount_line_source(source_id):
+            try:
+                return int(source_id[len(DISCOUNT_LINE_PREFIX):])
+            except ValueError:
+                return None
 
         # Maps source_id prefix → model that holds a quote_id FK
         prefix_to_model = {
@@ -39,9 +50,16 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
         return None
 
     def get_context(self) -> Dict[str, Any]:
+        from invoices.services.discounts import is_discount_line_source
+
         # Items for JSON context
         items_data = []
+        financing_discount_amount = Decimal("0.00")
         for item in self.sales_invoice.items.all():
+
+            is_discount_line = is_discount_line_source(item.source_id)
+            if is_discount_line and item.line_total:
+                financing_discount_amount += -Decimal(str(item.line_total.amount))
             item_dict = {
                 "id": item.id,
                 "description": item.description,
@@ -52,6 +70,7 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
                 "line_total": float(item.line_total.amount) if item.line_total else 0,
                 "discount_percentage": float(item.discount_percentage or 0),
                 "discount_amount": float(item.discount_amount.amount) if item.discount_amount else 0,
+                "is_discount_line": is_discount_line,
             }
             items_data.append(item_dict)
 
@@ -60,10 +79,12 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
         discount = Decimal(str(self.sales_invoice.discount_amount.amount)) if self.sales_invoice.discount_amount else Decimal("0.00")
         # Invoice-level discount as a percentage of the line subtotal. The
         # invoice stores only the amount (rules can cascade), so the effective
-        # rate is derived from it.
+        # rate is derived from it — against the gross subtotal, since the
+        # financing lines already netted themselves out of it.
+        gross_subtotal = subtotal + financing_discount_amount
         discount_percentage = (
-            float((discount / subtotal * Decimal("100")).quantize(Decimal("0.01")))
-            if subtotal > 0
+            float((discount / gross_subtotal * Decimal("100")).quantize(Decimal("0.01")))
+            if gross_subtotal > 0
             else 0.0
         )
 
@@ -94,6 +115,8 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "discount_amount": float(discount),
             "discount_percentage": discount_percentage,
             "discount_breakdown": self.sales_invoice.discount_breakdown or [],
+            "has_financing_discount": financing_discount_amount > 0,
+            "financing_discount_amount": float(financing_discount_amount),
             "tax_amount": float(self.sales_invoice.tax_amount.amount),
             "total_amount": float(self.sales_invoice.total_amount.amount),
             "reference": self.sales_invoice.reference,

@@ -1,4 +1,3 @@
-"""Banking admin — BankTransaction and BankReconciliation."""
 from unfold.contrib.filters.admin import RangeNumericFilter
 from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.company_access import get_user_companies
@@ -138,18 +137,28 @@ class PaymentAllocationInline(NonrelatedTabularInline):
         ct = obj.content_type
         doc = obj.related_object
         label = getattr(doc, "invoice_number", None) or str(doc)
+        url = None
         try:
             url = reverse(
                 f"admin:{ct.app_label}_{ct.model}_change",
                 args=[obj.object_id],
             )
-            return format_html(
-                '<a href="{}" target="_blank" style="color: var(--primary-600, #0369a1); '
-                'font-weight: 500;">{}</a>',
-                url, label,
-            )
         except Exception:
+            loan = getattr(doc, "loan", None)
+            if loan is not None:
+                url = reverse("admin:loans_loan_change", args=[loan.pk])
+        if not url:
             return label
+        return format_html(
+            '<a href="{}" target="_blank" class="font-medium text-primary-600 dark:text-primary-400" '
+            'style="display:inline-flex;align-items:center;gap:4px;padding:2px 10px;'
+            'border-radius:9999px;border:1px solid currentColor;'
+            'background-color:color-mix(in srgb, currentColor 12%, transparent);'
+            'text-decoration:none;font-size:12px;white-space:nowrap;">'
+            '<span class="material-symbols-outlined" style="font-size:14px;">description</span>'
+            '{}</a>',
+            url, label,
+        )
 
     @admin.display(description=_("Date"))
     def document_date(self, obj):
@@ -159,6 +168,9 @@ class PaymentAllocationInline(NonrelatedTabularInline):
         date_issued = getattr(doc, "date_issued", None)
         if date_issued is not None:
             return date_issued
+        due_date = getattr(doc, "due_date", None)
+        if due_date is not None:
+            return due_date
         created_at = getattr(doc, "created_at", None)
         if created_at is not None:
             return created_at.date() if hasattr(created_at, "date") else created_at

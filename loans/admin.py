@@ -204,11 +204,16 @@ class LoanRepaymentHistoryInline(TabularInline):
         try:
             txn = alloc.payment.reconciliation.bank_transaction
             url = reverse("admin:banking_banktransaction_change", args=[txn.pk])
+            label = _("Bank Transaction #%(pk)s") % {"pk": txn.pk}
             return format_html(
-                '<a href="{}" class="font-medium text-primary-600 dark:text-primary-400 hover:underline">'
-                '<span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;">receipt</span>'
-                ' #{}</a>',
-                url, txn.pk,
+                '<a href="{}" target="_blank" class="font-medium text-primary-600 dark:text-primary-400" '
+                'style="display:inline-flex;align-items:center;gap:4px;padding:2px 10px;'
+                'border-radius:9999px;border:1px solid currentColor;'
+                'background-color:color-mix(in srgb, currentColor 12%, transparent);'
+                'text-decoration:none;font-size:12px;white-space:nowrap;">'
+                '<span class="material-symbols-outlined" style="font-size:14px;">receipt</span>'
+                '{}</a>',
+                url, label,
             )
         except Exception:
             return "—"
@@ -216,8 +221,6 @@ class LoanRepaymentHistoryInline(TabularInline):
 
 # ---------------------------------------------------------------------------
 # Loan — Payment History inline
-# Uses model=LoanInstallment (has real FK to Loan) with annotated payment date
-# from PaymentAllocation — no new model, no new migration needed.
 # ---------------------------------------------------------------------------
 
 class LoanPaymentHistoryInline(TabularInline):
@@ -311,11 +314,16 @@ class LoanPaymentHistoryInline(TabularInline):
         if not txn_id:
             return "—"
         url = reverse("admin:banking_banktransaction_change", args=[txn_id])
+        label = _("Bank Transaction #%(pk)s") % {"pk": txn_id}
         return format_html(
-            '<a href="{}" class="font-medium text-primary-600 dark:text-primary-400 hover:underline">'
-            '<span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle;">receipt</span>'
-            ' #{}</a>',
-            url, txn_id,
+            '<a href="{}" target="_blank" class="font-medium text-primary-600 dark:text-primary-400" '
+            'style="display:inline-flex;align-items:center;gap:4px;padding:2px 10px;'
+            'border-radius:9999px;border:1px solid currentColor;'
+            'background-color:color-mix(in srgb, currentColor 12%, transparent);'
+            'text-decoration:none;font-size:12px;white-space:nowrap;">'
+            '<span class="material-symbols-outlined" style="font-size:14px;">receipt</span>'
+            '{}</a>',
+            url, label,
         )
 
 # ---------------------------------------------------------------------------
@@ -662,9 +670,6 @@ class LoanAdmin(ModelAdmin, CompanyRestrictedAdmin):
                     ).get(pk=parent_loan_id)
                 except ParentLoan.DoesNotExist:
                     return
-                # Set on self.initial (not just base_fields) so disabled fields
-                # resolve correctly on POST too, where Django's admin does NOT
-                # pass initial= to the form and relies on self.initial instead.
                 self.initial["company"] = parent.company_id
                 self.initial["bank"] = parent.bank_id
                 self.initial["bank_account"] = parent.bank_account_id

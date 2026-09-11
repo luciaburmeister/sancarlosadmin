@@ -18,10 +18,13 @@ def send_invoice_email_task(
     invoice_id: int,
     to_email: str | None = None,
     reply_to: list[str] | None = None,
+    cc_emails: list[str] | None = None,
 ):
     """
     Celery task to send a SalesInvoice email with PDF attachment.
     Runs asynchronously so the admin UI doesn't block.
+
+    `cc_emails` copies the user who triggered the send on the message.
     """
     from invoices.models import SalesInvoice
     from invoices.services.invoice_email_service import InvoiceEmailService
@@ -33,12 +36,13 @@ def send_invoice_email_task(
         return {"task": "send_invoice_email", "invoice_id": invoice_id, "status": "error", "detail": "not found"}
 
     ok = InvoiceEmailService.send_invoice_email(
-        invoice, to_email=to_email, reply_to=reply_to
+        invoice, to_email=to_email, reply_to=reply_to, cc_emails=cc_emails
     )
     return {
         "task": "send_invoice_email",
         "invoice_id": invoice_id,
         "to": to_email or str(invoice.client),
+        "cc": cc_emails or [],
         "status": "ok" if ok else "error",
     }
 

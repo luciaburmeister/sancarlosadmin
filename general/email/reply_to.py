@@ -23,6 +23,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _user_email(user):
+    return (getattr(user, "email", "") or "").strip()
+
+
 def sender_reply_to(user):
     """
     Reply-To for a send a specific user triggered, as a list for Celery.
@@ -30,7 +34,19 @@ def sender_reply_to(user):
     Empty when there is no user or they have no email on file, which lets the
     company configuration take over.
     """
-    email = (getattr(user, "email", "") or "").strip()
+    email = _user_email(user)
+    return [email] if email else []
+
+
+def sender_cc(user):
+    """
+    Cc for a send a specific user triggered, as a list for Celery.
+
+    The counterpart to `sender_reply_to`: the reply comes back to the person
+    who triggered the send, and this gives them the copy of what actually went
+    out, attachment included. Empty under the same conditions.
+    """
+    email = _user_email(user)
     return [email] if email else []
 
 

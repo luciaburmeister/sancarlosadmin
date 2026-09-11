@@ -40,7 +40,11 @@ class ProjectFileInvoiceCreateView(CompanyAPIView):
 
         serializer = ProjectFileInvoiceCreateSerializer(
             data=request.data,
-            context={"project_file": project_file, "company": self.company},
+            context={
+                "project_file": project_file,
+                "company": self.company,
+                "request": request,
+            },
         )
         if not serializer.is_valid():
             return validation_error_response(serializer)
@@ -119,7 +123,7 @@ class SalesInvoiceSendEmailView(CompanyAPIView):
 
         serializer = SalesInvoiceSendEmailSerializer(
             data=request.data,
-            context={"invoice": invoice},
+            context={"invoice": invoice, "request": request},
         )
         if not serializer.is_valid():
             return validation_error_response(serializer)
@@ -153,7 +157,7 @@ class SalesInvoiceFinalizeView(CompanyAPIView):
 
         serializer = SalesInvoiceFinalizeSerializer(
             data=request.data,
-            context={"invoice": invoice},
+            context={"invoice": invoice, "request": request},
         )
         if not serializer.is_valid():
             return validation_error_response(serializer)

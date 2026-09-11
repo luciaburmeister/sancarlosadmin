@@ -19,6 +19,7 @@ class InvoiceEmailService:
         invoice,
         to_email: str | None = None,
         reply_to: list[str] | None = None,
+        cc_emails: list[str] | None = None,
     ) -> bool:
         """
         Generates a PDF from the invoice's export template and emails it
@@ -29,6 +30,8 @@ class InvoiceEmailService:
             to_email: Override recipient (defaults to invoice.client.email)
             reply_to: Sending user's address, if a person triggered this send
                 (otherwise the company's configured Reply-To applies)
+            cc_emails: Addresses copied on the message — the user who finalized
+                the invoice, so they keep what the client received
 
         Returns:
             True if sent successfully, False otherwise
@@ -78,6 +81,7 @@ class InvoiceEmailService:
             subject=f"{invoice.company.name} — {doc_number}",
             body_html=body_html,
             attachments=[(filename, pdf_bytes, "application/pdf")],
+            cc=cc_emails or [],
             related_object=invoice,
             company=invoice.company,
             email_document="sales_invoice",

@@ -12,7 +12,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from company.models import EmailLog
-from general.email import sender_reply_to
+from general.email import sender_cc, sender_reply_to
 from invoices.models import SalesInvoice, SalesInvoiceStatus
 from invoices.services.sales_invoice_payment import ALLOWED_SALES_INVOICE_PAYMENT_METHODS
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
@@ -455,9 +455,12 @@ class ProjectFileInvoiceCreateSerializer(serializers.Serializer):
                     payment_method=payment_method or None,
                 )
                 if validated_data.get("finalize"):
+                    user = getattr(self.context.get("request"), "user", None)
                     invoice = SalesInvoiceService.finalize_invoice(
                         invoice,
                         send_email=validated_data.get("send_email", False),
+                        reply_to=sender_reply_to(user),
+                        cc_emails=sender_cc(user),
                     )
             return invoice
         except DjangoValidationError as exc:
@@ -474,12 +477,21 @@ class SalesInvoiceFinalizeSerializer(serializers.Serializer):
             raise serializers.ValidationError("La factura ya está finalizada.")
         send_email = self.validated_data.get("send_email", True)
         return SalesInvoiceService.finalize_invoice(
-            invoice, send_email=send_email, reply_to=self._sender_reply_to()
+            invoice,
+            send_email=send_email,
+            reply_to=self._sender_reply_to(),
+            cc_emails=self._sender_cc(),
         )
 
     def _sender_reply_to(self):
+        return sender_reply_to(self._request_user())
+
+    def _sender_cc(self):
+        return sender_cc(self._request_user())
+
+    def _request_user(self):
         request = self.context.get("request")
-        return sender_reply_to(getattr(request, "user", None))
+        return getattr(request, "user", None)
 
 
 class SalesInvoiceSendEmailSerializer(serializers.Serializer):

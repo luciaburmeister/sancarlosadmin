@@ -74,7 +74,7 @@ from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from banking.tasks import run_invoice_matcher_task
 from accounting.tasks import classify_invoice_accounts, generate_journal_entries_task, export_a3_purchase_invoicing_task
 from core.tasks import send_invoice_email_task
-from general.email import sender_reply_to
+from general.email import sender_cc, sender_reply_to
 from company.models import EmailLog
 from core.admin.company_admin import CompanyRestrictedAdmin
 from unfold.contrib.filters.admin import (
@@ -1155,7 +1155,9 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
             self.message_user(request, _("Invoice is already final."), level="warning")
         else:
             SalesInvoiceService.finalize_invoice(
-                invoice, reply_to=sender_reply_to(request.user)
+                invoice,
+                reply_to=sender_reply_to(request.user),
+                cc_emails=sender_cc(request.user),
             )
             self.message_user(request, _("Invoice finalized and Delivery Order generated."))
         return redirect(reverse("admin:invoices_salesinvoice_changelist"))
@@ -1167,7 +1169,9 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
             self.message_user(request, _("Invoice is already final."), level="warning")
         else:
             SalesInvoiceService.finalize_invoice(
-                invoice, reply_to=sender_reply_to(request.user)
+                invoice,
+                reply_to=sender_reply_to(request.user),
+                cc_emails=sender_cc(request.user),
             )
             self.message_user(request, _("Invoice finalized and Delivery Order generated."))
         return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
@@ -1201,7 +1205,9 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
         count = 0
         for invoice in queryset.filter(status=SalesInvoiceStatus.PROFORMA):
             SalesInvoiceService.finalize_invoice(
-                invoice, reply_to=sender_reply_to(request.user)
+                invoice,
+                reply_to=sender_reply_to(request.user),
+                cc_emails=sender_cc(request.user),
             )
             count += 1
         self.message_user(request, _("Finalized %d invoices and generated Delivery Orders.") % count)

@@ -16,7 +16,7 @@ from .registry import (
     register,
     registered_documents,
 )
-from .reply_to import resolve_reply_to, sender_reply_to
+from .reply_to import resolve_reply_to, sender_cc, sender_reply_to
 
 __all__ = [
     "EmailDocument",
@@ -27,5 +27,6 @@ __all__ = [
     "register",
     "registered_documents",
     "resolve_reply_to",
+    "sender_cc",
     "sender_reply_to",
 ]

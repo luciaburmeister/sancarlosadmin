@@ -103,12 +103,13 @@ class SalesInvoiceService:
 
     @classmethod
     @transaction.atomic
-    def finalize_invoice(cls, sales_invoice, send_email=True, reply_to=None):
+    def finalize_invoice(cls, sales_invoice, send_email=True, reply_to=None, cc_emails=None):
         """
         Converts Pro Forma to Final, assigns invoice number.
 
         `reply_to` is forwarded to the invoice email so the client replies to
-        whoever finalized the invoice.
+        whoever finalized the invoice, and `cc_emails` copies that same person
+        on the message so they keep what the client received.
         """
         if sales_invoice.status == SalesInvoiceStatus.FINAL:
             sales_invoice._finalize_email_status = cls._email_queue_status(
@@ -136,7 +137,7 @@ class SalesInvoiceService:
 
         if send_email:
             sales_invoice._finalize_email_status = cls.queue_client_email(
-                sales_invoice, reply_to=reply_to
+                sales_invoice, reply_to=reply_to, cc_emails=cc_emails
             )
         else:
             sales_invoice._finalize_email_status = cls._email_queue_status(
@@ -157,12 +158,13 @@ class SalesInvoiceService:
         return status
 
     @classmethod
-    def queue_client_email(cls, sales_invoice, to_email=None, reply_to=None):
+    def queue_client_email(cls, sales_invoice, to_email=None, reply_to=None, cc_emails=None):
         """
         Enqueue invoice PDF email to the client (async via Celery).
 
         `reply_to` is the sending user's own address when a person triggered
-        this, so the client's reply reaches them instead of the shared mailbox.
+        this, so the client's reply reaches them instead of the shared mailbox;
+        `cc_emails` copies them on the message itself.
 
         Returns metadata for API/UI: email_queued, client_email, email_skip_reason.
         """
@@ -175,11 +177,14 @@ class SalesInvoiceService:
         if not email:
             return cls._email_queue_status(queued=False, reason="no_client_email")
 
+        # Nobody needs the same message twice when the sender is the recipient.
+        cc = [cc for cc in (cc_emails or []) if cc.lower() != email.lower()]
+
         from core.tasks import send_invoice_email_task
 
         try:
             send_invoice_email_task.delay(
-                sales_invoice.id, to_email=email, reply_to=reply_to or []
+                sales_invoice.id, to_email=email, reply_to=reply_to or [], cc_emails=cc
             )
         except Exception:
             logger.exception(

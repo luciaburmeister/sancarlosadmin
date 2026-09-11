@@ -137,10 +137,14 @@
 
     .btn-unlink:hover { background: #fee2e2; }
 
+    .filter-form {
+        margin-bottom: 1rem;
+    }
+
     .search-bar, .target-bar {
         display: flex;
         gap: 0.75rem;
-        margin-bottom: 1rem;
+        margin-bottom: 0.75rem;
         align-items: center;
         flex-wrap: wrap;
     }
@@ -155,7 +159,7 @@
     }
 
     .search-bar input { flex: 1; min-width: 200px; }
-    .target-bar select { min-width: 260px; }
+    .target-bar select { min-width: 320px; }
     .target-bar label { font-size: 0.85rem; font-weight: 600; white-space: nowrap; }
 
     .empty-state {
@@ -246,23 +250,32 @@
     <div class="section">
         <div class="section-header">{% trans "Link More Codes" %}</div>
         <div class="section-body">
-            <form method="get" class="search-bar">
-                <input type="text" name="q" value="{{ search }}" placeholder="{% trans 'Search by code, item name or item code…' %}">
-                <button type="submit" class="btn btn-back">{% trans "Search" %}</button>
-            </form>
-
             {% if line_items %}
-            <form method="post">
-                {% csrf_token %}
+
+            <form method="get" class="filter-form">
                 <div class="target-bar">
                     <label for="targetItem">{% trans "Assign selected codes to" %}</label>
-                    <select name="target_item" id="targetItem" required>
+                    <select name="target_item" id="targetItem" onchange="this.form.submit()">
                         <option value="">{% trans "— Select a line item —" %}</option>
                         {% for line in line_items %}
-                        <option value="{{ line.obj.pk }}">{{ line.obj }} — {{ line.linked_count }}/{{ line.obj.quantity|floatformat:0 }} {% trans "linked" %}</option>
+                        <option value="{{ line.obj.pk }}" {% if selected_line_item.pk == line.obj.pk %}selected{% endif %}>
+                            {{ line.obj }} — {{ line.linked_count }}/{{ line.obj.quantity|floatformat:0 }} {% trans "linked" %}
+                        </option>
                         {% endfor %}
                     </select>
                 </div>
+                <div class="search-bar">
+                    <input type="text" name="q" value="{{ search }}" placeholder="{% trans 'Search by code…' %}">
+                    <button type="submit" class="btn btn-back">{% trans "Search" %}</button>
+                </div>
+            </form>
+
+            {% if not selected_line_item %}
+            <div class="empty-state">{% trans "Select a line item above to see its available codes." %}</div>
+            {% else %}
+            <form method="post">
+                {% csrf_token %}
+                <input type="hidden" name="target_item" value="{{ selected_line_item.pk }}">
 
                 {% if candidates %}
                 <table class="code-table">
@@ -299,11 +312,13 @@
                     </button>
                 </div>
                 {% else %}
-                <div class="empty-state">{% trans "No unlinked item codes found for this search." %}</div>
+                <div class="empty-state">{% trans "No unlinked codes found for this item." %}</div>
                 {% endif %}
             </form>
+            {% endif %}
+
             {% else %}
-            <div class="empty-state">{% trans "This delivery order has no line items yet." %}</div>
+            <div class="empty-state">{% trans "This delivery order has no line items that can be linked to item codes." %}</div>
             {% endif %}
         </div>
     </div>

@@ -19,7 +19,13 @@ CANDIDATE_LIMIT = 200
 
 class DeliveryOrderLinkIdentityCodesView(UnfoldModelAdminViewMixin, TemplateView):
     """Search unlinked identity codes and assign them to one of this
-    delivery order's line items. Also shows codes already linked."""
+    delivery order's line items. Also shows codes already linked.
+
+    Candidates are scoped to the InventoryItem behind the line item
+    currently selected in "Assign selected codes to" — otherwise every
+    unlinked code across every model in the company would be listed,
+    making manual selection impractical.
+    """
 
     title = _("Link Item Codes")
     permission_required = ("sales.change_deliveryorder",)
@@ -27,72 +33,90 @@ class DeliveryOrderLinkIdentityCodesView(UnfoldModelAdminViewMixin, TemplateView
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        do = get_object_or_404(
+        delivery_order = get_object_or_404(
             DeliveryOrder.objects.select_related("company"),
             pk=self.kwargs["delivery_order_id"],
         )
 
-        search = self.request.GET.get("q", "").strip()
-        candidates = ItemIdentityCode.objects.filter(
-            item__company=do.company,
-            delivery_order_item__isnull=True,
-        ).select_related("item")
-        if search:
-            candidates = candidates.filter(
-                Q(code__icontains=search)
-                | Q(item__name__icontains=search)
-                | Q(item__code__icontains=search)
-            )
-        candidates = candidates.order_by("item__name", "code")[:CANDIDATE_LIMIT]
-
-        linked = ItemIdentityCode.objects.filter(
-            delivery_order_item__delivery_order=do
-        ).select_related("item", "delivery_order_item").order_by(
-            "delivery_order_item_id", "code"
-        )
+        search_term = self.request.GET.get("q", "").strip()
+        target_item_id = self.request.GET.get("target_item", "").strip()
 
         linked_counts = {
             row["delivery_order_item"]: row["count"]
             for row in ItemIdentityCode.objects.filter(
-                delivery_order_item__delivery_order=do
+                delivery_order_item__delivery_order=delivery_order
             ).values("delivery_order_item").annotate(count=Count("id"))
         }
-        line_items = []
-        for line in do.items.all():
-            line_items.append({
-                "obj": line,
-                "linked_count": linked_counts.get(line.pk, 0),
+
+        selectable_line_items = []
+        for line_item in delivery_order.items.all():
+            if line_item.inventory_item is None:
+                continue
+            selectable_line_items.append({
+                "obj": line_item,
+                "linked_count": linked_counts.get(line_item.pk, 0),
             })
 
+        selected_line_item = next(
+            (
+                entry["obj"] for entry in selectable_line_items
+                if str(entry["obj"].pk) == target_item_id
+            ),
+            None,
+        ) if target_item_id else None
+
+        if selected_line_item is not None:
+            candidates = ItemIdentityCode.objects.filter(
+                item=selected_line_item.inventory_item,
+                delivery_order_item__isnull=True,
+            ).select_related("item")
+            if search_term:
+                candidates = candidates.filter(
+                    Q(code__icontains=search_term)
+                    | Q(item__name__icontains=search_term)
+                    | Q(item__code__icontains=search_term)
+                )
+            candidates = candidates.order_by("code")[:CANDIDATE_LIMIT]
+        else:
+            candidates = ItemIdentityCode.objects.none()
+
+        linked = ItemIdentityCode.objects.filter(
+            delivery_order_item__delivery_order=delivery_order
+        ).select_related("item", "delivery_order_item").order_by(
+            "delivery_order_item_id", "code"
+        )
+
         context.update({
-            "delivery_order": do,
-            "line_items": line_items,
+            "delivery_order": delivery_order,
+            "line_items": selectable_line_items,
+            "selected_line_item": selected_line_item,
             "candidates": candidates,
             "candidate_limit": CANDIDATE_LIMIT,
             "linked": linked,
-            "search": search,
-            "back_url": reverse("admin:sales_deliveryorder_change", args=[do.pk]),
+            "search": search_term,
+            "back_url": reverse("admin:sales_deliveryorder_change", args=[delivery_order.pk]),
         })
         return context
 
     def post(self, request, delivery_order_id):
-        do = get_object_or_404(DeliveryOrder, pk=delivery_order_id)
+        delivery_order = get_object_or_404(DeliveryOrder, pk=delivery_order_id)
 
-        target_item_id = request.POST.get("target_item")
+        target_item_id = request.POST.get("target_item", "").strip()
         code_ids = request.POST.getlist("codes")
 
         if not target_item_id or not code_ids:
             messages.error(request, _("Select a line item and at least one code."))
             return redirect(request.path)
 
-        target_item = do.items.filter(pk=target_item_id).first()
-        if not target_item:
+        target_item = delivery_order.items.filter(pk=target_item_id).first()
+        if not target_item or target_item.inventory_item is None:
             messages.error(request, _("Invalid line item."))
             return redirect(request.path)
 
-        # Codes are discrete, serialized units — a line's quantity caps how
-        # many can be traced to it. Fractional quantities (sold by length,
-        # weight, etc.) aren't countable this way, so the cap is skipped.
+
+        redirect_url = f"{request.path}?target_item={target_item_id}"
+
+
         quantity = target_item.quantity
         if quantity == quantity.to_integral_value():
             capacity = int(quantity)
@@ -114,11 +138,13 @@ class DeliveryOrderLinkIdentityCodesView(UnfoldModelAdminViewMixin, TemplateView
                         "remaining": remaining,
                     },
                 )
-                return redirect(request.path)
+                return redirect(redirect_url)
 
+        # Scoped to the target line's own InventoryItem — not just the
+        # company — so a tampered request can't link mismatched codes.
         codes = ItemIdentityCode.objects.filter(
             pk__in=code_ids,
-            item__company=do.company,
+            item=target_item.inventory_item,
             delivery_order_item__isnull=True,
         )
         count = 0
@@ -136,7 +162,7 @@ class DeliveryOrderLinkIdentityCodesView(UnfoldModelAdminViewMixin, TemplateView
         else:
             messages.warning(request, _("No codes were linked — they may already be taken."))
 
-        return redirect(request.path)
+        return redirect(redirect_url)
 
 
 class DeliveryOrderUnlinkIdentityCodeView(UnfoldModelAdminViewMixin, View):
@@ -145,9 +171,9 @@ class DeliveryOrderUnlinkIdentityCodeView(UnfoldModelAdminViewMixin, View):
     permission_required = ("sales.change_deliveryorder",)
 
     def post(self, request, delivery_order_id, code_id):
-        do = get_object_or_404(DeliveryOrder, pk=delivery_order_id)
+        delivery_order = get_object_or_404(DeliveryOrder, pk=delivery_order_id)
         code = get_object_or_404(
-            ItemIdentityCode, pk=code_id, delivery_order_item__delivery_order=do
+            ItemIdentityCode, pk=code_id, delivery_order_item__delivery_order=delivery_order
         )
         code.delivery_order_item = None
         code.save(update_fields=["delivery_order_item", "delivered_at"])

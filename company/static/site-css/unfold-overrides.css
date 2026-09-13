@@ -1,0 +1,41 @@
+/*
+ * Project CSS layered on top of django-unfold, loaded through
+ * UNFOLD["STYLES"] in settings.py. Unfold links project stylesheets
+ * BEFORE its own unfold/css/styles.css, so every rule here must win on
+ * specificity (or !important), never on source order.
+ *
+ * Guarded by company/tests_unfold_overrides.py.
+ */
+
+/*
+ * Change-form lines: keep the related-object "more" button inside its
+ * column (upstream issue unfoldadmin/django-unfold#2120).
+ *
+ * A line is a flex row: fixed-width label + value column (.grow). Flex
+ * items default to min-width:auto, so the value column can never get
+ * narrower than its content's minimum width. For an autocomplete that
+ * minimum is the selected label rendered on one line plus the 38px
+ * button and its 8px margin. In a multi-column fieldset row (restored by
+ * templates/unfold/helpers/fieldset_row.html) that exceeds the cell and
+ * the button lands on the neighbouring label. Allowing the column to
+ * shrink lets the selected label ellipsize instead.
+ */
+.field-line > .grow {
+  min-width: 0;
+}
+
+/*
+ * Inside a related-object wrapper the widget shares a no-wrap flex row
+ * with the fixed button. Unfold forces the Select2 box to
+ * width:100% !important, which always leaves the button 46px outside the
+ * row; let the widget flex to the remaining space instead. Higher
+ * specificity than Unfold's `.select2-container` rule, so this wins even
+ * though it is loaded first.
+ */
+.related-widget-wrapper > .select2-container,
+.related-widget-wrapper > select,
+.related-widget-wrapper > input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto !important;
+}

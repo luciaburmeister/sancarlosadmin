@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f4f7f6; margin: 0; padding: 0; }
+        .container { padding: 40px; max-width: 900px; margin: 20px auto; background-color: #ffffff; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h2 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; margin: 15px 0 10px; }
+        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+        th { background-color: #f8f9fa; color: #2c3e50; font-weight: 600; }
+        .summary-table th { width: 25%; }
+        .summary-table td { font-weight: bold; color: #2c3e50; }
+        .status { font-weight: 600; white-space: nowrap; }
+        .status-sent { color: #27ae60; }
+        .status-failed { color: #c0392b; }
+        .status-cancelled { color: #7f8c8d; }
+        .status-pending { color: #e67e22; }
+        .detail { color: #7f8c8d; font-size: 0.9em; }
+        .muted { color: #7f8c8d; }
+        .alert { background-color: #fdecea; border-left: 4px solid #c0392b; padding: 10px 15px; margin: 15px 0; }
+        .btn { display: inline-block; padding: 10px 20px; background-color: #3498db; color: #ffffff !important; text-decoration: none; border-radius: 5px; font-weight: 600; }
+        .btn-wrapper { margin: 20px 0; }
+        .footer { margin-top: 40px; font-size: 0.85em; color: #7f8c8d; border-top: 1px solid #eee; padding-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Informe de recordatorios de pago</h2>
+        <p>Hola,</p>
+        <p>Este es el informe de los recordatorios de pago procesados el {{ report_date }} para <strong>{{ company_name }}</strong>.</p>
+
+        <table class="summary-table">
+            <thead>
+                <tr>
+                    <th>Total</th>
+                    <th>Enviados</th>
+                    <th>Fallidos</th>
+                    <th>Cancelados</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>{{ counts.total }}</td>
+                    <td class="status-sent">{{ counts.sent }}</td>
+                    <td{% if counts.failed %} class="status-failed"{% endif %}>{{ counts.failed }}</td>
+                    <td class="status-cancelled">{{ counts.cancelled }}</td>
+                </tr>
+            </tbody>
+        </table>
+
+        {% if has_problems %}
+        <div class="alert">
+            {% if counts.failed %}<strong>{{ counts.failed }}</strong> recordatorio{{ counts.failed|pluralize }} no se {{ counts.failed|pluralize:"pudo,pudieron" }} enviar. Revise el motivo en la columna «Detalle».{% endif %}
+            {% if counts.pending %} <strong>{{ counts.pending }}</strong> recordatorio{{ counts.pending|pluralize }} seguía{{ counts.pending|pluralize:",n" }} pendiente{{ counts.pending|pluralize }} de envío al generar este informe.{% endif %}
+        </div>
+        {% endif %}
+
+        <table>
+            <thead>
+                <tr>
+                    <th>Cliente</th>
+                    <th>Email</th>
+                    <th>Factura</th>
+                    <th>Vencimiento</th>
+                    <th>Tipo</th>
+                    <th>Origen</th>
+                    <th>Estado</th>
+                    <th>Enviado</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                <tr>
+                    <td>{{ row.client }}</td>
+                    <td>{{ row.email }}</td>
+                    <td>{{ row.invoice_number }}</td>
+                    <td>{{ row.due_date }}</td>
+                    <td>{{ row.reminder_type }}</td>
+                    <td class="muted">{{ row.triggered_by }}</td>
+                    <td class="status status-{{ row.status }}">{{ row.status_display }}</td>
+                    <td class="muted">{{ row.sent_at }}</td>
+                </tr>
+                {% if row.detail %}
+                <tr>
+                    <td colspan="8" class="detail">Detalle: {{ row.detail }}</td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="btn-wrapper">
+            <a href="{{ logs_url }}" class="btn">Ver registro de recordatorios</a>
+        </div>
+
+        <div class="footer">
+            <p>«Enviado» indica que el servidor de correo aceptó el mensaje. No se hace seguimiento de rebotes ni de aperturas: si una dirección no existe, el rebote llegará al buzón remitente.</p>
+            <p>Este es un mensaje generado automáticamente por su sistema <strong>ERP Polipus</strong>.</p>
+        </div>
+    </div>
+</body>
+</html>

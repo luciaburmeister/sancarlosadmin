@@ -16,6 +16,12 @@ class PaymentReminderEmail(EmailDocument):
 
 
 @register
+class PaymentReminderReportEmail(EmailDocument):
+    key = "payment_reminder_report"
+    label = _("Payment Reminder Report")
+
+
+@register
 class PendingInvoicesDigestEmail(EmailDocument):
     key = "pending_invoices_digest"
     label = _("Pending Invoices Digest")

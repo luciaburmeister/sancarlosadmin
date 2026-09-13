@@ -5922,6 +5922,27 @@ msgstr "Pagado"
 msgid "Overdue"
 msgstr "Vencido"
 
+msgid "Before due date"
+msgstr "Antes del vencimiento"
+
+msgid "Payment Reminder Report"
+msgstr "Informe de recordatorios de pago"
+
+msgid "Daily Report"
+msgstr "Informe diario"
+
+msgid "Report Emails"
+msgstr "Emails del informe"
+
+msgid ""
+"Emails that receive the report of payment reminders sent each day (which "
+"clients were emailed and whether each email went through). Leave empty to "
+"send it to the company email."
+msgstr ""
+"Emails que reciben el informe de los recordatorios de pago enviados cada día "
+"(a qué clientes se escribió y si cada email salió correctamente). Déjelo "
+"vacío para enviarlo al email de la empresa."
+
 #, fuzzy
 #| msgid "Quote item"
 msgid "Rule Name"

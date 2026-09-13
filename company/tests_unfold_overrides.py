@@ -10,11 +10,16 @@ error: the UI just silently stops working. That is what happened on the
 while the override still showed on `openDropdown`, so the company
 switcher never opened; and multi-column fieldset rows were removed).
 
+The same applies to the project stylesheet company/static/site-css/
+unfold-overrides.css (linked through UNFOLD["STYLES"]): its selectors
+target Unfold's markup, so a vendor class rename turns it into a no-op.
+
 Two layers of protection:
 
 * Behavior: render real admin pages and assert what each override exists
   to provide (side-by-side fieldset rows; a switcher that opens on the
-  same flag the header toggles and posts the whole selection at once).
+  same flag the header toggles and posts the whole selection at once; a
+  linked stylesheet whose selectors still match the rendered markup).
 * Drift: pinned hashes of the vendor files each override was synced
   against. When an Unfold upgrade changes one of them the test fails and
   names the pair of files to diff. Re-sync the override, then re-pin.
@@ -32,6 +37,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.staticfiles import finders
 from django.core.cache import cache
+from django.templatetags.static import static
 from django.test import TestCase
 from django.urls import reverse
 
@@ -43,16 +49,21 @@ VENDOR_TEMPLATES = pathlib.Path(unfold.__file__).parent / "templates"
 PROJECT_TEMPLATES = pathlib.Path(settings.BASE_DIR) / "templates"
 
 # sha256 of the vendor files as shipped by the Unfold release the overrides
-# were last synced against. navigation_header.html is not overridden, but
-# it is the template that toggles the flag site_dropdown.html shows on, so
-# a change there is just as likely to break the switcher.
+# were last synced against. The last three are not overridden but the
+# project depends on their markup: navigation_header.html toggles the flag
+# site_dropdown.html shows on; fieldset_row_field.html and
+# related_widget_wrapper.html carry the classes unfold-overrides.css targets.
 PINNED_UNFOLD_VERSION = "0.106.0"
 PINNED_VENDOR_HASHES = {
     "unfold/helpers/fieldset_row.html": "2eb8a8acf2d7538566aacb635f5a017374f8f47f026e10ab471c10ed87d44a42",
     "unfold/helpers/site_dropdown.html": "d2df866c72627d4a1b16bc5ac00684247bd3b35dbc3e1da515548d36b5c1d619",
     "unfold/helpers/site_logo.html": "4bf409a13daa874c70d1c89a2b1a13e0627a4081f97aa811482d1a6db59690e2",
     "unfold/helpers/navigation_header.html": "b2b4cec8f441ffa8c52ae57a8b336f146d87291abda89e8945364355da0c1111",
+    "unfold/helpers/fieldset_row_field.html": "cb3e7c4cf0ead894265c977742a136da5985d4b98664079a69f7e1337903fcf8",
+    "unfold/widgets/related_widget_wrapper.html": "4ffda1235520379d0f06630ae8b950d862726a53095c2b53ebb6e58a4865ddb3",
 }
+
+PROJECT_STYLESHEET = "site-css/unfold-overrides.css"
 
 FORM_ROW_CLASSES = re.compile(r'<div class="([^"]*\bform-row\b[^"]*)"')
 
@@ -179,6 +190,60 @@ class SiteDropdownOverrideTests(UnfoldOverrideTestCase):
             re.search(r"<span>\s*<img[^>]*\bh-8\b", html),
             "the sidebar logo is no longer rendered inside a plain <span>",
         )
+
+
+class ProjectStylesheetTests(UnfoldOverrideTestCase):
+    """company/static/site-css/unfold-overrides.css keeps the related-object
+    button inside its column in multi-column rows (upstream issue #2120)."""
+
+    def test_stylesheet_is_linked_and_precedes_unfolds_own(self):
+        response = self.client.get(reverse("admin:index"))
+        html = response.content.decode()
+        ours = html.find(f'href="{static(PROJECT_STYLESHEET)}"')
+        theirs = html.find(static("unfold/css/styles.css"))
+        self.assertNotEqual(ours, -1, "UNFOLD['STYLES'] no longer links the project stylesheet")
+        self.assertNotEqual(theirs, -1)
+        # The CSS file's rules are written to win on specificity because of
+        # this ordering; if Unfold ever flips it the assumption should be
+        # revisited, not silently relied on.
+        self.assertLess(ours, theirs, "Unfold now links project styles after its own")
+
+    def test_stylesheet_contains_the_overflow_rules(self):
+        css = read_static(PROJECT_STYLESHEET)
+        self.assertRegex(css, r"\.field-line\s*>\s*\.grow\s*\{[^}]*min-width:\s*0")
+        self.assertRegex(
+            css,
+            r"\.related-widget-wrapper\s*>\s*\.select2-container[^{]*\{[^}]*width:\s*auto\s*!important",
+        )
+        self.assertRegex(css, r"\.related-widget-wrapper\s*>\s*\.select2-container[^{]*\{[^}]*min-width:\s*0")
+
+    def test_selectors_still_match_unfold_markup(self):
+        # CompanyDocumentTypeAdmin has autocomplete_fields = ["company"], so
+        # its add form renders a related-object wrapper around a Select2.
+        response = self.client.get(reverse("admin:company_companydocumenttype_add"))
+        self.assertEqual(response.status_code, 200)
+        html = response.content.decode()
+
+        # `.field-line > .grow`: the line class comes from Unfold's
+        # fieldset_line_classes tag, the value column from fieldset_row_field.html.
+        self.assertIn("field-line", html, "form lines no longer carry the field-line class")
+        self.assertIn(
+            '<div class="grow relative">',
+            html,
+            "the value column no longer renders as `.grow`; the min-width rule is dead",
+        )
+        self.assertIsNotNone(
+            re.search(
+                r'class="[^"]*\brelated-widget-wrapper\b[^"]*"[^>]*>\s*<select[^>]*\badmin-autocomplete\b',
+                html,
+            ),
+            "no related-object wrapper with a Select2 autocomplete as its first child; "
+            "the `.related-widget-wrapper > .select2-container` rule is dead",
+        )
+        # Unfold still forces the Select2 box to full width, which is why the
+        # override needs !important. If this rule disappears the override is
+        # harmless but the comment in the CSS file should be updated.
+        self.assertIn("width:100%!important", read_static("unfold/css/styles.css"))
 
 
 class VendorTemplateDriftTests(TestCase):

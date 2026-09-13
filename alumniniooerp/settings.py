@@ -432,6 +432,12 @@ UNFOLD = {
         "image": lambda request: static("site-login/login-bg.png"),
     },
     "THEME": "light",
+    # Project CSS on top of Unfold (multi-column row overflow fix, see the
+    # file header). Linked before unfold/css/styles.css, so rules must win
+    # on specificity. Guarded by company/tests_unfold_overrides.py.
+    "STYLES": [
+        lambda request: static("site-css/unfold-overrides.css"),
+    ],
     "COLORS": {
     "base": {
         "50":  "oklch(98% .002 200)",

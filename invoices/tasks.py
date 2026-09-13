@@ -667,6 +667,9 @@ def process_payment_reminders():
     reminder that's due. Idempotency is enforced by the unique constraint
     on (invoice, reminder_type, scheduled_for) — a duplicate get_or_create
     just returns the existing row without queuing another send.
+
+    After processing a company it queues send_payment_reminder_report for
+    that company and day, delayed so the individual sends have finished.
     """
     from datetime import datetime, timedelta
 
@@ -758,11 +761,123 @@ def process_payment_reminders():
         reminder_settings.last_run_date = today
         reminder_settings.save(update_fields=["last_run_date"])
 
+        # Report what happened once the queued sends have had time to run.
+        send_payment_reminder_report.apply_async(
+            args=[company.pk, today.isoformat()],
+            countdown=PAYMENT_REMINDER_REPORT_DELAY_SECONDS,
+        )
+
     logger.info(
         "Payment reminder check complete: %d companies processed, %d reminder(s) queued.",
         processed_companies, queued,
     )
     return {"companies_processed": processed_companies, "reminders_queued": queued}
+
+
+# ── Payment reminder daily report ─────────────────────────────────────
+# Email construction: invoices.services.payment_reminder_report_email_service
+# This task only orchestrates: wait for sends -> fetch logs -> build -> send.
+
+# Seconds between queuing a company's reminders and sending its report.
+PAYMENT_REMINDER_REPORT_DELAY_SECONDS = 10 * 60
+# If some reminders are still pending when the report runs, re-check this
+# often, up to max_retries times, before reporting them as pending.
+PAYMENT_REMINDER_REPORT_RETRY_SECONDS = 2 * 60
+
+
+@shared_task(
+    name="invoices.tasks.send_payment_reminder_report",
+    bind=True,
+    max_retries=5,
+    default_retry_delay=PAYMENT_REMINDER_REPORT_RETRY_SECONDS,
+)
+def send_payment_reminder_report(self, company_id: int, report_date: str):
+    """
+    Emails one company's payment reminder report for a given day: every
+    PaymentReminderLog scheduled for that date (automatic and manual),
+    with the client, the address used, the invoice and the outcome —
+    sent (accepted by the mail server), failed (with the error) or
+    cancelled (invoice paid / excluded before the send).
+
+    Queued by process_payment_reminders a few minutes after the reminders
+    themselves. If any reminder is still pending, the task retries a few
+    times so the report reflects final outcomes; after that it reports
+    them as pending rather than never arriving.
+
+    Recipients: PaymentReminderSettings.report_emails, falling back to
+    Company.email. Companies with neither are skipped with a warning. No
+    email is sent on days without any reminder activity.
+    """
+    from datetime import date as date_cls
+
+    from invoices.models import (
+        PaymentReminderLog,
+        PaymentReminderLogStatus,
+        PaymentReminderSettings,
+    )
+    from invoices.services.payment_reminder_report_email_service import (
+        PaymentReminderReportEmailService,
+    )
+
+    day = date_cls.fromisoformat(report_date)
+
+    try:
+        reminder_settings = PaymentReminderSettings.objects.select_related("company").get(
+            company_id=company_id
+        )
+    except PaymentReminderSettings.DoesNotExist:
+        logger.error("No PaymentReminderSettings for company %s, skipping report.", company_id)
+        return {"status": "error", "message": f"No reminder settings for company {company_id}."}
+
+    company = reminder_settings.company
+    logs = list(
+        PaymentReminderLog.objects.filter(company=company, scheduled_for=day)
+        .select_related("invoice", "invoice__client")
+    )
+    if not logs:
+        return {"status": "skipped", "reason": "no reminders scheduled for this day"}
+
+    pending = sum(1 for log in logs if log.status == PaymentReminderLogStatus.PENDING)
+    if pending and self.request.retries < self.max_retries:
+        logger.info(
+            "Payment reminder report for company %s: %d reminder(s) still pending, retrying.",
+            company.pk, pending,
+        )
+        raise self.retry(countdown=PAYMENT_REMINDER_REPORT_RETRY_SECONDS)
+
+    recipients = reminder_settings.report_recipients()
+    if not recipients:
+        logger.warning(
+            "Payment reminder report for company %s not sent: no report emails configured "
+            "and the company has no email.",
+            company.pk,
+        )
+        return {"status": "skipped", "reason": "no recipients"}
+
+    email = PaymentReminderReportEmailService.build_email(
+        company, logs, recipients=recipients, report_date=day
+    )
+    success = EmailService.send_email(
+        to=email.recipients,
+        subject=email.subject,
+        body_html=email.body_html,
+        related_object=company,
+        company=company,
+        email_document="payment_reminder_report",
+    )
+    if not success:
+        raise Exception(
+            f"Failed to send payment reminder report for company {company.pk} to [{', '.join(recipients)}]"
+        )
+
+    return {
+        "task": "send_payment_reminder_report",
+        "status": "ok",
+        "company_id": company.pk,
+        "reminders": len(logs),
+        "pending": pending,
+        "recipients": recipients,
+    }
 
 @shared_task(name="invoices.tasks.send_payment_reminder_email", bind=True, max_retries=2, default_retry_delay=60)
 def send_payment_reminder_email(self, log_id: int):

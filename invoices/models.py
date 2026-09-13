@@ -5,6 +5,7 @@ from django.db.models.signals import post_delete
 from django.dispatch import receiver
 from django.apps import apps
 from django.core.exceptions import ValidationError
+from django.contrib.postgres.fields import ArrayField
 from company.models import  CompanyEmailConfig, CompanyOwnedModel
 from timestamps.models import Timestampable
 from django.core.validators import MinValueValidator, MaxValueValidator
@@ -1562,6 +1563,17 @@ class PaymentReminderSettings(CompanyOwnedModel, Timestampable):
         verbose_name=_("Last Run Date"),
         help_text=_("Date this company's reminders were last processed. Prevents duplicate runs on the same day."),
     )
+    report_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Report Emails"),
+        help_text=_(
+            "Emails that receive the report of payment reminders sent each day "
+            "(which clients were emailed and whether each email went through). "
+            "Leave empty to send it to the company email."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Payment Reminder Settings")
@@ -1572,6 +1584,16 @@ class PaymentReminderSettings(CompanyOwnedModel, Timestampable):
 
     def __str__(self):
         return f"{_('Payment Reminder Settings')} — {self.company}"
+
+    def report_recipients(self) -> list[str]:
+        """Where the daily reminder report goes: the configured report
+        emails, or the company email when none are configured."""
+        recipients = [e.strip() for e in self.report_emails if e and e.strip()]
+        if recipients:
+            return recipients
+        if self.company.email and self.company.email.strip():
+            return [self.company.email.strip()]
+        return []
 
 
 class PaymentReminderRule(CompanyOwnedModel, Timestampable):

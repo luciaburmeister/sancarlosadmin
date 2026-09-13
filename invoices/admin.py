@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 from django.utils.translation import gettext_lazy as _
 from datetime import timedelta
 from unfold.admin import ModelAdmin, GenericTabularInline, TabularInline
+from unfold.contrib.forms.widgets import ArrayWidget
+from django.contrib.postgres.fields import ArrayField
 from django.utils.html import format_html
 from django.db import models
 from django.db.models import OuterRef, Subquery, Sum
@@ -1465,6 +1467,11 @@ class PaymentReminderSettingsAdmin(ModelAdmin, CompanyRestrictedAdmin):
     autocomplete_fields = ("company",)
     readonly_fields = ("last_run_date",)
     inlines = [PaymentReminderRuleInline]
+    formfield_overrides = {
+        ArrayField: {
+            "widget": ArrayWidget,
+        }
+    }
 
     fieldsets = (
         (
@@ -1485,6 +1492,12 @@ class PaymentReminderSettingsAdmin(ModelAdmin, CompanyRestrictedAdmin):
                     "overdue_repeat_days",
                     "last_run_date",
                 )
+            },
+        ),
+        (
+            _("Daily Report"),
+            {
+                "fields": ("report_emails",),
             },
         ),
     )

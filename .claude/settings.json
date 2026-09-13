@@ -41,7 +41,11 @@
       "Bash(python manage.py refresh_stock_position)",
       "Bash(python manage.py test inventory.tests.test_stock_position inventory.tests.test_resource_stock_position --parallel=1)",
       "Bash(python manage.py test --parallel=1)",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(python3 - /private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/5d354d58-db24-4a0e-b25d-75faf20cf4c8/scratchpad)",
+      "Bash('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --headless=new --disable-gpu --allow-file-access-from-files --hide-scrollbars --window-size=1100,900 --virtual-time-budget=5000 --screenshot=/private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/5d354d58-db24-4a0e-b25d-75faf20cf4c8/scratchpad/po_narrow.png file:///private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/5d354d58-db24-4a0e-b25d-75faf20cf4c8/scratchpad/po2_local.html)",
+      "Bash('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --headless=new --disable-gpu --allow-file-access-from-files --hide-scrollbars --window-size=1400,1000 --virtual-time-budget=6000 --screenshot=/private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/5d354d58-db24-4a0e-b25d-75faf20cf4c8/scratchpad/po_items.png file:///private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/5d354d58-db24-4a0e-b25d-75faf20cf4c8/scratchpad/po2_items_local.html)",
+      "Bash(awk '{print $5,$9}')"
     ]
   }
 }

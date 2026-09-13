@@ -6402,6 +6402,33 @@ msgstr "Solicitado"
 msgid "Reserved"
 msgstr "Reservado"
 
+msgid "Incoming"
+msgstr "En Camino"
+
+msgid "Incoming Quantity"
+msgstr "Cantidad En Camino"
+
+msgid "Reserved Quantity"
+msgstr "Cantidad Reservada"
+
+msgid "Ordered on approved purchase orders but not yet received."
+msgstr "Pedido en órdenes de compra aprobadas pero aún no recibido."
+
+msgid "Promised on accepted quotes but not yet delivered."
+msgstr "Comprometido en presupuestos aceptados pero aún no entregado."
+
+msgid "Ordered on approved purchase orders, not yet received"
+msgstr "Pedido en órdenes de compra aprobadas, aún no recibido"
+
+msgid "Promised on accepted quotes, not yet delivered"
+msgstr "Comprometido en presupuestos aceptados, aún no entregado"
+
+msgid "Stock Position Refreshed At"
+msgstr "Posición de Stock Actualizada El"
+
+msgid "When the incoming and reserved figures were last recomputed."
+msgstr "Cuándo se recalcularon por última vez las cantidades en camino y reservada."
+
 msgid "Inventory Category"
 msgstr "Categoría de Inventario"
 

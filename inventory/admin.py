@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django import forms
 from django.contrib import admin
 from django.contrib.contenttypes.models import ContentType
@@ -575,6 +577,8 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
         "default_warehouse_display",
         "preferred_supplier_display",
         "stock_on_hand_display",
+        "incoming_quantity_display",
+        "reserved_quantity_display",
         "min_stock_display",
         "reorder_action_display",
     )
@@ -602,6 +606,8 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
         "warehouse_postal_code",
         "warehouse_address",
         "stock_on_hand_display",
+        "incoming_quantity_display",
+        "reserved_quantity_display",
     )
 
     fieldsets = (
@@ -610,6 +616,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
                 ("company"),
                 ("code", "item_type"),
                 ("name", "stock_on_hand_display"),
+                ("incoming_quantity_display", "reserved_quantity_display"),
                 ("selling_price", "cost_price"),
                 ("min_stock",),
                 ("description", "image"),
@@ -633,7 +640,30 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
         }),
     )
 
+    def get_queryset(self, request):
+        # Incoming and reserved are stored columns, so they come along for
+        # free; stock on hand is still computed, and without this annotation
+        # its column would cost one extra query per row.
+        return super().get_queryset(request).with_stock_on_hand()
+
     # ── Display helpers ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _quantity_badge(qty, *, icon, colour, title):
+        """Icon + quantity in one colour, or the muted dash when there is none.
+
+        The quantity is rendered without trailing zeros (3.000 → 3, 2.500 →
+        2.5); ``:f`` keeps a normalised whole number out of exponent form.
+        """
+        if not qty:
+            return _muted_dash()
+        return format_html(
+            '<span style="display:inline-flex;align-items:center;gap:4px;'
+            'color:{};font-weight:600;" title="{}">'
+            '<span class="material-symbols-outlined" style="font-size:17px;">{}</span>'
+            '{}</span>',
+            colour, title, icon, f"{Decimal(qty).normalize():f}",
+        )
 
     def stock_on_hand_display(self, obj):
         qty = int(obj.stock_on_hand)
@@ -665,6 +695,30 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
             sign, qty,
         )
     stock_on_hand_display.short_description = _("Stock on Hand")
+    stock_on_hand_display.admin_order_field = "stock_on_hand_total"
+
+    def incoming_quantity_display(self, obj):
+        return self._quantity_badge(
+            obj.incoming_quantity,
+            icon="local_shipping",
+            colour="#2563eb",
+            title=_("Ordered on approved purchase orders, not yet received"),
+        )
+    incoming_quantity_display.short_description = _("Incoming")
+    incoming_quantity_display.admin_order_field = "incoming_quantity"
+
+    def reserved_quantity_display(self, obj):
+        qty = obj.reserved_quantity
+        # Amber when the promise exceeds what is physically in the warehouse:
+        # the shortfall has to come from an incoming order or a new purchase.
+        return self._quantity_badge(
+            qty,
+            icon="bookmark",
+            colour="#d97706" if qty > obj.stock_on_hand else "#7c3aed",
+            title=_("Promised on accepted quotes, not yet delivered"),
+        )
+    reserved_quantity_display.short_description = _("Reserved")
+    reserved_quantity_display.admin_order_field = "reserved_quantity"
 
     def min_stock_display(self, obj):
         if obj.min_stock is None:

@@ -1,4 +1,7 @@
+from decimal import Decimal
+
 from django.db import models
+from django.db.models.functions import Coalesce, Greatest
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
@@ -119,6 +122,178 @@ class StockLocation(Timestampable):
             )
 
 
+class InventoryItemQuerySet(models.QuerySet):
+    """Queryset for :model:`inventory.InventoryItem`.
+
+    Also the single home of the stock-position rules. ``incoming_expression``
+    and ``reserved_expression`` define what those figures mean; everything
+    else routes through them — ``with_computed_stock_position`` annotates
+    them, the cache refresh in ``inventory.services.stock_position`` writes
+    their result into ``incoming_quantity`` / ``reserved_quantity``, and the
+    drift check compares the stored value back against them. One definition
+    is what makes the cached columns trustworthy: there is no second
+    implementation to fall out of step with.
+    """
+
+    #: Output field for the quantity aggregates. PO lines, quote lines and
+    #: delivery lines are all DecimalField(10, 3); the sums need a wider
+    #: decimal to hold them without overflowing.
+    QUANTITY_FIELD = models.DecimalField(max_digits=16, decimal_places=3)
+    ZERO = models.Value(Decimal("0"), output_field=QUANTITY_FIELD)
+
+    # ── Expressions ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def stock_on_hand_expression():
+        """Net of every stock movement recorded for the item.
+
+        Not cached: it is a single indexed aggregate over an append-only
+        table, and caching it would mean writing the item row on every
+        movement.
+        """
+        return Coalesce(
+            models.Subquery(
+                ItemTransaction.objects
+                .filter(item=models.OuterRef("pk"))
+                .values("item")
+                .annotate(total=models.Sum("quantity_change"))
+                .values("total")[:1],
+                output_field=models.IntegerField(),
+            ),
+            models.Value(0),
+        )
+
+    @classmethod
+    def incoming_expression(cls):
+        """Ordered from a supplier but not yet received.
+
+        Only APPROVED orders count: drafts and orders awaiting approval have
+        not been bought, and a CLOSED order has nothing left on the way.
+        """
+        from purchasing.models import PurchaseOrderItem, PurchaseOrderStatus
+
+        return Coalesce(
+            models.Subquery(
+                PurchaseOrderItem.objects
+                .filter(
+                    inventory_item=models.OuterRef("pk"),
+                    purchase_order__status=PurchaseOrderStatus.APPROVED,
+                    quantity__gt=models.F("received_quantity"),
+                )
+                .values("inventory_item")
+                .annotate(
+                    total=models.Sum(
+                        models.F("quantity") - models.F("received_quantity"),
+                        output_field=cls.QUANTITY_FIELD,
+                    )
+                )
+                .values("total")[:1],
+                output_field=cls.QUANTITY_FIELD,
+            ),
+            cls.ZERO,
+        )
+
+    @classmethod
+    def reserved_expression(cls):
+        """Promised on accepted quotes for open projects, not yet delivered.
+
+        Stock physically leaves the warehouse when a delivery-order line is
+        created, so what is still reserved is the accepted-quote quantity
+        minus whatever those quote lines have already shipped. Cancelled
+        delivery orders are excluded because their stock has been returned —
+        the same rule DeliveryOrderService uses to compute remaining
+        deliverable quantities.
+
+        A quote has no state after ACCEPTED, and many flows invoice quote
+        lines directly without ever raising a delivery order, so acceptance
+        alone would reserve stock forever. The project file's lifecycle is
+        the release valve: lines on COMPLETED or CANCELLED projects no longer
+        count. Quotes without a project file stay reserved until delivered or
+        rejected.
+        """
+        from management.models import ProjectFileStatus
+        from sales.models import (
+            DeliveryOrderItem,
+            DeliveryOrderStatus,
+            QuoteInventoryItem,
+            QuoteStatus,
+        )
+
+        def accepted_quote_lines(item_ref):
+            """Quote lines for this item on accepted quotes for open projects.
+
+            ``item_ref`` is the OuterRef pointing back at the InventoryItem
+            row; it has to be double-wrapped when the queryset ends up nested
+            two levels deep, hence the parameter.
+            """
+            return QuoteInventoryItem.objects.filter(
+                inventory_item=item_ref,
+                quote__status=QuoteStatus.ACCEPTED,
+            ).exclude(
+                quote__project_file__status__in=[
+                    ProjectFileStatus.COMPLETED,
+                    ProjectFileStatus.CANCELLED,
+                ],
+            )
+
+        quoted = models.Subquery(
+            accepted_quote_lines(models.OuterRef("pk"))
+            .values("inventory_item")
+            .annotate(total=models.Sum("quantity", output_field=cls.QUANTITY_FIELD))
+            .values("total")[:1],
+            output_field=cls.QUANTITY_FIELD,
+        )
+
+        delivered = models.Subquery(
+            DeliveryOrderItem.objects
+            .filter(
+                source_content_type=ContentType.objects.get_for_model(QuoteInventoryItem),
+                source_object_id__in=accepted_quote_lines(
+                    models.OuterRef(models.OuterRef("pk"))
+                ).values("pk"),
+            )
+            .exclude(delivery_order__status=DeliveryOrderStatus.CANCELLED)
+            .values("source_content_type")  # constant key: one row per subquery
+            .annotate(total=models.Sum("quantity", output_field=cls.QUANTITY_FIELD))
+            .values("total")[:1],
+            output_field=cls.QUANTITY_FIELD,
+        )
+
+        # Clamped at zero: a hand-built delivery line can ship more than was
+        # quoted, and a negative reservation would be meaningless.
+        return Greatest(
+            Coalesce(quoted, cls.ZERO) - Coalesce(delivered, cls.ZERO),
+            cls.ZERO,
+            output_field=cls.QUANTITY_FIELD,
+        )
+
+    # ── Annotations ──────────────────────────────────────────────────────
+
+    def with_stock_on_hand(self):
+        """Annotate ``stock_on_hand_total`` so a list of items costs one query.
+
+        Without it the ``stock_on_hand`` property runs its own aggregate per
+        row.
+        """
+        return self.annotate(stock_on_hand_total=self.stock_on_hand_expression())
+
+    def with_computed_stock_position(self):
+        """Annotate the live, uncached figures as ``computed_incoming`` and
+        ``computed_reserved``.
+
+        This is the expensive path — two correlated subqueries per row. It
+        exists to audit the cached columns (see ``find_drift``); day-to-day
+        reads should use the stored ``incoming_quantity`` /
+        ``reserved_quantity`` fields instead.
+        """
+        return self.annotate(
+            computed_incoming=self.incoming_expression(),
+            computed_reserved=self.reserved_expression(),
+        )
+
+
+
+
 def _item_prefix(item_type: str) -> str:
     return {
         ItemType.STOCKABLE: "STK",
@@ -204,6 +379,47 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         help_text=_("Alert threshold: an order reminder will be shown when stock falls below this level."),
     )
 
+    # ── Cached stock position ───────────────────────────────────────────────
+    # Maintained by inventory.services.stock_position, which recomputes them
+    # from source (never by applying deltas) whenever a purchase order, quote,
+    # delivery order or project file moves. Written only by that service:
+    # save() leaves them out of full saves (see CACHED_STOCK_FIELDS) so an
+    # instance loaded before a refresh cannot write a stale value back over it.
+    # A missed event therefore leaves a stale row that the next refresh — or
+    # `manage.py refresh_stock_position` — repairs, rather than permanent drift.
+
+    CACHED_STOCK_FIELDS = (
+        "incoming_quantity",
+        "reserved_quantity",
+        "stock_position_refreshed_at",
+    )
+
+    incoming_quantity = models.DecimalField(
+        _("Incoming Quantity"),
+        max_digits=16,
+        decimal_places=3,
+        default=Decimal("0"),
+        editable=False,
+        help_text=_("Ordered on approved purchase orders but not yet received."),
+    )
+    reserved_quantity = models.DecimalField(
+        _("Reserved Quantity"),
+        max_digits=16,
+        decimal_places=3,
+        default=Decimal("0"),
+        editable=False,
+        help_text=_("Promised on accepted quotes but not yet delivered."),
+    )
+    stock_position_refreshed_at = models.DateTimeField(
+        _("Stock Position Refreshed At"),
+        null=True,
+        blank=True,
+        editable=False,
+        help_text=_("When the incoming and reserved figures were last recomputed."),
+    )
+
+    objects = InventoryItemQuerySet.as_manager()
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -251,11 +467,45 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
                 separator="-",
             )
 
+        # editable=False only hides the cached columns from forms; a full save
+        # would still write the instance's copy of them back. Narrow the save
+        # to everything else so an admin edit or a spreadsheet import that
+        # loaded this row before a refresh cannot clobber the refreshed value.
+        if (
+            not self._state.adding
+            and kwargs.get("update_fields") is None
+            and not kwargs.get("force_insert")
+        ):
+            deferred = self.get_deferred_fields()
+            kwargs["update_fields"] = [
+                field.name
+                for field in self._meta.concrete_fields
+                if not field.primary_key
+                and field.name not in self.CACHED_STOCK_FIELDS
+                and field.attname not in deferred
+            ]
+
         super().save(*args, **kwargs)
 
     @property
     def stock_on_hand(self) -> int:
+        """Net stock from every recorded movement.
+
+        Prefers the ``stock_on_hand_total`` annotation from
+        ``with_stock_on_hand()`` when the instance carries one, so a list costs
+        one query. Annotations are not refreshed by ``refresh_from_db()``, so
+        an instance that records movements itself should not be loaded that
+        way if it then needs to read the result.
+        """
+        annotated = getattr(self, "stock_on_hand_total", None)
+        if annotated is not None:
+            return int(annotated)
         return self.transactions.aggregate(total=models.Sum("quantity_change")).get("total") or 0
+
+    @property
+    def available_quantity(self) -> Decimal:
+        """Stock on hand that is not already promised to an accepted quote."""
+        return Decimal(self.stock_on_hand) - self.reserved_quantity
 
     @property
     def is_low_stock(self) -> bool:

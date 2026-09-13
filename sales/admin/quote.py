@@ -138,7 +138,7 @@ class QuoteInventoryItemInline(
     tab = True
 
     ordering_field = "order"
-    hide_ordering_field = False  # Keep visible initially
+    hide_ordering_field = False 
 
     autocomplete_fields = ["inventory_item"]
 
@@ -162,7 +162,7 @@ class QuoteInventoryItemInline(
         "total_with_tax",
         "margin_display",
         "margin_pct_display",
-        "order",  # Required so its input is rendered
+        "order",  
     ]
 
     def _get_item_cost(self, obj):

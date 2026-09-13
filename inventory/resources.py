@@ -1,7 +1,7 @@
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.models import ContentType
 from import_export import resources, fields
-from import_export.widgets import ForeignKeyWidget, Widget
+from import_export.widgets import DecimalWidget, ForeignKeyWidget, Widget
 from inventory.models import InventoryItem, Warehouse
 from company.models import Company
 from materials.models import Provider
@@ -102,6 +102,19 @@ class InventoryItemResource(resources.ModelResource):
         widget=MoneyCurrencyWidget(default_currency="EUR"),
     )
 
+    incoming_quantity = fields.Field(
+        column_name=_("Incoming"),
+        attribute="incoming_quantity",
+        widget=DecimalWidget(),
+        readonly=True,
+    )
+    reserved_quantity = fields.Field(
+        column_name=_("Reserved"),
+        attribute="reserved_quantity",
+        widget=DecimalWidget(),
+        readonly=True,
+    )
+
     class Meta:
         model = InventoryItem
         fields = (
@@ -120,6 +133,8 @@ class InventoryItemResource(resources.ModelResource):
             "cost_price",
             "cost_price_currency",
             "min_stock",
+            "incoming_quantity",
+            "reserved_quantity",
         )
         export_order = fields
         import_id_fields = ("id",)

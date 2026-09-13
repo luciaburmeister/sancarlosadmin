@@ -7,7 +7,7 @@ import datetime
 
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
-from django.db import models, transaction
+from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
@@ -87,14 +87,6 @@ class _MovementViewMixin(UnfoldModelAdminViewMixin, View):
     def _get_item(self):
         return get_object_or_404(InventoryItem, pk=self.kwargs["object_id"])
 
-    def _real_stock(self, item):
-        return (
-            ItemTransaction.objects
-            .filter(item=item)
-            .aggregate(total=models.Sum("quantity_change"))
-            .get("total") or 0
-        )
-
     def _cancel_url(self, object_id):
         return reverse("admin:inventory_inventoryitem_change", args=[object_id])
 
@@ -110,7 +102,7 @@ class _MovementViewMixin(UnfoldModelAdminViewMixin, View):
         return {
             "item": item,
             "form": form,
-            "stock_on_hand": self._real_stock(item),
+            "stock_on_hand": item.stock_on_hand,
             "cancel_url": self._cancel_url(object_id),
             "opts": InventoryItem._meta,
             "app_label": InventoryItem._meta.app_label,

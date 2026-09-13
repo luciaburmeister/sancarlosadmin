@@ -35,7 +35,12 @@
       "Bash(python manage.py squashmigrations sales 0036_discount_module 0047_commission_to_quote_level --noinput)",
       "Bash(sed 's|.*/migrations/||')",
       "Bash(python manage.py showmigrations sales)",
-      "Bash(SEGMENT_APP=production python manage.py shell -c 'exec\\(open\\('\\\\''/private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/85d10830-947d-4680-90e4-620d6b10b7cf/scratchpad/plan_segments.py'\\\\''\\).read\\(\\)\\)')"
+      "Bash(SEGMENT_APP=production python manage.py shell -c 'exec\\(open\\('\\\\''/private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/85d10830-947d-4680-90e4-620d6b10b7cf/scratchpad/plan_segments.py'\\\\''\\).read\\(\\)\\)')",
+      "Bash(python -c \"import django; print\\(django.VERSION\\)\")",
+      "Bash(python manage.py refresh_stock_position --check)",
+      "Bash(python manage.py refresh_stock_position)",
+      "Bash(python manage.py test inventory.tests.test_stock_position inventory.tests.test_resource_stock_position --parallel=1)",
+      "Bash(python manage.py test --parallel=1)"
     ]
   }
 }

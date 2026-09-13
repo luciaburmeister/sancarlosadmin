@@ -1,6 +1,7 @@
 {% load i18n %}
 {% comment %}
-Project override of unfold 0.99.1's unfold/helpers/site_logo.html.
+Project override of unfold 0.106.0's unfold/helpers/site_logo.html
+(vendor file unchanged since 0.99.1; the header toggles `siteDropdownOpen`).
 The vendor file always wraps the logo in <a href="{% url 'admin:index' %}">,
 unlike its own site_icon.html (which already skips the link when
 site_dropdown is set). With SITE_DROPDOWN configured, that stray link

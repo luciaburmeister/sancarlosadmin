@@ -1,0 +1,38 @@
+{% load unfold %}
+{% comment %}
+Project override of unfold 0.106.0's unfold/helpers/fieldset_row.html.
+Unfold 0.105.0 (PR #2244, "fix!: disable changeform line fields") dropped
+support for rendering several fields side by side when a fieldset row is
+declared as a tuple, e.g. fields = [("provider", "requested_by")]. Every
+field now stacks on its own line. The maintainer's suggested path is a
+project template override, which is what this file is: the only change
+from the vendor template is the extra grid classes on the row wrapper,
+restored from unfold 0.99.1's fieldset_row_classes template tag. The
+lg:grid-cols-1 to lg:grid-cols-16 utilities are still present in the
+precompiled Unfold stylesheet, so no CSS build is needed.
+If unfold is upgraded, re-sync this file with the vendor template.
+{% endcomment %}
+
+<div class="{% fieldset_row_classes %} {% if forloop.last %}last{% endif %} {% if line.fields|length > 1 %}grid lg:grid-cols-{{ line.fields|length }}{% endif %}">
+    {% for field in line %}
+        {% with adminform.model_admin.conditional_fields|index:field.field.name as conditional_display %}
+            <div class="{% fieldset_line_classes %}" {% if has_conditional_display and conditional_display %}x-show="{{ conditional_display }}"{% endif %}>
+                {% if has_conditional_display %}
+                    {% with field|changeform_condition as field %}
+                        {% if field.is_checkbox %}
+                            {% include "unfold/helpers/fieldset_row_checkbox.html" %}
+                        {% else %}
+                            {% include "unfold/helpers/fieldset_row_field.html" %}
+                        {% endif %}
+                    {% endwith %}
+                {% else %}
+                    {% if field.is_checkbox %}
+                        {% include "unfold/helpers/fieldset_row_checkbox.html" %}
+                    {% else %}
+                        {% include "unfold/helpers/fieldset_row_field.html" %}
+                    {% endif %}
+                {% endif %}
+            </div>
+        {% endwith %}
+    {% endfor %}
+</div>

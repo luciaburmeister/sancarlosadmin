@@ -40,7 +40,8 @@
       "Bash(python manage.py refresh_stock_position --check)",
       "Bash(python manage.py refresh_stock_position)",
       "Bash(python manage.py test inventory.tests.test_stock_position inventory.tests.test_resource_stock_position --parallel=1)",
-      "Bash(python manage.py test --parallel=1)"
+      "Bash(python manage.py test --parallel=1)",
+      "WebFetch(domain:github.com)"
     ]
   }
 }

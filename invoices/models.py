@@ -390,7 +390,18 @@ class Invoice(Timestampable, Payable):
             if default and default.is_active and default.is_assignable:
                 self.cost_center = default
 
-        currency = self.currency or 'EUR'
+        # ``currency`` is the source of truth for every Money on the invoice.
+        # A brand-new invoice created straight from a non-EUR Money without
+        # setting the field, though, means that Money: adopt it instead of
+        # silently flattening the amount to the default.
+        default_currency = self._meta.get_field("currency").default
+        if self._state.adding and (self.currency or default_currency) == default_currency:
+            for money in (self.total_amount, self.net_amount):
+                if money is not None and str(money.currency) != default_currency:
+                    self.currency = str(money.currency)
+                    break
+
+        currency = self.currency or default_currency
         if self.net_amount is not None and self.net_amount.currency != currency:
             self.net_amount = Money(self.net_amount.amount, currency)
         if self.total_amount is not None and self.total_amount.currency != currency:

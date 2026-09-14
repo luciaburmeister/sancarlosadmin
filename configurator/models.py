@@ -768,6 +768,49 @@ class Configuration(Timestampable, CompanyOwnedModel):
     def __str__(self):
         return f"Config #{self.id} — {self.name or 'Unnamed'}"
 
+    def clone(self, *, name_suffix=" (copy)"):
+        """
+        Create an independent DRAFT copy with the same parameter values.
+        Pricing, taxes and BOM are regenerated rather than copied verbatim,
+        since product defaults may have changed since this was created.
+        """
+        with transaction.atomic():
+            new_config = Configuration.objects.create(
+                company=self.company,
+                client=self.client,
+                quote=self.quote,
+                product=self.product,
+                asset=self.asset,
+                project_file=self.project_file,
+                name=f"{self.name}{name_suffix}",
+                notes=self.notes,
+                status=ConfigurationStatus.DRAFT,
+            )
+            new_config.copy_default_pricing_rules_from_product()
+            new_config.copy_default_taxes_from_product()
+            new_config.copy_taxes_from_client()
+
+            if self.price_override is not None:
+                new_config.price_override = self.price_override
+                new_config.save(update_fields=["price_override", "price_override_currency"])
+
+            if self.product_id:
+                params_by_name = {p.name: p for p in self.product.parameters.all()}
+                ConfigurationParameterValue.objects.bulk_create([
+                    ConfigurationParameterValue(
+                        configuration=new_config,
+                        parameter=param,
+                        value=pv.value,
+                        order=param.order,
+                    )
+                    for pv in self.param_values.select_related("parameter")
+                    if (param := params_by_name.get(pv.parameter.name))
+                ])
+                new_config.generate_bom()
+                new_config.recalculate_price()
+
+            return new_config
+
     def get_pricing_context(self):
         """
         Builds the full evaluation context used for:

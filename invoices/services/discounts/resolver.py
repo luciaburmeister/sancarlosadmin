@@ -1,13 +1,7 @@
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from .base import (
-    INVOICE_LEVEL,
-    DISCOUNT_LINE,
-    PASS_THROUGH,
-    discount_line_source_id,
-    source_kind,
-)
+from .base import INVOICE_LEVEL, PASS_THROUGH, source_kind
 from .registry import InvoiceDiscountStrategyRegistry
 
 TWO_PLACES = Decimal("0.01")
@@ -29,25 +23,17 @@ class SourceLine:
 
 @dataclass
 class DiscountResolution:
-    """How the source quotes' discounts land on one invoice.
+    """How the source quotes' discounts land on one document.
 
-    - ``discount_amount``/``breakdown``: invoice-level discount (standard
-      basket rules), to store on ``SalesInvoice.discount_amount`` /
-      ``discount_breakdown``.
-    - ``discount_lines``: discounts that must appear as their own negative
-      line (financing rules on a delivery order). ``amount`` is positive;
-      create the line with ``unit_price = -amount``. They are not included in
-      ``discount_amount`` — they reduce the subtotal through the line itself.
-      Empty when the resolver was built with ``materialize_lines=False``
-      (sales invoices): those discounts are folded into ``discount_amount``.
+    - ``discount_amount``/``breakdown``: document-level discount (standard
+      and financing basket rules), to store on ``discount_amount`` /
+      ``discount_breakdown`` of the invoice or delivery order.
     - ``taxable_fraction(quote_id, kind)``: fraction by which a source line's
-      total must be reduced to get its taxable base (covers both invoice-level
-      and line-materialized discounts, per quote and line kind).
+      total must be reduced to get its taxable base, per quote and line kind.
     """
 
     discount_amount: Decimal = Decimal("0.00")
     breakdown: list = field(default_factory=list)
-    discount_lines: list = field(default_factory=list)
     _fractions: dict = field(default_factory=dict)
 
     def taxable_fraction(self, quote_id, kind):
@@ -56,21 +42,14 @@ class DiscountResolution:
 
 
 class QuoteDiscountResolver:
-    """Carries source quotes' discounts onto an invoice via the registered
+    """Carries source quotes' discounts onto a document via the registered
     strategies, scaling each discount by how much of its own base this
-    invoice covers — so a quote's discount never bleeds into lines invoiced
+    document covers — so a quote's discount never bleeds into lines invoiced
     from other quotes, and a line-items-only discount never scales with
-    configuration lines.
+    configuration lines."""
 
-    ``materialize_lines`` decides where ``DISCOUNT_LINE`` strategies land:
-    a delivery order shows them as their own negative line (``True``), a
-    sales invoice carries every discount at document level (``False``, the
-    default), so the resolution's ``discount_lines`` stays empty and their
-    amounts join ``discount_amount``/``breakdown``."""
-
-    def __init__(self, registry=None, materialize_lines=False):
+    def __init__(self, registry=None):
         self.registry = registry or InvoiceDiscountStrategyRegistry()
-        self.materialize_lines = materialize_lines
 
     def resolve(self, quotes, lines) -> DiscountResolution:
         """
@@ -135,11 +114,7 @@ class QuoteDiscountResolver:
             if scaled <= 0:
                 continue
 
-            materialization = strategy.materialization
-            if materialization == DISCOUNT_LINE and not self.materialize_lines:
-                materialization = INVOICE_LEVEL
-
-            if materialization == INVOICE_LEVEL:
+            if strategy.materialization == INVOICE_LEVEL:
                 resolution.discount_amount += scaled
                 scaled_entry = {**entry, "amount": str(scaled)}
                 if entry.get("base") is not None:
@@ -147,16 +122,9 @@ class QuoteDiscountResolver:
                         (Decimal(str(entry["base"])) * ratio).quantize(TWO_PLACES)
                     )
                 resolution.breakdown.append(scaled_entry)
-            elif materialization == DISCOUNT_LINE:
-                resolution.discount_lines.append({
-                    "quote_id": quote.id,
-                    "description": strategy.line_description(quote, entry),
-                    "amount": scaled,
-                    "source_id": discount_line_source_id(quote.id),
-                })
 
-            # Either way the discount reduces the taxable base of the lines
-            # it was computed on, spread proportionally across them.
+            # The discount reduces the taxable base of the lines it was
+            # computed on, spread proportionally across them.
             for kind, amount in per_kind.items():
                 if kind in eligible_kinds and amount > 0:
                     key = (quote.id, kind)

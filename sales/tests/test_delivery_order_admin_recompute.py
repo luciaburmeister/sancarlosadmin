@@ -1,7 +1,7 @@
 """
 Editing a delivery order's lines in the admin re-derives its carried quote
-discount, its materialized financing line and its tax bases; editing only the
-applied-tax inline leaves the taxes the user just entered alone.
+discount and its tax bases; editing only the applied-tax inline leaves the
+taxes the user just entered alone.
 
     python manage.py test sales.tests.test_delivery_order_admin_recompute
 """
@@ -34,7 +34,6 @@ class _AdminEditBase(TestCase):
             tax_name="IVA", country="ES", defaults={"behavior": "add"},
         )
         self.config_ct = ContentType.objects.get_for_model(Configuration)
-        self.quote_ct = ContentType.objects.get_for_model(Quote)
 
         self.superuser = User.objects.create_superuser(
             username="admin", email="admin@example.com", password="pw",
@@ -164,20 +163,16 @@ class _AdminEditBase(TestCase):
             self.fail(f"admin rejected the POST ({response.status_code}): " + " | ".join(problems))
 
     def _goods_line(self, do):
-        return do.items.exclude(source_content_type=self.quote_ct).get()
-
-    def _financing_line(self, do):
-        return do.items.get(source_content_type=self.quote_ct)
+        return do.items.get()
 
 
 class AdminLineEditRecomputeTests(_AdminEditBase):
 
-    def test_halving_a_line_in_admin_rescales_financing_and_tax_base(self):
+    def test_halving_a_line_in_admin_rescales_discount_and_tax_base(self):
         do, quote = self._financed_do()
         self.assertEqual(do.total_amount.amount, Decimal("1028.50"))
 
         data, rows = self._post_data(do)
-        # Halve the goods line's unit price
         data[f"{self._row(rows, self._goods_line(do))}-unit_price_0"] = "500.00"
 
         response = self.client.post(self._change_url(do), data)
@@ -185,9 +180,8 @@ class AdminLineEditRecomputeTests(_AdminEditBase):
 
         do.refresh_from_db()
         self.assertEqual(self._goods_line(do).line_total.amount, Decimal("500.00"))
-        self.assertEqual(self._financing_line(do).line_total.amount, Decimal("-25.00"))
-        self.assertEqual(do.discount_amount.amount, Decimal("50.00"))
-        self.assertEqual(do.subtotal_amount.amount, Decimal("475.00"))
+        self.assertEqual(do.discount_amount.amount, Decimal("75.00"))
+        self.assertEqual(do.subtotal_amount.amount, Decimal("500.00"))
         self.assertEqual(do.applied_taxes.get().base_amount.amount, Decimal("425.00"))
         self.assertEqual(do.total_amount.amount, Decimal("514.25"))
 
@@ -207,9 +201,7 @@ class AdminLineEditRecomputeTests(_AdminEditBase):
         self.assertEqual(applied.selected_percentage, Decimal("10.00"))
         self.assertEqual(applied.base_amount.amount, Decimal("850.00"))
         self.assertEqual(applied.calculated_amount.amount, Decimal("85.00"))
-        # The financing line and carried discount are untouched
-        self.assertEqual(self._financing_line(do).line_total.amount, Decimal("-50.00"))
-        self.assertEqual(do.discount_amount.amount, Decimal("100.00"))
+        self.assertEqual(do.discount_amount.amount, Decimal("150.00"))
         self.assertEqual(do.total_amount.amount, Decimal("935.00"))
 
 
@@ -252,7 +244,7 @@ class AdminLegacyDeliveryOrderTests(_AdminEditBase):
         )
         return do
 
-    def test_editing_a_legacy_do_does_not_add_a_financing_line(self):
+    def test_editing_a_legacy_do_does_not_add_a_discount(self):
         do = self._legacy_do()
         data, rows = self._post_data(do)
         data[f"{self._row(rows, do.items.get())}-unit_price_0"] = "450.00"
@@ -261,7 +253,7 @@ class AdminLegacyDeliveryOrderTests(_AdminEditBase):
         self._assert_saved(response)
 
         do.refresh_from_db()
-        self.assertFalse(do.items.filter(source_content_type=self.quote_ct).exists())
+        self.assertEqual(do.items.count(), 1)
         self.assertEqual(do.discount_amount.amount, Decimal("0.00"))
         self.assertEqual(do.subtotal_amount.amount, Decimal("450.00"))
         self.assertEqual(do.total_amount.amount, Decimal("450.00"))

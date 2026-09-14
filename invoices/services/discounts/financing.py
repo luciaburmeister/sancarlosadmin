@@ -1,8 +1,5 @@
-from django.utils.translation import gettext as _
-
 from .base import (
     InvoiceDiscountStrategy,
-    DISCOUNT_LINE,
     ALL_KINDS,
     LINE_ITEM_KINDS,
     entry_level,
@@ -11,13 +8,9 @@ from .base import (
 
 
 class FinancingDiscountStrategy(InvoiceDiscountStrategy):
-    """Financing discounts are not item-level discounts: on a delivery order
-    they show up as their own negative line, so the client sees the financing
-    amount called out; on a sales invoice the resolver folds them into the
-    invoice-level discount instead. The entry's base (and therefore
-    partial-document scaling) still follows its configured level."""
-
-    materialization = DISCOUNT_LINE
+    """Financing discounts join the document-level discount with their own
+    breakdown entry. The entry's base (and therefore partial-document
+    scaling) follows its configured level."""
 
     def matches(self, entry):
         from sales.models import DiscountKind, DiscountLevel
@@ -41,8 +34,3 @@ class FinancingDiscountStrategy(InvoiceDiscountStrategy):
         if entry_level(entry) == DiscountLevel.LINE_ITEMS_BASKET:
             return line_items_base(quote)
         return Decimal(str(quote.subtotal_price.amount))
-
-    def line_description(self, quote, entry):
-        rule_name = entry.get("rule_name") or ""
-        label = _("Financing discount")
-        return f"{label} — {rule_name}" if rule_name else str(label)

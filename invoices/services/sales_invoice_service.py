@@ -70,9 +70,7 @@ class SalesInvoiceService:
             # discount_amount and line_total are auto-calculated in model's save()
         )
 
-        # Carry the quote's discount via the per-level strategies. On an
-        # invoice every basket-level rule, financing included, lands in the
-        # invoice-level discount.
+        # Carry the quote's discount via the per-level strategies.
         if quote is not None:
             from invoices.services.discounts import QuoteDiscountResolver, SourceLine
 

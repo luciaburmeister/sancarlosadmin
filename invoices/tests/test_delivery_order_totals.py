@@ -3,10 +3,10 @@ Tests for taxes + discounts on Delivery Orders.
 
 New-style delivery orders are self-contained documents: gross lines, a header
 discount carried from the source quotes via the invoice discount strategies
-(financing rules as their own negative line), and their own AppliedTax rows —
-so the printed albarán shows lines + discount + taxes + total, and invoicing
-a DO is a verbatim copy. Legacy DOs (net-priced config lines, no DO-level
-data) keep the old behavior.
+(standard and financing rules alike), and their own AppliedTax rows — so the
+printed albarán shows lines + discount + taxes + total, and invoicing a DO is
+a verbatim copy. Legacy DOs (net-priced config lines, no DO-level data) keep
+the old behavior.
 """
 from datetime import date
 from decimal import Decimal
@@ -218,30 +218,30 @@ class FinancingDiscountOnDeliveryOrderTests(_DeliveryOrderTestBase):
             self.quote, Decimal("1000.00"), Decimal("1210.00")
         )
 
-    def test_financing_becomes_negative_quote_sourced_line(self):
+    def test_financing_goes_to_header_discount(self):
         do = self._create_do([self._config_item_data(self.config, Decimal("1000.00"))])
-        lines = list(do.items.all())
-        self.assertEqual(len(lines), 2)
-        fin_line = do.items.get(source_content_type=self.quote_ct)
-        self.assertEqual(fin_line.source_object_id, self.quote.pk)
-        self.assertEqual(fin_line.line_total.amount, Decimal("-100.00"))
-        # Not in the header discount — it reduces the subtotal via the line
-        self.assertEqual(do.discount_amount.amount, Decimal("0.00"))
-        self.assertEqual(do.subtotal_amount.amount, Decimal("900.00"))
+        self.assertEqual(do.items.count(), 1)
+        self.assertFalse(do.items.filter(source_content_type=self.quote_ct).exists())
+        self.assertEqual(do.discount_amount.amount, Decimal("100.00"))
+        self.assertEqual(
+            [(e["kind"], e["amount"]) for e in do.discount_breakdown],
+            [("financing", "100.00")],
+        )
+        self.assertEqual(do.subtotal_amount.amount, Decimal("1000.00"))
         self.assertEqual(do.tax_amount.amount, Decimal("189.00"))
         self.assertEqual(do.total_amount.amount, Decimal("1089.00"))
         applied = do.applied_taxes.get()
         self.assertEqual(applied.base_amount.amount, Decimal("900.00"))
 
-    def test_financing_line_does_not_affect_delivered_quantities(self):
+    def test_financing_does_not_affect_delivered_quantities(self):
         self._create_do([self._config_item_data(self.config, Decimal("1000.00"))])
         items = DeliveryOrderService.get_deliverable_items(self.project_file)
         self.assertEqual(items, [])  # config fully delivered, no phantom rows
 
 
 class InvoiceFromDeliveryOrderTests(_DeliveryOrderTestBase):
-    """Invoicing a self-contained DO copies its goods lines and taxes verbatim;
-    the DO's financing line is folded into the invoice's header discount."""
+    """Invoicing a self-contained DO copies its lines, discount and taxes
+    verbatim."""
 
     def setUp(self):
         super().setUp()
@@ -277,37 +277,25 @@ class InvoiceFromDeliveryOrderTests(_DeliveryOrderTestBase):
 
     def test_invoice_matches_do_totals(self):
         invoice = self._invoice([self.do])
-        # DO: 950 subtotal (incl. −50 financing line) − 100 header discount.
-        # Invoice: 1000 gross subtotal − 150 header discount. Same total.
-        self.assertEqual(self.do.subtotal_amount.amount, Decimal("950.00"))
-        self.assertEqual(invoice.subtotal_amount.amount, Decimal("1000.00"))
-        self.assertEqual(invoice.discount_amount.amount, Decimal("150.00"))
+        self.assertEqual(invoice.subtotal_amount.amount, self.do.subtotal_amount.amount)
+        self.assertEqual(invoice.discount_amount.amount, self.do.discount_amount.amount)
         self.assertEqual(invoice.tax_amount.amount, self.do.tax_amount.amount)
         self.assertEqual(invoice.total_amount.amount, self.do.total_amount.amount)
+        self.assertEqual(invoice.subtotal_amount.amount, Decimal("1000.00"))
+        self.assertEqual(invoice.discount_amount.amount, Decimal("150.00"))
         self.assertEqual(invoice.total_amount.amount, Decimal("1028.50"))
 
-    def test_financing_line_folded_into_header_discount(self):
+    def test_invoice_copies_discount_breakdown(self):
         invoice = self._invoice([self.do])
+        self.assertEqual(invoice.items.count(), 1)
         self.assertFalse(
             invoice.items.filter(source_id=f"discount_quote_{self.quote.pk}").exists()
         )
-        self.assertEqual(invoice.items.count(), 1)
+        self.assertEqual(invoice.discount_breakdown, self.do.discount_breakdown)
         self.assertEqual(
             [(e["kind"], e["amount"]) for e in invoice.discount_breakdown],
             [("standard", "100.00"), ("financing", "50.00")],
         )
-        fin_entry = invoice.discount_breakdown[1]
-        self.assertEqual(
-            fin_entry["rule_name"],
-            self.do.items.get(source_content_type=self.quote_ct).description,
-        )
-
-    def test_do_keeps_its_financing_line_after_invoicing(self):
-        self._invoice([self.do])
-        self.do.refresh_from_db()
-        fin_line = self.do.items.get(source_content_type=self.quote_ct)
-        self.assertEqual(fin_line.line_total.amount, Decimal("-50.00"))
-        self.assertEqual(self.do.discount_amount.amount, Decimal("100.00"))
 
     def test_invoice_tax_base_is_discounted(self):
         invoice = self._invoice([self.do])
@@ -316,8 +304,6 @@ class InvoiceFromDeliveryOrderTests(_DeliveryOrderTestBase):
         self.assertEqual(applied.base_amount.amount, Decimal("850.00"))
 
     def test_export_context_shows_financing_inside_the_general_discount(self):
-        """The printed invoice shows one general discount (standard +
-        financing); no negative goods line, nothing called out separately."""
         invoice = self._invoice([self.do])
         context = SalesInvoiceExportStrategy(invoice).get_context()
 
@@ -334,8 +320,6 @@ class InvoiceFromDeliveryOrderTests(_DeliveryOrderTestBase):
         self.assertEqual(context["items"][0]["line_total"], 1000.0)
 
     def test_export_context_still_handles_legacy_financing_lines(self):
-        """Invoices created while financing was its own negative line keep
-        rendering it as a discount rather than as negative goods."""
         invoice = self._invoice([self.do])
         SalesInvoiceItem.objects.create(
             invoice=invoice,
@@ -372,9 +356,7 @@ class InvoiceFromDeliveryOrderTests(_DeliveryOrderTestBase):
 
 
 class RecomputeAfterLineEditTests(_DeliveryOrderTestBase):
-    """Editing the goods lines re-derives the carried discount, the financing
-    line and the tax bases — otherwise the document, and any invoice copied
-    from it, keeps amounts computed on lines that are no longer there."""
+    """Editing the lines re-derives the carried discount and the tax bases."""
 
     def setUp(self):
         super().setUp()
@@ -402,12 +384,9 @@ class RecomputeAfterLineEditTests(_DeliveryOrderTestBase):
         )
 
     def _goods_line(self):
-        return self.do.items.exclude(source_content_type=self.quote_ct).get()
+        return self.do.items.get()
 
-    def _financing_line(self):
-        return self.do.items.get(source_content_type=self.quote_ct)
-
-    def test_halving_a_line_rescales_discount_financing_and_tax(self):
+    def test_halving_a_line_rescales_discount_and_tax(self):
         line = self._goods_line()
         line.unit_price = Decimal("500.00")
         line.save()
@@ -415,32 +394,24 @@ class RecomputeAfterLineEditTests(_DeliveryOrderTestBase):
         DeliveryOrderService.recompute_discounts_and_taxes(self.do)
         self.do.refresh_from_db()
 
-        self.assertEqual(self._financing_line().line_total.amount, Decimal("-25.00"))
-        self.assertEqual(self.do.discount_amount.amount, Decimal("50.00"))
-        self.assertEqual(self.do.subtotal_amount.amount, Decimal("475.00"))
+        self.assertEqual(self.do.discount_amount.amount, Decimal("75.00"))
+        self.assertEqual(
+            [e["amount"] for e in self.do.discount_breakdown], ["50.00", "25.00"]
+        )
+        self.assertEqual(self.do.subtotal_amount.amount, Decimal("500.00"))
         applied = self.do.applied_taxes.get()
         self.assertEqual(applied.base_amount.amount, Decimal("425.00"))
         self.assertEqual(applied.calculated_amount.amount, Decimal("89.25"))
         self.assertEqual(self.do.total_amount.amount, Decimal("514.25"))
 
-    def test_recompute_updates_the_financing_line_in_place(self):
-        original = self._financing_line()
-
-        DeliveryOrderService.recompute_discounts_and_taxes(self.do)
-
-        self.assertEqual(self.do.items.filter(source_content_type=self.quote_ct).count(), 1)
-        updated = self._financing_line()
-        self.assertEqual(updated.pk, original.pk)
-        self.assertEqual(updated.item_number, original.item_number)
-
     def test_recompute_is_idempotent(self):
         for _ in range(3):
             DeliveryOrderService.recompute_discounts_and_taxes(self.do)
         self.do.refresh_from_db()
-        self.assertEqual(self.do.items.count(), 2)
+        self.assertEqual(self.do.items.count(), 1)
         self.assertEqual(self.do.applied_taxes.count(), 1)
-        self.assertEqual(self.do.discount_amount.amount, Decimal("100.00"))
-        self.assertEqual(self._financing_line().line_total.amount, Decimal("-50.00"))
+        self.assertEqual(self.do.discount_amount.amount, Decimal("150.00"))
+        self.assertEqual(len(self.do.discount_breakdown), 2)
         self.assertEqual(self.do.total_amount.amount, Decimal("1028.50"))
 
     def test_removing_the_last_goods_line_drops_discount_and_taxes(self):
@@ -449,7 +420,7 @@ class RecomputeAfterLineEditTests(_DeliveryOrderTestBase):
         DeliveryOrderService.recompute_discounts_and_taxes(self.do)
         self.do.refresh_from_db()
 
-        self.assertFalse(self.do.items.exists())  # the financing line goes too
+        self.assertFalse(self.do.items.exists())
         self.assertFalse(self.do.applied_taxes.exists())
         self.assertEqual(self.do.discount_amount.amount, Decimal("0.00"))
         self.assertEqual(self.do.total_amount.amount, Decimal("0.00"))
@@ -467,7 +438,6 @@ class RecomputeAfterLineEditTests(_DeliveryOrderTestBase):
             date_issued=date(2026, 8, 1),
         )
 
-        # DO: 475 subtotal − 50 header; invoice: 500 gross − 75 header
         self.assertEqual(invoice.subtotal_amount.amount, Decimal("500.00"))
         self.assertEqual(invoice.discount_amount.amount, Decimal("75.00"))
         self.assertEqual(invoice.tax_amount.amount, Decimal("89.25"))
@@ -490,9 +460,9 @@ class RecomputeAfterLineEditTests(_DeliveryOrderTestBase):
         self.do.refresh_from_db()
 
         # Carried discount and tax base still follow the quote-sourced line only
-        self.assertEqual(self.do.discount_amount.amount, Decimal("100.00"))
+        self.assertEqual(self.do.discount_amount.amount, Decimal("150.00"))
         self.assertEqual(self.do.applied_taxes.get().base_amount.amount, Decimal("850.00"))
-        self.assertEqual(self.do.subtotal_amount.amount, Decimal("980.00"))
+        self.assertEqual(self.do.subtotal_amount.amount, Decimal("1030.00"))
         self.assertEqual(self.do.total_amount.amount, Decimal("1058.50"))
 
 
@@ -566,22 +536,27 @@ class DeliveryOrderExportContextTests(_DeliveryOrderTestBase):
     def test_context_exposes_discount_taxes_and_total(self):
         do = self._financed_do()
         context = DeliveryOrderExportStrategy(do).get_context()
-        self.assertEqual(context["subtotal"], 950.0)
-        self.assertEqual(context["discount_amount"], 100.0)
+        self.assertEqual(context["subtotal"], 1000.0)
+        self.assertEqual(context["discount_amount"], 150.0)
+        self.assertEqual(len(context["discount_breakdown"]), 2)
         self.assertEqual(context["tax_amount"], 178.5)
         self.assertEqual(context["total"], 1028.5)
-        self.assertTrue(context["has_financing_discount"])
-        self.assertEqual(context["financing_discount_amount"], 50.0)
+        self.assertFalse(context["has_financing_discount"])
+        self.assertEqual(context["financing_discount_amount"], 0.0)
         self.assertEqual(len(context["taxes"]), 1)
         self.assertEqual(context["taxes"][0]["base"], 850.0)
-        discount_lines = [i for i in context["items"] if i["is_discount_line"]]
-        self.assertEqual(len(discount_lines), 1)
-        self.assertEqual(discount_lines[0]["line_total"], -50.0)
+        self.assertFalse(any(i["is_discount_line"] for i in context["items"]))
 
     def test_context_exposes_identity_codes_per_line(self):
         do = self._financed_do()
         inventory_item = InventoryItem.objects.create(company=self.company, name="Handle")
-        line = do.items.exclude(source_content_type_id=self.quote_ct.id).first()
+        line = do.items.get()
+        untraced_line = DeliveryOrderItem.objects.create(
+            delivery_order=do,
+            description="Portes",
+            quantity=Decimal("1"),
+            unit_price=Decimal("30.00"),
+        )
         for code in ("SN-002", "SN-001"):
             ItemIdentityCode.objects.create(
                 item=inventory_item, code=code, delivery_order_item=line
@@ -594,7 +569,7 @@ class DeliveryOrderExportContextTests(_DeliveryOrderTestBase):
         traced = by_number[line.item_number]
         self.assertEqual(traced["identity_codes"], ["SN-001", "SN-002"])
         self.assertTrue(traced["has_identity_codes"])
-        untraced = [i for i in context["items"] if i["is_discount_line"]][0]
+        untraced = by_number[untraced_line.item_number]
         self.assertEqual(untraced["identity_codes"], [])
         self.assertFalse(untraced["has_identity_codes"])
 

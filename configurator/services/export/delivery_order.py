@@ -34,7 +34,7 @@ class DeliveryOrderExportStrategy(BaseExportStrategy):
             queryset=ItemIdentityCode.objects.order_by("code"),
         )
         for item in do.items.prefetch_related(code_prefetch):
-            # Quote-sourced items are materialized discount lines (financing)
+            # Quote-sourced items are legacy financing lines.
             is_discount_line = item.source_content_type_id == quote_ct.id
             if is_discount_line and item.line_total:
                 financing_discount_amount += -item.line_total.amount

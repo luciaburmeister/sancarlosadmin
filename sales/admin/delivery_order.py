@@ -271,12 +271,8 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         super().save_related(request, form, formsets, change)
         delivery_order = form.instance
 
-        # Editing the goods lines changes what the carried quote discount and
-        # the taxes were computed on, so they are re-derived from the sources —
-        # otherwise the financing line and the tax bases stay at their original
-        # amounts and the document (and any invoice made from it) is left
-        # inconsistent. Only self-contained delivery orders carry that data;
-        # legacy ones are priced net of the discount and must be left alone.
+        # Line edits re-derive the carried discount and tax bases. Legacy DOs
+        # are priced net of the discount and must be left alone.
         if self._items_changed(formsets) and DeliveryOrderService._is_self_contained(delivery_order):
             DeliveryOrderService.recompute_discounts_and_taxes(delivery_order)
         else:

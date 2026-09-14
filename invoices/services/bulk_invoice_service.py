@@ -172,8 +172,6 @@ class BulkProjectFileInvoiceService:
             for summary in pf_summaries.values()
             for qd in summary["quotes"]
         ]
-        # Every basket-level rule, financing included, lands in the
-        # invoice-level discount.
         resolution = QuoteDiscountResolver().resolve(source_quotes, source_lines)
 
         # Taxes apply to each line's discounted base.

@@ -491,8 +491,6 @@ class ProjectFileInvoiceService:
         resolution = QuoteDiscountResolver().resolve(
             [qd['quote'] for qd in summary['quotes']], source_lines,
         )
-        # Every basket-level rule, financing included, lands in the
-        # invoice-level discount.
         invoice_discount = resolution.discount_amount
         invoice_discount_breakdown = resolution.breakdown
 

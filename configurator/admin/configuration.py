@@ -257,6 +257,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
 
     readonly_fields = ("total_price","total_cost","subtotal_price","company","planning_status","planned_at")
     actions_row = ["export_configuration_to_template",
+                   "duplicate_configuration",
                    "convert_to_production",
                    "record_actual_values",
                    "resync_planning_from_template",
@@ -427,7 +428,29 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
     def export_configuration_to_template(self, request: HttpRequest, object_id: int):
         url = reverse("admin:configurator_configuration_export", args=[object_id])
         return redirect(url)
-    
+
+    @action(
+        description=_("Duplicate"),
+        url_path="configurationadmin-duplicate",
+    )
+    def duplicate_configuration(self, request: HttpRequest, object_id: int):
+        """
+        Clone this configuration and redirect to the new copy's edit page.
+        """
+        obj = Configuration.objects.get(pk=object_id)
+        new_config = obj.clone()
+
+        self.message_user(
+            request,
+            _("Configuration '%(name)s' was successfully duplicated.")
+            % {"name": obj.name},
+            "success",
+        )
+
+        return redirect(
+            reverse("admin:configurator_configuration_change", args=[new_config.pk])
+        )
+
     @admin.display(description=_("Total price"))
     def total_price_display(self, obj):
         return obj.total_price

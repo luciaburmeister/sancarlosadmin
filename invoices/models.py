@@ -298,6 +298,7 @@ class Invoice(Timestampable, Payable):
              base_amount = Decimal("0.00")
              
         current_total = base_amount
+        currency = self.currency or 'EUR'
         # Pull taxes in order to apply them on top
         taxes = list(self.get_taxes().order_by('order', 'id'))
         
@@ -307,10 +308,15 @@ class Invoice(Timestampable, Payable):
             if tax.calculated_amount is None:
                 tax_base = Decimal(str(tax.base_amount.amount)) if tax.base_amount else base_amount
                 res = tax.calculate(tax_base)
-                tax.calculated_amount = res['tax_amount']
+                tax.calculated_amount = Money(res['tax_amount'], currency)
                 if tax.base_amount is None:
-                    tax.base_amount = tax_base
-                tax.save(update_fields=['base_amount', 'calculated_amount'])
+                    tax.base_amount = Money(tax_base, currency)
+                tax.save(update_fields=['base_amount', 'base_amount_currency', 'calculated_amount', 'calculated_amount_currency'])
+            elif tax.calculated_amount.currency != currency or (tax.base_amount and tax.base_amount.currency != currency):
+                tax.calculated_amount = Money(tax.calculated_amount.amount, currency)
+                if tax.base_amount:
+                    tax.base_amount = Money(tax.base_amount.amount, currency)
+                tax.save(update_fields=['base_amount', 'base_amount_currency', 'calculated_amount', 'calculated_amount_currency'])
             
             # Use the signed calculated amount (preserves sign for negative/credit invoices)
             tax_val = Decimal(str(tax.calculated_amount.amount))
@@ -320,13 +326,13 @@ class Invoice(Timestampable, Payable):
             else:
                 current_total -= tax_val
             
-        self.total_amount = current_total
+        self.total_amount = Money(current_total, currency)
         
         # When manually recalculating, we should also update the balance status
         self.verify_total_balance(save=False)
         
         if save:
-            self.save(update_fields=['total_amount', 'is_total_balanced'])
+            self.save(update_fields=['total_amount', 'total_amount_currency', 'is_total_balanced'])
             
         return self.total_amount
 
@@ -383,9 +389,41 @@ class Invoice(Timestampable, Payable):
             default = self.provider.default_cost_center
             if default and default.is_active and default.is_assignable:
                 self.cost_center = default
+
+        currency = self.currency or 'EUR'
+        if self.net_amount is not None and self.net_amount.currency != currency:
+            self.net_amount = Money(self.net_amount.amount, currency)
+        if self.total_amount is not None and self.total_amount.currency != currency:
+            self.total_amount = Money(self.total_amount.amount, currency)
+
+        if "update_fields" in kwargs and kwargs["update_fields"] is not None:
+            uf = set(kwargs["update_fields"])
+            if "net_amount" in uf:
+                uf.add("net_amount_currency")
+            if "total_amount" in uf:
+                uf.add("total_amount_currency")
+            kwargs["update_fields"] = uf
+
         if self.pk and not kwargs.get('update_fields'):
             self.recalculate_totals(save=False)
         super().save(*args, **kwargs)
+
+        if self.pk and self.currency:
+            # Sync line items currency if needed
+            self.items.exclude(unit_price_currency=self.currency).update(
+                unit_price_currency=self.currency,
+                gross_total_currency=self.currency,
+                discount_amount_currency=self.currency,
+                line_total_currency=self.currency,
+            )
+            # Sync applied taxes currency if needed
+            ct = ContentType.objects.get_for_model(self)
+            AppliedTax.objects.filter(content_type=ct, object_id=self.pk).exclude(
+                calculated_amount_currency=self.currency
+            ).update(
+                base_amount_currency=self.currency,
+                calculated_amount_currency=self.currency,
+            )
 
     def recalculate_payment_status(self):
         """
@@ -655,6 +693,28 @@ class AppliedTax(models.Model):
                     ):
                         raise ValidationError(_("Cannot edit taxes in a finalized invoice."))
 
+        currency = None
+        if self.content_object and hasattr(self.content_object, 'currency'):
+            currency = self.content_object.currency
+        elif self.content_object and hasattr(self.content_object, 'total_amount') and self.content_object.total_amount:
+            currency = str(self.content_object.total_amount.currency)
+        currency = currency or 'EUR'
+
+        if self.base_amount is not None:
+            base_val = self.base_amount.amount if hasattr(self.base_amount, 'amount') else self.base_amount
+            self.base_amount = Money(base_val, currency)
+        if self.calculated_amount is not None:
+            calc_val = self.calculated_amount.amount if hasattr(self.calculated_amount, 'amount') else self.calculated_amount
+            self.calculated_amount = Money(calc_val, currency)
+
+        if "update_fields" in kwargs and kwargs["update_fields"] is not None:
+            uf = set(kwargs["update_fields"])
+            if "base_amount" in uf:
+                uf.add("base_amount_currency")
+            if "calculated_amount" in uf:
+                uf.add("calculated_amount_currency")
+            kwargs["update_fields"] = uf
+
         super().save(*args, **kwargs)
 
     class Meta:
@@ -753,10 +813,11 @@ class AppliedTax(models.Model):
         result = self.calculate(self.base_amount.amount)
         
         # Store the calculated tax amount
-        self.calculated_amount = result['tax_amount']
+        currency = self.base_amount.currency if self.base_amount else 'EUR'
+        self.calculated_amount = Money(result['tax_amount'], currency)
         
         # Save to database
-        self.save(update_fields=['calculated_amount', 'base_amount'])
+        self.save(update_fields=['calculated_amount', 'calculated_amount_currency', 'base_amount', 'base_amount_currency'])
         
         return result
 def incoming_invoice_upload_path(instance, filename):
@@ -1269,6 +1330,19 @@ class InvoiceItem(models.Model):
     )
 
     def save(self, *args, **kwargs):
+        currency = None
+        if self.invoice_id:
+            currency = getattr(self.invoice, 'currency', None)
+        if not currency and self.unit_price:
+            currency = str(self.unit_price.currency)
+        currency = currency or 'EUR'
+
+        if self.unit_price is not None:
+            unit_val = self.unit_price.amount if hasattr(self.unit_price, 'amount') else self.unit_price
+            self.unit_price = Money(unit_val, currency)
+        else:
+            self.unit_price = Money(0, currency)
+
         self.gross_total = self.unit_price * self.quantity
         self.discount_amount = self.gross_total * (self.discount_percentage / Decimal("100"))
         self.line_total = self.gross_total - self.discount_amount

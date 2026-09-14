@@ -169,6 +169,7 @@ class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
         - Dates must always be returned in YYYY-MM-DD format with a 4-digit year
         - Numbers must be numeric
         - payment_method must be: transfer, cash, or card
+        - currency: Detect the currency from the document (e.g. "USD", "EUR", "GBP"). Look carefully at table/column headers (e.g. "TOTAL AMOUNT (USD)"), currency symbols (€, $, £, ¥), or explicit text. Always return the 3-letter ISO 4217 code (e.g. "USD", "EUR"). Never assume EUR if another currency such as USD is indicated.
         - line_items MUST include tax_rate
         - taxes MUST include base_amount and tax_amount
         - taxes names MUST be classified into: IVA, IRPF, or RETENCION.
@@ -185,7 +186,6 @@ class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
         - Therefore: total_amount is always more negative than net_amount (further from zero).
         - Wrong reasoning: net=-X, tax=Y, so total=-X+Y. THIS IS INCORRECT.
         - Correct reasoning: net=-X, tax=-Y, so total=-X+(-Y)=-X-Y. THIS IS CORRECT.
-
         """
 
     def extract_data(self, file_path: str) -> InvoiceData:
@@ -301,7 +301,7 @@ class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
 
     def _normalize_currency(self, currency: Optional[str]) -> Optional[str]:
         """
-        Coerce whatever the model returns ("€", "Euro", "EUROS", "USD $") into a
+        Coerce whatever the model returns ("€", "Euro", "EUROS", "USD $", "(USD)") into a
         3-letter ISO code. Invoice.currency is varchar(3), so anything longer
         would blow up on save; returning None lets the caller keep its default.
         """
@@ -314,7 +314,15 @@ class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
         letters = re.sub(r"[^A-Za-z]", "", raw).upper()
         if letters in CURRENCIES:
             return letters
-        return self.CURRENCY_NAMES.get(letters)
+        if letters in self.CURRENCY_NAMES:
+            return self.CURRENCY_NAMES[letters]
+        tokens = re.findall(r"[A-Za-z]+", raw.upper())
+        for token in tokens:
+            if token in CURRENCIES:
+                return token
+            if token in self.CURRENCY_NAMES:
+                return self.CURRENCY_NAMES[token]
+        return None
 
     def _parse_date(self, date_str: Optional[str]) -> Optional[str]:
         """

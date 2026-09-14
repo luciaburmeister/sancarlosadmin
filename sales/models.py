@@ -1715,6 +1715,12 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._original_status = self.status
+        # Lets the ProjectFile status signal re-derive the expediente this
+        # order was moved away from. Deferred (.only()) loads must not be
+        # touched here: reading one would re-enter __init__ forever.
+        self._original_project_file_id = (
+            None if "project_file_id" in self.get_deferred_fields() else self.project_file_id
+        )
 
     @transaction.atomic
     def save(self, *args, **kwargs):
@@ -1740,6 +1746,7 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
                 self.deduct_inventory()
 
         self._original_status = self.status
+        self._original_project_file_id = self.project_file_id
 
     def deduct_inventory(self):
         """Take every line's stock out of the warehouse (idempotent)."""

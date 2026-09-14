@@ -69,6 +69,15 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
     )
 
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Lets the ProjectFile status signal re-derive the expediente this
+        # ticket was moved away from. Deferred (.only()) loads must not be
+        # touched here: reading one would re-enter __init__ forever.
+        self._original_project_file_id = (
+            None if "project_file_id" in self.get_deferred_fields() else self.project_file_id
+        )
+
     def __str__(self):
         return str(self.pk)
 
@@ -214,6 +223,12 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
                     status=target_cfg_status
                 )
                 source.status = target_cfg_status
+
+        # Status is written with update(), so no post_save fires: roll the
+        # ticket status up to the expediente explicitly.
+        project_file = self.resolved_project_file
+        if project_file is not None:
+            project_file.recompute_status()
 
     def compute_last_stage_label(self):
         items = self._fresh_items()

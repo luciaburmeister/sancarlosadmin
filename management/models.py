@@ -22,6 +22,23 @@ class ProjectFileStatus(models.TextChoices):
     COMPLETED = "completed", _("Completed")
     CANCELLED = "cancelled", _("Cancelled")
 
+
+class ProjectFileDeliveryStatus(models.TextChoices):
+    """Derived from the expediente's delivery orders (sent or delivered)."""
+    NOT_APPLICABLE = "not_applicable", _("Nothing to deliver")
+    NOT_DELIVERED = "not_delivered", _("Not delivered")
+    PARTIALLY_DELIVERED = "partially_delivered", _("Partially delivered")
+    DELIVERED = "delivered", _("Delivered")
+
+
+class ProjectFileProductionStatus(models.TextChoices):
+    """Derived from the expediente's production tickets."""
+    NO_PRODUCTION = "no_production", _("No production")
+    PENDING = "pending", _("Pending")
+    IN_PROGRESS = "in_progress", _("In production")
+    DONE = "done", _("Production done")
+
+
 class ProjectFile(Timestampable, CompanyOwnedModel):
     """
     Expediente: The central hub for a project's lifecycle.
@@ -65,6 +82,24 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         choices=ProjectFileStatus.choices,
         default=ProjectFileStatus.NEW,
         verbose_name=_("Status")
+    )
+    delivery_status = models.CharField(
+        max_length=25,
+        choices=ProjectFileDeliveryStatus.choices,
+        default=ProjectFileDeliveryStatus.NOT_APPLICABLE,
+        db_index=True,
+        editable=False,
+        verbose_name=_("Delivery"),
+        help_text=_("Derived from the sent/delivered delivery orders of this project file."),
+    )
+    production_status = models.CharField(
+        max_length=20,
+        choices=ProjectFileProductionStatus.choices,
+        default=ProjectFileProductionStatus.NO_PRODUCTION,
+        db_index=True,
+        editable=False,
+        verbose_name=_("Production"),
+        help_text=_("Derived from the production tickets of this project file."),
     )
     description = models.TextField(blank=True, verbose_name=_("Description"))
     start_date = models.DateField(null=True, blank=True, verbose_name=_("Start Date"), default=timezone.localdate)
@@ -150,6 +185,30 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         total = getattr(self.total_amount, "amount", self.total_amount)
         pct = self.percentage_invoiced or Decimal("0.00")
         return bool(total and total > 0 and pct >= Decimal("99.99"))
+
+    @property
+    def operational_status(self):
+        """Where the expediente stands, read off the derived statuses.
+        Delivery wins as soon as anything has shipped."""
+        if self.delivery_status == ProjectFileDeliveryStatus.DELIVERED:
+            return "delivered", _("Delivered")
+        if self.delivery_status == ProjectFileDeliveryStatus.PARTIALLY_DELIVERED:
+            return "partially_delivered", _("Partially delivered")
+        if self.production_status in (
+            ProjectFileProductionStatus.PENDING,
+            ProjectFileProductionStatus.IN_PROGRESS,
+        ):
+            return "in_production", _("In production")
+        if self.delivery_status == ProjectFileDeliveryStatus.NOT_DELIVERED:
+            return "ready_to_deliver", _("Ready to deliver")
+        return "nothing_pending", _("Nothing pending")
+
+    def recompute_status(self):
+        """Refresh delivery_status / production_status and the lifecycle
+        transition they imply. See management.services.project_file_status."""
+        from management.services.project_file_status import recompute_project_file_status
+
+        return recompute_project_file_status(self.pk)
 
     def production_hours_summary(self):
         """Worked hours on this project file: total, per employee, and each employee's sessions."""

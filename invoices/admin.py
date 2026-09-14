@@ -561,9 +561,9 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, Co
                     ("invoice_number", "provider"),
                     ("document_type", "rectifies"),
                     ("net_amount", "total_amount"),
-                    "file",
-                    "company",
+                    ("currency", "company"),
                     ("project_file", "cost_center"),
+                    "file",
                 )
             },
         ),

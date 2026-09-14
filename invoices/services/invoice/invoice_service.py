@@ -16,6 +16,7 @@ from decimal import Decimal
 from datetime import datetime
 from django.db import transaction
 from django.core.files import File
+from djmoney.money import Money
 
 
 from invoices.services import invoice
@@ -253,9 +254,17 @@ class InvoiceService:
                 invoice.due_date = self._parse_date(extracted_data.due_date) or invoice.due_date or invoice.date_issued
                 invoice.accounting_date = datetime.now().date()
                 invoice.provider = provider
-                invoice.net_amount = extracted_data.net_amount or invoice.net_amount
-                invoice.total_amount = extracted_data.total_amount or invoice.total_amount
-                invoice.currency = extracted_data.currency or invoice.currency or "EUR"
+                currency = extracted_data.currency or invoice.currency or "EUR"
+                invoice.currency = currency
+                if extracted_data.net_amount is not None:
+                    invoice.net_amount = Money(extracted_data.net_amount, currency)
+                elif invoice.net_amount is not None:
+                    invoice.net_amount = Money(invoice.net_amount.amount, currency)
+
+                if extracted_data.total_amount is not None:
+                    invoice.total_amount = Money(extracted_data.total_amount, currency)
+                elif invoice.total_amount is not None:
+                    invoice.total_amount = Money(invoice.total_amount.amount, currency)
                 invoice.payment_method = extracted_data.payment_method or invoice.payment_method or "transfer"
                 invoice.company = company
                 invoice.ocr_raw_response = extracted_data.raw_response
@@ -312,6 +321,10 @@ class InvoiceService:
         date_issued = self._parse_date(extracted_data.date_issued) or datetime.now().date()
         due_date = self._parse_date(extracted_data.due_date)
 
+        currency = extracted_data.currency or 'EUR'
+        net_money = Money(extracted_data.net_amount, currency) if extracted_data.net_amount is not None else None
+        total_money = Money(extracted_data.total_amount, currency) if extracted_data.total_amount is not None else None
+
         # Create invoice
         invoice = Invoice.objects.create(
             invoice_number=extracted_data.invoice_number or 'UNKNOWN',
@@ -319,9 +332,9 @@ class InvoiceService:
             due_date=due_date or date_issued,
             accounting_date=datetime.now().date(),
             provider=provider,  # Will be None if matching failed
-            net_amount=extracted_data.net_amount,
-            total_amount=extracted_data.total_amount,
-            currency=extracted_data.currency or 'EUR',
+            net_amount=net_money,
+            total_amount=total_money,
+            currency=currency,
             payment_method=extracted_data.payment_method or 'transfer',
             image_hash=image_hash,
             company=company,
@@ -347,12 +360,14 @@ class InvoiceService:
         return invoice
     
     def _create_line_items(self, invoice: Invoice, line_items_data: list):
+        currency = invoice.currency or 'EUR'
         for item in line_items_data:
+            unit_price_val = item.unit_price or item.net_total or Decimal('0')
             InvoiceItem.objects.create(
                 invoice=invoice,
                 description=(item.description or '')[:255],
                 quantity=item.quantity or Decimal('1'),
-                unit_price=item.unit_price or item.net_total or Decimal('0'),
+                unit_price=Money(unit_price_val, currency),
                 discount_percentage=item.discount_percentage or Decimal('0'),
             )
         
@@ -406,12 +421,13 @@ class InvoiceService:
             consolidated_taxes[key]['tax_amount'] += tax_amount
 
         # Create applied tax records from the consolidated results
+        currency = invoice.currency or 'EUR'
         for data in consolidated_taxes.values():
             AppliedTax.objects.create(
                 tax_type=data['tax_type'],
                 selected_percentage=data['percentage'],
-                base_amount=data['base_amount'],
-                calculated_amount=data['tax_amount'],
+                base_amount=Money(data['base_amount'], currency),
+                calculated_amount=Money(data['tax_amount'], currency),
                 content_object=invoice,
                 order=data['order']
             )

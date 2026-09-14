@@ -1,2 +1,2 @@
 from .gemini_ocr import GeminiInvoiceProcessor, GeminiJSONParseError
-from .ocr_interface import OcrInterface, InvoiceData
+from .ocr_interface import OcrInterface, InvoiceData, LineItem, TaxItem

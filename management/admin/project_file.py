@@ -5,7 +5,14 @@ from unfold.contrib.inlines.admin import NonrelatedTabularInline
 
 from decimal import Decimal
 from djmoney.money import Money
-from management.models import ProjectFile, ProjectFileStatus, ResourcePlanning, ResourcePlanningBacklogItem
+from management.models import (
+    ProjectFile,
+    ProjectFileDeliveryStatus,
+    ProjectFileProductionStatus,
+    ProjectFileStatus,
+    ResourcePlanning,
+    ResourcePlanningBacklogItem,
+)
 from management.forms import ProjectFileAdminForm
 from management.resources import ProjectFileResource
 from django.contrib import admin, messages
@@ -338,14 +345,21 @@ class CostEntryInline(ProjectFileEntryInlineMixin, TabularInline):
 class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     resource_classes = [ProjectFileResource]
     export_form_class = SelectableFieldsExportForm
-    list_display = ["reference", "name", "client", "show_status_customized_color", "total_amount", "total_invoiced", "total_purchased", "total_costs", "start_date", "invoicing_status"]
-    list_filter = [("client", AutocompleteSelectMultipleFilter), ("status", MultipleChoicesDropdownFilter), ("company", AutocompleteSelectMultipleFilter), ("created_at", RangeDateFilter)]
+    list_display = ["reference", "name", "client", "show_status_customized_color", "show_operational_status", "total_amount", "total_invoiced", "total_purchased", "total_costs", "start_date", "invoicing_status"]
+    list_filter = [
+        ("client", AutocompleteSelectMultipleFilter),
+        ("status", MultipleChoicesDropdownFilter),
+        ("delivery_status", MultipleChoicesDropdownFilter),
+        ("production_status", MultipleChoicesDropdownFilter),
+        ("company", AutocompleteSelectMultipleFilter),
+        ("created_at", RangeDateFilter),
+    ]
     search_fields = ["reference", "name", "client__name"]
     autocomplete_fields = ["client", "company", "asset"]
     form = ProjectFileAdminForm
     list_select_related = ["client"]
     list_filter_submit = True
-    readonly_fields = ["reference", "incremental_id", "invoicing_summary_display", "production_hours_summary_display"]
+    readonly_fields = ["reference", "incremental_id", "show_delivery_status", "show_production_status", "invoicing_summary_display", "production_hours_summary_display"]
 
     inlines = [
         QuoteInline,
@@ -370,6 +384,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
                 ("reference", "company"),
                 ("name", "client"),
                 ("asset", "status"),
+                ("show_production_status", "show_delivery_status"),
                 "description",
                 "notification_email",
             )
@@ -537,6 +552,46 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
     )
     def show_status_customized_color(self, obj):
         return _(obj.get_status_display())
+
+    @display(
+        description=_("Progress"),
+        label={
+            _("In production"): "warning",
+            _("Ready to deliver"): "info",
+            _("Partially delivered"): "info",
+            _("Delivered"): "success",
+            _("Nothing pending"): "",
+        },
+    )
+    def show_operational_status(self, obj):
+        """Combined production + delivery view, derived on the model."""
+        return obj.operational_status[1]
+
+    @display(
+        description=_("Delivery"),
+        ordering="delivery_status",
+        label={
+            _(ProjectFileDeliveryStatus.NOT_APPLICABLE.label): "",
+            _(ProjectFileDeliveryStatus.NOT_DELIVERED.label): "warning",
+            _(ProjectFileDeliveryStatus.PARTIALLY_DELIVERED.label): "info",
+            _(ProjectFileDeliveryStatus.DELIVERED.label): "success",
+        },
+    )
+    def show_delivery_status(self, obj):
+        return _(obj.get_delivery_status_display())
+
+    @display(
+        description=_("Production"),
+        ordering="production_status",
+        label={
+            _(ProjectFileProductionStatus.NO_PRODUCTION.label): "",
+            _(ProjectFileProductionStatus.PENDING.label): "warning",
+            _(ProjectFileProductionStatus.IN_PROGRESS.label): "info",
+            _(ProjectFileProductionStatus.DONE.label): "success",
+        },
+    )
+    def show_production_status(self, obj):
+        return _(obj.get_production_status_display())
 
     @display(description=_("Invoicing"))
     def invoicing_status(self, obj):

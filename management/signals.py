@@ -140,6 +140,75 @@ def sales_invoice_saved_update_project_file(sender, instance, **kwargs):
             if pf.pk not in recalculated:
                 pf.recalculate_total_amount()
                 recalculated.add(pf.pk)
+    # Full invoicing is the last gate before an expediente auto-completes.
+    for pf_id in recalculated:
+        _recompute_project_file_status(pf_id)
+
+
+# ── Derived delivery / production status ─────────────────────────────────────
+
+def _recompute_project_file_status(project_file_id):
+    from management.services.project_file_status import recompute_project_file_status
+
+    if not project_file_id:
+        return
+    try:
+        recompute_project_file_status(project_file_id)
+    except Exception:
+        logger.exception("Could not recompute status of ProjectFile %s", project_file_id)
+
+
+@receiver(post_save, sender="sales.DeliveryOrder")
+def delivery_order_saved_update_project_file(sender, instance, **kwargs):
+    """A delivery order changing status (draft→sent, →cancelled) or moving to
+    another expediente re-derives the delivery status of both sides."""
+    _recompute_project_file_status(instance.project_file_id)
+    previous = getattr(instance, "_original_project_file_id", None)
+    if previous and previous != instance.project_file_id:
+        _recompute_project_file_status(previous)
+
+
+@receiver(post_delete, sender="sales.DeliveryOrder")
+def delivery_order_deleted_update_project_file(sender, instance, **kwargs):
+    _recompute_project_file_status(instance.project_file_id)
+
+
+def _delivery_line_project_file_id(instance):
+    from sales.models import DeliveryOrder
+
+    return (
+        DeliveryOrder.objects.filter(pk=instance.delivery_order_id)
+        .values_list("project_file_id", flat=True)
+        .first()
+    )
+
+
+@receiver(post_save, sender="sales.DeliveryOrderItem")
+def delivery_order_item_saved_update_project_file(sender, instance, **kwargs):
+    """Lines added or re-quantified on a sent order change what is delivered."""
+    _recompute_project_file_status(_delivery_line_project_file_id(instance))
+
+
+@receiver(post_delete, sender="sales.DeliveryOrderItem")
+def delivery_order_item_deleted_update_project_file(sender, instance, **kwargs):
+    _recompute_project_file_status(_delivery_line_project_file_id(instance))
+
+
+@receiver(post_save, sender="production.ProductionTicket")
+def production_ticket_saved_update_project_file(sender, instance, **kwargs):
+    """Ticket created, cancelled or re-linked. Status changes driven by items
+    and sessions bypass save(), so ProductionTicket.recompute_status() calls
+    the recompute itself."""
+    pf = instance.resolved_project_file
+    _recompute_project_file_status(pf.pk if pf else None)
+    previous = getattr(instance, "_original_project_file_id", None)
+    if previous and previous != instance.project_file_id:
+        _recompute_project_file_status(previous)
+
+
+@receiver(post_delete, sender="production.ProductionTicket")
+def production_ticket_deleted_update_project_file(sender, instance, **kwargs):
+    _recompute_project_file_status(instance.project_file_id)
 
 
 @receiver(post_delete, sender="invoices.SalesInvoice")

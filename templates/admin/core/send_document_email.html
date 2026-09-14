@@ -65,6 +65,25 @@
     </div>
     {% endif %}
 
+    {# ── Template section (only rendered when the document type provides a picker) ── #}
+    {% if form.template %}
+    <div class="border border-base-200 dark:border-base-800 rounded-default shadow-xs overflow-hidden bg-white dark:bg-base-900">
+
+      <div class="px-6 py-4 border-b border-base-200 dark:border-base-800 bg-base-50 dark:bg-white/[.02]">
+        <h2 class="text-base font-bold text-font-important-light dark:text-font-important-dark m-0">
+          {% trans "Select Template" %}
+        </h2>
+        <p class="text-sm text-font-subtle-light dark:text-font-subtle-dark m-0 mt-1">
+          {% trans "Choose which export template to attach as PDF. The default currently in use is pre-selected." %}
+        </p>
+      </div>
+
+      <div class="px-6 py-5">
+        {% include "unfold/helpers/field.html" with field=form.template %}
+      </div>
+    </div>
+    {% endif %}
+
     {# ── Recipients section ── #}
     <div class="border border-base-200 dark:border-base-800 rounded-default shadow-xs overflow-hidden bg-white dark:bg-base-900">
 

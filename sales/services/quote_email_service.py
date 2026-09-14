@@ -20,6 +20,7 @@ class QuoteEmailService:
         to_emails: list[str] | None = None,
         cc_emails: list[str] | None = None,
         reply_to: list[str] | None = None,
+        template_id: int | None = None,
     ) -> bool:
         """
         Generates a PDF from the quote's consolidated quotation export template
@@ -31,6 +32,8 @@ class QuoteEmailService:
             cc_emails: List of CC addresses (e.g. the sender's own email)
             reply_to: Sending user's address, if a person triggered this send
                 (otherwise the company's configured Reply-To applies)
+            template_id: Optional explicit export template chosen by the sender,
+                overriding the automatically resolved default
 
         Returns:
             True if sent successfully, False otherwise
@@ -50,6 +53,7 @@ class QuoteEmailService:
             quote,
             ExportTemplateKind.CONSOLIDATED_QUOTATION,
             company=quote.company,
+            template_id=template_id,
         )
 
         if not pdf_bytes:

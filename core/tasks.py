@@ -53,6 +53,7 @@ def send_quote_email_task(
     to_emails: list[str] | None = None,
     cc_emails: list[str] | None = None,
     reply_to: list[str] | None = None,
+    template_id: int | None = None,
 ):
     """
     Celery task to send a Quote email with PDF attachment.
@@ -68,7 +69,7 @@ def send_quote_email_task(
         return {"task": "send_quote_email", "quote_id": quote_id, "status": "error", "detail": "not found"}
 
     ok = QuoteEmailService.send_quote_email(
-        quote, to_emails=to_emails, cc_emails=cc_emails, reply_to=reply_to,
+        quote, to_emails=to_emails, cc_emails=cc_emails, reply_to=reply_to, template_id=template_id,
     )
     return {
         "task": "send_quote_email",

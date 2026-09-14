@@ -18,11 +18,12 @@ from django.views import View
 
 from general.email import sender_reply_to
 from unfold.views import UnfoldModelAdminViewMixin
-from unfold.widgets import UnfoldAdminCheckboxSelectMultipleWidget
+from unfold.widgets import UnfoldAdminCheckboxSelectMultipleWidget, UnfoldAdminSelect2Widget
 
 
 class ClientRecipientsForm(forms.Form):
-    """Recipient picker whose choices are built from a client's emails."""
+    """Recipient picker whose choices are built from a client's emails, plus
+    an optional export template picker when the caller supplies one."""
 
     to_emails = forms.MultipleChoiceField(
         label=_("Recipients"),
@@ -31,8 +32,15 @@ class ClientRecipientsForm(forms.Form):
             "required": _("Please select at least one recipient."),
         },
     )
+    template = forms.TypedChoiceField(
+        label=_("Template"),
+        required=False,
+        coerce=int,
+        empty_value=None,
+        widget=UnfoldAdminSelect2Widget,
+    )
 
-    def __init__(self, *args, client=None, **kwargs):
+    def __init__(self, *args, client=None, available_templates=None, **kwargs):
         super().__init__(*args, **kwargs)
 
         choices = []
@@ -59,6 +67,15 @@ class ClientRecipientsForm(forms.Form):
         self.fields["to_emails"].choices = choices
         self.fields["to_emails"].initial = initial
 
+        # Only documents whose subclass provides a template list get the
+        # picker rendered at all - others keep the field entirely absent.
+        if available_templates is None:
+            del self.fields["template"]
+        else:
+            self.fields["template"].choices = [
+                (tpl.pk, tpl.name) for tpl in available_templates
+            ]
+
 
 class BaseSendDocumentEmailView(UnfoldModelAdminViewMixin, View):
     """
@@ -82,7 +99,21 @@ class BaseSendDocumentEmailView(UnfoldModelAdminViewMixin, View):
     def get_client(self, obj):
         return obj.client
 
-    def queue_email(self, obj, to_emails, cc_emails, reply_to):
+    def get_available_templates(self, obj):
+        """
+        Hook: return a queryset of export templates the sender may pick from,
+        or None (the default) to hide the picker entirely for this document type.
+        """
+        return None
+
+    def get_default_template(self, obj):
+        """
+        Hook: the template pre-selected in the picker - normally whatever the
+        automatic resolution would use if the sender didn't pick one.
+        """
+        return None
+
+    def queue_email(self, obj, to_emails, cc_emails, reply_to, template_id=None):
         raise NotImplementedError
 
     def has_permission(self):
@@ -99,26 +130,44 @@ class BaseSendDocumentEmailView(UnfoldModelAdminViewMixin, View):
         opts = self.model._meta
         return reverse(f"admin:{opts.app_label}_{opts.model_name}_{suffix}", args=args)
 
+    def _build_form(self, obj, data=None):
+        available_templates = self.get_available_templates(obj)
+        initial = {}
+        if available_templates is not None:
+            default_template = self.get_default_template(obj)
+            if default_template:
+                initial["template"] = default_template.pk
+
+        return ClientRecipientsForm(
+            data,
+            client=self.get_client(obj),
+            available_templates=available_templates,
+            initial=initial,
+        )
+
     def get(self, request, *args, **kwargs):
         obj = self.get_object()
-        form = ClientRecipientsForm(client=self.get_client(obj))
+        form = self._build_form(obj)
         return self._render(request, obj, form)
 
     def post(self, request, *args, **kwargs):
         obj = self.get_object()
-        form = ClientRecipientsForm(request.POST, client=self.get_client(obj))
+        form = self._build_form(obj, data=request.POST)
 
         if not form.is_valid():
             return self._render(request, obj, form)
 
         to_emails = form.cleaned_data["to_emails"]
+        template_id = form.cleaned_data.get("template")
 
         # CC the sender if they have an email, and route replies back to them
         cc_emails = []
         if request.user.email:
             cc_emails.append(request.user.email)
 
-        self.queue_email(obj, to_emails, cc_emails, sender_reply_to(request.user))
+        self.queue_email(
+            obj, to_emails, cc_emails, sender_reply_to(request.user), template_id=template_id,
+        )
 
         recipients_str = ", ".join(to_emails)
         messages.success(

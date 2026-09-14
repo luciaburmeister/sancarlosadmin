@@ -104,7 +104,9 @@ class PDFService:
         ).write_pdf()
 
     @staticmethod
-    def render_object_pdf(obj, template_kind: str, company=None, extra_context=None) -> bytes | None:
+    def render_object_pdf(
+        obj, template_kind: str, company=None, extra_context=None, template_id=None,
+    ) -> bytes | None:
         """
         Full pipeline: find the best export template → render HTML → convert to PDF.
 
@@ -116,18 +118,24 @@ class PDFService:
             obj: The model instance (SalesInvoice, Quote, Configuration, etc.)
             template_kind: An ExportTemplateKind value (e.g. 'sales_invoice')
             company: Optional company for template resolution
+            template_id: Optional explicit template to use instead of the
+                automatically resolved default (e.g. a user's choice from a picker)
 
         Returns:
             PDF bytes, or None if no template found.
         """
-        strategy = ConfigurationExportService.get_strategy(obj)
-        product = strategy.get_product()
-
-        template = ConfigurationExportTemplate.get_default_for_product(
-            product=product,
-            kind=template_kind,
-            company=company,
-        )
+        if template_id:
+            template = ConfigurationExportTemplate.objects.filter(
+                pk=template_id, kind=template_kind, is_active=True,
+            ).first()
+        else:
+            strategy = ConfigurationExportService.get_strategy(obj)
+            product = strategy.get_product()
+            template = ConfigurationExportTemplate.get_default_for_product(
+                product=product,
+                kind=template_kind,
+                company=company,
+            )
 
         if not template:
             logger.warning(

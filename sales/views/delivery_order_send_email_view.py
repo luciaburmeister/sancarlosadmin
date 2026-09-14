@@ -18,7 +18,7 @@ class DeliveryOrderSendEmailView(BaseSendDocumentEmailView):
     model = DeliveryOrder
     pk_url_kwarg = "delivery_order_id"
 
-    def queue_email(self, obj, to_emails, cc_emails, reply_to):
+    def queue_email(self, obj, to_emails, cc_emails, reply_to, template_id=None):
         send_delivery_order_email_task.delay(
             obj.id,
             to_emails=to_emails,

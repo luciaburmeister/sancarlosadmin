@@ -10,8 +10,10 @@ carried onto the invoice in the way its configuration demands:
   ``discount_percentage``/``line_total`` and only need to travel with the line;
 - standard basket discounts become part of the invoice-level
   ``discount_amount`` (+ a scaled ``discount_breakdown`` entry);
-- financing discounts become their own negative invoice line, so the client
-  sees them called out instead of folded into item prices.
+- financing discounts become their own negative line on the delivery order,
+  so the client sees them called out there; on a sales invoice they are
+  folded into the invoice-level ``discount_amount`` like any other basket
+  discount (the resolver's ``materialize_lines`` flag picks the behaviour).
 
 Each of those behaviours is one ``InvoiceDiscountStrategy`` subclass (one per
 file in this package). A strategy declares:
@@ -35,7 +37,7 @@ from decimal import Decimal
 
 # How a strategy's scaled amount lands on the invoice.
 INVOICE_LEVEL = "invoice_level"   # add to invoice.discount_amount + discount_breakdown
-DISCOUNT_LINE = "discount_line"   # create a negative SalesInvoiceItem line
+DISCOUNT_LINE = "discount_line"   # negative line on a delivery order; invoice-level on an invoice
 PASS_THROUGH = "pass_through"     # already carried by the source line itself
 
 # Invoice line kinds, derived from SalesInvoiceItem.source_id prefixes.
@@ -51,6 +53,8 @@ LINE_ITEM_KINDS = frozenset({KIND_INV_ITEM, KIND_QUOTE_ITEM})
 
 # source_id prefix of a materialized discount line (DISCOUNT_LINE): the line
 # is not goods, it carries the discount itself, and it belongs to a quote.
+# New invoices no longer get such lines (financing is folded into the header
+# discount); the prefix still identifies them on invoices created before.
 DISCOUNT_LINE_PREFIX = "discount_quote_"
 
 

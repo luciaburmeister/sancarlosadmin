@@ -52,7 +52,9 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
     def get_context(self) -> Dict[str, Any]:
         from invoices.services.discounts import is_discount_line_source
 
-        # Items for JSON context
+        # Items for JSON context. New invoices carry financing inside the
+        # header discount; the discount-line handling below keeps invoices
+        # created while financing was its own negative line rendering right.
         items_data = []
         financing_discount_amount = Decimal("0.00")
         for item in self.sales_invoice.items.all():

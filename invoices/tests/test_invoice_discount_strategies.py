@@ -6,7 +6,8 @@ strategy:
 - standard basket rules → invoice-level discount_amount (+ breakdown);
 - line-items-basket rules → invoice-level, but scaled only by the invoiced
   line items (never configuration lines);
-- financing rules → their own negative invoice line;
+- financing rules → invoice-level discount_amount too (they are their own
+  negative line only on delivery orders);
 - line-item rules → carried on the source line's discount_percentage.
 """
 from datetime import date
@@ -73,9 +74,9 @@ class _StrategyTestBase(TestCase):
         )
 
 
-class FinancingDiscountAsLineTests(_StrategyTestBase):
-    """A financing discount becomes its own negative invoice line — it is not
-    an item-level discount and must not hide in discount_amount."""
+class FinancingDiscountFoldedIntoHeaderTests(_StrategyTestBase):
+    """A financing discount is part of the invoice-level discount — it is
+    neither an item-level discount nor a negative invoice line."""
 
     def setUp(self):
         super().setUp()
@@ -110,21 +111,26 @@ class FinancingDiscountAsLineTests(_StrategyTestBase):
             "discount_percentage": Decimal("0.00"),
         }]
 
-    def test_financing_becomes_negative_line(self):
+    def test_financing_does_not_become_a_line(self):
         invoice = self._create_invoice(self._full_items())
         lines = list(invoice.items.all())
-        self.assertEqual(len(lines), 2)
-        fin_line = invoice.items.get(source_id=f"discount_quote_{self.quote.pk}")
-        self.assertEqual(fin_line.line_total.amount, Decimal("-100.00"))
+        self.assertEqual(len(lines), 1)
+        self.assertFalse(
+            invoice.items.filter(source_id=f"discount_quote_{self.quote.pk}").exists()
+        )
 
-    def test_financing_not_in_invoice_discount_amount(self):
+    def test_financing_in_invoice_discount_amount(self):
         invoice = self._create_invoice(self._full_items())
-        self.assertEqual(invoice.discount_amount.amount, Decimal("0.00"))
-        self.assertEqual(invoice.discount_breakdown, [])
+        self.assertEqual(invoice.discount_amount.amount, Decimal("100.00"))
+        self.assertEqual(len(invoice.discount_breakdown), 1)
+        entry = invoice.discount_breakdown[0]
+        self.assertEqual(entry["kind"], "financing")
+        self.assertEqual(entry["rule_name"], "Financiación 10%")
+        self.assertEqual(Decimal(entry["amount"]), Decimal("100.00"))
 
     def test_totals_and_tax_on_discounted_base(self):
         invoice = self._create_invoice(self._full_items())
-        self.assertEqual(invoice.subtotal_amount.amount, Decimal("900.00"))
+        self.assertEqual(invoice.subtotal_amount.amount, Decimal("1000.00"))
         self.assertEqual(invoice.tax_amount.amount, Decimal("189.00"))
         self.assertEqual(invoice.total_amount.amount, Decimal("1089.00"))
         applied = AppliedTax.objects.get(
@@ -133,7 +139,7 @@ class FinancingDiscountAsLineTests(_StrategyTestBase):
         )
         self.assertEqual(applied.base_amount.amount, Decimal("900.00"))
 
-    def test_partial_invoice_scales_financing_line(self):
+    def test_partial_invoice_scales_financing_discount(self):
         invoice = self._create_invoice([{
             "source_id": f"config_{self.config.pk}",
             "description": "Config 50%",
@@ -141,14 +147,14 @@ class FinancingDiscountAsLineTests(_StrategyTestBase):
             "unit_price": Decimal("500.00"),
             "discount_percentage": Decimal("0.00"),
         }])
-        fin_line = invoice.items.get(source_id=f"discount_quote_{self.quote.pk}")
-        self.assertEqual(fin_line.line_total.amount, Decimal("-50.00"))
-        self.assertEqual(invoice.subtotal_amount.amount, Decimal("450.00"))
+        self.assertEqual(invoice.discount_amount.amount, Decimal("50.00"))
+        self.assertEqual(invoice.subtotal_amount.amount, Decimal("500.00"))
+        self.assertEqual(invoice.total_amount.amount, Decimal("544.50"))
 
 
 class MixedStandardAndFinancingTests(_StrategyTestBase):
-    """Standard rules go to discount_amount, financing rules to a line —
-    both reduce the taxable base."""
+    """Standard and financing rules both go to discount_amount, each with its
+    own breakdown entry — and both reduce the taxable base."""
 
     def setUp(self):
         super().setUp()
@@ -178,7 +184,7 @@ class MixedStandardAndFinancingTests(_StrategyTestBase):
             self.quote, Decimal("1000.00"), Decimal("1210.00")
         )
 
-    def test_split_between_discount_amount_and_line(self):
+    def test_both_land_in_discount_amount(self):
         invoice = self._create_invoice([{
             "source_id": f"config_{self.config.pk}",
             "description": "Config",
@@ -186,12 +192,14 @@ class MixedStandardAndFinancingTests(_StrategyTestBase):
             "unit_price": Decimal("1000.00"),
             "discount_percentage": Decimal("0.00"),
         }])
-        self.assertEqual(invoice.discount_amount.amount, Decimal("100.00"))
-        self.assertEqual(len(invoice.discount_breakdown), 1)
-        fin_line = invoice.items.get(source_id=f"discount_quote_{self.quote.pk}")
-        self.assertEqual(fin_line.line_total.amount, Decimal("-50.00"))
-        # subtotal 950 (incl. financing line) − 100 discount + 178.50 tax
-        self.assertEqual(invoice.subtotal_amount.amount, Decimal("950.00"))
+        self.assertEqual(invoice.discount_amount.amount, Decimal("150.00"))
+        self.assertEqual(
+            [(e["kind"], e["amount"]) for e in invoice.discount_breakdown],
+            [("standard", "100.00"), ("financing", "50.00")],
+        )
+        self.assertEqual(invoice.items.count(), 1)
+        # subtotal 1000 − 150 discount + 178.50 tax
+        self.assertEqual(invoice.subtotal_amount.amount, Decimal("1000.00"))
         self.assertEqual(invoice.tax_amount.amount, Decimal("178.50"))
         self.assertEqual(invoice.total_amount.amount, Decimal("1028.50"))
 

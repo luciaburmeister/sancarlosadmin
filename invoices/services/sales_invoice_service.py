@@ -70,8 +70,9 @@ class SalesInvoiceService:
             # discount_amount and line_total are auto-calculated in model's save()
         )
 
-        # Carry the quote's discount via the per-level strategies (standard
-        # rules → invoice-level discount, financing rules → their own line).
+        # Carry the quote's discount via the per-level strategies. On an
+        # invoice every basket-level rule, financing included, lands in the
+        # invoice-level discount.
         if quote is not None:
             from invoices.services.discounts import QuoteDiscountResolver, SourceLine
 
@@ -79,14 +80,6 @@ class SalesInvoiceService:
                 [quote],
                 [SourceLine(item.source_id, item.line_total.amount, quote.id)],
             )
-            for line in resolution.discount_lines:
-                SalesInvoiceItem.objects.create(
-                    invoice=sales_invoice,
-                    description=line['description'],
-                    quantity=Decimal("1.000"),
-                    unit_price=-line['amount'],
-                    source_id=line['source_id'],
-                )
             if resolution.discount_amount > 0:
                 sales_invoice.discount_amount = resolution.discount_amount
                 sales_invoice.discount_breakdown = resolution.breakdown

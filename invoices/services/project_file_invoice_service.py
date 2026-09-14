@@ -491,26 +491,14 @@ class ProjectFileInvoiceService:
         resolution = QuoteDiscountResolver().resolve(
             [qd['quote'] for qd in summary['quotes']], source_lines,
         )
+        # Every basket-level rule, financing included, lands in the
+        # invoice-level discount.
         invoice_discount = resolution.discount_amount
         invoice_discount_breakdown = resolution.breakdown
 
-        # Financing discounts materialize as their own negative invoice line
-        # (they are not item-level discounts); they reduce the subtotal
-        # directly instead of going through discount_amount.
-        for line in resolution.discount_lines:
-            SalesInvoiceItem.objects.create(
-                invoice=invoice,
-                description=line['description'],
-                quantity=Decimal("1"),
-                unit_price=-line['amount'],
-                source_id=line['source_id'],
-            )
-            subtotal -= line['amount']
-
         # Taxes apply to the discounted base (the quote's "taxable base"),
         # so reduce each line by its own quote's discount fraction for its
-        # line kind. Lines materialized from financing discounts are already
-        # accounted for here — they carry no tax of their own.
+        # line kind.
         for line_total, source_taxes, quote_id, kind in line_taxes:
             frac = resolution.taxable_fraction(quote_id, kind)
             taxable = (line_total * (Decimal("1") - frac)).quantize(Decimal("0.01"))

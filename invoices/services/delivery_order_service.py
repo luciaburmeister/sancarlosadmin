@@ -302,10 +302,11 @@ class DeliveryOrderService:
 
         # Carry the source quotes' discounts via the per-level strategies:
         # standard rules → header discount_amount, financing rules → their
-        # own negative delivery order line.
+        # own negative delivery order line (the invoice made from this DO
+        # folds that line back into its header discount).
         quote_ids = {line.quote_id for line in source_lines if line.quote_id is not None}
         quotes = list(Quote.objects.filter(id__in=quote_ids))
-        resolution = QuoteDiscountResolver().resolve(quotes, source_lines)
+        resolution = QuoteDiscountResolver(materialize_lines=True).resolve(quotes, source_lines)
 
         # The Quote GenericFK marks a line as a materialized discount line —
         # it never collides with delivered-quantity tracking and lets the
@@ -442,7 +443,10 @@ class DeliveryOrderService:
         """
         Creates a SalesInvoice from one or more DeliveryOrders.
 
-        Each delivery order item becomes an invoice line item.
+        Each goods line of the delivery order becomes an invoice line item.
+        A materialized discount line (financing, quote-sourced) does not: an
+        invoice carries every discount at invoice level, so its amount joins
+        ``discount_amount``/``discount_breakdown`` instead.
         Taxes are copied from the source objects' AppliedTax records.
 
         Args:
@@ -458,7 +462,7 @@ class DeliveryOrderService:
             SalesInvoice instance
         """
         from configurator.models import Configuration
-        from sales.models import QuoteInventoryItem
+        from sales.models import DiscountKind, QuoteInventoryItem
 
         resolved_payment_method = resolve_sales_invoice_payment_method(
             client=client,
@@ -485,6 +489,7 @@ class DeliveryOrderService:
 
         config_ct = ContentType.objects.get_for_model(Configuration)
         inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
+        quote_ct = ContentType.objects.get_for_model(Quote)
 
         subtotal = Decimal("0.00")
         invoice_discount = Decimal("0.00")
@@ -494,12 +499,28 @@ class DeliveryOrderService:
         for do in delivery_orders:
             # A self-contained DO already carries its own discount and taxes
             # (gross lines + header discount + financing lines + AppliedTax);
-            # copy them verbatim — the discount resolver is NOT re-run, so
-            # nothing is double-carried. Legacy DOs (net-priced config lines,
-            # no DO-level data) keep the old source-object tax path.
+            # copy them — the discount resolver is NOT re-run, so nothing is
+            # double-carried. Legacy DOs (net-priced config lines, no DO-level
+            # data) keep the old source-object tax path.
             self_contained = cls._is_self_contained(do)
+            folded_discount = Decimal("0.00")
+            folded_breakdown = []
 
             for item in do.items.all():
+                if item.source_content_type_id == quote_ct.id:
+                    # Materialized financing line: the DO shows it as a line,
+                    # the invoice shows it as part of the general discount.
+                    # Its tax effect is already in the DO's AppliedTax bases.
+                    amount = -item.line_total.amount if item.line_total else Decimal("0.00")
+                    if amount > 0:
+                        folded_discount += amount
+                        folded_breakdown.append({
+                            "rule_name": item.description,
+                            "kind": DiscountKind.FINANCING.value,
+                            "amount": str(amount),
+                        })
+                    continue
+
                 source_id = cls._build_source_id(item)
 
                 inv_item = SalesInvoiceItem.objects.create(
@@ -555,6 +576,8 @@ class DeliveryOrderService:
                 if do.discount_amount and do.discount_amount.amount > 0:
                     invoice_discount += do.discount_amount.amount
                     invoice_discount_breakdown.extend(do.discount_breakdown or [])
+                invoice_discount += folded_discount
+                invoice_discount_breakdown.extend(folded_breakdown)
                 for tax in do.applied_taxes.select_related("tax_type").order_by("order", "id"):
                     if tax.selected_percentage <= 0:
                         continue
@@ -645,8 +668,10 @@ class DeliveryOrderService:
         elif delivery_order_item.source_content_type_id == inv_item_ct.id:
             return f"inv_item_{delivery_order_item.source_object_id}"
         elif delivery_order_item.source_content_type_id == quote_ct.id:
-            # Materialized discount line (e.g. financing) — same source_id the
-            # discount resolver emits, so DO-sourced invoices match direct ones.
+            # Materialized discount line (financing) — same source_id the
+            # discount resolver emits. Invoicing folds these lines into the
+            # header discount rather than copying them, so this is only used
+            # for the resolver's line-kind bookkeeping.
             return discount_line_source_id(delivery_order_item.source_object_id)
 
         return f"source_{delivery_order_item.source_content_type_id}_{delivery_order_item.source_object_id}"

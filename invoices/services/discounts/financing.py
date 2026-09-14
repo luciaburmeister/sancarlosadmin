@@ -11,10 +11,11 @@ from .base import (
 
 
 class FinancingDiscountStrategy(InvoiceDiscountStrategy):
-    """Financing discounts are not item-level discounts: they show up on the
-    invoice as their own negative line, so the client sees the financing
-    amount called out. The entry's base (and therefore partial-invoice
-    scaling) still follows its configured level."""
+    """Financing discounts are not item-level discounts: on a delivery order
+    they show up as their own negative line, so the client sees the financing
+    amount called out; on a sales invoice the resolver folds them into the
+    invoice-level discount instead. The entry's base (and therefore
+    partial-document scaling) still follows its configured level."""
 
     materialization = DISCOUNT_LINE
 

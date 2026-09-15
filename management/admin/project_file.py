@@ -16,7 +16,7 @@ from management.models import (
 from management.forms import ProjectFileAdminForm
 from management.resources import ProjectFileResource
 from django.contrib import admin, messages
-from django.db.models import Q, Sum
+from django.db.models import Case, IntegerField, Q, Sum, Value, When
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
@@ -413,7 +413,24 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
     )
 
     def get_queryset(self, request):
-        return super().get_queryset(request)
+        # Mirrors ProjectFile.operational_status precedence so the Progress
+        # column can be sorted: delivery wins as soon as anything has shipped.
+        return super().get_queryset(request).annotate(
+            _operational_rank=Case(
+                When(delivery_status=ProjectFileDeliveryStatus.DELIVERED, then=Value(4)),
+                When(delivery_status=ProjectFileDeliveryStatus.PARTIALLY_DELIVERED, then=Value(3)),
+                When(
+                    production_status__in=[
+                        ProjectFileProductionStatus.PENDING,
+                        ProjectFileProductionStatus.IN_PROGRESS,
+                    ],
+                    then=Value(1),
+                ),
+                When(delivery_status=ProjectFileDeliveryStatus.NOT_DELIVERED, then=Value(2)),
+                default=Value(0),
+                output_field=IntegerField(),
+            )
+        )
 
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
@@ -555,6 +572,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
 
     @display(
         description=_("Progress"),
+        ordering="_operational_rank",
         label={
             _("In production"): "warning",
             _("Ready to deliver"): "info",

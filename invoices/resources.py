@@ -341,6 +341,7 @@ class SalesInvoiceResource(resources.ModelResource):
             'status',
             'date_issued',
             'due_date',
+            'payment_commitment_date',
             'client',
             'client_tax_identifier',
             'client_email',

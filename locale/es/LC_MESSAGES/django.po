@@ -9473,40 +9473,36 @@ msgstr ""
 "ejemplo, transacciones de activos). Se utiliza el correo electrónico del "
 "cliente si se deja vacío."
 
-#, fuzzy
-#| msgid "No accepted quotes found for this project file."
 msgid "Cached total of accepted quotes + direct configurations."
-msgstr "No se han encontrado presupuestos aceptados para este expediente."
+msgstr "Total en caché de presupuestos aceptados + configuraciones directas."
 
-#, fuzzy
-#| msgid "Total Invoiceable"
 msgid "Total Invoiced"
-msgstr "Total Facturable"
+msgstr "Total Facturado"
 
-#, fuzzy
-#| msgid "No accepted quotes found for this project file."
 msgid "Cached sum of sales invoices linked to this project file."
-msgstr "No se han encontrado presupuestos aceptados para este expediente."
+msgstr "Suma en caché de las facturas de venta vinculadas a este expediente."
 
-#, fuzzy
-#| msgid "Invoiced"
 msgid "% Invoiced"
-msgstr "Factura"
+msgstr "% Facturado"
 
 msgid "Cached percentage of total_amount that has been invoiced."
 msgstr "Porcentaje en caché del total_amount que ha sido facturado."
 
-#, fuzzy
-#| msgid "Total Price"
 msgid "Total Purchased"
-msgstr "Precio Total"
+msgstr "Total Comprado"
 
-#, fuzzy
-#| msgid "No accepted quotes found for this project file."
 msgid ""
 "Cached committed cost of approved/closed Purchase Orders linked to this "
 "project file."
-msgstr "No se han encontrado presupuestos aceptados para este expediente."
+msgstr ""
+"Coste comprometido en caché de las órdenes de compra aprobadas/cerradas "
+"vinculadas a este expediente."
+
+msgid "Total Costs"
+msgstr "Costes Totales"
+
+msgid "Cached sum of cost entries linked to this project file."
+msgstr "Suma en caché de las entradas de coste vinculadas a este expediente."
 
 msgid "Hex color for calendar display, e.g. #3B82F6"
 msgstr "Color hexadecimal para la visualización del calendario, p.ej. #3B82F6"
@@ -14302,6 +14298,10 @@ msgstr "fecha_contable"
 msgctxt "djangoql field"
 msgid "due_date"
 msgstr "fecha_vencimiento"
+
+msgctxt "djangoql field"
+msgid "payment_commitment_date"
+msgstr "fecha_compromiso_pago"
 
 msgctxt "djangoql field"
 msgid "created_at"

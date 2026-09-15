@@ -37,6 +37,7 @@ class SalesInvoiceSearchFields(SearchFields):
         "status",
         "date_issued",
         "due_date",
+        "payment_commitment_date",
         "created_at",
         "updated_at",
         "subtotal_amount",

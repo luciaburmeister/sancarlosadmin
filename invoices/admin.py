@@ -981,7 +981,18 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
             TaxTypeAutocompleteView.as_view(),
         ),
     )
-    list_display = ("invoice_number", "get_status_label", "get_payment_status_label", "get_external_label", "company", "client", "date_issued", "due_date", "payment_commitment_date", "total_amount")
+    list_display = (
+        "invoice_number", 
+        "client", 
+        "total_amount",
+        "date_issued", 
+        "due_date", 
+        "payment_commitment_date",
+         "get_status_label", 
+        "get_payment_status_label", 
+        "get_external_label",
+        "company", 
+        )
     list_filter = (
         # Who / when
         ("company", AutocompleteSelectMultipleFilter),

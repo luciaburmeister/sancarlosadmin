@@ -986,10 +986,10 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmi
         "client", 
         "total_amount",
         "date_issued", 
+        "get_payment_status_label", 
         "due_date", 
         "payment_commitment_date",
          "get_status_label", 
-        "get_payment_status_label", 
         "get_external_label",
         "company", 
         )

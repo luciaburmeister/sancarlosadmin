@@ -37,7 +37,7 @@ a fresh ``migrate`` the day a referenced column is renamed.
 from django.db import models
 from django.utils import timezone
 
-from inventory.models import InventoryItem
+from inventory.models import BillOfMaterialsLine, InventoryItem
 
 
 def _refresh(queryset) -> int:
@@ -58,11 +58,33 @@ def refresh_stock_position(item_ids) -> int:
 
     Accepts any iterable, including a lazy ``values_list``; ``None`` entries
     (lines with no inventory item) are dropped.
+
+    A kit's reservation flows into its components (see
+    ``InventoryItemQuerySet.reserved_expression``), so every item built from
+    one of the given ids, at any depth, is refreshed with it. Callers only
+    name the items their document touches directly.
     """
     ids = {i for i in item_ids if i is not None}
     if not ids:
         return 0
-    return _refresh(InventoryItem.objects.filter(pk__in=ids))
+    return _refresh(InventoryItem.objects.filter(pk__in=_with_bom_descendants(ids)))
+
+
+def _with_bom_descendants(item_ids: set) -> set:
+    """``item_ids`` plus every component reachable through their bills of
+    materials. Breadth-first, one query per level; an item already visited
+    is not expanded again, which is what ends the walk on a circular BOM."""
+    seen = set(item_ids)
+    frontier = set(item_ids)
+    while frontier:
+        children = set(
+            BillOfMaterialsLine.objects
+            .filter(parent_id__in=frontier)
+            .values_list("component_id", flat=True)
+        )
+        frontier = children - seen
+        seen |= children
+    return seen
 
 
 def refresh_all() -> int:

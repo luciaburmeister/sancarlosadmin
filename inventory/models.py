@@ -193,6 +193,12 @@ class InventoryItemQuerySet(models.QuerySet):
             cls.ZERO,
         )
 
+    #: How many levels of bill-of-materials nesting the reserved figure
+    #: follows: a kit's components, their components, and so on. Each level
+    #: is one more correlated subquery, so the depth is fixed rather than
+    #: recursive; kits nested deeper than this reserve nothing below it.
+    RESERVED_BOM_DEPTH = 3
+
     @classmethod
     def reserved_expression(cls):
         """Promised on accepted quotes for open projects, not yet delivered.
@@ -210,6 +216,23 @@ class InventoryItemQuerySet(models.QuerySet):
         the release valve: lines on COMPLETED or CANCELLED projects no longer
         count. Quotes without a project file stay reserved until delivered or
         rejected.
+
+        A quoted kit promises its components too: selling it ships them
+        (``DeliveryOrderItem._deduct_inventory`` cascades through the bill of
+        materials), so each component is reserved for ``BOM quantity × the
+        parent's reservation`` on top of whatever it is quoted for directly.
+        The parent's figure already nets out deliveries, which is why the
+        component lines a delivery order materialises are not counted again
+        here. Nesting is followed ``RESERVED_BOM_DEPTH`` levels down.
+        """
+        return cls._reserved_expression("pk", cls.RESERVED_BOM_DEPTH)
+
+    @classmethod
+    def _reserved_expression(cls, item_ref_name, bom_depth):
+        """The reserved figure for the item referenced by ``item_ref_name``
+        on the enclosing queryset — ``"pk"`` when annotating InventoryItem
+        itself, ``"parent_id"`` when the expression is nested inside a query
+        over BillOfMaterialsLine to value a parent's reservation.
         """
         from management.models import ProjectFileStatus
         from sales.models import (
@@ -219,15 +242,18 @@ class InventoryItemQuerySet(models.QuerySet):
             QuoteStatus,
         )
 
-        def accepted_quote_lines(item_ref):
-            """Quote lines for this item on accepted quotes for open projects.
+        def item_ref(depth):
+            """OuterRef back at the item, wrapped once per subquery level
+            between the enclosing queryset and where it is used."""
+            ref = models.OuterRef(item_ref_name)
+            for _ in range(depth - 1):
+                ref = models.OuterRef(ref)
+            return ref
 
-            ``item_ref`` is the OuterRef pointing back at the InventoryItem
-            row; it has to be double-wrapped when the queryset ends up nested
-            two levels deep, hence the parameter.
-            """
+        def accepted_quote_lines(ref):
+            """Quote lines for this item on accepted quotes for open projects."""
             return QuoteInventoryItem.objects.filter(
-                inventory_item=item_ref,
+                inventory_item=ref,
                 quote__status=QuoteStatus.ACCEPTED,
             ).exclude(
                 quote__project_file__status__in=[
@@ -237,7 +263,7 @@ class InventoryItemQuerySet(models.QuerySet):
             )
 
         quoted = models.Subquery(
-            accepted_quote_lines(models.OuterRef("pk"))
+            accepted_quote_lines(item_ref(1))
             .values("inventory_item")
             .annotate(total=models.Sum("quantity", output_field=cls.QUANTITY_FIELD))
             .values("total")[:1],
@@ -248,9 +274,7 @@ class InventoryItemQuerySet(models.QuerySet):
             DeliveryOrderItem.objects
             .filter(
                 source_content_type=ContentType.objects.get_for_model(QuoteInventoryItem),
-                source_object_id__in=accepted_quote_lines(
-                    models.OuterRef(models.OuterRef("pk"))
-                ).values("pk"),
+                source_object_id__in=accepted_quote_lines(item_ref(2)).values("pk"),
             )
             .exclude(delivery_order__status=DeliveryOrderStatus.CANCELLED)
             .values("source_content_type")  # constant key: one row per subquery
@@ -261,9 +285,36 @@ class InventoryItemQuerySet(models.QuerySet):
 
         # Clamped at zero: a hand-built delivery line can ship more than was
         # quoted, and a negative reservation would be meaningless.
-        return Greatest(
+        own = Greatest(
             Coalesce(quoted, cls.ZERO) - Coalesce(delivered, cls.ZERO),
             cls.ZERO,
+            output_field=cls.QUANTITY_FIELD,
+        )
+        if bom_depth <= 0:
+            return own
+
+        # Reserved through the kits this item is a component of: each BOM
+        # line contributes its quantity × the parent's own reservation, the
+        # parent's figure being this same expression one level up.
+        as_component = models.Subquery(
+            BillOfMaterialsLine.objects
+            .filter(component=item_ref(1))
+            .annotate(parent_reserved=cls._reserved_expression("parent_id", bom_depth - 1))
+            .values("component")
+            .annotate(
+                total=models.Sum(
+                    models.ExpressionWrapper(
+                        models.F("quantity") * models.F("parent_reserved"),
+                        output_field=cls.QUANTITY_FIELD,
+                    ),
+                    output_field=cls.QUANTITY_FIELD,
+                )
+            )
+            .values("total")[:1],
+            output_field=cls.QUANTITY_FIELD,
+        )
+        return models.ExpressionWrapper(
+            own + Coalesce(as_component, cls.ZERO),
             output_field=cls.QUANTITY_FIELD,
         )
 

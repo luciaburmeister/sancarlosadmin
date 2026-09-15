@@ -16,7 +16,7 @@ from django.test import TestCase
 
 from company.models import Company
 from inventory.choices import ItemType, MovementType
-from inventory.models import InventoryItem, ItemTransaction, Warehouse
+from inventory.models import BillOfMaterialsLine, InventoryItem, ItemTransaction, Warehouse
 from inventory.services.stock_position import (
     find_drift,
     refresh_all,
@@ -365,6 +365,121 @@ class ReservedQuantityTest(_StockPositionTestCase):
 # ─────────────────────────────────────────────────────────────────────────────
 # The two figures together
 # ─────────────────────────────────────────────────────────────────────────────
+
+class ReservedThroughBillOfMaterialsTest(_StockPositionTestCase):
+    """A quoted kit reserves its components: BOM quantity × the kit's own
+    reservation, on top of anything the component is quoted for directly.
+    Production case: a "Termosifón" kit of three parts on an accepted quote
+    showed its KSC 300 component with stock on hand and nothing reserved.
+    """
+
+    def _bom(self, parent, component, quantity):
+        return BillOfMaterialsLine.objects.create(
+            parent=parent, component=component, quantity=quantity,
+        )
+
+    def _kit(self, component_qty=2, stock=0):
+        kit = self._make_item("KIT")
+        part = self._make_item("PART", stock=stock)
+        self._bom(kit, part, component_qty)
+        return kit, part
+
+    def test_quoting_the_kit_reserves_its_components(self):
+        kit, part = self._kit(component_qty=1, stock=2)
+        self._accepted_quote_line(kit, 1)
+        self.assertPosition(kit, on_hand=0, incoming=0, reserved=1)
+        self.assertPosition(part, on_hand=2, incoming=0, reserved=1)
+        self.assertEqual(InventoryItem.objects.get(pk=part.pk).available_quantity, Decimal("1"))
+
+    def test_component_reservation_scales_with_bom_and_quoted_quantity(self):
+        kit, part = self._kit(component_qty=3)
+        self._accepted_quote_line(kit, 2)
+        self.assertPosition(part, on_hand=0, incoming=0, reserved=6)
+
+    def test_draft_quote_reserves_no_components(self):
+        kit, part = self._kit()
+        self._accepted_quote_line(kit, 1, status=QuoteStatus.DRAFT)
+        self.assertPosition(part, on_hand=0, incoming=0, reserved=0)
+
+    def test_direct_and_kit_reservations_add_up(self):
+        kit, part = self._kit(component_qty=2)
+        self._accepted_quote_line(kit, 1)
+        self._accepted_quote_line(part, 5)
+        self.assertPosition(part, on_hand=0, incoming=0, reserved=7)
+
+    def test_nested_kits_reserve_all_the_way_down(self):
+        kit = self._make_item("KIT")
+        sub = self._make_item("SUB")
+        part = self._make_item("PART")
+        self._bom(kit, sub, 2)
+        self._bom(sub, part, 3)
+        self._accepted_quote_line(kit, 2)
+        self.assertPosition(kit, on_hand=0, incoming=0, reserved=2)
+        self.assertPosition(sub, on_hand=0, incoming=0, reserved=4)
+        self.assertPosition(part, on_hand=0, incoming=0, reserved=12)
+
+    def test_delivering_the_kit_ships_and_releases_the_components(self):
+        kit, part = self._kit(component_qty=2, stock=5)
+        line = self._accepted_quote_line(kit, 1)
+        self.assertPosition(part, on_hand=5, incoming=0, reserved=2)
+        do = self._deliver(line)
+        # The BOM cascade took the parts out; the promise is fulfilled.
+        self.assertPosition(part, on_hand=3, incoming=0, reserved=0)
+        do.status = DeliveryOrderStatus.CANCELLED
+        do.save()
+        self.assertPosition(part, on_hand=5, incoming=0, reserved=2)
+
+    def test_partial_delivery_releases_that_share_of_the_components(self):
+        kit, part = self._kit(component_qty=2, stock=10)
+        line = self._accepted_quote_line(kit, 3)
+        self._deliver(line, quantity=1)
+        self.assertPosition(kit, on_hand=-1, incoming=0, reserved=2)
+        self.assertPosition(part, on_hand=8, incoming=0, reserved=4)
+
+    def test_completing_the_project_releases_the_components(self):
+        kit, part = self._kit(component_qty=2)
+        self._accepted_quote_line(kit, 1)
+        self.project_file.status = ProjectFileStatus.COMPLETED
+        self.project_file.save()
+        self.assertPosition(part, on_hand=0, incoming=0, reserved=0)
+
+    def test_changing_the_bom_quantity_refreshes_the_component(self):
+        kit, part = self._kit(component_qty=2)
+        self._accepted_quote_line(kit, 1)
+        bom = kit.bom_lines.get()
+        bom.quantity = 5
+        bom.save()
+        self.assertPosition(part, on_hand=0, incoming=0, reserved=5)
+
+    def test_removing_the_component_from_the_bom_releases_it(self):
+        kit, part = self._kit(component_qty=2)
+        self._accepted_quote_line(kit, 1)
+        kit.bom_lines.get().delete()
+        self.assertPosition(part, on_hand=0, incoming=0, reserved=0)
+
+    def test_swapping_the_bom_component_moves_the_reservation(self):
+        kit, part = self._kit(component_qty=2)
+        other = self._make_item("OTHER")
+        self._accepted_quote_line(kit, 1)
+        bom = kit.bom_lines.get()
+        bom.component = other
+        bom.save()
+        self.assertPosition(part, on_hand=0, incoming=0, reserved=0)
+        self.assertPosition(other, on_hand=0, incoming=0, reserved=2)
+
+    def test_adding_a_component_to_an_already_quoted_kit_reserves_it(self):
+        kit = self._make_item("KIT")
+        self._accepted_quote_line(kit, 2)
+        late = self._make_item("LATE")
+        self._bom(kit, late, 1)
+        self.assertPosition(late, on_hand=0, incoming=0, reserved=2)
+
+    def test_kits_for_other_components_do_not_leak(self):
+        kit, part = self._kit(component_qty=2)
+        bystander = self._make_item("BYSTANDER")
+        self._accepted_quote_line(kit, 1)
+        self.assertPosition(bystander, on_hand=0, incoming=0, reserved=0)
+
 
 class StockPositionCombinedTest(_StockPositionTestCase):
 

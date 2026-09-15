@@ -11,7 +11,7 @@ from sales.models import (
     Quote,
     QuoteInventoryItem,
 )
-from .models import InventoryItem, InventoryMovement
+from .models import BillOfMaterialsLine, InventoryItem, InventoryMovement
 
 
 @receiver(post_save, sender=InventoryMovement)
@@ -213,6 +213,30 @@ def refresh_from_project_file(sender, instance, created, **kwargs):
         .filter(quote__project_file=instance)
         .values_list("inventory_item_id", flat=True)
     )
+
+
+# ── Reserved through a bill of materials ─────────────────────────────────────
+#
+# A component's reservation is derived from its parents', so it changes when
+# the BOM itself does. Refreshing the component is enough: the refresh service
+# cascades to everything built from it, and the item's own row is what the
+# parent's reservation now flows into (or no longer does).
+
+_bom_lines = _Watch(BillOfMaterialsLine, ["parent", "component", "quantity"])
+
+
+@receiver(post_save, sender=BillOfMaterialsLine)
+def refresh_from_bom_line(sender, instance, **kwargs):
+    changed, before = _bom_lines.change(instance)
+    if not changed:
+        return
+    previous_component = before[1] if before else None
+    refresh_stock_position([previous_component, instance.component_id])
+
+
+@receiver(post_delete, sender=BillOfMaterialsLine)
+def refresh_from_bom_line_delete(sender, instance, **kwargs):
+    refresh_stock_position([instance.component_id])
 
 
 def _quote_line_item_ids(content_type_id, source_object_ids):

@@ -17,7 +17,12 @@ from invoices.models import (
     SalesInvoice,
     SalesInvoiceStatus,
 )
-from invoices.tasks import process_payment_reminders, send_payment_reminder_report
+from invoices.tasks import (
+    process_payment_reminders,
+    send_consolidated_payment_reminder_email,
+    send_payment_reminder_email,
+    send_payment_reminder_report,
+)
 from sales.models import Client
 
 
@@ -36,8 +41,14 @@ class PaymentReminderReportTests(TestCase):
             company=company, report_emails=report_emails or [], **kwargs
         )
 
-    def _make_invoice(self, company, number, client_name="Cliente", client_email="c@example.com", due_date=None):
-        client = Client.objects.create(company=company, name=client_name, email=client_email)
+    def _make_invoice(
+        self, company, number, client_name="Cliente", client_email="c@example.com",
+        due_date=None, reminder_emails=None,
+    ):
+        client = Client.objects.create(
+            company=company, name=client_name, email=client_email,
+            payment_reminder_emails=reminder_emails or [],
+        )
         return SalesInvoice.objects.create(
             company=company,
             client=client,
@@ -229,3 +240,71 @@ class PaymentReminderReportTests(TestCase):
         self.assertIn("1 enviado", report_call.kwargs["subject"])
         log = PaymentReminderLog.objects.get(invoice=invoice)
         self.assertEqual(log.status, PaymentReminderLogStatus.SENT)
+
+    # ── Client reminder recipients ────────────────────────────────────
+
+    def test_client_reminder_emails_override_main_email(self, mock_send):
+        company = self._make_company(email="info@alpha.com")
+        self._make_settings(company)
+        invoice = self._make_invoice(
+            company, "F-AP", client_email="gerente@cliente.com",
+            reminder_emails=["pagos@cliente.com", " contabilidad@cliente.com "],
+        )
+        log = self._make_log(invoice, PaymentReminderLogStatus.PENDING)
+
+        result = send_payment_reminder_email.delay(log.id).get()
+
+        self.assertEqual(result["status"], "sent")
+        mock_send.assert_called_once()
+        self.assertEqual(
+            mock_send.call_args.kwargs["to"], ["pagos@cliente.com", "contabilidad@cliente.com"]
+        )
+
+        mock_send.reset_mock()
+        self._run_report(company)
+        body = mock_send.call_args.kwargs["body_html"]
+        self.assertIn("pagos@cliente.com, contabilidad@cliente.com", body)
+        self.assertNotIn("gerente@cliente.com", body)
+
+    def test_client_without_reminder_emails_falls_back_to_main_email(self, mock_send):
+        company = self._make_company(email="info@alpha.com")
+        invoice = self._make_invoice(company, "F-MAIN", client_email="gerente@cliente.com")
+        log = self._make_log(invoice, PaymentReminderLogStatus.PENDING)
+
+        result = send_payment_reminder_email.delay(log.id).get()
+
+        self.assertEqual(result["status"], "sent")
+        self.assertEqual(mock_send.call_args.kwargs["to"], ["gerente@cliente.com"])
+
+    def test_client_with_no_email_at_all_fails_the_reminder(self, mock_send):
+        company = self._make_company(email="info@alpha.com")
+        invoice = self._make_invoice(company, "F-NONE", client_email="")
+        log = self._make_log(invoice, PaymentReminderLogStatus.PENDING)
+
+        result = send_payment_reminder_email.delay(log.id).get()
+
+        self.assertEqual(result["status"], "failed")
+        mock_send.assert_not_called()
+        log.refresh_from_db()
+        self.assertEqual(log.status, PaymentReminderLogStatus.FAILED)
+
+    def test_consolidated_reminder_uses_client_reminder_emails(self, mock_send):
+        company = self._make_company(email="info@alpha.com")
+        invoice = self._make_invoice(
+            company, "F-C1", client_email="gerente@cliente.com",
+            reminder_emails=["pagos@cliente.com"],
+        )
+        other = SalesInvoice.objects.create(
+            company=company, client=invoice.client, invoice_number="F-C2",
+            total_amount=Money("50.00", "EUR"), due_date=self.today,
+            status=SalesInvoiceStatus.FINAL,
+        )
+        logs = [
+            self._make_log(invoice, PaymentReminderLogStatus.PENDING),
+            self._make_log(other, PaymentReminderLogStatus.PENDING),
+        ]
+
+        result = send_consolidated_payment_reminder_email.delay([l.id for l in logs]).get()
+
+        self.assertEqual(result["status"], "sent")
+        self.assertEqual(mock_send.call_args.kwargs["to"], ["pagos@cliente.com"])

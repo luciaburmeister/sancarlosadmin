@@ -918,7 +918,8 @@ def send_payment_reminder_email(self, log_id: int):
         log.save(update_fields=["status"])
         return {"status": "cancelled", "log_id": log_id}
 
-    if not client.email:
+    recipients = client.payment_reminder_recipients()
+    if not recipients:
         log.status = PaymentReminderLogStatus.FAILED
         log.error_message = "Client has no email address on file."
         log.save(update_fields=["status", "error_message"])
@@ -991,7 +992,7 @@ def send_payment_reminder_email(self, log_id: int):
 
     try:
         success = EmailService.send_email(
-            to=[client.email],
+            to=recipients,
             subject=subject,
             body_html=body_html,
             attachments=attachments or None,
@@ -1071,7 +1072,8 @@ def send_consolidated_payment_reminder_email(self, log_ids: list[int]):
             log.save(update_fields=["status"])
         return {"status": "cancelled", "log_ids": log_ids, "reason": "client excluded"}
 
-    if not client.email:
+    recipients = client.payment_reminder_recipients()
+    if not recipients:
         for log in logs:
             log.status = PaymentReminderLogStatus.FAILED
             log.error_message = "Client has no email address on file."
@@ -1156,7 +1158,7 @@ def send_consolidated_payment_reminder_email(self, log_ids: list[int]):
 
     try:
         success = EmailService.send_email(
-            to=[client.email],
+            to=recipients,
             subject=subject,
             body_html=body_html,
             attachments=attachments or None,

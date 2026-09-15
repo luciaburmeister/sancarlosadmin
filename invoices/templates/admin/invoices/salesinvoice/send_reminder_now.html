@@ -61,7 +61,7 @@
                         {% endif %}
                     </p>
                     <p class="text-sm" style="color:#0f6e56; margin:0 0 4px 0;">
-                        <strong>{% trans "Will be sent to" %}:</strong> {{ client.email }}
+                        <strong>{% trans "Will be sent to" %}:</strong> {{ recipients|join:", " }}
                     </p>
                     <p class="text-sm" style="color:#0f6e56; margin:0;">
                         <strong>{% trans "Language" %}:</strong> {{ language }}
@@ -87,7 +87,10 @@
             <!-- Section 2: consolidated reminder -->
             <div class="mt-10 pt-8" style="border-top:1px solid #f3f4f6;">
                 <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-1">{% trans "Send a consolidated reminder" %}</h2>
-                <p class="text-sm text-gray-500 mb-5">{% trans "Bundle any of this client's pending invoices into a single email." %}</p>
+                <p class="text-sm text-gray-500 mb-5">
+                    {% trans "Bundle any of this client's pending invoices into a single email." %}
+                    <strong>{% trans "Will be sent to" %}:</strong> {{ recipients|join:", " }}
+                </p>
 
                 {% if client_invoice_rows %}
                 <form method="post" id="consolidated-form">

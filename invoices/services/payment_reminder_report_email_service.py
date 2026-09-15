@@ -121,7 +121,7 @@ class PaymentReminderReportEmailService:
         )
         return {
             "client": client.name,
-            "email": client.email or "—",
+            "email": ", ".join(client.payment_reminder_recipients()) or "—",
             "invoice_number": invoice.invoice_number or "—",
             "due_date": date_format(invoice.due_date, "SHORT_DATE_FORMAT")
             if invoice.due_date

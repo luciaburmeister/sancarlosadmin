@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.contrib.postgres.fields import ArrayField
 from django.utils.html import format_html
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin, StackedInline
@@ -141,6 +142,11 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
         return ClientConfirmImportForm
 
     inlines = [ClientAddressInline, ClientContactInline, ClientBankAccountInline, ClientAppliedTaxInline]
+    formfield_overrides = {
+        ArrayField: {
+            "widget": ArrayWidget,
+        }
+    }
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         if db_field.name == "payment_terms_observations":
@@ -209,13 +215,14 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
             "classes": ["tab"],
             "description": _(
                 "Controls whether this client receives automatic payment reminder "
-                "emails, and in what language. Reminders can be turned off entirely "
-                "for this client here, or for a single invoice from that invoice's "
-                "own record."
+                "emails, to which addresses, and in what language. Reminders can be "
+                "turned off entirely for this client here, or for a single invoice "
+                "from that invoice's own record."
             ),
             "fields": (
                 "language",
                 "exclude_from_payment_reminders",
+                "payment_reminder_emails",
             )
         }),
         (_("Términos y Condiciones"), {

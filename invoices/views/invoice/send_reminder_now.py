@@ -44,7 +44,7 @@ class SendPaymentReminderNowAdminView(UnfoldModelAdminViewMixin, View):
         """Blocks BOTH sections -- a client-wide decision, not per-invoice."""
         if client.exclude_from_payment_reminders:
             return _("This client is marked \"Do Not Send Payment Reminders\".")
-        if not client.email:
+        if not client.payment_reminder_recipients():
             return _("This client has no email address on file.")
         return None
 
@@ -104,6 +104,7 @@ class SendPaymentReminderNowAdminView(UnfoldModelAdminViewMixin, View):
             **self.model_admin.admin_site.each_context(request),
             "invoice": invoice,
             "client": client,
+            "recipients": client.payment_reminder_recipients(),
             "page_blocked_reason": page_blocked_reason,
             "blocked_reason": single_blocked_reason,
             "days_count": abs(days_diff) if days_diff is not None else None,

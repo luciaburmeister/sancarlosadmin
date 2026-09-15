@@ -1,15 +1,18 @@
-from django.utils.translation import gettext as _t
-
 from invoices.models import PaymentReminderLanguage, PaymentReminderType
 
+# Subjects are keyed by the resolved reminder language and are NOT run
+# through gettext on purpose: the send tasks call these helpers before
+# activating the client's language, so a gettext lookup would translate
+# the English subjects into whatever language the worker happens to have
+# active (Spanish by default) and mis-language English clients' emails.
 REMINDER_SUBJECTS = {
     PaymentReminderLanguage.ES: {
-        PaymentReminderType.PRE_DUE: _t("Recordatorio: su factura %(number)s vence próximamente"),
-        PaymentReminderType.OVERDUE: _t("Aviso: su factura %(number)s se encuentra vencida"),
+        PaymentReminderType.PRE_DUE: "Recordatorio: su factura %(number)s vence próximamente",
+        PaymentReminderType.OVERDUE: "Aviso: su factura %(number)s se encuentra vencida",
     },
     PaymentReminderLanguage.EN: {
-        PaymentReminderType.PRE_DUE: _t("Reminder: your invoice %(number)s is due soon"),
-        PaymentReminderType.OVERDUE: _t("Notice: your invoice %(number)s is overdue"),
+        PaymentReminderType.PRE_DUE: "Reminder: your invoice %(number)s is due soon",
+        PaymentReminderType.OVERDUE: "Notice: your invoice %(number)s is overdue",
     },
 }
 
@@ -33,8 +36,8 @@ def get_reminder_template(language: str) -> str:
 
 
 CONSOLIDATED_SUBJECTS = {
-    PaymentReminderLanguage.ES: _t("Recordatorio: tiene %(count)s facturas pendientes de pago"),
-    PaymentReminderLanguage.EN: _t("Reminder: you have %(count)s pending invoices"),
+    PaymentReminderLanguage.ES: "Recordatorio: tiene %(count)s facturas pendientes de pago",
+    PaymentReminderLanguage.EN: "Reminder: you have %(count)s pending invoices",
 }
 
 

@@ -482,8 +482,6 @@ msgstr "Modo de Sandbox"
 msgid "Enable for testing. Disable when going live."
 msgstr "Habilitar para pruebas. Deshabilitar al realizar el lanzamiento."
 
-#, fuzzy
-#| msgid "Activo"
 msgid "Active"
 msgstr "Activo"
 
@@ -526,10 +524,8 @@ msgstr "Referencia del Proveedor"
 msgid "Identifier returned by the provider for this record."
 msgstr "Identificador devuelto por el proveedor para este registro."
 
-#, fuzzy
-#| msgid "Message"
 msgid "Error Message"
-msgstr "Mensaje"
+msgstr "Mensaje de error"
 
 #, fuzzy
 #| msgid "Submit form"
@@ -1961,8 +1957,7 @@ msgstr ""
 
 msgid "This machine belongs to a different company than the selected zone."
 msgstr ""
-"Esta máquina pertenece a una empresa diferente a la de la zona "
-"seleccionada."
+"Esta máquina pertenece a una empresa diferente a la de la zona seleccionada."
 
 msgid "Load description is required for this service type."
 msgstr "La descripción de la carga es obligatoria para este tipo de servicio."
@@ -4030,10 +4025,8 @@ msgstr ""
 msgid "Subject"
 msgstr "ID del objeto"
 
-#, fuzzy
-#| msgid "Sent"
 msgid "Sent At"
-msgstr "Enviado"
+msgstr "Enviado el"
 
 #, fuzzy
 #| msgid "Email"
@@ -4412,10 +4405,8 @@ msgstr "Comisión del Agente (%)"
 msgid "Commissions"
 msgstr "Comisión del Agente (%)"
 
-#, fuzzy
-#| msgid "Rule key"
 msgid "Rule"
-msgstr "Clave de regla"
+msgstr "Regla"
 
 #, fuzzy
 #| msgid "Agent Commission (%)"
@@ -5939,8 +5930,8 @@ msgid ""
 "clients were emailed and whether each email went through). Leave empty to "
 "send it to the company email."
 msgstr ""
-"Emails que reciben el informe de los recordatorios de pago enviados cada día "
-"(a qué clientes se escribió y si cada email salió correctamente). Déjelo "
+"Emails que reciben el informe de los recordatorios de pago enviados cada día"
+" (a qué clientes se escribió y si cada email salió correctamente). Déjelo "
 "vacío para enviarlo al email de la empresa."
 
 #, fuzzy
@@ -6448,7 +6439,8 @@ msgid "Stock Position Refreshed At"
 msgstr "Posición de Stock Actualizada El"
 
 msgid "When the incoming and reserved figures were last recomputed."
-msgstr "Cuándo se recalcularon por última vez las cantidades en camino y reservada."
+msgstr ""
+"Cuándo se recalcularon por última vez las cantidades en camino y reservada."
 
 msgid "Inventory Category"
 msgstr "Categoría de Inventario"
@@ -13259,8 +13251,8 @@ msgid "Override line total"
 msgstr "Total de línea manual"
 
 msgid ""
-"Manually set the final line amount. When set, the discount % is derived from "
-"it and the entered discount is ignored."
+"Manually set the final line amount. When set, the discount % is derived from"
+" it and the entered discount is ignored."
 msgstr ""
 "Fija manualmente el importe final de la línea. Si se indica, el % de "
 "descuento se calcula a partir de él y el descuento introducido se ignora."
@@ -14066,10 +14058,8 @@ msgstr "Asignación"
 msgid "Carryover"
 msgstr "Arrastre"
 
-#, fuzzy
-#| msgid "Rule key"
 msgid "Rules"
-msgstr "Clave de regla"
+msgstr "Reglas"
 
 msgid "Timestamps"
 msgstr "Sellos de tiempo"
@@ -14301,7 +14291,6 @@ msgstr "No hay ausencias pasadas"
 #. Translations must be valid identifiers: ASCII letters, digits and
 #. underscores only, no accents or spaces, or the search parser can't read
 #. them and the English name is used instead.
-
 msgctxt "djangoql field"
 msgid "invoice_number"
 msgstr "numero_factura"
@@ -14692,8 +14681,264 @@ msgid ""
 "No provider found with id “%(id)s”. The import only updates existing "
 "providers, so export them first and edit that file."
 msgstr ""
-"No se ha encontrado ningún proveedor con el id «%(id)s». La importación solo "
-"actualiza proveedores existentes: expÃ³rtalos primero y edita ese archivo."
+"No se ha encontrado ningún proveedor con el id «%(id)s». La importación solo"
+" actualiza proveedores existentes: expÃ³rtalos primero y edita ese archivo."
+
+#: apps/expenses/templates/admin/expenses/expenseticket_upload.html:131
+msgid "Optional - anything worth remembering about this receipt."
+msgstr ""
+"Opcional: cualquier cosa que merezca la pena recordar sobre este ticket."
+
+#: payments/views/register_payment.py:100
+#, python-format
+msgid "Cannot pay more than the %(max)s still outstanding."
+msgstr "No se puede pagar más de los %(max)s que quedan pendientes."
+
+msgid "Payment Reminder"
+msgstr "Recordatorio de pago"
+
+msgid "Payment Reminders"
+msgstr "Recordatorios de pago"
+
+msgid "Send Payment Reminder Now"
+msgstr "Enviar recordatorio de pago ahora"
+
+msgid "Timing"
+msgstr "Programación"
+
+msgid "Exclude From Payment Reminders"
+msgstr "Excluir de los recordatorios de pago"
+
+msgid ""
+"Exclude this specific invoice from automatic payment reminders. Reminders "
+"can also be disabled entirely for this client from the client's own record."
+msgstr ""
+"Excluye esta factura concreta de los recordatorios de pago automáticos. Los "
+"recordatorios también pueden desactivarse por completo para este cliente "
+"desde su propia ficha."
+
+msgid "Send Time"
+msgstr "Hora de envío"
+
+msgid "Time of day reminders are processed for this company."
+msgstr "Hora del día a la que se procesan los recordatorios de esta empresa."
+
+msgid "Overdue Repeat (Days)"
+msgstr "Repetición tras vencimiento (días)"
+
+msgid "How often to repeat the reminder once an invoice is overdue."
+msgstr ""
+"Cada cuántos días se repite el recordatorio una vez vencida la factura."
+
+msgid "Reminder Language"
+msgstr "Idioma de los recordatorios"
+
+msgid "Language used for all payment reminder emails sent by this company."
+msgstr ""
+"Idioma de todos los correos de recordatorio de pago enviados por esta "
+"empresa."
+
+msgid "Last Run Date"
+msgstr "Última ejecución"
+
+msgid ""
+"Date this company's reminders were last processed. Prevents duplicate runs "
+"on the same day."
+msgstr ""
+"Fecha en que se procesaron por última vez los recordatorios de esta empresa."
+" Evita ejecuciones duplicadas el mismo día."
+
+msgid "Payment Reminder Settings"
+msgstr "Configuración de recordatorios de pago"
+
+msgid "Days Before Due"
+msgstr "Días antes del vencimiento"
+
+msgid "Send a reminder this many days before the invoice due date."
+msgstr ""
+"Enviar un recordatorio este número de días antes de la fecha de vencimiento "
+"de la factura."
+
+msgid "Payment Reminder Rule"
+msgstr "Regla de recordatorio de pago"
+
+msgid "Payment Reminder Rules"
+msgstr "Reglas de recordatorio de pago"
+
+msgid "days before due"
+msgstr "días antes del vencimiento"
+
+msgid ""
+"Rule that triggered this reminder. Empty for overdue recurring reminders or "
+"manual sends."
+msgstr ""
+"Regla que generó este recordatorio. Vacío en los recordatorios periódicos de"
+" facturas vencidas y en los envíos manuales."
+
+msgid "Reminder Type"
+msgstr "Tipo de recordatorio"
+
+msgid "Triggered By"
+msgstr "Originado por"
+
+msgid "Scheduled For"
+msgstr "Programado para"
+
+msgid "Date this reminder was due to be sent."
+msgstr "Fecha en la que debía enviarse este recordatorio."
+
+msgid "Batch ID"
+msgstr "ID de lote"
+
+msgid ""
+"Shared across all invoices included in the same consolidated manual reminder"
+" email. Empty for single-invoice sends."
+msgstr ""
+"Compartido por todas las facturas incluidas en el mismo correo de "
+"recordatorio manual consolidado. Vacío en los envíos de una sola factura."
+
+msgid "Payment Reminder Log"
+msgstr "Registro de recordatorio de pago"
+
+msgid "Payment Reminder Logs"
+msgstr "Registros de recordatorios de pago"
+
+msgid "Language"
+msgstr "Idioma"
+
+msgid "Cannot send reminders to this client"
+msgstr "No se pueden enviar recordatorios a este cliente"
+
+msgid "Back to invoice"
+msgstr "Volver a la factura"
+
+msgid "Send this invoice only"
+msgstr "Enviar solo esta factura"
+
+msgid "Reminder type, recipient, and language are derived from this invoice."
+msgstr ""
+"El tipo de recordatorio, el destinatario y el idioma se toman de esta "
+"factura."
+
+msgid "Cannot send this reminder"
+msgstr "No se puede enviar este recordatorio"
+
+msgid "This invoice became due %(days_count)s day(s) ago."
+msgstr "Esta factura venció hace %(days_count)s día(s)."
+
+msgid "This invoice is due in %(days_count)s day(s)."
+msgstr "Esta factura vence en %(days_count)s día(s)."
+
+msgid "Will be sent to"
+msgstr "Se enviará a"
+
+msgid "Confirm and send"
+msgstr "Confirmar y enviar"
+
+msgid "Send a consolidated reminder"
+msgstr "Enviar un recordatorio consolidado"
+
+msgid "Bundle any of this client's pending invoices into a single email."
+msgstr ""
+"Agrupa las facturas pendientes de este cliente que elijas en un único "
+"correo."
+
+msgid "Select all"
+msgstr "Seleccionar todo"
+
+msgid "Overdue %(days)sd"
+msgstr "Vencida hace %(days)s d"
+
+msgid "Due in %(days)s day(s)"
+msgstr "Vence en %(days)s día(s)"
+
+msgid "Marked"
+msgstr "Marcada como"
+
+msgid "sending anyway will override that."
+msgstr "enviarla de todas formas ignorará esa marca."
+
+msgid "selected"
+msgstr "seleccionadas"
+
+msgid "Send consolidated reminder"
+msgstr "Enviar recordatorio consolidado"
+
+msgid "No pending invoices found for this client."
+msgstr "No se han encontrado facturas pendientes de este cliente."
+
+msgid "This client is marked \"Do Not Send Payment Reminders\"."
+msgstr "Este cliente está marcado como \"No enviar recordatorios de pago\"."
+
+msgid "This client has no email address on file."
+msgstr "Este cliente no tiene ninguna dirección de correo registrada."
+
+msgid "This invoice has already been paid."
+msgstr "Esta factura ya está pagada."
+
+msgid "This invoice is marked \"Exclude From Payment Reminders\"."
+msgstr "Esta factura está marcada como \"Excluir de los recordatorios de pago\"."
+
+msgid "This invoice has no due date set."
+msgstr "Esta factura no tiene fecha de vencimiento."
+
+msgid "Payment reminder queued for %(number)s."
+msgstr "Recordatorio de pago en cola para %(number)s."
+
+msgid "Select at least one invoice to send a consolidated reminder."
+msgstr ""
+"Selecciona al menos una factura para enviar un recordatorio consolidado."
+
+msgid ""
+"None of the selected invoices are eligible (unpaid, finalized, with a due "
+"date)."
+msgstr ""
+"Ninguna de las facturas seleccionadas es apta (pendiente de pago, finalizada"
+" y con fecha de vencimiento)."
+
+msgid "Consolidated reminder queued for %(count)s invoice(s)."
+msgstr "Recordatorio consolidado en cola para %(count)s factura(s)."
+
+msgid ""
+"Controls whether this client receives automatic payment reminder emails, to "
+"which addresses, and in what language. Reminders can be turned off entirely "
+"for this client here, or for a single invoice from that invoice's own "
+"record."
+msgstr ""
+"Controla si este cliente recibe correos automáticos de recordatorio de pago,"
+" a qué direcciones y en qué idioma. Los recordatorios pueden desactivarse "
+"por completo para este cliente aquí, o para una sola factura desde la ficha "
+"de esa factura."
+
+msgid ""
+"Default language for this client's payment reminders. Leave blank to use the"
+" company's default language."
+msgstr ""
+"Idioma predeterminado de los recordatorios de pago de este cliente. Déjalo "
+"vacío para usar el idioma predeterminado de la empresa."
+
+msgid "Do Not Send Payment Reminders"
+msgstr "No enviar recordatorios de pago"
+
+msgid ""
+"Exclude all of this client's invoices from automatic payment reminders. This"
+" can also be disabled for a single invoice from that invoice's own record."
+msgstr ""
+"Excluye todas las facturas de este cliente de los recordatorios de pago "
+"automáticos. También puede desactivarse para una sola factura desde la ficha"
+" de esa factura."
+
+msgid "Payment Reminder Emails"
+msgstr "Correos para recordatorios de pago"
+
+msgid ""
+"Addresses that receive this client's payment reminder emails (e.g. their "
+"accounts payable department). Leave empty to send them to the client's main "
+"email."
+msgstr ""
+"Direcciones que reciben los correos de recordatorio de pago de este cliente "
+"(p. ej. su departamento de cuentas a pagar). Déjalo vacío para enviarlos al "
+"correo principal del cliente."
 
 #~ msgid "Configuration ID"
 #~ msgstr "Configuración"
@@ -14955,15 +15200,6 @@ msgstr ""
 
 #~ msgid "Warehouse must belong to the same company as the item."
 #~ msgstr "El almacén debe pertenecer a la misma empresa."
-
-#: apps/expenses/templates/admin/expenses/expenseticket_upload.html:131
-msgid "Optional - anything worth remembering about this receipt."
-msgstr "Opcional: cualquier cosa que merezca la pena recordar sobre este ticket."
-
-#: payments/views/register_payment.py:100
-#, python-format
-msgid "Cannot pay more than the %(max)s still outstanding."
-msgstr "No se puede pagar más de los %(max)s que quedan pendientes."
 
 #~ msgid "employees in the file could not be matched."
 #~ msgstr "No se pudieron emparejar %(counter)s empleados del archivo."

@@ -1,6 +1,7 @@
 import hashlib
 
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 from django.db.models import Max
@@ -434,6 +435,17 @@ class Client(Timestampable, CompanyOwnedModel):
         verbose_name=_("Do Not Send Payment Reminders"),
         help_text=_("Exclude all of this client's invoices from automatic payment reminders. This can also be disabled for a single invoice from that invoice's own record."),
     )
+    payment_reminder_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Payment Reminder Emails"),
+        help_text=_(
+            "Addresses that receive this client's payment reminder emails "
+            "(e.g. their accounts payable department). Leave empty to send "
+            "them to the client's main email."
+        ),
+    )
 
     our_bank_account = models.ForeignKey(
         BankAccount,
@@ -508,6 +520,16 @@ class Client(Timestampable, CompanyOwnedModel):
                     "Another client in this company already uses this tax identifier."
                 )
             })
+
+    def payment_reminder_recipients(self) -> list[str]:
+        """Where this client's payment reminders go: the configured
+        reminder emails, or the client's main email when none are set."""
+        recipients = [e.strip() for e in (self.payment_reminder_emails or []) if e and e.strip()]
+        if recipients:
+            return recipients
+        if self.email and self.email.strip():
+            return [self.email.strip()]
+        return []
 
     @property
     def terms_version(self) -> str:

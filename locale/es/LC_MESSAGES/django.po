@@ -8483,10 +8483,8 @@ msgstr ""
 "\n"
 "Estás a punto de crear una sola factura para %(count)s archivo(s) de proyecto perteneciente(s) a <strong>%(client)s</strong>."
 
-#, fuzzy
-#| msgid "Finalized (Subtotal)"
 msgid "Remaining (subtotal)"
-msgstr "Finalizadas (Subtotal)"
+msgstr "Pendiente (subtotal)"
 
 #, fuzzy
 #| msgid "Default Value"
@@ -9127,18 +9125,14 @@ msgstr "Las billeteras seleccionadas fueron recalculadas."
 msgid "No accepted quotes or direct configurations yet."
 msgstr "No se han encontrado presupuestos aceptados para este expediente."
 
-#, fuzzy
-#| msgid "Total Invoiceable"
 msgid "Total Invoiceable (subtotal)"
-msgstr "Total Facturable"
+msgstr "Total facturable (subtotal)"
 
-#, fuzzy
-#| msgid "Already Invoiced"
 msgid "Already Invoiced (subtotal)"
-msgstr "Ya facturado"
+msgstr "Ya facturado (subtotal)"
 
 msgid "invoiced"
-msgstr "Factura"
+msgstr "facturado"
 
 msgid "Color"
 msgstr "Color"
@@ -12781,10 +12775,8 @@ msgstr "Planificado"
 msgid "Accepted – missing schedule"
 msgstr "Aceptado – horario faltante"
 
-#, fuzzy
-#| msgid "In production"
 msgid "No production"
-msgstr "En producción"
+msgstr "Sin producción"
 
 #, fuzzy
 #| msgid "Not overdue"
@@ -14939,6 +14931,48 @@ msgstr ""
 "Direcciones que reciben los correos de recordatorio de pago de este cliente "
 "(p. ej. su departamento de cuentas a pagar). Déjalo vacío para enviarlos al "
 "correo principal del cliente."
+
+msgid "Progress"
+msgstr "Progreso"
+
+msgid "Ready to deliver"
+msgstr "Listo para entregar"
+
+msgid "Partially delivered"
+msgstr "Entregado parcialmente"
+
+msgid "Nothing pending"
+msgstr "Nada pendiente"
+
+msgid "Nothing to deliver"
+msgstr "Nada que entregar"
+
+msgid "Not delivered"
+msgstr "No entregado"
+
+msgid "Production done"
+msgstr "Producción terminada"
+
+msgid "Derived from the sent/delivered delivery orders of this project file."
+msgstr "Derivado de los albaranes enviados o entregados de este expediente."
+
+msgid "Derived from the production tickets of this project file."
+msgstr "Derivado de los tickets de producción de este expediente."
+
+msgid "Production Hours"
+msgstr "Horas de producción"
+
+msgid "Total worked"
+msgstr "Total trabajado"
+
+msgid "session(s)"
+msgstr "sesión(es)"
+
+msgid "session(s) currently in progress (not counted below)"
+msgstr "sesión(es) actualmente en curso (no contadas abajo)"
+
+msgid "No completed production sessions yet."
+msgstr "Todavía no hay sesiones de producción completadas."
 
 #~ msgid "Configuration ID"
 #~ msgstr "Configuración"

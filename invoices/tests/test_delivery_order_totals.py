@@ -198,6 +198,91 @@ class CreateDeliveryOrderWithBasketDiscountTests(_DeliveryOrderTestBase):
         self.assertEqual(do.total_amount.amount, Decimal("544.50"))
 
 
+class ClientTaxModeDeliveryOrderTests(_DeliveryOrderTestBase):
+    """With ``auto_apply_client_taxes`` on, the quote applies its header
+    taxes to the whole discounted subtotal, so a configuration that never
+    got AppliedTax rows of its own is still taxed on the quote. The DO must
+    tax that line the same way (production case: a 180 € configuration
+    without taxes left the DO and its invoice 37.80 € short).
+    """
+
+    def setUp(self):
+        super().setUp()
+        # 820 taxed config + 180 bare config = 1000; 10% basket discount;
+        # taxable 900; quote taxes everything at 21% → 189; total 1089.
+        self.quote = self._make_quote(
+            subtotal_price=Decimal("1000.00"),
+            discount_amount=Decimal("100.00"),
+            discounted_subtotal=Decimal("900.00"),
+            tax_amount=Decimal("189.00"),
+            total_price=Decimal("1089.00"),
+            discount_breakdown=[
+                {"rule_name": "10%", "kind": "standard", "level": "basket",
+                 "mode": "net", "percentage": "10.00",
+                 "base": "1000.00", "amount": "100.00"},
+            ],
+        )
+        self.taxed_config = self._make_config(
+            self.quote, Decimal("820.00"), Decimal("992.20")
+        )
+        self.bare_config = self._make_config(
+            self.quote, Decimal("180.00"), Decimal("180.00"), with_tax=False
+        )
+        self.items = [
+            self._config_item_data(self.taxed_config, Decimal("820.00")),
+            self._config_item_data(self.bare_config, Decimal("180.00")),
+        ]
+
+    def _enable_client_tax_mode(self, with_header_taxes=True):
+        self.company.auto_apply_client_taxes = True
+        self.company.save(update_fields=["auto_apply_client_taxes"])
+        if with_header_taxes:
+            # What ClientTaxStrategy.sync_taxes leaves on the quote header.
+            AppliedTax.objects.create(
+                content_type=self.quote_ct,
+                object_id=self.quote.pk,
+                tax_type=self.iva21,
+                selected_percentage=Decimal("21"),
+                base_amount=Decimal("900.00"),
+                calculated_amount=Decimal("189.00"),
+            )
+
+    def test_bare_config_is_taxed_like_on_the_quote(self):
+        self._enable_client_tax_mode()
+        do = self._create_do(self.items)
+        self.assertEqual(do.subtotal_amount.amount, Decimal("1000.00"))
+        self.assertEqual(do.discount_amount.amount, Decimal("100.00"))
+        self.assertEqual(do.tax_amount.amount, self.quote.tax_amount.amount)
+        self.assertEqual(do.total_amount.amount, self.quote.total_price.amount)
+        applied = do.applied_taxes.get()
+        self.assertEqual(applied.base_amount.amount, Decimal("900.00"))
+        self.assertEqual(applied.calculated_amount.amount, Decimal("189.00"))
+
+    def test_invoice_from_do_matches_quote(self):
+        self._enable_client_tax_mode()
+        do = self._create_do(self.items)
+        invoice = DeliveryOrderService.create_invoice_from_delivery_orders(
+            [do],
+            company=self.company,
+            client=self.client_obj,
+            date_issued=date(2026, 9, 15),
+        )
+        self.assertEqual(invoice.tax_amount.amount, Decimal("189.00"))
+        self.assertEqual(invoice.total_amount.amount, Decimal("1089.00"))
+
+    def test_source_mode_keeps_per_source_taxes(self):
+        # Flag off: the quote's SourceTaxStrategy only taxes sources that
+        # carry taxes, and so does the DO. 820 * 0.9 * 0.21 = 154.98.
+        do = self._create_do(self.items)
+        self.assertEqual(do.tax_amount.amount, Decimal("154.98"))
+        self.assertEqual(do.applied_taxes.get().base_amount.amount, Decimal("738.00"))
+
+    def test_client_mode_without_header_rows_falls_back_to_sources(self):
+        self._enable_client_tax_mode(with_header_taxes=False)
+        do = self._create_do(self.items)
+        self.assertEqual(do.tax_amount.amount, Decimal("154.98"))
+
+
 class FinancingDiscountOnDeliveryOrderTests(_DeliveryOrderTestBase):
 
     def setUp(self):

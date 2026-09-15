@@ -281,11 +281,12 @@ class DeliveryOrderService:
 
         line_taxes = []    # (line_total, source_taxes, quote_id, kind)
         source_lines = []
+        quote_taxes_cache: dict[int, list] = {}
 
         # Component lines carry no value; their parent does.
         for item in delivery_order.items.top_level():
             line_total = item.line_total.amount if item.line_total else Decimal("0.00")
-            source_taxes, quote_id = cls._source_taxes_and_quote(item)
+            source_taxes, quote_id = cls._source_taxes_and_quote(item, quote_taxes_cache)
             source_id = cls._build_source_id(item)
             kind = source_kind(source_id)
             source_lines.append(SourceLine(source_id, line_total, quote_id, kind))
@@ -341,10 +342,25 @@ class DeliveryOrderService:
         return delivery_order
 
     @classmethod
-    def _source_taxes_and_quote(cls, delivery_order_item):
+    def _source_taxes_and_quote(cls, delivery_order_item, quote_taxes_cache=None):
         """The AppliedTax records and owning quote id of a line's source
         object, resolved from its GenericFK. ``([], None)`` for lines with no
-        quote-side source (manual lines, direct configurations)."""
+        quote-side source (manual lines, direct configurations).
+
+        The taxes mirror how the source quote taxed the line, so the
+        delivery order (and the invoice copied from it) agrees with the
+        quote:
+
+        * Client-tax mode (``company.auto_apply_client_taxes``): the quote
+          applies its header taxes to the whole discounted subtotal, whatever
+          each source carries — a configuration without AppliedTax rows of
+          its own is still taxed there. The quote's header rows are used.
+        * Source mode: each source's own AppliedTax rows, as the quote's
+          ``SourceTaxStrategy`` does.
+
+        ``quote_taxes_cache`` memoises the per-quote header lookup across the
+        lines of one recompute.
+        """
         from configurator.models import Configuration
         from sales.models import QuoteInventoryItem
 
@@ -363,16 +379,46 @@ class DeliveryOrderService:
         else:
             return [], None
 
+        quote_id = (
+            source_model.objects.filter(pk=obj_id)
+            .values_list("quote_id", flat=True).first()
+        )
+
+        if quote_id is not None:
+            quote_taxes = cls._quote_header_taxes(quote_id, quote_taxes_cache)
+            if quote_taxes is not None:
+                return quote_taxes, quote_id
+
         source_taxes = list(
             AppliedTax.objects.filter(
                 content_type=source_ct, object_id=obj_id,
             ).select_related("tax_type")
         )
-        quote_id = (
-            source_model.objects.filter(pk=obj_id)
-            .values_list("quote_id", flat=True).first()
-        )
         return source_taxes, quote_id
+
+    @classmethod
+    def _quote_header_taxes(cls, quote_id, cache=None):
+        """The quote's own AppliedTax rows when its company taxes quotes in
+        client-tax mode; ``None`` when the per-source rows should be used
+        instead (source mode, or a quote whose header was never synced)."""
+        if cache is not None and quote_id in cache:
+            return cache[quote_id]
+
+        result = None
+        quote = Quote.objects.filter(pk=quote_id).select_related("company").first()
+        if quote is not None and quote.company_id and quote.company.auto_apply_client_taxes:
+            quote_ct = ContentType.objects.get_for_model(Quote)
+            header_taxes = list(
+                AppliedTax.objects.filter(
+                    content_type=quote_ct, object_id=quote_id,
+                ).select_related("tax_type").order_by("order", "id")
+            )
+            if header_taxes:
+                result = header_taxes
+
+        if cache is not None:
+            cache[quote_id] = result
+        return result
 
     @classmethod
     def get_invoiceable_delivery_orders(cls, project_file):

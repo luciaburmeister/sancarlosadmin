@@ -33,24 +33,39 @@ class DeliveryOrderExportStrategy(BaseExportStrategy):
             "identity_codes",
             queryset=ItemIdentityCode.objects.order_by("code"),
         )
-        for item in do.items.prefetch_related(code_prefetch):
-            # Quote-sourced items are legacy financing lines.
-            is_discount_line = item.source_content_type_id == quote_ct.id
-            if is_discount_line and item.line_total:
-                financing_discount_amount += -item.line_total.amount
-            identity_codes = [c.code for c in item.identity_codes.all()]
-            items_data.append({
-                "item_number": item.item_number,
-                "description": item.description,
-                "reference": item.reference,
-                "quantity": float(item.quantity),
-                "unit_price": float(item.unit_price.amount) if item.unit_price else 0,
-                "discount_percentage": float(item.discount_percentage),
-                "line_total": float(item.line_total.amount) if item.line_total else 0,
-                "is_discount_line": is_discount_line,
-                "identity_codes": identity_codes,
-                "has_identity_codes": bool(identity_codes),
-            })
+        # Component lines (materialised bill of materials) print right under
+        # their parent, indented by depth and without a price of their own.
+        lines = list(do.items.prefetch_related(code_prefetch).order_by("pk"))
+        children = {}
+        for line in lines:
+            children.setdefault(line.parent_line_id, []).append(line)
+
+        def walk(parent_id, depth):
+            nonlocal financing_discount_amount
+            for item in children.get(parent_id, []):
+                # Quote-sourced items are legacy financing lines.
+                is_discount_line = item.source_content_type_id == quote_ct.id
+                if is_discount_line and item.line_total:
+                    financing_discount_amount += -item.line_total.amount
+                identity_codes = [c.code for c in item.identity_codes.all()]
+                items_data.append({
+                    "item_number": item.item_number,
+                    "description": item.description,
+                    "reference": item.reference,
+                    "quantity": float(item.quantity),
+                    "unit_price": float(item.unit_price.amount) if item.unit_price else 0,
+                    "discount_percentage": float(item.discount_percentage),
+                    "line_total": float(item.line_total.amount) if item.line_total else 0,
+                    "is_discount_line": is_discount_line,
+                    "is_component": depth > 0,
+                    "depth": depth,
+                    "parent_item_number": item.parent_line.item_number if item.parent_line_id else "",
+                    "identity_codes": identity_codes,
+                    "has_identity_codes": bool(identity_codes),
+                })
+                walk(item.pk, depth + 1)
+
+        walk(None, 0)
 
         subtotal = do.subtotal_amount.amount if do.subtotal_amount else Decimal("0")
         discount = do.discount_amount.amount if do.discount_amount else Decimal("0")

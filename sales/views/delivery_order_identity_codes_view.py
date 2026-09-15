@@ -48,14 +48,7 @@ class DeliveryOrderLinkIdentityCodesView(UnfoldModelAdminViewMixin, TemplateView
             ).values("delivery_order_item").annotate(count=Count("id"))
         }
 
-        selectable_line_items = []
-        for line_item in delivery_order.items.all():
-            if line_item.inventory_item is None:
-                continue
-            selectable_line_items.append({
-                "obj": line_item,
-                "linked_count": linked_counts.get(line_item.pk, 0),
-            })
+        selectable_line_items = self._selectable_line_items(delivery_order, linked_counts)
 
         selected_line_item = next(
             (
@@ -97,6 +90,34 @@ class DeliveryOrderLinkIdentityCodesView(UnfoldModelAdminViewMixin, TemplateView
             "back_url": reverse("admin:sales_deliveryorder_change", args=[delivery_order.pk]),
         })
         return context
+
+    @staticmethod
+    def _selectable_line_items(delivery_order, linked_counts):
+        """Lines that ship an inventory item, in document order: each
+        top-level line followed by its component lines, nested ones
+        indented one level deeper."""
+        lines = list(
+            delivery_order.items.select_related("inventory_item").order_by("pk")
+        )
+        children = {}
+        for line in lines:
+            children.setdefault(line.parent_line_id, []).append(line)
+
+        entries = []
+
+        def walk(parent_id, depth):
+            for line in children.get(parent_id, []):
+                if line.inventory_item_id is not None:
+                    entries.append({
+                        "obj": line,
+                        "depth": depth,
+                        "indent": " " * depth,
+                        "linked_count": linked_counts.get(line.pk, 0),
+                    })
+                walk(line.pk, depth + 1)
+
+        walk(None, 0)
+        return entries
 
     def post(self, request, delivery_order_id):
         delivery_order = get_object_or_404(DeliveryOrder, pk=delivery_order_id)

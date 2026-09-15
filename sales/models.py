@@ -1875,7 +1875,22 @@ class DeliveryOrderDocument(BaseDocument):
         super().save(*args, **kwargs)
 
 
+class DeliveryOrderItemQuerySet(models.QuerySet):
+    """A delivery order holds two kinds of lines: the lines it ships and
+    sells (top level) and the component lines materialised from their bills
+    of materials. Totals, invoicing and delivery tracking only look at the
+    former; codes can be linked to both."""
+
+    def top_level(self):
+        return self.filter(parent_line__isnull=True)
+
+    def components(self):
+        return self.filter(parent_line__isnull=False)
+
+
 class DeliveryOrderItem(Timestampable):
+    objects = DeliveryOrderItemQuerySet.as_manager()
+
     delivery_order = models.ForeignKey(
         DeliveryOrder,
         on_delete=models.CASCADE,
@@ -1950,6 +1965,36 @@ class DeliveryOrderItem(Timestampable):
         help_text=_("Item reference code. Auto-filled from source when applicable."),
     )
 
+    # The stock item this line ships. Filled from the quote line for
+    # quote-sourced lines, picked directly for manual product lines, and set
+    # by the BOM explosion for component lines.
+    inventory_item = models.ForeignKey(
+        "inventory.InventoryItem",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="delivery_order_lines",
+        verbose_name=_("Inventory Item"),
+        help_text=_(
+            "Product shipped by this line. Picking one on a new line fills the "
+            "description, reference and price from the item and lists its "
+            "components underneath."
+        ),
+    )
+    parent_line = models.ForeignKey(
+        "self",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="component_lines",
+        verbose_name=_("Component of"),
+        help_text=_(
+            "Set on lines that materialise a component of another line's "
+            "bill of materials. Component lines carry no price and no stock "
+            "movement of their own."
+        ),
+    )
+
     stock_deducted = models.BooleanField(
         default=False,
         editable=False,
@@ -1971,9 +2016,21 @@ class DeliveryOrderItem(Timestampable):
             ),
         ]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # A quantity change on a parent line re-sizes its component lines.
+        self._original_quantity = (
+            None if "quantity" in self.get_deferred_fields() else self.quantity
+        )
+
+    @property
+    def is_component(self) -> bool:
+        return self.parent_line_id is not None
+
     @transaction.atomic
     def save(self, *args, **kwargs):
         is_new = self.pk is None
+        self._fill_from_inventory_item(is_new)
         self.discount_amount = (self.unit_price * self.quantity) * (self.discount_percentage / Decimal("100"))
         self.line_total = (self.unit_price * self.quantity) - self.discount_amount
         if not self.item_number and self.delivery_order_id:
@@ -1995,19 +2052,108 @@ class DeliveryOrderItem(Timestampable):
 
         if is_new:
             self._deduct_inventory()
+        if is_new or self.quantity != self._original_quantity:
+            self._sync_component_lines()
+        self._original_quantity = self.quantity
+
+    def _fill_from_inventory_item(self, is_new):
+        """Resolve the inventory item behind this line and complete the line
+        from it.
+
+        Quote-sourced lines take the item from their quote line. A brand-new
+        line with an item but no description, reference or price (a product
+        picked by hand in the admin) is completed from the item; component
+        lines are created fully specified and priced at zero on purpose.
+        """
+        if self.inventory_item_id is None:
+            source = self.source_object
+            if isinstance(source, QuoteInventoryItem):
+                self.inventory_item_id = source.inventory_item_id
+
+        if not is_new or self.inventory_item_id is None:
+            return
+        item = self.inventory_item
+        if not self.description:
+            self.description = item.name
+        if not self.reference:
+            self.reference = item.code
+        price = getattr(self.unit_price, "amount", self.unit_price)
+        if (
+            not self.is_component
+            and self.source_content_type_id is None
+            and not price
+            and item.selling_price
+            and item.selling_price.amount
+        ):
+            self.unit_price = item.selling_price
+
+    # ── Component lines (bill of materials) ─────────────────────────────
+
+    def ancestor_lines(self):
+        """Parent, grandparent, … of this line, nearest first."""
+        chain = []
+        line = self
+        while line.parent_line_id is not None:
+            line = line.parent_line
+            chain.append(line)
+        return chain
 
     @property
-    def inventory_item(self):
-        """The InventoryItem this line takes out of stock, when it has one.
+    def depth(self) -> int:
+        """0 for a top-level line, 1 for its components, and so on."""
+        return len(self.ancestor_lines())
 
-        Only inventory-sourced lines carry one; configuration lines are
-        produced (their components are consumed in production) and
-        materialized discount lines have no goods at all.
+    def _sync_component_lines(self):
+        """Mirror this line's bill of materials as component lines.
+
+        One component line per BOM component, with quantity = BOM quantity ×
+        this line's quantity, priced at zero (the parent carries the value).
+        Each component line runs the same sync on save, so nested BOMs
+        become nested lines. Existing component lines are re-sized rather
+        than recreated, so codes already linked to them are kept; components
+        no longer in the BOM are removed.
+
+        An item already present higher up the chain is skipped, which is
+        what stops a circular BOM from recursing forever.
         """
-        source = self.source_object
-        if isinstance(source, QuoteInventoryItem):
-            return source.inventory_item
-        return None
+        item = self.inventory_item
+        if item is None:
+            return
+
+        path = {line.inventory_item_id for line in self.ancestor_lines()}
+        path.add(item.pk)
+
+        existing = {
+            line.inventory_item_id: line
+            for line in self.component_lines.all()
+        }
+        kept = set()
+        for bom_line in item.bom_lines.select_related("component"):
+            component = bom_line.component
+            if component.pk in path:
+                continue
+            quantity = Decimal(bom_line.quantity) * self.quantity
+            child = existing.get(component.pk)
+            if child is None:
+                DeliveryOrderItem.objects.create(
+                    delivery_order=self.delivery_order,
+                    parent_line=self,
+                    inventory_item=component,
+                    description=component.name,
+                    reference=component.code,
+                    quantity=quantity,
+                    unit_price=Decimal("0"),
+                )
+            elif child.quantity != quantity:
+                child.quantity = quantity
+                child.save()
+            kept.add(component.pk)
+
+        for component_id, child in existing.items():
+            if component_id not in kept:
+                child.delete()
+
+    # ── Stock ───────────────────────────────────────────────────────────
 
     def _deduct_inventory(self):
         """Create the stock-out ItemTransaction for this delivery line.
@@ -2015,11 +2161,14 @@ class DeliveryOrderItem(Timestampable):
         Putting an item on a delivery order is the point where it physically
         leaves the warehouse, so this is where stock is subtracted (BOM
         components included). A no-op when this line's stock is already out.
+
+        Component lines never move stock themselves: the parent's BOM
+        cascade already took their goods out.
         """
         from inventory.choices import ItemType, MovementType
         from inventory.models import ItemTransaction
 
-        if self.stock_deducted:
+        if self.stock_deducted or self.is_component:
             return
 
         item = self.inventory_item

@@ -259,7 +259,7 @@
                         <option value="">{% trans "— Select a line item —" %}</option>
                         {% for line in line_items %}
                         <option value="{{ line.obj.pk }}" {% if selected_line_item.pk == line.obj.pk %}selected{% endif %}>
-                            {{ line.obj }} — {{ line.linked_count }}/{{ line.obj.quantity|floatformat:0 }} {% trans "linked" %}
+                            {{ line.indent }}{% if line.depth %}↳ {% endif %}{{ line.obj }} — {{ line.linked_count }}/{{ line.obj.quantity|floatformat:0 }} {% trans "linked" %}
                         </option>
                         {% endfor %}
                     </select>

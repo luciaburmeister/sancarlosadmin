@@ -282,7 +282,8 @@ class DeliveryOrderService:
         line_taxes = []    # (line_total, source_taxes, quote_id, kind)
         source_lines = []
 
-        for item in delivery_order.items.all():
+        # Component lines carry no value; their parent does.
+        for item in delivery_order.items.top_level():
             line_total = item.line_total.amount if item.line_total else Decimal("0.00")
             source_taxes, quote_id = cls._source_taxes_and_quote(item)
             source_id = cls._build_source_id(item)
@@ -401,8 +402,9 @@ class DeliveryOrderService:
         """
         Creates a SalesInvoice from one or more DeliveryOrders.
 
-        Each delivery order item becomes an invoice line item and the
-        delivery order's header discount is copied as the invoice's.
+        Each top-level delivery order item becomes an invoice line item
+        (component lines are skipped) and the delivery order's header
+        discount is copied as the invoice's.
         Taxes are copied from the source objects' AppliedTax records.
 
         Args:
@@ -456,7 +458,9 @@ class DeliveryOrderService:
             # resolve taxes from the source objects.
             self_contained = cls._is_self_contained(do)
 
-            for item in do.items.all():
+            # Component lines are not billable: the parent line carries the
+            # price, so they stay on the delivery order only.
+            for item in do.items.top_level():
                 source_id = cls._build_source_id(item)
 
                 inv_item = SalesInvoiceItem.objects.create(

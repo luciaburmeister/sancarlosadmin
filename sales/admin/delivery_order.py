@@ -132,13 +132,19 @@ class DeliveryOrderAppliedTaxInline(GenericTabularInline):
 
 
 class DeliveryOrderItemInline(StackedInline):
+    """The order's own lines. Component lines (materialised bill of
+    materials) are derived from these and listed read-only in
+    DeliveryOrderComponentInline."""
+
     model = DeliveryOrderItem
     extra = 0
     tab = True
     name = _("Items")
+    autocomplete_fields = ["inventory_item"]
     fieldsets = (
         (None, {
             "fields": (
+                ("inventory_item", "components_display"),
                 ("item_number", "description", "reference"),
                 ("quantity", "unit_price"),
                 ("discount_percentage", "line_total"),
@@ -146,7 +152,80 @@ class DeliveryOrderItemInline(StackedInline):
             )
         }),
     )
-    readonly_fields = ["item_number", "line_total","source_object"]
+    readonly_fields = ["item_number", "line_total", "source_object", "components_display"]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).top_level()
+
+    @display(description=_("Components"))
+    def components_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        count = obj.component_lines.count()
+        if not count:
+            return "—"
+        return _("%(count)d component line(s), see the Components tab") % {"count": count}
+
+
+class DeliveryOrderComponentInline(TabularInline):
+    """Read-only view of the component lines exploded from each parent
+    line's bill of materials. They are re-derived whenever a parent line's
+    quantity changes; codes are linked to them from "Link Item Codes"."""
+
+    model = DeliveryOrderItem
+    extra = 0
+    max_num = 0
+    can_delete = False
+    tab = True
+    verbose_name = _("Component")
+    verbose_name_plural = _("Components")
+    fields = ("component_display", "parent_display", "reference", "quantity", "codes_display")
+    readonly_fields = fields
+
+    def get_queryset(self, request):
+        return (
+            super().get_queryset(request)
+            .components()
+            .select_related("inventory_item", "parent_line")
+            .order_by("pk")
+        )
+
+    def get_formset(self, request, obj=None, **kwargs):
+        # Same model and FK as DeliveryOrderItemInline: keep the formset
+        # prefixes apart so the two do not share one management form.
+        formset = super().get_formset(request, obj, **kwargs)
+        base_prefix = formset.get_default_prefix()
+
+        class PrefixedFormSet(formset):
+            @classmethod
+            def get_default_prefix(cls):
+                return f"{base_prefix}-components"
+
+        return PrefixedFormSet
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @display(description=_("Component"))
+    def component_display(self, obj):
+        indent = " " * max(obj.depth - 1, 0)
+        return f"{indent}↳ {obj.description}"
+
+    @display(description=_("Component of"))
+    def parent_display(self, obj):
+        parent = obj.parent_line
+        return f"{parent.item_number} {parent.description}" if parent else "—"
+
+    @display(description=_("Codes"))
+    def codes_display(self, obj):
+        linked = obj.identity_codes.count()
+        return f"{linked}/{obj.quantity.normalize():f}"
 
 
 @admin.register(DeliveryOrder)
@@ -155,7 +234,14 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_filter = [ ("status",MultipleChoicesDropdownFilter), ("date",RangeDateFilter)]
     search_fields = ["number", "external_id", "client__name", "shipment_number", "shipping_agency__name"]
     autocomplete_fields = ["company", "client", "sales_invoice", "configuration", "project_file", "shipping_agency"]
-    inlines = [DeliveryOrderItemInline, DeliveryOrderAppliedTaxInline, DeliveryOrderIdentityCodeInline, DeliveryOrderDocumentInline, EmailLogInline]
+    inlines = [
+        DeliveryOrderItemInline,
+        DeliveryOrderComponentInline,
+        DeliveryOrderAppliedTaxInline,
+        DeliveryOrderIdentityCodeInline,
+        DeliveryOrderDocumentInline,
+        EmailLogInline,
+    ]
     readonly_fields = ["number", "date", "subtotal_amount", "discount_amount", "tax_amount", "total_amount"]
     list_filter_submit = True
 
@@ -352,8 +438,8 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
 @admin.register(DeliveryOrderItem)
 class DeliveryOrderItemAdmin(ModelAdmin):
-    list_display = ["item_number", "description", "quantity", "delivery_order"]
-    search_fields = ["item_number", "description", "delivery_order__number"]
-    autocomplete_fields = ["delivery_order"]
+    list_display = ["item_number", "description", "quantity", "inventory_item", "parent_line", "delivery_order"]
+    search_fields = ["item_number", "description", "delivery_order__number", "inventory_item__code"]
+    autocomplete_fields = ["delivery_order", "inventory_item", "parent_line"]
     readonly_fields = ["item_number", "line_total"]
     inlines = [IdentityCodeDeliveryInline]

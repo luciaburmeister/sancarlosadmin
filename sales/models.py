@@ -184,7 +184,7 @@ class ClientAddress(CompanyOwnedModel):
         verbose_name_plural = _("Client Addresses")
 
     def __str__(self):
-        return f"{self.get_address_type_display()}: {self.street}, {self.city}"
+        return f"{self.get_address_type_display()}: {self.formatted}"
 
     @property
     def formatted(self):

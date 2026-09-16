@@ -64,6 +64,7 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             item_dict = {
                 "id": item.id,
                 "description": item.description,
+                "reference": item.reference,
                 "quote_name": item.quote_name,
                 "quote_id": self._quote_id_from_source(item.source_id),
                 "quantity": float(item.quantity) if item.quantity else 0,

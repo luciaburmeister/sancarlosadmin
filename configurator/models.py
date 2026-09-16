@@ -151,11 +151,24 @@ class ProductTemplate(CompanyOwnedModel):
             "unit_price = subtotal / variable_value. Leave blank to disable."
         ),
     )
+    is_labor_hours_template = models.BooleanField(
+        default=False,
+        verbose_name=_("Labor hours template"),
+        help_text=_(
+            "If enabled, Configurations built from this template are treated as billed "
+            "labor hours: their 'units' value is summed as billed hours per expediente "
+            "and compared against real worked hours (from production sessions) in the "
+            "labor hours margin dashboard."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Product template")
         verbose_name_plural = _("Product templates")
-        permissions = [("configure_stage_resources", _("Configure stage resources"))]
+        permissions = [
+            ("configure_stage_resources", _("Configure stage resources")),
+            ("labor_hours_margin_dashboard", _("Can view Labor Hours Margin Dashboard")),
+        ]
         indexes = [
             models.Index(fields=["show_in_configurator","company"]),
         ]
@@ -216,6 +229,7 @@ class ProductTemplate(CompanyOwnedModel):
                 description=self.description,
                 production_stages=list(self.production_stages or []),
                 image=self.image,
+                is_labor_hours_template=self.is_labor_hours_template,
             )
 
             self._clone_parameters(product_copy)

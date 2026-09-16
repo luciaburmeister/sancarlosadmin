@@ -494,6 +494,14 @@ UNFOLD = {
                         ),
                     },
                     {
+                        "title": _("Labor Hours Margin Dashboard"),
+                        "icon": "timer",
+                        "link": reverse_lazy("admin:configurator_producttemplate_labor_hours_margin_dashboard"),
+                        "permission": lambda request: request.user.has_perm(
+                            "configurator.labor_hours_margin_dashboard"
+                        ),
+                    },
+                    {
                         "title": _("Accounts Payable"),
                         "icon": "account_balance_wallet",
                         "link": reverse_lazy("admin:invoices_invoice_accounts_payable"),

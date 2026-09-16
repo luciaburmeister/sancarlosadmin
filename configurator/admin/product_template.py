@@ -17,6 +17,7 @@ from django.urls import path, reverse
 from django.http import HttpResponse
 from configurator.views.product_template.product_template_resources_view import ProductTemplateResourcesView
 from configurator.views.product_template.import_planning_view import ImportPlanningView
+from configurator.views.product_template.labor_hours_margin_dashboard_view import LaborHoursMarginDashboardView
 from production.views.product_stage_report_view import ProductStageReportView
 from configurator.resources.planning_export import export_planning_xlsx
 from invoices.models import AppliedTax
@@ -183,13 +184,14 @@ class ProductTemplateComponentGroupInline(StackedInline):
 
 @admin.register(ProductTemplate)
 class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
-    list_display = ("id", "name", "flow_kind", "company", "show_in_configurator", "planning_configured_badge", "planning_configure_link")
+    list_display = ("id", "name", "flow_kind", "company", "show_in_configurator", "is_labor_hours_template", "planning_configured_badge", "planning_configure_link")
     list_filter = (
         ("company", AutocompleteSelectMultipleFilter),
         ("flow_kind", ChoicesDropdownFilter),
         ("show_in_configurator", BooleanRadioFilter),
         ("production_planning_configured", BooleanRadioFilter),
         ("exclude_from_invoicing", BooleanRadioFilter),
+        ("is_labor_hours_template", BooleanRadioFilter),
     )
     list_filter_submit = True
     search_fields = ("name", "description")
@@ -210,7 +212,7 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
 
     fieldsets = (
         (_("Product Template"), {
-            "fields": (("name", "image"), "description", ("production_stages", "parameter_group_options"), ("flow_kind", "unit_price_variable"), ("allow_production_without_accepted_quote", "allow_parameter_values_edit_in_any_status"), "exclude_from_invoicing"),
+            "fields": (("name", "image"), "description", ("production_stages", "parameter_group_options"), ("flow_kind", "unit_price_variable"), ("allow_production_without_accepted_quote", "allow_parameter_values_edit_in_any_status"), ("exclude_from_invoicing", "is_labor_hours_template")),
         })
         ,(_("Ownership"), {
             "fields": ("company",),
@@ -298,9 +300,13 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
         import_planning_view = self.admin_site.admin_view(
             ImportPlanningView.as_view(model_admin=self)
         )
+        labor_hours_margin_dashboard_view = self.admin_site.admin_view(
+            LaborHoursMarginDashboardView.as_view(model_admin=self)
+        )
 
         return [
             path("<int:pk>/planning/", planning_view, name="configurator_producttemplate_planning"),
             path("stage-report/", stage_report_view, name="configurator_producttemplate_stage_report"),
             path("import-planning/", import_planning_view, name="configurator_producttemplate_import_planning"),
+            path("dashboard/labor-hours-margin/", labor_hours_margin_dashboard_view, name="configurator_producttemplate_labor_hours_margin_dashboard"),
         ] + urls

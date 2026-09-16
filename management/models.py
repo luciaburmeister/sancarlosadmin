@@ -1,8 +1,9 @@
+from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.db import models
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, F, ExpressionWrapper, DurationField
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -14,6 +15,20 @@ from company.models import CompanyOwnedModel
 from timestamps.models import Timestampable
 from sales.models import Client
 from management.services import ProjectFileService
+
+@dataclass(frozen=True)
+class LaborHoursMarginSummary:
+    """Billed labor hours vs. real hours worked on a ProjectFile, and the resulting margin."""
+
+    billed_hours: Decimal
+    billed_amount: Decimal
+    real_hours: Decimal
+    gap_hours: Decimal
+    extra_margin: Decimal
+    deviation_pct: Decimal
+    has_labor_configs: bool
+    open_sessions: int
+
 
 class ProjectFileStatus(models.TextChoices):
     NEW = "new", _("New")
@@ -242,6 +257,90 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
             "employees": employee_entries,
             "open_sessions": open_sessions,
         }
+
+    def labor_hours_margin_summary(self):
+        """Billed labor hours (from labor-flagged Configurations) vs. real hours
+        worked (all production sessions on this project file), and the resulting
+        extra margin. Real hours are NOT filtered by the labor-hours flag -- real
+        labor can happen on tickets not billed as a dedicated labor line.
+        """
+        from django.db.models.functions import Coalesce
+        from configurator.models import Configuration, ConfigurationStatus
+
+        billed = (
+            Configuration.objects.filter(
+                product__is_labor_hours_template=True,
+                status__in=[
+                    ConfigurationStatus.SHOP,
+                    ConfigurationStatus.COMPLETED,
+                    ConfigurationStatus.CONVERTED,
+                    ConfigurationStatus.PRODUCTION_DONE,
+                ],
+            )
+            .annotate(resolved_project_file_id=Coalesce("quote__project_file_id", "project_file_id"))
+            .filter(resolved_project_file_id=self.pk)
+            .aggregate(billed_hours=Sum("units"), billed_amount=Sum("subtotal_price"))
+        )
+        billed_hours = billed["billed_hours"] or Decimal("0")
+        billed_amount = billed["billed_amount"] or Decimal("0")
+        if hasattr(billed_amount, "amount"):
+            billed_amount = billed_amount.amount
+
+        hours_summary = self.production_hours_summary()
+        real_hours = Decimal(hours_summary["total_seconds"]) / Decimal(3600)
+
+        gap_hours = billed_hours - real_hours
+        hourly_rate = (billed_amount / billed_hours) if billed_hours else Decimal("0")
+        extra_margin = gap_hours * hourly_rate
+        deviation_pct = (gap_hours / billed_hours * 100) if billed_hours else Decimal("0")
+
+        return LaborHoursMarginSummary(
+            billed_hours=billed_hours,
+            billed_amount=billed_amount,
+            real_hours=real_hours,
+            gap_hours=gap_hours,
+            extra_margin=extra_margin,
+            deviation_pct=deviation_pct,
+            has_labor_configs=billed_hours > 0,
+            open_sessions=hours_summary["open_sessions"],
+        )
+
+    def production_tickets_summary(self):
+        """Every production ticket linked to this project file -- direct FK or,
+        for legacy tickets, resolved through the Configuration's quote -- each
+        with the hours worked on it (from its own completed sessions).
+        Tickets with zero sessions still appear, at 0h.
+        """
+        from configurator.models import Configuration
+        from production.models import ProductionItemSession, ProductionTicket
+
+        config_ct = ContentType.objects.get_for_model(Configuration)
+        fallback_config_ids = Configuration.objects.filter(quote__project_file=self).values_list("id", flat=True)
+        tickets = list(
+            ProductionTicket.objects.filter(
+                Q(project_file=self)
+                | Q(project_file__isnull=True, content_type=config_ct, object_id__in=fallback_config_ids)
+            ).order_by("-created_at")
+        )
+
+        seconds_by_ticket = dict(
+            ProductionItemSession.objects.completed()
+            .filter(production_item__ticket_id__in=[t.id for t in tickets])
+            .values("production_item__ticket_id")
+            .annotate(total=Sum(ExpressionWrapper(F("end_time") - F("start_time"), output_field=DurationField())))
+            .values_list("production_item__ticket_id", "total")
+        )
+
+        return [
+            {
+                "ticket": ticket,
+                "worked_hours": (
+                    Decimal(seconds_by_ticket[ticket.id].total_seconds()) / Decimal(3600)
+                    if ticket.id in seconds_by_ticket else Decimal("0")
+                ),
+            }
+            for ticket in tickets
+        ]
 
     def recalculate_total_amount(self):
         """

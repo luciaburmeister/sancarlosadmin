@@ -1,7 +1,7 @@
 from unfold.admin import GenericStackedInline
 from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.contrib.filters.admin.dropdown_filters import MultipleChoicesDropdownFilter
-from unfold.contrib.inlines.admin import NonrelatedTabularInline
+from unfold.contrib.inlines.admin import NonrelatedStackedInline, NonrelatedTabularInline
 
 from decimal import Decimal
 from djmoney.money import Money
@@ -341,6 +341,136 @@ class CostEntryInline(ProjectFileEntryInlineMixin, TabularInline):
     readonly_fields = ["total_price", "source_link", "movement_link"]
 
 
+class LaborHoursMarginInline(NonrelatedStackedInline):
+    """Read-only top-level tab: billed-vs-worked labor margin summary plus the
+    expediente's production tickets. Backed by the ProjectFile itself as its
+    own single "row" -- there's no separate related model for this content,
+    and NonrelatedStackedInline doesn't require a real FK to the parent, so
+    this is the only way to get a genuine top-level tab (alongside Quotes,
+    Production, etc.) for computed/derived content instead of nesting it
+    inside the General tab's fieldset area.
+    """
+    model = ProjectFile
+    tab = True
+    # This Unfold version doesn't read tab_title -- the tab label comes from
+    # the inline's own verbose_name(_plural), which would otherwise be
+    # "Project File(s)" since this inline is (necessarily) self-referencing.
+    verbose_name = _("Labor Hours Margin")
+    verbose_name_plural = _("Labor Hours Margin")
+    extra = 0
+    max_num = 1
+    can_delete = False
+    fields = ["labor_hours_margin_summary_display", "production_tickets_summary_display"]
+    readonly_fields = ["labor_hours_margin_summary_display", "production_tickets_summary_display"]
+
+    def get_form_queryset(self, obj):
+        return ProjectFile.objects.filter(pk=obj.pk)
+
+    def save_new_instance(self, parent, instance):
+        pass
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    @admin.display(description=_("Labor Hours Margin"))
+    def labor_hours_margin_summary_display(self, obj):
+        """Billed labor hours vs. real hours worked, and the gap."""
+        if not obj.pk:
+            return "—"
+
+        summary = obj.labor_hours_margin_summary()
+        if not summary.has_labor_configs:
+            return format_html(
+                '<span style="color: #6b7280;">{}</span>',
+                _("No labor-hours configurations on this project file."),
+            )
+
+        billed_hours = summary.billed_hours
+        real_hours = summary.real_hours
+        gap_hours = summary.gap_hours
+        extra_margin = summary.extra_margin
+        deviation_pct = summary.deviation_pct
+
+        # Real Hours, Margin, and Deviation share one neutral color -- kept
+        # uniform on purpose, not colored by sign (green/red), so the row
+        # reads as one consistent system rather than three different signals.
+        uniform_bg, uniform_label_color, uniform_value_color = "#eff6ff", "#2563eb", "#1d4ed8"
+
+        html = f"""
+        <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; max-width: 760px;">
+            <div style="background: #f9fafb; border-radius: 8px; padding: 12px; text-align: center;">
+                <div style="font-size: 11px; color: #6b7280; margin-bottom: 4px;">{_("Billed Hours")}</div>
+                <div style="font-size: 18px; font-weight: 700; color: #111827;">{billed_hours:.2f} h</div>
+            </div>
+            <div style="background: {uniform_bg}; border-radius: 8px; padding: 12px; text-align: center;">
+                <div style="font-size: 11px; color: {uniform_label_color}; margin-bottom: 4px;">{_("Real Hours Worked")}</div>
+                <div style="font-size: 18px; font-weight: 700; color: {uniform_value_color};">{real_hours:.2f} h</div>
+            </div>
+            <div style="background: {uniform_bg}; border-radius: 8px; padding: 12px; text-align: center;">
+                <div style="font-size: 11px; color: {uniform_label_color}; margin-bottom: 4px;">{_("Extra Margin")}</div>
+                <div style="font-size: 18px; font-weight: 700; color: {uniform_value_color};">{gap_hours:.2f} h · {extra_margin:.2f} €</div>
+            </div>
+            <div style="background: {uniform_bg}; border-radius: 8px; padding: 12px; text-align: center;">
+                <div style="font-size: 11px; color: {uniform_label_color}; margin-bottom: 4px;">{_("% Deviation")}</div>
+                <div style="font-size: 18px; font-weight: 700; color: {uniform_value_color};">{deviation_pct:.1f}%</div>
+            </div>
+        </div>
+        """
+        return format_html(html)
+
+    @admin.display(description=_("Production Hours"))
+    def production_tickets_summary_display(self, obj):
+        """Every production ticket on this expediente, with hours worked,
+        linking to each ticket's own page."""
+        if not obj.pk:
+            return "—"
+
+        tickets = obj.production_tickets_summary()
+        if not tickets:
+            return format_html(
+                '<span style="color: #6b7280;">{}</span>',
+                _("No production tickets on this project file."),
+            )
+
+        rows = format_html_join(
+            "",
+            '<tr>'
+            '<td style="padding: 6px 12px 6px 0;"><a href="{}">{}</a></td>'
+            '<td style="padding: 6px 12px;">{}</td>'
+            '<td style="padding: 6px 12px;">{}</td>'
+            '<td style="padding: 6px 0 6px 12px; text-align: right;">{}</td>'
+            '</tr>',
+            (
+                (
+                    reverse("admin:production_productionticket_change", args=[entry["ticket"].pk]),
+                    f"Ticket #{entry['ticket'].pk}",
+                    entry["ticket"].last_stage_label or "—",
+                    entry["ticket"].get_status_display(),
+                    f"{entry['worked_hours']:.2f} h",
+                )
+                for entry in tickets
+            ),
+        )
+
+        return format_html(
+            '<table style="width: 100%; max-width: 760px; font-size: 13px; color: #374151; border-collapse: collapse;">'
+            '<thead><tr style="text-align: left; color: #6b7280; font-size: 11px;">'
+            '<th style="padding: 0 12px 6px 0;">{}</th><th style="padding: 0 12px 6px;">{}</th>'
+            '<th style="padding: 0 12px 6px;">{}</th><th style="padding: 0 0 6px 12px; text-align: right;">{}</th>'
+            '</tr></thead>'
+            '<tbody>{}</tbody>'
+            '</table>',
+            _("Ticket"), _("Last Stage"), _("Status"), _("Hours"),
+            rows,
+        )
+
+
 @admin.register(ProjectFile)
 class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     resource_classes = [ProjectFileResource]
@@ -369,6 +499,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         CostEntryInline,
         SalesInvoicesInline,
         ProductionTicketInline,
+        LaborHoursMarginInline,
         DeliveryOrderInline,
         PurchaseOrderInline,
         PurchaseInvoiceInline,

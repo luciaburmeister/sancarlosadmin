@@ -1,0 +1,358 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="{% url 'admin:jsi18n' %}"></script>
+{{ filter_form.media }}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --lm-bg: #f8fafc;
+    --lm-card: #ffffff;
+    --lm-border: #e2e8f0;
+    --lm-text: #0f172a;
+    --lm-text-sub: #64748b;
+    --lm-indigo-500: #6366f1;
+    --lm-indigo-600: #4f46e5;
+    --lm-blue-500: #3b82f6;
+    --lm-red-500: #ef4444;
+    --lm-amber-500: #f59e0b;
+    --lm-emerald-500: #10b981;
+    --lm-shadow: 0 1px 3px rgba(0, 0, 0, .06), 0 1px 2px rgba(0, 0, 0, .04);
+    --lm-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, .07), 0 4px 6px -4px rgba(0, 0, 0, .05);
+  }
+
+  .dark {
+    --lm-bg: #0f172a;
+    --lm-card: #1e293b;
+    --lm-border: #334155;
+    --lm-text: #f1f5f9;
+    --lm-text-sub: #94a3b8;
+    --lm-shadow: 0 1px 3px rgba(0, 0, 0, .3);
+    --lm-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, .4);
+  }
+
+  .lm-wrap { font-family: 'Inter', system-ui, sans-serif; color: var(--lm-text); padding: 24px; max-width: 1400px; margin: 0 auto; }
+  .lm-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 28px; }
+  .lm-title { font-size: 1.75rem; font-weight: 800; letter-spacing: -.02em; }
+  .lm-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .lm-select { font-family: inherit; font-size: .875rem; padding: 8px 14px; border: 1px solid var(--lm-border); border-radius: 10px; background: var(--lm-card); color: var(--lm-text); outline: none; }
+  .lm-search { font-family: inherit; font-size: .875rem; padding: 8px 14px; border: 1px solid var(--lm-border); border-radius: 10px; background: var(--lm-card); color: var(--lm-text); outline: none; width: 220px; }
+  .lm-search:focus { border-color: var(--lm-indigo-500); box-shadow: 0 0 0 3px rgba(99, 102, 241, .15); }
+  .lm-filters .relative.w-full.max-w-2xl { width: auto; max-width: none; min-width: 0; }
+  .lm-filters input.vDateField { width: 160px; min-width: 0; max-width: none; }
+  .lm-filter-label { font-size: .78rem; font-weight: 600; color: var(--lm-text-sub); }
+  .lm-btn { font-family: inherit; font-size: .875rem; font-weight: 600; padding: 8px 20px; border: none; border-radius: 10px; background: linear-gradient(135deg, var(--lm-indigo-500), var(--lm-indigo-600)); color: #fff; cursor: pointer; }
+  .lm-link { color: var(--lm-indigo-600); text-decoration: none; font-weight: 600; font-size: .85rem; }
+  .lm-link:hover { text-decoration: underline; }
+
+  .lm-kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin-bottom: 24px; }
+  @media(max-width:1100px) { .lm-kpi-grid { grid-template-columns: repeat(3, 1fr); } }
+  @media(max-width:700px) { .lm-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media(max-width:480px) { .lm-kpi-grid { grid-template-columns: 1fr; } }
+  .lm-kpi { background: var(--lm-card); border: 1px solid var(--lm-border); border-radius: 14px; padding: 20px 22px; box-shadow: var(--lm-shadow); position: relative; overflow: hidden; }
+  .lm-kpi-label { font-size: .78rem; font-weight: 500; color: var(--lm-text-sub); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .lm-kpi-value { font-size: 1.55rem; font-weight: 800; letter-spacing: -.01em; }
+  .lm-kpi--indigo .lm-kpi-value { color: var(--lm-indigo-500); }
+  .lm-kpi--blue .lm-kpi-value { color: var(--lm-blue-500); }
+  .lm-kpi--red .lm-kpi-value { color: var(--lm-red-500); }
+  .lm-kpi--amber .lm-kpi-value { color: var(--lm-amber-500); }
+  .lm-kpi--emerald .lm-kpi-value { color: var(--lm-emerald-500); }
+
+  .lm-chart-wrap { background: var(--lm-card); border: 1px solid var(--lm-border); border-radius: 14px; box-shadow: var(--lm-shadow); padding: 20px 22px; margin-bottom: 24px; }
+  .lm-chart-title { font-size: 1rem; font-weight: 700; margin: 0 0 4px; }
+  .lm-chart-subtitle { font-size: .78rem; color: var(--lm-text-sub); margin: 0 0 16px; }
+
+  .lm-table-wrap { background: var(--lm-card); border: 1px solid var(--lm-border); border-radius: 14px; box-shadow: var(--lm-shadow); overflow: hidden; margin-bottom: 24px; }
+  .lm-table-header { padding: 18px 22px; border-bottom: 1px solid var(--lm-border); }
+  .lm-table-header h3 { font-size: 1rem; font-weight: 700; margin: 0; }
+  .lm-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  .lm-table thead th { padding: 12px 16px; text-align: left; font-weight: 600; font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; color: var(--lm-text-sub); border-bottom: 1px solid var(--lm-border); background: var(--lm-bg); }
+  .lm-table tbody tr:hover { background: rgba(99, 102, 241, .06); }
+  .lm-table tbody td { padding: 12px 16px; border-bottom: 1px solid var(--lm-border); vertical-align: middle; }
+  .lm-table tbody tr:last-child td { border-bottom: none; }
+  .lm-table td.lm-num { text-align: right; font-variant-numeric: tabular-nums; }
+  /* Billed > real hours is extra margin (good, green). Real > billed means
+     more was worked than charged -- undercharged (concerning, red). */
+  .lm-margin-positive { color: #15803d; font-weight: 700; }
+  .lm-margin-negative { color: #b91c1c; font-weight: 700; }
+  .lm-empty { text-align: center; padding: 48px 16px; color: var(--lm-text-sub); }
+  .lm-pagination { display: flex; justify-content: center; gap: 8px; padding: 16px; }
+  .lm-hint { font-size: .75rem; color: var(--lm-text-sub); margin: 0 0 16px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="lm-wrap">
+
+  <div class="lm-header">
+    <h1 class="lm-title">{% trans "Labor Hours Margin Dashboard" %}</h1>
+    <form method="get" class="lm-filters">
+      <input type="search" name="q" class="lm-search" placeholder="{% trans 'Search expediente, client...' %}" value="{{ search_query }}">
+      {% if companies|length > 1 %}
+      <select name="company" class="lm-select" onchange="this.form.submit()">
+        {% for c in companies %}
+        <option value="{{ c.id }}" {% if selected_company.id == c.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+      <select name="sort" class="lm-select" onchange="this.form.submit()">
+        <option value="desc" {% if sort_order == "desc" %}selected{% endif %}>{% trans "Highest margin first" %}</option>
+        <option value="asc" {% if sort_order == "asc" %}selected{% endif %}>{% trans "Lowest margin first" %}</option>
+      </select>
+      <span class="lm-filter-label">{% trans "From" %}</span>
+      {{ filter_form.date_from }}
+      <span class="lm-filter-label">{% trans "To" %}</span>
+      {{ filter_form.date_to }}
+      <button type="submit" class="lm-btn">{% trans "Apply" %}</button>
+      <a href="{{ request.path }}" class="lm-link">{% trans "Reset" %}</a>
+    </form>
+  </div>
+
+  <p class="lm-hint">
+    {% trans "Billed hours come from Configurations whose product template is flagged as labor hours. Real hours sum ALL completed production sessions on each expediente, regardless of which configuration generated the ticket. A positive margin means more hours were billed than worked (extra profit); a negative margin means more was worked than billed. % Deviation is the margin as a share of billed hours (margin ÷ billed × 100)." %}
+  </p>
+
+  <div class="lm-kpi-grid">
+    <div class="lm-kpi lm-kpi--indigo">
+      <div class="lm-kpi-label">{% trans "Billed Hours" %}</div>
+      <div class="lm-kpi-value">{{ totals.billed_hours|floatformat:2 }}h</div>
+    </div>
+    <div class="lm-kpi lm-kpi--blue">
+      <div class="lm-kpi-label">{% trans "Real Hours Worked" %}</div>
+      <div class="lm-kpi-value">{{ totals.real_hours|floatformat:2 }}h</div>
+    </div>
+    <div class="lm-kpi lm-kpi--emerald">
+      <div class="lm-kpi-label">{% trans "Extra Margin" %}</div>
+      <div class="lm-kpi-value">{{ totals.gap_hours|floatformat:2 }}h · {{ totals.extra_margin|floatformat:2 }} €</div>
+    </div>
+    <div class="lm-kpi {% if totals.deviation_pct >= 0 %}lm-kpi--emerald{% else %}lm-kpi--red{% endif %}">
+      <div class="lm-kpi-label">{% trans "% Deviation" %}</div>
+      <div class="lm-kpi-value">{{ totals.deviation_pct|floatformat:1 }}%</div>
+      {% if totals.outlier_count %}
+      <div style="font-size: 11px; color: #d97706; margin-top: 4px;">⚠ {% blocktrans count count=totals.outlier_count %}{{ count }} expediente flagged for review{% plural %}{{ count }} expedientes flagged for review{% endblocktrans %}</div>
+      {% endif %}
+    </div>
+    <div class="lm-kpi lm-kpi--amber">
+      <div class="lm-kpi-label">{% trans "Expedientes" %}</div>
+      <div class="lm-kpi-value">{{ totals.expediente_count }}</div>
+    </div>
+  </div>
+
+  {{ chart_data|json_script:"lm-chart-data" }}
+  <div class="lm-chart-wrap">
+    <h3 class="lm-chart-title">{% trans "Top expedientes by margin" %}</h3>
+    <p class="lm-chart-subtitle">{% trans "Each bar is billed hours, split into hours actually worked and extra margin. Always ranked highest margin first, independent of the table's sort below." %}</p>
+    {% if chart_has_data %}
+    <div style="position:relative;height:420px;max-height:420px">
+      <canvas id="lmMarginChart"></canvas>
+    </div>
+    {% else %}
+    <div class="lm-empty"><p>{% trans "No labor-hours-billed expedientes found for the selected filters." %}</p></div>
+    {% endif %}
+  </div>
+
+  <div class="lm-table-wrap">
+    <div class="lm-table-header">
+      <h3>{% trans "Expedientes" %}</h3>
+    </div>
+    {% if page.object_list %}
+    <table class="lm-table">
+      <thead>
+        <tr>
+          <th>{% trans "Expediente" %}</th>
+          <th>{% trans "Client" %}</th>
+          <th class="lm-num">{% trans "Billed" %}</th>
+          <th class="lm-num">{% trans "Real" %}</th>
+          <th class="lm-num">{% trans "Margin (h)" %}</th>
+          <th class="lm-num">{% trans "Margin (€)" %}</th>
+          <th class="lm-num">{% trans "% Deviation" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in page.object_list %}
+        <tr>
+          <td>
+            <a class="lm-link" href="{% url 'admin:management_projectfile_change' row.project_file.pk %}">
+              {{ row.project_file.reference|default:"—" }} — {{ row.project_file.name }}
+            </a>
+          </td>
+          <td>{{ row.project_file.client }}</td>
+          <td class="lm-num">{{ row.billed_hours|floatformat:2 }}h</td>
+          <td class="lm-num">{{ row.real_hours|floatformat:2 }}h</td>
+          <td class="lm-num {% if row.gap_hours > 0 %}lm-margin-positive{% elif row.gap_hours < 0 %}lm-margin-negative{% endif %}">{{ row.gap_hours|floatformat:2 }}h</td>
+          <td class="lm-num">{{ row.extra_margin|floatformat:2 }} €</td>
+          <td class="lm-num {% if row.deviation_pct > 0 %}lm-margin-positive{% elif row.deviation_pct < 0 %}lm-margin-negative{% endif %}">
+            {{ row.deviation_pct|floatformat:1 }}%
+            {% if row.is_deviation_outlier %}<span title="{% trans 'Extreme deviation -- likely a placeholder billed line or an unclosed session. Needs manual review.' %}">⚠</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if page.paginator.num_pages > 1 %}
+    <div class="lm-pagination">
+      {% if page.has_previous %}
+      <a class="lm-link" href="?{{ request.GET.urlencode }}&page={{ page.previous_page_number }}">{% trans "Previous" %}</a>
+      {% endif %}
+      <span class="lm-filter-label">{% blocktrans with num=page.number count=page.paginator.num_pages %}Page {{ num }} of {{ count }}{% endblocktrans %}</span>
+      {% if page.has_next %}
+      <a class="lm-link" href="?{{ request.GET.urlencode }}&page={{ page.next_page_number }}">{% trans "Next" %}</a>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="lm-empty">
+      <p>{% trans "No labor-hours-billed expedientes found for the selected filters." %}</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="lm-table-wrap">
+    <div class="lm-table-header">
+      <h3>{% trans "Mechanics — Daily Performance" %}</h3>
+      <form method="get" class="lm-filters" style="margin-top: 8px;">
+        {% if selected_company %}<input type="hidden" name="company" value="{{ selected_company.id }}">{% endif %}
+        <span class="lm-filter-label">{% trans "Day" %}</span>
+        <input type="date" name="day" class="lm-search" value="{{ selected_day|date:'Y-m-d' }}" onchange="this.form.submit()">
+      </form>
+    </div>
+    <p class="lm-chart-subtitle" style="padding: 0 22px; margin-top: 12px;">
+      {% blocktrans with ideal=ideal_daily_hours %}Every mechanic who can work on production, with hours worked on the selected day vs. an ideal of {{ ideal }}h. Mechanics with no sessions that day still appear, at 0h.{% endblocktrans %}
+    </p>
+    {% if mechanic_rows %}
+    <div style="padding: 0 22px 16px; display: flex; gap: 24px; font-size: .8rem; color: var(--lm-text-sub);">
+      <span>{% trans "Mechanics" %}: <strong style="color: var(--lm-text);">{{ mechanic_totals.mechanic_count }}</strong></span>
+      <span>{% trans "Avg hours" %}: <strong style="color: var(--lm-text);">{{ mechanic_totals.avg_worked_hours|floatformat:2 }}h</strong></span>
+      <span>{% trans "Below ideal" %}: <strong style="color: var(--lm-text);">{{ mechanic_totals.below_ideal_count }}</strong></span>
+    </div>
+    <table class="lm-table">
+      <thead>
+        <tr>
+          <th>{% trans "Mechanic" %}</th>
+          <th class="lm-num">{% trans "Worked" %}</th>
+          <th class="lm-num">{% trans "Ideal" %}</th>
+          <th class="lm-num">{% trans "% Deviation" %}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in mechanic_rows %}
+        <tr>
+          <td>{{ row.mechanic.full_name }}</td>
+          <td class="lm-num">{{ row.worked_hours|floatformat:2 }}h</td>
+          <td class="lm-num">{{ row.ideal_hours|floatformat:0 }}h</td>
+          <td class="lm-num {% if row.deviation_pct >= 0 %}lm-margin-positive{% else %}lm-margin-negative{% endif %}">{{ row.deviation_pct|floatformat:1 }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="lm-empty">
+      <p>{% trans "No mechanics found for this company (check 'can work on production' is set)." %}</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    var dataEl = document.getElementById('lm-chart-data');
+    if (!dataEl) return;
+    var data = JSON.parse(dataEl.textContent);
+
+    var canvas = document.getElementById('lmMarginChart');
+    if (!canvas || !data.labels.length) return;
+
+    var isDark = document.documentElement.classList.contains('dark') ||
+      document.body.classList.contains('dark') ||
+      window.matchMedia('(prefers-color-scheme: dark)').matches;
+
+    var gridColor = isDark ? 'rgba(148,163,184,.15)' : 'rgba(0,0,0,.06)';
+    var textColor = isDark ? '#94a3b8' : '#64748b';
+    var cardColor = isDark ? '#1e293b' : '#ffffff';
+    var tooltipBg = isDark ? '#1e293b' : '#fff';
+    var tooltipTitle = isDark ? '#f1f5f9' : '#0f172a';
+    var tooltipBody = isDark ? '#cbd5e1' : '#334155';
+    var tooltipBorder = isDark ? '#334155' : '#e2e8f0';
+
+    var REAL_COLOR = '#3b82f6';
+    var MARGIN_COLOR = '#10b981';
+
+    new Chart(canvas, {
+      type: 'bar',
+      data: {
+        labels: data.labels,
+        datasets: [
+          {
+            label: '{% trans "Real hours worked" %}',
+            data: data.real_hours,
+            backgroundColor: REAL_COLOR,
+            borderColor: cardColor,
+            borderWidth: 2,
+            stack: 'hours',
+          },
+          {
+            label: '{% trans "Extra margin" %}',
+            data: data.gap_hours,
+            backgroundColor: MARGIN_COLOR,
+            borderColor: cardColor,
+            borderWidth: 2,
+            stack: 'hours',
+            borderRadius: 4,
+          },
+        ],
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        maxBarThickness: 22,
+        plugins: {
+          legend: {
+            position: 'top',
+            align: 'start',
+            labels: { color: textColor, font: { size: 12, family: 'Inter' }, boxWidth: 12, boxHeight: 12 },
+          },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            backgroundColor: tooltipBg,
+            titleColor: tooltipTitle,
+            bodyColor: tooltipBody,
+            borderColor: tooltipBorder,
+            borderWidth: 1,
+            padding: 12,
+            cornerRadius: 8,
+            callbacks: {
+              label: function (ctx) {
+                return ctx.dataset.label + ': ' + ctx.parsed.x.toFixed(2) + 'h';
+              },
+              footer: function (items) {
+                var total = items.reduce(function (sum, item) { return sum + item.parsed.x; }, 0);
+                return '{% trans "Billed total" %}: ' + total.toFixed(2) + 'h';
+              },
+            },
+          },
+        },
+        scales: {
+          x: {
+            stacked: true,
+            grid: { color: gridColor },
+            ticks: { color: textColor, font: { size: 11, family: 'Inter' } },
+            title: { display: true, text: '{% trans "Hours" %}', color: textColor, font: { size: 11, family: 'Inter' } },
+          },
+          y: {
+            stacked: true,
+            grid: { display: false },
+            ticks: { color: textColor, font: { size: 11, family: 'Inter' } },
+          },
+        },
+      },
+    });
+  });
+</script>
+{% endblock %}

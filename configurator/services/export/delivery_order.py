@@ -35,20 +35,28 @@ class DeliveryOrderExportStrategy(BaseExportStrategy):
         )
         # Component lines (materialised bill of materials) print right under
         # their parent, indented by depth and without a price of their own.
+        # Templates get the same lines two ways: `items` flat in print order
+        # (each one knowing its depth and its parent) and `line_tree`, the
+        # top-level lines with their components nested under `components`, for
+        # templates that want to draw each bill of materials as a block.
         lines = list(do.items.prefetch_related(code_prefetch).order_by("pk"))
         children = {}
         for line in lines:
             children.setdefault(line.parent_line_id, []).append(line)
 
-        def walk(parent_id, depth):
+        top_level = []
+
+        def walk(parent_id, depth, parent_data, root_data):
             nonlocal financing_discount_amount
-            for item in children.get(parent_id, []):
+            siblings = children.get(parent_id, [])
+            built = []
+            for position, item in enumerate(siblings, start=1):
                 # Quote-sourced items are legacy financing lines.
                 is_discount_line = item.source_content_type_id == quote_ct.id
                 if is_discount_line and item.line_total:
                     financing_discount_amount += -item.line_total.amount
                 identity_codes = [c.code for c in item.identity_codes.all()]
-                items_data.append({
+                data = {
                     "item_number": item.item_number,
                     "description": item.description,
                     "reference": item.reference,
@@ -59,13 +67,37 @@ class DeliveryOrderExportStrategy(BaseExportStrategy):
                     "is_discount_line": is_discount_line,
                     "is_component": depth > 0,
                     "depth": depth,
-                    "parent_item_number": item.parent_line.item_number if item.parent_line_id else "",
+                    # Indentation is precomputed: Django templates cannot
+                    # multiply depth by a step width on their own.
+                    "indent_px": depth * 14,
+                    "parent_item_number": parent_data["item_number"] if parent_data else "",
+                    "parent_description": parent_data["description"] if parent_data else "",
+                    "parent_reference": parent_data["reference"] if parent_data else "",
+                    # The priced line this component ultimately belongs to,
+                    # whatever the nesting depth.
+                    "root_item_number": root_data["item_number"] if root_data else item.item_number,
+                    "root_description": root_data["description"] if root_data else item.description,
+                    "is_last_child": position == len(siblings),
                     "identity_codes": identity_codes,
                     "has_identity_codes": bool(identity_codes),
-                })
-                walk(item.pk, depth + 1)
+                }
+                items_data.append(data)
+                data["components"] = walk(
+                    item.pk, depth + 1, data, root_data or data
+                )
+                data["has_components"] = bool(data["components"])
+                # Every descendant, flattened, for templates that print a
+                # parent row followed by its whole bill of materials.
+                data["all_components"] = [
+                    descendant
+                    for child in data["components"]
+                    for descendant in [child, *child["all_components"]]
+                ]
+                data["component_count"] = len(data["all_components"])
+                built.append(data)
+            return built
 
-        walk(None, 0)
+        top_level = walk(None, 0, None, None)
 
         subtotal = do.subtotal_amount.amount if do.subtotal_amount else Decimal("0")
         discount = do.discount_amount.amount if do.discount_amount else Decimal("0")
@@ -84,6 +116,8 @@ class DeliveryOrderExportStrategy(BaseExportStrategy):
             "sales_invoice": do.sales_invoice,
             "project_file": do.project_file,
             "items": items_data,
+            "line_tree": top_level,
+            "has_components": any(i["is_component"] for i in items_data),
             "has_identity_codes": any(i["has_identity_codes"] for i in items_data),
             "subtotal": float(subtotal),
             "discount_amount": float(discount),

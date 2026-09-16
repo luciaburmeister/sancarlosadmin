@@ -442,5 +442,49 @@ class AdminAndExportTests(_ComponentLinesBase):
         )
         parent_number = self._parent_line(do).item_number
         self.assertEqual(items[1]["parent_item_number"], parent_number)
+        self.assertEqual(items[1]["parent_description"], "Window")
+        self.assertEqual(items[1]["parent_reference"], "WIN")
         self.assertEqual(items[1]["identity_codes"], ["FRM-001"])
         self.assertEqual(items[1]["line_total"], 0)
+
+    def test_export_context_exposes_the_component_tree(self):
+        window, frame, handle, profile = self._kit()
+        do = self._deliver(self._accepted_quote_line(window, "1"))
+
+        context = DeliveryOrderExportStrategy(do).get_context()
+        tree = context["line_tree"]
+
+        self.assertTrue(context["has_components"])
+        self.assertEqual([i["reference"] for i in tree], ["WIN"])
+        window_line = tree[0]
+        self.assertEqual([c["reference"] for c in window_line["components"]], ["FRM", "HND"])
+        # Every descendant, flattened, for a parent row followed by its BOM.
+        self.assertEqual(
+            [c["reference"] for c in window_line["all_components"]], ["FRM", "PRF", "HND"],
+        )
+        self.assertEqual(window_line["component_count"], 3)
+        self.assertTrue(window_line["has_components"])
+
+        frame_data, handle_data = window_line["components"]
+        self.assertEqual([c["reference"] for c in frame_data["components"]], ["PRF"])
+        self.assertFalse(handle_data["has_components"])
+        self.assertFalse(handle_data["components"])
+        self.assertEqual([frame_data["is_last_child"], handle_data["is_last_child"]], [False, True])
+
+        # A component at any depth points back at the priced line it belongs to.
+        profile_data = frame_data["components"][0]
+        self.assertEqual(profile_data["parent_reference"], "FRM")
+        self.assertEqual(profile_data["root_item_number"], window_line["item_number"])
+        self.assertEqual(profile_data["root_description"], "Window")
+        self.assertEqual(profile_data["indent_px"], 28)
+
+    def test_export_context_of_a_delivery_order_without_components(self):
+        plain = self._item("PLN", stock=5, name="Plain")
+        do = self._deliver(self._accepted_quote_line(plain, "1"))
+
+        context = DeliveryOrderExportStrategy(do).get_context()
+
+        self.assertFalse(context["has_components"])
+        self.assertEqual(len(context["line_tree"]), 1)
+        self.assertEqual(context["line_tree"][0]["components"], [])
+        self.assertEqual(context["line_tree"][0]["root_item_number"], context["items"][0]["item_number"])

@@ -1670,6 +1670,7 @@ class ExportTemplateKind(models.TextChoices):
     ASSET_TRANSACTION = "asset_transaction", _("Asset Transaction")
     DELIVERY_ORDER = "delivery_order", _("Delivery Order")
     REPAIR_ORDER = "repair_order", _("Repair Order")
+    QUOTE_REQUEST = "quote_request", _("Quote Request")
 
 
 class ConfigurationExportTemplate(CompanyOwnedModel):

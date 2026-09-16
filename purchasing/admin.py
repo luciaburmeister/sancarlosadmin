@@ -600,7 +600,8 @@ class QuoteRequestAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     inlines = [QuoteRequestItemInline, ProviderQuoteSummaryInline]
 
-    actions_detail = ["create_quotes_detail_action", "compare_quotes_detail_action"]
+    actions_row = ["view_pdf_row_action", "download_pdf_row_action"]
+    actions_detail = ["create_quotes_detail_action", "compare_quotes_detail_action", "view_pdf_detail_action", "download_pdf_detail_action"]
 
     @display(description=_("Request Number"), ordering="number")
     def number_display(self, obj):
@@ -641,8 +642,24 @@ class QuoteRequestAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def compare_quotes_detail_action(self, request, object_id: int):
         return redirect(reverse("admin:purchasing_quoterequest_compare_quotes", args=[object_id]))
 
+    @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
+    def view_pdf_row_action(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_quoterequest_pdf", args=[object_id]))
+
+    @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
+    def view_pdf_detail_action(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_quoterequest_pdf", args=[object_id]))
+
+    @action(description=_("Download PDF"), icon="download")
+    def download_pdf_row_action(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_quoterequest_download_pdf", args=[object_id]))
+
+    @action(description=_("Download PDF"), icon="download")
+    def download_pdf_detail_action(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_quoterequest_download_pdf", args=[object_id]))
+
     def get_urls(self):
-        from .views import CreateQuotesView, QuoteComparisonView, ProviderAutocompleteView
+        from .views import CreateQuotesView, QuoteComparisonView, ProviderAutocompleteView, QuoteRequestPdfView, QuoteRequestPdfDownloadView
         urls = super().get_urls()
         custom_urls = [
             path(
@@ -654,6 +671,16 @@ class QuoteRequestAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 "<int:quote_request_id>/compare-quotes/",
                 self.admin_site.admin_view(QuoteComparisonView.as_view(model_admin=self)),
                 name="purchasing_quoterequest_compare_quotes",
+            ),
+            path(
+                "<int:object_id>/pdf/",
+                self.admin_site.admin_view(QuoteRequestPdfView.as_view(model_admin=self)),
+                name="purchasing_quoterequest_pdf",
+            ),
+            path(
+                "<int:object_id>/download-pdf/",
+                self.admin_site.admin_view(QuoteRequestPdfDownloadView.as_view(model_admin=self)),
+                name="purchasing_quoterequest_download_pdf",
             ),
             path(
                 "autocomplete/providers/",

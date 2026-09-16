@@ -6,6 +6,7 @@ from .approval_analysis import POApprovalAnalysisView
 from .create_quotes import CreateQuotesView
 from .quote_comparison import QuoteComparisonView
 from .provider_autocomplete import ProviderAutocompleteView
+from .quote_request_pdf import QuoteRequestPdfView, QuoteRequestPdfDownloadView
 
 __all__ = [
     "DirectReceiptView",
@@ -18,4 +19,6 @@ __all__ = [
     "CreateQuotesView",
     "QuoteComparisonView",
     "ProviderAutocompleteView",
+    "QuoteRequestPdfView",
+    "QuoteRequestPdfDownloadView",
 ]

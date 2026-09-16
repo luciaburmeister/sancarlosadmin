@@ -2,6 +2,8 @@ from django.db import models, transaction
 from django.core.exceptions import ValidationError
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils.translation import gettext_lazy as _
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
@@ -168,14 +170,19 @@ class PaymentAllocation(models.Model):
             self.payment.recalculate_pending_allocation()
             _recalculate_invoice_payment_status(self.content_type, self.object_id)
 
-    def delete(self, *args, **kwargs):
-        payment = self.payment
-        content_type = self.content_type
-        object_id = self.object_id
-        with transaction.atomic():
-            super().delete(*args, **kwargs)
-            payment.recalculate_pending_allocation()
-            _recalculate_invoice_payment_status(content_type, object_id)
+
+@receiver(post_delete, sender=PaymentAllocation)
+def _recalculate_on_allocation_delete(sender, instance, **kwargs):
+    """
+    Keeps the payment's pending allocation and the document's payment_status
+    in sync also on cascade deletes (e.g. deleting the Payment itself), which
+    bypass PaymentAllocation.delete() and previously left invoices stuck as
+    "paid" after their only payment was removed.
+    """
+    payment = Payment.objects.filter(pk=instance.payment_id).first()
+    if payment:
+        payment.recalculate_pending_allocation()
+    _recalculate_invoice_payment_status(instance.content_type, instance.object_id)
 
 
 def _recalculate_invoice_payment_status(content_type, object_id):

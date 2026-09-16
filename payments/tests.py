@@ -112,3 +112,80 @@ class RegisterPaymentViewTest(TestCase):
         payment = Payment.objects.get()
         self.assertEqual(payment.direction, PaymentDirection.INBOUND)
         self.assertEqual(PaymentAllocation.objects.get().related_object, invoice)
+
+
+class PaymentDeletionRevertsInvoiceStatusTest(TestCase):
+    """
+    Deleting a Payment cascades the deletion of its PaymentAllocation rows
+    through Django's collector, which bypasses PaymentAllocation.delete().
+    The post_delete signal in payments/models.py must catch that case too.
+    """
+
+    def setUp(self):
+        self.company = Company.objects.create(name="Global Corp")
+        self.today = date(2026, 7, 3)
+
+    def test_deleting_the_payment_reverts_a_fully_paid_purchase_invoice_to_unpaid(self):
+        provider = Provider.objects.create(company=self.company, name="Perfiles SA")
+        invoice = Invoice.objects.create(
+            company=self.company,
+            provider=provider,
+            invoice_number="F-002",
+            date_issued=self.today,
+            total_amount=Money("1000.00", "EUR"),
+        )
+        payment = Payment.objects.create(
+            company=self.company,
+            payment_date=self.today,
+            amount=Money("1000.00", "EUR"),
+            direction=PaymentDirection.OUTBOUND,
+            method=PaymentMethod.CASH,
+        )
+        PaymentAllocation.objects.create(
+            payment=payment, amount_applied=Money("1000.00", "EUR"), related_object=invoice
+        )
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.payment_status, InvoicePaymentStatus.PAID)
+
+        payment.delete()
+
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.payment_status, InvoicePaymentStatus.UNPAID)
+
+    def test_deleting_one_of_two_payments_reverts_a_sales_invoice_to_partial(self):
+        client = Client.objects.create(company=self.company, name="Cliente SA")
+        invoice = SalesInvoice.objects.create(
+            company=self.company,
+            client=client,
+            invoice_number="V-002",
+            status=SalesInvoiceStatus.FINAL,
+            date_issued=self.today,
+            total_amount=Money("1000.00", "EUR"),
+        )
+        first_payment = Payment.objects.create(
+            company=self.company,
+            payment_date=self.today,
+            amount=Money("600.00", "EUR"),
+            direction=PaymentDirection.INBOUND,
+            method=PaymentMethod.CASH,
+        )
+        second_payment = Payment.objects.create(
+            company=self.company,
+            payment_date=self.today,
+            amount=Money("400.00", "EUR"),
+            direction=PaymentDirection.INBOUND,
+            method=PaymentMethod.CASH,
+        )
+        PaymentAllocation.objects.create(
+            payment=first_payment, amount_applied=Money("600.00", "EUR"), related_object=invoice
+        )
+        PaymentAllocation.objects.create(
+            payment=second_payment, amount_applied=Money("400.00", "EUR"), related_object=invoice
+        )
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.payment_status, InvoicePaymentStatus.PAID)
+
+        second_payment.delete()
+
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.payment_status, InvoicePaymentStatus.PARTIAL)

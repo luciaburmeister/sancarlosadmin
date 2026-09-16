@@ -79,6 +79,7 @@ from core.tasks import send_invoice_email_task
 from general.email import sender_cc, sender_reply_to
 from company.models import EmailLog
 from core.admin.company_admin import CompanyRestrictedAdmin
+from simple_history.admin import SimpleHistoryAdmin
 from unfold.contrib.filters.admin import (
     RangeDateFilter,
     ChoicesDropdownFilter,
@@ -289,7 +290,7 @@ class LineItemExportMixin:
 
 
 @admin.register(Invoice)
-class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
+class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryAdmin, ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     resource_classes = [InvoiceResource, InvoiceItemResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
@@ -970,7 +971,7 @@ class PaymentReminderLogInline(TabularInline):
         return False
 
 @admin.register(SalesInvoice)
-class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
+class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryAdmin, ModelAdmin, CompanyRestrictedAdmin, ExportActionModelAdmin):
     resource_classes = [SalesInvoiceResource, SalesInvoiceItemResource]
     export_form_class = SelectableFieldsExportForm
 

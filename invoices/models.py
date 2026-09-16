@@ -20,6 +20,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import FileExtensionValidator
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
+from simple_history.models import HistoricalRecords
 from company.models import Company
 from django.utils import timezone
 import unicodedata
@@ -265,6 +266,8 @@ class Invoice(Timestampable, Payable):
         related_name="uploaded_invoices",
         help_text="User who manually uploaded this invoice (empty for invoices ingested automatically from email).",
     )
+
+    history = HistoricalRecords()
 
     class Meta:
         unique_together = ['company', 'provider', 'invoice_number']
@@ -986,6 +989,9 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         verbose_name=_("Discount Breakdown"),
         help_text=_("Stores each applied discount rule with its base and amount."),
     )
+
+    history = HistoricalRecords()
+
     class Meta:
         verbose_name = _("Sales Invoice")
         verbose_name_plural = _("Sales Invoices")

@@ -1,13 +1,17 @@
 """
 Inventory stock-movement views — Receive, Transfer, Adjust, InvoiceInfo,
-plus bulk identity-code registration.
+plus bulk identity-code registration, plus read-only breakdowns of the
+Incoming / Reserved cached figures.
 """
 
 import datetime
+from decimal import Decimal
 
 from django.contrib import messages
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
+from django.db.models import DecimalField, F, OuterRef, Subquery, Sum, Value
+from django.db.models.functions import Coalesce, Greatest
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
@@ -348,6 +352,199 @@ class AdjustStockView(_MovementViewMixin):
             **self._base_context(item, form),
             "title": _("Adjust Stock — %s") % item,
             "movement_icon": "balance",
+        }
+        return TemplateResponse(request, self.template_name, context)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Reserved / Incoming — read-only breakdowns behind the changelist badges
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# These mirror InventoryItemQuerySet.incoming_expression() /
+# reserved_expression() exactly, so the rows shown here always sum to the
+# cached figure the user clicked on. See inventory/services/stock_position.py
+# for the canonical definitions these follow.
+
+_QUANTITY_FIELD = DecimalField(max_digits=16, decimal_places=3)
+
+
+def _delivered_quantity_subquery():
+    """Per-line delivered quantity: units shipped against one specific
+    QuoteInventoryItem line, excluding cancelled delivery orders. Same rule
+    as the ``delivered`` subquery inside
+    ``InventoryItemQuerySet._reserved_expression``, but correlated to a
+    single line (``OuterRef("pk")``) instead of aggregated per item, so it
+    can be displayed per row."""
+    from sales.models import DeliveryOrderItem, DeliveryOrderStatus, QuoteInventoryItem
+
+    return Coalesce(
+        Subquery(
+            DeliveryOrderItem.objects
+            .filter(
+                source_content_type=ContentType.objects.get_for_model(QuoteInventoryItem),
+                source_object_id=OuterRef("pk"),
+            )
+            .exclude(delivery_order__status=DeliveryOrderStatus.CANCELLED)
+            .values("source_object_id")
+            .annotate(total=Sum("quantity", output_field=_QUANTITY_FIELD))
+            .values("total")[:1],
+            output_field=_QUANTITY_FIELD,
+        ),
+        Value(Decimal("0"), output_field=_QUANTITY_FIELD),
+    )
+
+
+def _accepted_quote_lines_with_remaining(inventory_item):
+    """Quote lines still reserving ``inventory_item`` directly: accepted
+    quotes on open projects, annotated with what has already been delivered
+    and what remains. Only lines with something still reserved are
+    returned — the same rule ``InventoryItemQuerySet.reserved_expression``
+    applies to its own-reservation component, so this always sums to that
+    component of the cached ``reserved_quantity``."""
+    from management.models import ProjectFileStatus
+    from sales.models import QuoteInventoryItem, QuoteStatus
+
+    return (
+        QuoteInventoryItem.objects
+        .filter(inventory_item=inventory_item, quote__status=QuoteStatus.ACCEPTED)
+        .exclude(quote__project_file__status__in=[
+            ProjectFileStatus.COMPLETED,
+            ProjectFileStatus.CANCELLED,
+        ])
+        .select_related("quote", "quote__client", "quote__project_file")
+        .annotate(delivered_quantity=_delivered_quantity_subquery())
+        .annotate(
+            remaining_quantity=Greatest(
+                F("quantity") - F("delivered_quantity"),
+                Value(Decimal("0"), output_field=_QUANTITY_FIELD),
+                output_field=_QUANTITY_FIELD,
+            )
+        )
+        .filter(remaining_quantity__gt=0)
+        .order_by("-quote__date")
+    )
+
+
+def _kit_reservations(component_item, path_multiplier=Decimal("1"), depth=None):
+    """This component's inherited share of reservation from every kit it is
+    part of, walked up to ``InventoryItemQuerySet.RESERVED_BOM_DEPTH``
+    levels — the same depth the cached ``reserved_quantity`` follows. Each
+    kit's own accepted-quote lines come from
+    ``_accepted_quote_lines_with_remaining``, then get scaled by the BOM
+    quantities on the path from ``component_item`` up to that kit.
+
+    Returns a flat list of dicts, one per (kit, quote line) pair, each
+    carrying ``component_share`` — this component's slice of that line's
+    remaining reservation.
+    """
+    from inventory.models import BillOfMaterialsLine, InventoryItemQuerySet
+
+    if depth is None:
+        depth = InventoryItemQuerySet.RESERVED_BOM_DEPTH
+    if depth <= 0:
+        return []
+
+    rows = []
+    for bom_line in BillOfMaterialsLine.objects.filter(component=component_item).select_related("parent"):
+        kit = bom_line.parent
+        multiplier = path_multiplier * bom_line.quantity
+        for quote_line in _accepted_quote_lines_with_remaining(kit):
+            rows.append({
+                "kit": kit,
+                "quote_line": quote_line,
+                "component_share": multiplier * quote_line.remaining_quantity,
+            })
+        rows.extend(_kit_reservations(kit, multiplier, depth - 1))
+    return rows
+
+
+class _ReadOnlyItemViewMixin(UnfoldModelAdminViewMixin, View):
+    """Shared plumbing for the two read-only breakdown views: company-scoped
+    item lookup (same rule as ItemIdentityCodesView.get_item) and the common
+    page context."""
+
+    permission_required = ("inventory.view_inventoryitem",)
+
+    def get_item(self):
+        qs = InventoryItem.objects.select_related("company")
+        if not self.request.user.is_superuser:
+            qs = qs.filter(company__in=get_user_companies(self.request.user))
+        return get_object_or_404(qs, pk=self.kwargs["object_id"])
+
+    def _base_context(self, request, item):
+        return {
+            **self.model_admin.admin_site.each_context(request),
+            "item": item,
+            "opts": InventoryItem._meta,
+            "app_label": InventoryItem._meta.app_label,
+            "cancel_url": reverse("admin:inventory_inventoryitem_change", args=[item.pk]),
+            "has_permission": True,
+        }
+
+    def dispatch(self, request, *args, **kwargs):
+        if not self.has_permission():
+            return self.handle_no_permission()
+        return self.get(request, *args, **kwargs)
+
+    def has_permission(self):
+        return self.request.user.has_perms(self.get_permission_required())
+
+
+class IncomingPurchaseOrdersView(_ReadOnlyItemViewMixin):
+    """
+    GET /inventory/inventoryitem/<pk>/incoming/
+    Every open purchase-order line still owed to this item. Filters mirror
+    InventoryItemQuerySet.incoming_expression() exactly.
+    """
+    title = _("Incoming — Purchase Orders")
+    template_name = "admin/inventory/incoming_purchase_orders.html"
+
+    def get(self, request, object_id, **kwargs):
+        from purchasing.models import PurchaseOrderItem, PurchaseOrderStatus
+
+        item = self.get_item()
+        lines = (
+            PurchaseOrderItem.objects
+            .filter(
+                inventory_item=item,
+                purchase_order__status=PurchaseOrderStatus.APPROVED,
+                quantity__gt=F("received_quantity"),
+            )
+            .select_related("purchase_order", "purchase_order__provider")
+            .annotate(pending_quantity=F("quantity") - F("received_quantity"))
+            .order_by("purchase_order__date_ordered")
+        )
+        request.current_app = self.model_admin.admin_site.name
+        context = {
+            **self._base_context(request, item),
+            "lines": lines,
+            "title": _("Incoming — %s") % item,
+        }
+        return TemplateResponse(request, self.template_name, context)
+
+
+class ReservedByQuotesView(_ReadOnlyItemViewMixin):
+    """
+    GET /inventory/inventoryitem/<pk>/reserved/
+    Every accepted quote line still holding stock for this item — directly,
+    or inherited from a kit it is a component of. Mirrors
+    InventoryItemQuerySet.reserved_expression() exactly (own reservation
+    plus the BOM-cascaded share, same depth).
+    """
+    title = _("Reserved — Quotes")
+    template_name = "admin/inventory/reserved_by_quotes.html"
+
+    def get(self, request, object_id, **kwargs):
+        item = self.get_item()
+        direct_lines = _accepted_quote_lines_with_remaining(item)
+        kit_rows = _kit_reservations(item)
+
+        request.current_app = self.model_admin.admin_site.name
+        context = {
+            **self._base_context(request, item),
+            "direct_lines": direct_lines,
+            "kit_rows": kit_rows,
+            "title": _("Reserved — %s") % item,
         }
         return TemplateResponse(request, self.template_name, context)
 

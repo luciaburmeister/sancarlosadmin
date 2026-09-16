@@ -24,6 +24,14 @@ from django.shortcuts import redirect
 
 from .views import AdjustStockView, ItemIdentityCodesView, ReceiveStockView, TransferStockView
 from .qr_views import item_qr_view
+from .views import (
+    AdjustStockView,
+    IncomingPurchaseOrdersView,
+    ItemIdentityCodesView,
+    ReceiveStockView,
+    ReservedByQuotesView,
+    TransferStockView,
+)
 from .models import (
     Warehouse,
     StockLocation,
@@ -649,21 +657,26 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
     # ── Display helpers ───────────────────────────────────────────────────
 
     @staticmethod
-    def _quantity_badge(qty, *, icon, colour, title):
+    def _quantity_badge(qty, *, icon, colour, title, url=None):
         """Icon + quantity in one colour, or the muted dash when there is none.
 
         The quantity is rendered without trailing zeros (3.000 → 3, 2.500 →
         2.5); ``:f`` keeps a normalised whole number out of exponent form.
+        When ``url`` is given and there is a nonzero quantity, the badge is
+        wrapped as a link to the breakdown behind it.
         """
         if not qty:
             return _muted_dash()
-        return format_html(
+        badge = format_html(
             '<span style="display:inline-flex;align-items:center;gap:4px;'
             'color:{};font-weight:600;" title="{}">'
             '<span class="material-symbols-outlined" style="font-size:17px;">{}</span>'
             '{}</span>',
             colour, title, icon, f"{Decimal(qty).normalize():f}",
         )
+        if not url:
+            return badge
+        return format_html('<a href="{}" style="text-decoration:none;">{}</a>', url, badge)
 
     def stock_on_hand_display(self, obj):
         qty = int(obj.stock_on_hand)
@@ -702,20 +715,20 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
             obj.incoming_quantity,
             icon="local_shipping",
             colour="#2563eb",
-            title=_("Ordered on approved purchase orders, not yet received"),
+            title=_("Ordered on approved purchase orders, not yet received — click to see the purchase orders"),
+            url=reverse("admin:inventory_item_incoming", args=[obj.pk]) if obj.pk else None,
         )
     incoming_quantity_display.short_description = _("Incoming")
     incoming_quantity_display.admin_order_field = "incoming_quantity"
 
     def reserved_quantity_display(self, obj):
         qty = obj.reserved_quantity
-        # Amber when the promise exceeds what is physically in the warehouse:
-        # the shortfall has to come from an incoming order or a new purchase.
         return self._quantity_badge(
             qty,
             icon="bookmark",
             colour="#d97706" if qty > obj.stock_on_hand else "#7c3aed",
-            title=_("Promised on accepted quotes, not yet delivered"),
+            title=_("Promised on accepted quotes, not yet delivered — click to see the quotes"),
+            url=reverse("admin:inventory_item_reserved", args=[obj.pk]) if obj.pk else None,
         )
     reserved_quantity_display.short_description = _("Reserved")
     reserved_quantity_display.admin_order_field = "reserved_quantity"
@@ -888,6 +901,20 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
                     lambda req, object_id: item_qr_view(req, object_id, "adjust")
                 ),
                 name="inventory_item_qr_adjust",
+            ),
+                        path(
+                "<path:object_id>/incoming/",
+                self.admin_site.admin_view(
+                    IncomingPurchaseOrdersView.as_view(model_admin=self)
+                ),
+                name="inventory_item_incoming",
+            ),
+            path(
+                "<path:object_id>/reserved/",
+                self.admin_site.admin_view(
+                    ReservedByQuotesView.as_view(model_admin=self)
+                ),
+                name="inventory_item_reserved",
             ),
             path(
                 "<int:object_id>/invoice-info/",

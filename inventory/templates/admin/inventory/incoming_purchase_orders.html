@@ -1,0 +1,83 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="px-4 py-3 border-b border-base-200 dark:border-base-700 bg-base-50 dark:bg-white/[.02]">
+    <div class="flex items-center text-sm text-font-subtle-light dark:text-font-subtle-dark">
+        <a href="{% url 'admin:index' %}" class="hover:text-primary-600">{% trans 'Home' %}</a>
+        <span class="mx-2">&raquo;</span>
+        <a href="{% url 'admin:inventory_inventoryitem_changelist' %}" class="hover:text-primary-600">
+            {% trans 'Inventory Items' %}</a>
+        <span class="mx-2">&raquo;</span>
+        <a href="{% url 'admin:inventory_inventoryitem_change' item.pk %}" class="hover:text-primary-600">
+            {{ item.code }}</a>
+        <span class="mx-2">&raquo;</span>
+        <span>{% trans 'Incoming' %}</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto py-10 px-6">
+    <div class="rounded-default border border-base-200 dark:border-base-700 bg-white dark:bg-base-900 shadow-xs overflow-hidden">
+        <div class="p-8 border-b border-base-200 dark:border-base-700 bg-base-50 dark:bg-white/[.02]">
+            <h1 class="text-2xl font-bold text-font-important-light dark:text-font-important-dark m-0">
+                {% trans "Incoming" %} — {{ item.code }}
+            </h1>
+            <p class="mt-2 text-sm text-font-subtle-light dark:text-font-subtle-dark m-0">
+                {{ item.name }} ·
+                {% blocktrans with qty=item.incoming_quantity|floatformat:2 %}Total incoming: {{ qty }}{% endblocktrans %}
+            </p>
+        </div>
+
+        {% if not lines %}
+        <div class="p-8">
+            <p class="text-sm text-font-subtle-light dark:text-font-subtle-dark m-0">
+                {% trans "No approved purchase order currently has pending quantity for this item." %}
+            </p>
+        </div>
+        {% else %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-base-50 dark:bg-white/[.02] text-xs uppercase text-font-subtle-light dark:text-font-subtle-dark">
+                    <tr>
+                        <th class="px-6 py-3 text-left">{% trans "Purchase Order" %}</th>
+                        <th class="px-6 py-3 text-left">{% trans "Provider" %}</th>
+                        <th class="px-6 py-3 text-left">{% trans "Date Ordered" %}</th>
+                        <th class="px-6 py-3 text-right">{% trans "Ordered" %}</th>
+                        <th class="px-6 py-3 text-right">{% trans "Received" %}</th>
+                        <th class="px-6 py-3 text-right">{% trans "Pending" %}</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-base-200 dark:divide-base-700">
+                    {% for line in lines %}
+                    <tr>
+                        <td class="px-6 py-4">
+                            <a href="{% url 'admin:purchasing_purchaseorder_change' line.purchase_order_id %}"
+                                class="font-medium text-primary-600 hover:text-primary-700">
+                                {{ line.purchase_order.number|default:line.purchase_order_id }}
+                            </a>
+                        </td>
+                        <td class="px-6 py-4">{{ line.purchase_order.provider.name|default:"—" }}</td>
+                        <td class="px-6 py-4">{{ line.purchase_order.date_ordered|date:"d/m/Y" }}</td>
+                        <td class="px-6 py-4 text-right">{{ line.quantity|floatformat:2 }}</td>
+                        <td class="px-6 py-4 text-right">{{ line.received_quantity|floatformat:2 }}</td>
+                        <td class="px-6 py-4 text-right font-semibold text-blue-600 dark:text-blue-400">
+                            {{ line.pending_quantity|floatformat:2 }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+
+        <div class="p-6 border-t border-base-200 dark:border-base-700 flex justify-end">
+            <a href="{{ cancel_url }}"
+                class="px-5 py-2.5 text-sm font-medium rounded-default border border-base-300 dark:border-base-600 bg-white dark:bg-base-800 text-font-default-light dark:text-font-default-dark hover:bg-base-50 dark:hover:bg-base-700 transition-colors no-underline">
+                {% trans "Back" %}
+            </a>
+        </div>
+    </div>
+</div>
+{% endblock %}

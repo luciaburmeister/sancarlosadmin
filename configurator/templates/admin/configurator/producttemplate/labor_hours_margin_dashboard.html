@@ -63,6 +63,7 @@
   .lm-kpi--emerald .lm-kpi-value { color: var(--lm-emerald-500); }
 
   .lm-chart-wrap { background: var(--lm-card); border: 1px solid var(--lm-border); border-radius: 14px; box-shadow: var(--lm-shadow); padding: 20px 22px; margin-bottom: 24px; }
+  #lmChartWrap, #lmMarginChart { user-select: none; touch-action: none; }
   .lm-chart-title { font-size: 1rem; font-weight: 700; margin: 0 0 4px; }
   .lm-chart-subtitle { font-size: .78rem; color: var(--lm-text-sub); margin: 0 0 16px; }
 
@@ -102,6 +103,8 @@
       <select name="sort" class="lm-select" onchange="this.form.submit()">
         <option value="desc" {% if sort_order == "desc" %}selected{% endif %}>{% trans "Highest margin first" %}</option>
         <option value="asc" {% if sort_order == "asc" %}selected{% endif %}>{% trans "Lowest margin first" %}</option>
+        <option value="date_desc" {% if sort_order == "date_desc" %}selected{% endif %}>{% trans "Newest first" %}</option>
+        <option value="date_asc" {% if sort_order == "date_asc" %}selected{% endif %}>{% trans "Oldest first" %}</option>
       </select>
       <span class="lm-filter-label">{% trans "From" %}</span>
       {{ filter_form.date_from }}
@@ -144,10 +147,10 @@
 
   {{ chart_data|json_script:"lm-chart-data" }}
   <div class="lm-chart-wrap">
-    <h3 class="lm-chart-title">{% trans "Top expedientes by margin" %}</h3>
-    <p class="lm-chart-subtitle">{% trans "Each bar is billed hours, split into hours actually worked and extra margin. Always ranked highest margin first, independent of the table's sort below." %}</p>
+    <h3 class="lm-chart-title">{% trans "Expedientes" %}</h3>
+    <p class="lm-chart-subtitle">{% trans "Each bar is billed hours, split into hours actually worked and extra margin. Follows the same sort as the table below (up to 30 rows). Click a bar to open that expediente." %}</p>
     {% if chart_has_data %}
-    <div style="position:relative;height:420px;max-height:420px">
+    <div id="lmChartWrap" style="position:relative">
       <canvas id="lmMarginChart"></canvas>
     </div>
     {% else %}
@@ -221,7 +224,7 @@
       </form>
     </div>
     <p class="lm-chart-subtitle" style="padding: 0 22px; margin-top: 12px;">
-      {% blocktrans with ideal=ideal_daily_hours %}Every mechanic who can work on production, with hours worked on the selected day vs. an ideal of {{ ideal }}h. Mechanics with no sessions that day still appear, at 0h.{% endblocktrans %}
+      {% blocktrans with ideal=ideal_daily_hours|floatformat:"-2" %}Every mechanic who can work on production, with hours worked on the selected day vs. an ideal of {{ ideal }}h (configurable per company). Mechanics with no sessions that day still appear, at 0h.{% endblocktrans %}
     </p>
     {% if mechanic_rows %}
     <div style="padding: 0 22px 16px; display: flex; gap: 24px; font-size: .8rem; color: var(--lm-text-sub);">
@@ -243,7 +246,7 @@
         <tr>
           <td>{{ row.mechanic.full_name }}</td>
           <td class="lm-num">{{ row.worked_hours|floatformat:2 }}h</td>
-          <td class="lm-num">{{ row.ideal_hours|floatformat:0 }}h</td>
+          <td class="lm-num">{{ row.ideal_hours|floatformat:"-2" }}h</td>
           <td class="lm-num {% if row.deviation_pct >= 0 %}lm-margin-positive{% else %}lm-margin-negative{% endif %}">{{ row.deviation_pct|floatformat:1 }}%</td>
         </tr>
         {% endfor %}
@@ -266,6 +269,16 @@
 
     var canvas = document.getElementById('lmMarginChart');
     if (!canvas || !data.labels.length) return;
+
+    // Each row needs a comfortable minimum band height -- packing 30 bars
+    // into a small fixed-height canvas made every bar razor-thin, so tiny
+    // mouse movements flipped the tooltip between adjacent rows rapidly
+    // (the "laggy/crazy" tooltip). Scaling height with row count fixes it
+    // at the source instead of fighting Chart.js's hit-testing.
+    var wrap = document.getElementById('lmChartWrap');
+    var chartHeight = Math.max(360, data.labels.length * 28);
+    wrap.style.height = chartHeight + 'px';
+    wrap.style.maxHeight = chartHeight + 'px';
 
     var isDark = document.documentElement.classList.contains('dark') ||
       document.body.classList.contains('dark') ||
@@ -311,6 +324,23 @@
         responsive: true,
         maintainAspectRatio: false,
         maxBarThickness: 22,
+        // false, not a duration override -- disables all animation (initial
+        // render, hover, tooltip position) so nothing lags behind a fast
+        // mouse move. `hover.animationDuration` (tried earlier) is dead
+        // Chart.js v2 API; this project runs v4, where it's a silent no-op.
+        animation: false,
+        // Governs tooltip AND hover-highlight AND onClick element lookup
+        // together, so all three agree on what's "under the mouse" instead
+        // of tooltip config drifting out of sync with hover/click config.
+        interaction: { mode: 'index', intersect: false, axis: 'y' },
+        onHover: function (evt, elements) {
+          evt.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+        },
+        onClick: function (evt, elements) {
+          if (!elements.length) return;
+          var url = data.urls[elements[0].index];
+          if (url) window.location.href = url;
+        },
         plugins: {
           legend: {
             position: 'top',
@@ -318,8 +348,6 @@
             labels: { color: textColor, font: { size: 12, family: 'Inter' }, boxWidth: 12, boxHeight: 12 },
           },
           tooltip: {
-            mode: 'index',
-            intersect: false,
             backgroundColor: tooltipBg,
             titleColor: tooltipTitle,
             bodyColor: tooltipBody,

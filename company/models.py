@@ -224,6 +224,10 @@ class Company(models.Model):
             "register asset receptions from a project file."
         ),
     )
+    ideal_daily_work_minutes = models.PositiveIntegerField(
+        default=480,
+        verbose_name=_("Ideal daily work minutes"),
+    )
 
     def __str__(self):
         return self.name

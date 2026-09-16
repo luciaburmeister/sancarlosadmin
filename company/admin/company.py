@@ -503,6 +503,7 @@ class CompanyAdmin(ModelAdmin):
                 "require_asset_on_project_file",
                 "require_working_zone_on_project_file",
                 "asset_reception_product",
+                "ideal_daily_work_minutes",
             ),
             "classes": ["tab"]
         }),

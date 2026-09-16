@@ -5,6 +5,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
 from django.db.models import DurationField, ExpressionWrapper, F, Sum
 from django.db.models.functions import Coalesce
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
@@ -32,8 +33,14 @@ _BILLABLE_STATUSES = [
 # billed line, or a session that was never properly closed.
 _OUTLIER_DEVIATION_THRESHOLD = Decimal("300")
 
-# Hardcoded for v1 -- becomes a per-company setting later if needed.
-_IDEAL_DAILY_HOURS = Decimal("8")
+# Chart bar count -- raised from an earlier fixed 15. The canvas height scales
+# with this in the template's JS, so bars stay thick enough to hover reliably
+# instead of the tooltip flickering between razor-thin adjacent bars.
+_CHART_MAX_ROWS = 30
+
+# Only used when there's no company to read Company.ideal_daily_work_minutes
+# from (e.g. a user with no companies at all) -- not the normal path.
+_FALLBACK_IDEAL_DAILY_MINUTES = 480
 
 
 class LaborHoursMarginDashboardView(UnfoldModelAdminViewMixin, TemplateView):
@@ -56,15 +63,19 @@ class LaborHoursMarginDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         sort_order = self._resolve_sort_order(request)
         search_query = request.GET.get("q", "").strip()
         selected_day = self._resolve_day(request)
-        mechanic_rows = self._compute_mechanic_rows(company, selected_day) if company else []
+        ideal_daily_minutes = company.ideal_daily_work_minutes if company else _FALLBACK_IDEAL_DAILY_MINUTES
+        mechanic_rows = self._compute_mechanic_rows(company, selected_day, ideal_daily_minutes) if company else []
 
         rows = self._compute_rows(company, date_from, date_to) if company else []
         if search_query:
             rows = self._filter_rows(rows, search_query)
 
-        # Chart always leads with the biggest wins, independent of the table's
-        # own sort control -- it's the headline visual, not a mirror of the table.
-        chart_rows = sorted(rows, key=lambda r: r["gap_hours"], reverse=True)[:15]
+        sort_key, sort_reverse = self._sort_key_and_reverse(sort_order)
+        rows.sort(key=sort_key, reverse=sort_reverse)
+
+        # Chart follows the same sort as the table (per user choice), just
+        # capped to the first N rows so the bars stay readable.
+        chart_rows = rows[:_CHART_MAX_ROWS]
         chart_data = {
             "labels": [
                 (r["project_file"].reference or f"#{r['project_file'].pk}")
@@ -72,9 +83,11 @@ class LaborHoursMarginDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             ],
             "real_hours": [float(r["real_hours"]) for r in chart_rows],
             "gap_hours": [float(r["gap_hours"]) for r in chart_rows],
+            "urls": [
+                reverse("admin:management_projectfile_change", args=[r["project_file"].pk])
+                for r in chart_rows
+            ],
         }
-
-        rows.sort(key=lambda r: r["gap_hours"], reverse=(sort_order == "desc"))
 
         paginator = Paginator(rows, 20)
         page = paginator.get_page(request.GET.get("page"))
@@ -97,7 +110,7 @@ class LaborHoursMarginDashboardView(UnfoldModelAdminViewMixin, TemplateView):
 
         mechanic_totals = {
             "mechanic_count": len(mechanic_rows),
-            "below_ideal_count": sum(1 for r in mechanic_rows if r["worked_hours"] < _IDEAL_DAILY_HOURS),
+            "below_ideal_count": sum(1 for r in mechanic_rows if r["worked_minutes"] < ideal_daily_minutes),
             "avg_worked_hours": (
                 sum((r["worked_hours"] for r in mechanic_rows), zero) / len(mechanic_rows)
                 if mechanic_rows else zero
@@ -119,7 +132,7 @@ class LaborHoursMarginDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             "selected_day": selected_day,
             "mechanic_rows": mechanic_rows,
             "mechanic_totals": mechanic_totals,
-            "ideal_daily_hours": _IDEAL_DAILY_HOURS,
+            "ideal_daily_hours": Decimal(ideal_daily_minutes) / Decimal(60),
         })
         return ctx
 
@@ -138,7 +151,16 @@ class LaborHoursMarginDashboardView(UnfoldModelAdminViewMixin, TemplateView):
     @staticmethod
     def _resolve_sort_order(request):
         value = request.GET.get("sort")
-        return "asc" if value == "asc" else "desc"
+        return value if value in ("asc", "desc", "date_desc", "date_asc") else "desc"
+
+    @staticmethod
+    def _sort_key_and_reverse(sort_order):
+        if sort_order == "date_desc":
+            return (lambda r: r["project_file"].created_at), True
+        if sort_order == "date_asc":
+            return (lambda r: r["project_file"].created_at), False
+        # "asc" / "desc" -- by margin (gap_hours), the original behavior.
+        return (lambda r: r["gap_hours"]), (sort_order == "desc")
 
     @staticmethod
     def _resolve_company(request, user_companies):
@@ -169,10 +191,13 @@ class LaborHoursMarginDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         return timezone.localdate()
 
     @staticmethod
-    def _compute_mechanic_rows(company, day):
-        """Every mechanic who can work on production, with their worked hours
-        on `day` vs. the ideal daily hours. Mechanics with zero sessions that
-        day are included (worked_hours=0), so absences are visible too.
+    def _compute_mechanic_rows(company, day, ideal_daily_minutes):
+        """Every mechanic who can work on production, with their worked time
+        on `day` vs. the company's ideal daily minutes. Mechanics with zero
+        sessions that day are included (worked_minutes=0), so absences are
+        visible too. The comparison itself is done in minutes (matching the
+        storage unit, more flexible than decimal hours -- e.g. 450 for
+        7h30m); hours are derived only for display.
         """
         mechanics = Employee.objects.filter(
             company=company, can_work_on_production=True, is_active=True,
@@ -191,15 +216,17 @@ class LaborHoursMarginDashboardView(UnfoldModelAdminViewMixin, TemplateView):
         rows = []
         for mechanic in mechanics:
             total_seconds = seconds_by_employee.get(mechanic.id)
-            worked_hours = Decimal(total_seconds.total_seconds()) / Decimal(3600) if total_seconds else Decimal("0")
-            deviation_pct = ((worked_hours - _IDEAL_DAILY_HOURS) / _IDEAL_DAILY_HOURS) * 100
+            worked_minutes = Decimal(total_seconds.total_seconds()) / Decimal(60) if total_seconds else Decimal("0")
+            deviation_pct = ((worked_minutes - ideal_daily_minutes) / ideal_daily_minutes) * 100
             rows.append({
                 "mechanic": mechanic,
-                "worked_hours": worked_hours,
-                "ideal_hours": _IDEAL_DAILY_HOURS,
+                "worked_minutes": worked_minutes,
+                "ideal_minutes": ideal_daily_minutes,
+                "worked_hours": worked_minutes / Decimal(60),
+                "ideal_hours": Decimal(ideal_daily_minutes) / Decimal(60),
                 "deviation_pct": deviation_pct,
             })
-        rows.sort(key=lambda r: r["worked_hours"])
+        rows.sort(key=lambda r: r["worked_minutes"])
         return rows
 
     @staticmethod

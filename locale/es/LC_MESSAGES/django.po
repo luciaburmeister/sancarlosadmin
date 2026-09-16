@@ -14974,6 +14974,27 @@ msgstr "sesión(es) actualmente en curso (no contadas abajo)"
 msgid "No completed production sessions yet."
 msgstr "Todavía no hay sesiones de producción completadas."
 
+msgid "Pending Delivery"
+msgstr "Entrega pendiente"
+
+msgid "Items not yet delivered"
+msgstr "Artículos pendientes de entregar"
+
+msgid "Shipped"
+msgstr "Enviado"
+
+msgid "In draft"
+msgstr "En borrador"
+
+msgid "Everything has been delivered."
+msgstr "Todo ha sido entregado."
+
+msgid "line(s) pending delivery"
+msgstr "línea(s) pendientes de entrega"
+
+msgid "line(s) fully delivered (not listed)"
+msgstr "línea(s) totalmente entregadas (no listadas)"
+
 #~ msgid "Configuration ID"
 #~ msgstr "Configuración"
 

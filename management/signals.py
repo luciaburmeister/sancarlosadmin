@@ -43,9 +43,11 @@ def sales_invoice_deleting_unlock_work_entries(sender, instance, **kwargs):
 
 @receiver(post_save, sender="sales.Quote")
 def quote_saved_update_project_file(sender, instance, **kwargs):
-    """Recalculate ProjectFile total when a quote is saved."""
+    """Recalculate ProjectFile total when a quote is saved. Accepting (or
+    un-accepting) a quote also changes what the expediente has to deliver."""
     if instance.project_file_id:
         instance.project_file.recalculate_total_amount()
+        _recompute_project_file_status(instance.project_file_id)
 
 
 @receiver(post_delete, sender="sales.Quote")
@@ -56,13 +58,36 @@ def quote_deleted_update_project_file(sender, instance, **kwargs):
             instance.project_file.recalculate_total_amount()
         except Exception:
             logger.debug("ProjectFile already deleted, skipping recalculation.")
+        _recompute_project_file_status(instance.project_file_id)
+
+
+def _configuration_project_file_id(instance):
+    """Expediente a configuration belongs to: directly, or through its quote."""
+    if instance.project_file_id:
+        return instance.project_file_id
+    if instance.quote_id:
+        return _quote_project_file_id(instance.quote_id)
+    return None
+
+
+def _quote_project_file_id(quote_id):
+    from sales.models import Quote
+
+    return (
+        Quote.objects.filter(pk=quote_id)
+        .values_list("project_file_id", flat=True)
+        .first()
+    )
 
 
 @receiver(post_save, sender="configurator.Configuration")
 def configuration_saved_update_project_file(sender, instance, **kwargs):
-    """Recalculate ProjectFile total when a direct configuration is saved."""
+    """Recalculate ProjectFile total when a direct configuration is saved, and
+    re-derive the delivery status: a new or re-quantified configuration is a
+    new deliverable."""
     if instance.project_file_id and instance.quote_id is None:
         instance.project_file.recalculate_total_amount()
+    _recompute_project_file_status(_configuration_project_file_id(instance))
 
 
 @receiver(post_delete, sender="configurator.Configuration")
@@ -73,6 +98,18 @@ def configuration_deleted_update_project_file(sender, instance, **kwargs):
             instance.project_file.recalculate_total_amount()
         except Exception:
             logger.debug("ProjectFile already deleted, skipping recalculation.")
+    _recompute_project_file_status(_configuration_project_file_id(instance))
+
+
+@receiver(post_save, sender="sales.QuoteInventoryItem")
+def quote_inventory_item_saved_update_project_file(sender, instance, **kwargs):
+    """Inventory lines on an accepted quote are deliverables too."""
+    _recompute_project_file_status(_quote_project_file_id(instance.quote_id))
+
+
+@receiver(post_delete, sender="sales.QuoteInventoryItem")
+def quote_inventory_item_deleted_update_project_file(sender, instance, **kwargs):
+    _recompute_project_file_status(_quote_project_file_id(instance.quote_id))
 
 
 @receiver(post_save, sender="purchasing.PurchaseOrder")

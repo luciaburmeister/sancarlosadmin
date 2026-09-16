@@ -25,16 +25,19 @@ def _delivery_counting_statuses():
     return [DeliveryOrderStatus.SENT, DeliveryOrderStatus.DELIVERED]
 
 
-def get_ordered_quantities(project_file):
-    """{(content_type_id, object_id): ordered_quantity} for every deliverable
-    source line of the expediente: configurations of accepted quotes, the
-    quotes' inventory lines and direct (shop / work order) configurations."""
+def _ordered_source_lines(project_file):
+    """Every deliverable source line of the expediente as
+    ``(key, source_object, ordered_quantity)`` where ``key`` is the
+    ``(content_type_id, object_id)`` pair delivery order lines point at.
+
+    Sources are the configurations of accepted quotes, those quotes' inventory
+    lines and direct (shop / work order) configurations."""
     from configurator.models import Configuration, ConfigurationStatus
     from sales.models import Quote, QuoteInventoryItem, QuoteStatus
 
     config_ct = ContentType.objects.get_for_model(Configuration)
     inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
-    ordered = {}
+    lines = []
 
     accepted_quote_ids = Quote.objects.filter(
         project_file=project_file, status=QuoteStatus.ACCEPTED,
@@ -52,41 +55,109 @@ def get_ordered_quantities(project_file):
                 ConfigurationStatus.PRODUCTION_DONE,
             ],
         )
-    ).values_list("id", "units")
-    for config_id, units in configs:
-        ordered[(config_ct.id, config_id)] = units if units and units > 0 else Decimal("1")
+    ).order_by("quote_id", "id")
+    for config in configs:
+        units = config.units
+        lines.append((
+            (config_ct.id, config.id),
+            config,
+            units if units and units > 0 else Decimal("1"),
+        ))
 
     inv_items = QuoteInventoryItem.objects.filter(
         quote_id__in=accepted_quote_ids,
-    ).values_list("id", "quantity")
-    for item_id, quantity in inv_items:
-        ordered[(inv_item_ct.id, item_id)] = quantity or Decimal("0")
+    ).select_related("inventory_item").order_by("quote_id", "order", "id")
+    for inv_item in inv_items:
+        lines.append((
+            (inv_item_ct.id, inv_item.id),
+            inv_item,
+            inv_item.quantity or Decimal("0"),
+        ))
 
-    return ordered
+    return lines
+
+
+def get_ordered_quantities(project_file):
+    """{(content_type_id, object_id): ordered_quantity} for every deliverable
+    source line of the expediente (see ``_ordered_source_lines``)."""
+    return {key: qty for key, _source, qty in _ordered_source_lines(project_file)}
+
+
+def _quantities_by_source(project_file, statuses):
+    """{(content_type_id, object_id): quantity} summed over the lines of the
+    expediente's delivery orders in ``statuses``. Lines without a source are
+    keyed by None."""
+    from sales.models import DeliveryOrderItem
+
+    rows = (
+        DeliveryOrderItem.objects.filter(
+            delivery_order__project_file=project_file,
+            delivery_order__status__in=statuses,
+        )
+        .values("source_content_type_id", "source_object_id")
+        .annotate(total=Sum("quantity"))
+    )
+    totals = {}
+    for row in rows:
+        if row["source_content_type_id"] is None:
+            key = None
+        else:
+            key = (row["source_content_type_id"], row["source_object_id"])
+        totals[key] = totals.get(key, Decimal("0")) + (row["total"] or Decimal("0"))
+    return totals
 
 
 def get_shipped_quantities(project_file):
     """{(content_type_id, object_id): shipped_quantity} from delivery orders
     that actually left (sent or delivered). Drafts are not deliveries and
     cancelled orders never count. Lines without a source are keyed by None."""
-    from sales.models import DeliveryOrderItem
+    return _quantities_by_source(project_file, _delivery_counting_statuses())
 
-    rows = (
-        DeliveryOrderItem.objects.filter(
-            delivery_order__project_file=project_file,
-            delivery_order__status__in=_delivery_counting_statuses(),
-        )
-        .values("source_content_type_id", "source_object_id")
-        .annotate(total=Sum("quantity"))
-    )
-    shipped = {}
-    for row in rows:
-        if row["source_content_type_id"] is None:
-            key = None
-        else:
-            key = (row["source_content_type_id"], row["source_object_id"])
-        shipped[key] = shipped.get(key, Decimal("0")) + (row["total"] or Decimal("0"))
-    return shipped
+
+def _source_display(source):
+    """(reference, description) for a deliverable source line."""
+    from configurator.models import Configuration
+
+    if isinstance(source, Configuration):
+        description = source.name
+        if source.quote_id:
+            description = f"{description} (Q#{source.quote_id})"
+        return f"CFG-{source.id}", description
+
+    inventory_item = source.inventory_item if source.inventory_item_id else None
+    reference = inventory_item.code if inventory_item else ""
+    name = inventory_item.name if inventory_item else f"Inventory Item #{source.pk}"
+    return reference, f"{name} (Q#{source.quote_id})"
+
+
+def get_pending_delivery_lines(project_file):
+    """One row per deliverable source line of the expediente with what was
+    ordered, what has left and what is still owed.
+
+    Uses the same counting rules as ``compute_delivery_status``: only sent or
+    delivered orders count as shipped. Quantities sitting on draft orders are
+    reported separately in ``in_draft`` so a prepared-but-unsent order is
+    visible without being mistaken for a delivery. Rows are returned for every
+    line, including fully delivered ones (``pending`` is zero there)."""
+    from sales.models import DeliveryOrderStatus
+
+    shipped = get_shipped_quantities(project_file)
+    in_draft = _quantities_by_source(project_file, [DeliveryOrderStatus.DRAFT])
+
+    rows = []
+    for key, source, ordered in _ordered_source_lines(project_file):
+        shipped_qty = shipped.get(key, Decimal("0"))
+        reference, description = _source_display(source)
+        rows.append({
+            "source": source,
+            "reference": reference,
+            "description": description,
+            "ordered": ordered,
+            "shipped": shipped_qty,
+            "in_draft": in_draft.get(key, Decimal("0")),
+            "pending": max(ordered - shipped_qty, Decimal("0")),
+        })
+    return rows
 
 
 def compute_delivery_status(project_file):

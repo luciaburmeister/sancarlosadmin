@@ -34,6 +34,7 @@ from invoices.views.invoice.project_file_wizard_views import ProjectFileInvoiceW
 from invoices.views.invoice.delivery_order_wizard_views import DeliveryOrderWizardView
 from invoices.views.invoice.bulk_invoice_views import BulkInvoiceConfirmView
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
+from management.services.project_file_status import get_pending_delivery_lines
 from management.views.project_file_export import ProjectFileRepairOrderExportView
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.models import Configuration
@@ -489,7 +490,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
     form = ProjectFileAdminForm
     list_select_related = ["client"]
     list_filter_submit = True
-    readonly_fields = ["reference", "incremental_id", "show_delivery_status", "show_production_status", "invoicing_summary_display", "production_hours_summary_display"]
+    readonly_fields = ["reference", "incremental_id", "show_delivery_status", "show_production_status", "pending_delivery_display", "invoicing_summary_display", "production_hours_summary_display"]
 
     inlines = [
         QuoteInline,
@@ -518,6 +519,11 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
                 ("show_production_status", "show_delivery_status"),
                 "description",
                 "notification_email",
+            )
+        }),
+        (_("Pending Delivery"), {
+            "fields": (
+                "pending_delivery_display",
             )
         }),
         (_("Invoicing"), {
@@ -763,6 +769,84 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
             '<span style="color: #9ca3af;">0%</span>'
         )
 
+
+    @admin.display(description=_("Items not yet delivered"))
+    def pending_delivery_display(self, obj):
+        """Detail page read-only field: deliverable lines still owed to the
+        client. Only sent/delivered orders count as shipped (same rule as the
+        derived delivery status); draft quantities are shown apart."""
+        if not obj.pk:
+            return "—"
+
+        lines = get_pending_delivery_lines(obj)
+        if not lines:
+            return format_html(
+                '<span style="color: #6b7280;">{}</span>',
+                _("No accepted quotes or direct configurations yet."),
+            )
+
+        pending = [line for line in lines if line["pending"] > 0]
+        if not pending:
+            return format_html(
+                '<span style="color: #16a34a; font-weight: 600;">✓ {}</span>',
+                _("Everything has been delivered."),
+            )
+
+        def qty(value):
+            return f"{value.normalize():f}"
+
+        header = format_html(
+            '<tr style="font-size: 11px; color: #6b7280; text-align: left;">'
+            '<th style="padding: 4px 6px 4px 0; font-weight: 500;">{}</th>'
+            '<th style="padding: 4px 6px; font-weight: 500;">{}</th>'
+            '<th style="padding: 4px 6px; font-weight: 500; text-align: right;">{}</th>'
+            '<th style="padding: 4px 6px; font-weight: 500; text-align: right;">{}</th>'
+            '<th style="padding: 4px 6px; font-weight: 500; text-align: right;">{}</th>'
+            '<th style="padding: 4px 0 4px 6px; font-weight: 500; text-align: right;">{}</th>'
+            '</tr>',
+            _("Reference"), _("Item"), _("Ordered"), _("Shipped"), _("In draft"), _("Pending"),
+        )
+        rows = format_html_join(
+            "",
+            '<tr style="border-top: 1px solid #e5e7eb;">'
+            '<td style="padding: 4px 6px 4px 0; color: #6b7280;">{}</td>'
+            '<td style="padding: 4px 6px;">{}</td>'
+            '<td style="padding: 4px 6px; text-align: right;">{}</td>'
+            '<td style="padding: 4px 6px; text-align: right;">{}</td>'
+            '<td style="padding: 4px 6px; text-align: right; color: #d97706;">{}</td>'
+            '<td style="padding: 4px 0 4px 6px; text-align: right; font-weight: 600; color: #b45309;">{}</td>'
+            '</tr>',
+            (
+                (
+                    line["reference"] or "—",
+                    line["description"],
+                    qty(line["ordered"]),
+                    qty(line["shipped"]),
+                    qty(line["in_draft"]) if line["in_draft"] > 0 else "—",
+                    qty(line["pending"]),
+                )
+                for line in pending
+            ),
+        )
+        delivered_count = len(lines) - len(pending)
+        footer = format_html(
+            '<div style="font-size: 11px; color: #6b7280; margin-top: 6px;">{} {}</div>',
+            delivered_count,
+            _("line(s) fully delivered (not listed)"),
+        ) if delivered_count else ""
+
+        return format_html(
+            '<div style="border: 1px solid #fde68a; background: #fffbeb; border-radius: 8px; padding: 10px 12px; max-width: 800px;">'
+            '<div style="font-size: 13px; font-weight: 600; color: #92400e; margin-bottom: 6px;">{} {}</div>'
+            '<table style="width: 100%; font-size: 12px; color: #374151;">{}{}</table>'
+            '{}'
+            '</div>',
+            len(pending),
+            _("line(s) pending delivery"),
+            header,
+            rows,
+            footer,
+        )
 
     @admin.display(description=_("Invoicing Summary"))
     def invoicing_summary_display(self, obj):

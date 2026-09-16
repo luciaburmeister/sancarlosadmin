@@ -162,6 +162,67 @@ class DeliveryStatusTests(_ProjectFileStatusBase):
         self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_DELIVERED)
 
 
+class DeliverableSourceChangeTests(_ProjectFileStatusBase):
+    """Accepting a quote or adding deliverable lines must move a fresh
+    expediente from 'nothing to deliver' to 'not delivered' by itself."""
+
+    def test_new_expediente_defaults_to_nothing_to_deliver(self):
+        self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_APPLICABLE)
+        self.assertEqual(self.pf().operational_status[0], "nothing_pending")
+
+    def test_configuration_on_accepted_quote_makes_it_ready_to_deliver(self):
+        self._config(self._accepted_quote())
+        self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_DELIVERED)
+        self.assertEqual(self.pf().operational_status[0], "ready_to_deliver")
+
+    def test_accepting_a_draft_quote_recomputes(self):
+        quote = Quote.objects.create(
+            project_name="Quote", company=self.company, client=self.client_obj,
+            project_file=self.project_file, status=QuoteStatus.DRAFT,
+        )
+        self._config(quote)
+        self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_APPLICABLE)
+
+        quote.status = QuoteStatus.ACCEPTED
+        quote.save()
+        self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_DELIVERED)
+
+    def test_unaccepting_the_quote_reverts_to_nothing_to_deliver(self):
+        quote = self._accepted_quote()
+        self._config(quote)
+        self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_DELIVERED)
+        quote.status = QuoteStatus.DRAFT
+        quote.save()
+        self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_APPLICABLE)
+
+    def test_deleting_the_quote_keeps_orphaned_configuration_deliverable(self):
+        # Configuration.quote is SET_NULL: the completed configuration stays
+        # on the expediente as a direct one, so it is still owed.
+        quote = self._accepted_quote()
+        self._config(quote)
+        quote.delete()
+        self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_DELIVERED)
+
+    def test_inventory_line_on_accepted_quote_counts(self):
+        from inventory.models import InventoryItem
+        from sales.models import QuoteInventoryItem
+
+        quote = self._accepted_quote()
+        item = InventoryItem.objects.create(company=self.company, name="Hinge", code="HNG-1")
+        line = QuoteInventoryItem.objects.create(quote=quote, inventory_item=item, quantity=Decimal("3"))
+        self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_DELIVERED)
+        line.delete()
+        self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_APPLICABLE)
+
+    def test_direct_shop_configuration_counts(self):
+        Configuration.objects.create(
+            name="Direct", company=self.company, product=self.product,
+            client=self.client_obj, project_file=self.project_file,
+            status=ConfigurationStatus.SHOP, units=Decimal("1"),
+        )
+        self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_DELIVERED)
+
+
 class ProductionStatusTests(_ProjectFileStatusBase):
 
     def test_no_tickets_is_no_production(self):

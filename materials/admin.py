@@ -250,9 +250,6 @@ class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelA
         return result
 
     def save_formset(self, request, form, formset, change):
-        # Bank accounts are company-owned but the company is not on the inline
-        # form; inherit it from the provider so IBAN matching (which filters by
-        # company) can find these accounts.
         instances = formset.save(commit=False)
         for obj in formset.deleted_objects:
             obj.delete()
@@ -321,7 +318,7 @@ class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelA
             "fields": ("contact", ("phone", "email"), "associated_emails")
         }),
         (_("Finance"), {
-            "fields": ("tax_identifier", "account", ("payment_method", "payment_terms_days"))
+            "fields": (("tax_identifier","default_cost_center"), "account", ("payment_method", "payment_terms_days"))
         }),
     )
 

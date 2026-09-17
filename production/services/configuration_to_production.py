@@ -3,10 +3,36 @@ from configurator.models import Configuration, ConfigurationExportTemplate, Expo
 from configurator.services.export import ConfigurationExportService
 from production.models import ProductionTicket, ProductionItem
 from production.services.session_scheduler import ScheduleContext, SessionScheduler
+import logging
 import os
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigurationToProductionService:
+    @staticmethod
+    def _render_template(obj, template):
+        """Render an export template, returning None instead of raising.
+
+        Export templates are authored in the admin against a specific context
+        (PRODUCTION_ORDER against the Configuration, PRODUCTION_TICKET against
+        a ProductionItem), so a template that references a variable the context
+        does not carry raises VariableDoesNotExist mid-render. Sending a
+        configuration to production must not die because of that: we log it and
+        leave whatever HTML was stored before untouched.
+        """
+        try:
+            return ConfigurationExportService.render_html(obj, template)
+        except Exception:
+            logger.exception(
+                "Export template %s (%s) failed to render for %s %s",
+                template.pk,
+                template.kind,
+                type(obj).__name__,
+                getattr(obj, "pk", None),
+            )
+            return None
+
     @classmethod
     def create_ticket_by_id(cls, configuration_id):
         configuration = Configuration.objects.get(pk=configuration_id)
@@ -63,17 +89,26 @@ class ConfigurationToProductionService:
             company=ticket.company
         )
         if order_template:
-            ticket.order_html = ConfigurationExportService.render_html(configuration, order_template)
-        
+            rendered = cls._render_template(configuration, order_template)
+            if rendered is not None:
+                ticket.order_html = rendered
+
         # 2. Production Ticket (Default)
+        # Note: PRODUCTION_TICKET templates are normally authored against the
+        # ProductionItem context ("item", "data", "planning", ...), which the
+        # Configuration context does not provide, so this render is expected to
+        # fail for those templates. The per-item render in
+        # _create_items_from_list is the one that matters.
         ticket_template = ConfigurationExportTemplate.get_default_for_product(
-            product=product, 
+            product=product,
             kind=ExportTemplateKind.PRODUCTION_TICKET,
             company=ticket.company
         )
         if ticket_template:
-            ticket.ticket_html = ConfigurationExportService.render_html(configuration, ticket_template)
-        
+            rendered = cls._render_template(configuration, ticket_template)
+            if rendered is not None:
+                ticket.ticket_html = rendered
+
         ticket.save(update_fields=["order_html", "ticket_html", "work_order_pdf"])
 
     @classmethod
@@ -81,8 +116,8 @@ class ConfigurationToProductionService:
         config_items = list(configuration.items.select_related("component"))
         cls._create_items_from_list(ticket, configuration, config_items)
 
-    @staticmethod
-    def _create_items_from_list(ticket, configuration, config_items):
+    @classmethod
+    def _create_items_from_list(cls, ticket, configuration, config_items):
         from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
         from configurator.services.export import ConfigurationExportService
 
@@ -121,8 +156,10 @@ class ConfigurationToProductionService:
                 production_stages_order=list(item.production_stages or []),
             )
             if ticket_template:
-                production_item.ticket_html = ConfigurationExportService.render_html(production_item, ticket_template)
-                production_item.save(update_fields=["ticket_html"])
+                rendered = cls._render_template(production_item, ticket_template)
+                if rendered is not None:
+                    production_item.ticket_html = rendered
+                    production_item.save(update_fields=["ticket_html"])
 
     @classmethod
     def _sync_items(cls, ticket, configuration):

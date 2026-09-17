@@ -48,7 +48,8 @@
       "Bash(awk '{print $5,$9}')",
       "Bash(.venv/bin/python -)",
       "Bash(.venv/bin/python manage.py test inventory.tests.test_stock_position.ReservedQuantityTest inventory.tests.test_stock_position.StockPositionCacheTest --noinput)",
-      "Bash(grep -vE \"^\\\\s*$\")"
+      "Bash(grep -vE \"^\\\\s*$\")",
+      "Bash(python manage.py test configurator.tests.test_sales_invoice_export_delivery_orders --parallel 1)"
     ]
   }
 }

@@ -49,6 +49,36 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
 
         return None
 
+    def _delivery_order_contexts(self):
+        """
+        The delivery orders billed by this invoice, each one carrying the very
+        same context its own export template receives (lines, line_tree,
+        identity codes, taxes, shipping data). An invoice template can then
+        print its albaranes inline without a second export.
+        """
+        from .delivery_order import DeliveryOrderExportStrategy
+
+        delivery_orders = (
+            self.sales_invoice.delivery_orders
+            .select_related(
+                "client", "company", "configuration", "project_file",
+                "delivery_address", "shipping_agency",
+            )
+            .order_by("date", "pk")
+        )
+
+        contexts = []
+        for delivery_order in delivery_orders:
+            do_context = DeliveryOrderExportStrategy(delivery_order).get_context()
+            # The company block already sits at the top level of the invoice
+            # context; repeating it per albarán would only bloat the
+            # serialized context with the same data.
+            for key in ("company", "company_data", "bank_account"):
+                do_context.pop(key, None)
+            contexts.append(do_context)
+
+        return contexts
+
     def get_context(self) -> Dict[str, Any]:
         from invoices.services.discounts import is_discount_line_source
 
@@ -123,6 +153,17 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "total_amount": float(self.sales_invoice.total_amount.amount),
             "reference": self.sales_invoice.reference,
         }
+
+        # Delivery orders billed by this invoice. Templates decide whether to
+        # print them — a header line of numbers, a detail block per albarán,
+        # or nothing at all.
+        delivery_orders = self._delivery_order_contexts()
+        context["delivery_orders"] = delivery_orders
+        context["delivery_order"] = delivery_orders[0] if delivery_orders else None
+        context["has_delivery_orders"] = bool(delivery_orders)
+        context["delivery_order_numbers"] = [
+            do["number"] for do in delivery_orders if do["number"]
+        ]
 
         # Use common helper for company and bank information
         company_ctx = get_company_context(self.sales_invoice.company)

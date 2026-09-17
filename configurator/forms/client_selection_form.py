@@ -84,10 +84,12 @@ class ClientSelectionForm(forms.ModelForm):
         # Ensure we have the right helper attached for Crispy rendering
         self.helper = ClientSelectionFormHelper()
         
-        if self.request and self.request.user and not self.request.user.is_superuser:
+        if self.request and self.request.user:
+            # Quotes follow the active company for everyone, superusers included.
             user_companies = get_user_companies(self.request.user)
             self.fields["quote"].queryset = self.fields["quote"].queryset.filter(company__in=user_companies)
-            self.fields["asset"].queryset = self.fields["asset"].queryset.filter(company__in=user_companies)
+            if not self.request.user.is_superuser:
+                self.fields["asset"].queryset = self.fields["asset"].queryset.filter(company__in=user_companies)
             
         if self.product and self.product.company:
             self.fields["asset"].queryset = self.fields["asset"].queryset.filter(company=self.product.company)

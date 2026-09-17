@@ -8,13 +8,14 @@ from django.db.models import Sum
 from django.utils.translation import gettext as _
 
 def _get_company_filtered_quotes(request):
-    """Return a Quote queryset scoped to the user's accessible companies."""
+    """Return a Quote queryset scoped to the active companies.
+
+    get_user_companies() is already the active-company selection, and it
+    scopes superusers too, so there is no is_superuser shortcut here.
+    """
     from sales.models import Quote
 
-    qs = Quote.objects.all()
-    if not request.user.is_superuser:
-        qs = qs.filter(company__in=get_user_companies(request.user))
-    return qs
+    return Quote.objects.filter(company__in=get_user_companies(request.user))
 
 
 @register_component

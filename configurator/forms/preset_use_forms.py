@@ -101,14 +101,16 @@ class PresetClientLinkForm(forms.ModelForm):
 
         self.helper = PresetClientLinkFormHelper()
 
-        if self.request and self.request.user and not self.request.user.is_superuser:
+        if self.request and self.request.user:
+            # Quotes follow the active company for everyone, superusers included.
             user_companies = get_user_companies(self.request.user)
             self.fields["quote"].queryset = self.fields["quote"].queryset.filter(
                 company__in=user_companies
             )
-            self.fields["asset"].queryset = self.fields["asset"].queryset.filter(
-                company__in=user_companies
-            )
+            if not self.request.user.is_superuser:
+                self.fields["asset"].queryset = self.fields["asset"].queryset.filter(
+                    company__in=user_companies
+                )
 
         if self.preset and self.preset.product and self.preset.product.company:
             self.fields["asset"].queryset = self.fields["asset"].queryset.filter(

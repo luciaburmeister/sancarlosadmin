@@ -918,28 +918,36 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         help_text=_("All project files included in this invoice (for bulk invoicing)."),
     )
     
+    currency = models.CharField(
+        max_length=3,
+        choices=settings.CURRENCY_CHOICES,
+        default='EUR',
+        verbose_name=_("Currency"),
+        help_text=_("Currency of every amount on this invoice; changing it re-labels the line items and taxes."),
+    )
+
     subtotal_amount = MoneyField(
-        max_digits=12, 
-        decimal_places=2, 
-        default=0, 
+        max_digits=12,
+        decimal_places=2,
+        default=0,
         default_currency='EUR',
         verbose_name=_("Subtotal")
     )
     tax_amount = MoneyField(
-        max_digits=12, 
-        decimal_places=2, 
-        default=0, 
+        max_digits=12,
+        decimal_places=2,
+        default=0,
         default_currency='EUR',
         verbose_name=_("Tax Amount")
     )
     total_amount = MoneyField(
-        max_digits=12, 
-        decimal_places=2, 
-        default=0, 
+        max_digits=12,
+        decimal_places=2,
+        default=0,
         default_currency='EUR',
         verbose_name=_("Total Amount")
     )
-    
+
     reference = models.CharField(max_length=255, blank=True, null=True, verbose_name=_("Reference"))
 
     notes = models.TextField(blank=True, null=True, verbose_name=_("Notes"))
@@ -1023,12 +1031,17 @@ class SalesInvoice(CompanyOwnedModel, Payable):
                 'total': self.total_amount
             }
 
+        currency = self.currency or self._meta.get_field("currency").default
+
         # 1. Update subtotal from items if they exist
         items_sum = self.items.aggregate(total=Sum('line_total'))['total']
         if items_sum is not None:
              # Ensure subtotal_amount gets the numeric value
-             self.subtotal_amount = items_sum.amount if hasattr(items_sum, 'amount') else items_sum
-             
+             self.subtotal_amount = Money(
+                 items_sum.amount if hasattr(items_sum, 'amount') else items_sum,
+                 currency,
+             )
+
         ct = ContentType.objects.get_for_model(self)
         # ponytail: discount reduces the taxable base
         discount = Decimal(self.discount_amount.amount) if self.discount_amount else Decimal("0.00")
@@ -1047,25 +1060,28 @@ class SalesInvoice(CompanyOwnedModel, Payable):
                 tax_base = Decimal(str(tax.base_amount.amount))
             else:
                 tax_base = taxable_base
-            tax.base_amount = tax_base
-            
+            tax.base_amount = Money(tax_base, currency)
+
             # Recalculate the amount
             res = tax.calculate(tax_base)
-            tax.calculated_amount = res['tax_amount']
-            tax.save(update_fields=['base_amount', 'calculated_amount'])
-                
+            tax.calculated_amount = Money(res['tax_amount'], currency)
+            tax.save(update_fields=[
+                'base_amount', 'base_amount_currency',
+                'calculated_amount', 'calculated_amount_currency',
+            ])
+
             amt = Decimal(str(tax.calculated_amount.amount))
-            
+
             if tax.tax_type.behavior == "add":
                 total_tax += amt
                 current_total += amt
             else:
                 total_tax -= amt
                 current_total -= amt
-            
-        self.tax_amount = total_tax
-        self.total_amount = current_total
-        
+
+        self.tax_amount = Money(total_tax, currency)
+        self.total_amount = Money(current_total, currency)
+
         if save:
             self.save(update_fields=['subtotal_amount', 'tax_amount', 'total_amount'])
         
@@ -1188,6 +1204,35 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         if not self.payment_terms_days:
             self.payment_terms_days = terms_days
 
+    _MONEY_FIELDS = ("subtotal_amount", "tax_amount", "total_amount", "discount_amount")
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        instance._loaded_currency = getattr(instance, "currency", None)
+        return instance
+
+    def _sync_money_currency(self):
+        """
+        ``currency`` is the source of truth for every Money on the invoice.
+        A brand-new invoice built straight from a non-EUR Money without setting
+        the field, though, means that Money: adopt it instead of silently
+        flattening the amount to the default.
+        """
+        default_currency = self._meta.get_field("currency").default
+        if self._state.adding and (self.currency or default_currency) == default_currency:
+            for name in self._MONEY_FIELDS:
+                money = getattr(self, name)
+                if money is not None and str(money.currency) != default_currency:
+                    self.currency = str(money.currency)
+                    break
+
+        currency = self.currency or default_currency
+        for name in self._MONEY_FIELDS:
+            money = getattr(self, name)
+            if money is not None and str(money.currency) != currency:
+                setattr(self, name, Money(money.amount, currency))
+
     def save(self, *args, **kwargs):
         # Automatic recalculation if already exists
         if self.pk and not kwargs.get('update_fields'):
@@ -1196,7 +1241,37 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         if self._state.adding:
             self._apply_default_due_date()
 
+        self._sync_money_currency()
+
+        if kwargs.get('update_fields') is not None:
+            uf = set(kwargs['update_fields'])
+            for name in self._MONEY_FIELDS:
+                if name in uf:
+                    uf.add(f"{name}_currency")
+            if 'currency' in uf:
+                uf.update(f"{name}_currency" for name in self._MONEY_FIELDS)
+            kwargs['update_fields'] = uf
+
+        was_adding = self._state.adding
         super().save(*args, **kwargs)
+
+        # Line items and applied taxes always carry the invoice's currency.
+        # Only worth a query when the currency actually moved: a brand-new
+        # invoice has no children yet, and an unchanged one nothing to fix.
+        if not was_adding and self.currency and getattr(self, "_loaded_currency", None) != self.currency:
+            self.items.exclude(unit_price_currency=self.currency).update(
+                unit_price_currency=self.currency,
+                discount_amount_currency=self.currency,
+                line_total_currency=self.currency,
+            )
+            ct = ContentType.objects.get_for_model(self)
+            AppliedTax.objects.filter(content_type=ct, object_id=self.pk).exclude(
+                calculated_amount_currency=self.currency
+            ).update(
+                base_amount_currency=self.currency,
+                calculated_amount_currency=self.currency,
+            )
+        self._loaded_currency = self.currency
 
         update_fields = kwargs.get('update_fields')
         if update_fields is None or 'payment_status' in update_fields:
@@ -1286,6 +1361,14 @@ class SalesInvoiceItem(models.Model):
                     self.reference = qi.inventory_item.code
             except (QuoteInventoryItem.DoesNotExist, ValueError, IndexError):
                 pass
+
+        # The invoice's currency wins; a line built from a bare Decimal or a
+        # foreign Money is relabelled rather than left to drift.
+        currency = getattr(self.invoice, 'currency', None) or 'EUR'
+        unit_price = self.unit_price if self.unit_price is not None else Money(0, currency)
+        if str(unit_price.currency) != currency:
+            unit_price = Money(unit_price.amount, currency)
+        self.unit_price = unit_price
 
         self.discount_amount = (self.unit_price * self.quantity) * (self.discount_percentage / Decimal("100"))
         self.line_total = (self.unit_price * self.quantity) - self.discount_amount

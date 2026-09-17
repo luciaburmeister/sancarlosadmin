@@ -1063,6 +1063,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
             _("Financial Summary"),
             {
                 "fields": (
+                    "currency",
                     "subtotal_amount",
                     ("discount_amount", "discount_breakdown"),
                     "tax_amount",

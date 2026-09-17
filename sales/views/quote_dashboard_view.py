@@ -16,11 +16,12 @@ class QuoteDashboardView(UnfoldModelAdminViewMixin, TemplateView):
     template_name = "admin/sales/quote/dashboard.html"
 
     def _get_quotes(self):
-        """Return quotes scoped to the user's accessible companies."""
-        qs = Quote.objects.all()
-        if not self.request.user.is_superuser:
-            qs = qs.filter(company__in=get_user_companies(self.request.user))
-        return qs
+        """Return quotes scoped to the active companies.
+
+        get_user_companies() is already the active-company selection, and it
+        scopes superusers too, so there is no is_superuser shortcut here.
+        """
+        return Quote.objects.filter(company__in=get_user_companies(self.request.user))
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)

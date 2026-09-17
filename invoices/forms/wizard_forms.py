@@ -43,6 +43,7 @@ class SalesInvoiceBasicFormHelper(FormHelper):
             ),
             Row(
                 Column(Field('payment_method'), css_class="col-span-12 md:col-span-6"),
+                Column(Field('currency'), css_class="col-span-12 md:col-span-6"),
                 css_class="gap-4 mb-4"
             ),
             HTML("</div>")
@@ -80,12 +81,13 @@ class SalesInvoiceBasicForm(forms.ModelForm):
 
     class Meta:
         model = SalesInvoice
-        fields = ['company', 'status', 'client', 'date_issued', 'due_date', 'payment_method']
+        fields = ['company', 'status', 'client', 'date_issued', 'due_date', 'payment_method', 'currency']
         widgets = {
             'status': UnfoldAdminSelectWidget,
             'date_issued': UnfoldAdminDateWidget,
             'due_date': UnfoldAdminDateWidget,
             'payment_method': UnfoldAdminSelectWidget,
+            'currency': UnfoldAdminSelectWidget,
         }
 
     def __init__(self, *args, **kwargs):

@@ -47,10 +47,11 @@ class QuoteAutocompleteView(BaseAutocompleteView):
     def get_queryset(self):
         qs = super().get_queryset()
         user = self.request.user
-        
-        if not user.is_superuser:
-            qs = qs.filter(company__in=get_user_companies(user))
-            
+
+        # get_user_companies() is already the active-company selection, and
+        # superusers are scoped by it too — so no is_superuser shortcut here.
+        qs = qs.filter(company__in=get_user_companies(user))
+
         term = self.request.GET.get("term")
         if term:
             qs = qs.filter(

@@ -28,6 +28,7 @@ from django.contrib.contenttypes.models import ContentType
 from invoices.services.invoice.invoice_duplicate_service import InvoiceDuplicateService, DuplicateInvoiceError
 from company.models import Company
 from core.services.provider_service import get_or_create_provider
+from invoices.services.purchase_invoice_payment import resolve_purchase_invoice_payment_method
 
 
 
@@ -265,7 +266,11 @@ class InvoiceService:
                     invoice.total_amount = Money(extracted_data.total_amount, currency)
                 elif invoice.total_amount is not None:
                     invoice.total_amount = Money(invoice.total_amount.amount, currency)
-                invoice.payment_method = extracted_data.payment_method or invoice.payment_method or "transfer"
+                invoice.payment_method = resolve_purchase_invoice_payment_method(
+                    provider=provider,
+                    extracted=extracted_data.payment_method,
+                    current=invoice.payment_method,
+                )
                 invoice.company = company
                 invoice.ocr_raw_response = extracted_data.raw_response
                 if extracted_data.document_type in ("invoice", "credit_note"):
@@ -335,7 +340,9 @@ class InvoiceService:
             net_amount=net_money,
             total_amount=total_money,
             currency=currency,
-            payment_method=extracted_data.payment_method or 'transfer',
+            payment_method=resolve_purchase_invoice_payment_method(
+                provider=provider, extracted=extracted_data.payment_method,
+            ),
             image_hash=image_hash,
             company=company,
             ocr_raw_response=extracted_data.raw_response,

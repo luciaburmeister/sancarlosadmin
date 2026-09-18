@@ -673,6 +673,7 @@ def process_payment_reminders():
     """
     from datetime import datetime, timedelta
 
+    from django.db.models import Exists, OuterRef
     from django.utils import timezone
 
     from invoices.models import (
@@ -701,15 +702,26 @@ def process_payment_reminders():
         company = reminder_settings.company
         processed_companies += 1
 
+        # Clients with an unsettled negative invoice (credit note) are skipped:
+        # a negative invoice means we owe them, so no reminder is sent.
+        client_has_open_negative_invoice = SalesInvoice.objects.filter(
+            company=company,
+            client=OuterRef("client"),
+            status=SalesInvoiceStatus.FINAL,
+            total_amount__lt=0,
+        ).exclude(payment_status=InvoicePaymentStatus.PAID)
+
         invoices = (
             SalesInvoice.objects.filter(
                 company=company,
                 status=SalesInvoiceStatus.FINAL,
                 due_date__isnull=False,
                 exclude_from_payment_reminders=False,
+                total_amount__gt=0,
             )
             .exclude(payment_status=InvoicePaymentStatus.PAID)
             .exclude(client__exclude_from_payment_reminders=True)
+            .exclude(Exists(client_has_open_negative_invoice))
             .select_related("client")
         )
 

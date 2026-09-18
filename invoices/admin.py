@@ -1017,7 +1017,15 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     list_filter_submit = True
     list_select_related = ["company","client"]
     
-    readonly_fields = ("incremental_id", "subtotal_amount", "tax_amount", "total_amount", "status", "invoice_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown")
+    readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown")
+
+    @display(description=_("Lines total (before discount)"))
+    def lines_total_display(self, obj):
+        return obj.subtotal_amount
+
+    @display(description=_("Subtotal"))
+    def taxable_base_display(self, obj):
+        return obj.taxable_base
 
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = super().get_readonly_fields(request, obj)
@@ -1064,8 +1072,9 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
             {
                 "fields": (
                     "currency",
-                    "subtotal_amount",
+                    "lines_total_display",
                     ("discount_amount", "discount_breakdown"),
+                    "taxable_base_display",
                     "tax_amount",
                     "total_amount",
                     "payment_method",

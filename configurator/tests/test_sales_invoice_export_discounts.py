@@ -48,9 +48,29 @@ class SalesInvoiceExportDiscountTests(TestCase):
 
         context = SalesInvoiceExportStrategy(self.invoice).get_context()
 
-        self.assertEqual(context["subtotal"], 200.00)
+        # "subtotal" is the taxable base printed on the document: lines
+        # total net of the invoice-level discount.
+        self.assertEqual(context["lines_total"], 200.00)
+        self.assertEqual(context["gross_subtotal"], 200.00)
+        self.assertEqual(context["subtotal"], 150.00)
         self.assertEqual(context["discount_amount"], 50.00)
         self.assertEqual(context["discount_percentage"], 25.00)
+
+    def test_subtotal_is_taxable_base_after_discount(self):
+        self._add_item(unit_price="100.00", quantity="2", discount_percentage="0.00")
+        self.invoice.discount_amount = Decimal("50.00")
+        self.invoice.save()
+        self.invoice.recalculate_totals()
+
+        self.assertEqual(self.invoice.subtotal_amount.amount, Decimal("200.00"))
+        self.assertEqual(self.invoice.taxable_base.amount, Decimal("150.00"))
+        self.assertEqual(str(self.invoice.taxable_base.currency), "EUR")
+
+        context = SalesInvoiceExportStrategy(self.invoice).get_context()
+        self.assertEqual(context["subtotal"], float(self.invoice.taxable_base.amount))
+        self.assertEqual(
+            context["subtotal"] + context["tax_amount"], context["total_amount"]
+        )
 
     def test_no_discounts_report_zero(self):
         self._add_item(unit_price="100.00", quantity="1", discount_percentage="0.00")

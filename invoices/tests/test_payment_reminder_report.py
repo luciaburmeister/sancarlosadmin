@@ -241,6 +241,30 @@ class PaymentReminderReportTests(TestCase):
         log = PaymentReminderLog.objects.get(invoice=invoice)
         self.assertEqual(log.status, PaymentReminderLogStatus.SENT)
 
+    def test_clients_with_open_negative_invoice_get_no_reminders(self, mock_send):
+        company = self._make_company(email="info@alpha.com")
+        now = timezone.localtime().replace(second=0, microsecond=0)
+        reminder_settings = self._make_settings(company, send_time=now.time())
+        PaymentReminderRule.objects.create(
+            company=company, settings=reminder_settings, days_before_due=3
+        )
+        due = self.today + timedelta(days=3)
+        # Client A has a pending credit note (negative invoice): we owe them.
+        invoice_a = self._make_invoice(company, "F-A", client_email="a@example.com", due_date=due)
+        SalesInvoice.objects.create(
+            company=company, client=invoice_a.client, invoice_number="R-A",
+            total_amount=Money("-40.00", "EUR"), due_date=due,
+            status=SalesInvoiceStatus.FINAL,
+        )
+        # Client B has only positive invoices and must still be reminded.
+        invoice_b = self._make_invoice(company, "F-B", client_email="b@example.com", due_date=due)
+
+        result = process_payment_reminders()
+
+        self.assertEqual(result["reminders_queued"], 1)
+        self.assertFalse(PaymentReminderLog.objects.filter(invoice__client=invoice_a.client).exists())
+        self.assertTrue(PaymentReminderLog.objects.filter(invoice=invoice_b).exists())
+
     # ── Client reminder recipients ────────────────────────────────────
 
     def test_client_reminder_emails_override_main_email(self, mock_send):

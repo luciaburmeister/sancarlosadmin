@@ -277,6 +277,8 @@ class SalesInvoiceDetailSerializer(serializers.Serializer):
             "due_date": invoice.due_date.strftime("%Y-%m-%d") if invoice.due_date else None,
             "payment_commitment_date": invoice.payment_commitment_date.strftime("%Y-%m-%d") if invoice.payment_commitment_date else None,
             "subtotal_amount": float(invoice.subtotal_amount.amount) if invoice.subtotal_amount else 0.0,
+            "discount_amount": float(invoice.discount_amount.amount) if invoice.discount_amount else 0.0,
+            "taxable_base": float(invoice.taxable_base.amount),
             "tax_amount": float(invoice.tax_amount.amount) if invoice.tax_amount else 0.0,
             "total_amount": float(invoice.total_amount.amount) if invoice.total_amount else 0.0,
             "amount_paid": float(invoice.amount_paid.amount) if invoice.amount_paid else 0.0,

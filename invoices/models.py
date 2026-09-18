@@ -1017,6 +1017,19 @@ class SalesInvoice(CompanyOwnedModel, Payable):
             return f"Pro Forma #{self.id} - {self.client}"
         return f"{self.invoice_number} - {self.client}"
 
+    @property
+    def taxable_base(self):
+        """
+        The subtotal after the invoice-level discount (Base Imponible): the
+        amount taxes are applied to and the figure shown as "Subtotal" to
+        users. ``subtotal_amount`` keeps the raw sum of line totals so the
+        discount can be displayed against the base it was computed on.
+        """
+        currency = self.currency or self._meta.get_field("currency").default
+        subtotal = Decimal(str(self.subtotal_amount.amount)) if self.subtotal_amount else Decimal("0.00")
+        discount = Decimal(str(self.discount_amount.amount)) if self.discount_amount else Decimal("0.00")
+        return Money(subtotal - discount, currency)
+
     def recalculate_totals(self, save=True):
         """
         Recalculates the total and tax amounts by applying taxes sequentially
@@ -1088,6 +1101,7 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         return {
             'subtotal': self.subtotal_amount,
             'discount': self.discount_amount,
+            'taxable_base': self.taxable_base,
             'tax': self.tax_amount,
             'total': self.total_amount
         }

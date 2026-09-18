@@ -318,6 +318,7 @@ class SalesInvoiceResource(resources.ModelResource):
         widget=ForeignKeyWidget(Company, 'name')
     )
     company_tax_identifier = fields.Field(column_name=_('Company NIF/CIF'))
+    discount_amount_value = fields.Field(column_name=_('Discount Amount'))
     subtotal_amount_value = fields.Field(column_name=_('Subtotal'))
     tax_amount_value = fields.Field(column_name=_('Tax Amount'))
     total_amount_value = fields.Field(column_name=_('Total Amount'))
@@ -348,6 +349,7 @@ class SalesInvoiceResource(resources.ModelResource):
             'client_phone',
             'company',
             'company_tax_identifier',
+            'discount_amount_value',
             'subtotal_amount_value',
             'tax_amount_value',
             'total_amount_value',
@@ -394,8 +396,12 @@ class SalesInvoiceResource(resources.ModelResource):
 
         return super().export(queryset=instances, *args, **kwargs)
 
+    def dehydrate_discount_amount_value(self, invoice):
+        return invoice.discount_amount.amount if invoice.discount_amount else 0
+
     def dehydrate_subtotal_amount_value(self, invoice):
-        return invoice.subtotal_amount.amount if invoice.subtotal_amount else 0
+        # Subtotal after the invoice-level discount (the taxable base).
+        return invoice.taxable_base.amount
 
     def dehydrate_tax_amount_value(self, invoice):
         return invoice.tax_amount.amount if invoice.tax_amount else 0

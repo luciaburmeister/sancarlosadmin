@@ -394,7 +394,8 @@ class InvoiceFromDeliveryOrderTests(_DeliveryOrderTestBase):
 
         self.assertFalse(context["has_financing_discount"])
         self.assertEqual(context["financing_discount_amount"], 0.0)
-        self.assertEqual(context["subtotal"], 1000.0)
+        self.assertEqual(context["lines_total"], 1000.0)
+        self.assertEqual(context["subtotal"], 850.0)
         self.assertEqual(context["discount_amount"], 150.0)
         self.assertEqual(context["discount_percentage"], 15.0)
         self.assertEqual(context["total_amount"], 1028.5)

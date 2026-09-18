@@ -107,13 +107,17 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             items_data.append(item_dict)
 
 
-        subtotal = Decimal(str(self.sales_invoice.subtotal_amount.amount)) if self.sales_invoice.subtotal_amount else Decimal("0.00")
+        # ``lines_total`` is the raw sum of line totals; ``subtotal`` is what
+        # templates print as "Base": the taxable base after the invoice-level
+        # discount, so Base + taxes = Total on the printed document.
+        lines_total = Decimal(str(self.sales_invoice.subtotal_amount.amount)) if self.sales_invoice.subtotal_amount else Decimal("0.00")
         discount = Decimal(str(self.sales_invoice.discount_amount.amount)) if self.sales_invoice.discount_amount else Decimal("0.00")
+        subtotal = lines_total - discount
         # Invoice-level discount as a percentage of the line subtotal. The
         # invoice stores only the amount (rules can cascade), so the effective
         # rate is derived from it — against the gross subtotal, since the
         # financing lines already netted themselves out of it.
-        gross_subtotal = subtotal + financing_discount_amount
+        gross_subtotal = lines_total + financing_discount_amount
         discount_percentage = (
             float((discount / gross_subtotal * Decimal("100")).quantize(Decimal("0.01")))
             if gross_subtotal > 0
@@ -144,6 +148,8 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "date_issued": self.sales_invoice.date_issued,
             "due_date": self.sales_invoice.due_date,
             "subtotal": float(subtotal),
+            "lines_total": float(lines_total),
+            "gross_subtotal": float(gross_subtotal),
             "discount_amount": float(discount),
             "discount_percentage": discount_percentage,
             "discount_breakdown": self.sales_invoice.discount_breakdown or [],

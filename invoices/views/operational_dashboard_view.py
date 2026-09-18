@@ -5,6 +5,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.db.models import (
     DecimalField,
+    F,
     Sum,
     Value,
     Count,
@@ -33,7 +34,7 @@ _CACHE_TTL = 300
 class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
     """
     Operational dashboard:
-    1. Invoicing without taxes — SalesInvoice.subtotal_amount, split pro-forma / final
+    1. Invoicing without taxes — SalesInvoice taxable base (subtotal minus discount), split pro-forma / final
     2. Production costs — Configuration.total_cost for tickets worked in the period
     """
 
@@ -145,13 +146,16 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
 
         zero = Value(Decimal("0.00"))
         field = DecimalField(max_digits=12, decimal_places=2)
+        # Invoicing without taxes = taxable base: line totals net of the
+        # invoice-level discount.
+        taxable_base = F("subtotal_amount") - F("discount_amount")
 
         final_agg = base_qs.filter(status=SalesInvoiceStatus.FINAL).aggregate(
-            total=Coalesce(Sum("subtotal_amount"), zero, output_field=field),
+            total=Coalesce(Sum(taxable_base), zero, output_field=field),
             count=Count("id"),
         )
         proforma_agg = base_qs.filter(status=SalesInvoiceStatus.PROFORMA).aggregate(
-            total=Coalesce(Sum("subtotal_amount"), zero, output_field=field),
+            total=Coalesce(Sum(taxable_base), zero, output_field=field),
             count=Count("id"),
         )
 
@@ -159,7 +163,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             base_qs.filter(status=SalesInvoiceStatus.FINAL)
             .annotate(month=TruncMonth("date_issued"))
             .values("month")
-            .annotate(total=Coalesce(Sum("subtotal_amount"), zero, output_field=field))
+            .annotate(total=Coalesce(Sum(taxable_base), zero, output_field=field))
             .order_by("month")
         )
 
@@ -167,13 +171,13 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             base_qs.filter(status=SalesInvoiceStatus.PROFORMA)
             .annotate(month=TruncMonth("date_issued"))
             .values("month")
-            .annotate(total=Coalesce(Sum("subtotal_amount"), zero, output_field=field))
+            .annotate(total=Coalesce(Sum(taxable_base), zero, output_field=field))
             .order_by("month")
         )
 
         top_clients = list(
             base_qs.values("client__name")
-            .annotate(total=Coalesce(Sum("subtotal_amount"), zero, output_field=field))
+            .annotate(total=Coalesce(Sum(taxable_base), zero, output_field=field))
             .order_by("-total")[:10]
         )
 

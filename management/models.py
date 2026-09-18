@@ -388,15 +388,16 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
 
         invoiceable = Decimal(str(quote_subtotal)) + Decimal(str(config_subtotal)) + Decimal(str(work_entry_subtotal))
 
-        # Sum of sales invoice subtotals (pre-tax)
+        # Sum of sales invoice taxable bases (pre-tax, post-discount), so the
+        # figure is comparable with the quotes' discounted_subtotal above.
         # Source 1: single-PF invoices (project_file FK on invoice)
-        from django.db.models import Q
+        from django.db.models import F, Q
         SalesInvoiceItem = apps.get_model("invoices", "SalesInvoiceItem")
 
         fk_invoiced = (
             SalesInvoice.objects.filter(
                 project_file=self,
-            ).aggregate(total=Sum("subtotal_amount"))["total"]
+            ).aggregate(total=Sum(F("subtotal_amount") - F("discount_amount")))["total"]
             or Decimal("0.00")
         )
         if hasattr(fk_invoiced, "amount"):

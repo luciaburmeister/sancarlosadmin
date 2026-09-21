@@ -175,6 +175,7 @@ class ClientAddress(CompanyOwnedModel):
     street = models.CharField(max_length=255, verbose_name=_("Street"))
     city = models.CharField(max_length=100, verbose_name=_("City"))
     postal_code = models.CharField(max_length=20, verbose_name=_("Postal Code"))
+    locality = models.CharField(max_length=100, blank=True, default="", verbose_name=_("Locality"))
     province = models.CharField(max_length=100, verbose_name=_("Province"))
     country = CountryField(default="ES", verbose_name=_("Country"))
     is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
@@ -188,9 +189,9 @@ class ClientAddress(CompanyOwnedModel):
 
     @property
     def formatted(self):
-        """Street, PostalCode City (Province), Country"""
+        """Street, PostalCode Locality City (Province), Country"""
         parts = [self.street]
-        location = " ".join(filter(None, [self.postal_code, self.city]))
+        location = " ".join(filter(None, [self.postal_code, self.locality, self.city]))
         if self.province:
             location += f" ({self.province})"
         if location:

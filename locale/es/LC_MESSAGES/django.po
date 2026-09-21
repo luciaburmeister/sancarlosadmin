@@ -3552,6 +3552,9 @@ msgstr "Dirección de calle"
 msgid "City"
 msgstr "Ciudad"
 
+msgid "Locality"
+msgstr "Localidad"
+
 msgid "Postal Code"
 msgstr "Codigo postal"
 

@@ -3,6 +3,7 @@
 from datetime import date, datetime
 
 from django.http import JsonResponse
+from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
@@ -20,8 +21,15 @@ def parse_date_or_error(value):
         try:
             return datetime.strptime(value, "%Y-%m-%d").date(), None
         except ValueError:
-            return None, JsonResponse({"error": "Invalid date format. Use YYYY-MM-DD."}, status=400)
-    return None, JsonResponse({"error": "Invalid date value."}, status=400)
+            return None, JsonResponse({"error": str(_("Invalid date format. Use YYYY-MM-DD."))}, status=400)
+    return None, JsonResponse({"error": str(_("Invalid date value."))}, status=400)
+
+
+def invalid_data_response(serializer) -> JsonResponse:
+    """Standard 400 response for a serializer that failed `.is_valid()`."""
+    return JsonResponse(
+        {"error": str(_("Invalid data.")), "details": serializer.errors}, status=400
+    )
 
 
 class CompanyAPIView(APIView):

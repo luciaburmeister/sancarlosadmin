@@ -7,6 +7,7 @@ Mutations require the target employee's 4-digit work_pin in the request body.
 
 import json
 import unicodedata as _uc
+from dataclasses import dataclass
 
 from django.contrib.auth.hashers import check_password
 from django.db.models import F, JSONField, Value
@@ -15,14 +16,21 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from api._serializers import active_ticket_items, _ordered_stage_names
-from api._utils import SharedTerminalAPIView
+from api._serializers import (
+    active_ticket_items,
+    _build_session_comments_index,
+    _build_stage_history_indexes,
+    _ordered_stage_names,
+    _stage_events,
+)
+from api._utils import SharedTerminalAPIView, invalid_data_response
 from api.production.serializers import ReorderItemsSerializer
 from company.models import Employee
 from configurator.models import Configuration, ConfigurationStatus
 from management.models import ProjectFileStatus
 from production.exceptions import StageHasActiveWorkersError
 from production.models import (
+    PlannedProductionSession,
     ProductionItem,
     ProductionItemSession,
     ProductionItemSessionStatus,
@@ -30,16 +38,56 @@ from production.models import (
     ProductionTicketStatus,
 )
 from production.services.stages_to_sessions import StagesToSessionsService
+from production.services.ticket_labels import build_ticket_labels
 
 
 def _sort_entries_by_priority(entries: list[dict], stage_key: str) -> None:
-    """Stable in-place sort: supervisor-prioritised items first (lower = more urgent)."""
+    """Stable sort: planned stages first (by day/order), then by priority (lower = more urgent)."""
     entries.sort(
         key=lambda e: (
+            e[stage_key].get("planned_date") is None,
+            e[stage_key].get("planned_date") or "",
+            e[stage_key].get("planned_order") or 0,
             e[stage_key].get("priority") is None,
             e[stage_key].get("priority") or 0,
         )
     )
+
+
+@dataclass(frozen=True, slots=True)
+class PlannedStageSlot:
+    """Where one (ticket, stage) falls in an employee's calendar plan for a given day."""
+
+    date: str
+    order: int
+    day_total: int
+
+
+def _build_planned_index(employee: Employee, ticket_ids: list[int]) -> dict[tuple[int, str], PlannedStageSlot]:
+    """Map (ticket_id, normalized stage) -> its slot in this employee's calendar plan."""
+    from django.contrib.contenttypes.models import ContentType
+
+    employee_ct = ContentType.objects.get_for_model(Employee)
+    sessions = (
+        PlannedProductionSession.objects.filter(
+            primary_resource__content_type=employee_ct,
+            primary_resource__object_id=employee.id,
+            production_ticket_id__in=ticket_ids,
+        )
+        .order_by("planned_start")
+    )
+
+    by_day: dict = {}
+    for session in sessions:
+        by_day.setdefault(timezone.localtime(session.planned_start).date(), []).append(session)
+
+    index: dict[tuple[int, str], PlannedStageSlot] = {}
+    for day, day_sessions in by_day.items():
+        total = len(day_sessions)
+        for position, session in enumerate(day_sessions, start=1):
+            key = (session.production_ticket_id, _uc.normalize("NFC", session.production_stage))
+            index[key] = PlannedStageSlot(date=day.isoformat(), order=position, day_total=total)
+    return index
 
 
 # ─── Employee list ────────────────────────────────────────────────────────────
@@ -71,75 +119,6 @@ class TerminalEmployeeListView(SharedTerminalAPIView):
 
 
 # ─── Task list for a given employee ──────────────────────────────────────────
-
-
-def _build_stage_history_indexes(item_ids) -> tuple[dict[tuple, list[dict]], dict[tuple, list]]:
-    """One sessions query -> (comments index, sessions index), keyed by (item_id, stage_nfc).
-
-    Comments are ordered dicts with author and timestamp; sessions are model
-    instances ordered by start_time (sessions without start_time are skipped).
-    """
-    comments_index: dict[tuple, list[dict]] = {}
-    sessions_index: dict[tuple, list] = {}
-    for sess in (
-        ProductionItemSession.objects.filter(production_item_id__in=item_ids)
-        .select_related("created_by")
-        .order_by("production_item_id", "production_stage", "start_time")
-    ):
-        emp = sess.created_by
-        if emp is None:
-            continue
-        key = (sess.production_item_id, _uc.normalize("NFC", sess.production_stage))
-        if sess.start_time:
-            sessions_index.setdefault(key, []).append(sess)
-        for entry in sess.comment_entries or []:
-            if not isinstance(entry, dict):
-                continue
-            text = (entry.get("text") or "").strip()
-            if text:
-                comments_index.setdefault(key, []).append({
-                    "employee_name": emp.full_name,
-                    "comment": text,
-                    "at": entry.get("at"),
-                })
-    return comments_index, sessions_index
-
-
-def _build_session_comments_index(item_ids) -> dict[tuple, list[dict]]:
-    """(item_id, stage_nfc) -> ordered comment dicts with author and timestamp."""
-    comments_index, _ = _build_stage_history_indexes(item_ids)
-    return comments_index
-
-
-def _stage_events(sessions, stage_status: str) -> list[dict]:
-    """Chronological start/resume/pause/finish events derived from sessions.
-
-    The last close of a done stage is the finish; any other close is a pause
-    (cancelled sessions are auto-closed leftovers and labelled as such).
-    """
-    last_end = max((s.end_time for s in sessions if s.end_time), default=None)
-    events: list[dict] = []
-    for i, sess in enumerate(sessions):
-        emp_name = sess.created_by.full_name if sess.created_by else "—"
-        events.append({
-            "type": "started" if i == 0 else "resumed",
-            "employee_name": emp_name,
-            "at": sess.start_time.isoformat(),
-        })
-        if sess.end_time:
-            if sess.status == ProductionItemSessionStatus.CANCELLED:
-                end_type = "cancelled"
-            elif stage_status == "done" and sess.end_time == last_end:
-                end_type = "finished"
-            else:
-                end_type = "paused"
-            events.append({
-                "type": end_type,
-                "employee_name": emp_name,
-                "at": sess.end_time.isoformat(),
-            })
-    events.sort(key=lambda e: e["at"])
-    return events
 
 
 def _build_task_results(employee: Employee, company, search: str = "") -> list[dict]:
@@ -174,6 +153,8 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
             ticket__company=company,
         ).values_list("id", flat=True)
     )
+
+    planned_index = _build_planned_index(employee, [t.id for t in tickets])
 
     # Open sessions for all items in the company — one DB query.
     open_sessions = (
@@ -273,36 +254,16 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
         if not pairs:
             continue
 
-        quote = getattr(config, "quote", None)
-        quote_name = (
-            (quote.project_name or "").strip()
-            if quote and (quote.project_name or "").strip()
-            else (getattr(config, "name", None) or "")
-        )
-
-        expediente_data = None
-        if project_file:
-            start_date = project_file.start_date
-            expediente_data = {
-                "id": project_file.id,
-                "reference": getattr(project_file, "reference", None) or "",
-                "name": project_file.name or "",
-                "client_name": project_file.client.name if project_file.client else None,
-                "start_date": (
-                    start_date.strftime("%Y-%m-%d")
-                    if hasattr(start_date, "strftime")
-                    else start_date
-                ),
-            }
+        labels = build_ticket_labels(ticket=ticket, config=config, project_file=project_file)
 
         base = {
-            "config_id": config.id,
-            "config_name": getattr(config, "name", None) or "",
-            "config_notes": getattr(config, "notes", None) or "",
-            "quote_name": quote_name,
-            "template_name": config.product.name if getattr(config, "product", None) else None,
-            "ticket_status": ticket.status,
-            "expediente": expediente_data,
+            "config_id": labels.config_id,
+            "config_name": labels.config_name,
+            "config_notes": labels.config_notes,
+            "quote_name": labels.quote_name,
+            "template_name": labels.template_name,
+            "ticket_status": labels.ticket_status,
+            "expediente": labels.expediente,
             "my_stages_total": len(pairs),
             "my_stages_done": sum(1 for p in pairs if p["status"] == "done"),
         }
@@ -318,6 +279,7 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
             stage_comments = session_comments_index.get(
                 (stage_p["production_item_id"], stage_name_n), []
             )
+            plan = planned_index.get((ticket.id, stage_name_n))
             results.append({
                 **base,
                 "next_stage": {
@@ -328,6 +290,9 @@ def _build_task_results(employee: Employee, company, search: str = "") -> list[d
                     "active_workers": workers,
                     "has_my_open_session": has_my_open_session,
                     "has_my_prev_session": has_my_prev_session,
+                    "planned_date": plan.date if plan else None,
+                    "planned_order": plan.order if plan else None,
+                    "planned_day_total": plan.day_total if plan else None,
                     # True only when others are working AND I've never touched this stage
                     "started_by_others": (
                         stage_p["status"] == "in_progress"
@@ -621,37 +586,17 @@ def _build_all_task_results(company) -> dict[str, list[dict]]:
         if project_file is not None and project_file.status == ProjectFileStatus.CANCELLED:
             continue
 
-        quote = getattr(config, "quote", None)
-        quote_name = (
-            (quote.project_name or "").strip()
-            if quote and (quote.project_name or "").strip()
-            else (getattr(config, "name", None) or "")
-        )
-
         fully_invoiced = project_file is not None and project_file.is_fully_invoiced
 
-        expediente_data = None
-        if project_file:
-            start_date = project_file.start_date
-            expediente_data = {
-                "id": project_file.id,
-                "reference": getattr(project_file, "reference", None) or "",
-                "name": project_file.name or "",
-                "client_name": project_file.client.name if project_file.client else None,
-                "start_date": (
-                    start_date.strftime("%Y-%m-%d")
-                    if hasattr(start_date, "strftime")
-                    else start_date
-                ),
-            }
+        labels = build_ticket_labels(ticket=ticket, config=config, project_file=project_file)
 
         base = {
-            "config_id": config.id,
-            "config_name": getattr(config, "name", None) or "",
-            "config_notes": getattr(config, "notes", None) or "",
-            "quote_name": quote_name,
-            "template_name": config.product.name if getattr(config, "product", None) else None,
-            "expediente": expediente_data,
+            "config_id": labels.config_id,
+            "config_name": labels.config_name,
+            "config_notes": labels.config_notes,
+            "quote_name": labels.quote_name,
+            "template_name": labels.template_name,
+            "expediente": labels.expediente,
         }
 
         for item in items:
@@ -828,27 +773,7 @@ def _build_production_hours_results(company) -> list[dict]:
         if project_file is not None and project_file.status == ProjectFileStatus.CANCELLED:
             continue
 
-        quote = getattr(config, "quote", None)
-        quote_name = (
-            (quote.project_name or "").strip()
-            if quote and (quote.project_name or "").strip()
-            else (getattr(config, "name", None) or "")
-        )
-
-        expediente_data = None
-        if project_file:
-            start_date = project_file.start_date
-            expediente_data = {
-                "id": project_file.id,
-                "reference": getattr(project_file, "reference", None) or "",
-                "name": project_file.name or "",
-                "client_name": project_file.client.name if project_file.client else None,
-                "start_date": (
-                    start_date.strftime("%Y-%m-%d")
-                    if hasattr(start_date, "strftime")
-                    else start_date
-                ),
-            }
+        labels = build_ticket_labels(ticket=ticket, config=config, project_file=project_file)
 
         emp_seconds = employees_by_config.get(config_id, {})
         employees = [
@@ -858,11 +783,11 @@ def _build_production_hours_results(company) -> list[dict]:
 
         results.append({
             "config_id": config_id,
-            "config_name": getattr(config, "name", None) or "",
-            "config_notes": getattr(config, "notes", None) or "",
-            "quote_name": quote_name,
-            "ticket_status": ticket.status,
-            "expediente": expediente_data,
+            "config_name": labels.config_name,
+            "config_notes": labels.config_notes,
+            "quote_name": labels.quote_name,
+            "ticket_status": labels.ticket_status,
+            "expediente": labels.expediente,
             "total_seconds": total_seconds,
             "open_sessions": open_by_config.get(config_id, 0),
             "employees": employees,
@@ -1149,10 +1074,7 @@ class ReorderItemsView(SharedTerminalAPIView):
             data=request.data, context={"company": self.company}
         )
         if not serializer.is_valid():
-            return JsonResponse(
-                {"error": "Datos no válidos.", "details": serializer.errors},
-                status=400,
-            )
+            return invalid_data_response(serializer)
         item_ids = serializer.validated_data["item_ids"]
 
         items = {

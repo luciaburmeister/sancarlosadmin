@@ -409,6 +409,70 @@ def _ordered_stage_names(item) -> list[str]:
     return sorted(names, key=sort_key)
 
 
+# ─── Stage history (sessions/comments/events) ─────────────────────────────────
+
+
+def _build_stage_history_indexes(item_ids) -> tuple[dict[tuple, list[dict]], dict[tuple, list]]:
+    """One sessions query -> (comments index, sessions index), keyed by (item_id, stage_nfc)."""
+    comments_index: dict[tuple, list[dict]] = {}
+    sessions_index: dict[tuple, list] = {}
+    for sess in (
+        ProductionItemSession.objects.filter(production_item_id__in=item_ids)
+        .select_related("created_by")
+        .order_by("production_item_id", "production_stage", "start_time")
+    ):
+        emp = sess.created_by
+        if emp is None:
+            continue
+        key = (sess.production_item_id, unicodedata.normalize("NFC", sess.production_stage))
+        if sess.start_time:
+            sessions_index.setdefault(key, []).append(sess)
+        for entry in sess.comment_entries or []:
+            if not isinstance(entry, dict):
+                continue
+            text = (entry.get("text") or "").strip()
+            if text:
+                comments_index.setdefault(key, []).append({
+                    "employee_name": emp.full_name,
+                    "comment": text,
+                    "at": entry.get("at"),
+                })
+    return comments_index, sessions_index
+
+
+def _build_session_comments_index(item_ids) -> dict[tuple, list[dict]]:
+    """(item_id, stage_nfc) -> ordered comment dicts with author and timestamp."""
+    comments_index, _ = _build_stage_history_indexes(item_ids)
+    return comments_index
+
+
+def _stage_events(sessions, stage_status: str) -> list[dict]:
+    """Chronological start/resume/pause/finish events derived from sessions."""
+    last_end = max((s.end_time for s in sessions if s.end_time), default=None)
+    events: list[dict] = []
+    for i, sess in enumerate(sessions):
+        emp_name = sess.created_by.full_name if sess.created_by else "—"
+        events.append({
+            "type": "started" if i == 0 else "resumed",
+            "employee_name": emp_name,
+            "at": sess.start_time.isoformat(),
+        })
+        if sess.end_time:
+            if sess.status == ProductionItemSessionStatus.CANCELLED:
+                end_type = "cancelled"
+            elif stage_status == "done" and sess.end_time == last_end:
+                end_type = "finished"
+            else:
+                end_type = "paused"
+            events.append({
+                "type": end_type,
+                "employee_name": emp_name,
+                "at": sess.end_time.isoformat(),
+            })
+    events.sort(key=lambda e: e["at"])
+    return events
+
+
 def planning_stage_status(item, stage_name_nfc: str) -> str:
     """Return pending / in_progress / done for a stage on an item's planning."""
     for k, v in (item.planning or {}).items():

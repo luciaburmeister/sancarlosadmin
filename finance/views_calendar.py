@@ -11,6 +11,7 @@ from unfold.views import UnfoldModelAdminViewMixin
 
 from company.models import BankAccount
 from core.admin.company_access import get_user_companies
+from core.dates import week_bounds
 
 from .forms_calendar import PaymentCalendarFilterForm
 from .services.payment_calendar import build_calendar_matrix
@@ -108,8 +109,7 @@ class PaymentCalendarView(UnfoldModelAdminViewMixin, TemplateView):
         next_date_from = date_from + datetime.timedelta(days=window_length)
         next_date_to = date_to + datetime.timedelta(days=window_length)
 
-        today_week_start = today - datetime.timedelta(days=today.weekday())
-        today_week_end = today_week_start + datetime.timedelta(days=6)
+        today_week_start, today_week_end = week_bounds(today)
 
         context.update({
             "form": form,

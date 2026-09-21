@@ -1,10 +1,9 @@
 """Terminal actor permission checks (Django auth permissions on Employee.user)."""
 
+from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import PermissionDenied
 
 from company.models import Employee
-
-REORDER_ITEMS_PERM = "production.can_reorder_items"
 
 
 def employee_has_perm(employee: Employee, perm: str) -> bool:
@@ -20,9 +19,9 @@ def get_employee_with_perm(*, company, employee_id: int, perm: str) -> Employee:
             is_active=True,
         )
     except Employee.DoesNotExist:
-        raise PermissionDenied(detail={"error": "Empleado no válido."})
+        raise PermissionDenied(detail={"error": str(_("Invalid employee."))})
 
     if not employee_has_perm(employee, perm):
-        raise PermissionDenied(detail={"error": "No tienes permiso para esta acción."})
+        raise PermissionDenied(detail={"error": str(_("You don't have permission for this action."))})
 
     return employee

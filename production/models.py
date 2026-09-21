@@ -1,3 +1,5 @@
+import unicodedata
+
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.fields import GenericForeignKey
@@ -163,6 +165,36 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
             return False
 
         return not all(status == ProductionItemStatus.DONE for status in stage_statuses)
+
+    def is_stage_unstarted(self, stage_name):
+        """True only if every relevant item's stage is still pending (nobody has touched it yet)."""
+        items = list(self.items.all())
+        if not items:
+            return False
+
+        stage_statuses = []
+
+        for item in items:
+            planning = item.planning or {}
+            if stage_name not in planning:
+                continue
+
+            info = planning.get(stage_name) or {}
+            status = info.get("status") or ProductionItemStatus.PENDING
+            stage_statuses.append(status)
+
+        if not stage_statuses:
+            return False
+
+        return all(status == ProductionItemStatus.PENDING for status in stage_statuses)
+
+    def item_ids_for_stage(self, stage_name):
+        """IDs of items that go through *stage_name*, regardless of their current status."""
+        return [
+            item.id for item in self.items.all()
+            if stage_name in (item.planning or {})
+        ]
+
     def _fresh_items(self):
         """Return ticket items from DB, bypassing any prefetched cache."""
         return list(ProductionItem.objects.filter(ticket_id=self.pk))
@@ -393,7 +425,14 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
                 return (1, stage_name)
 
         return sorted(planning.items(), key=sort_key)
-        
+
+    def get_stage_planning(self, stage_name_nfc: str) -> dict:
+        """This item's planning dict for one stage, matched by NFC-normalized stage name."""
+        for k, v in (self.planning or {}).items():
+            if unicodedata.normalize("NFC", k) == stage_name_nfc:
+                return v if isinstance(v, dict) else {}
+        return {}
+
     def save(self, *args, **kwargs):
         if not self.company_id and self.ticket_id:
             self.company = self.ticket.company
@@ -714,6 +753,38 @@ class PlannedProductionSession(Timestampable,CompanyOwnedModel):
             models.Index(fields=["planned_start", "planned_end"]),
             models.Index(fields=["primary_resource"]),
         ]
+        permissions = [
+            ("can_reschedule_planned_sessions", _("Can reschedule planned production sessions")),
+        ]
+
+    @classmethod
+    def conflicts_for(cls, *, primary_resource_id, start, end, exclude_pk=None):
+        """Planned sessions on *primary_resource_id* overlapping [start, end)."""
+        qs = cls.objects.filter(
+            primary_resource_id=primary_resource_id,
+            planned_start__lt=end,
+            planned_end__gt=start,
+        )
+        if exclude_pk is not None:
+            qs = qs.exclude(pk=exclude_pk)
+        return qs
+
+    @classmethod
+    def assert_no_conflict(cls, *, primary_resource_id, start, end, exclude_pk=None):
+        """Raise PlannedSessionConflictError if [start, end) overlaps another session on *primary_resource_id*."""
+        from production.exceptions import PlannedSessionConflictError
+
+        blocker = cls.conflicts_for(
+            primary_resource_id=primary_resource_id, start=start, end=end, exclude_pk=exclude_pk,
+        ).first()
+        if blocker is not None:
+            raise PlannedSessionConflictError(blocker.id)
+
+    def unassign(self):
+        """Delete this plan — its ticket+stage becomes backlog again."""
+        if self.locked:
+            raise ValueError(_("This session is locked and can't be removed."))
+        self.delete()
 
 class PlannedSessionResource(models.Model):
     planned_session = models.ForeignKey(

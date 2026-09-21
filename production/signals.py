@@ -6,7 +6,10 @@ from django.contrib.contenttypes.models import ContentType
 
 from company.models import Employee, Machine
 from production.models import PlannedProductionSession, ProductionResource, ProductionTicket
-from production.services.planning_status_sync import sync_configuration_planning_status
+from production.services.planning_status_sync import (
+    sync_configuration_planning_status,
+    sync_session_employee_assignment,
+)
 
 
 def sync_production_resource(instance):
@@ -57,6 +60,7 @@ def delete_machine_production_resource(sender, instance, **kwargs):
 def planned_session_saved(sender, instance, **kwargs):
     if instance.production_ticket_id:
         sync_configuration_planning_status(instance.production_ticket)
+    sync_session_employee_assignment(instance)
 
 
 @receiver(post_delete, sender=PlannedProductionSession)

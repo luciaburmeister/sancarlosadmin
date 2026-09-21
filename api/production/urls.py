@@ -1,6 +1,6 @@
 from django.urls import path
 
-from .views import employees, stages, terminal
+from .views import employees, planning, stages, terminal
 
 urlpatterns = [
     # ── Existing (CompanyAPIView — authenticated employee) ─────────────────────
@@ -136,5 +136,32 @@ urlpatterns = [
         "production/items/reorder/",
         terminal.ReorderItemsView.as_view(),
         name="terminal_items_reorder",
+    ),
+
+    # ── Weekly scheduling board (SharedTerminalAPIView — supervisor mode) ──────
+    path(
+        "production/schedule/board/",
+        planning.ScheduleBoardView.as_view(),
+        name="schedule_board",
+    ),
+    path(
+        "production/schedule/sessions/<int:session_id>/reschedule/",
+        planning.RescheduleSessionView.as_view(),
+        name="schedule_session_reschedule",
+    ),
+    path(
+        "production/schedule/sessions/<int:session_id>/delete/",
+        planning.DeleteSessionView.as_view(),
+        name="schedule_session_delete",
+    ),
+    path(
+        "production/schedule/sessions/create/",
+        planning.CreateSessionFromBacklogView.as_view(),
+        name="schedule_session_create",
+    ),
+    path(
+        "production/schedule/sessions/reorder-day/",
+        planning.ReorderDaySessionsView.as_view(),
+        name="schedule_sessions_reorder_day",
     ),
 ]

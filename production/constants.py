@@ -20,3 +20,10 @@ class ProductionActions:
     FINISH_LINE = "finish_line"
     JOIN_LINE = "join_line"
     START_STAGE = "start_stage"
+
+
+class ProductionPermissions:
+    """Django permission codenames (see production.models.Meta.permissions)."""
+
+    REORDER_ITEMS = "production.can_reorder_items"
+    RESCHEDULE_SESSIONS = "production.can_reschedule_planned_sessions"

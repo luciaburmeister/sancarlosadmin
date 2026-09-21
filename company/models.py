@@ -232,6 +232,27 @@ class Company(models.Model):
     def __str__(self):
         return self.name
 
+    def working_windows_for_day(self, day):
+        """This weekday's schedule slots (start, end), in order — a weekday can have several (split shifts)."""
+        return [
+            (slot.start_time, slot.end_time)
+            for slot in self.schedule_slots.filter(weekday=day.weekday()).order_by("start_time")
+        ]
+
+    def assert_within_working_hours(self, start, end):
+        """Raise ValueError unless [start, end) fits inside one working window of its (local) day."""
+        local_start = timezone.localtime(start)
+        local_end = timezone.localtime(end)
+        if local_start.date() != local_end.date():
+            raise ValueError(_("A time range can't cross midnight."))
+
+        windows = self.working_windows_for_day(local_start.date())
+        if not any(
+            w_start <= local_start.time() and local_end.time() <= w_end
+            for w_start, w_end in windows
+        ):
+            raise ValueError(_("That time falls outside working hours that day."))
+
     class Meta:
         verbose_name = _("Company")
 

@@ -2,9 +2,7 @@ from django.utils import timezone
 
 
 def sync_configuration_planning_status(ticket):
-    """Mirror the existence of planned sessions on the ticket's source
-    configuration, so quotes can be filtered on a stored field instead of
-    walking ticket -> sessions at query time."""
+    """Mirrors the existence of planned sessions onto the ticket's configuration."""
     from configurator.models import Configuration, ConfigurationPlanningStatus
 
     config = ticket.source_object
@@ -17,9 +15,7 @@ def sync_configuration_planning_status(ticket):
         if planned
         else ConfigurationPlanningStatus.UNPLANNED
     )
-    # Filter on the current status in the query itself: the `config` instance
-    # may be a stale GenericFK cache, and this also keeps planned_at stable
-    # when extra sessions are added to an already-planned configuration.
+    # .exclude() keeps planned_at stable when the status doesn't actually change.
     changed = Configuration.objects.filter(pk=config.pk).exclude(
         planning_status=new_status
     ).update(
@@ -27,8 +23,7 @@ def sync_configuration_planning_status(ticket):
         planned_at=timezone.now() if planned else None,
     )
     if changed:
-        # .update() bypasses signals, so refresh the quote's denormalized
-        # production status here.
+        # .update() bypasses signals — refresh the quote's status manually.
         from sales.services.quote_production_status import (
             recompute_quote_production_status,
         )
@@ -39,3 +34,34 @@ def sync_configuration_planning_status(ticket):
             .first()
         )
         recompute_quote_production_status(quote_id)
+
+
+class SessionEmployeeAssignmentSync:
+    """Adds a planned/worked session's employee to its items' assigned_employees
+    roster (never removes) so the task shows on their list right away."""
+
+    def __init__(self, session):
+        self.session = session
+
+    def apply(self) -> None:
+        from company.models import Employee
+        from production.models import ProductionItem
+
+        session = self.session
+        if not session.production_ticket_id or not session.primary_resource_id:
+            return
+
+        employee = session.primary_resource.target
+        if not isinstance(employee, Employee):
+            return
+
+        item_ids = session.production_ticket.item_ids_for_stage(session.production_stage)
+        if not item_ids:
+            return
+
+        for item in ProductionItem.objects.filter(id__in=item_ids):
+            item.assigned_employees.add(employee)
+
+
+def sync_session_employee_assignment(session):
+    SessionEmployeeAssignmentSync(session).apply()

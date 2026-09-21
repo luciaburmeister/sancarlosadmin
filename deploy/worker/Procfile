@@ -1,4 +1,1 @@
-# The Elastic Beanstalk web-server tier requires a web process. On the worker
-# environment it only answers EB's health checks; the real work is done by the
-# Celery systemd units installed in .platform/hooks/postdeploy/01_setup_celery.sh.
 web: gunicorn --bind 127.0.0.1:8000 --workers=1 --threads=2 alumniniooerp.wsgi:application

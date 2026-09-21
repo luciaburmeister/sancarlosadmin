@@ -5,6 +5,7 @@ from unfold.contrib.inlines.admin import NonrelatedStackedInline, NonrelatedTabu
 
 from decimal import Decimal
 from djmoney.money import Money
+from configurator.templatetags.formatting import format_hours_minutes
 from management.models import (
     ProjectFile,
     ProjectFileDeliveryStatus,
@@ -407,15 +408,15 @@ class LaborHoursMarginInline(NonrelatedStackedInline):
         <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; max-width: 760px;">
             <div style="background: #f9fafb; border-radius: 8px; padding: 12px; text-align: center;">
                 <div style="font-size: 11px; color: #6b7280; margin-bottom: 4px;">{_("Billed Hours")}</div>
-                <div style="font-size: 18px; font-weight: 700; color: #111827;">{billed_hours:.2f} h</div>
+                <div style="font-size: 18px; font-weight: 700; color: #111827;">{format_hours_minutes(billed_hours)}</div>
             </div>
             <div style="background: {uniform_bg}; border-radius: 8px; padding: 12px; text-align: center;">
                 <div style="font-size: 11px; color: {uniform_label_color}; margin-bottom: 4px;">{_("Real Hours Worked")}</div>
-                <div style="font-size: 18px; font-weight: 700; color: {uniform_value_color};">{real_hours:.2f} h</div>
+                <div style="font-size: 18px; font-weight: 700; color: {uniform_value_color};">{format_hours_minutes(real_hours)}</div>
             </div>
             <div style="background: {uniform_bg}; border-radius: 8px; padding: 12px; text-align: center;">
                 <div style="font-size: 11px; color: {uniform_label_color}; margin-bottom: 4px;">{_("Extra Margin")}</div>
-                <div style="font-size: 18px; font-weight: 700; color: {uniform_value_color};">{gap_hours:.2f} h · {extra_margin:.2f} €</div>
+                <div style="font-size: 18px; font-weight: 700; color: {uniform_value_color};">{format_hours_minutes(gap_hours)} · {extra_margin:.2f} €</div>
             </div>
             <div style="background: {uniform_bg}; border-radius: 8px; padding: 12px; text-align: center;">
                 <div style="font-size: 11px; color: {uniform_label_color}; margin-bottom: 4px;">{_("% Deviation")}</div>
@@ -453,7 +454,7 @@ class LaborHoursMarginInline(NonrelatedStackedInline):
                     f"Ticket #{entry['ticket'].pk}",
                     entry["ticket"].last_stage_label or "—",
                     entry["ticket"].get_status_display(),
-                    f"{entry['worked_hours']:.2f} h",
+                    format_hours_minutes(entry["worked_hours"]),
                 )
                 for entry in tickets
             ),

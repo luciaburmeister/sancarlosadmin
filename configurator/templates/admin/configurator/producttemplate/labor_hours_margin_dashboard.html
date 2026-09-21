@@ -1,5 +1,5 @@
 {% extends "admin/base_site.html" %}
-{% load i18n %}
+{% load i18n formatting %}
 
 {% block extrahead %}
 {{ block.super }}
@@ -122,15 +122,15 @@
   <div class="lm-kpi-grid">
     <div class="lm-kpi lm-kpi--indigo">
       <div class="lm-kpi-label">{% trans "Billed Hours" %}</div>
-      <div class="lm-kpi-value">{{ totals.billed_hours|floatformat:2 }}h</div>
+      <div class="lm-kpi-value">{{ totals.billed_hours|hours_minutes }}</div>
     </div>
     <div class="lm-kpi lm-kpi--blue">
       <div class="lm-kpi-label">{% trans "Real Hours Worked" %}</div>
-      <div class="lm-kpi-value">{{ totals.real_hours|floatformat:2 }}h</div>
+      <div class="lm-kpi-value">{{ totals.real_hours|hours_minutes }}</div>
     </div>
     <div class="lm-kpi lm-kpi--emerald">
       <div class="lm-kpi-label">{% trans "Extra Margin" %}</div>
-      <div class="lm-kpi-value">{{ totals.gap_hours|floatformat:2 }}h · {{ totals.extra_margin|floatformat:2 }} €</div>
+      <div class="lm-kpi-value">{{ totals.gap_hours|hours_minutes }} · {{ totals.extra_margin|floatformat:2 }} €</div>
     </div>
     <div class="lm-kpi {% if totals.deviation_pct >= 0 %}lm-kpi--emerald{% else %}lm-kpi--red{% endif %}">
       <div class="lm-kpi-label">{% trans "% Deviation" %}</div>
@@ -184,9 +184,9 @@
             </a>
           </td>
           <td>{{ row.project_file.client }}</td>
-          <td class="lm-num">{{ row.billed_hours|floatformat:2 }}h</td>
-          <td class="lm-num">{{ row.real_hours|floatformat:2 }}h</td>
-          <td class="lm-num {% if row.gap_hours > 0 %}lm-margin-positive{% elif row.gap_hours < 0 %}lm-margin-negative{% endif %}">{{ row.gap_hours|floatformat:2 }}h</td>
+          <td class="lm-num">{{ row.billed_hours|hours_minutes }}</td>
+          <td class="lm-num">{{ row.real_hours|hours_minutes }}</td>
+          <td class="lm-num {% if row.gap_hours > 0 %}lm-margin-positive{% elif row.gap_hours < 0 %}lm-margin-negative{% endif %}">{{ row.gap_hours|hours_minutes }}</td>
           <td class="lm-num">{{ row.extra_margin|floatformat:2 }} €</td>
           <td class="lm-num {% if row.deviation_pct > 0 %}lm-margin-positive{% elif row.deviation_pct < 0 %}lm-margin-negative{% endif %}">
             {{ row.deviation_pct|floatformat:1 }}%
@@ -224,12 +224,12 @@
       </form>
     </div>
     <p class="lm-chart-subtitle" style="padding: 0 22px; margin-top: 12px;">
-      {% blocktrans with ideal=ideal_daily_hours|floatformat:"-2" %}Every mechanic who can work on production, with hours worked on the selected day vs. an ideal of {{ ideal }}h (configurable per company). Mechanics with no sessions that day still appear, at 0h.{% endblocktrans %}
+      {% blocktrans with ideal=ideal_daily_hours|hours_minutes %}Every mechanic who can work on production, with hours worked on the selected day vs. an ideal of {{ ideal }} (configurable per company). Mechanics with no sessions that day still appear, at 0h 0m.{% endblocktrans %}
     </p>
     {% if mechanic_rows %}
     <div style="padding: 0 22px 16px; display: flex; gap: 24px; font-size: .8rem; color: var(--lm-text-sub);">
       <span>{% trans "Mechanics" %}: <strong style="color: var(--lm-text);">{{ mechanic_totals.mechanic_count }}</strong></span>
-      <span>{% trans "Avg hours" %}: <strong style="color: var(--lm-text);">{{ mechanic_totals.avg_worked_hours|floatformat:2 }}h</strong></span>
+      <span>{% trans "Avg hours" %}: <strong style="color: var(--lm-text);">{{ mechanic_totals.avg_worked_hours|hours_minutes }}</strong></span>
       <span>{% trans "Below ideal" %}: <strong style="color: var(--lm-text);">{{ mechanic_totals.below_ideal_count }}</strong></span>
     </div>
     <table class="lm-table">
@@ -245,8 +245,8 @@
         {% for row in mechanic_rows %}
         <tr>
           <td>{{ row.mechanic.full_name }}</td>
-          <td class="lm-num">{{ row.worked_hours|floatformat:2 }}h</td>
-          <td class="lm-num">{{ row.ideal_hours|floatformat:"-2" }}h</td>
+          <td class="lm-num">{{ row.worked_hours|hours_minutes }}</td>
+          <td class="lm-num">{{ row.ideal_hours|hours_minutes }}</td>
           <td class="lm-num {% if row.deviation_pct >= 0 %}lm-margin-positive{% else %}lm-margin-negative{% endif %}">{{ row.deviation_pct|floatformat:1 }}%</td>
         </tr>
         {% endfor %}
@@ -294,6 +294,16 @@
 
     var REAL_COLOR = '#3b82f6';
     var MARGIN_COLOR = '#10b981';
+
+    // Mirrors configurator.templatetags.formatting.format_hours_minutes --
+    // same 'Xh Ym' style, same rounding to the nearest minute.
+    function formatHoursMinutes(decimalHours) {
+      var negative = decimalHours < 0;
+      var totalMinutes = Math.round(Math.abs(decimalHours) * 60);
+      var h = Math.floor(totalMinutes / 60);
+      var m = totalMinutes % 60;
+      return (negative ? '-' : '') + h + 'h ' + m + 'm';
+    }
 
     new Chart(canvas, {
       type: 'bar',
@@ -357,11 +367,11 @@
             cornerRadius: 8,
             callbacks: {
               label: function (ctx) {
-                return ctx.dataset.label + ': ' + ctx.parsed.x.toFixed(2) + 'h';
+                return ctx.dataset.label + ': ' + formatHoursMinutes(ctx.parsed.x);
               },
               footer: function (items) {
                 var total = items.reduce(function (sum, item) { return sum + item.parsed.x; }, 0);
-                return '{% trans "Billed total" %}: ' + total.toFixed(2) + 'h';
+                return '{% trans "Billed total" %}: ' + formatHoursMinutes(total);
               },
             },
           },

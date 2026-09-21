@@ -51,3 +51,28 @@ def euro_format(value):
     except (ValueError, InvalidOperation, TypeError):
         # If we can't parse it, return the original value
         return value
+
+
+def format_hours_minutes(value):
+    """
+    Formats decimal hours as 'Xh Ym' (e.g. 7.84 -> '7h 50m'). Handles
+    negative values (e.g. a labor-margin deficit) with a leading '-'.
+    Plain function (not just a registered filter) so it's also importable
+    directly for use outside templates, e.g. in admin @display methods
+    that build HTML via f-strings.
+    """
+    if value is None or value == "":
+        return "0h 0m"
+    try:
+        hours = Decimal(str(value))
+    except (ValueError, InvalidOperation, TypeError):
+        return value
+
+    negative = hours < 0
+    hours = abs(hours)
+    total_minutes = int((hours * 60).to_integral_value(rounding=decimal.ROUND_HALF_UP))
+    h, m = divmod(total_minutes, 60)
+    return f"{'-' if negative else ''}{h}h {m}m"
+
+
+register.filter("hours_minutes", format_hours_minutes)

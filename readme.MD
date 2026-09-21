@@ -9,6 +9,7 @@ django-admin compilemessages
 python manage.py runserver
 ```
 
+
 ### PDF generation (WeasyPrint)
 
 Django starts without loading WeasyPrint; PDFs are generated on demand. The server still needs native libraries:

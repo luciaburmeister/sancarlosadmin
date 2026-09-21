@@ -622,8 +622,13 @@ class DeliveryOrderExportContextTests(_DeliveryOrderTestBase):
     def test_context_exposes_discount_taxes_and_total(self):
         do = self._financed_do()
         context = DeliveryOrderExportStrategy(do).get_context()
-        self.assertEqual(context["subtotal"], 1000.0)
+        # "subtotal" is the taxable base printed on the document: lines
+        # total net of the header discount, so subtotal + tax == total.
+        self.assertEqual(context["lines_total"], 1000.0)
+        self.assertEqual(context["gross_subtotal"], 1000.0)
+        self.assertEqual(context["subtotal"], 850.0)
         self.assertEqual(context["discount_amount"], 150.0)
+        self.assertEqual(context["subtotal"] + context["tax_amount"], context["total"])
         self.assertEqual(len(context["discount_breakdown"]), 2)
         self.assertEqual(context["tax_amount"], 178.5)
         self.assertEqual(context["total"], 1028.5)
@@ -673,6 +678,19 @@ class DeliveryOrderExportContextTests(_DeliveryOrderTestBase):
             subtotal_amount=Decimal("500.00"),
         )
         context = DeliveryOrderExportStrategy(do).get_context()
+        self.assertEqual(context["subtotal"], 500.0)
+        self.assertEqual(context["lines_total"], 500.0)
         self.assertEqual(context["total"], 500.0)
         self.assertEqual(context["taxes"], [])
         self.assertFalse(context["has_financing_discount"])
+
+    def test_taxable_base_is_subtotal_after_discount(self):
+        do = self._financed_do()
+        self.assertEqual(do.subtotal_amount.amount, Decimal("1000.00"))
+        self.assertEqual(do.discount_amount.amount, Decimal("150.00"))
+        self.assertEqual(do.taxable_base.amount, Decimal("850.00"))
+        self.assertEqual(str(do.taxable_base.currency), "EUR")
+        self.assertEqual(
+            do.taxable_base.amount + do.tax_amount.amount, do.total_amount.amount
+        )
+        self.assertEqual(do.recalculate_totals(save=False)["taxable_base"], do.taxable_base)

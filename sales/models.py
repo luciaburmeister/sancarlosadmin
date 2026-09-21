@@ -1799,6 +1799,24 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
             return self.shipping_agency.build_tracking_url(self.shipment_number)
         return ""
 
+    @property
+    def taxable_base(self):
+        """
+        The subtotal after the header discount (Base Imponible): the amount
+        taxes are applied to and the figure shown as "Subtotal" to users.
+        ``subtotal_amount`` keeps the raw sum of line totals so the discount
+        can be displayed against the base it was computed on. Mirrors
+        ``SalesInvoice.taxable_base``.
+        """
+        currency = (
+            self.subtotal_amount.currency
+            if self.subtotal_amount is not None
+            else self._meta.get_field("subtotal_amount").default_currency
+        )
+        subtotal = Decimal(str(self.subtotal_amount.amount)) if self.subtotal_amount else Decimal("0.00")
+        discount = Decimal(str(self.discount_amount.amount)) if self.discount_amount else Decimal("0.00")
+        return Money(subtotal - discount, currency)
+
     def recalculate_subtotal(self, save=True):
         """Deprecated alias — use recalculate_totals()."""
         self.recalculate_totals(save=save)
@@ -1859,6 +1877,7 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
         return {
             "subtotal": self.subtotal_amount,
             "discount": self.discount_amount,
+            "taxable_base": self.taxable_base,
             "tax": self.tax_amount,
             "total": self.total_amount,
         }

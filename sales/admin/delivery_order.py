@@ -242,8 +242,19 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         DeliveryOrderDocumentInline,
         EmailLogInline,
     ]
-    readonly_fields = ["number", "date", "subtotal_amount", "discount_amount", "tax_amount", "total_amount"]
+    readonly_fields = [
+        "number", "date", "subtotal_amount", "lines_total_display",
+        "taxable_base_display", "discount_amount", "tax_amount", "total_amount",
+    ]
     list_filter_submit = True
+
+    @display(description=_("Lines total (before discount)"))
+    def lines_total_display(self, obj):
+        return obj.subtotal_amount
+
+    @display(description=_("Subtotal"))
+    def taxable_base_display(self, obj):
+        return obj.taxable_base
 
     fieldsets = (
         (_("General"), {
@@ -252,8 +263,9 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ("number", "date"),
                 ("company", "client"),
                 ("project_file", "external_id"),
-                ("status", "subtotal_amount"),
-                ("discount_amount", "tax_amount", "total_amount"),
+                ("status", "lines_total_display"),
+                ("discount_amount", "taxable_base_display"),
+                ("tax_amount", "total_amount"),
                 "sales_invoice",
                 "notes",
             )

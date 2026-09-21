@@ -7478,6 +7478,9 @@ msgstr "Restar"
 msgid "Tax Amount"
 msgstr "Monto del impuesto"
 
+msgid "Lines total (before discount)"
+msgstr "Total líneas (antes de descuento)"
+
 msgid "Expected payment method for this invoice (snapshot at issuance)."
 msgstr ""
 "Método de pago esperado para esta factura (instantánea al momento de "

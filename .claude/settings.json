@@ -50,7 +50,8 @@
       "Bash(.venv/bin/python manage.py test inventory.tests.test_stock_position.ReservedQuantityTest inventory.tests.test_stock_position.StockPositionCacheTest --noinput)",
       "Bash(grep -vE \"^\\\\s*$\")",
       "Bash(python manage.py test configurator.tests.test_sales_invoice_export_delivery_orders --parallel 1)",
-      "Bash(python /private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/ec086054-a791-46d6-b98d-5a888f7551ee/scratchpad/rels2.py)"
+      "Bash(python /private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/ec086054-a791-46d6-b98d-5a888f7551ee/scratchpad/rels2.py)",
+      "Bash(xxd)"
     ]
   }
 }

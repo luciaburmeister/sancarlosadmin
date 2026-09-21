@@ -99,8 +99,15 @@ class DeliveryOrderExportStrategy(BaseExportStrategy):
 
         top_level = walk(None, 0, None, None)
 
-        subtotal = do.subtotal_amount.amount if do.subtotal_amount else Decimal("0")
+        # ``lines_total`` is the raw sum of line totals; ``subtotal`` is what
+        # templates print as "Base": the taxable base after the header
+        # discount, so Base + taxes = Total on the printed document (same
+        # contract as the sales invoice export).
+        lines_total = do.subtotal_amount.amount if do.subtotal_amount else Decimal("0")
         discount = do.discount_amount.amount if do.discount_amount else Decimal("0")
+        subtotal = lines_total - discount
+        # Gross figure before the financing lines netted themselves out.
+        gross_subtotal = lines_total + financing_discount_amount
         tax_amount = do.tax_amount.amount if do.tax_amount else Decimal("0")
         total = do.total_amount.amount if do.total_amount else Decimal("0")
         # Legacy delivery orders predate tax/total fields: print subtotal as total
@@ -120,6 +127,8 @@ class DeliveryOrderExportStrategy(BaseExportStrategy):
             "has_components": any(i["is_component"] for i in items_data),
             "has_identity_codes": any(i["has_identity_codes"] for i in items_data),
             "subtotal": float(subtotal),
+            "lines_total": float(lines_total),
+            "gross_subtotal": float(gross_subtotal),
             "discount_amount": float(discount),
             "discount_breakdown": do.discount_breakdown or [],
             "tax_amount": float(tax_amount),

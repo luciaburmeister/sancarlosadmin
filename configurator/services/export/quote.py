@@ -68,6 +68,21 @@ class QuoteExportStrategy(BaseExportStrategy):
             .select_related("inventory_item")
             .order_by("order", "pk")
         ):
+            # A kit-type item (e.g. a solar water heater sold as one line) can
+            # have its own Bill of Materials (InventoryItem.bom_lines, the
+            # same "Componente"/"Cantidad" list shown on the item's own admin
+            # page) -- exposed here so a quote template can optionally list
+            # what's inside it, same as sales_invoice.py exposes item.reference.
+            components = []
+            if inv_item.inventory_item_id:
+                components = [
+                    {
+                        "code": bom_line.component.code,
+                        "name": str(bom_line.component),
+                        "quantity": bom_line.quantity,
+                    }
+                    for bom_line in inv_item.inventory_item.bom_lines.select_related("component")
+                ]
             inventory_items_data.append({
                 "id": inv_item.pk,
                 "name": str(inv_item.inventory_item) if inv_item.inventory_item_id else "",
@@ -77,6 +92,8 @@ class QuoteExportStrategy(BaseExportStrategy):
                 "discount": float(inv_item.discount),
                 "line_total": float(inv_item.line_total.amount) if inv_item.line_total else 0,
                 "total_with_tax": float(inv_item.total_with_tax.amount) if inv_item.total_with_tax else 0,
+                "components": components,
+                "has_components": len(components) > 0,
             })
 
         # Sums for the export summary block

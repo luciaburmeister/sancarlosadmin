@@ -355,6 +355,26 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
+# Tasks that render a PDF with WeasyPrint go to their own queue, served by a
+# separate worker with a small fixed concurrency (see .platform/hooks/
+# postdeploy/01_setup_celery.sh). Each render is a full Django process plus
+# the document's memory peak, and the worker shares the instance with
+# gunicorn: many renders at once (a payment-reminder fan-out, a bulk PDF zip)
+# can exhaust memory and take the web app down. Every other task stays on the
+# default "celery" queue.
+CELERY_TASK_DEFAULT_QUEUE = "celery"
+CELERY_PDF_QUEUE = "pdf"
+CELERY_PDF_TASKS = (
+    "core.tasks.send_invoice_email_task",
+    "core.tasks.send_quote_email_task",
+    "core.tasks.send_delivery_order_email_task",
+    "core.tasks.send_asset_transaction_email_task",
+    "invoices.tasks.build_invoice_pdf_zip",
+    "invoices.tasks.send_payment_reminder_email",
+    "invoices.tasks.send_consolidated_payment_reminder_email",
+)
+CELERY_TASK_ROUTES = {name: {"queue": CELERY_PDF_QUEUE} for name in CELERY_PDF_TASKS}
+
 # E-invoicing: disable AEAT submissions in tests / staging
 AEAT_SUBMISSIONS_ENABLED = os.getenv("AEAT_SUBMISSIONS_ENABLED", "True") == "True"
 

@@ -891,12 +891,29 @@ def send_payment_reminder_report(self, company_id: int, report_date: str):
         "recipients": recipients,
     }
 
-@shared_task(name="invoices.tasks.send_payment_reminder_email", bind=True, max_retries=2, default_retry_delay=60)
+# process_payment_reminders queues every due reminder at once. Each send
+# renders the invoice PDF, so the burst is spread out rather than hitting the
+# PDF worker (and the SMTP server) all at the same minute. At this rate the
+# report task's retry window (10 min delay + 5 retries of 2 min) still covers
+# several hundred reminders per company.
+PAYMENT_REMINDER_SEND_RATE_LIMIT = "20/m"
+
+
+@shared_task(
+    name="invoices.tasks.send_payment_reminder_email",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,
+    rate_limit=PAYMENT_REMINDER_SEND_RATE_LIMIT,
+)
 def send_payment_reminder_email(self, log_id: int):
     """
     Sends the actual reminder email for a single PaymentReminderLog and
     updates its status. Re-checks the invoice right before sending so a
     payment or exclusion applied after the log was queued still stops it.
+
+    Routed to the "pdf" queue (settings.CELERY_TASK_ROUTES) and rate limited:
+    it renders a WeasyPrint PDF per invoice.
     """
     from django.template.loader import render_to_string
     from django.utils import timezone, translation
@@ -1036,7 +1053,13 @@ def send_payment_reminder_email(self, log_id: int):
         return {"status": "failed", "log_id": log_id}
 
 
-@shared_task(name="invoices.tasks.send_consolidated_payment_reminder_email", bind=True, max_retries=2, default_retry_delay=60)
+@shared_task(
+    name="invoices.tasks.send_consolidated_payment_reminder_email",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,
+    rate_limit=PAYMENT_REMINDER_SEND_RATE_LIMIT,
+)
 def send_consolidated_payment_reminder_email(self, log_ids: list[int]):
     """
     Sends ONE email covering several invoices of the same client, sharing

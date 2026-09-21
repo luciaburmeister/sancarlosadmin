@@ -11,6 +11,8 @@ from django.contrib import messages
 from django.shortcuts import get_object_or_404, redirect
 from unfold.decorators import action, display
 from django.urls import path, reverse
+from django import forms
+from materials.models import PaymentMethod
 
 logger = logging.getLogger(__name__)
 from django.utils.translation import gettext_lazy as _
@@ -25,6 +27,7 @@ from invoices.views.invoice.aging_export_view import AgingExportView
 from general.djangoql.admin import DjangoQLSearchAdminMixin
 
 from invoices.models import (
+    CollectionsForecastEmailSettings,
     Invoice,
     ConfirmationStatus,
     TaxType,
@@ -40,6 +43,7 @@ from invoices.models import (
     PaymentReminderRule,
     PaymentReminderLog,
     PaymentReminderLogStatus,
+    PaymentsForecastEmailSettings,
 )
 from invoices.views.invoice.aging_export_view import AgingExportView
 from payments.admin_inlines import DocumentPaymentsInline
@@ -69,6 +73,8 @@ from invoices.views.invoice.import_invoice import InvoiceImportAdminView
 from invoices.views.invoice_register_payment import InvoiceRegisterPaymentView
 from invoices.views.accounts_payable_views import AccountsPayableDashboardView
 from invoices.views.operational_dashboard_view import OperationalDashboardView
+from invoices.views.invoice.collections_forecast_view import CollectionsForecastView
+from invoices.views.invoice.payments_forecast_view import PaymentsForecastView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from apps.einvoicing.admin import EInvoicingSubmissionInline
 from apps.einvoicing.tasks import submit_invoice_to_aeat, cancel_invoice_at_aeat
@@ -85,16 +91,36 @@ from unfold.contrib.filters.admin import (
     ChoicesDropdownFilter,
     AutocompleteSelectMultipleFilter
 )
-from unfold.widgets import UnfoldAdminTextareaWidget
+from unfold.widgets import UnfoldAdminTextareaWidget, SELECT_CLASSES, UnfoldAdminSelect2MultipleWidget
 from .filters import ItemsMissingAccountFilter, BalanceStatusFilter, IsReconciledFilter, DueDatePassedFilter
 from import_export.admin import  ExportActionModelAdmin
 from unfold.contrib.import_export.forms import  ImportForm, SelectableFieldsExportForm
 from .resources import (
     InvoiceResource, 
-    InvoiceItemResource, 
-    SalesInvoiceResource, 
+    InvoiceItemResource,
+    SalesInvoiceResource,
     SalesInvoiceItemResource
 )
+
+
+class StaticSelect2MultipleWidget(UnfoldAdminSelect2MultipleWidget):
+    """Select2 multi-select with local (non-DB) options, e.g. TextChoices.
+
+    UnfoldAdminSelect2MultipleWidget adds ``admin-autocomplete``, which
+    triggers Django's AJAX autocomplete and breaks static, fixed-choice
+    fields in ModelAdmin forms.
+    """
+
+    def __init__(self, attrs=None, choices=()):
+        attrs = attrs or {}
+        attrs["data-theme"] = "admin-autocomplete"
+        attrs["class"] = "unfold-admin-autocomplete"
+        forms.SelectMultiple.__init__(self, attrs, choices)
+
+    class Media(UnfoldAdminSelect2MultipleWidget.Media):
+        pass
+
+
 @admin.register(TaxType)
 class TaxTypeAdmin(ModelAdmin):
     list_display = (
@@ -645,6 +671,13 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
                 name="invoices_invoice_accounts_payable",
             ),
             path(
+                "dashboard/payments-forecast/",
+                self.admin_site.admin_view(
+                    PaymentsForecastView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_payments_forecast",
+            ),
+            path(
                 "dashboard/operational/",
                 self.admin_site.admin_view(
                     OperationalDashboardView.as_view(model_admin=self)
@@ -995,7 +1028,6 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
         "company", 
         )
     list_filter = (
-        # Who / when
         ("company", AutocompleteSelectMultipleFilter),
         ("client", AutocompleteSelectMultipleFilter),
         ("date_issued", RangeDateFilter),
@@ -1324,6 +1356,13 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                 self.admin_site.admin_view(RegisterPaymentView.as_view(model_admin=self)),
                 name="invoices_salesinvoice_register_payment",
             ),
+            path(
+                "dashboard/collections-forecast/",
+                self.admin_site.admin_view(
+                    CollectionsForecastView.as_view(model_admin=self)
+                ),
+                name="invoices_salesinvoice_collections_forecast",
+            ),
         ]
         return custom + urls
 
@@ -1546,3 +1585,86 @@ class PaymentReminderLogAdmin(ModelAdmin, CompanyRestrictedAdmin):
 
     def has_change_permission(self, request, obj=None):
         return False
+    
+@admin.register(CollectionsForecastEmailSettings)
+class CollectionsForecastEmailSettingsAdmin(ModelAdmin, CompanyRestrictedAdmin):
+    list_display = ("company", "is_active", "send_time", "frequency_days", "days_ahead", "last_run_date")
+    autocomplete_fields = ("company",)
+    fields = ("company", "is_active", "send_time", "frequency_days", "days_ahead", "report_emails", "last_run_date")
+    readonly_fields = ("last_run_date",)
+    formfield_overrides = {
+        ArrayField: {
+            "widget": ArrayWidget,
+        }
+    }
+
+
+@admin.register(PaymentsForecastEmailSettings)
+class PaymentsForecastEmailSettingsAdmin(ModelAdmin, CompanyRestrictedAdmin):
+    list_display = ("company", "send_time", "frequency_days", "days_ahead", "is_active", "last_run_date")
+    list_filter = (
+        ("company", AutocompleteSelectMultipleFilter),
+        ("is_active", BooleanRadioFilter),
+    )
+    autocomplete_fields = ("company",)
+    readonly_fields = ("last_run_date",)
+    formfield_overrides = {
+        ArrayField: {
+            "widget": ArrayWidget,
+        }
+    }
+
+    def get_form(self, request, obj=None, change=False, **kwargs):
+        # ArrayWidget doesn't auto-detect a field's choices -- report_emails
+        # stays a free-text ArrayWidget (any email is valid), but
+        # payment_methods needs to be constrained to PaymentMethod. Swapping
+        # only the widget would leave SimpleArrayField.prepare_value() joining
+        # the saved list into a comma string, which a multi-select can't
+        # match back to its options -- so the field itself is replaced with a
+        # plain MultipleChoiceField, which speaks lists natively.
+        form = super().get_form(request, obj, change, **kwargs)
+        original = form.base_fields["payment_methods"]
+        form.base_fields["payment_methods"] = forms.MultipleChoiceField(
+            choices=PaymentMethod.choices,
+            required=False,
+            label=original.label,
+            help_text=original.help_text,
+            widget=StaticSelect2MultipleWidget,
+        )
+        return form
+
+    fieldsets = (
+        (
+            _("General Information"),
+            {
+                "fields": (
+                    "company",
+                    "is_active",
+                )
+            },
+        ),
+        (
+            _("Timing"),
+            {
+                "fields": (
+                    "send_time",
+                    "frequency_days",
+                    "days_ahead",
+                    "last_run_date",
+                )
+            },
+        ),
+        (
+            _("Filtering"),
+            {
+                "fields": ("payment_methods",),
+                "description": _("Leave empty to include every payment method in the report."),
+            },
+        ),
+        (
+            _("Report"),
+            {
+                "fields": ("report_emails",),
+            },
+        ),
+    )

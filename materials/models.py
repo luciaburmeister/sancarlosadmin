@@ -101,6 +101,34 @@ class Provider(Timestampable,CompanyOwnedModel):
                 )
             })
 
+    def invoices_admin_url(self, due_date_from=None, due_date_to=None) -> str:
+        """
+        Absolute link into the Invoice changelist admin, filtered to this
+        provider's pending invoices -- the fixed filters (unpaid/partial,
+        approved) are the Payments Forecast contract, not something callers
+        vary; the due-date range is the only thing that changes between
+        the overdue bucket (due_date_to only) and a single-day bucket
+        (both bounds, same day). Used by the Payments Forecast calendar,
+        its email report, and the "View Invoices" link in both -- single
+        source of truth for that URL.
+        """
+        from django.conf import settings
+        from django.urls import reverse
+        from urllib.parse import urlencode
+
+        base_url = settings.BACKEND_URL.rstrip("/")
+        path = reverse("admin:invoices_invoice_changelist")
+        params = {
+            "provider__id__exact": self.pk,
+            "payment_status__in": "unpaid,partial",
+            "confirmation_status__exact": "approved",
+        }
+        if due_date_from is not None:
+            params["due_date__gte"] = due_date_from.isoformat()
+        if due_date_to is not None:
+            params["due_date__lte"] = due_date_to.isoformat()
+        return f"{base_url}{path}?{urlencode(params)}"
+
 class ProviderBankAccount(CompanyOwnedModel, BaseBankAccount):
     provider = models.ForeignKey(
         Provider,

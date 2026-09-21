@@ -1,0 +1,218 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+{{ block.super }}
+{% include "admin/invoices/invoice/_forecast_calendar_style.html" with prefix="pf" entity_table="provider-table" %}
+<style>
+  /* Payments-only: small badge flagging rows that include a SEPA direct
+     debit invoice -- naturally only shows up when SEPA is actually part
+     of the current payment-method filter, since rows with no SEPA
+     invoices never get has_sepa=True (the query already excludes
+     whatever methods are filtered out). */
+  .pf-sepa-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 7px;
+    font-size: .65rem;
+    font-weight: 700;
+    letter-spacing: .02em;
+    border-radius: 999px;
+    background: var(--pf-teal-500);
+    color: #fff;
+    vertical-align: middle;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pf-wrap">
+  <div class="pf-header">
+    <div class="pf-title">{% trans "Payments Forecast" %}</div>
+    <div class="pf-controls">
+      <form method="get" class="pf-filters" x-data="{ methodsOpen: false }">
+        <select name="company" class="pf-select" onchange="this.form.submit()">
+          {% for company in companies %}
+            <option value="{{ company.pk }}" {% if selected_company and company.pk == selected_company.pk %}selected{% endif %}>
+              {{ company }}
+            </option>
+          {% endfor %}
+        </select>
+
+        <label style="font-size:.8rem;font-weight:600;color:var(--pf-text-sub);white-space:nowrap;">
+          {% trans "Show next" %}
+        </label>
+        <input
+          type="number"
+          name="days"
+          class="pf-select"
+          style="width:70px;"
+          min="{{ days_min }}"
+          max="{{ days_max }}"
+          value="{{ days_ahead }}"
+          title="{% blocktrans %}Days ahead ({{ days_min }}–{{ days_max }}){% endblocktrans %}">
+        <label style="font-size:.8rem;font-weight:600;color:var(--pf-text-sub);white-space:nowrap;">
+          {% trans "days" %}
+        </label>
+
+        <div style="position:relative;" @click.outside="methodsOpen = false">
+          <button type="button" class="pf-select" style="cursor:pointer;" @click="methodsOpen = !methodsOpen">
+            {% trans "Payment Method" %}{% if selected_methods %} ({{ selected_methods|length }}){% endif %}
+          </button>
+          <div class="pf-methods-panel" x-show="methodsOpen" x-cloak>
+            <div style="display:flex;gap:10px;padding:2px 8px 8px 8px;border-bottom:1px solid var(--pf-border);margin-bottom:6px;">
+              <button type="button"
+                      style="background:none;border:none;padding:0;font-size:.75rem;font-weight:600;color:var(--pf-teal-600);cursor:pointer;"
+                      @click="$el.closest('.pf-methods-panel').querySelectorAll('input[type=checkbox]').forEach(c => c.checked = true)">
+                {% trans "All" %}
+              </button>
+              <button type="button"
+                      style="background:none;border:none;padding:0;font-size:.75rem;font-weight:600;color:var(--pf-text-sub);cursor:pointer;"
+                      @click="$el.closest('.pf-methods-panel').querySelectorAll('input[type=checkbox]').forEach(c => c.checked = false)">
+                {% trans "None" %}
+              </button>
+            </div>
+            {% for value, label in payment_method_choices %}
+            <label class="pf-methods-option">
+              <input type="checkbox" name="payment_method" value="{{ value }}" {% if value in selected_methods %}checked{% endif %}>
+              {{ label }}
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+
+        <button type="submit" class="pf-btn pf-btn--primary">{% trans "Apply" %}</button>
+      </form>
+
+      <form method="post" style="margin:0;">
+        {% csrf_token %}
+        <input type="hidden" name="company" value="{{ selected_company.pk }}">
+        <input type="hidden" name="days" value="{{ days_ahead }}">
+        {% for method in selected_methods %}
+        <input type="hidden" name="payment_method" value="{{ method }}">
+        {% endfor %}
+        <button type="submit" class="pf-btn pf-btn--primary">{% trans "Send Report by Email Now" %}</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="pf-kpi-grid">
+    <div class="pf-kpi pf-kpi--teal">
+      <div class="pf-kpi-label">{% trans "To Pay This Month" %}</div>
+      <div class="pf-kpi-value">€ {{ forecast.month_total|floatformat:2 }}</div>
+      <div class="pf-kpi-label">{% blocktrans count count=forecast.month_count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</div>
+    </div>
+    <div class="pf-kpi pf-kpi--rose">
+      <div class="pf-kpi-label">{% trans "Overdue and Unpaid" %}</div>
+      <div class="pf-kpi-value">€ {{ forecast.overdue.total|floatformat:2 }}</div>
+      <div class="pf-kpi-label">{% blocktrans count count=forecast.overdue.count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</div>
+    </div>
+    <div class="pf-kpi">
+      <div class="pf-kpi-label">{% blocktrans %}In the Next {{ days_ahead }} Days{% endblocktrans %}</div>
+      <div class="pf-kpi-value">€ {{ forecast.window_total|floatformat:2 }}</div>
+      <div class="pf-kpi-label">{% blocktrans count count=forecast.window_count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</div>
+    </div>
+  </div>
+
+  {% if not selected_company %}
+    <div class="pf-empty">{% trans "You have no companies assigned." %}</div>
+  {% else %}
+
+    {% if forecast.overdue.providers %}
+    <div class="pf-bucket pf-bucket--overdue" x-data="{ open: true }">
+      <div class="pf-bucket-header" @click="open = !open">
+        <span class="pf-chevron" :class="{ 'is-open': open }">▶</span>
+        <span class="pf-bucket-date">{% trans "Overdue" %}</span>
+        <span class="pf-bucket-meta">{% blocktrans count count=forecast.overdue.count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</span>
+        <span class="pf-bucket-total">€ {{ forecast.overdue.total|floatformat:2 }}</span>
+      </div>
+      <div x-show="open">
+        <table class="pf-provider-table">
+          <thead>
+            <tr>
+              <th>{% trans "Provider" %}</th>
+              <th style="text-align:right">{% trans "Overdue Amount" %}</th>
+              <th style="text-align:right">{% trans "Total Owed" %}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for provider in forecast.overdue.providers %}
+            <tr>
+              <td>
+                {{ provider.provider_name }}
+                {% if provider.has_sepa %}<span class="pf-sepa-badge">{% trans "SEPA" %}</span>{% endif %}
+              </td>
+              <td class="pf-amount">€ {{ provider.day_total|floatformat:2 }}</td>
+              <td class="pf-amount-sub">€ {{ provider.total_owed|floatformat:2 }}</td>
+              <td>
+                <div class="pf-actions">
+                  <a class="pf-btn pf-btn--primary" href="{{ provider.view_url }}">
+                    {% trans "View Invoices" %}
+                  </a>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    {% for bucket in forecast.buckets %}
+    {% if bucket.count > 0 %}
+    <div class="pf-bucket" x-data="{ open: false }">
+      <div class="pf-bucket-header" @click="open = !open">
+        <span class="pf-chevron" :class="{ 'is-open': open }">▶</span>
+        <span class="pf-bucket-date">{{ bucket.date|date:"d/m/Y" }}</span>
+        <span class="pf-bucket-meta">{% blocktrans count count=bucket.count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</span>
+        <span class="pf-bucket-total">€ {{ bucket.total|floatformat:2 }}</span>
+      </div>
+      <div x-show="open">
+        <table class="pf-provider-table">
+          <thead>
+            <tr>
+              <th>{% trans "Provider" %}</th>
+              <th style="text-align:right">{% trans "Due That Day" %}</th>
+              <th style="text-align:right">{% trans "Total Owed" %}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for provider in bucket.providers %}
+            <tr>
+              <td>
+                {{ provider.provider_name }}
+                {% if provider.has_sepa %}<span class="pf-sepa-badge">{% trans "SEPA" %}</span>{% endif %}
+              </td>
+              <td class="pf-amount">€ {{ provider.day_total|floatformat:2 }}</td>
+              <td class="pf-amount-sub">€ {{ provider.total_owed|floatformat:2 }}</td>
+              <td>
+                <div class="pf-actions">
+                  <a class="pf-btn pf-btn--primary" href="{{ provider.view_url }}">
+                    {% trans "View Invoices" %}
+                  </a>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="pf-bucket pf-bucket--empty">
+      <div class="pf-bucket-header">
+        <span class="pf-chevron is-hidden">▶</span>
+        <span class="pf-bucket-date">{{ bucket.date|date:"d/m/Y" }}</span>
+        <span class="pf-bucket-meta">{% trans "No invoices due" %}</span>
+        <span class="pf-bucket-total">€ 0.00</span>
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+  {% endif %}
+</div>
+{% endblock %}

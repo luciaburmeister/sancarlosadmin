@@ -514,6 +514,98 @@ class Invoice(Timestampable, Payable):
             items__invoice_allocations__invoice=self
         ).distinct()
 
+class BaseForecastEmailSettings(CompanyOwnedModel, Timestampable):
+    """
+    Shared shape for the scheduled/manual forecast report configs
+    (Collections Forecast, Payments Forecast): a per-company on/off
+    switch, when to send, how often, how far ahead the report looks,
+    and when it last ran. invoices.tasks._process_forecast_report_settings
+    dispatches against exactly this shape, so both concrete models can be
+    driven by the same generic Celery dispatcher.
+
+    report_emails is intentionally NOT defined here even though both
+    concrete models have it identically shaped -- each one's help_text
+    names its own report ("collections forecast report" vs "payments
+    forecast report"), so it's redefined per subclass instead of forcing
+    generic wording here.
+    """
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+    send_time = models.TimeField(
+        default=time(8, 0),
+        verbose_name=_("Send Time"),
+        help_text=_("Time of day the report is sent for this company."),
+    )
+    frequency_days = models.PositiveIntegerField(
+        default=7,
+        verbose_name=_("Frequency (Days)"),
+        help_text=_("How often to send the report: 1 = daily, 7 = weekly, etc."),
+    )
+    days_ahead = models.PositiveIntegerField(
+        default=14,
+        verbose_name=_("Forecast Window (Days)"),
+        help_text=_("How many days ahead the report covers."),
+    )
+    last_run_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Last Run Date"),
+        help_text=_("Date this company's report was last sent. Prevents duplicate sends on the same day."),
+    )
+
+    class Meta:
+        abstract = True
+
+    def report_recipients(self) -> list[str]:
+        recipients = [e.strip() for e in self.report_emails if e and e.strip()]
+        if recipients:
+            return recipients
+        if self.company.email and self.company.email.strip():
+            return [self.company.email.strip()]
+        return []
+
+class PaymentsForecastEmailSettings(BaseForecastEmailSettings):
+    """
+    Per-company configuration for the scheduled/manual Payments Forecast
+    email report. Mirrors CollectionsForecastEmailSettings field-for-field
+    (send_time, frequency_days, days_ahead, last_run_date, report_emails --
+    see BaseForecastEmailSettings), plus payment_methods -- empty means
+    "all methods", populated means "only include invoices paid through
+    one of these methods", so a company can get e.g. a weekly SEPA-only
+    report and a separate 12-day transfer+SEPA report by creating more
+    than one settings row is NOT supported here (one row per company,
+    like collections) -- a single row's payment_methods covers everything
+    that company wants in its one report.
+    """
+    payment_methods = ArrayField(
+        base_field=models.CharField(max_length=20, choices=PaymentMethod.choices),
+        default=list,
+        blank=True,
+        verbose_name=_("Payment Methods"),
+        help_text=_(
+            "Only include invoices with these payment methods in the report. "
+            "Leave empty to include all payment methods."
+        ),
+    )
+    report_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Report Emails"),
+        help_text=_(
+            "Internal recipients for the payments forecast report. "
+            "Leave empty to send it to the company email."
+        ),
+    )
+
+    class Meta:
+        verbose_name = _("Payments Forecast Email Settings")
+        verbose_name_plural = _("Payments Forecast Email Settings")
+        constraints = [
+            models.UniqueConstraint(fields=["company"], name="uniq_payments_forecast_email_settings_company"),
+        ]
+
+    def __str__(self):
+        return f"{_('Payments Forecast Email Settings')} — {self.company}"
  
 class A3TaxGroup(models.TextChoices):
     IVA = "IVA", _("IVA")
@@ -1007,6 +1099,7 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         unique_together = ['company', 'invoice_number']
         permissions = [
             ("bulk_mark_paid_salesinvoice", _("Can bulk update payment status (sales invoices)")),
+            ("collections_forecast", _("Can view Collections Forecast dashboard")),
         ]
         indexes = [
             GinIndex(fields=['invoice_number'], name='salesinv_invnum_trgm_gin', opclasses=['gin_trgm_ops']),
@@ -1783,6 +1876,34 @@ class PaymentReminderSettings(CompanyOwnedModel, Timestampable):
             return [self.company.email.strip()]
         return []
 
+
+class CollectionsForecastEmailSettings(BaseForecastEmailSettings):
+    """
+    Per-company configuration for the collections-forecast report email
+    (POL-xxx, Part 2). A lightweight sibling of PaymentReminderSettings --
+    no per-invoice log here, since this is a passive snapshot report, not
+    a tracked client communication.
+    """
+    report_emails = ArrayField(
+        base_field=models.EmailField(),
+        default=list,
+        blank=True,
+        verbose_name=_("Report Emails"),
+        help_text=_(
+            "Internal recipients for the collections forecast report. "
+            "Leave empty to send it to the company email."
+        ),
+    )
+
+    class Meta:
+        verbose_name = _("Collections Forecast Email Settings")
+        verbose_name_plural = _("Collections Forecast Email Settings")
+        constraints = [
+            models.UniqueConstraint(fields=["company"], name="uniq_collections_forecast_email_settings_company"),
+        ]
+
+    def __str__(self):
+        return f"{_('Collections Forecast Email Settings')} — {self.company}"
 
 class PaymentReminderRule(CompanyOwnedModel, Timestampable):
     settings = models.ForeignKey(

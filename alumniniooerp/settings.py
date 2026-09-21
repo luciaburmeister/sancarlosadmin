@@ -353,6 +353,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "invoices.tasks.process_payment_reminders",
         "schedule": crontab(minute="*/30"),  # matches the 30-min send_time window in the task
     },
+    "process-forecast-reports": {
+        "task": "invoices.tasks.process_forecast_reports",
+        "schedule": crontab(minute="*/30"),  # matches the 30-min send_time window in the task
+    },
 }
 
 # Tasks that render a PDF with WeasyPrint go to their own queue, served by a
@@ -527,6 +531,22 @@ UNFOLD = {
                         "link": reverse_lazy("admin:invoices_invoice_accounts_payable"),
                         "permission": lambda request: request.user.has_perm(
                             "invoices.view_invoice"
+                        ),
+                    },
+                    {
+                        "title": _("Collections Forecast"),
+                        "icon": "calendar_month",
+                        "link": reverse_lazy("admin:invoices_salesinvoice_collections_forecast"),
+                        "permission": lambda request: request.user.has_perm(
+                            "invoices.collections_forecast"
+                        ),
+                    },
+                    {
+                        "title": _("Payments Forecast"),
+                        "icon": "event_upcoming",
+                        "link": reverse_lazy("admin:invoices_invoice_payments_forecast"),
+                        "permission": lambda request: request.user.has_perm(
+                            "invoices.accounts_payable"
                         ),
                     },
                     {

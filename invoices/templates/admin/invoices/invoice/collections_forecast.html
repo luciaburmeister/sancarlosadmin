@@ -1,0 +1,161 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+{{ block.super }}
+{% include "admin/invoices/invoice/_forecast_calendar_style.html" with prefix="cf" entity_table="client-table" %}
+{% endblock %}
+
+{% block content %}
+<div class="cf-wrap">
+  <div class="cf-header">
+    <div class="cf-title">{% trans "Collections Forecast" %}</div>
+    <div class="cf-controls">
+      <form method="get" class="cf-filters">
+        <select name="company" class="cf-select" onchange="this.form.submit()">
+          {% for company in companies %}
+            <option value="{{ company.pk }}" {% if selected_company and company.pk == selected_company.pk %}selected{% endif %}>
+              {{ company }}
+            </option>
+          {% endfor %}
+        </select>
+ 
+        <label style="font-size:.8rem;font-weight:600;color:var(--cf-text-sub);white-space:nowrap;">
+          {% trans "Show next" %}
+        </label>
+        <input
+          type="number"
+          name="days"
+          class="cf-select"
+          style="width:70px;"
+          min="{{ days_min }}"
+          max="{{ days_max }}"
+          value="{{ days_ahead }}"
+          title="{% blocktrans %}Days ahead ({{ days_min }}–{{ days_max }}){% endblocktrans %}">
+        <label style="font-size:.8rem;font-weight:600;color:var(--cf-text-sub);white-space:nowrap;">
+          {% trans "days" %}
+        </label>
+ 
+        <button type="submit" class="cf-btn cf-btn--primary">{% trans "Apply" %}</button>
+      </form>
+      <form method="post" style="margin:0;">
+        {% csrf_token %}
+        <input type="hidden" name="company" value="{{ selected_company.pk }}">
+        <input type="hidden" name="days" value="{{ days_ahead }}">
+        <button type="submit" class="cf-btn cf-btn--primary">{% trans "Send Report by Email Now" %}</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="cf-kpi-grid">
+    <div class="cf-kpi cf-kpi--teal">
+      <div class="cf-kpi-label">{% trans "To Collect This Month" %}</div>
+      <div class="cf-kpi-value">€ {{ forecast.month_total|floatformat:2 }}</div>
+      <div class="cf-kpi-label">{% blocktrans count count=forecast.month_count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</div>
+    </div>
+    <div class="cf-kpi cf-kpi--rose">
+      <div class="cf-kpi-label">{% trans "Overdue and Uncollected" %}</div>
+      <div class="cf-kpi-value">€ {{ forecast.overdue.total|floatformat:2 }}</div>
+      <div class="cf-kpi-label">{% blocktrans count count=forecast.overdue.count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</div>
+    </div>
+    <div class="cf-kpi">
+      <div class="cf-kpi-label">{% blocktrans %}In the Next {{ days_ahead }} Days{% endblocktrans %}</div>
+      <div class="cf-kpi-value">€ {{ forecast.window_total|floatformat:2 }}</div>
+      <div class="cf-kpi-label">{% blocktrans count count=forecast.window_count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</div>
+    </div>
+  </div>
+
+  {% if not selected_company %}
+    <div class="cf-empty">{% trans "You have no companies assigned." %}</div>
+  {% else %}
+
+    {% if forecast.overdue.clients %}
+    <div class="cf-bucket cf-bucket--overdue" x-data="{ open: true }">
+      <div class="cf-bucket-header" @click="open = !open">
+        <span class="cf-chevron" :class="{ 'is-open': open }">▶</span>
+        <span class="cf-bucket-date">{% trans "Overdue" %}</span>
+        <span class="cf-bucket-meta">{% blocktrans count count=forecast.overdue.count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</span>
+        <span class="cf-bucket-total">€ {{ forecast.overdue.total|floatformat:2 }}</span>
+      </div>
+      <div x-show="open">
+        <table class="cf-client-table">
+          <thead>
+            <tr>
+              <th>{% trans "Client" %}</th>
+              <th style="text-align:right">{% trans "Overdue Amount" %}</th>
+              <th style="text-align:right">{% trans "Total Owed" %}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for client in forecast.overdue.clients %}
+            <tr>
+              <td>{{ client.client_name }}</td>
+              <td class="cf-amount">€ {{ client.day_total|floatformat:2 }}</td>
+              <td class="cf-amount-sub">€ {{ client.total_owed|floatformat:2 }}</td>
+              <td>
+                <div class="cf-actions">
+                  <a class="cf-btn" href="{{ client.view_url }}">{% trans "View Invoices" %}</a>
+                  <a class="cf-btn cf-btn--primary" href="{% url 'admin:invoices_salesinvoice_send_reminder_now' client.sample_invoice_id %}">{% trans "Send Reminder" %}</a>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+
+    {% for bucket in forecast.buckets %}
+    {% if bucket.count > 0 %}
+    <div class="cf-bucket" x-data="{ open: false }">
+      <div class="cf-bucket-header" @click="open = !open">
+        <span class="cf-chevron" :class="{ 'is-open': open }">▶</span>
+        <span class="cf-bucket-date">{{ bucket.date|date:"d/m/Y" }}</span>
+        <span class="cf-bucket-meta">{% blocktrans count count=bucket.count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</span>
+        <span class="cf-bucket-total">€ {{ bucket.total|floatformat:2 }}</span>
+      </div>
+      <div x-show="open">
+        <table class="cf-client-table">
+          <thead>
+            <tr>
+              <th>{% trans "Client" %}</th>
+              <th style="text-align:right">{% trans "Due That Day" %}</th>
+              <th style="text-align:right">{% trans "Total Owed" %}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for client in bucket.clients %}
+            <tr>
+              <td>{{ client.client_name }}</td>
+              <td class="cf-amount">€ {{ client.day_total|floatformat:2 }}</td>
+              <td class="cf-amount-sub">€ {{ client.total_owed|floatformat:2 }}</td>
+              <td>
+                <div class="cf-actions">
+                  <a class="cf-btn" href="{{ client.view_url }}">{% trans "View Invoices" %}</a>
+                  <a class="cf-btn cf-btn--primary" href="{% url 'admin:invoices_salesinvoice_send_reminder_now' client.sample_invoice_id %}">{% trans "Send Reminder" %}</a>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    {% else %}
+    <div class="cf-bucket cf-bucket--empty">
+      <div class="cf-bucket-header">
+        <span class="cf-chevron is-hidden">▶</span>
+        <span class="cf-bucket-date">{{ bucket.date|date:"d/m/Y" }}</span>
+        <span class="cf-bucket-meta">{% trans "No invoices due" %}</span>
+        <span class="cf-bucket-total">€ 0.00</span>
+      </div>
+    </div>
+    {% endif %}
+    {% endfor %}
+
+  {% endif %}
+</div>
+{% endblock %}

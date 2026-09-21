@@ -532,6 +532,21 @@ class Client(Timestampable, CompanyOwnedModel):
             return [self.email.strip()]
         return []
 
+    def invoices_admin_url(self) -> str:
+        """
+        Absolute link into the SalesInvoice changelist admin, pre-filtered
+        to this client by name (matches its search_fields) -- the "View
+        Invoices" destination used by the Collections Forecast calendar
+        and its email report. Single source of truth for that URL.
+        """
+        from django.conf import settings
+        from django.urls import reverse
+        from urllib.parse import quote
+
+        base_url = settings.BACKEND_URL.rstrip("/")
+        path = reverse("admin:invoices_salesinvoice_changelist")
+        return f"{base_url}{path}?q={quote(self.name)}"
+
     @property
     def terms_version(self) -> str:
         text = (self.accepted_terms_text or "").strip()

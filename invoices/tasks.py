@@ -1222,3 +1222,249 @@ def send_consolidated_payment_reminder_email(self, log_ids: list[int]):
             log.error_message = "EmailService.send_email returned False."
             log.save(update_fields=["status", "error_message"])
         return {"status": "failed", "log_ids": [log.id for log in valid_logs]}
+
+def _process_forecast_report_settings(settings_model, send_task, build_send_args):
+    """
+    Generic dispatcher body shared by every *ForecastEmailSettings model
+    (CollectionsForecastEmailSettings, PaymentsForecastEmailSettings, ...):
+    for each active row whose send_time falls inside the current 30-minute
+    window and whose frequency_days has elapsed since last_run_date,
+    queues send_task with whatever args build_send_args(settings_row)
+    produces, then marks last_run_date as today.
+
+    Returns (processed, queued) so the calling task can log/report totals
+    per report type.
+    """
+    from datetime import datetime, timedelta
+
+    from django.utils import timezone
+
+    now = timezone.localtime()
+    today = now.date()
+    queued = 0
+    processed = 0
+
+    settings_qs = settings_model.objects.filter(is_active=True).select_related("company")
+
+    for report_settings in settings_qs:
+        if (
+            report_settings.last_run_date
+            and (today - report_settings.last_run_date).days < report_settings.frequency_days
+        ):
+            continue
+
+        scheduled_dt = timezone.make_aware(datetime.combine(today, report_settings.send_time))
+        if not (scheduled_dt <= now < scheduled_dt + timedelta(minutes=30)):
+            continue
+
+        send_task.delay(*build_send_args(report_settings))
+        report_settings.last_run_date = today
+        report_settings.save(update_fields=["last_run_date"])
+        queued += 1
+        processed += 1
+
+    return processed, queued
+
+
+@shared_task(name="invoices.tasks.process_forecast_reports")
+def process_forecast_reports():
+    """
+    Celery-beat entry point for both the collections-forecast and
+    payments-forecast report emails, scheduled every 30 minutes -- same
+    cadence as process_payment_reminders. Both *ForecastEmailSettings
+    models share the exact same shape (is_active, send_time,
+    frequency_days, last_run_date), so a single generic dispatcher
+    (_process_forecast_report_settings) decides whose turn it is today;
+    only the actual send tasks differ (different email content/service).
+    """
+    from invoices.models import CollectionsForecastEmailSettings, PaymentsForecastEmailSettings
+
+    collections_processed, collections_queued = _process_forecast_report_settings(
+        CollectionsForecastEmailSettings,
+        send_collections_forecast_report_email,
+        lambda s: (s.company_id, s.days_ahead),
+    )
+    payments_processed, payments_queued = _process_forecast_report_settings(
+        PaymentsForecastEmailSettings,
+        send_payments_forecast_report_email,
+        lambda s: (s.company_id, s.days_ahead, s.payment_methods or None),
+    )
+
+    logger.info(
+        "Forecast report check complete: collections %d processed/%d queued, "
+        "payments %d processed/%d queued.",
+        collections_processed, collections_queued, payments_processed, payments_queued,
+    )
+    return {
+        "collections_processed": collections_processed,
+        "collections_queued": collections_queued,
+        "payments_processed": payments_processed,
+        "payments_queued": payments_queued,
+    }
+
+
+@shared_task(
+    name="invoices.tasks.send_collections_forecast_report_email",
+    bind=True,
+    max_retries=2,
+    default_retry_delay=60,
+)
+def send_collections_forecast_report_email(self, company_id: int, days_ahead: int = 14):
+    """
+    Builds and sends one company's collections-forecast report email.
+    Used both by process_forecast_reports (scheduled) and by
+    the "Send now" button on the Collections Forecast calendar (manual) --
+    same task either way, so scheduled and manual sends behave identically.
+
+    Loads the company logo the same way send_payment_reminder_email does,
+    so the internal report and the client-facing reminder look consistent.
+    """
+    from company.models import Company
+    from invoices.models import CollectionsForecastEmailSettings
+    from invoices.services.collections_forecast_service import CollectionsForecastService
+    from invoices.services.collections_forecast_report_email_service import (
+        CollectionsForecastReportEmailService,
+    )
+
+    try:
+        company = Company.objects.get(pk=company_id)
+    except Company.DoesNotExist:
+        logger.error("Collections forecast report: company %s does not exist.", company_id)
+        return {"status": "error", "message": f"Company {company_id} does not exist."}
+
+    report_settings = CollectionsForecastEmailSettings.objects.filter(company=company).first()
+    if report_settings:
+        recipients = report_settings.report_recipients()
+    else:
+        recipients = [company.email.strip()] if company.email and company.email.strip() else []
+
+    if not recipients:
+        logger.warning(
+            "Collections forecast report for company %s not sent: no recipients configured.",
+            company.pk,
+        )
+        return {"status": "skipped", "reason": "no recipients"}
+
+    inline_images = []
+    if company.logo:
+        try:
+            company.logo.open("rb")
+            logo_bytes = company.logo.read()
+            company.logo.close()
+            ext = company.logo.name.rsplit(".", 1)[-1].lower()
+            mimetype = f"image/{'jpeg' if ext in ('jpg', 'jpeg') else ext}"
+            inline_images.append(("company_logo", logo_bytes, mimetype))
+        except Exception:
+            logger.warning("Could not load logo for company %s, sending without it.", company.pk)
+
+    forecast = CollectionsForecastService.build_forecast(company, days_ahead)
+    email = CollectionsForecastReportEmailService.build_email(
+        company, forecast, recipients=recipients, has_logo=bool(inline_images)
+    )
+
+    success = EmailService.send_email(
+        to=email.recipients,
+        subject=email.subject,
+        body_html=email.body_html,
+        inline_images=inline_images or None,
+        related_object=company,
+        company=company,
+        email_document="collections_forecast_report",
+    )
+    if not success:
+        raise Exception(
+            f"Failed to send collections forecast report for company {company.pk} to [{', '.join(recipients)}]"
+        )
+
+    return {
+        "task": "send_collections_forecast_report_email",
+        "status": "ok",
+        "company_id": company.pk,
+        "recipients": recipients,
+    }
+
+
+@shared_task(name="invoices.tasks.send_payments_forecast_report_email", bind=True, max_retries=2, default_retry_delay=60)
+def send_payments_forecast_report_email(self, company_id: int, days_ahead: int, payment_methods: list | None = None):
+    """
+    Builds and sends one company's Payments Forecast report email. Used
+    both by the scheduled beat job (process_forecast_reports)
+    and the "Send Report by Email Now" button on the calendar itself, so
+    both paths always produce the identical email for a given
+    company/window/payment-method combination -- the button sends
+    whatever is currently on screen, not necessarily the company's saved
+    settings.
+
+    Recipients: PaymentsForecastEmailSettings.report_emails if a settings
+    row exists for the company, falling back to Company.email. If neither
+    yields a recipient, the task is skipped rather than failed -- this is
+    also the path a manual send takes for a company with no settings row
+    configured yet, so it should degrade gracefully rather than error.
+    """
+    from company.models import Company
+
+    from invoices.models import PaymentsForecastEmailSettings
+    from invoices.services.payments_forecast_report_email_service import (
+        PaymentsForecastReportEmailService,
+    )
+    from invoices.services.payments_forecast_service import PaymentsForecastService
+
+    try:
+        company = Company.objects.get(pk=company_id)
+    except Company.DoesNotExist:
+        logger.error("No company %s, skipping payments forecast report.", company_id)
+        return {"status": "error", "message": f"No company {company_id}."}
+
+    forecast_settings = PaymentsForecastEmailSettings.objects.filter(company=company).first()
+    if forecast_settings:
+        recipients = forecast_settings.report_recipients()
+    else:
+        recipients = [company.email.strip()] if getattr(company, "email", "") and company.email.strip() else []
+
+    if not recipients:
+        logger.warning(
+            "Payments forecast report for company %s not sent: no report emails configured "
+            "and the company has no email.",
+            company_id,
+        )
+        return {"status": "skipped", "reason": "no recipients"}
+
+    inline_images = []
+    if company.logo:
+        try:
+            company.logo.open("rb")
+            logo_bytes = company.logo.read()
+            company.logo.close()
+            ext = company.logo.name.rsplit(".", 1)[-1].lower()
+            mimetype = f"image/{'jpeg' if ext in ('jpg', 'jpeg') else ext}"
+            inline_images.append(("company_logo", logo_bytes, mimetype))
+        except Exception:
+            logger.warning("Could not load logo for company %s, sending without it.", company.pk)
+
+    forecast = PaymentsForecastService.build_forecast(company, days_ahead, payment_methods)
+    email = PaymentsForecastReportEmailService.build_email(
+        company, forecast, recipients=recipients, has_logo=bool(inline_images), payment_methods=payment_methods
+    )
+
+    success = EmailService.send_email(
+        to=email.recipients,
+        subject=email.subject,
+        body_html=email.body_html,
+        inline_images=inline_images or None,
+        related_object=company,
+        company=company,
+        email_document="payments_forecast_report",
+    )
+    if not success:
+        raise Exception(
+            f"Failed to send payments forecast report for company {company.pk} to [{', '.join(recipients)}]"
+        )
+
+    return {
+        "task": "send_payments_forecast_report_email",
+        "status": "ok",
+        "company_id": company.pk,
+        "days_ahead": days_ahead,
+        "payment_methods": payment_methods,
+        "recipients": recipients,
+    }

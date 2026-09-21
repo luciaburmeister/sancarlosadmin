@@ -5,7 +5,8 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("invoices", "0089_historicalsalesinvoice_currency_and_more"),
+        ("invoices", "0086_historicalsalesinvoice_currency_and_more"),
+        ("invoices", "0088_collectionsforecastemailsettings"),
     ]
 
     operations = [

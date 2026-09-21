@@ -51,7 +51,10 @@
       "Bash(grep -vE \"^\\\\s*$\")",
       "Bash(python manage.py test configurator.tests.test_sales_invoice_export_delivery_orders --parallel 1)",
       "Bash(python /private/tmp/claude-501/-Users-joangaes-Documents-Scalewave-fistex-alumniniooerp/ec086054-a791-46d6-b98d-5a888f7551ee/scratchpad/rels2.py)",
-      "Bash(xxd)"
+      "Bash(xxd)",
+      "Bash(git log *)",
+      "Bash(git mv *)",
+      "Bash(echo \"--- exit $?\")"
     ]
   }
 }

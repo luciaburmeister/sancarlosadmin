@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('invoices', '0088_collectionsforecastemailsettings'),
+        ('invoices', '0085_add_history_to_invoices'),
     ]
 
     operations = [

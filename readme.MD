@@ -57,8 +57,8 @@ The broker is an ElastiCache Valkey node, reached through `CELERY_BROKER_URL` (a
 Each role's EB files live under `deploy/`:
 
 ```
-deploy/common/   .ebextensions shared by every role (packages, poetry, collectstatic)
-deploy/web/      Procfile, nginx upload limit, migrations, hook that removes leftover Celery units
+deploy/common/   .ebextensions shared by every role (native packages, collectstatic)
+deploy/web/      Procfile, nginx upload limit, migrations
 deploy/worker/   Procfile (health-check gunicorn), swap and Celery systemd hooks
 ```
 

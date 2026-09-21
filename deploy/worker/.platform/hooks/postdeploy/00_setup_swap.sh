@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-# A 2 GB swap file as headroom on the 4 GB t3.medium. The web app, two
-# celery workers, beat and Redis share that RAM; a memory spike (several
-# WeasyPrint renders, a large export) then degrades into slowness for a
-# few seconds instead of the kernel killing a gunicorn or celery process.
+# A 2 GB swap file as headroom on the 4 GB t3.medium worker instance. The two
+# celery workers and beat share that RAM; a memory spike (several WeasyPrint
+# renders, a large export) then degrades into slowness for a few seconds
+# instead of the kernel killing a celery process.
 # swappiness is kept low so swap is only touched under real pressure, not
 # as a matter of course: it lives on the EBS root volume and is slow.
 #

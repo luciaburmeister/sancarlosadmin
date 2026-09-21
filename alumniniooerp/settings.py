@@ -325,7 +325,7 @@ STATIC_ROOT = os.path.join(BASE_DIR, "static")
 
 
 # CELERY CONFIGURATION
-CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = 'django-db'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
@@ -356,12 +356,12 @@ CELERY_BEAT_SCHEDULE = {
 }
 
 # Tasks that render a PDF with WeasyPrint go to their own queue, served by a
-# separate worker with a small fixed concurrency (see .platform/hooks/
-# postdeploy/01_setup_celery.sh). Each render is a full Django process plus
-# the document's memory peak, and the worker shares the instance with
-# gunicorn: many renders at once (a payment-reminder fan-out, a bulk PDF zip)
-# can exhaust memory and take the web app down. Every other task stays on the
-# default "celery" queue.
+# separate worker with a small fixed concurrency (see deploy/worker/.platform/
+# hooks/postdeploy/01_setup_celery.sh). Each render is a full Django process
+# plus the document's memory peak: many renders at once (a payment-reminder
+# fan-out, a bulk PDF zip) can exhaust the worker instance's memory and starve
+# the default worker and beat. Every other task stays on the default "celery"
+# queue.
 CELERY_TASK_DEFAULT_QUEUE = "celery"
 CELERY_PDF_QUEUE = "pdf"
 CELERY_PDF_TASKS = (

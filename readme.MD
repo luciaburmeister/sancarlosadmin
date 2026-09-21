@@ -41,6 +41,29 @@ The project uses Celery for background tasks and Redis as the message broker.
    celery -A alumniniooerp beat -l info
    ```
 
+Locally the broker defaults to `redis://localhost:6379/0`; set `CELERY_BROKER_URL` to point elsewhere.
+
+## Deployment (Elastic Beanstalk)
+
+Production runs as two Elastic Beanstalk environments in the same application, built from the same commit:
+
+| Environment | Role | Runs |
+|---|---|---|
+| `Aluminioerp-prod2` | `web` | gunicorn, nginx, collectstatic, migrations |
+| `polipus-workers` | `worker` | Celery default worker, pdf worker, beat (single instance), plus a one-worker gunicorn for EB health checks |
+
+The broker is an ElastiCache Valkey node, reached through `CELERY_BROKER_URL` (a GitHub secret written into `.env` by CI). Nothing else is shared between the two instances: media is on S3, task results and the beat schedule are in Postgres.
+
+Each role's EB files live under `deploy/`:
+
+```
+deploy/common/   .ebextensions shared by every role (packages, poetry, collectstatic)
+deploy/web/      Procfile, nginx upload limit, migrations, hook that removes leftover Celery units
+deploy/worker/   Procfile (health-check gunicorn), swap and Celery systemd hooks
+```
+
+CI runs `scripts/deploy/apply_overlay.sh <role>` to copy `common/` and `<role>/` over the repo root, then `eb deploy`, web first. The repo root itself has no `.ebextensions`, `.platform` or `Procfile` committed; run the script locally with a role if you need to `eb deploy` by hand.
+
 
 ⚙️ How it all works together
 Step 1

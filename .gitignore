@@ -26,6 +26,13 @@ __pycache__/
 .pytest_cache
 ipython_config.py
 
+# Elastic Beanstalk: deploy files are generated at the repo root by
+# scripts/deploy/apply_overlay.sh from deploy/<role>/; only deploy/ is tracked.
+/.ebextensions/
+/.platform/
+/Procfile
+.elasticbeanstalk/
+
 docs/*
 docs/
 

@@ -179,6 +179,7 @@ jobs:
           echo "DEFAULT_FROM_EMAIL=\"${{ secrets.DEFAULT_FROM_EMAIL }}\"" >> .env
           echo "NUEK_SERVICE_KEY=\"${{ secrets.NUEK_SERVICE_KEY }}\"" >> .env
           echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" >> .env
+          echo "CELERY_BROKER_URL=${{ secrets.CELERY_BROKER_URL }}" >> .env
 
           echo "DEBUG=False" >> .env
 
@@ -191,16 +192,36 @@ jobs:
       - name: Install AWS Elastic Beanstalk CLI
         run: pip install awsebcli
 
-      - name: Deploy to Elastic Beanstalk
+      - name: Initialise Elastic Beanstalk CLI
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: eu-north-1
           APPLICATION_NAME: aluminio_erp
+        run: eb init -p python-3.14 $APPLICATION_NAME --region $AWS_REGION
+
+      # The web and worker environments are built from the same checkout,
+      # .env and requirements.txt, but each gets its own EB configuration:
+      # deploy/common plus deploy/<role> are copied over the repo root right
+      # before `eb deploy` (the `.ebignore` makes the CLI bundle the working
+      # tree, so nothing needs staging in git). Web goes first because it is
+      # the only role that runs migrations.
+      - name: Deploy web environment
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           ENVIRONMENT_NAME: Aluminioerp-prod2
         run: |
-          eb init -p python-3.14 $APPLICATION_NAME --region $AWS_REGION
+          scripts/deploy/apply_overlay.sh web
           eb use $ENVIRONMENT_NAME
           eb deploy --staged
 
-          
+      - name: Deploy worker environment
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          ENVIRONMENT_NAME: polipus-workers
+        run: |
+          scripts/deploy/apply_overlay.sh worker
+          eb use $ENVIRONMENT_NAME
+          eb deploy --staged

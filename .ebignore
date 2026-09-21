@@ -6,3 +6,6 @@ __pycache__
 **/__pycache__/**
 __pycache__/
 .pytest_cache
+# Role overlays are copied to the root by CI before `eb deploy`; the source
+# tree itself has no business in the bundle.
+deploy/

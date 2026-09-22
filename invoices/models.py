@@ -278,6 +278,7 @@ class Invoice(Timestampable, Payable):
             ("accounts_payable", _("Can view Accounts Payable dashboard")),
             ("operational_dashboard", _("Can view Operational Dashboard")),
             ("bulk_mark_paid_invoice", _("Can bulk update payment status (purchase invoices)")),
+            ("payments_forecast", _("Can view Payments Forecast dashboard")),
         ]
         indexes = [
             GinIndex(fields=['invoice_number'], name='invoice_invnum_trgm_gin', opclasses=['gin_trgm_ops']),

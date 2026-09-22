@@ -34,13 +34,10 @@ class PaymentsForecastView(UnfoldModelAdminViewMixin, TemplateView):
     sends exactly what the user is looking at, not the company's saved
     default settings.
 
-    Shares the "invoices.accounts_payable" permission with the Accounts
-    Payable dashboard: both are entry points into the same accounts-payable
-    workflow, just at different levels of detail.
     """
 
     title = _("Payments Forecast")
-    permission_required = ("invoices.accounts_payable",)
+    permission_required = ("invoices.payments_forecast",)
     template_name = "admin/invoices/invoice/payments_forecast.html"
     model_admin = None
 

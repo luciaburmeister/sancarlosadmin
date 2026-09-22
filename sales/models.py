@@ -2213,13 +2213,17 @@ class DeliveryOrderItem(Timestampable):
     # ── Stock ───────────────────────────────────────────────────────────
 
     def _deduct_inventory(self):
-        """Create the stock-out ItemTransaction for this delivery line.
+        """Take this delivery line's goods out of the warehouse.
 
         Putting an item on a delivery order is the point where it physically
-        leaves the warehouse, so this is where stock is subtracted (BOM
-        components included). A no-op when this line's stock is already out.
+        leaves, so this is where stock is subtracted. A no-op when this
+        line's stock is already out.
 
-        Component lines never move stock themselves: the parent's BOM
+        What moves depends on what the item is. A composite item holds no
+        goods of its own, so only its components leave — subtracting the
+        parent as well would take the same goods out twice. Anything else
+        moves its own stock, and only if its type is one that has stock at
+        all. Component lines never move stock themselves: the parent's
         cascade already took their goods out.
         """
         from inventory.choices import ItemType, MovementType
@@ -2229,9 +2233,7 @@ class DeliveryOrderItem(Timestampable):
             return
 
         item = self.inventory_item
-        if item is None or item.item_type != ItemType.STOCKABLE:
-            return
-        if not item.default_warehouse:
+        if item is None or not item.default_warehouse:
             return
 
         quantity = int(self.quantity)
@@ -2242,22 +2244,24 @@ class DeliveryOrderItem(Timestampable):
         if order.status == DeliveryOrderStatus.CANCELLED:
             return  # a cancelled order ships nothing
 
-        ItemTransaction.objects.create(
-            item=item,
-            warehouse=item.default_warehouse,
-            movement_type=MovementType.OUT,
-            quantity_change=-quantity,
-            reference_object=order,
-            note=f"Stock out from Delivery Order {order.number} ({self.item_number})",
-        )
-
-        # Cascade BOM component deductions
-        item.deduct_bom_components(
-            quantity=quantity,
-            warehouse=item.default_warehouse,
-            reference_object=order,
-            note=f"BOM deduction from Delivery Order {order.number}",
-        )
+        if item.is_composite:
+            item.deduct_bom_components(
+                quantity=quantity,
+                warehouse=item.default_warehouse,
+                reference_object=order,
+                note=f"BOM deduction from Delivery Order {order.number}",
+            )
+        elif item.item_type == ItemType.STOCKABLE:
+            ItemTransaction.objects.create(
+                item=item,
+                warehouse=item.default_warehouse,
+                movement_type=MovementType.OUT,
+                quantity_change=-quantity,
+                reference_object=order,
+                note=f"Stock out from Delivery Order {order.number} ({self.item_number})",
+            )
+        else:
+            return  # a service and the like ship no goods
 
         self._set_stock_deducted(True)
 
@@ -2268,6 +2272,9 @@ class DeliveryOrderItem(Timestampable):
         already-cancelled order — or deleting a cancelled one — never returns
         the same goods twice. The original transactions are kept: the return
         is recorded as its own movement so the history stays auditable.
+
+        Mirrors ``_deduct_inventory``: a composite item gives its components
+        back, anything else gives back its own stock.
 
         Args:
             cancelled: Whether the return comes from cancelling the order.
@@ -2294,22 +2301,22 @@ class DeliveryOrderItem(Timestampable):
         else:
             reason = f"deleted Delivery Order {order.number}"
 
-        ItemTransaction.objects.create(
-            item=item,
-            warehouse=item.default_warehouse,
-            movement_type=MovementType.IN,
-            quantity_change=quantity,
-            reference_object=order if keep_reference else None,
-            note=f"Stock returned from {reason} ({self.item_number})",
-        )
-
-        # Cascade BOM component restocks
-        item.restock_bom_components(
-            quantity=quantity,
-            warehouse=item.default_warehouse,
-            reference_object=order if keep_reference else None,
-            note=f"BOM restock from {reason}",
-        )
+        if item.is_composite:
+            item.restock_bom_components(
+                quantity=quantity,
+                warehouse=item.default_warehouse,
+                reference_object=order if keep_reference else None,
+                note=f"BOM restock from {reason}",
+            )
+        else:
+            ItemTransaction.objects.create(
+                item=item,
+                warehouse=item.default_warehouse,
+                movement_type=MovementType.IN,
+                quantity_change=quantity,
+                reference_object=order if keep_reference else None,
+                note=f"Stock returned from {reason} ({self.item_number})",
+            )
 
         self._set_stock_deducted(False)
 

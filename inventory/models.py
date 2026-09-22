@@ -439,10 +439,26 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
     # A missed event therefore leaves a stale row that the next refresh — or
     # `manage.py refresh_stock_position` — repairs, rather than permanent drift.
 
+    # ``has_components`` is maintained the same way — by inventory.signals,
+    # from the bill of materials itself — so it is listed here too and a full
+    # save cannot write a stale value back over it.
+
     CACHED_STOCK_FIELDS = (
         "incoming_quantity",
         "reserved_quantity",
         "stock_position_refreshed_at",
+        "has_components",
+    )
+
+    has_components = models.BooleanField(
+        _("Composite Item"),
+        default=False,
+        editable=False,
+        db_index=True,
+        help_text=_(
+            "Whether this item is assembled from others. Set from the bill of "
+            "materials, never by hand."
+        ),
     )
 
     incoming_quantity = models.DecimalField(
@@ -560,7 +576,14 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
 
     @property
     def is_low_stock(self) -> bool:
-        """True when min_stock is set and current stock is at or below it."""
+        """True when min_stock is set and current stock is at or below it.
+
+        A composite never qualifies: it holds no stock of its own, so its
+        figure would sit at zero and trip any threshold forever. What can
+        really run out are its components, each watched on its own row.
+        """
+        if self.is_composite:
+            return False
         return self.min_stock is not None and self.stock_on_hand <= self.min_stock
 
     def get_taxes(self):
@@ -570,6 +593,20 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         return AppliedTax.objects.filter(
             content_type=ct, object_id=self.pk
         ).select_related("tax_type").order_by("order")
+
+    @property
+    def is_composite(self) -> bool:
+        """True when this item is assembled from other items.
+
+        A composite item is a recipe rather than goods on a shelf: what a
+        warehouse actually holds is its components, so consuming one has to
+        move those and never the item itself.
+
+        Reads the stored flag rather than the lines, so the question costs
+        nothing wherever it is asked — once per component of every BOM walk,
+        and once per row of the item list.
+        """
+        return self.has_components
 
     def deduct_bom_components(
         self,
@@ -581,11 +618,12 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         note: str = "",
         _seen: set | None = None,
     ):
-        """Deduct stock for every BOM component of this item.
+        """Deduct stock for the goods this item is built from.
 
-        For each :model:`inventory.BillOfMaterialsLine` attached to this item,
-        creates a stock-out ``ItemTransaction`` and recurses into the
-        component so nested BOMs are handled automatically.
+        Walks the :model:`inventory.BillOfMaterialsLine` rows attached to this
+        item, recursing so nested BOMs are handled automatically. Only items
+        that are not themselves composite get a stock-out ``ItemTransaction``:
+        those are the ones a warehouse actually holds.
 
         Args:
             quantity: Number of *parent* units being consumed.
@@ -641,6 +679,34 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
             _seen=_seen,
         )
 
+    def transfer_bom_components(
+        self,
+        quantity: int,
+        source_warehouse,
+        destination_warehouse,
+        *,
+        user=None,
+        note: str = "",
+    ):
+        """Move the goods behind ``quantity`` units of this item from one
+        warehouse to another.
+
+        Both warehouses were picked by hand, so the components move exactly
+        between them: a component's own default warehouse gets no say here,
+        or a transfer could quietly take from and put back into the same
+        place and move nothing at all.
+        """
+        for warehouse, sign in ((source_warehouse, -1), (destination_warehouse, 1)):
+            self._move_bom_components(
+                quantity,
+                warehouse,
+                movement_type=MovementType.TRANSFER,
+                sign=sign,
+                user=user,
+                note=note,
+                pin_warehouse=True,
+            )
+
     def _move_bom_components(
         self,
         quantity: int,
@@ -651,20 +717,28 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         reference_object=None,
         user=None,
         note: str = "",
+        pin_warehouse: bool = False,
         _seen: set | None = None,
     ):
-        """Walk this item's BOM tree, moving each component's stock by
-        ``sign × line quantity``.  Shared body of the deduct/restock pair."""
+        """Walk this item's BOM tree, moving each non-composite component's
+        stock by ``sign × line quantity``.  Shared body of the deduct, restock
+        and transfer helpers.
+
+        ``pin_warehouse`` holds every movement in ``warehouse`` instead of
+        letting a component's own default warehouse win.
+        """
         if _seen is None:
             _seen = set()
         if self.pk in _seen:
             return  # circular reference guard
         _seen.add(self.pk)
 
-        default_note = (
-            f"BOM deduction for {self.code} ×{quantity}" if sign < 0
-            else f"BOM restock for {self.code} ×{quantity}"
-        )
+        if movement_type == MovementType.TRANSFER:
+            default_note = f"BOM transfer for {self.code} ×{quantity}"
+        elif sign < 0:
+            default_note = f"BOM deduction for {self.code} ×{quantity}"
+        else:
+            default_note = f"BOM restock for {self.code} ×{quantity}"
 
         bom_lines = self.bom_lines.select_related(
             "component", "component__default_warehouse"
@@ -672,23 +746,27 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         for line in bom_lines:
             component = line.component
             total_qty = line.quantity * quantity
-            target_wh = component.default_warehouse or warehouse
+            target_wh = warehouse if pin_warehouse else (component.default_warehouse or warehouse)
 
-            ref_ct = ref_id = None
-            if reference_object is not None:
-                ref_ct = ContentType.objects.get_for_model(reference_object)
-                ref_id = reference_object.pk
+            # A composite component is a recipe in its own right: the goods
+            # are the ones further down its bill of materials, so moving it
+            # here as well would move the same goods twice.
+            if not component.is_composite:
+                ref_ct = ref_id = None
+                if reference_object is not None:
+                    ref_ct = ContentType.objects.get_for_model(reference_object)
+                    ref_id = reference_object.pk
 
-            ItemTransaction.objects.create(
-                item=component,
-                warehouse=target_wh,
-                movement_type=movement_type,
-                quantity_change=sign * total_qty,
-                reference_content_type=ref_ct,
-                reference_object_id=ref_id,
-                user=user,
-                note=note or default_note,
-            )
+                ItemTransaction.objects.create(
+                    item=component,
+                    warehouse=target_wh,
+                    movement_type=movement_type,
+                    quantity_change=sign * total_qty,
+                    reference_content_type=ref_ct,
+                    reference_object_id=ref_id,
+                    user=user,
+                    note=note or default_note,
+                )
 
             # Recurse for nested BOMs
             component._move_bom_components(
@@ -699,6 +777,7 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
                 reference_object=reference_object,
                 user=user,
                 note=note,
+                pin_warehouse=pin_warehouse,
                 _seen=_seen,
             )
 
@@ -734,6 +813,11 @@ class BillOfMaterialsLine(Timestampable):
     class Meta:
         verbose_name = _("Bill of Materials Line")
         verbose_name_plural = _("Bill of Materials Lines")
+        # The order the lines were added in. Without it the database is free
+        # to return them in any order, which would shuffle the components
+        # under their parent on a delivery note between one render and the
+        # next.
+        ordering = ["pk"]
         constraints = [
             models.UniqueConstraint(
                 fields=["parent", "component"],

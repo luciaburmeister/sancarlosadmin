@@ -471,10 +471,21 @@ class LowStockFilter(admin.SimpleListFilter):
                 Sum("transactions__quantity_change"), 0
             )
         )
+        # A composite holds no stock of its own, so it can never be low —
+        # the same rule InventoryItem.is_low_stock applies, kept in step here
+        # or the list would contradict the badge on each row.
         if self.value() == "low":
-            return qs.filter(min_stock__isnull=False, _stock__lte=F("min_stock"))
+            return qs.filter(
+                has_components=False,
+                min_stock__isnull=False,
+                _stock__lte=F("min_stock"),
+            )
         if self.value() == "ok":
-            return qs.exclude(min_stock__isnull=False, _stock__lte=F("min_stock"))
+            return qs.exclude(
+                has_components=False,
+                min_stock__isnull=False,
+                _stock__lte=F("min_stock"),
+            )
         return queryset
 
 
@@ -592,6 +603,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
     )
     list_filter = (
         "item_type",
+        "has_components",
         LowStockFilter,
         ["default_warehouse", AutocompleteSelectFilter],
         ["preferred_supplier", AutocompleteSelectFilter],
@@ -694,8 +706,13 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
                 _("Stock is at or below the minimum threshold"),
             )
 
-        # Amber — above minimum but within 50% of it (getting low)
-        if obj.min_stock and obj.min_stock > 0 and qty <= obj.min_stock * 1.5:
+        # Amber — above minimum but within 50% of it (getting low). A composite
+        # has no stock of its own to run low, so it never warns either way.
+        if (
+            not obj.is_composite
+            and obj.min_stock and obj.min_stock > 0
+            and qty <= obj.min_stock * 1.5
+        ):
             return format_html(
                 '<span style="color:#d97706;font-weight:600;" title="{}">{}{}</span>',
                 _("Stock is within 50% of the minimum threshold"),

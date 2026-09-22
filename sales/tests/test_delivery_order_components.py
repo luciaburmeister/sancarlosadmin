@@ -1,8 +1,11 @@
 """
 A delivery order line that ships an item with a bill of materials gets one
 component line per BOM component, nested as deep as the BOM goes. Component
-lines carry no price and no stock movement of their own — the parent keeps
-both — but identity codes can be linked to them.
+lines carry no price of their own — the parent keeps that — but identity
+codes can be linked to them.
+
+Stock is the other way round: a composite item holds no goods of its own, so
+shipping one moves its components and leaves the parent's own figure alone.
 
     python manage.py test sales.tests.test_delivery_order_components
 """
@@ -77,6 +80,10 @@ class _ComponentLinesBase(TestCase):
         BillOfMaterialsLine.objects.create(parent=window, component=frame, quantity=2)
         BillOfMaterialsLine.objects.create(parent=window, component=handle, quantity=1)
         BillOfMaterialsLine.objects.create(parent=frame, component=profile, quantity=4)
+        # has_components is written by a signal, so the instances held here
+        # still carry the value they had before the lines existed.
+        for item in (window, frame, handle, profile):
+            item.refresh_from_db()
         return window, frame, handle, profile
 
     def _accepted_quote_line(self, item, quantity):
@@ -189,18 +196,34 @@ class ExplosionTests(_ComponentLinesBase):
 
 class StockAndTotalsTests(_ComponentLinesBase):
 
-    def test_stock_leaves_once_through_the_parent_cascade(self):
+    def test_stock_leaves_through_the_components_not_the_composite(self):
         window, frame, handle, profile = self._kit()
         do = self._deliver(self._accepted_quote_line(window, "3"))
 
-        self.assertEqual(self._stock(window), 7)
-        self.assertEqual(self._stock(frame), 94)       # 100 - 2×3
+        # Window and Frame are recipes; only the goods on a shelf move.
+        self.assertEqual(self._stock(window), 10)
+        self.assertEqual(self._stock(frame), 100)
         self.assertEqual(self._stock(handle), 47)      # 50 - 1×3
         self.assertEqual(self._stock(profile), 976)    # 1000 - 4×2×3
 
         self.assertTrue(self._parent_line(do).stock_deducted)
         for line in do.items.components():
             self.assertFalse(line.stock_deducted)
+
+    def test_an_item_without_a_bom_still_moves_its_own_stock(self):
+        plain = self._item("PLAIN", stock=5)
+        self._deliver(self._accepted_quote_line(plain, "2"))
+        self.assertEqual(self._stock(plain), 3)
+
+    def test_a_composite_of_a_non_stockable_type_still_moves_its_components(self):
+        kit = self._item("KIT", stock=10, item_type=ItemType.FINISHED_PRODUCT)
+        part = self._item("PART", stock=40)
+        BillOfMaterialsLine.objects.create(parent=kit, component=part, quantity=3)
+
+        self._deliver(self._accepted_quote_line(kit, "2"))
+
+        self.assertEqual(self._stock(kit), 10)
+        self.assertEqual(self._stock(part), 34)        # 40 - 3×2
 
     def test_component_lines_do_not_change_totals(self):
         window, *_ = self._kit()
@@ -309,8 +332,9 @@ class ManualProductLineTests(_ComponentLinesBase):
         self.assertEqual(line.unit_price.amount, Decimal("250.00"))
         self.assertEqual(line.line_total.amount, Decimal("500.00"))
         self.assertTrue(line.stock_deducted)
-        self.assertEqual(self._stock(window), 8)
-        self.assertEqual(self._stock(frame), 96)
+        self.assertEqual(self._stock(window), 10)      # composite
+        self.assertEqual(self._stock(frame), 100)      # composite
+        self.assertEqual(self._stock(profile), 984)    # 1000 - 4×2×2
         self.assertEqual(self._component(line, frame).quantity, Decimal("4"))
 
     def test_an_explicit_price_is_kept(self):

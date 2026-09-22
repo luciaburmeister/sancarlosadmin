@@ -1,4 +1,5 @@
 from django.contrib.contenttypes.models import ContentType
+from django.db.models import Exists, OuterRef
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
@@ -237,6 +238,40 @@ def refresh_from_bom_line(sender, instance, **kwargs):
 @receiver(post_delete, sender=BillOfMaterialsLine)
 def refresh_from_bom_line_delete(sender, instance, **kwargs):
     refresh_stock_position([instance.component_id])
+
+
+# ── Composite flag ───────────────────────────────────────────────────────────
+#
+# InventoryItem.has_components answers "is this a recipe?", which every stock
+# movement and every row of the item list has to ask. Storing it turns that
+# question into a field read instead of a query against the bill of materials.
+#
+# It is derived here rather than ticked by hand on purpose: a checkbox someone
+# has to remember would drift from the lines themselves, and stock would then
+# move the wrong way with nothing on the item to explain why.
+
+
+def _sync_has_components(*item_ids):
+    """Set the flag from the lines actually stored, for each item given."""
+    for item_id in {i for i in item_ids if i is not None}:
+        InventoryItem.objects.filter(pk=item_id).update(
+            has_components=Exists(
+                BillOfMaterialsLine.objects.filter(parent_id=OuterRef("pk"))
+            )
+        )
+
+
+@receiver(post_save, sender=BillOfMaterialsLine)
+def sync_has_components_on_save(sender, instance, **kwargs):
+    # A line that moved to another parent can leave the old one with none.
+    _, before = _bom_lines.change(instance)
+    previous_parent = before[0] if before else None
+    _sync_has_components(previous_parent, instance.parent_id)
+
+
+@receiver(post_delete, sender=BillOfMaterialsLine)
+def sync_has_components_on_delete(sender, instance, **kwargs):
+    _sync_has_components(instance.parent_id)
 
 
 def _quote_line_item_ids(content_type_id, source_object_ids):

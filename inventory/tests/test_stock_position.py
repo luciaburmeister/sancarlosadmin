@@ -433,7 +433,8 @@ class ReservedThroughBillOfMaterialsTest(_StockPositionTestCase):
         kit, part = self._kit(component_qty=2, stock=10)
         line = self._accepted_quote_line(kit, 3)
         self._deliver(line, quantity=1)
-        self.assertPosition(kit, on_hand=-1, incoming=0, reserved=2)
+        # The kit is a recipe: it ships without its own figure going negative.
+        self.assertPosition(kit, on_hand=0, incoming=0, reserved=2)
         self.assertPosition(part, on_hand=8, incoming=0, reserved=4)
 
     def test_completing_the_project_releases_the_components(self):

@@ -195,19 +195,38 @@ class ReceiveStockView(_MovementViewMixin):
                 ref_ct = ContentType.objects.get_for_model(Invoice)
                 ref_id = invoice.pk
 
-            ItemTransaction.objects.create(
-                item=item,
-                movement_type=MovementType.IN,
-                quantity_change=data["quantity"],
-                warehouse=data["warehouse"],
-                user=request.user,
-                note=data.get("note", ""),
-                reference_content_type=ref_ct,
-                reference_object_id=ref_id,
-            )
+            composite = item.is_composite
+            with transaction.atomic():
+                if composite:
+                    # A composite is a shorthand for the goods it is built
+                    # from: receiving one means those parts arrived, since the
+                    # item itself is never a thing a warehouse holds.
+                    item.restock_bom_components(
+                        quantity=data["quantity"],
+                        warehouse=data["warehouse"],
+                        reference_object=invoice,
+                        user=request.user,
+                        note=data.get("note", "") or f"BOM receipt for {item.code}",
+                    )
+                else:
+                    ItemTransaction.objects.create(
+                        item=item,
+                        movement_type=MovementType.IN,
+                        quantity_change=data["quantity"],
+                        warehouse=data["warehouse"],
+                        user=request.user,
+                        note=data.get("note", ""),
+                        reference_content_type=ref_ct,
+                        reference_object_id=ref_id,
+                    )
+
             messages.success(
                 request,
-                _("%(qty)d unit(s) of %(item)s received into %(wh)s.")
+                (
+                    _("Components for %(qty)d × %(item)s received into %(wh)s.")
+                    if composite else
+                    _("%(qty)d unit(s) of %(item)s received into %(wh)s.")
+                )
                 % {"qty": data["quantity"], "item": item.name, "wh": data["warehouse"]},
             )
             return redirect("admin:inventory_inventoryitem_change", object_id)
@@ -251,28 +270,44 @@ class TransferStockView(_MovementViewMixin):
         form = TransferMovementForm(request.POST)
         if form.is_valid():
             data = form.cleaned_data
+            composite = item.is_composite
             with transaction.atomic():
-                ItemTransaction.objects.create(
-                    item=item,
-                    movement_type=MovementType.TRANSFER,
-                    quantity_change=-data["quantity"],
-                    warehouse=data["source_warehouse"],
-                    user=request.user,
-                    note=data.get("note", ""),
-                )
-                ItemTransaction.objects.create(
-                    item=item,
-                    movement_type=MovementType.TRANSFER,
-                    quantity_change=data["quantity"],
-                    warehouse=data["destination_warehouse"],
-                    user=request.user,
-                    note=data.get("note", ""),
-                )
+                if composite:
+                    # Moving a composite means moving the goods it stands for.
+                    item.transfer_bom_components(
+                        quantity=data["quantity"],
+                        source_warehouse=data["source_warehouse"],
+                        destination_warehouse=data["destination_warehouse"],
+                        user=request.user,
+                        note=data.get("note", "") or f"BOM transfer for {item.code}",
+                    )
+                else:
+                    ItemTransaction.objects.create(
+                        item=item,
+                        movement_type=MovementType.TRANSFER,
+                        quantity_change=-data["quantity"],
+                        warehouse=data["source_warehouse"],
+                        user=request.user,
+                        note=data.get("note", ""),
+                    )
+                    ItemTransaction.objects.create(
+                        item=item,
+                        movement_type=MovementType.TRANSFER,
+                        quantity_change=data["quantity"],
+                        warehouse=data["destination_warehouse"],
+                        user=request.user,
+                        note=data.get("note", ""),
+                    )
             messages.success(
                 request,
-                _("%(qty)d unit(s) transferred from %(src)s → %(dst)s.")
+                (
+                    _("Components for %(qty)d × %(item)s transferred from %(src)s → %(dst)s.")
+                    if composite else
+                    _("%(qty)d unit(s) transferred from %(src)s → %(dst)s.")
+                )
                 % {
                     "qty": data["quantity"],
+                    "item": item.name,
                     "src": data["source_warehouse"],
                     "dst": data["destination_warehouse"],
                 },
@@ -312,32 +347,44 @@ class AdjustStockView(_MovementViewMixin):
         form = AdjustmentMovementForm(request.POST)
         if form.is_valid():
             data = form.cleaned_data
+            change = data["quantity_change"]
+            composite = item.is_composite
             with transaction.atomic():
-                ItemTransaction.objects.create(
-                    item=item,
-                    movement_type=MovementType.ADJUST,
-                    quantity_change=data["quantity_change"],
-                    warehouse=data["warehouse"],
-                    user=request.user,
-                    note=data.get("note", ""),
-                )
-
-                # Cascade BOM deductions for negative adjustments
-                if data["quantity_change"] < 0:
-                    item.deduct_bom_components(
-                        quantity=abs(data["quantity_change"]),
+                if composite:
+                    # A composite holds no goods of its own, so the correction
+                    # lands on the parts it is built from. Both directions
+                    # move, which is what lets an adjustment and its opposite
+                    # cancel each other out.
+                    move = (
+                        item.deduct_bom_components if change < 0
+                        else item.restock_bom_components
+                    )
+                    move(
+                        quantity=abs(change),
                         warehouse=data["warehouse"],
                         user=request.user,
                         note=data.get("note", "") or f"BOM adjustment for {item.code}",
                     )
+                else:
+                    ItemTransaction.objects.create(
+                        item=item,
+                        movement_type=MovementType.ADJUST,
+                        quantity_change=change,
+                        warehouse=data["warehouse"],
+                        user=request.user,
+                        note=data.get("note", ""),
+                    )
 
-            sign = "+" if data["quantity_change"] > 0 else ""
             messages.success(
                 request,
-                _("Stock adjusted by %(sign)s%(qty)d for %(item)s in %(wh)s.")
+                (
+                    _("Adjusted the components of %(item)s by %(sign)s%(qty)d in %(wh)s.")
+                    if composite else
+                    _("Stock adjusted by %(sign)s%(qty)d for %(item)s in %(wh)s.")
+                )
                 % {
-                    "sign": sign,
-                    "qty": data["quantity_change"],
+                    "sign": "+" if change > 0 else "",
+                    "qty": change,
                     "item": item.name,
                     "wh": data["warehouse"],
                 },

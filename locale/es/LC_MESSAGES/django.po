@@ -6432,6 +6432,16 @@ msgstr "Pedido en órdenes de compra aprobadas pero aún no recibido."
 msgid "Promised on accepted quotes but not yet delivered."
 msgstr "Comprometido en presupuestos aceptados pero aún no entregado."
 
+msgid "Composite Item"
+msgstr "Artículo Compuesto"
+
+msgid ""
+"Whether this item is assembled from others. Set from the bill of materials, "
+"never by hand."
+msgstr ""
+"Si este artículo se compone de otros. Se establece a partir de la lista de "
+"materiales, nunca a mano."
+
 msgid "Ordered on approved purchase orders, not yet received"
 msgstr "Pedido en órdenes de compra aprobadas, aún no recibido"
 
@@ -6744,6 +6754,33 @@ msgstr "Por favor, corrige los errores en este paso antes de continuar."
 msgid "Stock after adjustment"
 msgstr "Inventario después del ajuste"
 
+msgid ""
+"This item is assembled from others, so it holds no stock of its own. The "
+"adjustment is applied to the components it is built from, scaled by its bill "
+"of materials."
+msgstr ""
+"Este artículo se compone de otros, así que no tiene inventario propio. El "
+"ajuste se aplica a los componentes que lo forman, según su lista de "
+"materiales."
+
+msgid ""
+"This item is assembled from others and holds no stock of its own. The "
+"quantity below is a shorthand: what enters the warehouse are its components, "
+"scaled by its bill of materials."
+msgstr ""
+"Este artículo se compone de otros y no tiene inventario propio. La cantidad "
+"de abajo es un atajo: lo que entra en el almacén son sus componentes, según "
+"su lista de materiales."
+
+msgid ""
+"This item is assembled from others and holds no stock of its own. The "
+"quantity below is a shorthand: what moves between the warehouses are its "
+"components, scaled by its bill of materials."
+msgstr ""
+"Este artículo se compone de otros y no tiene inventario propio. La cantidad "
+"de abajo es un atajo: lo que se mueve entre los almacenes son sus "
+"componentes, según su lista de materiales."
+
 #, fuzzy
 #| msgid "Current Risk"
 msgid "Current"
@@ -6807,6 +6844,10 @@ msgid "%(qty)d unit(s) of %(item)s received into %(wh)s."
 msgstr "Se recibieron %(qty)d unidad(es) de %(item)s en %(wh)s."
 
 #, python-format
+msgid "Components for %(qty)d × %(item)s received into %(wh)s."
+msgstr "Se recibieron los componentes de %(qty)d × %(item)s en %(wh)s."
+
+#, python-format
 msgid "Receive Stock — %s"
 msgstr "Recibir Inventario — %s"
 
@@ -6815,12 +6856,22 @@ msgid "%(qty)d unit(s) transferred from %(src)s → %(dst)s."
 msgstr "Se transfirieron %(qty)d unidad(es) de %(src)s → %(dst)s."
 
 #, python-format
+msgid "Components for %(qty)d × %(item)s transferred from %(src)s → %(dst)s."
+msgstr ""
+"Se transfirieron los componentes de %(qty)d × %(item)s de %(src)s → %(dst)s."
+
+#, python-format
 msgid "Transfer Stock — %s"
 msgstr "Transferir inventario — %s"
 
 #, python-format
 msgid "Stock adjusted by %(sign)s%(qty)d for %(item)s in %(wh)s."
 msgstr "Inventario ajustado en %(sign)s%(qty)d para %(item)s en %(wh)s."
+
+#, python-format
+msgid "Adjusted the components of %(item)s by %(sign)s%(qty)d in %(wh)s."
+msgstr ""
+"Se ajustaron los componentes de %(item)s en %(sign)s%(qty)d en %(wh)s."
 
 #, python-format
 msgid "Adjust Stock — %s"

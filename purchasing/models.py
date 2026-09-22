@@ -495,9 +495,21 @@ class PurchaseOrderReceiptItem(Timestampable):
         self.po_item.save(update_fields=["received_quantity"])
 
         # Stock Integration: Create ItemTransaction
-        if self.po_item.inventory_item.item_type == ItemType.STOCKABLE:
+        item = self.po_item.inventory_item
+        if item.is_composite:
+            # A composite holds no stock of its own, so what arrived are the
+            # parts it is built from. Crediting the parent would trap the
+            # goods: delivering it only ever takes its components out.
+            item.restock_bom_components(
+                quantity=diff,
+                warehouse=self.receipt.warehouse,
+                reference_object=self.receipt,
+                user=self.receipt.received_by,
+                note=_("Received via PO Receipt %s") % self.receipt.number,
+            )
+        elif item.item_type == ItemType.STOCKABLE:
             ItemTransaction.objects.create(
-                item=self.po_item.inventory_item,
+                item=item,
                 warehouse=self.receipt.warehouse,
                 movement_type=MovementType.IN,
                 quantity_change=diff, # Note: using full diff (decimal)

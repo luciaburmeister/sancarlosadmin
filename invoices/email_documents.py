@@ -7,12 +7,16 @@ from general.email import EmailDocument, register
 class SalesInvoiceEmail(EmailDocument):
     key = "sales_invoice"
     label = _("Sales Invoice")
+    track_delivery = True
+    track_opens = True
 
 
 @register
 class PaymentReminderEmail(EmailDocument):
     key = "payment_reminder"
     label = _("Payment Reminder")
+    track_delivery = True
+    track_opens = True
 
 
 @register

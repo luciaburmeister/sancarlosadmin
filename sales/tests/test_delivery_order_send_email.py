@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.core import mail
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from company.models import Company, EmailLog, EmailReplyTo
@@ -78,6 +78,10 @@ class DeliveryOrderSendEmailViewTest(DeliveryOrderEmailTestBase):
         )
 
     @patch.object(PDFService, "render_object_pdf", return_value=b"%PDF-fake")
+    @override_settings(
+        SES_DELIVERY_CONFIGURATION_SET="",
+        SES_ENGAGEMENT_CONFIGURATION_SET="",
+    )
     def test_post_end_to_end_replies_to_the_sending_user(self, mock_pdf):
         """
         The whole chain with Celery eager: admin view → task → service →
@@ -123,6 +127,10 @@ class DeliveryOrderSendEmailViewTest(DeliveryOrderEmailTestBase):
 
 class DeliveryOrderEmailServiceTest(DeliveryOrderEmailTestBase):
     @patch.object(PDFService, "render_object_pdf", return_value=b"%PDF-fake")
+    @override_settings(
+        SES_DELIVERY_CONFIGURATION_SET="",
+        SES_ENGAGEMENT_CONFIGURATION_SET="",
+    )
     def test_send_attaches_pdf_logs_and_marks_sent(self, mock_pdf):
         ok = DeliveryOrderEmailService.send_delivery_order_email(
             self.delivery_order,

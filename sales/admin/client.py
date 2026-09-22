@@ -11,6 +11,7 @@ from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from import_export.admin import ImportExportModelAdmin
 
 from core.admin.company_admin import CompanyRestrictedAdmin
+from core.admin.email_log import EmailLogInline
 from invoices.models import AppliedTax, SalesInvoice, SalesInvoiceStatus
 from payments.admin_mixins import OutstandingBalanceAdminMixin, PendingInvoicesSection
 from payments.mixins import currency_symbol
@@ -141,7 +142,13 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
     def get_confirm_form_class(self, request):
         return ClientConfirmImportForm
 
-    inlines = [ClientAddressInline, ClientContactInline, ClientBankAccountInline, ClientAppliedTaxInline]
+    inlines = [
+        ClientAddressInline,
+        ClientContactInline,
+        ClientBankAccountInline,
+        ClientAppliedTaxInline,
+        EmailLogInline,
+    ]
     formfield_overrides = {
         ArrayField: {
             "widget": ArrayWidget,

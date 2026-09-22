@@ -1,4 +1,5 @@
 import unicodedata
+import uuid
 
 from django.contrib.auth.hashers import make_password
 from django.db import models
@@ -1141,8 +1142,18 @@ class EmailLog(CompanyOwnedModel):
     """
 
     class EmailStatus(models.TextChoices):
+        PENDING = "pending", _("Pending")
         SUCCESS = "success", _("Success")
         FAILED = "failed", _("Failed")
+
+    class DeliveryStatus(models.TextChoices):
+        UNKNOWN = "unknown", _("Not confirmed")
+        ACCEPTED = "accepted", _("Accepted by provider")
+        DELAYED = "delayed", _("Delivery delayed")
+        DELIVERED = "delivered", _("Delivered to recipient server")
+        BOUNCED = "bounced", _("Bounced")
+        COMPLAINT = "complaint", _("Marked as spam")
+        REJECTED = "rejected", _("Rejected")
 
     content_type = models.ForeignKey(
         "contenttypes.ContentType",
@@ -1152,6 +1163,21 @@ class EmailLog(CompanyOwnedModel):
     object_id = models.PositiveIntegerField(verbose_name=_("Object ID"))
 
     content_object = GenericForeignKey("content_type", "object_id")
+
+    batch_id = models.UUIDField(
+        default=uuid.uuid4,
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name=_("Email Batch ID"),
+        help_text=_("Groups recipients created by the same send operation."),
+    )
+    email_document = models.CharField(
+        max_length=100,
+        blank=True,
+        db_index=True,
+        verbose_name=_("Email Document Type"),
+    )
 
     to_email = models.CharField(
         max_length=500,
@@ -1170,6 +1196,61 @@ class EmailLog(CompanyOwnedModel):
         blank=True,
         verbose_name=_("Error Message"),
     )
+    tracking_enabled = models.BooleanField(
+        default=False,
+        verbose_name=_("Tracking Enabled"),
+    )
+    provider = models.CharField(
+        max_length=30,
+        blank=True,
+        verbose_name=_("Email Provider"),
+    )
+    provider_message_id = models.CharField(
+        max_length=255,
+        blank=True,
+        db_index=True,
+        verbose_name=_("Provider Message ID"),
+    )
+    delivery_status = models.CharField(
+        max_length=20,
+        choices=DeliveryStatus.choices,
+        default=DeliveryStatus.UNKNOWN,
+        db_index=True,
+        verbose_name=_("Delivery Status"),
+    )
+    accepted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Accepted At"),
+    )
+    delivered_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Delivered At"),
+    )
+    first_opened_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("First Opening Detected At"),
+    )
+    last_opened_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Last Opening Detected At"),
+    )
+    open_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Detected Openings"),
+    )
+    last_event_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Last Provider Event At"),
+    )
+    delivery_error = models.TextField(
+        blank=True,
+        verbose_name=_("Delivery Error"),
+    )
 
     class Meta:
         verbose_name = _("Email Log")
@@ -1178,6 +1259,57 @@ class EmailLog(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.subject} → {self.to_email} ({self.get_status_display()})"
+
+
+class EmailEvent(models.Model):
+    """Immutable provider event used for auditing and webhook idempotency."""
+
+    class EventType(models.TextChoices):
+        SEND = "send", _("Send")
+        DELIVERY = "delivery", _("Delivery")
+        DELIVERY_DELAY = "delivery_delay", _("Delivery Delay")
+        BOUNCE = "bounce", _("Bounce")
+        COMPLAINT = "complaint", _("Complaint")
+        REJECT = "reject", _("Reject")
+        RENDERING_FAILURE = "rendering_failure", _("Rendering Failure")
+        OPEN = "open", _("Open")
+        CLICK = "click", _("Click")
+        SUBSCRIPTION = "subscription", _("Subscription")
+
+    email_log = models.ForeignKey(
+        EmailLog,
+        on_delete=models.CASCADE,
+        related_name="events",
+        verbose_name=_("Email Log"),
+    )
+    provider = models.CharField(max_length=30, verbose_name=_("Provider"))
+    provider_event_id = models.CharField(
+        max_length=255,
+        verbose_name=_("Provider Event ID"),
+    )
+    event_type = models.CharField(
+        max_length=30,
+        choices=EventType.choices,
+        verbose_name=_("Event Type"),
+    )
+    occurred_at = models.DateTimeField(verbose_name=_("Occurred At"))
+    recipient = models.EmailField(blank=True, verbose_name=_("Recipient"))
+    details = models.TextField(blank=True, verbose_name=_("Details"))
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
+
+    class Meta:
+        verbose_name = _("Email Event")
+        verbose_name_plural = _("Email Events")
+        ordering = ["occurred_at", "id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["provider", "provider_event_id"],
+                name="uniq_email_event_provider_id",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.get_event_type_display()} — {self.email_log}"
 
 
 class EmailReplyTo(CompanyOwnedModel):

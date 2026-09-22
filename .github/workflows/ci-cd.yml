@@ -177,6 +177,9 @@ jobs:
           echo "EMAIL_HOST_PASSWORD=\"${{ secrets.EMAIL_HOST_PASSWORD }}\"" >> .env
           echo "EMAIL_SMTP_HOST=${{ secrets.EMAIL_SMTP_HOST }}" >> .env
           echo "DEFAULT_FROM_EMAIL=\"${{ secrets.DEFAULT_FROM_EMAIL }}\"" >> .env
+          echo "SES_DELIVERY_CONFIGURATION_SET=${{ secrets.SES_DELIVERY_CONFIGURATION_SET }}" >> .env
+          echo "SES_ENGAGEMENT_CONFIGURATION_SET=${{ secrets.SES_ENGAGEMENT_CONFIGURATION_SET }}" >> .env
+          echo "SES_SNS_TOPIC_ARN=${{ secrets.SES_SNS_TOPIC_ARN }}" >> .env
           echo "NUEK_SERVICE_KEY=\"${{ secrets.NUEK_SERVICE_KEY }}\"" >> .env
           echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" >> .env
           echo "CELERY_BROKER_URL=${{ secrets.CELERY_BROKER_URL }}" >> .env

@@ -243,7 +243,7 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         EmailLogInline,
     ]
     readonly_fields = [
-        "number", "date", "subtotal_amount", "lines_total_display",
+         "subtotal_amount", "lines_total_display",
         "taxable_base_display", "discount_amount", "tax_amount", "total_amount",
     ]
     list_filter_submit = True

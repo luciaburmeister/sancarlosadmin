@@ -54,7 +54,9 @@
       "Bash(xxd)",
       "Bash(git log *)",
       "Bash(git mv *)",
-      "Bash(echo \"--- exit $?\")"
+      "Bash(echo \"--- exit $?\")",
+      "Bash(aws sts *)",
+      "Bash(aws elasticbeanstalk *)"
     ]
   }
 }

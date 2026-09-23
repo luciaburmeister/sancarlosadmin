@@ -148,6 +148,40 @@ class PlanningBoardServiceTest(TestCase):
                 start_time=time(10, 30), end_time=time(11, 30),
             )
 
+    def test_move_session_with_end_day_spans_multiple_days(self):
+        wednesday = self.MONDAY + timedelta(days=2)
+        CompanyScheduleSlot.objects.create(
+            company=self.company, weekday=WeekdayChoices.WEDNESDAY,
+            start_time=time(8, 0), end_time=time(17, 0),
+        )
+        session = PlannedProductionSession.objects.create(
+            production_stage="corte",
+            planned_start=self._aware(self.MONDAY, time(8, 0)),
+            planned_end=self._aware(self.MONDAY, time(9, 0)),
+            primary_resource=self.resource,
+        )
+        updated = planning_board.move_session(
+            company=self.company, session=session, employee=None, day=self.MONDAY,
+            start_time=time(9, 0), end_time=time(10, 0), end_day=wednesday,
+        )
+        self.assertEqual(timezone.localtime(updated.planned_start).date(), self.MONDAY)
+        self.assertEqual(timezone.localtime(updated.planned_end).date(), wednesday)
+        self.assertEqual(timezone.localtime(updated.planned_end).time(), time(10, 0))
+
+    def test_move_session_without_end_day_stays_single_day(self):
+        # end_day omitted — today's behavior: end_time is combined with the same day.
+        session = PlannedProductionSession.objects.create(
+            production_stage="corte",
+            planned_start=self._aware(self.MONDAY, time(8, 0)),
+            planned_end=self._aware(self.MONDAY, time(9, 0)),
+            primary_resource=self.resource,
+        )
+        updated = planning_board.move_session(
+            company=self.company, session=session, employee=None, day=self.MONDAY,
+            start_time=time(9, 0), end_time=time(10, 0),
+        )
+        self.assertEqual(timezone.localtime(updated.planned_end).date(), self.MONDAY)
+
     def test_move_session_explicit_time_outside_hours_raises(self):
         session = PlannedProductionSession.objects.create(
             production_stage="corte",
@@ -194,6 +228,21 @@ class PlanningBoardServiceTest(TestCase):
                 company=self.company, ticket=ticket, stage="corte", employee=self.employee,
                 day=self.MONDAY, start_time=time(10, 0), end_time=time(9, 0),
             )
+
+    def test_create_session_with_end_day_spans_multiple_days(self):
+        wednesday = self.MONDAY + timedelta(days=2)
+        CompanyScheduleSlot.objects.create(
+            company=self.company, weekday=WeekdayChoices.WEDNESDAY,
+            start_time=time(8, 0), end_time=time(17, 0),
+        )
+        ticket = ProductionTicket.objects.create(company=self.company, content_type=self._config_ct(), object_id=6)
+        session = planning_board.create_session(
+            company=self.company, ticket=ticket, stage="corte", employee=self.employee,
+            day=self.MONDAY, start_time=time(9, 0), end_time=time(10, 0), end_day=wednesday,
+        )
+        self.assertEqual(timezone.localtime(session.planned_start).date(), self.MONDAY)
+        self.assertEqual(timezone.localtime(session.planned_end).date(), wednesday)
+        self.assertEqual(timezone.localtime(session.planned_end).time(), time(10, 0))
 
     def test_create_session_without_time_auto_snaps(self):
         ticket = ProductionTicket.objects.create(company=self.company, content_type=self._config_ct(), object_id=4)

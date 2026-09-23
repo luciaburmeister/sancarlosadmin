@@ -7,6 +7,7 @@ from general.email import EmailDocument, register
 class AssetTransactionEmail(EmailDocument):
     key = "asset_transaction"
     label = _("Asset Transaction Receipt")
+    track_delivery = True
 
 
 @register

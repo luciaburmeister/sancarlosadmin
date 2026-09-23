@@ -113,6 +113,9 @@ class ScheduleBoardView(SharedTerminalAPIView):
                 "locked": s.locked,
                 "source": s.source,
                 "notes": s.notes,
+                "stage_completed": (
+                    ticket is not None and not ticket.has_incomplete_stage(s.production_stage)
+                ),
             }
             if labels is not None:
                 entry.update({
@@ -238,6 +241,7 @@ class RescheduleSessionView(SharedTerminalAPIView):
                 day=data["date"],
                 start_time=data.get("start_time"),
                 end_time=data.get("end_time"),
+                end_day=data.get("end_date"),
             )
         except PlannedSessionConflictError as e:
             return JsonResponse(
@@ -305,6 +309,7 @@ class CreateSessionFromBacklogView(SharedTerminalAPIView):
                 day=data["date"],
                 start_time=data.get("start_time"),
                 end_time=data.get("end_time"),
+                end_day=data.get("end_date"),
             )
         except PlannedSessionConflictError as e:
             return JsonResponse(

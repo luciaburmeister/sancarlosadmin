@@ -132,22 +132,22 @@ def release_stale_cuba_reservations():
     return {"status": "ok", "released_planning_ids": released_ids}
 
 
-@shared_task
-def apply_due_zone_sync_requests():
-    """Beat: apply approved planning_type == NONE requests (Machinist Movement,
-    Machine Self-Transport) whose needed_date/needed_time has arrived — covers
-    requests approved ahead of their effective moment (see
-    AssetPlanningRequestAdmin._approve_zone_sync_request, which applies
-    already-due approvals immediately instead of waiting for this task)."""
-    from django.utils import timezone
-
+@shared_task(bind=True, max_retries=3, default_retry_delay=300)
+def apply_scheduled_zone_change(self, request_id: int):
+    """Fired once by the one-off task AssetPlanningRequest._schedule_zone_sync()
+    creates on approval."""
     from assets.models import AssetPlanningRequest, AssetPlanningRequestStatus, PlanningType
 
-    candidates = AssetPlanningRequest.objects.filter(
-        planning_type=PlanningType.NONE,
-        status=AssetPlanningRequestStatus.APPROVED,
-        needed_date__lte=timezone.localdate(),
-        zone_sync_applied_at__isnull=True,
-    )
-    applied_ids = [req.pk for req in candidates if req.is_zone_sync_due and req.apply_zone_change()]
-    return {"status": "ok", "applied_request_ids": applied_ids}
+    try:
+        req = AssetPlanningRequest.objects.get(pk=request_id)
+    except AssetPlanningRequest.DoesNotExist:
+        return {"status": "skipped", "reason": "not_found"}
+
+    if req.status != AssetPlanningRequestStatus.APPROVED or req.planning_type != PlanningType.NONE:
+        return {"status": "skipped", "reason": "no_longer_applicable"}
+
+    try:
+        applied = req.apply_zone_change()
+    except Exception as exc:
+        raise self.retry(exc=exc)
+    return {"status": "ok", "applied": applied, "request_id": request_id}

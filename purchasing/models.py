@@ -218,6 +218,17 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         self.save(update_fields=["total_amount"])
 
     @property
+    def total_amount_with_tax(self):
+        """total_amount plus any taxes configured on each line's inventory item, if any."""
+        from djmoney.money import Money
+
+        total_tax = Decimal("0.00")
+        for item in self.items.select_related("inventory_item").all():
+            for tax in item.inventory_item.get_taxes():
+                total_tax += tax.calculate(item.line_total.amount)["tax_amount"]
+        return self.total_amount + Money(total_tax, self.total_amount.currency)
+
+    @property
     def billing_status(self):
         """
         Derived billing progress: not_invoiced / partially_invoiced / fully_invoiced.

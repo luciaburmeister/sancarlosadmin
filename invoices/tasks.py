@@ -1277,17 +1277,26 @@ def process_forecast_reports():
     (_process_forecast_report_settings) decides whose turn it is today;
     only the actual send tasks differ (different email content/service).
     """
+    from datetime import date, timedelta
+
     from invoices.models import CollectionsForecastEmailSettings, PaymentsForecastEmailSettings
+
+    def _forecast_date_range(days_ahead: int) -> tuple[str, str]:
+        """Turns a saved 'days ahead' setting into a rolling date_from/date_to
+        pair anchored to today -- the scheduled report always covers 'today
+        through N days from now', recomputed fresh on every run."""
+        today = date.today()
+        return today.isoformat(), (today + timedelta(days=days_ahead)).isoformat()
 
     collections_processed, collections_queued = _process_forecast_report_settings(
         CollectionsForecastEmailSettings,
         send_collections_forecast_report_email,
-        lambda s: (s.company_id, s.days_ahead),
+        lambda s: (s.company_id, *_forecast_date_range(s.days_ahead)),
     )
     payments_processed, payments_queued = _process_forecast_report_settings(
         PaymentsForecastEmailSettings,
         send_payments_forecast_report_email,
-        lambda s: (s.company_id, s.days_ahead, s.payment_methods or None),
+        lambda s: (s.company_id, *_forecast_date_range(s.days_ahead), s.payment_methods or None),
     )
 
     logger.info(
@@ -1309,22 +1318,32 @@ def process_forecast_reports():
     max_retries=2,
     default_retry_delay=60,
 )
-def send_collections_forecast_report_email(self, company_id: int, days_ahead: int = 14):
+def send_collections_forecast_report_email(self, company_id: int, date_from: str = None, date_to: str = None):
     """
     Builds and sends one company's collections-forecast report email.
-    Used both by process_forecast_reports (scheduled) and by
-    the "Send now" button on the Collections Forecast calendar (manual) --
-    same task either way, so scheduled and manual sends behave identically.
+    Used both by process_forecast_reports (scheduled, which computes a
+    rolling date_from/date_to from the company's saved "days ahead"
+    setting at dispatch time) and by the "Send now" button on the
+    Collections Forecast calendar (manual, sends whatever range is on
+    screen) -- same task either way, so scheduled and manual sends behave
+    identically. Dates travel as ISO strings ("YYYY-MM-DD") since task
+    arguments must be JSON-serializable.
 
     Loads the company logo the same way send_payment_reminder_email does,
     so the internal report and the client-facing reminder look consistent.
     """
+    from datetime import date, timedelta
+
     from company.models import Company
     from invoices.models import CollectionsForecastEmailSettings
     from invoices.services.collections_forecast_service import CollectionsForecastService
     from invoices.services.collections_forecast_report_email_service import (
         CollectionsForecastReportEmailService,
     )
+
+    today = date.today()
+    date_from = date.fromisoformat(date_from) if date_from else today
+    date_to = date.fromisoformat(date_to) if date_to else today + timedelta(days=14)
 
     try:
         company = Company.objects.get(pk=company_id)
@@ -1357,7 +1376,7 @@ def send_collections_forecast_report_email(self, company_id: int, days_ahead: in
         except Exception:
             logger.warning("Could not load logo for company %s, sending without it.", company.pk)
 
-    forecast = CollectionsForecastService.build_forecast(company, days_ahead)
+    forecast = CollectionsForecastService.build_forecast(company, date_from, date_to)
     email = CollectionsForecastReportEmailService.build_email(
         company, forecast, recipients=recipients, has_logo=bool(inline_images)
     )
@@ -1385,15 +1404,18 @@ def send_collections_forecast_report_email(self, company_id: int, days_ahead: in
 
 
 @shared_task(name="invoices.tasks.send_payments_forecast_report_email", bind=True, max_retries=2, default_retry_delay=60)
-def send_payments_forecast_report_email(self, company_id: int, days_ahead: int, payment_methods: list | None = None):
+def send_payments_forecast_report_email(
+    self, company_id: int, date_from: str = None, date_to: str = None, payment_methods: list | None = None
+):
     """
     Builds and sends one company's Payments Forecast report email. Used
-    both by the scheduled beat job (process_forecast_reports)
-    and the "Send Report by Email Now" button on the calendar itself, so
-    both paths always produce the identical email for a given
-    company/window/payment-method combination -- the button sends
-    whatever is currently on screen, not necessarily the company's saved
-    settings.
+    both by the scheduled beat job (process_forecast_reports, which
+    computes a rolling date_from/date_to from the company's saved "days
+    ahead" setting at dispatch time) and the "Send Report by Email Now"
+    button on the calendar itself (sends whatever range is currently on
+    screen), so both paths always produce the identical email for a given
+    company/date range/payment-method combination. Dates travel as ISO
+    strings ("YYYY-MM-DD") since task arguments must be JSON-serializable.
 
     Recipients: PaymentsForecastEmailSettings.report_emails if a settings
     row exists for the company, falling back to Company.email. If neither
@@ -1401,6 +1423,8 @@ def send_payments_forecast_report_email(self, company_id: int, days_ahead: int, 
     also the path a manual send takes for a company with no settings row
     configured yet, so it should degrade gracefully rather than error.
     """
+    from datetime import date, timedelta
+
     from company.models import Company
 
     from invoices.models import PaymentsForecastEmailSettings
@@ -1408,6 +1432,10 @@ def send_payments_forecast_report_email(self, company_id: int, days_ahead: int, 
         PaymentsForecastReportEmailService,
     )
     from invoices.services.payments_forecast_service import PaymentsForecastService
+
+    today = date.today()
+    date_from = date.fromisoformat(date_from) if date_from else today
+    date_to = date.fromisoformat(date_to) if date_to else today + timedelta(days=14)
 
     try:
         company = Company.objects.get(pk=company_id)
@@ -1441,7 +1469,7 @@ def send_payments_forecast_report_email(self, company_id: int, days_ahead: int, 
         except Exception:
             logger.warning("Could not load logo for company %s, sending without it.", company.pk)
 
-    forecast = PaymentsForecastService.build_forecast(company, days_ahead, payment_methods)
+    forecast = PaymentsForecastService.build_forecast(company, date_from, date_to, payment_methods)
     email = PaymentsForecastReportEmailService.build_email(
         company, forecast, recipients=recipients, has_logo=bool(inline_images), payment_methods=payment_methods
     )
@@ -1464,7 +1492,8 @@ def send_payments_forecast_report_email(self, company_id: int, days_ahead: int, 
         "task": "send_payments_forecast_report_email",
         "status": "ok",
         "company_id": company.pk,
-        "days_ahead": days_ahead,
+        "date_from": date_from.isoformat(),
+        "date_to": date_to.isoformat(),
         "payment_methods": payment_methods,
         "recipients": recipients,
     }

@@ -400,11 +400,8 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
             messages.success(request, _("Request approved. Asset Planning created."))
 
     def _approve_zone_sync_request(self, request, obj):
-        """planning_type == NONE requests never get an AssetPlanning — just
-        approve and sync asset/moved_employees to to_zone: immediately if due
-        now, otherwise apply_due_zone_sync_requests() (Celery beat) picks it
-        up once needed_date/needed_time arrives.
-        """
+        """planning_type == NONE requests never get an AssetPlanning — obj.save()
+        applies or schedules the zone sync (see AssetPlanningRequest._sync_zone_sync_schedule())."""
         if not obj.asset_id and not obj.moved_employees.exists():
             messages.error(request, _("Select at least one machinist or an asset to approve this request."))
             return
@@ -414,8 +411,7 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         obj.reviewed_at = timezone.now()
         obj.save()
 
-        if obj.is_zone_sync_due:
-            obj.apply_zone_change()
+        if obj.zone_sync_applied_at:
             messages.success(request, _("Request approved. Zone updated."))
         elif obj.needed_time and obj.needed_date == timezone.localdate():
             messages.success(

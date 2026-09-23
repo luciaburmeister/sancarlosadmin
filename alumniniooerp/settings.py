@@ -234,6 +234,21 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")
 DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL")
+# Which registered provider carries tracked email (see general.email.providers).
+EMAIL_TRACKING_PROVIDER = os.getenv("EMAIL_TRACKING_PROVIDER", "ses")
+# Optional Amazon SES event publishing (emails).
+SES_DELIVERY_CONFIGURATION_SET = os.getenv("SES_DELIVERY_CONFIGURATION_SET", "")
+SES_ENGAGEMENT_CONFIGURATION_SET = os.getenv("SES_ENGAGEMENT_CONFIGURATION_SET", "")
+SES_SNS_TOPIC_ARN = os.getenv("SES_SNS_TOPIC_ARN", "")
+if TESTING:
+    # Tracking changes how a message is sent (one message per recipient, plus a
+    # separate internal copy), so leaving it on whenever a developer happens to
+    # have SES in their .env makes email tests pass locally and fail in CI, or
+    # the reverse. Tests that exercise the tracked path turn it on explicitly
+    # with @override_settings; see core/tests/test_email_tracking.py.
+    SES_DELIVERY_CONFIGURATION_SET = ""
+    SES_ENGAGEMENT_CONFIGURATION_SET = ""
+    SES_SNS_TOPIC_ARN = ""
 BACKEND_URL = os.getenv("BACKEND_URL", "https://erp.polipusolutions.com")
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760  
 
@@ -344,10 +359,6 @@ CELERY_BEAT_SCHEDULE = {
     "sync-bank-transactions": {
         "task": "banking.tasks.sync_bank_transactions",
         "schedule": crontab(minute=0, hour="*/6"),  # every 6 hours
-    },
-    "apply-due-zone-sync-requests": {
-        "task": "assets.tasks.apply_due_zone_sync_requests",
-        "schedule": crontab(minute="*/5"),  # needed_time precision requires frequent checks
     },
     "process-payment-reminders": {
         "task": "invoices.tasks.process_payment_reminders",

@@ -1,6 +1,9 @@
+from datetime import timedelta
+
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from django.utils.translation import gettext_lazy as _
 from django.views.generic import TemplateView
 
@@ -41,19 +44,21 @@ class PaymentsForecastView(UnfoldModelAdminViewMixin, TemplateView):
     template_name = "admin/invoices/invoice/payments_forecast.html"
     model_admin = None
 
-    MIN_WINDOW = 1
-    MAX_WINDOW = 180
-    DEFAULT_WINDOW = 14
+    # Default range shown when the user hasn't picked dates yet, and the
+    # largest span we'll ever compute -- same cap the old "days ahead"
+    # field used, just expressed as a date range now.
+    DEFAULT_SPAN_DAYS = 14
+    MAX_SPAN_DAYS = 180
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         request = self.request
 
         selected_company = self._resolve_company(request)
-        days_ahead = self._resolve_days(request)
+        date_from, date_to = self._resolve_date_range(request)
         selected_methods = request.GET.getlist("payment_method")
         forecast = PaymentsForecastService.build_forecast(
-            selected_company, days_ahead, selected_methods or None
+            selected_company, date_from, date_to, selected_methods or None
         )
 
         ctx.update({
@@ -61,9 +66,8 @@ class PaymentsForecastView(UnfoldModelAdminViewMixin, TemplateView):
             "opts": Invoice._meta,
             "companies": get_user_companies(request.user),
             "selected_company": selected_company,
-            "days_ahead": days_ahead,
-            "days_min": self.MIN_WINDOW,
-            "days_max": self.MAX_WINDOW,
+            "date_from": date_from,
+            "date_to": date_to,
             "payment_method_choices": PaymentMethod.choices,
             "selected_methods": selected_methods,
             "forecast": forecast,
@@ -73,17 +77,17 @@ class PaymentsForecastView(UnfoldModelAdminViewMixin, TemplateView):
 
     def post(self, request, *args, **kwargs):
         """Manual "Send report now" -- queues the exact same task the
-        scheduled beat job uses, for the company/window/payment-method
+        scheduled beat job uses, for the company/date range/payment-method
         filter currently on screen."""
         selected_company = self._resolve_company(request, source=request.POST)
-        days_ahead = self._resolve_days(request, source=request.POST)
+        date_from, date_to = self._resolve_date_range(request, source=request.POST)
         selected_methods = request.POST.getlist("payment_method")
 
         if not selected_company:
             self.model_admin.message_user(request, _("Select a company first."), level="error")
         else:
             send_payments_forecast_report_email.delay(
-                selected_company.pk, days_ahead, selected_methods or None
+                selected_company.pk, date_from.isoformat(), date_to.isoformat(), selected_methods or None
             )
             self.model_admin.message_user(
                 request,
@@ -95,7 +99,8 @@ class PaymentsForecastView(UnfoldModelAdminViewMixin, TemplateView):
         params = []
         if selected_company:
             params.append(f"company={selected_company.pk}")
-        params.append(f"days={days_ahead}")
+        params.append(f"date_from={date_from.isoformat()}")
+        params.append(f"date_to={date_to.isoformat()}")
         for method in selected_methods:
             params.append(f"payment_method={method}")
         return redirect(f"{redirect_url}?{'&'.join(params)}")
@@ -113,10 +118,17 @@ class PaymentsForecastView(UnfoldModelAdminViewMixin, TemplateView):
             return user_companies.get(id=company_id)
         return user_companies.first()
 
-    def _resolve_days(self, request, source=None):
+    def _resolve_date_range(self, request, source=None):
         source = source or request.GET
-        try:
-            days_ahead = int(source.get("days", self.DEFAULT_WINDOW))
-        except (ValueError, TypeError):
-            return self.DEFAULT_WINDOW
-        return max(self.MIN_WINDOW, min(days_ahead, self.MAX_WINDOW))
+        today = timezone.now().date()
+
+        date_from = parse_date(source.get("date_from", "")) or today
+        date_to = parse_date(source.get("date_to", "")) or today + timedelta(days=self.DEFAULT_SPAN_DAYS)
+
+        if date_to < date_from:
+            date_from, date_to = date_to, date_from
+
+        if (date_to - date_from).days > self.MAX_SPAN_DAYS:
+            date_to = date_from + timedelta(days=self.MAX_SPAN_DAYS)
+
+        return date_from, date_to

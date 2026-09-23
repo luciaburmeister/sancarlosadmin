@@ -46,3 +46,32 @@ class CompanyWorkingWindowsForDayTest(TestCase):
             self.company.assert_within_working_hours(
                 self._aware(self.MONDAY, time(12, 30)), self._aware(self.MONDAY, time(12, 45)),
             )
+
+    def test_multi_day_range_with_both_endpoints_in_working_hours_does_not_raise(self):
+        wednesday = self.MONDAY + timedelta(days=2)
+        CompanyScheduleSlot.objects.create(
+            company=self.company, weekday=WeekdayChoices.WEDNESDAY,
+            start_time=time(8, 0), end_time=time(17, 0),
+        )
+        self.company.assert_within_working_hours(
+            self._aware(self.MONDAY, time(9, 0)), self._aware(wednesday, time(10, 0)),
+        )
+
+    def test_multi_day_range_with_start_outside_working_hours_raises(self):
+        wednesday = self.MONDAY + timedelta(days=2)
+        CompanyScheduleSlot.objects.create(
+            company=self.company, weekday=WeekdayChoices.WEDNESDAY,
+            start_time=time(8, 0), end_time=time(17, 0),
+        )
+        with self.assertRaises(ValueError):
+            self.company.assert_within_working_hours(
+                self._aware(self.MONDAY, time(12, 30)), self._aware(wednesday, time(10, 0)),
+            )
+
+    def test_multi_day_range_with_end_outside_working_hours_raises(self):
+        # Tuesday is a closed day (see setUpTestData) — nothing there is "working hours".
+        tuesday = self.MONDAY + timedelta(days=1)
+        with self.assertRaises(ValueError):
+            self.company.assert_within_working_hours(
+                self._aware(self.MONDAY, time(9, 0)), self._aware(tuesday, time(10, 0)),
+            )

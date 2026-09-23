@@ -6616,10 +6616,8 @@ msgstr "Elemento del albaran de Transporte"
 msgid "The delivery-order line this unit was shipped in."
 msgstr "La línea de pedido de entrega en la que se envió esta unidad."
 
-#, fuzzy
-#| msgid "Delivered"
 msgid "Delivered At"
-msgstr "Entregado"
+msgstr "Entregado el"
 
 #, fuzzy
 #| msgid "Timestamp when this transaction was imported into the system."
@@ -15051,6 +15049,90 @@ msgstr "sesión(es) actualmente en curso (no contadas abajo)"
 
 msgid "No completed production sessions yet."
 msgstr "Todavía no hay sesiones de producción completadas."
+
+msgid "Not confirmed"
+msgstr "Sin confirmar"
+
+msgid "Accepted by provider"
+msgstr "Aceptado por el proveedor"
+
+msgid "Delivery delayed"
+msgstr "Entrega retrasada"
+
+msgid "Delivered to recipient server"
+msgstr "Entregado al servidor del destinatario"
+
+msgid "Bounced"
+msgstr "Rebotado"
+
+msgid "Marked as spam"
+msgstr "Marcado como spam"
+
+msgid "Email Batch ID"
+msgstr "ID de lote de correo"
+
+msgid "Groups recipients created by the same send operation."
+msgstr "Agrupa los destinatarios creados por la misma operación de envío."
+
+msgid "Email Document Type"
+msgstr "Tipo de documento de correo"
+
+msgid "Tracking Enabled"
+msgstr "Seguimiento activado"
+
+msgid "Email Provider"
+msgstr "Proveedor de correo"
+
+msgid "Provider Message ID"
+msgstr "ID del mensaje del proveedor"
+
+msgid "Delivery Status"
+msgstr "Estado de entrega"
+
+msgid "Accepted At"
+msgstr "Aceptado el"
+
+msgid "First Opening Detected At"
+msgstr "Primera apertura detectada el"
+
+msgid "Last Opening Detected At"
+msgstr "Última apertura detectada el"
+
+msgid "Detected Openings"
+msgstr "Aperturas detectadas"
+
+msgid "Last Provider Event At"
+msgstr "Último evento del proveedor el"
+
+msgid "Delivery Error"
+msgstr "Error de entrega"
+
+msgid "Delivery Delay"
+msgstr "Retraso de entrega"
+
+msgid "Bounce"
+msgstr "Rebote"
+
+msgid "Complaint"
+msgstr "Reporte de spam"
+
+msgid "Rendering Failure"
+msgstr "Error de renderizado"
+
+msgid "Subscription"
+msgstr "Suscripción"
+
+msgid "Occurred At"
+msgstr "Ocurrió el"
+
+msgid "Recipient"
+msgstr "Destinatario"
+
+msgid "Email Event"
+msgstr "Evento de correo"
+
+msgid "Email Events"
+msgstr "Eventos de correo"
 
 msgid "Pending Delivery"
 msgstr "Entrega pendiente"

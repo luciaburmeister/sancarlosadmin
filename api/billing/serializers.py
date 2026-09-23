@@ -67,6 +67,12 @@ def annotate_email_log(qs):
         _email_log_status=Subquery(latest_logs.values("status")[:1]),
         _email_log_sent_at=Subquery(latest_logs.values("sent_at")[:1]),
         _email_log_error=Subquery(latest_logs.values("error_message")[:1]),
+        _email_delivery_status=Subquery(latest_logs.values("delivery_status")[:1]),
+        _email_delivered_at=Subquery(latest_logs.values("delivered_at")[:1]),
+        _email_first_opened_at=Subquery(latest_logs.values("first_opened_at")[:1]),
+        _email_last_opened_at=Subquery(latest_logs.values("last_opened_at")[:1]),
+        _email_open_count=Subquery(latest_logs.values("open_count")[:1]),
+        _email_delivery_error=Subquery(latest_logs.values("delivery_error")[:1]),
     )
 
 
@@ -220,6 +226,12 @@ class SalesInvoiceDetailSerializer(serializers.Serializer):
             email_log_status = None
             email_sent_at = None
             email_error = None
+            email_delivery_status = None
+            email_delivered_at = None
+            email_first_opened_at = None
+            email_last_opened_at = None
+            email_open_count = 0
+            email_delivery_error = None
         elif hasattr(invoice, "_email_log_status"):
             email_log_status = invoice._email_log_status
             email_sent_at = (
@@ -228,6 +240,21 @@ class SalesInvoiceDetailSerializer(serializers.Serializer):
                 else None
             )
             email_error = invoice._email_log_error
+            email_delivery_status = invoice._email_delivery_status
+            email_delivered_at = (
+                invoice._email_delivered_at.isoformat()
+                if invoice._email_delivered_at else None
+            )
+            email_first_opened_at = (
+                invoice._email_first_opened_at.isoformat()
+                if invoice._email_first_opened_at else None
+            )
+            email_last_opened_at = (
+                invoice._email_last_opened_at.isoformat()
+                if invoice._email_last_opened_at else None
+            )
+            email_open_count = invoice._email_open_count or 0
+            email_delivery_error = invoice._email_delivery_error
         else:
             email_log = (
                 EmailLog.objects.filter(content_type=ct, object_id=invoice.pk)
@@ -237,6 +264,21 @@ class SalesInvoiceDetailSerializer(serializers.Serializer):
             email_log_status = email_log.status if email_log else None
             email_sent_at = email_log.sent_at.isoformat() if email_log else None
             email_error = email_log.error_message if email_log else None
+            email_delivery_status = email_log.delivery_status if email_log else None
+            email_delivered_at = (
+                email_log.delivered_at.isoformat()
+                if email_log and email_log.delivered_at else None
+            )
+            email_first_opened_at = (
+                email_log.first_opened_at.isoformat()
+                if email_log and email_log.first_opened_at else None
+            )
+            email_last_opened_at = (
+                email_log.last_opened_at.isoformat()
+                if email_log and email_log.last_opened_at else None
+            )
+            email_open_count = email_log.open_count if email_log else 0
+            email_delivery_error = email_log.delivery_error if email_log else None
 
         allocations = (
             PaymentAllocation.objects.filter(content_type=ct, object_id=invoice.pk)
@@ -293,6 +335,12 @@ class SalesInvoiceDetailSerializer(serializers.Serializer):
             "email_log_status": email_log_status if is_final else None,
             "email_sent_at": email_sent_at,
             "email_error": email_error,
+            "email_delivery_status": email_delivery_status,
+            "email_delivered_at": email_delivered_at,
+            "email_first_opened_at": email_first_opened_at,
+            "email_last_opened_at": email_last_opened_at,
+            "email_open_count": email_open_count,
+            "email_delivery_error": email_delivery_error,
         }
 
 
@@ -312,6 +360,17 @@ class SalesInvoiceListItemSerializer(serializers.Serializer):
             "email_log_status": (
                 invoice._email_log_status
                 if invoice.status == SalesInvoiceStatus.FINAL
+                else None
+            ),
+            "email_delivery_status": (
+                invoice._email_delivery_status
+                if invoice.status == SalesInvoiceStatus.FINAL
+                else None
+            ),
+            "email_first_opened_at": (
+                invoice._email_first_opened_at.isoformat()
+                if invoice.status == SalesInvoiceStatus.FINAL
+                and invoice._email_first_opened_at
                 else None
             ),
         }

@@ -131,6 +131,44 @@ class ScheduleBoardGetTest(ScheduleBoardApiTestBase):
         item = ProductionItem.objects.get(ticket=self.ticket)
         self.assertEqual(entry["production_item_ids"], [item.id])
 
+    def test_session_stage_completed_flag_reflects_item_status(self):
+        session = PlannedProductionSession.objects.create(
+            production_ticket=self.ticket, production_stage="corte",
+            planned_start=self._aware(self.MONDAY, time(9, 0)),
+            planned_end=self._aware(self.MONDAY, time(10, 0)),
+            primary_resource=self.resource,
+        )
+        resp = self.client.get(
+            "/es/api/production/schedule/board/", {"week_start": self.MONDAY.isoformat()},
+        )
+        entry = next(s for s in resp.json()["sessions"] if s["id"] == session.id)
+        self.assertFalse(entry["stage_completed"])
+
+        item = ProductionItem.objects.filter(ticket=self.ticket).first()
+        item.planning = {"corte": {"status": "done"}}
+        item.save(update_fields=["planning"])
+
+        resp = self.client.get(
+            "/es/api/production/schedule/board/", {"week_start": self.MONDAY.isoformat()},
+        )
+        entry = next(s for s in resp.json()["sessions"] if s["id"] == session.id)
+        self.assertTrue(entry["stage_completed"])
+
+    def test_multi_day_session_appears_on_every_day_it_touches(self):
+        wednesday = self.MONDAY + timedelta(days=2)
+        session = PlannedProductionSession.objects.create(
+            production_ticket=self.ticket, production_stage="corte",
+            planned_start=self._aware(self.MONDAY, time(9, 0)),
+            planned_end=self._aware(wednesday, time(10, 0)),
+            primary_resource=self.resource,
+        )
+        resp = self.client.get(
+            "/es/api/production/schedule/board/", {"week_start": self.MONDAY.isoformat()},
+        )
+        entry = next(s for s in resp.json()["sessions"] if s["id"] == session.id)
+        self.assertEqual(date.fromisoformat(entry["planned_start"][:10]), self.MONDAY)
+        self.assertEqual(date.fromisoformat(entry["planned_end"][:10]), wednesday)
+
     def test_backlog_entry_includes_production_item_ids(self):
         resp = self.client.get(
             "/es/api/production/schedule/board/", {"week_start": self.MONDAY.isoformat()},
@@ -343,6 +381,25 @@ class RescheduleSessionApiTest(ScheduleBoardApiTestBase):
         self.assertEqual(resp.status_code, 409)
         self.assertEqual(resp.json()["code"], "planned_session_conflict")
 
+    def test_end_date_moves_session_end_to_a_later_day(self):
+        wednesday = self.MONDAY + timedelta(days=2)
+        CompanyScheduleSlot.objects.create(
+            company=self.company, weekday=WeekdayChoices.WEDNESDAY,
+            start_time=time(8, 0), end_time=time(17, 0),
+        )
+        resp = self.client.post(
+            self._url(self.session.id),
+            {
+                "supervisor_id": self.supervisor.id, "date": self.MONDAY.isoformat(),
+                "start_time": "09:00", "end_time": "10:00", "end_date": wednesday.isoformat(),
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.session.refresh_from_db()
+        self.assertEqual(timezone.localtime(self.session.planned_start).date(), self.MONDAY)
+        self.assertEqual(timezone.localtime(self.session.planned_end).date(), wednesday)
+
     def test_explicit_time_outside_working_hours_returns_400(self):
         resp = self.client.post(
             self._url(self.session.id),
@@ -512,6 +569,31 @@ class CreateSessionFromBacklogApiTest(ScheduleBoardApiTestBase):
             format="json",
         )
         self.assertEqual(resp.status_code, 409)
+
+    def test_creates_multi_day_session_with_end_date(self):
+        wednesday = self.MONDAY + timedelta(days=2)
+        CompanyScheduleSlot.objects.create(
+            company=self.company, weekday=WeekdayChoices.WEDNESDAY,
+            start_time=time(8, 0), end_time=time(17, 0),
+        )
+        resp = self.client.post(
+            self.URL,
+            {
+                "supervisor_id": self.supervisor.id,
+                "production_ticket_id": self.ticket.id,
+                "production_stage": "corte",
+                "employee_id": self.worker.id,
+                "date": self.MONDAY.isoformat(),
+                "start_time": "09:00",
+                "end_time": "10:00",
+                "end_date": wednesday.isoformat(),
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        session = PlannedProductionSession.objects.get(id=resp.json()["session"]["id"])
+        self.assertEqual(timezone.localtime(session.planned_start).date(), self.MONDAY)
+        self.assertEqual(timezone.localtime(session.planned_end).date(), wednesday)
 
 
 class ReorderDaySessionsApiTest(ScheduleBoardApiTestBase):

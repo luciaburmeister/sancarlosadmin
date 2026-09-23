@@ -1,4 +1,5 @@
 from decimal import Decimal
+from urllib.parse import urlparse
 
 from django import forms
 from django.shortcuts import get_object_or_404, redirect
@@ -57,6 +58,7 @@ class POApprovalAnalysisView(UnfoldModelAdminViewMixin, FormView):
             "opts": PurchaseOrder._meta,
             "items": po.items.select_related("inventory_item").all(),
             "back_url": reverse("admin:purchasing_purchaseorder_change", args=[po.pk]),
+            "changelist_referer": self._incoming_changelist_referer(),
         })
 
         project_file = po.project_file
@@ -92,6 +94,22 @@ class POApprovalAnalysisView(UnfoldModelAdminViewMixin, FormView):
             })
 
         return context
+
+    def _incoming_changelist_referer(self):
+        """
+        The PO changelist URL (with whatever filters were applied), carried
+        through this screen via a hidden field so Approve can bounce back to
+        the exact filtered list instead of a bare changelist. On GET this
+        reads the browser's Referer header (set when the user clicked
+        "Review" from the changelist); on POST it reads the hidden field the
+        template carried forward, since by then the Referer is this page
+        itself, not the changelist.
+        """
+        referer = self.request.POST.get("changelist_referer") or self.request.META.get("HTTP_REFERER")
+        changelist_url = reverse("admin:purchasing_purchaseorder_changelist")
+        if referer and urlparse(referer).path == changelist_url:
+            return referer
+        return ""
 
     @staticmethod
     def _primary_quote(project_file):
@@ -167,4 +185,4 @@ class POApprovalAnalysisView(UnfoldModelAdminViewMixin, FormView):
     def form_valid(self, form):
         po = self.get_po()
         self.model_admin._approve_po(self.request, po)
-        return redirect("admin:purchasing_purchaseorder_changelist")
+        return redirect(self._incoming_changelist_referer() or "admin:purchasing_purchaseorder_changelist")

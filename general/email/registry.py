@@ -43,6 +43,11 @@ class EmailDocument:
 
     key = None
     label = None
+    # Delivery tracking is deliberately opt-in.  Internal reports and alerts
+    # should not acquire engagement pixels just because they also use the
+    # shared EmailService.
+    track_delivery = False
+    track_opens = False
 
 
 def register(declaration):
@@ -109,3 +114,15 @@ def document_label(key):
 def is_registered(key):
     autodiscover()
     return key in _REGISTRY
+
+
+def tracking_policy(key):
+    """Return the tracking flags declared for one outgoing email kind."""
+    autodiscover()
+    declaration = _REGISTRY.get(key)
+    if declaration is None:
+        return {"delivery": False, "opens": False}
+    return {
+        "delivery": bool(declaration.track_delivery),
+        "opens": bool(declaration.track_opens),
+    }

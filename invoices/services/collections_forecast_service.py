@@ -2,8 +2,9 @@ from datetime import timedelta
 from decimal import Decimal
 from itertools import groupby
 
+from django.contrib.postgres.aggregates import BoolOr
 from django.core.cache import cache
-from django.db.models import Count, DecimalField, Min, Sum, Value
+from django.db.models import BooleanField, Case, Count, DecimalField, Min, Sum, Value, When
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
@@ -24,36 +25,46 @@ class CollectionsForecastService:
 
     ZERO = Value(Decimal("0.00"))
     DECIMAL_FIELD = DecimalField(max_digits=12, decimal_places=2)
+    IS_PROFORMA = Case(
+        When(status=SalesInvoiceStatus.PROFORMA, then=True),
+        default=False,
+        output_field=BooleanField(),
+    )
 
     @classmethod
-    def build_forecast(cls, company, days_ahead: int = 14) -> dict:
+    def build_forecast(cls, company, date_from, date_to) -> dict:
         """
-        Builds the collections forecast for one company:
+        Builds the collections forecast for one company over the calendar
+        range [date_from, date_to] (both inclusive, both chosen by the user
+        on the dashboard):
 
-        - "overdue": one bucket for everything already past due, grouped by client.
-        - "buckets": ONE ENTRY PER CALENDAR DAY in [today, today + days_ahead] --
+        - "overdue": one bucket for everything due before date_from, grouped
+          by client -- when date_from is today (the default), this is
+          exactly "everything already overdue".
+        - "buckets": ONE ENTRY PER CALENDAR DAY in [date_from, date_to] --
           including days with no invoices due (they show as an empty bucket) --
           so the view reads as an actual calendar, not just a list of the days
           that happen to have data.
-        - "window_total"/"window_count": totals across the whole visible window
-          (sum of all buckets), for the "next N days" KPI.
-        - "month_total"/"month_count": everything due this calendar month,
-          regardless of whether it falls before or after today.
+        - "window_total"/"window_count": totals across the whole visible range
+          (sum of all buckets).
+        - "month_total"/"month_count": everything due in the current real
+          calendar month, regardless of the selected range.
 
         This is the single source of truth for the numbers: both the calendar
         view and the scheduled/manual email report call this function,
-        so they can never drift apart. Cached per company/days_ahead for 5
+        so they can never drift apart. Cached per company/date range for 5
         minutes, same convention as the operational and accounts-payable
         dashboards.
 
-        Only FINAL, unpaid invoices with a due_date count -- pro forma and
-        already-paid invoices are irrelevant to a collections forecast.
+        FINAL and PRO FORMA, unpaid invoices with a due_date count --
+        cancelled and already-paid invoices are irrelevant to a collections
+        forecast.
         """
         if not company:
-            return cls._empty_result(days_ahead)
+            return cls._empty_result(date_from, date_to)
 
         today = timezone.now().date()
-        cache_key = f"collections_forecast:{company.pk}:{days_ahead}:{today.isoformat()}"
+        cache_key = f"collections_forecast:{company.pk}:{date_from.isoformat()}:{date_to.isoformat()}"
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
@@ -61,7 +72,7 @@ class CollectionsForecastService:
         pending_qs = (
             SalesInvoice.objects.filter(
                 company=company,
-                status=SalesInvoiceStatus.FINAL,
+                status__in=[SalesInvoiceStatus.FINAL, SalesInvoiceStatus.PROFORMA],
                 due_date__isnull=False,
             )
             .exclude(payment_status=InvoicePaymentStatus.PAID)
@@ -80,12 +91,13 @@ class CollectionsForecastService:
 
         # ── Overdue bucket ────────────────────────────────────────────────
         overdue_rows = list(
-            pending_qs.filter(due_date__lt=today)
+            pending_qs.filter(due_date__lt=date_from)
             .values("client_id", "client__name")
             .annotate(
                 day_total=Coalesce(Sum("total_amount"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
                 day_count=Count("id"),
                 sample_invoice_id=Min("id"),
+                has_proforma=BoolOr(cls.IS_PROFORMA),
             )
             .order_by("client__name")
         )
@@ -93,14 +105,13 @@ class CollectionsForecastService:
 
         # ── Date buckets: one row per calendar day, even with no invoices ──
         window_rows = list(
-            pending_qs.filter(
-                due_date__gte=today, due_date__lte=today + timedelta(days=days_ahead)
-            )
+            pending_qs.filter(due_date__gte=date_from, due_date__lte=date_to)
             .values("due_date", "client_id", "client__name")
             .annotate(
                 day_total=Coalesce(Sum("total_amount"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
                 day_count=Count("id"),
                 sample_invoice_id=Min("id"),
+                has_proforma=BoolOr(cls.IS_PROFORMA),
             )
             .order_by("due_date", "client__name")
         )
@@ -109,12 +120,13 @@ class CollectionsForecastService:
             for due_date, rows in groupby(window_rows, key=lambda r: r["due_date"])
         }
 
+        days_in_range = (date_to - date_from).days
         buckets = [
             {
-                "date": today + timedelta(days=offset),
-                **cls._build_bucket(rows_by_date.get(today + timedelta(days=offset), []), total_owed_by_client),
+                "date": date_from + timedelta(days=offset),
+                **cls._build_bucket(rows_by_date.get(date_from + timedelta(days=offset), []), total_owed_by_client),
             }
-            for offset in range(days_ahead + 1)
+            for offset in range(days_in_range + 1)
         ]
 
         window_total = sum((b["total"] for b in buckets), Decimal("0.00"))
@@ -138,7 +150,8 @@ class CollectionsForecastService:
             "month_total": month_agg["total"],
             "month_count": month_agg["count"],
             "today": today,
-            "days_ahead": days_ahead,
+            "date_from": date_from,
+            "date_to": date_to,
         }
         cache.set(cache_key, result, cls.CACHE_TTL)
         return result
@@ -159,6 +172,10 @@ class CollectionsForecastService:
                 "total_owed": total_owed_by_client.get(row["client_id"], row["day_total"]),
                 "sample_invoice_id": row["sample_invoice_id"],
                 "view_url": Client(name=row["client__name"]).invoices_admin_url(),
+                # True when at least one invoice in this row is still a pro
+                # forma -- shown as a small badge in the calendar so the user
+                # knows this amount isn't fully invoiced yet.
+                "has_proforma": row["has_proforma"],
             }
             for row in rows
         ]
@@ -173,7 +190,7 @@ class CollectionsForecastService:
         return {"total": Decimal("0.00"), "count": 0, "clients": []}
 
     @classmethod
-    def _empty_result(cls, days_ahead: int) -> dict:
+    def _empty_result(cls, date_from, date_to) -> dict:
         return {
             "overdue": cls._empty_bucket(),
             "buckets": [],
@@ -182,5 +199,6 @@ class CollectionsForecastService:
             "month_total": Decimal("0.00"),
             "month_count": 0,
             "today": timezone.now().date(),
-            "days_ahead": days_ahead,
+            "date_from": date_from,
+            "date_to": date_to,
         }

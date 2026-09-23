@@ -15,6 +15,7 @@ from .registry import (
     is_registered,
     register,
     registered_documents,
+    tracking_policy,
 )
 from .reply_to import resolve_reply_to, sender_cc, sender_reply_to
 
@@ -26,6 +27,7 @@ __all__ = [
     "is_registered",
     "register",
     "registered_documents",
+    "tracking_policy",
     "resolve_reply_to",
     "sender_cc",
     "sender_reply_to",

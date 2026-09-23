@@ -275,7 +275,22 @@ class SalesInvoiceListView(CompanyAPIView):
             elif email_status_filter == "sent":
                 qs = qs.filter(_email_log_status=EmailLog.EmailStatus.SUCCESS).exclude(no_client_email_q())
             elif email_status_filter == "error":
-                qs = qs.filter(_email_log_status=EmailLog.EmailStatus.FAILED).exclude(no_client_email_q())
+                qs = qs.filter(
+                    Q(_email_log_status=EmailLog.EmailStatus.FAILED)
+                    | Q(_email_delivery_status__in=[
+                        EmailLog.DeliveryStatus.BOUNCED,
+                        EmailLog.DeliveryStatus.COMPLAINT,
+                        EmailLog.DeliveryStatus.REJECTED,
+                    ])
+                ).exclude(no_client_email_q())
+            elif email_status_filter == "delivered":
+                qs = qs.filter(_email_delivery_status=EmailLog.DeliveryStatus.DELIVERED)
+            elif email_status_filter == "opened":
+                qs = qs.filter(_email_first_opened_at__isnull=False)
+            elif email_status_filter == "bounced":
+                qs = qs.filter(_email_delivery_status=EmailLog.DeliveryStatus.BOUNCED)
+            elif email_status_filter == "delayed":
+                qs = qs.filter(_email_delivery_status=EmailLog.DeliveryStatus.DELAYED)
             elif email_status_filter == "not_sent":
                 qs = qs.filter(_email_log_status__isnull=True).exclude(no_client_email_q())
 

@@ -1,3 +1,4 @@
+import json
 from collections import defaultdict
 from datetime import date as date_, datetime, time, timedelta
 
@@ -1660,20 +1661,25 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
     ]
 
     def save(self, *args, **kwargs):
-        if self.pk and self.status != AssetPlanningRequestStatus.PENDING_REVIEW:
+        previous_status = None
+        if self.pk:
             previous = AssetPlanningRequest.objects.filter(pk=self.pk).values(
                 "status", *self.REVIEW_TRACKED_FIELDS
             ).first()
-            # Only auto-revert when this save doesn't already carry an explicit
-            # status change (i.e. it's a plain edit, not the approve/reject action).
-            if previous and previous["status"] == self.status and any(
-                getattr(self, field) != previous[field] for field in self.REVIEW_TRACKED_FIELDS
-            ):
-                self.status = AssetPlanningRequestStatus.PENDING_REVIEW
-                self.reviewed_by = None
-                self.reviewed_at = None
-                self.rejection_reason = ""
-        super().save(*args, **kwargs)
+            if previous:
+                previous_status = previous["status"]
+                # Only auto-revert when this save doesn't already carry an explicit
+                # status change (i.e. it's a plain edit, not the approve/reject action).
+                if self.status != AssetPlanningRequestStatus.PENDING_REVIEW and previous_status == self.status and any(
+                    getattr(self, field) != previous[field] for field in self.REVIEW_TRACKED_FIELDS
+                ):
+                    self.status = AssetPlanningRequestStatus.PENDING_REVIEW
+                    self.reviewed_by = None
+                    self.reviewed_at = None
+                    self.rejection_reason = ""
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            self._sync_zone_sync_schedule(previous_status)
 
     def clean(self):
         super().clean()
@@ -1760,14 +1766,9 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
 
     def apply_zone_change(self) -> bool:
         """Move this request's asset (if any) and every selected employee's
-        current_working_zone to to_zone, then mark this applied.
-
-        Only meaningful for planning_type == NONE requests (Machinist Movement,
-        Machine Self-Transport), which never get an AssetPlanning —
-        approve_submit_action calls this immediately when due, otherwise
-        apply_due_zone_sync_requests() (Celery beat) calls it once due.
-        Locked so a concurrent beat tick can't double-apply.
-        """
+        current_working_zone to to_zone, then mark this applied. Only
+        meaningful for planning_type == NONE requests. Locked so a concurrent
+        call can't double-apply."""
         with transaction.atomic():
             locked = AssetPlanningRequest.objects.select_for_update().get(pk=self.pk)
             if locked.zone_sync_applied_at is not None:
@@ -1782,6 +1783,65 @@ class AssetPlanningRequest(CompanyOwnedModel, Timestampable):
             locked.save(update_fields=["zone_sync_applied_at"])
         self.zone_sync_applied_at = locked.zone_sync_applied_at
         return True
+
+    ZONE_SYNC_TASK_NAME_PREFIX = "assets.zone_sync_request."
+    ZONE_SYNC_TASK_PATH = "assets.tasks.apply_scheduled_zone_change"
+
+    @property
+    def zone_sync_task_name(self) -> str:
+        return f"{self.ZONE_SYNC_TASK_NAME_PREFIX}{self.pk}"
+
+    def _sync_zone_sync_schedule(self, previous_status: str | None) -> None:
+        """Apply/schedule/cancel the zone-sync task based on approval
+        transitions. Only planning_type == NONE requests need one."""
+        if self.planning_type != PlanningType.NONE:
+            return
+
+        became_approved = (
+            self.status == AssetPlanningRequestStatus.APPROVED
+            and previous_status != AssetPlanningRequestStatus.APPROVED
+        )
+        left_approved = (
+            previous_status == AssetPlanningRequestStatus.APPROVED
+            and self.status != AssetPlanningRequestStatus.APPROVED
+        )
+        if became_approved:
+            if self.is_zone_sync_due:
+                self.apply_zone_change()
+            else:
+                self._schedule_zone_sync()
+        elif left_approved:
+            self._cancel_zone_sync()
+
+    def _schedule_zone_sync(self) -> None:
+        """One-off task, fired once at needed_date/needed_time — no polling."""
+        from django_celery_beat.models import ClockedSchedule, PeriodicTask
+
+        run_at = timezone.make_aware(datetime.combine(self.needed_date, self.needed_time or time.min))
+        clocked, _created = ClockedSchedule.objects.get_or_create(clocked_time=run_at)
+        PeriodicTask.objects.update_or_create(
+            name=self.zone_sync_task_name,
+            defaults={
+                "task": self.ZONE_SYNC_TASK_PATH,
+                "clocked": clocked,
+                "interval": None,
+                "crontab": None,
+                "args": json.dumps([self.pk]),
+                "one_off": True,
+                "enabled": True,
+            },
+        )
+
+    def _cancel_zone_sync(self) -> None:
+        from django_celery_beat.models import PeriodicTask
+
+        task = PeriodicTask.objects.filter(name=self.zone_sync_task_name).select_related("clocked").first()
+        if not task:
+            return
+        clocked = task.clocked
+        task.delete()
+        if clocked and not PeriodicTask.objects.filter(clocked=clocked).exists():
+            clocked.delete()
 
 
 class AssetPlanningRequestDraftStatus(models.TextChoices):

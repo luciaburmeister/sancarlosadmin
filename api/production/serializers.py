@@ -53,6 +53,7 @@ class RescheduleSessionSerializer(SupervisorPermissionSerializer):
     employee_id = serializers.IntegerField(required=False, allow_null=True)
     start_time = serializers.TimeField(required=False, allow_null=True)
     end_time = serializers.TimeField(required=False, allow_null=True)
+    end_date = serializers.DateField(required=False, allow_null=True)
 
 
 class CreateSessionFromBacklogSerializer(RescheduleSessionSerializer):

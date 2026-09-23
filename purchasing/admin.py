@@ -112,7 +112,7 @@ class PurchaseOrderItemInline(StackedInline):
 class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     resource_classes = [PurchaseOrderResource]
     export_form_class = SelectableFieldsExportForm
-    list_display = ["number", "provider", "po_type", "cost_center", "requested_by", "get_status_label", "get_date_ordered", "total_amount_with_tax_display", "get_projected_margin", "get_billing_label", "company"]
+    list_display = ["number", "provider", "po_type", "cost_center", "requested_by", "get_status_label", "get_date_ordered", "total_amount_display", "get_projected_margin", "get_billing_label", "company"]
     list_filter = [("status",MultipleChoicesDropdownFilter), ("po_type",MultipleChoicesDropdownFilter), ("date_ordered",RangeDateFilter), ("company",AutocompleteSelectMultipleFilter), ("cost_center",AutocompleteSelectMultipleFilter), ("project_file",AutocompleteSelectMultipleFilter)]
     search_fields = ["number", "external_reference","provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name", "cost_center__code", "cost_center__name"]
     autocomplete_fields = ["provider", "company", "approved_by", "requested_by", "project_file", "cost_center"]
@@ -230,8 +230,13 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
             return "-"
         projected_purchased = project_file.total_purchased + obj.total_amount
         margin_after = project_file.total_amount - projected_purchased
+        revenue = project_file.total_amount.amount
+        if revenue:
+            margin_pct = (margin_after.amount / revenue) * 100
+        else:
+            margin_pct = Decimal("0")
         color = "#22c55e" if margin_after.amount >= 0 else "#ef4444"
-        return format_html('<span style="color:{}">{}</span>', color, margin_after)
+        return format_html('<span style="color:{}">{}%</span>', color, round(margin_pct, 1))
 
     @display(
         description=_("Billing"),

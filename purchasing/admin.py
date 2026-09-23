@@ -4,8 +4,9 @@ from django.forms import MultipleChoiceField
 from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 from django.contrib import admin
+from decimal import Decimal
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Sum, Exists, OuterRef
 from django.utils.formats import date_format
 from django.utils.html import format_html_join, format_html
 from django.utils.translation import gettext_lazy as _
@@ -16,6 +17,7 @@ from unfold.decorators import action, display
 from core.admin.company_admin import CompanyRestrictedAdmin
 from django.urls import path, reverse
 from copy import deepcopy
+from urllib.parse import urlparse
 from import_export.admin import ExportActionModelAdmin
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from core.admin.xlsx_export import FormattedXlsxExportMixin
@@ -110,11 +112,11 @@ class PurchaseOrderItemInline(StackedInline):
 class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     resource_classes = [PurchaseOrderResource]
     export_form_class = SelectableFieldsExportForm
-    list_display = ["number", "provider", "po_type", "cost_center", "requested_by", "get_status_label", "get_date_ordered", "total_amount", "get_billing_label", "company"]
+    list_display = ["number", "provider", "po_type", "cost_center", "requested_by", "get_status_label", "get_date_ordered", "total_amount_with_tax_display", "get_projected_margin", "get_billing_label", "company"]
     list_filter = [("status",MultipleChoicesDropdownFilter), ("po_type",MultipleChoicesDropdownFilter), ("date_ordered",RangeDateFilter), ("company",AutocompleteSelectMultipleFilter), ("cost_center",AutocompleteSelectMultipleFilter), ("project_file",AutocompleteSelectMultipleFilter)]
     search_fields = ["number", "external_reference","provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name", "cost_center__code", "cost_center__name"]
     autocomplete_fields = ["provider", "company", "approved_by", "requested_by", "project_file", "cost_center"]
-    readonly_fields = ["number", "total_amount", "approved_at", "approved_by", "rejected_at", "rejected_by", "rejection_reason", "requested_by", "status", "linked_invoices_display"]
+    readonly_fields = ["number", "total_amount_display", "total_amount_with_tax_display", "approved_at", "approved_by", "rejected_at", "rejected_by", "rejection_reason", "requested_by", "status", "linked_invoices_display"]
     list_select_related = ["provider", "company", "requested_by", "project_file", "cost_center"]
     list_filter_submit = True
     fieldsets = (
@@ -135,7 +137,7 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
         }),
         (_("Financials & Approval"), {
             "fields": (
-                "total_amount",
+                ("total_amount_display", "total_amount_with_tax_display"),
                 ("approved_by", "approved_at"),
                 ("rejected_by", "rejected_at"),
                 "rejection_reason",
@@ -210,10 +212,26 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
         return date_format(obj.date_ordered, "SHORT_DATE_FORMAT") if obj.date_ordered else ""
 
     def get_queryset(self, request):
+        from sales.models import Quote, QuoteStatus
+        accepted_quotes = Quote.objects.filter(
+            project_file=OuterRef("project_file"),
+            status=QuoteStatus.ACCEPTED,
+        )
         return super().get_queryset(request).annotate(
             _total_qty=Sum("items__quantity"),
             _total_invoiced=Sum("items__invoiced_quantity"),
+            _has_accepted_quote=Exists(accepted_quotes),
         )
+
+    @display(description=_("Margin"))
+    def get_projected_margin(self, obj):
+        project_file = obj.project_file
+        if project_file is None or not getattr(obj, "_has_accepted_quote", False):
+            return "-"
+        projected_purchased = project_file.total_purchased + obj.total_amount
+        margin_after = project_file.total_amount - projected_purchased
+        color = "#22c55e" if margin_after.amount >= 0 else "#ef4444"
+        return format_html('<span style="color:{}">{}</span>', color, margin_after)
 
     @display(
         description=_("Billing"),
@@ -241,6 +259,18 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
             "fully_invoiced": _("Fully Invoiced"),
         }
         return status, labels[status]
+
+    @display(description=_("Subtotal"))
+    def total_amount_display(self, obj):
+        if not obj.pk:
+            return "-"
+        return obj.total_amount
+
+    @display(description=_("Total Amount"), ordering="total_amount")
+    def total_amount_with_tax_display(self, obj):
+        if not obj.pk:
+            return "-"
+        return obj.total_amount_with_tax
 
     @display(description=_("Linked Invoices"))
     def linked_invoices_display(self, obj):
@@ -278,6 +308,18 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
             ] + list(self.readonly_fields)
         return super().get_readonly_fields(request, obj)
 
+    def _redirect_to_changelist_preserving_filters(self, request):
+        """Row actions (the "..." menu) are plain link clicks, so the browser
+        sends a Referer with the full changelist URL the user was on,
+        filters and all. Bounce back there instead of a bare changelist
+        redirect, which used to wipe out any filters the user had applied.
+        """
+        changelist_url = reverse("admin:purchasing_purchaseorder_changelist")
+        referer = request.META.get("HTTP_REFERER")
+        if referer and urlparse(referer).path == changelist_url:
+            return redirect(referer)
+        return redirect(changelist_url)
+
     def _send_to_approval(self, request, po):
         from purchasing.tasks import send_purchase_order_pending_approval_notification
 
@@ -295,7 +337,7 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
     def send_to_approval(self, request, object_id: int):
         po = PurchaseOrder.objects.get(pk=object_id)
         self._send_to_approval(request, po)
-        return redirect("admin:purchasing_purchaseorder_changelist")
+        return self._redirect_to_changelist_preserving_filters(request)
 
     @action(description=_("Send to Approval"), permissions=["po_is_draft"])
     def send_to_approval_detail_action(self, request, object_id: int):
@@ -327,7 +369,7 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
     def approve_po(self, request, object_id: int):
         po = PurchaseOrder.objects.get(pk=object_id)
         self._approve_po(request, po)
-        return redirect("admin:purchasing_purchaseorder_changelist")
+        return self._redirect_to_changelist_preserving_filters(request)
 
     @action(description=_("Approve PO"), permissions=["can_approve_purchase_order", "po_is_pending_approval"])
     def approve_po_detail_action(self, request, object_id: int):

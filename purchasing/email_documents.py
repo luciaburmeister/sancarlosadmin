@@ -19,3 +19,9 @@ class PurchaseOrderApprovalEmail(EmailDocument):
 class PurchaseOrderDecisionEmail(EmailDocument):
     key = "purchase_order_decision"
     label = _("Purchase Order Decision")
+
+
+@register
+class PurchaseOrderMessageEmail(EmailDocument):
+    key = "purchase_order_message"
+    label = _("Purchase Order Conversation")

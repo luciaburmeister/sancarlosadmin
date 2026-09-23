@@ -12708,10 +12708,8 @@ msgid_plural "%(counter)s line(s) still need an invoice match."
 msgstr[0] "%(counter)s empleado del archivo no se pudo emparejar."
 msgstr[1] "%(counter)s empleados del archivo no se pudieron emparejar."
 
-#, fuzzy
-#| msgid "Purchase Order"
 msgid "Reject Purchase Order"
-msgstr "Orden de Compra"
+msgstr "Rechazar Orden de Compra"
 
 #, fuzzy
 #| msgid "Requested By"
@@ -12724,6 +12722,59 @@ msgid ""
 msgstr ""
 "La razón será enviada por correo electrónico al usuario que solicitó esta "
 "Orden de Compra."
+
+msgid "Conversation"
+msgstr "Conversación"
+
+msgid "Purchase Order Message"
+msgstr "Mensaje de Orden de Compra"
+
+msgid "Purchase Order Messages"
+msgstr "Mensajes de Orden de Compra"
+
+msgid "Purchase Order Conversation"
+msgstr "Conversación de Orden de Compra"
+
+msgid "Sender"
+msgstr "Remitente"
+
+msgid "Read At"
+msgstr "Leído El"
+
+msgid ""
+"Resolved when the message is sent; empty when it goes to the company's "
+"approver list."
+msgstr ""
+"Se resuelve al enviar el mensaje; vacío cuando se envía a la lista de "
+"aprobadores de la empresa."
+
+msgid "Write a message about this Purchase Order."
+msgstr "Escriba un mensaje sobre esta Orden de Compra."
+
+msgid "The message cannot be empty."
+msgstr "El mensaje no puede estar vacío."
+
+msgid "Message sent."
+msgstr "Mensaje enviado."
+
+msgid "New message"
+msgstr "Nuevo mensaje"
+
+msgid "Send message"
+msgstr "Enviar mensaje"
+
+msgid "You"
+msgstr "Usted"
+
+msgid "Deleted user"
+msgstr "Usuario eliminado"
+
+msgid ""
+"No messages yet. Ask the requester why this purchase is needed, or explain "
+"it here."
+msgstr ""
+"Todavía no hay mensajes. Pregunte a quien solicitó por qué se necesita esta "
+"compra, o explíquelo aquí."
 
 msgid "Receive Items Directly"
 msgstr "Recibir artículos directamente"

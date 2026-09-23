@@ -210,3 +210,25 @@ class RejectPurchaseOrderForm(forms.Form):
             "placeholder": _("Explain why this Purchase Order is rejected."),
         }),
     )
+
+
+class PurchaseOrderMessageForm(forms.Form):
+    """
+    Single field posted from the Conversation tab of the PO change page.
+    The textarea itself is rendered by the tab template, which has to place
+    it inside the change form's markup while submitting it elsewhere.
+    """
+    body = forms.CharField(
+        required=True,
+        label=_("Message"),
+        widget=UnfoldAdminTextareaWidget(attrs={
+            "rows": 3,
+            "placeholder": _("Write a message about this Purchase Order."),
+        }),
+    )
+
+    def clean_body(self):
+        body = self.cleaned_data["body"].strip()
+        if not body:
+            raise forms.ValidationError(_("The message cannot be empty."))
+        return body

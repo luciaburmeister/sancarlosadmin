@@ -242,3 +242,88 @@ def send_purchase_order_decision_notification(self, purchase_order_id: int, deci
         raise self.retry(exc=exc)
 
     return {"status": "ok" if success else "failed", "purchase_order_id": purchase_order_id}
+
+
+@shared_task(bind=True, max_retries=2, default_retry_delay=60)
+def send_purchase_order_message_notification(self, message_id: int):
+    """Notify the recipient of a Purchase Order conversation message.
+
+    The recipient is resolved when the message is created. Messages with no
+    recipient (the requester opened the thread before anyone asked) go to the
+    company's approver list instead; when that list is empty too, nothing is
+    sent. Replies are routed back to the sender.
+    """
+    from django.conf import settings
+    from django.template.loader import render_to_string
+    from django.urls import reverse
+
+    from core.services.email_service import EmailService
+    from purchasing.models import PurchaseOrderMessage
+
+    try:
+        message = PurchaseOrderMessage.objects.select_related(
+            "sender", "recipient", "purchase_order__company", "purchase_order__provider"
+        ).get(pk=message_id)
+    except PurchaseOrderMessage.DoesNotExist:
+        logger.error("PurchaseOrderMessage %s does not exist, skipping notification.", message_id)
+        return {"status": "error", "message": f"PurchaseOrderMessage {message_id} not found."}
+
+    po = message.purchase_order
+    company = po.company
+
+    if message.recipient:
+        if not message.recipient.email:
+            return {"status": "skipped", "reason": "recipient_without_email"}
+        recipients = [message.recipient.email]
+    else:
+        recipients = company.purchase_order_notification_emails if company else []
+    if not recipients:
+        return {"status": "skipped", "reason": "no_recipients"}
+
+    sender = message.sender
+    sender_name = (sender.get_full_name() or sender.username) if sender else ""
+
+    admin_path = reverse("admin:purchasing_purchaseorder_change", args=[po.pk])
+    po_url = f"{settings.BACKEND_URL.rstrip('/')}{admin_path}#messages"
+
+    # The conversation so far, so the recipient can answer from the email
+    # without opening the order. Only count the remainder when the cap was
+    # actually reached.
+    earlier = message.earlier_in_thread()
+    history = list(earlier[: PurchaseOrderMessage.EMAIL_HISTORY_LIMIT])
+    older_count = (
+        earlier.count() - len(history)
+        if len(history) == PurchaseOrderMessage.EMAIL_HISTORY_LIMIT
+        else 0
+    )
+
+    try:
+        html_message = render_to_string(
+            "purchasing/email/purchase_order_message.html",
+            {
+                "sender_name": sender_name,
+                "body": message.body,
+                "history": history,
+                "older_count": older_count,
+                "excerpt_chars": PurchaseOrderMessage.EMAIL_HISTORY_EXCERPT_CHARS,
+                "po_number": po.number,
+                "provider_name": po.provider.name,
+                "total_amount": po.total_amount,
+                "project_file": po.project_file,
+                "po_url": po_url,
+            },
+        )
+        success = EmailService.send_email(
+            to=recipients,
+            subject=f"Orden de compra {po.number}: nuevo mensaje",
+            body_html=html_message,
+            related_object=po,
+            company=company,
+            email_document="purchase_order_message",
+            reply_to=[sender.email] if sender and sender.email else None,
+        )
+    except Exception as exc:
+        logger.exception("Failed to send PO message notification for message %s", message_id)
+        raise self.retry(exc=exc)
+
+    return {"status": "ok" if success else "failed", "message_id": message_id}

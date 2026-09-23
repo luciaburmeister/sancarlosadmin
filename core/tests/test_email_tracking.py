@@ -2,10 +2,11 @@ import json
 import uuid
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.contrib.contenttypes.models import ContentType
 from django.core import mail
+from django.core.mail.backends.smtp import EmailBackend as SMTPEmailBackend
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -13,8 +14,30 @@ from django.utils.dateparse import parse_datetime
 
 from company.models import Company, EmailEvent, EmailLog
 from core.services.email_event_service import EmailEventService, SESEventPayload
-from core.services.email_service import EmailService
+from core.services.email_service import EmailService, EnvelopeEmailMessage
 from general.email.providers import default_provider, get_provider, registered_providers
+
+
+class EnvelopeEmailMessageTests(SimpleTestCase):
+    def test_smtp_routes_only_to_envelope_recipients(self):
+        message = EnvelopeEmailMessage(
+            subject="Factura F-1",
+            body="Documento adjunto",
+            from_email="erp@polipus.test",
+            to=["client@example.com"],
+            cc=["employee@polipus.test"],
+            envelope_recipients=["employee@polipus.test"],
+        )
+        backend = SMTPEmailBackend()
+        backend.connection = Mock()
+
+        self.assertTrue(backend._send(message))
+
+        _, envelope, _ = backend.connection.sendmail.call_args.args
+        self.assertEqual(envelope, ["employee@polipus.test"])
+        mime = message.message()
+        self.assertEqual(str(mime["To"]), "client@example.com")
+        self.assertEqual(str(mime["Cc"]), "employee@polipus.test")
 
 
 @override_settings(
@@ -41,18 +64,30 @@ class TrackedEmailServiceTests(TestCase):
         self.assertTrue(sent)
         self.assertEqual(len(mail.outbox), 3)
         external = mail.outbox[:2]
-        self.assertEqual([message.to for message in external], [
-            ["client@example.com"], ["contact@example.com"],
-        ])
-        self.assertTrue(all(message.cc == [] for message in external))
+        visible_to = ["client@example.com", "contact@example.com"]
+        self.assertTrue(all(message.to == visible_to for message in external))
+        self.assertTrue(all(
+            message.cc == ["employee@polipus.test"] for message in external
+        ))
+        self.assertEqual(
+            [message.recipients() for message in external],
+            [["client@example.com"], ["contact@example.com"]],
+        )
         self.assertTrue(all(
             message.extra_headers["X-SES-CONFIGURATION-SET"] == "erp-engagement"
             for message in external
         ))
 
         audit_copy = mail.outbox[2]
-        self.assertEqual(audit_copy.to, ["employee@polipus.test"])
+        self.assertEqual(audit_copy.to, visible_to)
+        self.assertEqual(audit_copy.cc, ["employee@polipus.test"])
+        self.assertEqual(audit_copy.recipients(), ["employee@polipus.test"])
         self.assertNotIn("X-SES-CONFIGURATION-SET", audit_copy.extra_headers)
+
+        for message in mail.outbox:
+            mime = message.message()
+            self.assertEqual(str(mime["To"]), ", ".join(visible_to))
+            self.assertEqual(str(mime["Cc"]), "employee@polipus.test")
 
         logs = list(EmailLog.objects.order_by("to_email"))
         self.assertEqual(len(logs), 2)
@@ -78,6 +113,22 @@ class TrackedEmailServiceTests(TestCase):
             "erp-delivery",
         )
 
+    def test_recipient_is_not_sent_an_additional_cc_copy(self):
+        EmailService.send_email(
+            to=["employee@polipus.test"],
+            cc=["EMPLOYEE@polipus.test"],
+            subject="Presupuesto #12",
+            body_html="<p>Documento adjunto</p>",
+            related_object=self.company,
+            company=self.company,
+            email_document="quote",
+        )
+
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertEqual(mail.outbox[0].to, ["employee@polipus.test"])
+        self.assertEqual(mail.outbox[0].cc, [])
+        self.assertEqual(mail.outbox[0].recipients(), ["employee@polipus.test"])
+
     @override_settings(
         SES_DELIVERY_CONFIGURATION_SET="",
         SES_ENGAGEMENT_CONFIGURATION_SET="",
@@ -96,6 +147,10 @@ class TrackedEmailServiceTests(TestCase):
         self.assertEqual(len(mail.outbox), 1)
         self.assertEqual(mail.outbox[0].to, ["client@example.com"])
         self.assertEqual(mail.outbox[0].cc, ["employee@polipus.test"])
+        self.assertEqual(
+            mail.outbox[0].recipients(),
+            ["client@example.com", "employee@polipus.test"],
+        )
         log = EmailLog.objects.get()
         self.assertFalse(log.tracking_enabled)
         self.assertEqual(log.delivery_status, EmailLog.DeliveryStatus.UNKNOWN)

@@ -15,6 +15,27 @@ from general.email.providers import default_provider
 logger = logging.getLogger(__name__)
 
 
+class EnvelopeEmailMessage(EmailMessage):
+    """Email whose visible recipients can differ from its SMTP envelope.
+
+    Tracked documents are sent once per external recipient so an SES open
+    event belongs to one person.  Keeping the original To/Cc headers on each
+    copy preserves normal reply-all behaviour, while the envelope ensures each
+    address receives only its intended copy.
+    """
+
+    def __init__(self, *args, envelope_recipients=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._envelope_recipients = (
+            None if envelope_recipients is None else list(envelope_recipients)
+        )
+
+    def recipients(self):
+        if self._envelope_recipients is None:
+            return super().recipients()
+        return list(self._envelope_recipients)
+
+
 class EmailService:
     """
     Generic, reusable email service with support for HTML bodies and
@@ -71,6 +92,12 @@ class EmailService:
         }
         recipients = EmailService._unique_addresses(to)
         cc_recipients = EmailService._unique_addresses(cc or [])
+        recipient_keys = {address.casefold() for address in recipients}
+        cc_recipients = [
+            address
+            for address in cc_recipients
+            if address.casefold() not in recipient_keys
+        ]
 
         # Tracking needs a provider that is configured for this kind of email,
         # and something to hang the EmailLog's generic foreign key on.
@@ -103,13 +130,14 @@ class EmailService:
         company, email_document,
     ):
         """
-        One message per recipient, each individually attributable.
+        One delivery per recipient, each individually attributable.
 
         Open events belong to a message, not reliably to one address when a
         message has several To/Cc recipients.  Tracked sends are therefore
-        deliberately fanned out one recipient at a time.  The employee's CC is
-        delivered once as a separate, untracked audit copy, so their opening it
-        can never be reported as the client opening the original.
+        deliberately fanned out one recipient at a time.  Every copy preserves
+        the original visible To/Cc headers, but its SMTP envelope contains only
+        the intended recipient.  The employee's copy is untracked, so opening
+        it can never be reported as the client opening the original.
         """
         batch_id = uuid.uuid4()
         results = []
@@ -130,7 +158,11 @@ class EmailService:
                 )
 
             msg = EmailService._build_message(
-                **message, to=[recipient], cc=[], extra_headers=extra_headers,
+                **message,
+                to=recipients,
+                cc=cc_recipients,
+                envelope_recipients=[recipient],
+                extra_headers=extra_headers,
             )
             results.append(
                 EmailService._send_tracked_message(msg, log, recipient, message["subject"])
@@ -146,9 +178,9 @@ class EmailService:
         """The internal copy: one message, no tracking headers, no EmailLog."""
         audit_copy = EmailService._build_message(
             **message,
-            to=cc_recipients,
-            cc=[],
-            extra_headers={"X-ERP-ORIGINAL-TO": ", ".join(recipients)},
+            to=recipients,
+            cc=cc_recipients,
+            envelope_recipients=cc_recipients,
         )
         try:
             audit_copy.send(fail_silently=False)
@@ -218,9 +250,9 @@ class EmailService:
     @staticmethod
     def _build_message(
         *, subject, body_html, sender, to, cc, reply_to, attachments,
-        inline_images, extra_headers=None,
+        inline_images, extra_headers=None, envelope_recipients=None,
     ):
-        msg = EmailMessage(
+        msg = EnvelopeEmailMessage(
             subject=subject,
             body=strip_tags(body_html),
             from_email=sender,
@@ -228,6 +260,7 @@ class EmailService:
             cc=cc,
             reply_to=reply_to,
             headers=extra_headers or None,
+            envelope_recipients=envelope_recipients,
         )
         msg.content_subtype = "html"
         msg.body = body_html

@@ -62,7 +62,7 @@ jobs:
       - name: Install GDAL
         run: |
           sudo apt-get update
-          sudo apt-get install -y gdal-bin libgdal-dev python3-gdal binutils libproj-dev
+          sudo apt-get install -y gdal-bin libgdal-dev python3-gdal binutils libproj-dev gettext
 
       - name: Install pipx
         run: python3 -m pip install --user pipx
@@ -85,6 +85,13 @@ jobs:
 
       - name: Install dependencies
         run: poetry install
+
+      # .mo catalogs are build output and not tracked in git. The tests need
+      # them (TranslationCoverageTest reads the Spanish catalog), and
+      # compilemessages runs msgfmt --check-format, so a broken .po fails here.
+      # --ignore keeps it from compiling the packages in the in-project .venv.
+      - name: Compile translations
+        run: poetry run python manage.py compilemessages --ignore=.venv
 
       # The test database is throwaway, so trade crash-safety for speed:
       # skipping fsync/WAL durability makes the 700+ migrations, per-test
@@ -185,6 +192,14 @@ jobs:
           echo "CELERY_BROKER_URL=${{ secrets.CELERY_BROKER_URL }}" >> .env
 
           echo "DEBUG=False" >> .env
+
+      # The EB CLI bundles the working tree (.ebignore), so the catalogs
+      # compiled here ship with the release.
+      - name: Compile translations
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext
+          poetry run python manage.py compilemessages --ignore=.venv
 
       - name: Add poetry export plugin
         run: poetry self add poetry-plugin-export

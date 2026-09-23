@@ -8,6 +8,8 @@ __pycache__/
 # Django stuff:
 *.log
 *.pot
+# Compiled translation catalogs are built by CI (compilemessages).
+*.mo
 /static/
 
 */__pycache__/*

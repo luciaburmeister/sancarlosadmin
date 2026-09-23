@@ -8,7 +8,7 @@ from django.db.models import BooleanField, Case, Count, DecimalField, Sum, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from invoices.models import ConfirmationStatus, Invoice, InvoicePaymentStatus
+from invoices.models import Invoice, InvoicePaymentStatus
 from materials.models import PaymentMethod, Provider
 from payments.mixins import annotate_amount_remaining
 
@@ -32,16 +32,21 @@ class PaymentsForecastService:
     )
 
     @classmethod
-    def build_forecast(cls, company, days_ahead: int = 14, payment_methods: list | None = None) -> dict:
+    def build_forecast(cls, company, date_from, date_to, payment_methods: list | None = None) -> dict:
         """
-        Builds the payments forecast for one company:
+        Builds the payments forecast for one company over the calendar range
+        [date_from, date_to] (both inclusive, both chosen by the user on the
+        dashboard):
 
-        - "overdue": one bucket for everything already past due, grouped by provider.
-        - "buckets": ONE ENTRY PER CALENDAR DAY in [today, today + days_ahead] --
+        - "overdue": one bucket for everything due before date_from, grouped
+          by provider -- when date_from is today (the default), this is
+          exactly "everything already overdue".
+        - "buckets": ONE ENTRY PER CALENDAR DAY in [date_from, date_to] --
           including days with no invoices due (they show as an empty bucket) --
           same convention as the Collections Forecast calendar.
-        - "window_total"/"window_count": totals across the whole visible window.
-        - "month_total"/"month_count": everything due this calendar month.
+        - "window_total"/"window_count": totals across the whole visible range.
+        - "month_total"/"month_count": everything due in the current real
+          calendar month, regardless of the selected range.
 
         Amounts use the real outstanding balance per invoice (total_amount minus
         whatever has already been applied via PaymentAllocation), via the same
@@ -50,23 +55,23 @@ class PaymentsForecastService:
         is the single source of truth for the numbers: both the calendar view
         and the scheduled/manual email report call this function.
 
-        Only APPROVED invoices with a due_date count -- invoices still pending
-        review or declined are irrelevant to a payments forecast. Optionally
-        restricted to a subset of payment methods (SEPA, transfer, etc.).
+        Invoices of any confirmation status (approved, pending review, or
+        declined) with a due_date count -- only already-paid invoices are
+        excluded. Optionally restricted to a subset of payment methods
+        (SEPA, transfer, etc.).
         """
         if not company:
-            return cls._empty_result(days_ahead)
+            return cls._empty_result(date_from, date_to)
 
         today = timezone.now().date()
         methods_key = ",".join(sorted(payment_methods)) if payment_methods else "all"
-        cache_key = f"payments_forecast:{company.pk}:{days_ahead}:{methods_key}:{today.isoformat()}"
+        cache_key = f"payments_forecast:{company.pk}:{date_from.isoformat()}:{date_to.isoformat()}:{methods_key}"
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
 
         pending_qs = Invoice.objects.filter(
             company=company,
-            confirmation_status=ConfirmationStatus.APPROVED,
             due_date__isnull=False,
         ).exclude(payment_status=InvoicePaymentStatus.PAID)
 
@@ -83,7 +88,7 @@ class PaymentsForecastService:
         }
 
         overdue_rows = list(
-            pending_qs.filter(due_date__lt=today)
+            pending_qs.filter(due_date__lt=date_from)
             .values("provider_id", "provider__name")
             .annotate(
                 day_total=Coalesce(Sum("db_amount_remaining"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
@@ -94,13 +99,11 @@ class PaymentsForecastService:
         )
         overdue = cls._build_bucket(
             overdue_rows, total_owed_by_provider,
-            due_date_from=None, due_date_to=today - timedelta(days=1),
+            due_date_from=None, due_date_to=date_from - timedelta(days=1),
         )
 
         window_rows = list(
-            pending_qs.filter(
-                due_date__gte=today, due_date__lte=today + timedelta(days=days_ahead)
-            )
+            pending_qs.filter(due_date__gte=date_from, due_date__lte=date_to)
             .values("due_date", "provider_id", "provider__name")
             .annotate(
                 day_total=Coalesce(Sum("db_amount_remaining"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
@@ -114,9 +117,10 @@ class PaymentsForecastService:
             for due_date, rows in groupby(window_rows, key=lambda r: r["due_date"])
         }
 
+        days_in_range = (date_to - date_from).days
         buckets = []
-        for offset in range(days_ahead + 1):
-            bucket_date = today + timedelta(days=offset)
+        for offset in range(days_in_range + 1):
+            bucket_date = date_from + timedelta(days=offset)
             buckets.append({
                 "date": bucket_date,
                 **cls._build_bucket(
@@ -146,7 +150,8 @@ class PaymentsForecastService:
             "month_total": month_agg["total"],
             "month_count": month_agg["count"],
             "today": today,
-            "days_ahead": days_ahead,
+            "date_from": date_from,
+            "date_to": date_to,
         }
         cache.set(cache_key, result, cls.CACHE_TTL)
         return result
@@ -185,7 +190,7 @@ class PaymentsForecastService:
         return {"total": Decimal("0.00"), "count": 0, "providers": []}
 
     @classmethod
-    def _empty_result(cls, days_ahead: int) -> dict:
+    def _empty_result(cls, date_from, date_to) -> dict:
         return {
             "overdue": cls._empty_bucket(),
             "buckets": [],
@@ -194,5 +199,6 @@ class PaymentsForecastService:
             "month_total": Decimal("0.00"),
             "month_count": 0,
             "today": timezone.now().date(),
-            "days_ahead": days_ahead,
+            "date_from": date_from,
+            "date_to": date_to,
         }

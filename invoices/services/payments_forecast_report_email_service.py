@@ -100,21 +100,26 @@ class PaymentsForecastReportEmailService:
         elif company_phone:
             contact_message = _("Questions? Call us at %(phone)s.") % {"phone": company_phone}
 
-        days_ahead = forecast.get("days_ahead", 14)
+        date_from = forecast.get("date_from") or today
+        date_to = forecast.get("date_to") or today
+        range_label = _("%(date_from)s – %(date_to)s") % {
+            "date_from": date_from.strftime("%d/%m/%Y"),
+            "date_to": date_to.strftime("%d/%m/%Y"),
+        }
         base_url = settings.BACKEND_URL.rstrip("/")
         context = {
             "report_title": _("Payments Forecast"),
             "company": str(company),
             "date_label": _long_date(today),
             "intro_text": _(
-                "Here is your payments forecast for the next %(days)s days, "
+                "Here is your payments forecast from %(date_from)s to %(date_to)s, "
                 "plus everything already overdue:"
-            ) % {"days": days_ahead},
+            ) % {"date_from": date_from.strftime("%d/%m/%Y"), "date_to": date_to.strftime("%d/%m/%Y")},
             "notice_text": notice_text,
             "kpis": [
                 {"label": _("To Pay This Month"), "value": _money(forecast["month_total"]), "color": cls.TEAL},
                 {"label": _("Overdue"), "value": _money(forecast["overdue"]["total"]), "color": cls.AMBER},
-                {"label": _("Next %(days)s Days") % {"days": days_ahead},
+                {"label": range_label,
                  "value": _money(forecast.get("window_total", 0)), "color": cls.TEXT},
             ],
             "entity_label": _("Provider"),

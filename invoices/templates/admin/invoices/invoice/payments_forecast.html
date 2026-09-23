@@ -40,20 +40,21 @@
         </select>
 
         <label style="font-size:.8rem;font-weight:600;color:var(--pf-text-sub);white-space:nowrap;">
-          {% trans "Show next" %}
+          {% trans "From" %}
         </label>
         <input
-          type="number"
-          name="days"
+          type="date"
+          name="date_from"
           class="pf-select"
-          style="width:70px;"
-          min="{{ days_min }}"
-          max="{{ days_max }}"
-          value="{{ days_ahead }}"
-          title="{% blocktrans %}Days ahead ({{ days_min }}–{{ days_max }}){% endblocktrans %}">
+          value="{{ date_from|date:'Y-m-d' }}">
         <label style="font-size:.8rem;font-weight:600;color:var(--pf-text-sub);white-space:nowrap;">
-          {% trans "days" %}
+          {% trans "To" %}
         </label>
+        <input
+          type="date"
+          name="date_to"
+          class="pf-select"
+          value="{{ date_to|date:'Y-m-d' }}">
 
         <div style="position:relative;" @click.outside="methodsOpen = false">
           <button type="button" class="pf-select" style="cursor:pointer;" @click="methodsOpen = !methodsOpen">
@@ -87,7 +88,8 @@
       <form method="post" style="margin:0;">
         {% csrf_token %}
         <input type="hidden" name="company" value="{{ selected_company.pk }}">
-        <input type="hidden" name="days" value="{{ days_ahead }}">
+        <input type="hidden" name="date_from" value="{{ date_from|date:'Y-m-d' }}">
+        <input type="hidden" name="date_to" value="{{ date_to|date:'Y-m-d' }}">
         {% for method in selected_methods %}
         <input type="hidden" name="payment_method" value="{{ method }}">
         {% endfor %}
@@ -108,7 +110,7 @@
       <div class="pf-kpi-label">{% blocktrans count count=forecast.overdue.count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</div>
     </div>
     <div class="pf-kpi">
-      <div class="pf-kpi-label">{% blocktrans %}In the Next {{ days_ahead }} Days{% endblocktrans %}</div>
+      <div class="pf-kpi-label">{% blocktrans with df=date_from|date:"d/m/Y" dt=date_to|date:"d/m/Y" %}From {{ df }} to {{ dt }}{% endblocktrans %}</div>
       <div class="pf-kpi-value">€ {{ forecast.window_total|floatformat:2 }}</div>
       <div class="pf-kpi-label">{% blocktrans count count=forecast.window_count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</div>
     </div>

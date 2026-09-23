@@ -4,6 +4,22 @@
 {% block extrahead %}
 {{ block.super }}
 {% include "admin/invoices/invoice/_forecast_calendar_style.html" with prefix="cf" entity_table="client-table" %}
+<style>
+  /* Small badge flagging rows that include a pro forma invoice -- so the
+     user knows this amount isn't fully invoiced yet. */
+  .cf-proforma-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 7px;
+    font-size: .65rem;
+    font-weight: 700;
+    letter-spacing: .02em;
+    border-radius: 999px;
+    background: var(--cf-teal-500);
+    color: #fff;
+    vertical-align: middle;
+  }
+</style>
 {% endblock %}
 
 {% block content %}
@@ -21,27 +37,29 @@
         </select>
  
         <label style="font-size:.8rem;font-weight:600;color:var(--cf-text-sub);white-space:nowrap;">
-          {% trans "Show next" %}
+          {% trans "From" %}
         </label>
         <input
-          type="number"
-          name="days"
+          type="date"
+          name="date_from"
           class="cf-select"
-          style="width:70px;"
-          min="{{ days_min }}"
-          max="{{ days_max }}"
-          value="{{ days_ahead }}"
-          title="{% blocktrans %}Days ahead ({{ days_min }}–{{ days_max }}){% endblocktrans %}">
+          value="{{ date_from|date:'Y-m-d' }}">
         <label style="font-size:.8rem;font-weight:600;color:var(--cf-text-sub);white-space:nowrap;">
-          {% trans "days" %}
+          {% trans "To" %}
         </label>
- 
+        <input
+          type="date"
+          name="date_to"
+          class="cf-select"
+          value="{{ date_to|date:'Y-m-d' }}">
+
         <button type="submit" class="cf-btn cf-btn--primary">{% trans "Apply" %}</button>
       </form>
       <form method="post" style="margin:0;">
         {% csrf_token %}
         <input type="hidden" name="company" value="{{ selected_company.pk }}">
-        <input type="hidden" name="days" value="{{ days_ahead }}">
+        <input type="hidden" name="date_from" value="{{ date_from|date:'Y-m-d' }}">
+        <input type="hidden" name="date_to" value="{{ date_to|date:'Y-m-d' }}">
         <button type="submit" class="cf-btn cf-btn--primary">{% trans "Send Report by Email Now" %}</button>
       </form>
     </div>
@@ -59,7 +77,7 @@
       <div class="cf-kpi-label">{% blocktrans count count=forecast.overdue.count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</div>
     </div>
     <div class="cf-kpi">
-      <div class="cf-kpi-label">{% blocktrans %}In the Next {{ days_ahead }} Days{% endblocktrans %}</div>
+      <div class="cf-kpi-label">{% blocktrans with df=date_from|date:"d/m/Y" dt=date_to|date:"d/m/Y" %}From {{ df }} to {{ dt }}{% endblocktrans %}</div>
       <div class="cf-kpi-value">€ {{ forecast.window_total|floatformat:2 }}</div>
       <div class="cf-kpi-label">{% blocktrans count count=forecast.window_count %}{{ count }} invoice{% plural %}{{ count }} invoices{% endblocktrans %}</div>
     </div>
@@ -90,7 +108,7 @@
           <tbody>
             {% for client in forecast.overdue.clients %}
             <tr>
-              <td>{{ client.client_name }}</td>
+              <td>{{ client.client_name }}{% if client.has_proforma %}<span class="cf-proforma-badge">{% trans "PRO FORMA" %}</span>{% endif %}</td>
               <td class="cf-amount">€ {{ client.day_total|floatformat:2 }}</td>
               <td class="cf-amount-sub">€ {{ client.total_owed|floatformat:2 }}</td>
               <td>
@@ -129,7 +147,7 @@
           <tbody>
             {% for client in bucket.clients %}
             <tr>
-              <td>{{ client.client_name }}</td>
+              <td>{{ client.client_name }}{% if client.has_proforma %}<span class="cf-proforma-badge">{% trans "PRO FORMA" %}</span>{% endif %}</td>
               <td class="cf-amount">€ {{ client.day_total|floatformat:2 }}</td>
               <td class="cf-amount-sub">€ {{ client.total_owed|floatformat:2 }}</td>
               <td>

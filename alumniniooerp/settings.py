@@ -557,7 +557,7 @@ UNFOLD = {
                         "icon": "event_upcoming",
                         "link": reverse_lazy("admin:invoices_invoice_payments_forecast"),
                         "permission": lambda request: request.user.has_perm(
-                            "invoices.accounts_payable"
+                            "invoices.payments_forecast"
                         ),
                     },
                     {

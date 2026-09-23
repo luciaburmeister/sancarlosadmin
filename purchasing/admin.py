@@ -14,6 +14,7 @@ from django.utils import timezone, translation
 from django.core.exceptions import ValidationError
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.decorators import action, display
+from unfold.sections import TemplateSection
 from core.admin.company_admin import CompanyRestrictedAdmin
 from django.urls import path, reverse
 from copy import deepcopy
@@ -108,16 +109,58 @@ class PurchaseOrderItemInline(StackedInline):
             return False
         return super().has_delete_permission(request, obj)
 
+def _user_display_name(user):
+    if user is None:
+        return None
+    return user.get_full_name() or user.username
+
+
+class PurchaseOrderDetailsSection(TemplateSection):
+    """Expandable changelist row holding the secondary PO fields dropped from
+    list_display (type, cost center, requester, payment terms, approval
+    trail) so the main table stays narrow."""
+
+    template_name = "purchasing/po_details_section.html"
+
+    def get_context_data(self, request, instance):
+        project_file = instance.project_file
+        cost_center = instance.cost_center
+        return {
+            "po_type": instance.get_po_type_display(),
+            "project_file": project_file,
+            "project_file_url": (
+                reverse("admin:management_projectfile_change", args=[project_file.pk])
+                if project_file else None
+            ),
+            "cost_center": cost_center,
+            "cost_center_url": (
+                reverse("admin:accounting_costcenter_change", args=[cost_center.pk])
+                if cost_center else None
+            ),
+            "requested_by_name": _user_display_name(instance.requested_by),
+            "created_at": instance.created_at,
+            "external_reference": instance.external_reference,
+            "payment_method": instance.get_payment_method_display(),
+            "payment_terms_days": instance.payment_terms_days,
+            "approved_by_name": _user_display_name(instance.approved_by),
+            "approved_at": instance.approved_at,
+            "rejected_by_name": _user_display_name(instance.rejected_by),
+            "rejected_at": instance.rejected_at,
+            "rejection_reason": instance.rejection_reason,
+        }
+
+
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
     resource_classes = [PurchaseOrderResource]
     export_form_class = SelectableFieldsExportForm
-    list_display = ["number", "provider", "po_type", "cost_center", "requested_by", "get_status_label", "get_date_ordered", "total_amount_display", "get_projected_margin", "get_billing_label", "company"]
+    list_display = ["number", "provider", "get_status_label", "get_date_ordered", "total_amount_display", "get_projected_margin", "get_billing_label", "company"]
+    list_sections = [PurchaseOrderDetailsSection]
     list_filter = [("status",MultipleChoicesDropdownFilter), ("po_type",MultipleChoicesDropdownFilter), ("date_ordered",RangeDateFilter), ("company",AutocompleteSelectMultipleFilter), ("cost_center",AutocompleteSelectMultipleFilter), ("project_file",AutocompleteSelectMultipleFilter)]
     search_fields = ["number", "external_reference","provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name", "cost_center__code", "cost_center__name"]
     autocomplete_fields = ["provider", "company", "approved_by", "requested_by", "project_file", "cost_center"]
     readonly_fields = ["number", "total_amount_display", "total_amount_with_tax_display", "approved_at", "approved_by", "rejected_at", "rejected_by", "rejection_reason", "requested_by", "status", "linked_invoices_display"]
-    list_select_related = ["provider", "company", "requested_by", "project_file", "cost_center"]
+    list_select_related = ["provider", "company", "requested_by", "project_file", "cost_center", "approved_by", "rejected_by"]
     list_filter_submit = True
     fieldsets = (
         (_("General Information"), {

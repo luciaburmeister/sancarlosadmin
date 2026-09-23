@@ -15427,3 +15427,19 @@ msgstr "línea(s) totalmente entregadas (no listadas)"
 
 #~ msgid "Origin (written by requester)"
 #~ msgstr "Origen (escrito por quien solicita)"
+
+#: purchasing/templates/purchasing/po_details_section.html
+msgid "Classification"
+msgstr "Clasificación"
+
+#: purchasing/templates/purchasing/po_details_section.html
+msgid "Cost Center"
+msgstr "Centro de coste"
+
+#: purchasing/templates/purchasing/po_details_section.html
+msgid "Rejected by"
+msgstr "Rechazado por"
+
+#: purchasing/templates/purchasing/po_details_section.html
+msgid "Rejected at"
+msgstr "Rechazado el"

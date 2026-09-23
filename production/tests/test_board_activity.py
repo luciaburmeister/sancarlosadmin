@@ -68,6 +68,28 @@ class BuildWeekActivityTest(TestCase):
         self.assertEqual(entry["active_workers"], [{"id": self.jose.id, "full_name": self.jose.full_name}])
         self.assertIsNone(entry["end_at"])
 
+    def test_active_after_resume_splits_into_separate_paused_and_active_stints(self):
+        """A task started, paused, and resumed must show as two separate
+        entries — the earlier paused stint and the current active one — not
+        one span covering the gap, which would overlap on the board with
+        whatever the worker did during the pause."""
+        item = self._item("in_progress")
+        self._session(
+            item, self.jose,
+            datetime(2026, 9, 15, 8, 0, tzinfo=dt_timezone.utc),
+            end=datetime(2026, 9, 15, 9, 0, tzinfo=dt_timezone.utc),
+        )
+        self._session(item, self.jose, datetime(2026, 9, 15, 14, 0, tzinfo=dt_timezone.utc))
+
+        activity = build_week_activity(self.company, self.range_start, self.range_end)
+
+        self.assertEqual(len(activity), 2)
+        by_kind = {e["kind"]: e for e in activity}
+        self.assertEqual(by_kind["paused"]["start_at"], "2026-09-15T08:00:00+00:00")
+        self.assertEqual(by_kind["paused"]["end_at"], "2026-09-15T09:00:00+00:00")
+        self.assertEqual(by_kind["active"]["start_at"], "2026-09-15T14:00:00+00:00")
+        self.assertIsNone(by_kind["active"]["end_at"])
+
     def test_in_progress_no_open_session_is_paused(self):
         item = self._item("in_progress")
         self._session(
@@ -98,6 +120,56 @@ class BuildWeekActivityTest(TestCase):
         self.assertEqual(entry["date"], "2026-09-16")
         self.assertEqual(entry["end_at"], end.isoformat())
 
+    def test_done_after_earlier_pause_keeps_both_stints_marked_done(self):
+        """A task worked, paused, and resumed to completion must show both
+        stints, each with its own real time range and both marked done —
+        not one span covering the gap, and not just the finishing stint."""
+        item = self._item("done")
+        self._session(
+            item, self.jose,
+            datetime(2026, 9, 16, 8, 0, tzinfo=dt_timezone.utc),
+            end=datetime(2026, 9, 16, 9, 0, tzinfo=dt_timezone.utc),
+        )
+        finish = datetime(2026, 9, 16, 15, 0, tzinfo=dt_timezone.utc)
+        self._session(
+            item, self.jose, datetime(2026, 9, 16, 14, 0, tzinfo=dt_timezone.utc),
+            end=finish, status=ProductionItemSessionStatus.DONE,
+        )
+
+        activity = build_week_activity(self.company, self.range_start, self.range_end)
+
+        self.assertEqual(len(activity), 2)
+        self.assertTrue(all(e["kind"] == "done" for e in activity))
+        by_start = {e["start_at"]: e for e in activity}
+        self.assertEqual(
+            by_start["2026-09-16T08:00:00+00:00"]["end_at"], "2026-09-16T09:00:00+00:00",
+        )
+        self.assertEqual(by_start["2026-09-16T14:00:00+00:00"]["end_at"], finish.isoformat())
+
+    def test_done_stint_from_a_prior_week_keeps_its_own_date_not_clamped(self):
+        """An earlier stint that finished before the displayed week must show
+        on its real date, not get pulled onto this week's Monday — otherwise
+        two unrelated stints from different weeks land on the same fake day
+        and look like they overlap."""
+        item = self._item("done")
+        self._session(
+            item, self.jose,
+            datetime(2026, 9, 7, 8, 0, tzinfo=dt_timezone.utc),
+            end=datetime(2026, 9, 7, 9, 0, tzinfo=dt_timezone.utc),
+        )
+        finish = datetime(2026, 9, 16, 15, 0, tzinfo=dt_timezone.utc)
+        self._session(
+            item, self.jose, datetime(2026, 9, 16, 14, 0, tzinfo=dt_timezone.utc),
+            end=finish, status=ProductionItemSessionStatus.DONE,
+        )
+
+        activity = build_week_activity(self.company, self.range_start, self.range_end)
+
+        self.assertEqual(len(activity), 2)
+        by_start = {e["start_at"]: e for e in activity}
+        self.assertEqual(by_start["2026-09-07T08:00:00+00:00"]["date"], "2026-09-07")
+        self.assertEqual(by_start["2026-09-16T14:00:00+00:00"]["date"], "2026-09-16")
+
     def test_cancelled_only_session_produces_no_entry(self):
         item = self._item("pending")
         self._session(
@@ -109,7 +181,7 @@ class BuildWeekActivityTest(TestCase):
         activity = build_week_activity(self.company, self.range_start, self.range_end)
         self.assertEqual(activity, [])
 
-    def test_active_wins_over_paused_across_items_of_same_ticket_stage(self):
+    def test_active_and_paused_items_of_same_ticket_stage_show_as_separate_entries(self):
         active_item = self._item("in_progress")
         paused_item = self._item("in_progress")
         self._session(active_item, self.jose, datetime(2026, 9, 15, 9, 0, tzinfo=dt_timezone.utc))
@@ -120,8 +192,9 @@ class BuildWeekActivityTest(TestCase):
 
         activity = build_week_activity(self.company, self.range_start, self.range_end)
 
-        self.assertEqual(len(activity), 1)
-        self.assertEqual(activity[0]["kind"], "active")
+        self.assertEqual(len(activity), 2)
+        kinds = {e["kind"] for e in activity}
+        self.assertEqual(kinds, {"active", "paused"})
 
     def test_multi_worker_active_workers_lists_everyone_currently_open(self):
         item_a = self._item("in_progress")

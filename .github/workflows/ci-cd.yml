@@ -194,11 +194,12 @@ jobs:
           echo "DEBUG=False" >> .env
 
       # The EB CLI bundles the working tree (.ebignore), so the catalogs
-      # compiled here ship with the release.
+      # compiled here ship with the release. compilemessages loads the Django
+      # settings, and the PostGIS backend needs GDAL/GEOS on this runner too.
       - name: Compile translations
         run: |
           sudo apt-get update
-          sudo apt-get install -y gettext
+          sudo apt-get install -y gettext gdal-bin libgdal-dev binutils libproj-dev
           poetry run python manage.py compilemessages --ignore=.venv
 
       - name: Add poetry export plugin

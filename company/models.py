@@ -241,18 +241,28 @@ class Company(models.Model):
         ]
 
     def assert_within_working_hours(self, start, end):
-        """Raise ValueError unless [start, end) fits inside one working window of its (local) day."""
+        """Raise ValueError unless [start, end) fits inside one working window of its (local) day —
+        or, for a multi-day range, unless *start* and *end* each fall inside a working window of
+        their own (local) day (the hours in between are not validated)."""
         local_start = timezone.localtime(start)
         local_end = timezone.localtime(end)
-        if local_start.date() != local_end.date():
-            raise ValueError(_("A time range can't cross midnight."))
 
-        windows = self.working_windows_for_day(local_start.date())
-        if not any(
-            w_start <= local_start.time() and local_end.time() <= w_end
-            for w_start, w_end in windows
-        ):
-            raise ValueError(_("That time falls outside working hours that day."))
+        if local_start.date() == local_end.date():
+            windows = self.working_windows_for_day(local_start.date())
+            if not any(
+                w_start <= local_start.time() and local_end.time() <= w_end
+                for w_start, w_end in windows
+            ):
+                raise ValueError(_("That time falls outside working hours that day."))
+            return
+
+        start_windows = self.working_windows_for_day(local_start.date())
+        if not any(w_start <= local_start.time() <= w_end for w_start, w_end in start_windows):
+            raise ValueError(_("The start time falls outside working hours that day."))
+
+        end_windows = self.working_windows_for_day(local_end.date())
+        if not any(w_start <= local_end.time() <= w_end for w_start, w_end in end_windows):
+            raise ValueError(_("The end time falls outside working hours that day."))
 
     class Meta:
         verbose_name = _("Company")

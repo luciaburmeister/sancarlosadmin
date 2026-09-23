@@ -45,9 +45,11 @@ def find_free_slot_in_day(
 
 def move_session(
     *, company, session: PlannedProductionSession, employee, day: date | None,
-    start_time: time | None = None, end_time: time | None = None,
+    start_time: time | None = None, end_time: time | None = None, end_day: date | None = None,
 ) -> PlannedProductionSession:
-    """Move/reassign a planned session; auto-snaps to a free slot if start_time is omitted."""
+    """Move/reassign a planned session; auto-snaps to a free slot if start_time is omitted.
+    *end_day* lets the session span more than one calendar day — defaults to *day* (today's
+    single-day behavior) when omitted."""
     if session.locked:
         raise ValueError(_("This session is locked and can't be moved."))
 
@@ -58,7 +60,7 @@ def move_session(
     if start_time is not None:
         new_start = timezone.make_aware(datetime.combine(target_day, start_time))
         new_end = (
-            timezone.make_aware(datetime.combine(target_day, end_time))
+            timezone.make_aware(datetime.combine(end_day or target_day, end_time))
             if end_time is not None
             else new_start + duration
         )
@@ -84,9 +86,11 @@ def move_session(
 
 def create_session(
     *, company, ticket, stage: str, employee, day: date,
-    start_time: time | None = None, end_time: time | None = None,
+    start_time: time | None = None, end_time: time | None = None, end_day: date | None = None,
 ) -> PlannedProductionSession:
-    """Create a planned session from a backlog stage; auto-snaps to a free slot if start_time is omitted."""
+    """Create a planned session from a backlog stage; auto-snaps to a free slot if start_time is
+    omitted. *end_day* lets the session span more than one calendar day — defaults to *day*
+    (today's single-day behavior) when omitted."""
     resource = get_or_create_resource_for_target(employee)
 
     if start_time is None:
@@ -100,7 +104,7 @@ def create_session(
     else:
         new_start = timezone.make_aware(datetime.combine(day, start_time))
         new_end = (
-            timezone.make_aware(datetime.combine(day, end_time))
+            timezone.make_aware(datetime.combine(end_day or day, end_time))
             if end_time is not None
             else new_start + DEFAULT_SESSION_DURATION
         )

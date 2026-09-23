@@ -14,6 +14,7 @@ from core.admin.company_admin import CompanyRestrictedAdmin
 from invoices.models import AppliedTax, SalesInvoice, SalesInvoiceStatus
 from payments.admin_mixins import OutstandingBalanceAdminMixin, PendingInvoicesSection
 from payments.mixins import currency_symbol
+from payments.models import PaymentDirection
 from sales.models import Client, ClientAddress, ClientContact, ClientBankAccount
 from sales.forms import ClientImportForm, ClientConfirmImportForm
 from sales.resources import ClientResource
@@ -102,8 +103,10 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
     balance_invoice_model = SalesInvoice
     balance_counterparty_field = "client"
     balance_invoice_filters = {"status": SalesInvoiceStatus.FINAL}
+    credit_payment_field = "client"
+    credit_payment_direction = PaymentDirection.INBOUND
 
-    list_display = ["name", "commercial_name", "tax_identifier", "phone", "balance_overdue_display", "balance_not_due_display", "balance_owed_display"]
+    list_display = ["name", "commercial_name", "tax_identifier", "phone", "balance_overdue_display", "balance_not_due_display", "balance_owed_display", "credit_balance_display"]
     list_sections = [PendingInvoicesSection]
     search_fields = [
         "name", "commercial_name", "tax_identifier", "industry_identifier", "email", "phone", "address",
@@ -136,6 +139,24 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
             _("Overdue"), getattr(obj, "balance_overdue", 0) or 0, symbol,
             _("Not overdue"), getattr(obj, "balance_not_due", 0) or 0, symbol,
             self._pending_invoices_url(obj), _("See pending invoices"),
+        )
+
+    @display(description=_("Credit (they paid, not yet allocated)"))
+    def credit_balance_detail_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        amount = getattr(obj, "credit_balance", None)
+        if not amount:
+            return "—"
+        symbol = currency_symbol(getattr(obj, "credit_balance_currency", "EUR"))
+        return format_html(
+            '<span style="color:#16a34a;font-weight:600;">{} {}</span> '
+            '<a href="{}" target="_blank" rel="noopener" '
+            'style="display:inline-block;margin-left:10px;padding:4px 12px;border-radius:6px;'
+            'background:#16a34a;color:#fff;font-weight:600;text-decoration:none;white-space:nowrap;">'
+            '{}</a>',
+            amount, symbol,
+            self._unallocated_payments_url(obj), _("See unallocated payments"),
         )
 
     def get_confirm_form_class(self, request):
@@ -192,6 +213,7 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
                 ("tax_identifier", "industry_identifier"),
                 ("phone", "email"),
                 "balance_owed_detail_display",
+                "credit_balance_detail_display",
                 "address"
             )
         }),
@@ -244,6 +266,7 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
         "terms_version_display",
         "terms_signature_preview",
         "balance_owed_detail_display",
+        "credit_balance_detail_display",
     ]
 
     @display(description=_("Versión T&C"))

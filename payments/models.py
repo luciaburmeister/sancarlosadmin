@@ -97,6 +97,20 @@ class Payment(CompanyOwnedModel):
         verbose_name=_("Created By"),
         help_text=_("Whether this payment was created manually by a user or automatically from a bank transaction.")
     )
+    client = models.ForeignKey(
+        "sales.Client",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payments",
+        verbose_name=_("Client"),
+        help_text=_(
+            "The client this money came from (or went back to). Filled in "
+            "automatically the first time the payment is allocated to one of "
+            "their sales invoices; set it by hand for a payment on account "
+            "that has no invoice yet."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Payment")
@@ -105,12 +119,33 @@ class Payment(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.get_direction_display()} {self.amount} — {self.payment_date}"
-    
+
     def clean(self):
         if self.method == PaymentMethod.TRANSFER and not self.bank_account_id:
             raise ValidationError({
                 "bank_account": _("A bank account is required for bank transfers.")
             })
+
+    def save(self, *args, **kwargs):
+        # A brand-new payment has no allocations yet, so everything is
+        # pending. Callers used to have to pass amount_pending_allocation
+        # themselves; the ones that didn't left a payment on account reading
+        # as fully allocated (0 - 0), which hid it from the client's credit.
+        if self._state.adding:
+            self.amount_pending_allocation = Money(self.amount.amount, self.amount_currency)
+        super().save(*args, **kwargs)
+
+    def sync_client_from_document(self, content_type, object_id):
+        """
+        Take the client off a sales invoice this payment was just allocated
+        to, when nobody has set one yet. Never overrides an explicit client.
+        """
+        if self.client_id:
+            return
+        client_id = _client_id_for_document(content_type, object_id)
+        if client_id:
+            self.client_id = client_id
+            self.save(update_fields=["client"])
 
     def recalculate_pending_allocation(self):
         """
@@ -168,6 +203,7 @@ class PaymentAllocation(models.Model):
         with transaction.atomic():
             super().save(*args, **kwargs)
             self.payment.recalculate_pending_allocation()
+            self.payment.sync_client_from_document(self.content_type, self.object_id)
             _recalculate_invoice_payment_status(self.content_type, self.object_id)
 
 
@@ -183,6 +219,20 @@ def _recalculate_on_allocation_delete(sender, instance, **kwargs):
     if payment:
         payment.recalculate_pending_allocation()
     _recalculate_invoice_payment_status(instance.content_type, instance.object_id)
+
+
+def _client_id_for_document(content_type, object_id):
+    """The client behind an allocated document, or None if it has none (sales invoices only today)."""
+    from django.apps import apps
+
+    SalesInvoice = apps.get_model("invoices", "SalesInvoice")
+    if content_type.model_class() is not SalesInvoice:
+        return None
+    return (
+        SalesInvoice.objects.filter(pk=object_id)
+        .values_list("client_id", flat=True)
+        .first()
+    )
 
 
 def _recalculate_invoice_payment_status(content_type, object_id):

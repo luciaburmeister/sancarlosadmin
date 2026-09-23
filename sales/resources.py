@@ -105,6 +105,7 @@ class ClientResource(resources.ModelResource):
     balance_owed = fields.Field(column_name=_("Balance owed"), readonly=True)
     balance_overdue = fields.Field(column_name=_("Overdue"), readonly=True)
     balance_not_due = fields.Field(column_name=_("Not overdue"), readonly=True)
+    credit_balance = fields.Field(column_name=_("Credit (unallocated payments)"), readonly=True)
 
     class Meta:
         model = Client
@@ -120,6 +121,7 @@ class ClientResource(resources.ModelResource):
             "balance_overdue",
             "balance_not_due",
             "balance_owed",
+            "credit_balance",
             "company__name"
         )
 
@@ -127,9 +129,11 @@ class ClientResource(resources.ModelResource):
         # Only used when the admin doesn't pass its (already annotated) queryset.
         from invoices.models import SalesInvoice, SalesInvoiceStatus
         from payments.mixins import (
+            annotate_credit_balance,
             annotate_outstanding_balance,
             annotate_split_outstanding_balance,
         )
+        from payments.models import PaymentDirection
 
         qs = super().get_queryset()
         # Add total balance first, then split it
@@ -138,10 +142,11 @@ class ClientResource(resources.ModelResource):
             invoice_filters={"status": SalesInvoiceStatus.FINAL},
         )
         # Add the split (overdue / not due)
-        return annotate_split_outstanding_balance(
+        qs = annotate_split_outstanding_balance(
             qs, SalesInvoice, "client",
             invoice_filters={"status": SalesInvoiceStatus.FINAL},
         )
+        return annotate_credit_balance(qs, "client", PaymentDirection.INBOUND)
 
     def dehydrate_balance_owed(self, client):
         return float(getattr(client, "balance_owed", 0) or 0)
@@ -151,6 +156,9 @@ class ClientResource(resources.ModelResource):
 
     def dehydrate_balance_not_due(self, client):
         return float(getattr(client, "balance_not_due", 0) or 0)
+
+    def dehydrate_credit_balance(self, client):
+        return float(getattr(client, "credit_balance", 0) or 0)
 
     def __init__(self, *args, **kwargs):
         self._default_company = kwargs.pop("default_company", None)

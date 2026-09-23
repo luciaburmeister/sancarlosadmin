@@ -8,7 +8,28 @@ from unfold.decorators import display
 
 from banking.models import BankReconciliation
 from core.admin.company_admin import CompanyRestrictedAdmin
+from payments.mixins import unallocated_payments_q
 from payments.models import Payment, PaymentAllocation, PaymentStatus
+
+
+class UnallocatedFilter(admin.SimpleListFilter):
+    """
+    Payments with money still to allocate, by the same rule a client's credit
+    is summed with, so the credit figure links to exactly the payments behind it.
+    """
+
+    title = _("Pending allocation")
+    parameter_name = "unallocated"
+
+    def lookups(self, request, model_admin):
+        return [("yes", _("Yes")), ("no", _("No"))]
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.filter(unallocated_payments_q())
+        if self.value() == "no":
+            return queryset.exclude(unallocated_payments_q())
+        return queryset
 
 
 class PaymentAllocationInline(TabularInline):
@@ -65,18 +86,29 @@ class PaymentAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "get_status_label",
         "method",
         "amount",
+        "amount_pending_allocation",
         "is_allocated",
+        "client",
         "reference",
     )
-    list_filter = ("company", "direction", "status", "method", "payment_date")
-    search_fields = ("reference", "notes")
-    list_select_related = ("company",)
+    list_filter = (
+        "company", "direction", "status", "method", UnallocatedFilter, "payment_date",
+    )
+    search_fields = ("reference", "notes", "client__name", "client__commercial_name")
+    list_select_related = ("company", "client")
+    autocomplete_fields = ("client",)
     readonly_fields = (
         "amount_pending_allocation",
         "amount_pending_allocation_currency",
     )
     inlines = [PaymentAllocationInline, PaymentBankReconciliationInline]
     ordering = ("-payment_date", "-id")
+
+    def save_related(self, request, form, formsets, change):
+        super().save_related(request, form, formsets, change)
+        # Editing the amount alone (no allocation touched) would otherwise
+        # leave the stored pending figure, and the client's credit, stale.
+        form.instance.recalculate_pending_allocation()
 
     @display(description=_("Allocated"), boolean=True)
     def is_allocated(self, obj):

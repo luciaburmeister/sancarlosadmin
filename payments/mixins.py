@@ -250,6 +250,61 @@ def pending_invoices_queryset(invoice_model, invoice_filters: dict | None = None
     )
 
 
+def unallocated_payments_q(direction=None) -> Q:
+    """
+    What makes a payment count towards a counterparty's credit: money that
+    actually arrived (not draft, not cancelled) and has not yet been applied
+    to any document. `direction` narrows to inbound or outbound.
+    """
+    from payments.models import PaymentStatus
+
+    q = Q(amount_pending_allocation__gt=0) & ~Q(
+        status__in=[PaymentStatus.DRAFT, PaymentStatus.CANCELLED]
+    )
+    if direction is not None:
+        q &= Q(direction=direction)
+    return q
+
+
+def annotate_credit_balance(
+    queryset: QuerySet,
+    counterparty_field: str,
+    direction,
+    annotation_name: str = "credit_balance",
+    currency_name: str = "credit_balance_currency",
+) -> QuerySet:
+    """
+    Annotate a Client (or other counterparty) queryset with its credit: the
+    sum of `Payment.amount_pending_allocation` over its confirmed payments in
+    `direction` that still have money left to allocate. For a client and
+    inbound payments that is the "saldo a favor" - what they have paid us
+    that no invoice has consumed yet.
+
+    `counterparty_field` is the FK on Payment pointing back at the queryset's
+    model. The currency comes off one of the summed payments, EUR when there
+    are none (the total is zero then anyway).
+    """
+    from payments.models import Payment
+
+    payments = Payment.objects.filter(
+        **{counterparty_field: OuterRef("pk")}
+    ).filter(unallocated_payments_q(direction))
+
+    total = (
+        payments.values(counterparty_field)
+        .annotate(total=Sum("amount_pending_allocation"))
+        .values("total")
+    )
+    currency = payments.order_by("pk").values("amount_pending_allocation_currency")[:1]
+
+    return queryset.annotate(**{
+        annotation_name: Coalesce(
+            Subquery(total, output_field=_DECIMAL_FIELD), _ZERO, output_field=_DECIMAL_FIELD
+        ),
+        currency_name: Coalesce(Subquery(currency), Value("EUR")),
+    })
+
+
 def annotate_amount_remaining(queryset: QuerySet, invoice_model) -> QuerySet:
     """
     Annotate an invoice queryset (`Invoice`, `SalesInvoice`, …) with

@@ -10231,6 +10231,27 @@ msgstr "Balance pendiente"
 msgid "See pending invoices"
 msgstr "Ver facturas pendientes"
 
+msgid "Credit (unallocated payments)"
+msgstr "Saldo a favor (pagos sin asignar)"
+
+msgid "Credit (they paid, not yet allocated)"
+msgstr "Saldo a favor (pagado, aún sin asignar)"
+
+msgid "See unallocated payments"
+msgstr "Ver pagos sin asignar"
+
+msgid "Pending allocation"
+msgstr "Pendiente de asignar"
+
+msgid ""
+"The client this money came from (or went back to). Filled in automatically "
+"the first time the payment is allocated to one of their sales invoices; set "
+"it by hand for a payment on account that has no invoice yet."
+msgstr ""
+"El cliente del que viene este dinero (o al que se devolvió). Se rellena "
+"automáticamente la primera vez que el pago se asigna a una de sus facturas "
+"de venta; indícalo a mano en un pago a cuenta que aún no tiene factura."
+
 msgid "Contact Details"
 msgstr "Detalles de contacto"
 

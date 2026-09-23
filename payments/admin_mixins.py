@@ -12,6 +12,7 @@ from unfold.sections import TemplateSection
 
 from payments.mixins import (
     annotate_balance_currency,
+    annotate_credit_balance,
     annotate_outstanding_balance,
     annotate_split_outstanding_balance,
     currency_symbol,
@@ -26,6 +27,8 @@ PENDING_INVOICES_ATTR = "pending_invoices"
 _OVERDUE_COLOR = "#dc2626"
 _NOT_DUE_COLOR = "#6b7280"
 _TOTAL_COLOR = "#111827"
+# Credit is money already in our hands, so it gets the "good" green.
+_CREDIT_COLOR = "#16a34a"
 
 
 class PendingInvoicesSection(TemplateSection):
@@ -66,11 +69,18 @@ class OutstandingBalanceAdminMixin:
     `balance_invoice_filters` (which invoices count at all), then add the
     balance displays to `list_display` and `PendingInvoicesSection` to
     `list_sections`.
+
+    Setting `credit_payment_field` (the FK on `payments.Payment` back here)
+    and `credit_payment_direction` also annotates `credit_balance`: the
+    money this counterparty has paid that is not yet allocated to any
+    document, shown by `credit_balance_display`.
     """
 
     balance_invoice_model = None
     balance_counterparty_field = None
     balance_invoice_filters: dict = {}
+    credit_payment_field = None
+    credit_payment_direction = None
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
@@ -93,7 +103,35 @@ class OutstandingBalanceAdminMixin:
             self.balance_counterparty_field,
             invoice_filters=self.balance_invoice_filters,
         )
+        if self.credit_payment_field:
+            qs = annotate_credit_balance(
+                qs, self.credit_payment_field, self.credit_payment_direction
+            )
         return qs.prefetch_related(self._pending_invoices_prefetch())
+
+    def _unallocated_payments_url(self, obj):
+        """The payment changelist narrowed to what this row's credit was summed from."""
+        url = (
+            reverse("admin:payments_payment_changelist")
+            + f"?{self.credit_payment_field}__id__exact={obj.pk}"
+            + "&unallocated=yes"
+        )
+        if self.credit_payment_direction:
+            url += f"&direction__exact={self.credit_payment_direction}"
+        return url
+
+    @display(description=_("Credit (unallocated payments)"))
+    def credit_balance_display(self, obj):
+        amount = getattr(obj, "credit_balance", None)
+        if not obj or not obj.pk or not amount:
+            return "—"
+        symbol = currency_symbol(getattr(obj, "credit_balance_currency", "EUR"))
+        return format_html(
+            '<a href="{}" target="_blank" rel="noopener" '
+            'style="color:{};font-weight:600;white-space:nowrap;">{} {}</a>',
+            self._unallocated_payments_url(obj), _CREDIT_COLOR, amount, symbol,
+        )
+    credit_balance_display.admin_order_field = "credit_balance"
 
     def _pending_invoices_prefetch(self):
         from django.db.models import Prefetch

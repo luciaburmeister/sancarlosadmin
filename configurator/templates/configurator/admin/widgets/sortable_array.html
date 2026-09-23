@@ -1,0 +1,39 @@
+{% load i18n %}
+<div class="flex flex-col gap-2" x-data="sortableArrayWidget({{ widget.items_json }}, '{{ widget.name|escapejs }}')">
+    <template x-for="(item, index) in items" :key="item.key">
+        <div class="flex flex-row items-center gap-2"
+             draggable="true"
+             x-on:dragstart="onDragStart(index)"
+             x-on:dragover.prevent="onDragOver(index)"
+             x-on:drop.prevent="onDrop()"
+             x-on:dragend="onDragEnd()"
+             :class="dragIndex === index ? 'opacity-40' : ''">
+            <span class="material-symbols-outlined cursor-grab select-none text-base-400 dark:text-base-500"
+                  title="{% trans 'Drag to reorder' %}">drag_indicator</span>
+
+            {% if widget.choices %}
+                <select :name="fieldName" x-model="item.value"
+                        class="border border-base-200 rounded-default h-[38px] px-3 text-sm w-full bg-white dark:bg-base-900 dark:border-base-700 dark:text-base-200">
+                    {% for value, label in widget.choices %}
+                        <option value="{{ value }}">{{ label }}</option>
+                    {% endfor %}
+                </select>
+            {% else %}
+                <input type="text" :name="fieldName" x-model="item.value"
+                       class="border border-base-200 rounded-default h-[38px] px-3 text-sm w-full bg-white dark:bg-base-900 dark:border-base-700 dark:text-base-200" />
+            {% endif %}
+
+            <a x-on:click="remove(index)"
+               class="bg-white border border-base-200 cursor-pointer flex items-center h-[38px] justify-center rounded-default shadow-xs shrink-0 text-red-600 text-sm w-[38px] dark:bg-base-900 dark:border-base-700 dark:text-red-500">
+                <span class="material-symbols-outlined">delete</span>
+            </a>
+        </div>
+    </template>
+
+    <div class="flex flex-row">
+        <div x-on:click="add()"
+             class="bg-primary-600 border border-transparent cursor-pointer font-medium inline-block px-3 py-2 rounded-default text-center text-sm text-white w-full lg:w-auto">
+            {% trans "Add new item" %}
+        </div>
+    </div>
+</div>

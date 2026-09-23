@@ -9,8 +9,8 @@ from unfold.contrib.filters.admin import (
 from unfold.admin import TabularInline,StackedInline,GenericTabularInline
 from django.db import models
 from unfold.widgets import UnfoldAdminTextareaWidget, UnfoldAdminSelectWidget
-from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
+from configurator.admin.widgets import SortableArrayWidget
 from django.utils.translation import gettext_lazy as _
 from django.shortcuts import redirect
 from django.urls import path, reverse
@@ -106,7 +106,7 @@ class BOMRuleInline(StackedInline):
 
     formfield_overrides = {
         ArrayField: {
-            "widget": ArrayWidget,
+            "widget": SortableArrayWidget,
         }
     }
 
@@ -114,7 +114,7 @@ class BOMRuleInline(StackedInline):
         formset = super().get_formset(request, obj, **kwargs)
 
         if obj and obj.production_stages:
-            formset.form.base_fields["production_stages"].widget = ArrayWidget(
+            formset.form.base_fields["production_stages"].widget = SortableArrayWidget(
                 choices=[("", "---------")] + [(s, s) for s in obj.production_stages]
             )
 
@@ -231,7 +231,7 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
     formfield_overrides = {
         models.TextField: {"widget": UnfoldAdminTextareaWidget(attrs={"rows": 2})},
         ArrayField: {
-            "widget": ArrayWidget,
+            "widget": SortableArrayWidget,
         }
     }
 

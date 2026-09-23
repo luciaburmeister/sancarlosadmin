@@ -15,7 +15,10 @@ from django.utils import timezone
 from company.utils import get_current_employee
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.serializers import BaseSerializer
 from rest_framework.views import APIView
+
+from api.fleet.serializers import CubaPlanningSerializer, PortePlanningSerializer
 
 
 def save_image_to_field(transaction, field_name, b64_data, filename):
@@ -100,80 +103,6 @@ class AttendanceStatusView(APIView):
         return JsonResponse({"is_clocked_in": is_clocked_in})
 
 
-def _serialize_cuba_planning(p):
-    from api.fleet.views.assets import get_zone_coordinates
-    origin_lat, origin_lon = get_zone_coordinates(p.origin) if p.origin else (None, None)
-    dest_lat, dest_lon = get_zone_coordinates(p.destination) if p.destination else (None, None)
-    stops = [{"zone": s.zone.name, "address": s.zone.full_address, "sequence": s.sequence} for s in p.stops.all()]
-    reserved_zone = p.reserved_asset.current_working_zone if p.reserved_asset else None
-    reserved_lat, reserved_lon = get_zone_coordinates(reserved_zone) if reserved_zone else (None, None)
-    return {
-        "id": p.id, "planning_type": p.planning_type, "asset_id": p.asset.id if p.asset else 0,
-        "asset_name": p.asset.name if p.asset else None,
-        "origin": p.origin.name if p.origin else None,
-        "origin_address": p.origin.full_address if p.origin else None,
-        "origin_lat": origin_lat, "origin_lon": origin_lon,
-        "destination": p.destination.name if p.destination else None,
-        "destination_address": p.destination.full_address if p.destination else None,
-        "destination_lat": dest_lat, "destination_lon": dest_lon,
-        "stops": stops,
-        "transport_asset": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
-        "transport_asset_matricula": p.transport_asset.matricula if p.transport_asset else None,
-        "route_order": p.route_order,
-        "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
-        "status": p.status,
-        "notes": p.notes,
-        "service_type": p.service_type,
-        "service_type_label": p.get_service_type_display() if p.service_type else None,
-        "cuba_operation_type": p.cuba_operation_type,
-        "cuba_operation_type_label": p.get_cuba_operation_type_display() if p.cuba_operation_type else None,
-        "cuba_size": p.cuba_size,
-        "cuba_size_label": p.get_cuba_size_display() if p.cuba_size else None,
-        "cuba_capacidad": (p.asset.capacidad or None) if p.asset else None,
-        "reserved_asset_id": p.reserved_asset_id,
-        "reserved_asset_name": p.reserved_asset.name if p.reserved_asset else None,
-        "reserved_asset_zone_name": reserved_zone.name if reserved_zone else None,
-        "reserved_asset_zone_address": reserved_zone.full_address if reserved_zone else None,
-        "reserved_asset_zone_lat": reserved_lat,
-        "reserved_asset_zone_lon": reserved_lon,
-        "checklist": p.cuba_checklist(),
-    }
-
-
-def _serialize_porte_planning(p, scannable_asset_id=None):
-    from api.fleet.views.assets import get_zone_coordinates
-    from assets.constants import SERVICE_TYPE_MAQUINA_PROPIA
-    origin_lat, origin_lon = get_zone_coordinates(p.origin) if p.origin else (None, None)
-    dest_lat, dest_lon = get_zone_coordinates(p.destination) if p.destination else (None, None)
-    display_asset = p.asset or p.transport_asset
-    if scannable_asset_id is None:
-        scannable_asset_id = display_asset.id if display_asset else 0
-    progress = p.porte_progress_flags()
-    return {
-        "id": p.id, "planning_type": p.planning_type, "asset_id": scannable_asset_id, "asset_name": display_asset.name if display_asset else "",
-        "asset_assigned": p.asset_id is not None,
-        "load_description": p.load_description,
-        "origin": p.origin.name if p.origin else None,
-        "origin_address": p.origin.full_address if p.origin else None,
-        "origin_lat": origin_lat, "origin_lon": origin_lon,
-        "destination": p.destination.name if p.destination else None,
-        "destination_address": p.destination.full_address if p.destination else None,
-        "destination_lat": dest_lat, "destination_lon": dest_lon,
-        "scheduled_date": p.scheduled_date.strftime("%d/%m/%Y"),
-        "status": p.status, "notes": p.notes,
-        "transport_asset": {"id": p.transport_asset.id, "name": p.transport_asset.name} if p.transport_asset else None,
-        "transport_asset_matricula": p.transport_asset.matricula if p.transport_asset else None,
-        "service_type": p.service_type,
-        "service_type_label": p.get_service_type_display() if p.service_type else None,
-        "is_machine_porte": p.service_type == SERVICE_TYPE_MAQUINA_PROPIA,
-        "machine_id": p.machine_id or 0,
-        "machine_name": p.machine.name if p.machine_id else None,
-        "pickup_done": progress["pickup_done"],
-        "load_done": progress["load_done"],
-        "checklist": p.porte_checklist(),
-    }
-
-
 class PlanningsListView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -185,14 +114,16 @@ class PlanningsListView(APIView):
         plannings = AssetPlanning.objects.filter(
             assigned_to=employee, status__in=[PlanningStatus.PENDING, PlanningStatus.IN_TRANSIT], planning_type=PlanningType.CUBA,
             scheduled_time__isnull=False,
-        ).select_related("asset", "origin", "destination", "transport_asset").prefetch_related("stops__zone").order_by("scheduled_time", "route_order", "pk")
-        data = [_serialize_cuba_planning(p) for p in plannings]
-        return JsonResponse({"plannings": data})
+        ).select_related(
+            "asset", "reserved_asset", "reserved_asset__current_working_zone",
+            "origin", "destination", "transport_asset",
+        ).prefetch_related("stops__zone").order_by("scheduled_time", "route_order", "pk")
+        return JsonResponse({"plannings": CubaPlanningSerializer(plannings, many=True).data})
 
 
 _TASK_SERIALIZERS = {
-    PlanningType.CUBA: _serialize_cuba_planning,
-    PlanningType.PORTE: _serialize_porte_planning,
+    PlanningType.CUBA: CubaPlanningSerializer,
+    PlanningType.PORTE: PortePlanningSerializer,
 }
 
 
@@ -247,10 +178,19 @@ class PlanningNextTaskView(APIView):
 
         if planning is None:
             return JsonResponse({"task": None, "pending_dropoff": pending_dropoff})
-        serializer = _TASK_SERIALIZERS.get(planning.planning_type)
-        if serializer is None:
+        task = self._serialize_task(planning)
+        if task is None:
             return JsonResponse({"error": f"No serializer registered for planning type '{planning.planning_type}'."}, status=500)
-        return JsonResponse({"task": serializer(planning), "pending_dropoff": pending_dropoff})
+        return JsonResponse({"task": task, "pending_dropoff": pending_dropoff})
+
+    @staticmethod
+    def _serialize_task(planning):
+        registered = _TASK_SERIALIZERS.get(planning.planning_type)
+        if registered is None:
+            return None
+        if isinstance(registered, type) and issubclass(registered, BaseSerializer):
+            return registered(planning).data
+        return registered(planning)
 
 
 class PlanningAbandonView(APIView):
@@ -397,7 +337,9 @@ class PortesPlanningListView(APIView):
             if display_asset is not None and display_asset.id not in claimed_scannable_asset_ids:
                 claimed_scannable_asset_ids.add(display_asset.id)
                 scannable_asset_id = display_asset.id
-            data.append(_serialize_porte_planning(p, scannable_asset_id=scannable_asset_id))
+            data.append(
+                PortePlanningSerializer(p, context={"scannable_asset_id": scannable_asset_id}).data
+            )
         return JsonResponse({"transport_plannings": data})
 
 

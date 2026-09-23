@@ -23,7 +23,7 @@ from import_export.admin import ExportActionModelAdmin
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from core.admin.xlsx_export import FormattedXlsxExportMixin
 from .models import (
-    PurchaseOrder, PurchaseOrderItem, PurchaseOrderStatus, PurchaseOrderType,
+    PurchaseOrder, PurchaseOrderItem, PurchaseOrderMessage, PurchaseOrderStatus, PurchaseOrderType,
     PurchaseOrderReceipt, PurchaseOrderReceiptItem,
     QuoteRequest, QuoteRequestItem, QuoteRequestStatus,
     ProviderQuote, ProviderQuoteItem, ProviderQuoteStatus,
@@ -31,7 +31,7 @@ from .models import (
 from .resources import PurchaseOrderResource
 from inventory.models import ItemIdentityCode
 from django.shortcuts import redirect
-from .views import DirectReceiptView, IdentityCodesView, POMatchInvoiceView, POAIMatchView, DispatchPOAIMatchView, RejectPurchaseOrderView, POApprovalAnalysisView
+from .views import DirectReceiptView, IdentityCodesView, POMatchInvoiceView, POAIMatchView, DispatchPOAIMatchView, RejectPurchaseOrderView, POApprovalAnalysisView, PostPurchaseOrderMessageView
 
 class PurchaseOrderItemInline(StackedInline):
     model = PurchaseOrderItem
@@ -148,6 +148,44 @@ class PurchaseOrderDetailsSection(TemplateSection):
             "rejected_at": instance.rejected_at,
             "rejection_reason": instance.rejection_reason,
         }
+class PurchaseOrderMessageInline(TabularInline):
+    """
+    Produces the Conversation tab, which Unfold builds from the inlines that
+    set `tab = True`. The thread is rendered from context and posted through
+    PostPurchaseOrderMessageView, so this formset stays empty.
+    """
+    model = PurchaseOrderMessage
+    tab = True
+    extra = 0
+    max_num = 0
+    can_delete = False
+    show_count = True
+    # The tab label uses the singular whenever max_num == 1.
+    verbose_name = _("Conversation")
+    verbose_name_plural = _("Conversation")
+    template = "purchasing/edit_inline/conversation.html"
+    fields = ["body"]
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).none()
+
+    def has_view_permission(self, request, obj=None):
+        if obj is None:
+            return True
+        return obj.user_can_view_conversation(request.user)
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_count(self, request, obj=None):
+        # The add view passes an unsaved instance rather than None.
+        return obj.messages.count() if obj and obj.pk else 0
 
 
 @admin.register(PurchaseOrder)
@@ -195,7 +233,8 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
         }),
     )
     
-    inlines = [PurchaseOrderItemInline]
+    inlines = [PurchaseOrderItemInline, PurchaseOrderMessageInline]
+    change_form_outer_after_template = "admin/purchasing/purchaseorder/message_form.html"
 
     conditional_fields = {
         "project_file": "typeof po_type === 'undefined' || po_type == 'PROJECT'",
@@ -343,6 +382,35 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
             ),
         )
 
+    def render_change_form(self, request, context, add=False, change=False, form_url="", obj=None):
+        """Feed the Conversation tab and mark its messages as read.
+
+        This hook rather than change_view: Django has already fetched the
+        order by the time it calls this, so the thread costs no second lookup.
+        """
+        if obj is not None and obj.user_can_view_conversation(request.user):
+            thread = list(obj.messages.select_related("sender", "recipient"))
+            unread_ids = [
+                message.pk for message in thread
+                if request.user.is_authenticated
+                and message.recipient_id == request.user.pk
+                and message.read_at is None
+            ]
+            context.update({
+                "po_thread": thread,
+                "po_thread_unread_ids": unread_ids,
+                # Gates the compose form, which renders outside the inline.
+                "can_use_conversation": obj.user_can_post_message(request.user),
+            })
+            if request.method == "GET" and unread_ids:
+                # The thread is rendered on every load, so opening the order
+                # is what counts as reading its messages.
+                now = timezone.now()
+                PurchaseOrderMessage.objects.filter(pk__in=unread_ids).update(
+                    read_at=now, updated_at=now
+                )
+        return super().render_change_form(request, context, add, change, form_url, obj)
+
     def save_model(self, request, obj, form, change):
         if not getattr(obj, "requested_by", None):
             obj.requested_by = request.user
@@ -464,6 +532,11 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
                 "<int:po_id>/reject/",
                 self.admin_site.admin_view(RejectPurchaseOrderView.as_view(model_admin=self)),
                 name="purchasing_purchaseorder_reject",
+            ),
+            path(
+                "<int:po_id>/messages/post/",
+                self.admin_site.admin_view(PostPurchaseOrderMessageView.as_view(model_admin=self)),
+                name="purchasing_purchaseorder_post_message",
             ),
             path(
                 "<int:po_id>/approval-analysis/",

@@ -1,0 +1,26 @@
+{% comment %}
+Target of the Conversation tab's compose box. It lives outside the change
+form (forms cannot nest), and the textarea inside the tab is attached to it
+with the HTML form attribute.
+{% endcomment %}
+{% if can_use_conversation and original %}
+<form id="po-message-form"
+      method="post"
+      action="{% url 'admin:purchasing_purchaseorder_post_message' original.pk %}">
+    {% csrf_token %}
+</form>
+
+<script>
+    // Unfold's unsaved-changes guard watches every field inside the change
+    // form, and the compose box is one of them: it has to sit in the tab pane,
+    // which the change form renders. The guard only stands down when that form
+    // is submitted, so sending a message would otherwise trip the browser's
+    // "Leave site?" prompt. Nothing is lost here — the message is posted and
+    // the page reloads — so drop the guard for this navigation.
+    document.getElementById("po-message-form").addEventListener("submit", function () {
+        if (typeof preventLeaving === "function") {
+            window.removeEventListener("beforeunload", preventLeaving);
+        }
+    });
+</script>
+{% endif %}

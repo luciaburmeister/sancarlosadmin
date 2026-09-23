@@ -16,6 +16,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from api.constants import MAX_ZONE_RADIUS_M, FIRST_TRANSACTION_RADIUS_M
 from api.fleet.serializers import (
+    AssetListItemSerializer,
     AssetTransactionSerializer,
     CubaCandidateSerializer,
     CubaReservationRequestSerializer,
@@ -113,35 +114,6 @@ def get_asset_receipt(asset):
 
 
 
-def _serialize_asset_list_item(asset, last_tx, zone, zone_coords):
-    vas_a_verter = asset.verteo_pending_transaction is not None
-
-    # Llena/vacía as last reported, at either a recogida or a dejada — pre-fills the
-    # next recogida form.
-    last_state_tx = AssetTransaction.objects.filter(
-        asset=asset,
-        transaction_type__in=[TransactionTypeChoices.MOVEMENT, TransactionTypeChoices.DELIVERY],
-    ).order_by("-date").first()
-    last_cuba_estado = last_state_tx.data.get(CubaTransactionKey.ESTADO) or None if last_state_tx else None
-
-    return {
-        "id": asset.id,
-        "code": asset.name,
-        "description": asset.asset_type.name if asset.asset_type else "",
-        "status": asset.current_transaction_status(last_tx),
-        "asset_receipt": asset.has_pending_receipt,
-        "vas_a_verter": vas_a_verter,
-        "last_cuba_estado": last_cuba_estado,
-        "last_location": str(zone) if zone else None,
-        "last_updated": last_tx.date.strftime("%d/%m/%Y %H:%M") if last_tx else None,
-        "zone_address": zone.full_address if zone else None,
-        "zone_lat": zone_coords[0],
-        "zone_lon": zone_coords[1],
-        "cliente": asset.client.name if asset.client else "",
-        "obra": str(zone) if zone else "",
-    }
-
-
 def asset_transaction_imagen_view(request, transaction_id):
     try:
         transaction = AssetTransaction.objects.get(id=transaction_id)
@@ -161,13 +133,7 @@ class AssetsListView(APIView):
         if employee is None:
             return JsonResponse({"assets": []})
         assets = Asset.objects.select_related("asset_type", "current_working_zone").filter(assigned_to=employee)
-        data = []
-        for asset in assets:
-            last_tx = asset.transactions.order_by("-date").first()
-            zone = asset.current_working_zone
-            zone_coords = get_zone_coordinates(zone) if zone else (None, None)
-            data.append(_serialize_asset_list_item(asset, last_tx, zone, zone_coords))
-        return JsonResponse({"assets": data})
+        return JsonResponse({"assets": AssetListItemSerializer(assets, many=True).data})
 
 
 class AssetDetailView(APIView):
@@ -184,11 +150,8 @@ class AssetDetailView(APIView):
             return JsonResponse({"error": "Asset not found"}, status=404)
         if asset.company != employee.company:
             return JsonResponse({"error": "Asset not found"}, status=404)
-        last_tx = asset.transactions.order_by("-date").first()
-        zone = asset.current_working_zone
-        zone_coords = get_zone_coordinates(zone) if zone else (None, None)
         return JsonResponse({
-            **_serialize_asset_list_item(asset, last_tx, zone, zone_coords),
+            **AssetListItemSerializer(asset).data,
             "assigned_to": asset.assigned_to.user.username if asset.assigned_to and asset.assigned_to.user else None,
             "assigned_to_me": asset.assigned_to == employee,
             "obra": str(asset.current_working_zone) if asset.current_working_zone else "",

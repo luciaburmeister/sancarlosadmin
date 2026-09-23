@@ -246,6 +246,22 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
             return "fully_invoiced"
         return "partially_invoiced"
 
+    def user_can_post_message(self, user):
+        if not user or not user.is_authenticated:
+            return False
+        if self.requested_by_id and self.requested_by_id == user.pk:
+            return True
+        return user.has_perm("purchasing.can_approve_purchase_order")
+
+    def user_can_view_conversation(self, user):
+        # Grantable rather than hidden: view_purchaseordermessage opens the
+        # thread to anyone who should follow it.
+        return self.user_can_post_message(user) or (
+            bool(user)
+            and user.is_authenticated
+            and user.has_perm("purchasing.view_purchaseordermessage")
+        )
+
     def check_and_update_status(self):
         """
         Closes the PO if all items are fully received. 
@@ -367,6 +383,97 @@ class PurchaseOrderItem(Timestampable):
         if self.unit_price and self.unit_price.amount:
             self.inventory_item.cost_price = self.unit_price
             self.inventory_item.save(update_fields=["cost_price", "cost_price_currency"])
+
+class PurchaseOrderMessageQuerySet(models.QuerySet):
+    def from_approver_side(self, purchase_order):
+        # Not re-checked against the approver permission: who may approve
+        # changes over time, while who wrote a message does not.
+        return self.exclude(sender_id=purchase_order.requested_by_id)
+
+
+class PurchaseOrderMessage(Timestampable):
+    """One conversation per purchase order. Scoped to a company through it."""
+    purchase_order = models.ForeignKey(
+        PurchaseOrder,
+        on_delete=models.CASCADE,
+        related_name="messages",
+        verbose_name=_("Purchase Order")
+    )
+    sender = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="sent_po_messages",
+        verbose_name=_("Sender")
+    )
+    recipient = models.ForeignKey(
+        'auth.User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="received_po_messages",
+        verbose_name=_("Recipient"),
+        help_text=_("Resolved when the message is sent; empty when it goes to the company's approver list.")
+    )
+    body = models.TextField(verbose_name=_("Message"))
+    read_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Read At")
+    )
+
+    objects = PurchaseOrderMessageQuerySet.as_manager()
+
+    # How much of the thread a notification email repeats, so a long
+    # conversation cannot fill an inbox.
+    EMAIL_HISTORY_LIMIT = 5
+    EMAIL_HISTORY_EXCERPT_CHARS = 400
+
+    class Meta:
+        verbose_name = _("Purchase Order Message")
+        verbose_name_plural = _("Purchase Order Messages")
+        ordering = ["created_at", "pk"]
+        indexes = [
+            models.Index(fields=["purchase_order", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.purchase_order.number}: {self.body[:50]}"
+
+    def earlier_in_thread(self):
+        """The messages posted before this one, newest first."""
+        # Ordered by the same pair as Meta.ordering so messages sharing a
+        # timestamp keep a stable order.
+        return (
+            self.purchase_order.messages
+            .filter(
+                models.Q(created_at__lt=self.created_at)
+                | models.Q(created_at=self.created_at, pk__lt=self.pk)
+            )
+            .select_related("sender")
+            .order_by("-created_at", "-pk")
+        )
+
+    def resolve_recipient(self):
+        """Who owes the answer, or None to fall back to the approver list."""
+        # The requester is checked first: superusers pass has_perm(), so an
+        # approver-first test would make a superuser requester mail themselves.
+        po = self.purchase_order
+        if po.requested_by_id and self.sender_id == po.requested_by_id:
+            last_asked = (
+                po.messages.from_approver_side(po)
+                .filter(sender__isnull=False)
+                .order_by("-created_at", "-pk")
+                .first()
+            )
+            return last_asked.sender if last_asked else None
+        return po.requested_by
+
+    def save(self, *args, **kwargs):
+        if self._state.adding and self.recipient_id is None:
+            self.recipient = self.resolve_recipient()
+        super().save(*args, **kwargs)
+
 
 class PurchaseOrderReceipt(Timestampable, CompanyOwnedModel):
     number = models.CharField(

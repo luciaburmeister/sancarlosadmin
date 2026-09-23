@@ -1,0 +1,102 @@
+{% load i18n %}
+{% comment %}
+Conversation tab of the Purchase Order change page.
+
+The wrapper's id and x-show are the two contracts Unfold relies on: the tab
+bar toggles `activeTab` on the slugified formset prefix, and its JS restores
+the open tab after a save by looking up "<prefix>-group".
+
+Messages are neither created nor edited through this formset (its queryset is
+empty); the thread comes from the view and the compose box posts to
+PostPurchaseOrderMessageView through the form declared outside the change
+form. The management form still has to be rendered, or every POST to the
+change view fails.
+{% endcomment %}
+<div id="{{ inline_admin_formset.formset.prefix }}-group"
+     data-inline-type="stacked"
+     {% if inline_admin_formset.opts.tab %}x-show="activeTab == '{{ inline_admin_formset.formset.prefix|slugify }}'"{% else %}x-show="activeTab == 'general'"{% endif %}>
+    {{ inline_admin_formset.formset.management_form }}
+
+    <div class="border border-base-200 flex flex-col gap-6 p-6 rounded-default dark:border-base-700">
+        {% comment %}
+        Capped at roughly five single-line messages, then it scrolls, so a long
+        thread never pushes the compose box off screen. The cap is a height, not
+        a message count: five long messages fill it sooner than five short ones.
+        Reversed order inside a column-reverse box keeps the newest message at
+        the bottom and the scroll position there on load, with no JS.
+        The height is inline because Unfold's compiled CSS ships no max-h-*.
+        {% endcomment %}
+        <div class="flex flex-col-reverse gap-3 overflow-y-auto pr-2" style="max-height: 23rem;">
+            {% for message in po_thread reversed %}
+                {% if message.sender_id == request.user.pk %}
+                    {% comment %}
+                    Right-aligned with auto margins and w-fit: Unfold's compiled
+                    CSS ships no items-end, so the bubble would stretch instead
+                    of hugging its text.
+
+                    Wrapping, on both bubbles: break-words keeps an unbroken run
+                    of characters (a pasted URL, a part number) inside the
+                    bubble, and hyphens:auto adds the hyphen when the browser
+                    splits an ordinary word, using the page's lang. It is inline
+                    because the compiled CSS has no hyphens-* utility.
+                    {% endcomment %}
+                    <div class="flex flex-col">
+                        <div class="bg-primary-600 min-w-0 ml-auto max-w-2xl px-4 py-3 rounded-default text-white w-fit">
+                            <p class="break-words text-sm" style="hyphens: auto;">{{ message.body|linebreaksbr }}</p>
+                        </div>
+                        <div class="flex gap-2 ml-auto mt-1 text-xs text-base-500 dark:text-base-400">
+                            <span>{% translate "You" %}</span>
+                            <span>{{ message.created_at|date:"SHORT_DATETIME_FORMAT" }}</span>
+                        </div>
+                    </div>
+                {% else %}
+                    <div class="flex flex-col items-start">
+                        <div class="bg-base-100 min-w-0 max-w-2xl px-4 py-3 rounded-default w-fit dark:bg-base-800">
+                            <p class="break-words text-sm text-font-default-light dark:text-font-default-dark" style="hyphens: auto;">{{ message.body|linebreaksbr }}</p>
+                        </div>
+                        <div class="flex gap-2 mt-1 text-xs text-base-500 dark:text-base-400">
+                            <span class="font-semibold">
+                                {% if message.sender %}
+                                    {{ message.sender.get_full_name|default:message.sender.username }}
+                                {% else %}
+                                    {% translate "Deleted user" %}
+                                {% endif %}
+                            </span>
+                            <span>{{ message.created_at|date:"SHORT_DATETIME_FORMAT" }}</span>
+                            {% if message.pk in po_thread_unread_ids %}
+                                <span class="font-semibold text-red-600 dark:text-red-400">{% translate "New" %}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endif %}
+            {% empty %}
+                <p class="text-sm text-base-500 dark:text-base-400">
+                    {% translate "No messages yet. Ask the requester why this purchase is needed, or explain it here." %}
+                </p>
+            {% endfor %}
+        </div>
+
+        {% if can_use_conversation %}
+            <div class="border-t border-base-200 flex flex-col gap-3 pt-6 dark:border-base-700">
+                <label for="po-message-body" class="font-semibold text-sm">
+                    {% translate "New message" %}
+                </label>
+                <textarea id="po-message-body"
+                          name="body"
+                          form="po-message-form"
+                          rows="3"
+                          required
+                          class="border bg-white font-medium max-w-2xl min-w-0 px-3 py-2 rounded-default shadow-xs text-font-default-light w-full border-base-200 focus:outline-2 focus:-outline-offset-2 focus:outline-primary-600 dark:bg-base-900 dark:border-base-700 dark:text-font-default-dark"
+                          placeholder="{% translate 'Write a message about this Purchase Order.' %}"></textarea>
+                <div>
+                    <button type="submit"
+                            form="po-message-form"
+                            class="bg-primary-600 border border-transparent flex font-medium gap-2 items-center px-3 py-2 rounded-default text-sm text-white cursor-pointer hover:bg-primary-700">
+                        <span class="material-symbols-outlined" style="font-size: 18px;">send</span>
+                        {% translate "Send message" %}
+                    </button>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+</div>

@@ -1281,6 +1281,29 @@ class SalesInvoice(CompanyOwnedModel, Payable):
     def amount_remaining(self):
         return self.total_amount - self.amount_paid
 
+    @property
+    def late_commitment_threshold_days(self):
+        settings_row = (
+            CollectionsForecastEmailSettings.objects.filter(company_id=self.company_id)
+            .values_list("late_commitment_threshold_days", flat=True)
+            .first()
+        )
+        if settings_row is not None:
+            return settings_row
+        return CollectionsForecastEmailSettings._meta.get_field("late_commitment_threshold_days").default
+
+    @property
+    def is_commitment_late(self):
+        """
+        True when the client's payment commitment date was agreed more days
+        after the invoice's due date than the company's configured
+        threshold (CollectionsForecastEmailSettings.late_commitment_threshold_days).
+        Both dates must be set -- otherwise there is nothing to compare.
+        """
+        if not self.payment_commitment_date or not self.due_date:
+            return False
+        return (self.payment_commitment_date - self.due_date).days > self.late_commitment_threshold_days
+
     def resolve_payment_terms_days(self):
         """
         Payment terms (days) for this invoice: its own snapshot when set,
@@ -1893,6 +1916,14 @@ class CollectionsForecastEmailSettings(BaseForecastEmailSettings):
         help_text=_(
             "Internal recipients for the collections forecast report. "
             "Leave empty to send it to the company email."
+        ),
+    )
+    late_commitment_threshold_days = models.PositiveIntegerField(
+        default=30,
+        verbose_name=_("Late Commitment Threshold (Days)"),
+        help_text=_(
+            "Flag an invoice as late when its payment commitment date is "
+            "agreed more than this many days after its due date."
         ),
     )
 

@@ -19,6 +19,20 @@
     color: #fff;
     vertical-align: middle;
   }
+  /* Warning badge for rows where the payment commitment date was agreed
+     more than 30 days after the invoice's due date. */
+  .cf-late-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 7px;
+    font-size: .65rem;
+    font-weight: 700;
+    letter-spacing: .02em;
+    border-radius: 999px;
+    background: #d97706;
+    color: #fff;
+    vertical-align: middle;
+  }
 </style>
 {% endblock %}
 
@@ -108,7 +122,7 @@
           <tbody>
             {% for client in forecast.overdue.clients %}
             <tr>
-              <td>{{ client.client_name }}{% if client.has_proforma %}<span class="cf-proforma-badge">{% trans "PRO FORMA" %}</span>{% endif %}</td>
+              <td>{{ client.client_name }}{% if client.has_proforma %}<span class="cf-proforma-badge">{% trans "PRO FORMA" %}</span>{% endif %}{% if client.has_late_commitment %}<span class="cf-late-badge" title="{% trans 'Payment commitment date agreed more than 30 days after the due date' %}">&#9888; {% trans "LATE" %}</span>{% endif %}</td>
               <td class="cf-amount">€ {{ client.day_total|floatformat:2 }}</td>
               <td class="cf-amount-sub">€ {{ client.total_owed|floatformat:2 }}</td>
               <td>
@@ -147,7 +161,7 @@
           <tbody>
             {% for client in bucket.clients %}
             <tr>
-              <td>{{ client.client_name }}{% if client.has_proforma %}<span class="cf-proforma-badge">{% trans "PRO FORMA" %}</span>{% endif %}</td>
+              <td>{{ client.client_name }}{% if client.has_proforma %}<span class="cf-proforma-badge">{% trans "PRO FORMA" %}</span>{% endif %}{% if client.has_late_commitment %}<span class="cf-late-badge" title="{% trans 'Payment commitment date agreed more than 30 days after the due date' %}">&#9888; {% trans "LATE" %}</span>{% endif %}</td>
               <td class="cf-amount">€ {{ client.day_total|floatformat:2 }}</td>
               <td class="cf-amount-sub">€ {{ client.total_owed|floatformat:2 }}</td>
               <td>

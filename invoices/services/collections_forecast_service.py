@@ -4,11 +4,29 @@ from itertools import groupby
 
 from django.contrib.postgres.aggregates import BoolOr
 from django.core.cache import cache
-from django.db.models import BooleanField, Case, Count, DecimalField, Min, Sum, Value, When
+from django.db.models import (
+    BooleanField,
+    Case,
+    Count,
+    DateField,
+    DecimalField,
+    ExpressionWrapper,
+    F,
+    Min,
+    Q,
+    Sum,
+    Value,
+    When,
+)
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 
-from invoices.models import InvoicePaymentStatus, SalesInvoice, SalesInvoiceStatus
+from invoices.models import (
+    CollectionsForecastEmailSettings,
+    InvoicePaymentStatus,
+    SalesInvoice,
+    SalesInvoiceStatus,
+)
 from sales.models import Client
 
 
@@ -30,6 +48,30 @@ class CollectionsForecastService:
         default=False,
         output_field=BooleanField(),
     )
+ 
+    @classmethod
+    def _is_late_commitment_expr(cls, threshold_days):
+        """
+        An invoice is "late" when its payment commitment date was agreed
+        more than threshold_days after its due date -- both dates must be
+        set for the comparison to make sense. threshold_days is per-company
+        (CollectionsForecastEmailSettings.late_commitment_threshold_days).
+        """
+        return Case(
+            When(
+                Q(payment_commitment_date__isnull=False)
+                & Q(due_date__isnull=False)
+                & Q(
+                    payment_commitment_date__gt=ExpressionWrapper(
+                        F("due_date") + timedelta(days=threshold_days),
+                        output_field=DateField(),
+                    )
+                ),
+                then=True,
+            ),
+            default=False,
+            output_field=BooleanField(),
+        )
 
     @classmethod
     def build_forecast(cls, company, date_from, date_to) -> dict:
@@ -56,9 +98,12 @@ class CollectionsForecastService:
         minutes, same convention as the operational and accounts-payable
         dashboards.
 
-        FINAL and PRO FORMA, unpaid invoices with a due_date count --
-        cancelled and already-paid invoices are irrelevant to a collections
-        forecast.
+        Every FINAL and PRO FORMA, unpaid invoice counts -- cancelled and
+        already-paid invoices are irrelevant to a collections forecast. Each
+        invoice is placed on its "forecast date": the payment commitment
+        date if the client agreed to one, otherwise the due date, otherwise
+        the issue date -- so an invoice is never dropped from the forecast
+        just because one of those dates is missing.
         """
         if not company:
             return cls._empty_result(date_from, date_to)
@@ -69,13 +114,26 @@ class CollectionsForecastService:
         if cached is not None:
             return cached
 
+        late_threshold_days = (
+            CollectionsForecastEmailSettings.objects.filter(company=company)
+            .values_list("late_commitment_threshold_days", flat=True)
+            .first()
+        )
+        if late_threshold_days is None:
+            late_threshold_days = CollectionsForecastEmailSettings._meta.get_field(
+                "late_commitment_threshold_days"
+            ).default
+        is_late_commitment_expr = cls._is_late_commitment_expr(late_threshold_days)
+
         pending_qs = (
             SalesInvoice.objects.filter(
                 company=company,
                 status__in=[SalesInvoiceStatus.FINAL, SalesInvoiceStatus.PROFORMA],
-                due_date__isnull=False,
             )
             .exclude(payment_status=InvoicePaymentStatus.PAID)
+            .annotate(
+                forecast_date=Coalesce("payment_commitment_date", "due_date", "date_issued"),
+            )
         )
 
         # Total owed per client across ALL of their pending invoices (not just
@@ -91,13 +149,14 @@ class CollectionsForecastService:
 
         # ── Overdue bucket ────────────────────────────────────────────────
         overdue_rows = list(
-            pending_qs.filter(due_date__lt=date_from)
+            pending_qs.filter(forecast_date__lt=date_from)
             .values("client_id", "client__name")
             .annotate(
                 day_total=Coalesce(Sum("total_amount"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
                 day_count=Count("id"),
                 sample_invoice_id=Min("id"),
                 has_proforma=BoolOr(cls.IS_PROFORMA),
+                has_late_commitment=BoolOr(is_late_commitment_expr),
             )
             .order_by("client__name")
         )
@@ -105,19 +164,20 @@ class CollectionsForecastService:
 
         # ── Date buckets: one row per calendar day, even with no invoices ──
         window_rows = list(
-            pending_qs.filter(due_date__gte=date_from, due_date__lte=date_to)
-            .values("due_date", "client_id", "client__name")
+            pending_qs.filter(forecast_date__gte=date_from, forecast_date__lte=date_to)
+            .values("forecast_date", "client_id", "client__name")
             .annotate(
                 day_total=Coalesce(Sum("total_amount"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
                 day_count=Count("id"),
                 sample_invoice_id=Min("id"),
                 has_proforma=BoolOr(cls.IS_PROFORMA),
+                has_late_commitment=BoolOr(is_late_commitment_expr),
             )
-            .order_by("due_date", "client__name")
+            .order_by("forecast_date", "client__name")
         )
         rows_by_date = {
-            due_date: list(rows)
-            for due_date, rows in groupby(window_rows, key=lambda r: r["due_date"])
+            forecast_date: list(rows)
+            for forecast_date, rows in groupby(window_rows, key=lambda r: r["forecast_date"])
         }
 
         days_in_range = (date_to - date_from).days
@@ -136,7 +196,7 @@ class CollectionsForecastService:
         month_start = today.replace(day=1)
         next_month_start = (month_start + timedelta(days=32)).replace(day=1)
         month_agg = pending_qs.filter(
-            due_date__gte=month_start, due_date__lt=next_month_start
+            forecast_date__gte=month_start, forecast_date__lt=next_month_start
         ).aggregate(
             total=Coalesce(Sum("total_amount"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
             count=Count("id"),
@@ -176,6 +236,9 @@ class CollectionsForecastService:
                 # forma -- shown as a small badge in the calendar so the user
                 # knows this amount isn't fully invoiced yet.
                 "has_proforma": row["has_proforma"],
+                # True when at least one invoice in this row has a payment
+                # commitment date more than 30 days after its due date.
+                "has_late_commitment": row["has_late_commitment"],
             }
             for row in rows
         ]

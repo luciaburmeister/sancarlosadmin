@@ -1020,16 +1020,16 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
         ),
     )
     list_display = (
-        "invoice_number", 
-        "client", 
+        "invoice_number",
+        "client",
         "total_amount",
-        "date_issued", 
-        "get_payment_status_label", 
-        "due_date", 
+        "date_issued",
+        "get_payment_status_label",
+        "due_date",
         "payment_commitment_date",
-         "get_status_label", 
+         "get_status_label",
         "get_external_label",
-        "company", 
+        "company",
         )
     list_filter = (
         ("company", AutocompleteSelectMultipleFilter),
@@ -1053,7 +1053,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     list_filter_submit = True
     list_select_related = ["company","client"]
     
-    readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown")
+    readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown", "get_late_commitment_warning")
 
     @display(description=_("Lines total (before discount)"))
     def lines_total_display(self, obj):
@@ -1088,7 +1088,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                     ("company", "client"),
                     ("status", "invoice_number"),
                     ("date_issued", "due_date"),
-                    "payment_commitment_date",
+                    ("payment_commitment_date", "get_late_commitment_warning"),
                     "project_file",
                     ("reference"),
                     ("is_external", "exclude_from_payment_reminders"),
@@ -1259,6 +1259,16 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     )
     def get_payment_status_label(self, obj):
         return obj.get_payment_status_display()
+
+    @display(description=_("Late Commitment"))
+    def get_late_commitment_warning(self, obj):
+        if not obj.is_commitment_late:
+            return "—"
+        return format_html(
+            '<span style="color:#d97706;font-weight:700;" title="{}">&#9888; {}</span>',
+            _("Payment commitment date agreed more than 30 days after the due date"),
+            _("LATE"),
+        )
 
     @admin.action(description=_("Finalize selected pro forma invoices"))
     def finalize_invoice_action(self, request, queryset):
@@ -1593,9 +1603,9 @@ class PaymentReminderLogAdmin(ModelAdmin, CompanyRestrictedAdmin):
 
 @admin.register(CollectionsForecastEmailSettings)
 class CollectionsForecastEmailSettingsAdmin(ModelAdmin, CompanyRestrictedAdmin):
-    list_display = ("company", "is_active", "send_time", "frequency_days", "days_ahead", "last_run_date")
+    list_display = ("company", "is_active", "send_time", "frequency_days", "days_ahead", "late_commitment_threshold_days", "last_run_date")
     autocomplete_fields = ("company",)
-    fields = ("company", "is_active", "send_time", "frequency_days", "days_ahead", "report_emails", "last_run_date")
+    fields = ("company", "is_active", "send_time", "frequency_days", "days_ahead", "late_commitment_threshold_days", "report_emails", "last_run_date")
     readonly_fields = ("last_run_date",)
     formfield_overrides = {
         ArrayField: {

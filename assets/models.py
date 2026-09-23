@@ -830,6 +830,7 @@ class CubaSize(models.TextChoices):
     M3_20 = "20m3", _("20 M3")
     M3_30 = "30m3", _("30 M3")
     AGUA = "agua", _("Water")
+    BANERA = "banera", _("Bathtub")
 
 
 class PlanningUrgency(models.TextChoices):

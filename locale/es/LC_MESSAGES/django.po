@@ -1737,6 +1737,9 @@ msgstr "30 M3"
 msgid "Water"
 msgstr "Agua"
 
+msgid "Bathtub"
+msgstr "BAÑERA"
+
 msgid "Low"
 msgstr "Baja"
 

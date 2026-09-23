@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from django.test import TestCase
 from django.utils import timezone
 
+from api.fleet.serializers import CubaPlanningSerializer
 from api.fleet.tests.helpers import make_asset, make_asset_type, make_company, make_employee, make_planning, make_user, make_zone
 from assets.models import (
     AssetDataKey,
@@ -310,3 +311,24 @@ class ReleaseStaleReservationsTests(CubaReservationFixtureMixin, TestCase):
         self.assertEqual(released_ids, [stale.id])
         self.assertIsNone(stale.reserved_asset_id)
         self.assertEqual(current.reserved_asset_id, self.cuba.id)
+
+
+class CubaPlanningSerializerTests(CubaReservationFixtureMixin, TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.cuba = _make_empty_cuba(cls.company, cls.asset_type, cls.almacen)
+        cls.planning = make_planning(
+            cls.company, assigned_to=cls.employee, planning_type=PlanningType.CUBA,
+            destination=cls.destination, cuba_size=CubaSize.M3_10, reserved_asset=cls.cuba,
+        )
+
+    def test_unscanned_plan_exposes_reserved_cuba_and_zero_asset_id(self):
+        data = CubaPlanningSerializer(self.planning).data
+        self.assertEqual(data["asset_id"], 0)
+        self.assertIsNone(data["asset_name"])
+        self.assertEqual(data["reserved_asset_id"], self.cuba.id)
+        self.assertEqual(data["reserved_asset_name"], self.cuba.name)
+        self.assertEqual(data["reserved_asset_zone_name"], self.almacen.name)
+        self.assertEqual(data["cuba_size"], CubaSize.M3_10)
+        self.assertEqual(data["planning_type"], PlanningType.CUBA)

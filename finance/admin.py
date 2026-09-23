@@ -225,6 +225,19 @@ class PaymentCalendarAdmin(CompanyRestrictedAdmin, ModelAdmin):
     def has_change_permission(self, request, obj=None):
         return False
 
+    def get_urls(self):
+        from django.urls import path
+        from .views_calendar import PaymentCalendarExportView
+        urls = super().get_urls()
+        custom = [
+            path(
+                "export/",
+                self.admin_site.admin_view(PaymentCalendarExportView.as_view()),
+                name="finance_paymentcalendar_export",
+            ),
+        ]
+        return custom + urls
+
     def changelist_view(self, request, extra_context=None):
         from .views_calendar import PaymentCalendarView
         view = PaymentCalendarView.as_view(model_admin=self)

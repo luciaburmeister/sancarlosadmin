@@ -600,6 +600,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
                 "fields": (
                     ("date_issued", "due_date"),
                     "accounting_date",
+                    "commitment_date",
                 )
             },
         ),

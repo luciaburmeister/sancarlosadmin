@@ -333,14 +333,14 @@ class TaxPayment(Timestampable, CompanyOwnedModel):
 
 class PaymentCalendar(TaxPeriod):
     """
-    Proxy model with no table of its own — exists only so 'Calendario de
-    Pagos' shows up as its own row in the Finance admin index, next to
+    Proxy model with no table of its own — exists only so 'Cashflow'
+    shows up as its own row in the Finance admin index, next to
     Tax Payments / Tax Periods / Tax Schedule Rules.
     """
     class Meta:
         proxy = True
-        verbose_name = _("Calendario de Pagos")
-        verbose_name_plural = _("Calendario de Pagos")
+        verbose_name = _("Cashflow")
+        verbose_name_plural = _("Cashflow")
 
 
 def advance_all_rules():

@@ -89,6 +89,15 @@ class Invoice(Timestampable, Payable):
     date_issued = models.DateField(db_index=True,blank=True, null=True,verbose_name=_("Date issued")) 
     accounting_date = models.DateField(blank=True, null=True, verbose_name=_("Accounting date"), help_text=_("Date used for accounting purposes. Defaults to the issued date."))
     due_date = models.DateField(blank=True, null=True,verbose_name=_("Due date")) #fecha de vencimiento
+    commitment_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Commitment Date"),
+        help_text=_(
+            "Date the provider agreed to be paid, if different from the invoice's "
+            "due date. When set, this overrides due_date for cash-flow projection purposes."
+        ),
+    )
     provider = models.ForeignKey(Provider, on_delete=models.PROTECT,blank=True, null=True,verbose_name=_("Provider")) 
     company = models.ForeignKey(Company, on_delete=models.PROTECT, related_name="invoices", null=True,verbose_name=_("Company"))
     

@@ -360,10 +360,6 @@ CELERY_BEAT_SCHEDULE = {
         "task": "banking.tasks.sync_bank_transactions",
         "schedule": crontab(minute=0, hour="*/6"),  # every 6 hours
     },
-    "apply-due-zone-sync-requests": {
-        "task": "assets.tasks.apply_due_zone_sync_requests",
-        "schedule": crontab(minute="*/5"),  # needed_time precision requires frequent checks
-    },
     "process-payment-reminders": {
         "task": "invoices.tasks.process_payment_reminders",
         "schedule": crontab(minute="*/30"),  # matches the 30-min send_time window in the task

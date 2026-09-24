@@ -393,15 +393,28 @@ class Invoice(Timestampable, Payable):
         if save:
             self.save(update_fields=['is_total_balanced'])
 
+    def apply_provider_default_cost_center(self) -> bool:
+        """
+        Fill an empty ``cost_center`` with the provider's default, if usable.
+
+        Never overwrites a cost center already on the invoice. Returns whether
+        the field was set so callers saving with ``update_fields`` can include it.
+        """
+        if self.cost_center_id or not self.provider_id:
+            return False
+        default = self.provider.default_cost_center
+        if default and default.is_active and default.is_assignable:
+            self.cost_center = default
+            return True
+        return False
+
     def save(self, *args, **kwargs):
         # Default accounting_date to date_issued if not set
         if not self.accounting_date and self.date_issued:
             self.accounting_date = self.date_issued
-        
-        if self._state.adding and not self.cost_center_id and self.provider_id:
-            default = self.provider.default_cost_center
-            if default and default.is_active and default.is_assignable:
-                self.cost_center = default
+
+        if self._state.adding:
+            self.apply_provider_default_cost_center()
 
         # ``currency`` is the source of truth for every Money on the invoice.
         # A brand-new invoice created straight from a non-EUR Money without

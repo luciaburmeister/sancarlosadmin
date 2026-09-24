@@ -255,6 +255,9 @@ class InvoiceService:
                 invoice.due_date = self._parse_date(extracted_data.due_date) or invoice.due_date or invoice.date_issued
                 invoice.accounting_date = datetime.now().date()
                 invoice.provider = provider
+                # The model only stamps the provider default on a brand-new
+                # row; here the provider is being linked to an existing one.
+                invoice.apply_provider_default_cost_center()
                 currency = extracted_data.currency or invoice.currency or "EUR"
                 invoice.currency = currency
                 if extracted_data.net_amount is not None:
@@ -296,6 +299,7 @@ class InvoiceService:
                 invoice.needs_manual_review = True
                 invoice.save(update_fields=[
                     'invoice_number', 'date_issued', 'due_date', 'accounting_date', 'provider',
+                    'cost_center',
                     'net_amount', 'net_amount_currency',
                     'total_amount', 'total_amount_currency',
                     'currency', 'payment_method', 'company', 'ocr_raw_response',

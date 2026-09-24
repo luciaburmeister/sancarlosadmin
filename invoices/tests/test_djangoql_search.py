@@ -350,7 +350,7 @@ class TranslationCoverageTest(TestCase):
     """
 
     #: Names that read the same in Spanish, so no entry is expected.
-    SAME_IN_SPANISH = {"id", "email"}
+    SAME_IN_SPANISH = {"id", "email", "nima"}
 
     def test_every_registered_field_name_is_translated(self):
         autodiscover()

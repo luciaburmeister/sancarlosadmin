@@ -45,3 +45,6 @@ company/management/__init__.py
 company/management/commands/__init__.py
 company/management/commands/setup_fislav.py
 
+
+# Claude Code local settings
+.claude/

@@ -27,6 +27,7 @@ class ClientSearchFields(SearchFields):
         "commercial_name",
         "tax_identifier",
         "industry_identifier",
+        "nima",
         "email",
         "phone",
         "address",

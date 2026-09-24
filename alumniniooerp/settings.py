@@ -541,7 +541,7 @@ UNFOLD = {
                         "icon": "account_balance_wallet",
                         "link": reverse_lazy("admin:invoices_invoice_accounts_payable"),
                         "permission": lambda request: request.user.has_perm(
-                            "invoices.view_invoice"
+                            "invoices.accounts_payable"
                         ),
                     },
                     {

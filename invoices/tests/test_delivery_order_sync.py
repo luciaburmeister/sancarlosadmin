@@ -296,6 +296,55 @@ class RemainderPricingTests(_SyncTestBase):
         self.assertEqual(rest["unit_price"], Decimal("500.00"))
 
 
+class ManualLineTaxTests(_SyncTestBase):
+    """A line added by hand (portes) is taxed like the quote would tax it.
+    Production case DO-2026-00050: 3532.61 goods − 70.65 discount + 260
+    portes = 3721.96 taxable, 781.61 IVA, 4503.57 total."""
+
+    def setUp(self):
+        super().setUp()
+        self.quote = self._quote("3532.61", "70.65")
+        self.config = self._config(self.quote, "3532.61")
+        self.do = self._create_do([self._line_data(self.config, "1", "3532.61")])
+
+    def _add_portes(self, **kwargs):
+        DeliveryOrderItem.objects.create(
+            delivery_order=self.do, description="Portes",
+            quantity=Decimal("1"), unit_price=Decimal("260.00"), **kwargs,
+        )
+        DeliveryOrderService.recompute_discounts_and_taxes(self.do)
+        self.do.refresh_from_db()
+
+    def _client_tax_mode(self):
+        self.company.auto_apply_client_taxes = True
+        self.company.save(update_fields=["auto_apply_client_taxes"])
+        self._tax(ContentType.objects.get_for_model(Client), self.client_obj, "0")
+        self._tax(ContentType.objects.get_for_model(Quote), self.quote, "3461.96")
+
+    def test_client_tax_mode_taxes_the_manual_line_with_the_client_taxes(self):
+        self._client_tax_mode()
+        self._add_portes()
+
+        self.assertEqual(self.do.subtotal_amount.amount, Decimal("3792.61"))
+        self.assertEqual(self.do.discount_amount.amount, Decimal("70.65"))
+        self.assertEqual(self.do.applied_taxes.get().base_amount.amount, Decimal("3721.96"))
+        self.assertEqual(self.do.tax_amount.amount, Decimal("781.61"))
+        self.assertEqual(self.do.total_amount.amount, Decimal("4503.57"))
+
+    def test_source_mode_uses_the_items_own_taxes(self):
+        portes = InventoryItem.objects.create(company=self.company, name="Portes", code="PORTES")
+        self._tax(ContentType.objects.get_for_model(InventoryItem), portes, "0")
+        self._add_portes(inventory_item=portes)
+
+        self.assertEqual(self.do.applied_taxes.get().base_amount.amount, Decimal("3721.96"))
+        self.assertEqual(self.do.total_amount.amount, Decimal("4503.57"))
+
+    def test_source_mode_without_any_taxes_leaves_the_line_untaxed(self):
+        self._add_portes()
+        self.assertEqual(self.do.applied_taxes.get().base_amount.amount, Decimal("3461.96"))
+        self.assertEqual(self.do.total_amount.amount, Decimal("4448.97"))
+
+
 class SyncFromSourcesTests(_SyncTestBase):
 
     def setUp(self):

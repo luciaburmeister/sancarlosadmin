@@ -450,6 +450,10 @@ class DeliveryOrderService:
         for item in delivery_order.items.top_level():
             line_total = item.line_total.amount if item.line_total else Decimal("0.00")
             source_taxes, quote_id = cls._source_taxes_and_quote(item, quote_taxes_cache)
+            if quote_id is None and not source_taxes:
+                # A line added by hand (portes, extras) is taxed as the quote
+                # would tax a line of its own.
+                source_taxes = cls._manual_line_taxes(delivery_order, item)
             source_id = cls._build_source_id(item)
             kind = source_kind(source_id)
             source_lines.append(SourceLine(source_id, line_total, quote_id, kind))
@@ -558,6 +562,37 @@ class DeliveryOrderService:
             ).select_related("tax_type")
         )
         return source_taxes, quote_id
+
+    @classmethod
+    def _manual_line_taxes(cls, delivery_order, item):
+        """Taxes for a line with no quote-side source, mirroring how a quote
+        line gets its taxes (``QuoteInventoryItem._copy_taxes_from_item``):
+        the client's taxes in client-tax mode, else the inventory item's own,
+        else the company's defaults."""
+        from sales.models import Client
+
+        company = delivery_order.company
+        if company is not None and company.auto_apply_client_taxes and delivery_order.client_id:
+            client_ct = ContentType.objects.get_for_model(Client)
+            client_taxes = list(
+                AppliedTax.objects.filter(
+                    content_type=client_ct, object_id=delivery_order.client_id,
+                ).select_related("tax_type").order_by("order", "id")
+            )
+            if client_taxes:
+                return client_taxes
+
+        if item.inventory_item_id:
+            item_taxes = list(item.inventory_item.get_taxes())
+            if item_taxes:
+                return item_taxes
+
+        if company is None:
+            return []
+        return [
+            AppliedTax(tax_type=cdt.tax_type, selected_percentage=cdt.selected_percentage)
+            for cdt in company.company_default_taxes.select_related("tax_type").all()
+        ]
 
     @classmethod
     def _quote_header_taxes(cls, quote_id, cache=None):

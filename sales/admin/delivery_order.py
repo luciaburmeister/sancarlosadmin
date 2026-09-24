@@ -286,6 +286,7 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         "export_delivery_order_detail_action",
         "send_email_detail_action",
         "link_identity_codes_detail_action",
+        "sync_from_quote_detail_action",
     ]
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
@@ -446,6 +447,37 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
     @action(description=_("Link Item Codes"), icon="qr_code_2")
     def link_identity_codes_detail_action(self, request, object_id):
         return redirect(reverse("admin:sales_deliveryorder_link_identity_codes", args=[object_id]))
+
+    @action(
+        description=_("Sync from Quote"),
+        icon="sync",
+        permissions=["sync_from_quote"],
+        url_path="sync-from-quote",
+    )
+    def sync_from_quote_detail_action(self, request, object_id):
+        """Re-derives the lines, discount and taxes from the current state of
+        the source quotes, so a stale delivery order does not have to be
+        deleted and created again. Superusers only."""
+        from django.core.exceptions import ValidationError
+        from invoices.services.delivery_order_service import DeliveryOrderService
+
+        do = DeliveryOrder.objects.select_related("project_file").get(pk=object_id)
+        try:
+            counts = DeliveryOrderService.sync_from_sources(do)
+        except ValidationError as e:
+            self.message_user(request, " ".join(e.messages), level="error")
+        else:
+            self.message_user(
+                request,
+                _(
+                    "Delivery Order %(number)s synced from its quotes: "
+                    "%(updated)d line(s) updated, %(added)d added, %(removed)d removed."
+                ) % {"number": do.number, **counts},
+            )
+        return redirect(reverse("admin:sales_deliveryorder_change", args=[object_id]))
+
+    def has_sync_from_quote_permission(self, request, object_id=None):
+        return request.user.is_superuser
 
 
 @admin.register(DeliveryOrderItem)

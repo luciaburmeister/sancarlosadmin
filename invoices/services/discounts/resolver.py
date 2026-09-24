@@ -124,9 +124,11 @@ class QuoteDiscountResolver:
                 resolution.breakdown.append(scaled_entry)
 
             # The discount reduces the taxable base of the lines it was
-            # computed on, spread proportionally across them.
+            # computed on, spread proportionally across them — negative
+            # lines (deductions, returns) included, so the bases still add
+            # up to the eligible total minus the discount.
             for kind, amount in per_kind.items():
-                if kind in eligible_kinds and amount > 0:
+                if kind in eligible_kinds and amount != 0:
                     key = (quote.id, kind)
                     resolution._fractions[key] = (
                         resolution._fractions.get(key, Decimal("0"))

@@ -43,7 +43,7 @@ class DeliveryOrderWizardView(UnfoldModelAdminViewMixin, TemplateView):
                 "reference": i.get("reference", ""),
             }
             for i in self.delivery_summary.get("deliverable_items", [])
-            if i["remaining_quantity"] > 0
+            if i["remaining_quantity"] != 0  # negative lines are deliverable too
         ]
 
     def get_context_data(self, **kwargs):

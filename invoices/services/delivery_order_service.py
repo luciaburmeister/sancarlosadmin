@@ -1,7 +1,6 @@
 import logging
 from decimal import Decimal
 from django.db import transaction
-from django.db.models import Sum
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.contrib.contenttypes.models import ContentType
@@ -36,7 +35,7 @@ class DeliveryOrderService:
     """
 
     @classmethod
-    def get_deliverable_items(cls, project_file):
+    def get_deliverable_items(cls, project_file, exclude_delivery_order=None, include_exhausted=False):
         """
         Returns all items eligible for delivery from a ProjectFile.
         Subtracts already-delivered quantities from existing delivery orders.
@@ -51,6 +50,23 @@ class DeliveryOrderService:
         - unit_price: price per unit (Decimal)
         - discount_percentage: discount (Decimal)
         - source_object: the actual Django model instance
+
+        A quote line with a negative quantity (a deduction, a return) is
+        deliverable too: it is "remaining" while its quantity has not yet
+        been put on a delivery order, so the delivery order adds up to the
+        quote like the quote does.
+
+        Pricing spreads the *remaining value* of each source over its
+        remaining quantity (see ``_price_remaining``), so the delivery order
+        that ships the rest of a line always carries the rest of its value —
+        whether the earlier orders split it by quantity or by price, and
+        whether or not the quote was updated in between.
+
+        Args:
+            exclude_delivery_order: leave this order's own lines out of the
+                delivered quantities/values (used to re-derive them).
+            include_exhausted: also return sources with nothing left to
+                deliver (``remaining_quantity`` 0 or over-delivered).
         """
         from configurator.models import Configuration, ConfigurationStatus
         from sales.models import QuoteInventoryItem
@@ -59,9 +75,49 @@ class DeliveryOrderService:
         inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
 
         # Gather all already-delivered quantities by (content_type_id, object_id)
-        delivered_map = cls._get_delivered_quantities(project_file)
+        delivered_map = cls._get_delivered(project_file, exclude_delivery_order)
 
         items = []
+
+        def add(entry, key, total_qty, unit_price, total_value, discount_pct):
+            delivered = delivered_map.get(key, {})
+            delivered_qty = delivered.get("quantity", Decimal("0"))
+            remaining = total_qty - delivered_qty
+            if not include_exhausted and not cls._has_remaining(total_qty, remaining):
+                return
+            entry.update({
+                'total_quantity': total_qty,
+                'delivered_quantity': delivered_qty,
+                'remaining_quantity': remaining,
+                'unit_price': cls._price_remaining(
+                    unit_price, total_qty, total_value, discount_pct, delivered,
+                ),
+                'discount_percentage': discount_pct,
+            })
+            items.append(entry)
+
+        def config_entry(config, quote_id, source_type, description):
+            total_qty = config.units if config.units and config.units > 0 else Decimal("1")
+            # Gross (pre-discount) value — the quote's discount is carried
+            # onto the delivery order explicitly as the header discount by
+            # create_delivery_order, never baked into item prices.
+            config_sub = config.subtotal_price.amount
+            add(
+                {
+                    'source_content_type_id': config_ct.id,
+                    'source_object_id': config.id,
+                    'source_type': source_type,
+                    'description': description,
+                    'reference': f"CFG-{config.id}",
+                    'source_object': config,
+                    'quote_id': quote_id,
+                },
+                (config_ct.id, config.id),
+                total_qty,
+                (config_sub / total_qty).quantize(Decimal("0.01")),
+                config_sub,
+                Decimal("0.00"),
+            )
 
         # 1. Configurations from accepted quotes
         accepted_quotes = Quote.objects.filter(
@@ -71,63 +127,31 @@ class DeliveryOrderService:
 
         for quote in accepted_quotes:
             for config in quote.configurations.all():
-                key = (config_ct.id, config.id)
-                total_qty = config.units if config.units and config.units > 0 else Decimal("1")
-                delivered_qty = delivered_map.get(key, Decimal("0"))
-                remaining = total_qty - delivered_qty
-                if remaining <= 0:
-                    continue
-
-                # Gross (pre-discount) price — the quote's discount is carried
-                # onto the delivery order explicitly as the header discount by
-                # create_delivery_order, never baked into item prices.
-                config_sub = config.subtotal_price.amount
-                up = (config_sub / total_qty).quantize(Decimal("0.01")) if total_qty > 0 else config_sub
-
-                items.append({
-                    'source_content_type_id': config_ct.id,
-                    'source_object_id': config.id,
-                    'source_type': 'configuration',
-                    'description': f"{config.name} (Q#{quote.id})",
-                    'reference': f"CFG-{config.id}",
-                    'total_quantity': total_qty,
-                    'delivered_quantity': delivered_qty,
-                    'remaining_quantity': remaining,
-                    'unit_price': up,
-                    'discount_percentage': Decimal("0.00"),
-                    'source_object': config,
-                    'quote_id': quote.id,
-                })
+                config_entry(config, quote.id, 'configuration', f"{config.name} (Q#{quote.id})")
 
             # Inventory items attached to the quote
             for inv_item in quote.inventory_items.select_related("inventory_item").all():
-                key = (inv_item_ct.id, inv_item.id)
-                total_qty = inv_item.quantity
-                delivered_qty = delivered_map.get(key, Decimal("0"))
-                remaining = total_qty - delivered_qty
-                if remaining <= 0:
-                    continue
-
                 inv_name = (
                     inv_item.inventory_item.name
                     if inv_item.inventory_item_id
                     else f"Inventory Item #{inv_item.pk}"
                 )
-
-                items.append({
-                    'source_content_type_id': inv_item_ct.id,
-                    'source_object_id': inv_item.id,
-                    'source_type': 'inventory_item',
-                    'description': f"{inv_name} (Q#{quote.id})",
-                    'reference': inv_item.inventory_item.code if inv_item.inventory_item_id else "",
-                    'total_quantity': total_qty,
-                    'delivered_quantity': delivered_qty,
-                    'remaining_quantity': remaining,
-                    'unit_price': inv_item.unit_price.amount if inv_item.unit_price else Decimal("0"),
-                    'discount_percentage': inv_item.discount if inv_item.discount else Decimal("0"),
-                    'source_object': inv_item,
-                    'quote_id': quote.id,
-                })
+                add(
+                    {
+                        'source_content_type_id': inv_item_ct.id,
+                        'source_object_id': inv_item.id,
+                        'source_type': 'inventory_item',
+                        'description': f"{inv_name} (Q#{quote.id})",
+                        'reference': inv_item.inventory_item.code if inv_item.inventory_item_id else "",
+                        'source_object': inv_item,
+                        'quote_id': quote.id,
+                    },
+                    (inv_item_ct.id, inv_item.id),
+                    inv_item.quantity or Decimal("0"),
+                    inv_item.unit_price.amount if inv_item.unit_price else Decimal("0"),
+                    inv_item.line_total.amount if inv_item.line_total else Decimal("0"),
+                    inv_item.discount if inv_item.discount else Decimal("0"),
+                )
 
         # 2. Direct configurations (shop/work-order flow, NOT via a quote)
         direct_configs = Configuration.objects.filter(
@@ -141,32 +165,83 @@ class DeliveryOrderService:
             ],
         )
         for config in direct_configs:
-            key = (config_ct.id, config.id)
-            total_qty = config.units if config.units and config.units > 0 else Decimal("1")
-            delivered_qty = delivered_map.get(key, Decimal("0"))
-            remaining = total_qty - delivered_qty
-            if remaining <= 0:
-                continue
-
-            sub = config.subtotal_price.amount
-            up = (sub / total_qty).quantize(Decimal("0.01")) if total_qty > 0 else sub
-
-            items.append({
-                'source_content_type_id': config_ct.id,
-                'source_object_id': config.id,
-                'source_type': 'direct_configuration',
-                'description': config.name,
-                'reference': f"CFG-{config.id}",
-                'total_quantity': total_qty,
-                'delivered_quantity': delivered_qty,
-                'remaining_quantity': remaining,
-                'unit_price': up,
-                'discount_percentage': Decimal("0.00"),
-                'source_object': config,
-                'quote_id': None,
-            })
+            config_entry(config, None, 'direct_configuration', config.name)
 
         return items
+
+    @staticmethod
+    def _has_remaining(total_qty, remaining):
+        """Whether ``remaining`` still leaves something to deliver of a line
+        ordered as ``total_qty``: a positive line is pending while it has not
+        been fully (or over-) delivered, a negative one while it has not been
+        fully applied. A zero remainder never is."""
+        if remaining == 0:
+            return False
+        return (remaining > 0) == (total_qty > 0)
+
+    @staticmethod
+    def _price_remaining(unit_price, total_qty, total_value, discount_pct, delivered):
+        """Unit price for what is left of a source line.
+
+        The value not yet delivered — the line's value on the quote minus
+        what the existing delivery orders carry for it — is spread over the
+        quantity not yet delivered, so the order that completes the line gets
+        exactly the rest of its value. Lines with nothing delivered yet (or
+        nothing left) keep the plain quote ``unit_price``.
+
+        ``total_value`` is the line's value net of its own line discount
+        (``discount_pct``), as delivery order lines are priced gross and
+        carry that percentage themselves. Quantities delivered by legacy
+        (net-priced) orders have no comparable value, so they are taken at
+        the quote price.
+        """
+        delivered_qty = delivered.get("quantity", Decimal("0"))
+        remaining_qty = total_qty - delivered_qty
+        factor = (Decimal("100") - discount_pct) / Decimal("100")
+        if not total_qty or not delivered_qty or not remaining_qty or not factor:
+            return unit_price
+
+        legacy_qty = delivered_qty - delivered.get("priced_quantity", Decimal("0"))
+        remaining_value = (
+            total_value
+            - delivered.get("value", Decimal("0"))
+            - (total_value / total_qty * legacy_qty)
+        )
+        return (remaining_value / remaining_qty / factor).quantize(Decimal("0.01"))
+
+    @classmethod
+    def _get_delivered(cls, project_file, exclude_delivery_order=None):
+        """
+        Returns ``{(content_type_id, object_id): {quantity, value,
+        priced_quantity}}`` over the top-level lines of all non-cancelled
+        delivery orders linked to this project file.
+
+        ``value`` is the sum of the line totals of self-contained orders and
+        ``priced_quantity`` the quantity they cover; legacy net-priced orders
+        add to ``quantity`` only.
+        """
+        delivered = {}
+        existing_dos = DeliveryOrder.objects.filter(
+            project_file=project_file,
+        ).exclude(status=DeliveryOrderStatus.CANCELLED)
+        if exclude_delivery_order is not None:
+            existing_dos = existing_dos.exclude(pk=exclude_delivery_order.pk)
+
+        for do in existing_dos:
+            priced = cls._is_self_contained(do)
+            for item in do.items.top_level().filter(source_content_type__isnull=False):
+                key = (item.source_content_type_id, item.source_object_id)
+                entry = delivered.setdefault(key, {
+                    "quantity": Decimal("0"),
+                    "value": Decimal("0"),
+                    "priced_quantity": Decimal("0"),
+                })
+                entry["quantity"] += item.quantity
+                if priced:
+                    entry["priced_quantity"] += item.quantity
+                    entry["value"] += item.line_total.amount if item.line_total else Decimal("0")
+
+        return delivered
 
     @classmethod
     def _get_delivered_quantities(cls, project_file):
@@ -174,17 +249,10 @@ class DeliveryOrderService:
         Returns a dict of {(content_type_id, object_id): total_delivered_quantity}
         for all non-cancelled delivery orders linked to this project file.
         """
-        delivered = {}
-        existing_dos = DeliveryOrder.objects.filter(
-            project_file=project_file,
-        ).exclude(status=DeliveryOrderStatus.CANCELLED)
-
-        for do in existing_dos:
-            for item in do.items.filter(source_content_type__isnull=False):
-                key = (item.source_content_type_id, item.source_object_id)
-                delivered[key] = delivered.get(key, Decimal("0")) + item.quantity
-
-        return delivered
+        return {
+            key: entry["quantity"]
+            for key, entry in cls._get_delivered(project_file).items()
+        }
 
     @classmethod
     @transaction.atomic
@@ -266,6 +334,101 @@ class DeliveryOrderService:
         )
 
         return delivery_order
+
+    @classmethod
+    @transaction.atomic
+    def sync_from_sources(cls, delivery_order):
+        """Brings a delivery order back in line with its sources after the
+        quotes changed, without deleting and re-creating it.
+
+        Each quote-sourced top-level line is re-priced (description,
+        reference, unit price and line discount) exactly as the wizard would
+        price it today, given what the *other* delivery orders of the
+        expediente carry — so an order that ships the rest of a line gets the
+        rest of its value. Quantities are kept: they are what was shipped.
+        Lines whose source no longer exists (or whose quote is no longer
+        accepted) are removed, and sources with something left to deliver
+        that are on no other order are added with their remaining quantity.
+        Manual lines are left alone. The header discount and taxes are then
+        re-derived.
+
+        Returns ``{"updated": n, "added": n, "removed": n}``.
+        """
+        from configurator.models import Configuration
+        from sales.models import QuoteInventoryItem
+
+        if delivery_order.sales_invoice_id:
+            raise ValidationError(
+                _("This delivery order is already invoiced. Unlink or delete the invoice before syncing it.")
+            )
+        if delivery_order.project_file_id is None:
+            raise ValidationError(_("This delivery order is not linked to a project file."))
+        if delivery_order.status == DeliveryOrderStatus.CANCELLED:
+            raise ValidationError(_("A cancelled delivery order cannot be synced."))
+
+        sources = {
+            (i['source_content_type_id'], i['source_object_id']): i
+            for i in cls.get_deliverable_items(
+                delivery_order.project_file,
+                exclude_delivery_order=delivery_order,
+                include_exhausted=True,
+            )
+        }
+        syncable_cts = {
+            ContentType.objects.get_for_model(Configuration).id,
+            ContentType.objects.get_for_model(QuoteInventoryItem).id,
+        }
+
+        counts = {"updated": 0, "added": 0, "removed": 0}
+        for line in delivery_order.items.top_level().filter(source_content_type_id__in=syncable_cts):
+            data = sources.pop((line.source_content_type_id, line.source_object_id), None)
+            if data is None:
+                line.delete()
+                counts["removed"] += 1
+                continue
+            fields = {
+                "description": data["description"],
+                "reference": data["reference"],
+                "unit_price": data["unit_price"],
+                "discount_percentage": data["discount_percentage"],
+            }
+            if any(
+                (getattr(line, name).amount if name == "unit_price" else getattr(line, name)) != value
+                for name, value in fields.items()
+            ):
+                for name, value in fields.items():
+                    setattr(line, name, value)
+                line.save()
+                counts["updated"] += 1
+
+        for data in sources.values():
+            if not cls._has_remaining(data["total_quantity"], data["remaining_quantity"]):
+                continue
+            DeliveryOrderItem.objects.create(
+                delivery_order=delivery_order,
+                description=data["description"],
+                quantity=data["remaining_quantity"],
+                unit_price=data["unit_price"],
+                discount_percentage=data["discount_percentage"],
+                source_content_type_id=data["source_content_type_id"],
+                source_object_id=data["source_object_id"],
+                reference=data["reference"],
+            )
+            counts["added"] += 1
+
+        cls.recompute_discounts_and_taxes(delivery_order)
+
+        logger.info(
+            "Synced DeliveryOrder %s from its sources: %d updated, %d added, %d removed. "
+            "Subtotal: %s, Discount: %s, Tax: %s, Total: %s",
+            delivery_order.number,
+            counts["updated"], counts["added"], counts["removed"],
+            delivery_order.subtotal_amount,
+            delivery_order.discount_amount,
+            delivery_order.tax_amount,
+            delivery_order.total_amount,
+        )
+        return counts
 
     @classmethod
     @transaction.atomic

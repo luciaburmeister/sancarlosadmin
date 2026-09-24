@@ -57,7 +57,9 @@
       "Bash(echo \"--- exit $?\")",
       "Bash(aws sts *)",
       "Bash(aws elasticbeanstalk *)",
-      "Bash(grep -n 'msgid \"Client\"$' -A1 locale/es/LC_MESSAGES/django.po)"
+      "Bash(grep -n 'msgid \"Client\"$' -A1 locale/es/LC_MESSAGES/django.po)",
+      "Bash(python manage.py test invoices.tests.test_delivery_order_totals sales.tests.test_delivery_order_admin_recompute --noinput)",
+      "Bash(python manage.py test invoices.tests.test_delivery_order_sync --noinput)"
     ]
   }
 }

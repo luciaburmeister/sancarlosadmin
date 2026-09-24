@@ -15494,3 +15494,27 @@ msgstr "Rechazado por"
 #: purchasing/templates/purchasing/po_details_section.html
 msgid "Rejected at"
 msgstr "Rechazado el"
+
+msgid "Sync from Quote"
+msgstr "Sincronizar desde presupuesto"
+
+#, python-format
+msgid ""
+"Delivery Order %(number)s synced from its quotes: %(updated)d line(s) "
+"updated, %(added)d added, %(removed)d removed."
+msgstr ""
+"Albarán %(number)s sincronizado desde sus presupuestos: %(updated)d línea(s) "
+"actualizada(s), %(added)d añadida(s), %(removed)d eliminada(s)."
+
+msgid ""
+"This delivery order is already invoiced. Unlink or delete the invoice before "
+"syncing it."
+msgstr ""
+"Este albarán ya está facturado. Desvincule o elimine la factura antes de "
+"sincronizarlo."
+
+msgid "This delivery order is not linked to a project file."
+msgstr "Este albarán no está vinculado a ningún expediente."
+
+msgid "A cancelled delivery order cannot be synced."
+msgstr "Un albarán cancelado no se puede sincronizar."

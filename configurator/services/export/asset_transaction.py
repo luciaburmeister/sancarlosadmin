@@ -13,21 +13,22 @@ class AssetTransactionExportStrategy(BaseExportStrategy):
 
     def get_context(self, include_rendered_templates: bool = True) -> Dict[str, Any]:
         asset = self.transaction.asset
+        client = asset.client if asset else None
 
-        # Gather asset identifiers
         identifiers = []
-        for ident in asset.identifiers.all():
-            identifiers.append({
-                "label": ident.label,
-                "value": ident.value,
-            })
+        if asset:
+            for ident in asset.identifiers.all():
+                identifiers.append({
+                    "label": ident.label,
+                    "value": ident.value,
+                })
 
         context = {
             "transaction": self.transaction,
             "asset": asset,
-            "asset_name": asset.name,
-            "asset_type": str(asset.asset_type) if asset.asset_type else None,
-            "asset_data": asset.data or {},
+            "asset_name": asset.name if asset else None,
+            "asset_type": str(asset.asset_type) if asset and asset.asset_type else None,
+            "asset_data": (asset.data or {}) if asset else {},
             "identifiers": identifiers,
             "transaction_type": self.transaction.get_transaction_type_display(),
             "transaction_type_raw": self.transaction.transaction_type,
@@ -43,8 +44,11 @@ class AssetTransactionExportStrategy(BaseExportStrategy):
             ),
             "has_firma": bool(self.transaction.firma),
             "performed_by": str(self.transaction.performed_by) if self.transaction.performed_by else None,
-            "client": asset.client,
-            "client_name": str(asset.client) if asset.client else None,
+            "client": client,
+            "client_name": str(client) if client else None,
+            "client_phone": client.phone if client else "",
+            "client_tax_id": client.tax_identifier if client else "",
+            "client_nima": client.nima if client else "",
             "project_file": self.transaction.project_file,
             "project_file_reference": (
                 self.transaction.project_file.reference

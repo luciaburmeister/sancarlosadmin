@@ -364,6 +364,12 @@ class Client(Timestampable, CompanyOwnedModel):
         verbose_name=_("Industry Identifier"),
         help_text=_("e.g., CNAE, SIC code, or similar industry classification"),
     )
+    nima = models.CharField(
+        max_length=20,
+        blank=True,
+        verbose_name=_("NIMA"),
+        help_text=_("Optional environmental identification number (Número de Identificación Medioambiental)."),
+    )
 
     # New fields
     sale_zone = models.ForeignKey(

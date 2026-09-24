@@ -110,7 +110,7 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
     list_display = ["name", "commercial_name", "tax_identifier", "phone", "balance_overdue_display", "balance_not_due_display", "balance_owed_display", "credit_balance_display"]
     list_sections = [PendingInvoicesSection]
     search_fields = [
-        "name", "commercial_name", "tax_identifier", "industry_identifier", "email", "phone", "address",
+        "name", "commercial_name", "tax_identifier", "industry_identifier", "nima", "email", "phone", "address",
         "contacts__name", "contacts__email", "contacts__phone", "contacts__mobile_phone", "contacts__department",
     ]
     list_filter = ["sale_zone", "is_insured", "contacts__role"]
@@ -217,7 +217,7 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
             "fields": (
                 ("name", "commercial_name", ),
                 ("company",),
-                ("tax_identifier", "industry_identifier"),
+                ("tax_identifier", "industry_identifier", "nima"),
                 ("phone", "email"),
                 "balance_owed_detail_display",
                 "credit_balance_detail_display",

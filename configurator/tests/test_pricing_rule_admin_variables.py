@@ -9,6 +9,7 @@ import time
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 
@@ -56,6 +57,10 @@ class PricingRuleAdminAvailableVariablesTest(TestCase):
         # Not in setUpTestData: Django deep-copies those attributes per test
         # and a ModelAdmin instance is not copyable.
         self.admin = PricingRuleAdmin(PricingRule, AdminSite())
+        # LocMem cache persists across tests in-process; a stale cached list
+        # of switchable company ids would reject this test's companies.
+        cache.clear()
+        self.addCleanup(ActiveCompany.clear_current)
 
     def test_lists_builtin_parameters_and_computed_variables(self):
         html = str(self.admin.available_variables(self.rule))

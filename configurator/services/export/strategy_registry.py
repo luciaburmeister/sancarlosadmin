@@ -14,6 +14,7 @@ from .asset_transaction import AssetTransactionExportStrategy
 from .delivery_order import DeliveryOrderExportStrategy
 from .project_file import ProjectFileExportStrategy
 from .quote_request import QuoteRequestExportStrategy
+from .purchase_order import PurchaseOrderExportStrategy
 
 
 def get_strategy_map():
@@ -26,7 +27,7 @@ def get_strategy_map():
     from sales.models import Quote, DeliveryOrder
     from assets.models import AssetTransaction
     from management.models import ProjectFile
-    from purchasing.models import QuoteRequest
+    from purchasing.models import QuoteRequest, PurchaseOrder
 
     return {
         Configuration:    ConfigurationExportStrategy,
@@ -38,4 +39,5 @@ def get_strategy_map():
         DeliveryOrder:    DeliveryOrderExportStrategy,
         ProjectFile:      ProjectFileExportStrategy,
         QuoteRequest:     QuoteRequestExportStrategy,
+        PurchaseOrder:    PurchaseOrderExportStrategy,
     }

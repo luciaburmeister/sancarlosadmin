@@ -18,7 +18,7 @@ def _get_kind_model_map():
     from sales.models import Quote, DeliveryOrder
     from assets.models import AssetTransaction
     from management.models import ProjectFile
-    from purchasing.models import QuoteRequest
+    from purchasing.models import QuoteRequest, PurchaseOrder
 
     return {
         "quotation":              (Configuration,   "product"),
@@ -31,6 +31,7 @@ def _get_kind_model_map():
         "delivery_order":         (DeliveryOrder,   "configuration__product"),
         "repair_order":           (ProjectFile,     None),
         "quote_request":          (QuoteRequest,    None),
+        "purchase_order":         (PurchaseOrder,   None),
     }
 
 

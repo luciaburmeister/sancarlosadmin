@@ -1738,6 +1738,7 @@ class ExportTemplateKind(models.TextChoices):
     DELIVERY_ORDER = "delivery_order", _("Delivery Order")
     REPAIR_ORDER = "repair_order", _("Repair Order")
     QUOTE_REQUEST = "quote_request", _("Quote Request")
+    PURCHASE_ORDER = "purchase_order", _("Purchase Order")
 
 
 class ConfigurationExportTemplate(CompanyOwnedModel):

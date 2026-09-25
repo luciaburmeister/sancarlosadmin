@@ -31,7 +31,7 @@ from .models import (
 from .resources import PurchaseOrderResource
 from inventory.models import ItemIdentityCode
 from django.shortcuts import redirect
-from .views import DirectReceiptView, IdentityCodesView, POMatchInvoiceView, POAIMatchView, DispatchPOAIMatchView, RejectPurchaseOrderView, POApprovalAnalysisView, PostPurchaseOrderMessageView
+from .views import DirectReceiptView, IdentityCodesView, POMatchInvoiceView, POAIMatchView, DispatchPOAIMatchView, RejectPurchaseOrderView, POApprovalAnalysisView, PostPurchaseOrderMessageView, PurchaseOrderPdfView, PurchaseOrderPdfDownloadView
 
 class PurchaseOrderItemInline(StackedInline):
     model = PurchaseOrderItem
@@ -258,8 +258,16 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
                 opts["fields"] = cleaned
         return fieldsets
 
-    actions_row = ["send_to_approval", "review_approval", "approve_po", "reject_po", "receive_directly"]
+    actions_row = ["send_to_approval", "review_approval", "approve_po", "reject_po", "receive_directly", "view_pdf_row_action", "download_pdf_row_action"]
     actions_detail = [
+        {
+            "title": _("PDF"),
+            "icon": "picture_as_pdf",
+            "items": [
+                "view_pdf_detail_action",
+                "download_pdf_detail_action",
+            ],
+        },
         {
             "title": _("Approval"),
             "icon": "task_alt",
@@ -525,6 +533,22 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
     def match_invoice_detail_action(self, request, object_id: int):
         return redirect(reverse("admin:purchasing_purchaseorder_match_invoice", args=[object_id]))
 
+    @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
+    def view_pdf_row_action(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_purchaseorder_pdf", args=[object_id]))
+
+    @action(description=_("View PDF"), icon="visibility", attrs={"target": "_blank"})
+    def view_pdf_detail_action(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_purchaseorder_pdf", args=[object_id]))
+
+    @action(description=_("Download PDF"), icon="download")
+    def download_pdf_row_action(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_purchaseorder_download_pdf", args=[object_id]))
+
+    @action(description=_("Download PDF"), icon="download")
+    def download_pdf_detail_action(self, request, object_id: int):
+        return redirect(reverse("admin:purchasing_purchaseorder_download_pdf", args=[object_id]))
+
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
@@ -562,6 +586,16 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
                 "<int:po_id>/receive-directly",
                 self.admin_site.admin_view(DirectReceiptView.as_view(model_admin=self)),
                 name="purchasing_purchaseorder_receive_directly_view",
+            ),
+            path(
+                "<int:po_id>/pdf/",
+                self.admin_site.admin_view(PurchaseOrderPdfView.as_view(model_admin=self)),
+                name="purchasing_purchaseorder_pdf",
+            ),
+            path(
+                "<int:po_id>/download-pdf/",
+                self.admin_site.admin_view(PurchaseOrderPdfDownloadView.as_view(model_admin=self)),
+                name="purchasing_purchaseorder_download_pdf",
             ),
             path(
                 "<int:po_id>/identity-codes/",

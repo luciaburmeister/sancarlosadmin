@@ -8,6 +8,7 @@ from .create_quotes import CreateQuotesView
 from .quote_comparison import QuoteComparisonView
 from .provider_autocomplete import ProviderAutocompleteView
 from .quote_request_pdf import QuoteRequestPdfView, QuoteRequestPdfDownloadView
+from .purchase_order_pdf import PurchaseOrderPdfView, PurchaseOrderPdfDownloadView
 
 __all__ = [
     "DirectReceiptView",
@@ -23,4 +24,6 @@ __all__ = [
     "ProviderAutocompleteView",
     "QuoteRequestPdfView",
     "QuoteRequestPdfDownloadView",
+    "PurchaseOrderPdfView",
+    "PurchaseOrderPdfDownloadView",
 ]

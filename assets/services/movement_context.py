@@ -28,6 +28,7 @@ def build_asset_transaction_context(transaction):
     other FK in the context, plus `*_zone_name` with the bare zone name so
     rule conditions don't have to include the company suffix.
     """
+    from core.text import normalize_match_data
     from management.services.work_entry import WorkEntryService
 
     context = WorkEntryService._auto_extract_context(transaction)
@@ -44,7 +45,7 @@ def build_asset_transaction_context(transaction):
             "to_zone": str(to_zone) if to_zone else None,
             "to_zone_name": to_zone.name if to_zone else None,
             "date": receipt_tx.date,
-            **receipt.data,
+            **normalize_match_data(receipt.data),
         }
 
     movement = get_related_movement(transaction)

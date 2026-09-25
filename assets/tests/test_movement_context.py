@@ -84,3 +84,42 @@ class ReceiptZoneContextTests(TestCase):
 
         wtype.applicability_expression = "receipt.to_zone_name == 'Vertedero Norte'"
         self.assertTrue(wtype.evaluate_applicability(ctx))
+
+    def test_escaped_material_matches_catalog_name(self):
+        receipt_tx = AssetTransaction.objects.create(
+            company=self.company,
+            transaction_type=TransactionTypeChoices.RECEIPT,
+            date=timezone.now(),
+        )
+        AssetTransactionReceipt.objects.create(
+            transaction=receipt_tx,
+            nro_albaran="ALB-3",
+            data={
+                "material_vertido": "Hormig\\u00f3n",
+                "peso_neto": "9800",
+            },
+        )
+        ordinal_tx = AssetTransaction.objects.create(
+            company=self.company,
+            transaction_type=TransactionTypeChoices.RECEIPT,
+            date=timezone.now(),
+        )
+        AssetTransactionReceipt.objects.create(
+            transaction=ordinal_tx,
+            nro_albaran="ALB-4",
+            data={"material_vertido": "2\\u00ba RCD"},
+        )
+
+        concrete = WorkEntryType(
+            company=self.company,
+            name="Hormigon",
+            applicability_expression="receipt.material_vertido == 'Hormigón'",
+        )
+        ordinal = WorkEntryType(
+            company=self.company,
+            name="Segundo RCD",
+            applicability_expression="receipt.material_vertido == '2º RCD'",
+        )
+
+        self.assertTrue(concrete.evaluate_applicability(build_asset_transaction_context(receipt_tx)))
+        self.assertTrue(ordinal.evaluate_applicability(build_asset_transaction_context(ordinal_tx)))

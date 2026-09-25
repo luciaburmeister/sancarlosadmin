@@ -10,6 +10,7 @@ from django.urls import reverse
 from django.shortcuts import redirect
 from unfold.decorators import action
 from django.utils.translation import gettext_lazy as _
+from django.utils.html import format_html, format_html_join
 from django.http import HttpRequest
 from invoices.models import AppliedTax
 from unfold.decorators import display
@@ -192,6 +193,47 @@ class PricingRuleAssignmentInline(TabularInline):
     tab = True
     verbose_name = _("Pricing rule assignment")
     verbose_name_plural = _("Pricing rule assignments")
+    fields = ("rule", "enabled", "evaluated_amount", "evaluation_status")
+    readonly_fields = ("evaluated_amount", "evaluation_status")
+
+    @staticmethod
+    def _rule_result(obj):
+        """Result recorded for this rule in the configuration's last pricing run."""
+        if obj is None or obj.pk is None or obj.configuration_id is None:
+            return None
+        breakdown = obj.configuration.pricing_breakdown or {}
+        if not isinstance(breakdown, dict):
+            return None
+        for result in breakdown.get("rules", []):
+            if result.get("rule_id") == obj.rule_id:
+                return result
+        return None
+
+    @admin.display(description=_("Amount"))
+    def evaluated_amount(self, obj):
+        result = self._rule_result(obj)
+        if result is None:
+            return "—"
+        return f"{result['amount']} {obj.configuration.subtotal_price.currency}"
+
+    @admin.display(description=_("Result"))
+    def evaluation_status(self, obj):
+        if obj is None or obj.pk is None:
+            return "—"
+        config = obj.configuration
+        if config.price_override is not None and config.price_override.amount >= 0:
+            return _("Not evaluated (price override)")
+        if not obj.enabled:
+            return _("Disabled")
+        result = self._rule_result(obj)
+        if result is None:
+            return _("Not calculated yet")
+        if not result.get("applied"):
+            return _("No effect (amount is 0)")
+        label = _("Charge") if result.get("type") == "charge" else _("Discount")
+        if result.get("type") == "discount" and not result.get("show_in_export", True):
+            label = _("Discount (hidden in export)")
+        return f"{label} → {result.get('subtotal_after', '')}"
 
     def has_change_permission(self, request, obj=None):
         if obj and obj.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE] and obj.status == ConfigurationStatus.COMPLETED:
@@ -255,7 +297,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
     search_fields = ("name", "client__name")
     list_select_related = ["client","product"]
 
-    readonly_fields = ("total_price","total_cost","subtotal_price","company","planning_status","planned_at")
+    readonly_fields = ("total_price","total_cost","subtotal_price","company","planning_status","planned_at","computed_variables_display")
     actions_row = ["export_configuration_to_template",
                    "duplicate_configuration",
                    "convert_to_production",
@@ -318,12 +360,34 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
                 ("unit_price")
                 ),
         }),
+        (_("Computed variables"), {
+            "fields": ("computed_variables_display",),
+            "classes": ("collapse",),
+            "description": _("Values of the product's computed variables from the last price calculation."),
+        }),
         (_("Notes"), {
             "fields": (
                 ("notes",),
             ),
         }),
     )
+
+    @admin.display(description=_("Computed variables"))
+    def computed_variables_display(self, obj):
+        values = (obj.computed_variables if obj else None) or {}
+        if not values:
+            return _("Not calculated yet")
+        return format_html(
+            '<table class="w-full text-sm"><tbody>{}</tbody></table>',
+            format_html_join(
+                "",
+                '<tr class="border-b border-base-200 last:border-0 dark:border-base-800">'
+                '<td class="py-1 pr-4 align-top whitespace-nowrap">'
+                '<code class="font-mono text-xs">{}</code></td>'
+                '<td class="py-1 align-top">{}</td></tr>',
+                sorted(values.items()),
+            ),
+        )
 
     def get_readonly_fields(self, request, obj=None):
         readonly = super().get_readonly_fields(request, obj)

@@ -4962,6 +4962,37 @@ msgstr ""
 "Ninguna plantilla de producto define todavía parámetros ni variables "
 "calculadas."
 
+msgid "Snapshot of the product's computed variable values at pricing time."
+msgstr ""
+"Instantánea de los valores de las variables calculadas del producto en el "
+"momento de calcular el precio."
+
+msgid "Values of the product's computed variables from the last price calculation."
+msgstr ""
+"Valores de las variables calculadas del producto en el último cálculo de "
+"precio."
+
+msgid "Result"
+msgstr "Resultado"
+
+msgid "Not evaluated (price override)"
+msgstr "No evaluada (precio forzado)"
+
+msgid "Disabled"
+msgstr "Deshabilitada"
+
+msgid "Not calculated yet"
+msgstr "Aún no calculado"
+
+msgid "No effect (amount is 0)"
+msgstr "Sin efecto (importe 0)"
+
+msgid "Charge"
+msgstr "Cargo"
+
+msgid "Discount (hidden in export)"
+msgstr "Descuento (oculto en exportación)"
+
 msgid "Human-readable label for exports (e.g. Margin, Discount)"
 msgstr ""
 "Etiqueta legible para humanos para exportaciones (por ejemplo, Margen, "

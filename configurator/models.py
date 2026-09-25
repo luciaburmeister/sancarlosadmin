@@ -720,6 +720,15 @@ class Configuration(Timestampable, CompanyOwnedModel):
         ),
     )
 
+    computed_variables = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name=_("Computed variables"),
+        help_text=_(
+            "Snapshot of the product's computed variable values at pricing time."
+        ),
+    )
+
     rendered_templates = models.JSONField(
         default=dict,
         blank=True,
@@ -904,9 +913,13 @@ class Configuration(Timestampable, CompanyOwnedModel):
         if self.status not in [ConfigurationStatus.DRAFT, ConfigurationStatus.PRODUCTION_DONE, ConfigurationStatus.SHOP]:
             return
         context = self.get_pricing_context()
+        self.computed_variables = self._snapshot_computed_variables(context)
 
         base_subtotal = Decimal(str(context["base_total"]))
         pricing_lines = []
+        # One entry per enabled rule, in assignment order, whether or not it
+        # ended up changing the price. Shown in the admin next to each rule.
+        rule_results: dict[int, dict] = {}
         pre_discount_subtotal = Decimal("0.00")
         discount_total = Decimal("0.00")
 
@@ -922,12 +935,22 @@ class Configuration(Timestampable, CompanyOwnedModel):
             pre_discount_subtotal = subtotal
         else:
             subtotal = base_subtotal
+            assignments = list(
+                self.pricing_rules.select_related("rule").filter(enabled=True)
+            )
 
-            for assignment in self.pricing_rules.select_related("rule").filter(
-                enabled=True
-            ):
+            for assignment in assignments:
                 rule = assignment.rule
                 amount = Decimal(str(safe_eval(rule.expression, context)))
+                rule_results[rule.pk] = {
+                    "rule_id": rule.pk,
+                    "name": rule.name,
+                    "label": rule.label or rule.name,
+                    "expression": rule.expression,
+                    "amount": str(amount.quantize(Decimal("0.01"))),
+                    "applied": False,
+                    "type": None,
+                }
 
                 if amount <= 0:
                     continue
@@ -936,6 +959,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
                 subtotal += amount
                 pricing_lines.append(
                     {
+                        "rule_id": rule.pk,
                         "label": rule.label or rule.name,
                         "type": "charge",
                         "expression": rule.expression,
@@ -944,16 +968,25 @@ class Configuration(Timestampable, CompanyOwnedModel):
                         "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
                     }
                 )
+                rule_results[rule.pk].update(
+                    {
+                        "applied": True,
+                        "type": "charge",
+                        "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
+                    }
+                )
 
                 context["base_total"] = float(subtotal)
 
             pre_discount_subtotal = subtotal
 
-            for assignment in self.pricing_rules.select_related("rule").filter(
-                enabled=True
-            ):
+            for assignment in assignments:
                 rule = assignment.rule
                 amount = Decimal(str(safe_eval(rule.expression, context)))
+                if not rule_results[rule.pk]["applied"]:
+                    rule_results[rule.pk]["amount"] = str(
+                        amount.quantize(Decimal("0.01"))
+                    )
 
                 if amount >= 0:
                     continue
@@ -965,6 +998,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
                 if rule.show_in_export:
                     pricing_lines.append(
                         {
+                            "rule_id": rule.pk,
                             "label": rule.label or rule.name,
                             "type": "discount",
                             "expression": rule.expression,
@@ -975,6 +1009,15 @@ class Configuration(Timestampable, CompanyOwnedModel):
                             "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
                         }
                     )
+                rule_results[rule.pk].update(
+                    {
+                        "applied": True,
+                        "type": "discount",
+                        "amount": str(amount.quantize(Decimal("0.01"))),
+                        "show_in_export": rule.show_in_export,
+                        "subtotal_after": str(subtotal.quantize(Decimal("0.01"))),
+                    }
+                )
 
                 context["base_total"] = float(subtotal)
 
@@ -1008,6 +1051,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
             "discount_total": str(discount_total.quantize(Decimal("0.01"))),
             "post_discount_subtotal": str(subtotal.quantize(Decimal("0.01"))),
             "lines": pricing_lines,
+            "rules": list(rule_results.values()),
         }
 
         from configurator.services.export.service import ConfigurationExportService
@@ -1021,13 +1065,38 @@ class Configuration(Timestampable, CompanyOwnedModel):
                 "units",
                 "total_price",
                 "pricing_breakdown",
+                "computed_variables",
                 "tax_breakdown",
                 "rendered_templates",
             ]
         )
-        
+
         if getattr(self, 'quote_id', None):
             self.quote.recalc_totals()
+
+    def _snapshot_computed_variables(self, context):
+        """
+        JSON-safe copy of the product's computed variable values from an
+        already evaluated pricing context, keyed by variable name.
+        """
+        if not self.product_id:
+            return {}
+
+        def json_safe(value):
+            if isinstance(value, bool) or value is None:
+                return value
+            if isinstance(value, Decimal):
+                value = float(value)
+            if isinstance(value, float) and value.is_integer():
+                return int(value)
+            if isinstance(value, (int, float, str)):
+                return value
+            return str(value)
+
+        return {
+            var.name: json_safe(context.get(var.name))
+            for var in self.product.computed_vars.all()
+        }
 
     def _evaluate_bom_rule(self, rule, context):
         """

@@ -116,10 +116,11 @@ class WorkEntryService:
             else:
                 context[name] = value
 
-        # Merge .data JSONField if present
         data = getattr(obj, "data", None)
         if isinstance(data, dict):
-            context["data"] = data
+            from core.text import normalize_match_data
+
+            context["data"] = normalize_match_data(data)
 
         return context
 

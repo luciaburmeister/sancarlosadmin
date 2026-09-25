@@ -4909,20 +4909,58 @@ msgstr ""
 
 msgid ""
 "Reusable expression.\n"
-"Allowed variables:\n"
-"- base_total\n"
-"- material_cost\n"
-"- quantity\n"
-"- item_count\n"
+"Always available: base_total, material_cost, quantity, item_count.\n"
+"Product parameters and computed variables of the product template can also "
+"be used; see the 'Available variables' section below.\n"
 "Example: base_total * 1.10"
 msgstr ""
 "Expresión reutilizable.\n"
-"Variables permitidas:\n"
-"- base_total\n"
-"- material_cost\n"
-"- quantity\n"
-"- item_count\n"
+"Siempre disponibles: base_total, material_cost, quantity, item_count.\n"
+"También se pueden usar los parámetros y las variables calculadas de la "
+"plantilla de producto; consulta la sección 'Variables disponibles' más "
+"abajo.\n"
 "Ejemplo: base_total * 1.10"
+
+msgid "Running subtotal (updated after each rule)"
+msgstr "Subtotal acumulado (se actualiza tras cada regla)"
+
+msgid "Sum of component cost × quantity"
+msgstr "Suma de coste del componente × cantidad"
+
+msgid "Total quantity of configuration items"
+msgstr "Cantidad total de los elementos de la configuración"
+
+msgid "Number of configuration items"
+msgstr "Número de elementos de la configuración"
+
+msgid "Available variables"
+msgstr "Variables disponibles"
+
+msgid ""
+"Every name below can be used in the expression. Parameters and computed "
+"variables depend on the product template the rule is applied to, so only use "
+"them in rules assigned to that product."
+msgstr ""
+"Todos los nombres de abajo se pueden usar en la expresión. Los parámetros y "
+"las variables calculadas dependen de la plantilla de producto a la que se "
+"aplica la regla, así que úsalos solo en reglas asignadas a ese producto."
+
+msgid "Parameters"
+msgstr "Parámetros"
+
+msgid "Computed variables"
+msgstr "Variables calculadas"
+
+msgid "Always available"
+msgstr "Siempre disponibles"
+
+msgid "By product template"
+msgstr "Por plantilla de producto"
+
+msgid "No product template defines parameters or computed variables yet."
+msgstr ""
+"Ninguna plantilla de producto define todavía parámetros ni variables "
+"calculadas."
 
 msgid "Human-readable label for exports (e.g. Margin, Discount)"
 msgstr ""

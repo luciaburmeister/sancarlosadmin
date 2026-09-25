@@ -565,11 +565,9 @@ class PricingRule(CompanyOwnedModel):
     expression = models.TextField(
         help_text=_(
             "Reusable expression.\n"
-            "Allowed variables:\n"
-            "- base_total\n"
-            "- material_cost\n"
-            "- quantity\n"
-            "- item_count\n"
+            "Always available: base_total, material_cost, quantity, item_count.\n"
+            "Product parameters and computed variables of the product template "
+            "can also be used; see the 'Available variables' section below.\n"
             "Example: base_total * 1.10"
         ),
         verbose_name=_("Expression"),

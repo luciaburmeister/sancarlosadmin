@@ -608,6 +608,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
         ["default_warehouse", AutocompleteSelectFilter],
         ["preferred_supplier", AutocompleteSelectFilter],
     )
+    list_filter_submit = True
     search_fields = (
         "code",
         "name",

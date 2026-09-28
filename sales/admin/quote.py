@@ -3,7 +3,9 @@ from decimal import Decimal
 from django.contrib import admin
 from django.shortcuts import redirect
 from django.urls import reverse, path
+from django.utils.formats import date_format
 from django.utils.html import format_html
+from django.utils.timezone import localtime
 from django.utils.translation import gettext_lazy as _
 from djmoney.money import Money
 from import_export.admin import ImportExportModelAdmin
@@ -329,13 +331,14 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
     resource_classes = [QuoteExportResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
-    list_display = ["id", "project_name", "client", "show_status_customized_color", "production_planning_badge", "total_price_display"]
+    list_display = ["id", "project_name", "client",  "production_planning_badge", "total_price_display","date_sent_display","show_status_customized_color",]
     list_sections = [QuoteDetailsSection]
     list_filter = [
         ("status",MultipleChoicesDropdownFilter),
         HasProductionFilter,
         ProductionSchedulingFilter,
         ("created_at",RangeDateFilter),
+        ("created_by",AutocompleteSelectMultipleFilter),
         ("date_sent", RangeDateFilter),
         ("date_accepted",RangeDateFilter)]
     search_fields = ["project_name", "client__name", "id", "external_id"]
@@ -429,6 +432,12 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
     @display(description=_("Total price"))
     def total_price_display(self, obj):
         return obj.total_price
+
+    @display(description=_("Date sent"), ordering="date_sent")
+    def date_sent_display(self, obj):
+        if not obj.date_sent:
+            return "-"
+        return date_format(localtime(obj.date_sent), "d/m/y")
 
     # ── Margin tab display methods ────────────────────────────────────
 

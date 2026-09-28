@@ -13,8 +13,8 @@ import tablib
 from django.test import TestCase
 
 from company.models import Company
-from inventory.choices import ItemType
-from inventory.models import InventoryItem, Warehouse
+from inventory.choices import ItemType, MovementType
+from inventory.models import InventoryItem, ItemTransaction, Warehouse
 from inventory.resources import InventoryItemResource
 from materials.models import Provider
 from purchasing.models import (
@@ -57,6 +57,10 @@ class InventoryItemResourceStockPositionTest(TestCase):
             quote=quote, inventory_item=self.item,
             quantity=Decimal("3"), unit_price=Decimal("50"),
         )
+        ItemTransaction.objects.create(
+            item=self.item, warehouse=self.warehouse,
+            movement_type=MovementType.IN, quantity_change=12, note="Initial stock",
+        )
         self.item.refresh_from_db()
 
     # Column headings are translated and the suite runs under the project's
@@ -83,6 +87,25 @@ class InventoryItemResourceStockPositionTest(TestCase):
         self.assertEqual(row[incoming], Decimal("7"))
         self.assertEqual(row[reserved], Decimal("3"))
 
+    def test_export_includes_stock_on_hand(self):
+        heading = self._heading("stock_on_hand")
+        data, row = self._export_row(force_native_type=True)
+        self.assertIn(heading, data.headers)
+        self.assertEqual(row[heading], 12)
+
+    def test_export_reads_the_stock_on_hand_annotation(self):
+        """The admin exports its annotated changelist queryset; the column
+        must use that rather than aggregate once per row."""
+        qs = (
+            InventoryItem.objects.filter(pk=self.item.pk)
+            .select_related("company", "default_warehouse", "preferred_supplier")
+            .with_stock_on_hand()
+        )
+        items = list(qs)
+        with self.assertNumQueries(0):
+            data = InventoryItemResource().export(items)
+        self.assertEqual(dict(zip(data.headers, data[0]))[self._heading("stock_on_hand")], "12")
+
     def test_export_places_them_after_min_stock(self):
         data, _ = self._export_row()
         self.assertEqual(
@@ -97,9 +120,10 @@ class InventoryItemResourceStockPositionTest(TestCase):
             headers=[
                 "id", "code", "name",
                 self._heading("incoming_quantity"), self._heading("reserved_quantity"),
+                self._heading("stock_on_hand"),
             ]
         )
-        dataset.append([self.item.pk, "EXP-1", "Widget Renamed", "999", "888"])
+        dataset.append([self.item.pk, "EXP-1", "Widget Renamed", "999", "888", "777"])
 
         result = InventoryItemResource().import_data(dataset, raise_errors=True)
         self.assertFalse(result.has_errors())
@@ -110,6 +134,7 @@ class InventoryItemResourceStockPositionTest(TestCase):
         # ...while the derived ones kept their computed values.
         self.assertEqual(self.item.incoming_quantity, Decimal("7"))
         self.assertEqual(self.item.reserved_quantity, Decimal("3"))
+        self.assertEqual(self.item.stock_on_hand, 12)
 
     def test_import_without_the_columns_still_works(self):
         dataset = tablib.Dataset(headers=["id", "code", "name"])

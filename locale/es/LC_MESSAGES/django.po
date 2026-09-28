@@ -15358,10 +15358,6 @@ msgstr "línea(s) totalmente entregadas (no listadas)"
 #~ msgstr "Recibido el"
 
 #, fuzzy
-#~ msgid "Zone"
-#~ msgstr "A Zona"
-
-#, fuzzy
 #~ msgid "Sequence"
 #~ msgstr "Método de Pago"
 
@@ -15547,6 +15543,167 @@ msgstr "línea(s) totalmente entregadas (no listadas)"
 
 #~ msgid "Origin (written by requester)"
 #~ msgstr "Origen (escrito por quien solicita)"
+
+msgid "A planning can legitimately have several transactions — this list is just so you don't accidentally duplicate one."
+msgstr "Una planificación puede tener legítimamente varias transacciones — esta lista es solo para que no dupliques una por error."
+
+msgid "Advanced / Raw Data"
+msgstr "Avanzado / Datos en bruto"
+
+msgid "Albaran Number"
+msgstr "Número de Albarán"
+
+msgid "An albaran number is required to register a receipt (verteo)."
+msgstr "Se requiere un número de albarán para registrar un recibo (verteo)."
+
+msgid "Choose a destination zone, or set one on the planning."
+msgstr "Elige una zona de destino, o indica una en la planificación."
+
+msgid "Container Details"
+msgstr "Detalles del Contenedor"
+
+msgid "Container material"
+msgstr "Material del Contenedor"
+
+msgid "Container state"
+msgstr "Estado del Contenedor"
+
+msgid "Create Transaction"
+msgstr "Crear Transacción"
+
+msgid "Delivery: destination zone (defaults to the planning's destination if left blank). Receipt: the landfill/vertedero, if known. Not used for Movement."
+msgstr "Entrega: zona de destino (por defecto, el destino de la planificación si se deja en blanco). Recibo: el vertedero, si se conoce. No se usa para Movimiento."
+
+msgid "Existing transactions on this planning"
+msgstr "Transacciones existentes en esta planificación"
+
+msgid "Going to be dumped?"
+msgstr "¿Va a verterse?"
+
+msgid "Implement"
+msgstr "Implemento"
+
+msgid "Interval %(n)d end"
+msgstr "Fin del intervalo %(n)d"
+
+msgid "Interval %(n)d start"
+msgstr "Inicio del intervalo %(n)d"
+
+msgid "Landfill"
+msgstr "Vertedero"
+
+msgid "Load description"
+msgstr "Descripción de la carga"
+
+msgid "Manual correction: implicit pickup registered at verteo (was already delivered)."
+msgstr "Corrección manual: recogida implícita registrada al verter (ya estaba entregada)."
+
+msgid "Manual transaction creation isn't supported yet for this planning type."
+msgstr "La creación manual de transacciones aún no está soportada para este tipo de planificación."
+
+msgid "Manual transaction creation isn't supported yet for this planning's type. Only Container Movement (cuba) plannings are supported."
+msgstr "La creación manual de transacciones aún no está soportada para este tipo de planificación. Solo se admiten planificaciones de Movimiento de Contenedor (cuba)."
+
+msgid "Material Dumped"
+msgstr "Material Vertido"
+
+msgid "Material Vertido"
+msgstr "Material Vertido"
+
+msgid "No destination zone: choose one, or set a destination on the planning."
+msgstr "Sin zona de destino: elige una, o indica un destino en la planificación."
+
+msgid "No preset list yet — type a value"
+msgstr "Aún no hay una lista predefinida — escribe un valor"
+
+msgid "Performed by"
+msgstr "Realizado por"
+
+msgid "Plate"
+msgstr "Matrícula"
+
+msgid "Porte Action"
+msgstr "Acción del Porte"
+
+msgid "Receipt (Verteo) Details"
+msgstr "Detalles del Recibo (Verteo)"
+
+msgid "Shown fields depend on the Transaction Type selected above."
+msgstr "Los campos mostrados dependen del Tipo de Transacción seleccionado arriba."
+
+msgid "Stored as the zone's name, same as the mobile app's field."
+msgstr "Se guarda como el nombre de la zona, igual que el campo de la app móvil."
+
+msgid "This planning has no asset assigned yet."
+msgstr "Esta planificación aún no tiene un activo asignado."
+
+msgid "Transaction created."
+msgstr "Transacción creada."
+
+msgid "Truck type"
+msgstr "Tipo de Camión"
+
+msgid "Type the albaran number, e.g. 01083485"
+msgstr "Escribe el número de albarán, ej. 01083485"
+
+msgid "Type-Specific Data"
+msgstr "Datos Específicos del Tipo"
+
+msgid "Typed fields above are the recommended way to edit this. Raw JSON is kept as a fallback for legacy keys not covered by the typed fields."
+msgstr "Los campos de arriba son la forma recomendada de editar esto. El JSON en bruto se mantiene como respaldo para claves antiguas no cubiertas por los campos tipados."
+
+msgid "Weight Dumped (kg)"
+msgstr "Peso Vertido (kg)"
+
+msgid "Work type"
+msgstr "Tipo de Trabajo"
+
+msgid "Zone"
+msgstr "Zona"
+
+msgid "create_manual_transaction: unsupported transaction_type %(transaction_type)r"
+msgstr "create_manual_transaction: tipo de transacción no soportado %(transaction_type)r"
+
+msgid "e.g. 0709CBB"
+msgstr "ej. 0709CBB"
+
+msgid "e.g. 500"
+msgstr "ej. 500"
+
+msgid "e.g. Manual correction: driver's phone failed."
+msgstr "ej. Corrección manual: el teléfono del conductor falló."
+
+msgid "e.g. zahorra"
+msgstr "ej. zahorra"
+
+msgid "material_vertido above is the recommended way to edit this. Raw JSON is kept as a fallback for anything else stored here."
+msgstr "material_vertido arriba es la forma recomendada de editar esto. El JSON en bruto se mantiene como respaldo para cualquier otra cosa almacenada aquí."
+
+msgid "m³"
+msgstr "m³"
+
+
+msgid "Delivery: destination zone (defaults to the planning's destination if left blank). Receipt: the landfill/vertedero, if known. Not used for Movement or Porte (porte always uses the planning's own origin/destination)."
+msgstr "Entrega: zona de destino (por defecto, el destino de la planificación si se deja en blanco). Recibo: el vertedero, si se conoce. No se usa para Movimiento ni para Porte (el porte siempre usa el origen/destino propio de la planificación)."
+
+msgid "Manual transaction creation isn't supported yet for this planning's type. Only Container Movement (cuba) and Transport (porte) plannings are supported."
+msgstr "La creación manual de transacciones aún no está soportada para este tipo de planificación. Solo se admiten planificaciones de Movimiento de Contenedor (cuba) y Transporte (porte)."
+
+msgid "Porte Details"
+msgstr "Detalles del Porte"
+
+msgid "This planning has no asset, machine, or transport truck assigned yet."
+msgstr "Esta planificación aún no tiene un activo, máquina o camión de transporte asignado."
+
+
+msgid "Select…"
+msgstr "Selecciona…"
+
+msgid "Full container"
+msgstr "Cuba llena"
+
+msgid "Empty container"
+msgstr "Cuba vacía"
 
 #: purchasing/templates/purchasing/po_details_section.html
 msgid "Classification"

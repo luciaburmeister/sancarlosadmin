@@ -235,7 +235,11 @@ class ProjectFileWorkingZoneInline(StackedInline):
     extra = 1
     tab = True
     tab_title = _("Working Zones")
-    fields = ["name", "zone_type", "street_address", "city", "postal_code", "province", "country", "location", "is_active"]
+    fields = [
+        "name", "zone_type", "cnae", "nima",
+        "street_address", "city", "postal_code", "province", "country",
+        "location", "is_active",
+    ]
     readonly_fields = ["location_confirmed_at"]
     validate_min = True
 

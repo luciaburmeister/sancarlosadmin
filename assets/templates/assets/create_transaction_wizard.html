@@ -1,0 +1,121 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrahead %}
+{{ block.super }}
+{{ form.media }}
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto p-6">
+
+    <div class="mb-6 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm p-5">
+        <div class="flex items-center justify-between mb-1">
+            <h2 class="text-lg font-bold text-gray-900 dark:text-gray-100">
+                {% trans "Planning" %} #{{ planning.pk }} — {{ planning.asset|default:"—" }}
+            </h2>
+            <span class="text-sm text-gray-500 dark:text-gray-400">{{ planning.get_status_display }}</span>
+        </div>
+        <p class="text-sm text-gray-500 dark:text-gray-400">
+            {{ planning.origin|default:"—" }} &rarr; {{ planning.destination|default:"—" }}
+            · {{ planning.scheduled_date|default:"—" }}
+        </p>
+    </div>
+
+    {% if unsupported_planning_type %}
+    <div class="mb-6 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-800 dark:text-amber-300">
+        {% trans "Manual transaction creation isn't supported yet for this planning's type. Only Container Movement (cuba) and Transport (porte) plannings are supported." %}
+    </div>
+    {% else %}
+
+    {% if existing_transactions %}
+    <div class="mb-6 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm p-4">
+        <h4 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">{% trans "Existing transactions on this planning" %}</h4>
+        {% for tx in existing_transactions %}
+        <div class="flex items-center justify-between text-sm bg-gray-50 dark:bg-gray-800 rounded px-3 py-1.5 mb-1">
+            <span>{{ tx.get_transaction_type_display }}</span>
+            <span class="text-gray-400">{{ tx.from_zone|default:"—" }} &rarr; {{ tx.to_zone|default:"—" }}</span>
+            <span class="text-gray-400">{{ tx.date }}</span>
+        </div>
+        {% endfor %}
+        <p class="text-xs text-gray-400 mt-2">{% trans "A planning can legitimately have several transactions — this list is just so you don't accidentally duplicate one." %}</p>
+    </div>
+    {% endif %}
+
+    <form method="post" novalidate>
+        {% csrf_token %}
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm p-6 mb-6">
+            {% if form.non_field_errors %}
+            <div class="text-sm text-red-600 dark:text-red-400 mb-4">{{ form.non_field_errors }}</div>
+            {% endif %}
+            {% regroup form by field.parameter_group as field_groups %}
+            {% for group in field_groups %}
+            <div class="{% if not forloop.first %}mt-8 pt-6 border-t border-gray-100 dark:border-gray-800{% endif %}"
+                {% if group.grouper %}data-field-group{% endif %}>
+                {% if group.grouper %}
+                <h3 class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-4">{{ group.grouper }}</h3>
+                {% endif %}
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-5">
+                    {% for field in group.list %}
+                    <div class="{% if field.name == 'notes' %}sm:col-span-2{% endif %}">
+                        <label for="{{ field.id_for_label }}" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                            {{ field.label }}
+                        </label>
+                        {{ field }}
+                        {% if field.help_text %}
+                        <p class="text-xs text-gray-400 mt-1.5">{{ field.help_text }}</p>
+                        {% endif %}
+                        {% if field.errors %}
+                        <p class="text-xs text-red-600 dark:text-red-400 mt-1.5">{{ field.errors }}</p>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="flex justify-between items-center">
+            <a href="{% url 'admin:assets_assetplanning_change' planning.pk %}"
+                class="border border-base-200 font-medium px-5 py-2.5 rounded-default transition-all hover:bg-base-50 text-sm dark:border-base-700 dark:hover:text-base-200 dark:hover:bg-base-900">
+                {% trans "Cancel" %}
+            </a>
+            <button type="submit"
+                class="bg-primary-600 font-medium px-6 py-2.5 rounded-default text-white text-sm transition-all hover:bg-primary-700 focus:ring-4 focus:ring-primary-100">
+                {% trans "Create Transaction" %}
+            </button>
+        </div>
+    </form>
+
+    <script>
+    (function() {
+        var typeSelect = document.getElementById('id_transaction_type');
+        var conditional = document.querySelectorAll('[data-shows-for]');
+        var groups = document.querySelectorAll('[data-field-group]');
+        if (!typeSelect || !conditional.length) return;
+        function apply() {
+            var current = typeSelect.value;
+            conditional.forEach(function(el) {
+                var allowed = el.getAttribute('data-shows-for').split(',');
+                var wrapper = el.closest('div');
+                if (wrapper) {
+                    wrapper.hidden = allowed.indexOf(current) === -1;
+                }
+            });
+            // Hide a whole section (heading included) once none of its fields are showing.
+            groups.forEach(function(groupEl) {
+                var fields = groupEl.querySelectorAll('[data-shows-for]');
+                var anyVisible = Array.prototype.some.call(fields, function(el) {
+                    var wrapper = el.closest('div');
+                    return wrapper && !wrapper.hidden;
+                });
+                groupEl.hidden = !anyVisible;
+            });
+        }
+        typeSelect.addEventListener('change', apply);
+        apply();
+    })();
+    </script>
+    {% endif %}
+</div>
+{% endblock %}

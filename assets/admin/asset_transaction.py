@@ -2,6 +2,7 @@ from company.models import WorkingZone
 from unfold.contrib.filters.admin import RangeDateTimeFilter
 from unfold.contrib.filters.admin import MultipleChoicesDropdownFilter
 from unfold.contrib.filters.admin.autocomplete_filters import AutocompleteSelectMultipleFilter
+from django import forms
 from django.contrib import admin, messages
 from django.utils.html import format_html
 from django.db import models
@@ -12,6 +13,14 @@ from assets.models import AssetTransaction, AssetTransactionReceipt, AssetTransa
 from django.contrib.contenttypes.models import ContentType
 from assets.models import AssetTransaction, BillingStatus
 from assets.resources import AssetTransactionResource
+from assets.transaction_data_schema import (
+    ALL_FAMILIES,
+    TRANSACTION_DATA_CONDITIONAL_FIELDS,
+    ReceiptSchema,
+    build_data_from_cleaned,
+    data_schema_fields,
+    initial_from_data,
+)
 from assets.views import AssetTransactionExportView
 from import_export.admin import ExportMixin
 from unfold.admin import ModelAdmin
@@ -121,8 +130,43 @@ class RelatedMovementReceiptInline(TabularInline):
         return "Sin foto"
 
 
+class AssetTransactionReceiptAdminForm(forms.ModelForm):
+    """Promotes material_vertido to a typed field (built by ReceiptSchema,
+    shared with the AssetTransaction admin/wizard), synced into `data` on save."""
+
+    material_vertido = forms.CharField(required=False)  # replaced in __init__ once company is known
+
+    class Meta:
+        model = AssetTransactionReceipt
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["nro_albaran"].widget.attrs.setdefault("placeholder", _("Type the albaran number, e.g. 01083485"))
+        transaction = self.instance.transaction if self.instance and self.instance.transaction_id else None
+        if transaction is None:
+            transaction_id = self.data.get("transaction") if self.is_bound else self.initial.get("transaction")
+            if transaction_id:
+                transaction = AssetTransaction.objects.filter(pk=transaction_id).select_related("company").first()
+        company = transaction.company if transaction is not None else None
+        self.fields["material_vertido"] = ReceiptSchema.material_vertido_field(company)
+        if self.instance and self.instance.pk:
+            data = self.instance.data or {}
+            self.initial.setdefault("material_vertido", data.get("material_vertido", ""))
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        data = dict(obj.data or {})
+        data["material_vertido"] = self.cleaned_data.get("material_vertido") or ""
+        obj.data = data
+        if commit:
+            obj.save()
+        return obj
+
+
 @admin.register(AssetTransactionReceipt)
 class AssetTransactionReceiptAdmin(ModelAdmin):
+    form = AssetTransactionReceiptAdminForm
     list_display = ("nro_albaran", "transaction", "movement_transaction", "foto_thumbnail", "created_at")
     list_filter = (
         ("transaction__asset", AutocompleteSelectMultipleFilter),
@@ -142,11 +186,16 @@ class AssetTransactionReceiptAdmin(ModelAdmin):
                 "transaction",
                 "movement_transaction",
                 "nro_albaran",
+                "material_vertido",
                 "foto",
                 "foto_preview",
-                "data",
                 "created_at",
             )
+        }),
+        (_("Advanced / Raw Data"), {
+            "fields": ("data",),
+            "classes": ["collapse"],
+            "description": _("material_vertido above is the recommended way to edit this. Raw JSON is kept as a fallback for anything else stored here."),
         }),
     )
 
@@ -169,8 +218,41 @@ class AssetTransactionReceiptAdmin(ModelAdmin):
         return "Sin foto"
 
 
+class AssetTransactionAdminForm(forms.ModelForm):
+    """Replaces the raw `data` JSON textarea with typed fields, shown/hidden
+    by transaction_type (see assets.transaction_data_schema). Keys match what
+    the mobile app writes, since work_entry.py reads them for pricing rules.
+    `data` stays available (collapsed) as a fallback; typed values merge into
+    it on save rather than replacing it."""
+
+    class Meta:
+        model = AssetTransaction
+        fields = "__all__"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        instance = self.instance
+        if instance and instance.pk:
+            initial = initial_from_data(instance.transaction_type, instance.data, instance.company)
+            for name, value in initial.items():
+                if name in self.fields:
+                    self.initial.setdefault(name, value)
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        obj.data = build_data_from_cleaned(
+            obj.transaction_type, self.cleaned_data, existing_data=obj.data, tx_date=obj.date,
+        )
+        if commit:
+            obj.save()
+            self.save_m2m()
+        return obj
+
+
 @admin.register(AssetTransaction)
 class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
+    form = AssetTransactionAdminForm
+    conditional_fields = TRANSACTION_DATA_CONDITIONAL_FIELDS
     resource_classes = [AssetTransactionResource]
     export_form_class = SelectableFieldsExportForm
     list_display = ("asset", "transaction_type", "from_zone", "to_zone", "project_file", "date", "get_employee", "has_firma", "billing_status_badge", "company", "imagen")
@@ -190,7 +272,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
     search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes")
     autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file", "planning"]
     exclude = ["company", "firma"]
-    readonly_fields = ["firma_preview", "imagen_link", "performed_by", "material_vertido_display", "peso_neto_display"]
+    readonly_fields = ["firma_preview", "imagen_link", "performed_by", "material_vertido_display"]
     list_select_related = ["from_zone__company", "to_zone__company", "company", "performed_by__company", "asset__asset_type", "project_file"]
     list_filter_submit = True
     inlines = [AssetTransactionEmailLogInline, AssetTransactionReceiptInline, AssetTransactionPhotoInline, RelatedMovementReceiptInline]
@@ -214,10 +296,31 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
                 "date",
                 "performed_by",
                 "material_vertido_display",
-                "peso_neto_display",
-                "data",
                 "notes",
             )
+        }),
+        (_("Type-Specific Data"), {
+            "fields": (
+                ("tipo_cuba", "cubaEstado"),
+                ("vasAVerter", "m3"),
+                ("trabajo", "matricula"),
+                ("peso_vertido", "vertedero"),
+                ("implemento", "tipo_camion"),
+                "load_description",
+                ("client_id", "machine_id"),
+                "nro_albaran",
+                "material_vertido",
+                ("interval_1_start", "interval_1_end"),
+                ("interval_2_start", "interval_2_end"),
+                ("interval_3_start", "interval_3_end"),
+                ("interval_4_start", "interval_4_end"),
+            ),
+            "description": _("Shown fields depend on the Transaction Type selected above."),
+        }),
+        (_("Advanced / Raw Data"), {
+            "fields": ("data",),
+            "classes": ["collapse"],
+            "description": _("Typed fields above are the recommended way to edit this. Raw JSON is kept as a fallback for legacy keys not covered by the typed fields."),
         }),
         (_("Imagen"), {
             "fields": ("imagen",)
@@ -226,6 +329,20 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
             "fields": ("firma_preview",)
         }),
     )
+
+    def get_form(self, request, obj=None, **kwargs):
+        # Schema fields must be declared on the form class itself, not added in
+        # __init__ -- Django validates fieldsets against Meta.fields before
+        # __init__ runs. Same fix as AssetAdmin.get_form()/AssetForm: build a
+        # fresh dynamic subclass with them as real class attributes each request.
+        company = obj.company if obj and obj.pk else None
+        dynamic_fields = {}
+        for candidate_type in ALL_FAMILIES:
+            for name, field in data_schema_fields(candidate_type, company).items():
+                if name not in dynamic_fields:
+                    dynamic_fields[name] = field
+        kwargs["form"] = type(f"Dynamic{self.form.__name__}", (self.form,), dynamic_fields)
+        return super().get_form(request, obj, **kwargs)
 
     @admin.display(description="Empleado")
     def get_employee(self, obj):
@@ -329,13 +446,6 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         receipt = obj.receipts.first()
         if receipt and receipt.data:
             return receipt.data.get("material_vertido", "—")
-        return "—"
-
-    @admin.display(description="Peso Neto (kg)")
-    def peso_neto_display(self, obj):
-        receipt = obj.receipts.first()
-        if receipt and receipt.data:
-            return receipt.data.get("peso_neto", "—")
         return "—"
 
     @display(

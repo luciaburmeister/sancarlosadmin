@@ -18,10 +18,15 @@ class AssetTransactionExportView(UnfoldModelAdminViewMixin, FormView):
     def dispatch(self, request, *args, **kwargs):
         self.transaction_id = kwargs.get("transaction_id")
         try:
-            self.transaction = AssetTransaction.objects.select_related(
-                "asset", "asset__asset_type", "asset__client",
-                "from_zone", "to_zone", "company", "performed_by",
-            ).get(id=self.transaction_id)
+            self.transaction = (
+                AssetTransaction.objects.select_related(
+                    "asset", "asset__asset_type", "asset__client",
+                    "from_zone", "to_zone", "company", "performed_by",
+                    "project_file", "project_file__client",
+                )
+                .prefetch_related("project_file__working_zones")
+                .get(id=self.transaction_id)
+            )
         except AssetTransaction.DoesNotExist:
             raise Http404(_("Asset Transaction not found"))
 

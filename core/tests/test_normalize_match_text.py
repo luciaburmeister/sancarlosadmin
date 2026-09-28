@@ -1,6 +1,15 @@
 from django.test import SimpleTestCase
 
-from core.text import normalize_match_data, normalize_match_text
+from core.text import join_unique, normalize_match_data, normalize_match_text
+
+
+class JoinUniqueTests(SimpleTestCase):
+    def test_strips_blanks_and_duplicates(self):
+        self.assertEqual(
+            join_unique([" Málaga ", "Málaga", "", None, " Antequera "]),
+            "Málaga, Antequera",
+        )
+        self.assertEqual(join_unique([]), "")
 
 
 class NormalizeMatchTextTests(SimpleTestCase):

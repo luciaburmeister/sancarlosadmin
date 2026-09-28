@@ -135,7 +135,7 @@ class TimeChoiceField(forms.TypedChoiceField):
         return value
 
 
-from company.models import Company, Employee
+from company.models import Company, Employee, WorkingZone
 from core.admin.company_access import get_user_companies
 from core.forms.dynamic_fields import DynamicFieldBuilder
 from sales.models import Client
@@ -151,7 +151,9 @@ from .models import (
     PlanningType,
     PlanningUrgency,
     ServiceType,
+    TransactionTypeChoices,
 )
+from .transaction_data_schema import build_data_from_cleaned, data_schema_fields, match_choice_value
 
 # Namespaced to Asset specifically: a generic "data__" prefix would eventually
 # collide with another model/form using the same convention.
@@ -476,4 +478,121 @@ class AssetMapTableFilterForm(forms.Form):
             ["zone", "expediente", "q"] + [f"df_{spec['key']}" for spec in dynamic_field_specs] + ["sort"]
         )
 
+
+CUBA_TRANSACTION_TYPE_CHOICES = [
+    (TransactionTypeChoices.MOVEMENT, TransactionTypeChoices.MOVEMENT.label),
+    (TransactionTypeChoices.DELIVERY, TransactionTypeChoices.DELIVERY.label),
+    (TransactionTypeChoices.RECEIPT, TransactionTypeChoices.RECEIPT.label),
+]
+PORTE_TRANSACTION_TYPE_CHOICES = [
+    (TransactionTypeChoices.PORTE_MOVEMENT, TransactionTypeChoices.PORTE_MOVEMENT.label),
+    (TransactionTypeChoices.PORTE_LOAD, TransactionTypeChoices.PORTE_LOAD.label),
+    (TransactionTypeChoices.PORTE_DELIVERY, TransactionTypeChoices.PORTE_DELIVERY.label),
+]
+
+
+class ManualTransactionForm(forms.Form):
+    """"Create Transaction" wizard form, launched from an AssetPlanning's
+    change page. Pre-filled by the view from the planning; see
+    assets.views.asset_transaction_wizard.AssetTransactionFromPlanningWizardView.
+    """
+
+    transaction_type = forms.ChoiceField(
+        label=_("Type"),
+        choices=CUBA_TRANSACTION_TYPE_CHOICES,
+        widget=UnfoldAdminSelectWidget,
+    )
+    zone = forms.ModelChoiceField(
+        label=_("Zone"),
+        queryset=WorkingZone.objects.none(),
+        required=False,
+        help_text=_("Delivery: destination zone (defaults to the planning's destination if left blank). Receipt: the landfill/vertedero, if known. Not used for Movement or Porte (porte always uses the planning's own origin/destination)."),
+    )
+    performed_by = forms.ModelChoiceField(
+        label=_("Performed by"),
+        queryset=Employee.objects.none(),
+        required=False,
+    )
+    notes = forms.CharField(
+        label=_("Notes"),
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 2, "placeholder": _("e.g. Manual correction: driver's phone failed.")}),
+    )
+
+    def __init__(self, *args, planning=None, **kwargs):
+        self.planning = planning
+        super().__init__(*args, **kwargs)
+        company = planning.company if planning is not None else None
+        # "" (falsy) renders these ungrouped, above the per-type sections below.
+        for name in ("transaction_type", "zone", "performed_by", "notes"):
+            self.fields[name].parameter_group = ""
+        # Porte always uses the planning's own origin/destination, never `zone`.
+        self.fields["zone"].widget.attrs["data-shows-for"] = "movement,delivery,receipt"
+        if planning is not None and planning.planning_type == PlanningType.PORTE:
+            self.fields["transaction_type"].choices = PORTE_TRANSACTION_TYPE_CHOICES
+        if planning is not None and planning.company_id:
+            self.fields["zone"].queryset = WorkingZone.objects.filter(
+                company_id=planning.company_id
+            ).order_by("name")
+            self.fields["performed_by"].queryset = Employee.objects.filter(
+                company_id=planning.company_id, is_active=True
+            ).order_by("first_name", "last_name")
+            self.fields["zone"].initial = planning.destination_id
+            self.fields["performed_by"].initial = planning.assigned_to_id
+        # Only the families relevant to this planning's type are built at all.
+        # A field name shared across families (e.g. "matricula") must NOT be
+        # replaced by a later loop -- that would drop the earlier family's
+        # data-shows-for value and hide the field for it entirely.
+        if planning is not None and planning.planning_type == PlanningType.PORTE:
+            families = [
+                (_("Porte Details"), "porte_movement,porte_load,porte_delivery", TransactionTypeChoices.PORTE_MOVEMENT),
+            ]
+        else:
+            families = [
+                (_("Container Details"), "movement,delivery", TransactionTypeChoices.MOVEMENT),
+                (_("Receipt (Verteo) Details"), "receipt", TransactionTypeChoices.RECEIPT),
+            ]
+        for parameter_group, shows_for, field_transaction_type in families:
+            for name, field in data_schema_fields(field_transaction_type, company).items():
+                if name in self.fields:
+                    existing = self.fields[name].widget.attrs.get("data-shows-for", "")
+                    field.widget.attrs["data-shows-for"] = ",".join(
+                        filter(None, [existing, shows_for])
+                    )
+                else:
+                    field.widget.attrs["data-shows-for"] = shows_for
+                field.parameter_group = self.fields[name].parameter_group if name in self.fields else parameter_group
+                self.fields[name] = field
+
+        # The planning already carries this info under its own name/format
+        # (cuba_size is e.g. "7m3") -- pre-fill rather than retype it.
+        if planning is not None and planning.cuba_size and "m3" in self.fields:
+            self.fields["m3"].initial = match_choice_value(
+                self.fields["m3"], AssetPlanning.normalize_cuba_size(planning.cuba_size)
+            )
+        if planning is not None and planning.load_description and "tipo_cuba" in self.fields:
+            self.fields["tipo_cuba"].initial = match_choice_value(
+                self.fields["tipo_cuba"], planning.load_description.strip()
+            )
+        # Pre-filled from the planning but left editable, in case it's wrong.
+        if planning is not None and planning.load_description and "load_description" in self.fields:
+            self.fields["load_description"].initial = planning.load_description.strip()
+
+    def clean(self):
+        cleaned = super().clean()
+        transaction_type = cleaned.get("transaction_type")
+        if transaction_type == TransactionTypeChoices.DELIVERY:
+            zone = cleaned.get("zone")
+            destination = self.planning.destination if self.planning else None
+            if not zone and not destination:
+                self.add_error("zone", _("Choose a destination zone, or set one on the planning."))
+        elif transaction_type == TransactionTypeChoices.RECEIPT:
+            if not (cleaned.get("nro_albaran") or "").strip():
+                self.add_error("nro_albaran", _("An albaran number is required to register a receipt (verteo)."))
+        return cleaned
+
+    def build_data(self):
+        """The typed container fields, assembled into an AssetTransaction.data
+        dict via the shared schema (see assets.transaction_data_schema)."""
+        return build_data_from_cleaned(self.cleaned_data.get("transaction_type"), self.cleaned_data)
 

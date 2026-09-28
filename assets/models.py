@@ -1,4 +1,5 @@
 import json
+import secrets
 from collections import defaultdict
 from datetime import date as date_, datetime, time, timedelta
 
@@ -640,6 +641,14 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
     performed_by = models.ForeignKey("company.Employee", on_delete=models.SET_NULL, null=True, blank=True, related_name="performed_transactions")
     billing_status = models.CharField(max_length=10, choices=BillingStatus.choices, default=BillingStatus.NONE, db_index=True, verbose_name=_("Billing Status"))
     planning = models.ForeignKey("assets.AssetPlanning", on_delete=models.SET_NULL, null=True, blank=True, related_name="transactions", verbose_name=_("Planning"))
+    public_token = models.CharField(
+        max_length=64,
+        unique=True,
+        editable=False,
+        default=secrets.token_urlsafe,
+        verbose_name=_("Public token"),
+        help_text=_("Unguessable key for the public document link encoded in the QR."),
+    )
 
     class Meta:
         verbose_name = _("Asset transaction")
@@ -669,6 +678,17 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
         super().save(*args, **kwargs)
         if is_new:
             self._sync_zones_on_porte_delivery()
+
+    @property
+    def document_url(self) -> str:
+        if not self.public_token:
+            return ""
+        from django.conf import settings
+        from django.urls import reverse
+
+        base = settings.BACKEND_URL.rstrip("/")
+        path = reverse("asset_transaction_document", args=[self.public_token])
+        return f"{base}{path}"
 
     @classmethod
     def payload_is_full(cls, data) -> bool:

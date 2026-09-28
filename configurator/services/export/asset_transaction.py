@@ -1,5 +1,6 @@
 from typing import Any, Dict
 
+from configurator.templatetags.formatting import qr
 from core.text import join_unique
 
 from .base import BaseExportStrategy
@@ -88,6 +89,8 @@ class AssetTransactionExportStrategy(BaseExportStrategy):
             "project_file_province": join_unique(zone["province"] for zone in working_zones),
             "project_file_cnae": join_unique(zone["cnae"] for zone in working_zones),
             "project_file_nima": join_unique(zone["nima"] for zone in working_zones),
+            "document_url": self.transaction.document_url,
+            "document_qr": qr(self.transaction.document_url),
         }
 
         company_ctx = get_company_context(self.transaction.company)

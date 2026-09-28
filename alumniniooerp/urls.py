@@ -23,6 +23,7 @@ urlpatterns = [
     path("api/banking/", include("banking.urls")),  # Arcopay callbacks (no i18n)
     path("api/email-events/", include("core.urls")),  # SES/SNS callbacks (no i18n)
     path("presupuestos/", include("purchasing.urls")),
+    path("assets/", include("assets.urls")),
 ]
 
 

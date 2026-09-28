@@ -1072,7 +1072,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                 [f.name for f in self.model._meta.many_to_many] +
                 list(readonly_fields)
             ))
-            excluded_from_readonly = {"payment_status", "exclude_from_payment_reminders", "payment_commitment_date"}
+            excluded_from_readonly = {"payment_status", "exclude_from_payment_reminders", "payment_commitment_date","project_file"}
             return [f for f in all_fields if f not in excluded_from_readonly]
         return readonly_fields
 

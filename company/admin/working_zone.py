@@ -32,7 +32,10 @@ class WorkingZoneAuthorizationInline(TabularInline):
 @admin.register(WorkingZone)
 class WorkingZoneAdmin(ModelAdmin):
     list_display = ("name", "company", "client", "project_file", "city", "province", "zone_type", "is_active")
-    search_fields = ("name", "street_address", "city", "company__name", "client__name")
+    search_fields = (
+        "name", "street_address", "city", "cnae", "nima",
+        "company__name", "client__name",
+    )
     list_filter = (
         ("company", AutocompleteSelectMultipleFilter),
         "is_active",
@@ -52,6 +55,8 @@ class WorkingZoneAdmin(ModelAdmin):
                 "client",
                 "project_file",
                 "zone_type",
+                "cnae",
+                "nima",
                 "is_active",
             )
         }),

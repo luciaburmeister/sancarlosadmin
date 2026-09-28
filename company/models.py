@@ -661,6 +661,21 @@ class WorkingZone(CompanyOwnedModel):
     postal_code = models.CharField(max_length=20, verbose_name=_("Postal Code"), default="")
     province = models.CharField(max_length=100, verbose_name=_("Province"), default="")
     country = CountryField(verbose_name=_("Country"), default="ES")
+    cnae = models.CharField(
+        max_length=10,
+        blank=True,
+        verbose_name=_("CNAE"),
+        help_text=_("Optional activity code for this working zone."),
+    )
+    nima = models.CharField(
+        max_length=20,
+        blank=True,
+        verbose_name=_("NIMA"),
+        help_text=_(
+            "Optional environmental identification number "
+            "(Número de Identificación Medioambiental)."
+        ),
+    )
     location = LocationField(based_fields=['street_address', 'city', 'postal_code', 'province', 'country'], zoom=18, default='POINT(36.7178 4.4256)')
     location_confirmed_at = models.DateTimeField(
         null=True,

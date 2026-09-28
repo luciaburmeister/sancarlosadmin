@@ -1,7 +1,8 @@
-"""Shared text normalization for values that are later compared to catalog names."""
+"""Shared text helpers."""
 
 import re
 import unicodedata
+from typing import Iterable
 
 _UNICODE_ESCAPE = re.compile(r"\\u([0-9a-fA-F]{4})|\\U([0-9a-fA-F]{8})")
 
@@ -16,6 +17,16 @@ def normalize_match_text(value):
             value,
         )
     return unicodedata.normalize("NFC", value)
+
+
+def join_unique(values: Iterable[str | None]) -> str:
+    """Join non-empty values with a comma, dropping blanks and duplicates."""
+    seen = []
+    for value in values:
+        text = (value or "").strip()
+        if text and text not in seen:
+            seen.append(text)
+    return ", ".join(seen)
 
 
 def normalize_match_data(value):

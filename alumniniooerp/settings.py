@@ -870,6 +870,23 @@ UNFOLD = {
                         "title": _("Items"),
                         "icon": "inventory_2",
                         "link": reverse_lazy("admin:inventory_inventoryitem_changelist"),
+                        "active": lambda request: (
+                            request.path.startswith(
+                                reverse("admin:inventory_inventoryitem_changelist")
+                            )
+                            and reverse("admin:inventory_inventoryitem_reports")
+                            not in request.path
+                            and reverse("admin:inventory_inventoryitem_reorder_report")
+                            not in request.path
+                        ),
+                        "permission": lambda request: request.user.has_perm(
+                            "inventory.view_inventoryitem"
+                        ),
+                    },
+                    {
+                        "title": _("Reports"),
+                        "icon": "summarize",
+                        "link": reverse_lazy("admin:inventory_inventoryitem_reports"),
                         "permission": lambda request: request.user.has_perm(
                             "inventory.view_inventoryitem"
                         ),

@@ -1,0 +1,26 @@
+{% extends "admin/base.html" %}
+{% load i18n unfold %}
+
+{% block content %}
+<div class="px-6 py-8">
+    <div class="mb-6">
+        <h1 class="text-2xl font-bold">{% trans "Reports" %}</h1>
+        <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            {% trans "Download an inventory report." %}
+        </p>
+    </div>
+
+    <div class="flex flex-col gap-4 max-w-3xl">
+        {% for report in reports %}
+            {% component "unfold/components/card.html" with title=report.title %}
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                    {{ report.description }}
+                </p>
+                {% component "unfold/components/button.html" with href=report.url variant="primary" icon="download" %}
+                    {% trans "Download Excel" %}
+                {% endcomponent %}
+            {% endcomponent %}
+        {% endfor %}
+    </div>
+</div>
+{% endblock %}

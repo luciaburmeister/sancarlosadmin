@@ -32,6 +32,7 @@ from .views import (
     ReservedByQuotesView,
     TransferStockView,
 )
+from .views_reorder_report import InventoryReportsView, ReorderReportExportView
 from .models import (
     Warehouse,
     StockLocation,
@@ -899,6 +900,20 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
+            path(
+                "reports/",
+                self.admin_site.admin_view(
+                    InventoryReportsView.as_view(model_admin=self)
+                ),
+                name="inventory_inventoryitem_reports",
+            ),
+            path(
+                "reorder-report/",
+                self.admin_site.admin_view(
+                    ReorderReportExportView.as_view(model_admin=self)
+                ),
+                name="inventory_inventoryitem_reorder_report",
+            ),
             path(
                 "<int:object_id>/qr/receive/",
                 self.admin_site.admin_view(

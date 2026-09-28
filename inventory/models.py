@@ -228,12 +228,19 @@ class InventoryItemQuerySet(models.QuerySet):
         return cls._reserved_expression("pk", cls.RESERVED_BOM_DEPTH)
 
     @classmethod
-    def _reserved_expression(cls, item_ref_name, bom_depth):
-        """The reserved figure for the item referenced by ``item_ref_name``
-        on the enclosing queryset — ``"pk"`` when annotating InventoryItem
-        itself, ``"parent_id"`` when the expression is nested inside a query
-        over BillOfMaterialsLine to value a parent's reservation.
+    def pending_to_serve_expression(cls):
+        """Accepted-quote quantity not yet delivered, without the kit cascade.
+
+        The same net ``reserved_expression`` starts from — quoted on an open
+        project, minus what those lines have already shipped — and nothing
+        else. A component promised only because a kit that contains it was
+        sold does not count here.
         """
+        return cls._own_reserved_expression("pk")
+
+    @classmethod
+    def _own_reserved_expression(cls, item_ref_name):
+        """Direct reservation for the item referenced by ``item_ref_name``."""
         from management.models import ProjectFileStatus
         from sales.models import (
             DeliveryOrderItem,
@@ -285,13 +292,30 @@ class InventoryItemQuerySet(models.QuerySet):
 
         # Clamped at zero: a hand-built delivery line can ship more than was
         # quoted, and a negative reservation would be meaningless.
-        own = Greatest(
+        return Greatest(
             Coalesce(quoted, cls.ZERO) - Coalesce(delivered, cls.ZERO),
             cls.ZERO,
             output_field=cls.QUANTITY_FIELD,
         )
+
+    @classmethod
+    def _reserved_expression(cls, item_ref_name, bom_depth):
+        """The reserved figure for the item referenced by ``item_ref_name``
+        on the enclosing queryset — ``"pk"`` when annotating InventoryItem
+        itself, ``"parent_id"`` when the expression is nested inside a query
+        over BillOfMaterialsLine to value a parent's reservation.
+        """
+        own = cls._own_reserved_expression(item_ref_name)
         if bom_depth <= 0:
             return own
+
+        def item_ref(depth):
+            """OuterRef back at the item, wrapped once per subquery level
+            between the enclosing queryset and where it is used."""
+            ref = models.OuterRef(item_ref_name)
+            for _ in range(depth - 1):
+                ref = models.OuterRef(ref)
+            return ref
 
         # Reserved through the kits this item is a component of: each BOM
         # line contributes its quantity × the parent's own reservation, the

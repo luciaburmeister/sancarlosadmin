@@ -22,6 +22,7 @@ from assets.transaction_data_schema import (
     initial_from_data,
 )
 from assets.views import AssetTransactionExportView
+from configurator.templatetags.formatting import qr
 from import_export.admin import ExportMixin
 from unfold.admin import ModelAdmin
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
@@ -272,7 +273,10 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
     search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes")
     autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file", "planning"]
     exclude = ["company", "firma"]
-    readonly_fields = ["firma_preview", "imagen_link", "performed_by", "material_vertido_display"]
+    readonly_fields = [
+        "firma_preview", "imagen_link", "document_qr_preview",
+        "performed_by", "material_vertido_display",
+    ]
     list_select_related = ["from_zone__company", "to_zone__company", "company", "performed_by__company", "asset__asset_type", "project_file"]
     list_filter_submit = True
     inlines = [AssetTransactionEmailLogInline, AssetTransactionReceiptInline, AssetTransactionPhotoInline, RelatedMovementReceiptInline]
@@ -297,6 +301,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
                 "performed_by",
                 "material_vertido_display",
                 "notes",
+                "document_qr_preview",
             )
         }),
         (_("Type-Specific Data"), {
@@ -367,6 +372,22 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
                 obj.firma
             )
         return "Sin firma"
+
+    @admin.display(description=_("Document QR"))
+    def document_qr_preview(self, obj):
+        uri = qr(obj.document_url)
+        if not uri:
+            return "—"
+        return format_html(
+            '<div style="display:flex;align-items:center;gap:16px;">'
+            '<img src="{}" alt="" width="120" height="120" style="background:white;" />'
+            '<a href="{}" target="_blank" rel="noopener" '
+            'class="bg-primary-600 font-medium px-3 py-2 rounded-md text-white whitespace-nowrap">{}</a>'
+            '</div>',
+            uri,
+            reverse("asset_transaction_document", args=[obj.public_token]),
+            _("View document"),
+        )
 
     @admin.display(description="Imagen")
     def imagen_link(self, obj):

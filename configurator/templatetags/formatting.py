@@ -1,5 +1,9 @@
+import base64
 import decimal
+import io
 from decimal import Decimal, InvalidOperation
+
+import qrcode
 from django import template
 from django.utils.translation import gettext_lazy as _
 
@@ -76,3 +80,26 @@ def format_hours_minutes(value):
 
 
 register.filter("hours_minutes", format_hours_minutes)
+
+
+def qr(value):
+    """PNG data URI of a QR encoding the given link. Empty when there is nothing to encode."""
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return ""
+
+    code = qrcode.QRCode(
+        error_correction=qrcode.constants.ERROR_CORRECT_M,
+        box_size=10,
+        border=2,
+    )
+    code.add_data(text)
+    code.make(fit=True)
+    image = code.make_image(fill_color="black", back_color="white")
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+register.filter("qr", qr)

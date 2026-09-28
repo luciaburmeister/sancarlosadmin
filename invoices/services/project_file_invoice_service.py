@@ -164,7 +164,7 @@ class ProjectFileInvoiceService:
             total_invoiced_subtotal_net += inv_subtotal - inv_discount
             invoices_data.append({
                 'id': invoice.id,
-                'invoice_number': invoice.invoice_number or f"Pro Forma #{invoice.id}",
+                'invoice_number': invoice.display_number,
                 'status': invoice.get_status_display(),
                 'subtotal': inv_subtotal,
                 'total': inv_total,
@@ -188,7 +188,7 @@ class ProjectFileInvoiceService:
                 inv = item.invoice
                 invoices_data.append({
                     'id': inv.id,
-                    'invoice_number': inv.invoice_number or f"Pro Forma #{inv.id} (bulk)",
+                    'invoice_number': inv.invoice_number or f"{inv.display_number} (bulk)",
                     'status': inv.get_status_display(),
                     'subtotal': Decimal("0"),  # per-item, not per-invoice
                     'total': Decimal("0"),

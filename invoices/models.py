@@ -994,6 +994,8 @@ class SalesInvoice(CompanyOwnedModel, Payable):
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
     invoice_number = models.CharField(max_length=50, blank=True, null=True, verbose_name=_("Invoice Number"))
+    proforma_number = models.CharField(max_length=50, blank=True, null=True, verbose_name=_("Proforma Number"))
+    proforma_incremental_id = models.PositiveIntegerField(null=True, blank=True, verbose_name=_("Proforma Incremental ID"))
     date_issued = models.DateField(default=timezone.now, verbose_name=_("Date Issued"))
     due_date = models.DateField(null=True, blank=True, verbose_name=_("Due Date"))
     payment_commitment_date = models.DateField(
@@ -1120,18 +1122,48 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         verbose_name_plural = _("Sales Invoices")
         ordering = ['-date_issued', '-invoice_number']
         unique_together = ['company', 'invoice_number']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['company', 'proforma_number'],
+                name='salesinv_unique_company_proforma_number',
+            ),
+        ]
         permissions = [
             ("bulk_mark_paid_salesinvoice", _("Can bulk update payment status (sales invoices)")),
             ("collections_forecast", _("Can view Collections Forecast dashboard")),
         ]
         indexes = [
             GinIndex(fields=['invoice_number'], name='salesinv_invnum_trgm_gin', opclasses=['gin_trgm_ops']),
+            GinIndex(fields=['proforma_number'], name='salesinv_pfnum_trgm_gin', opclasses=['gin_trgm_ops']),
         ]
 
     def __str__(self):
-        if self.status == SalesInvoiceStatus.PROFORMA:
-            return f"Pro Forma #{self.id} - {self.client}"
-        return f"{self.invoice_number} - {self.client}"
+        return f"{self.display_number} - {self.client}"
+
+    @property
+    def display_number(self):
+        """
+        The number this document goes by: the invoice number once issued,
+        the proforma number until then. External invoices never had a
+        proforma, and very old rows may lack both, so fall back to the id.
+        """
+        if self.invoice_number:
+            return self.invoice_number
+        if self.proforma_number:
+            return self.proforma_number
+        return f"Pro Forma #{self.id}"
+
+    def _assign_proforma_number(self):
+        # Same sequence rules as the invoice number: per company, never
+        # reset, the year in the format is the year it was drafted.
+        last = SalesInvoice.objects.filter(
+            company_id=self.company_id,
+            proforma_incremental_id__isnull=False,
+        ).select_for_update().order_by('-proforma_incremental_id').first()
+        next_id = (last.proforma_incremental_id + 1) if last else 1
+        fmt = self.company.proforma_number_format or "PF-{year}-{number}"
+        self.proforma_number = fmt.format(year=timezone.now().year, number=f"{next_id:05d}")
+        self.proforma_incremental_id = next_id
 
     @property
     def taxable_base(self):
@@ -1386,6 +1418,7 @@ class SalesInvoice(CompanyOwnedModel, Payable):
             if money is not None and str(money.currency) != currency:
                 setattr(self, name, Money(money.amount, currency))
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
         # Automatic recalculation if already exists
         if self.pk and not kwargs.get('update_fields'):
@@ -1395,6 +1428,9 @@ class SalesInvoice(CompanyOwnedModel, Payable):
             self._apply_default_due_date()
 
         self._sync_money_currency()
+
+        if self._state.adding and not self.is_external and not self.proforma_number:
+            self._assign_proforma_number()
 
         if kwargs.get('update_fields') is not None:
             uf = set(kwargs['update_fields'])

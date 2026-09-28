@@ -15744,3 +15744,25 @@ msgstr "Este albarán no está vinculado a ningún expediente."
 
 msgid "A cancelled delivery order cannot be synced."
 msgstr "Un albarán cancelado no se puede sincronizar."
+
+msgctxt "djangoql field"
+msgid "proforma_number"
+msgstr "numero_proforma"
+
+msgid "Proforma Number"
+msgstr "Número de proforma"
+
+msgid "Proforma Incremental ID"
+msgstr "ID incremental de proforma"
+
+msgid "Proforma Number Format"
+msgstr "Formato de número de proforma"
+
+msgid ""
+"Format pattern for generated proforma numbers, a sequence separate from "
+"invoice numbers. Available placeholders: {year}, {number}. Default: PF-{year}-"
+"{number}"
+msgstr ""
+"Patrón para los números de proforma generados, una secuencia independiente "
+"de los números de factura. Marcadores disponibles: {year}, {number}. Por "
+"defecto: PF-{year}-{number}"

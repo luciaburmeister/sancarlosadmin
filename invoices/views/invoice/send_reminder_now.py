@@ -81,7 +81,7 @@ class SendPaymentReminderNowAdminView(UnfoldModelAdminViewMixin, View):
             days_diff = (inv.due_date - date.today()).days if inv.due_date else None
             rows.append({
                 "invoice": inv,
-                "display_number": inv.invoice_number or f"Pro Forma #{inv.pk}",
+                "display_number": inv.display_number,
                 "is_overdue": days_diff is not None and days_diff < 0,
                 "days_count": abs(days_diff) if days_diff is not None else None,
                 "is_excluded": inv.exclude_from_payment_reminders,

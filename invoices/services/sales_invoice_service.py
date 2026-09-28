@@ -218,7 +218,7 @@ class SalesInvoiceService:
             tax_amount=sales_invoice.tax_amount,
             total_amount=sales_invoice.total_amount,
             payment_method=sales_invoice.payment_method,
-            notes=f"Copy of {sales_invoice.invoice_number or f'Pro Forma #{sales_invoice.id}'}"
+            notes=f"Copy of {sales_invoice.display_number}"
         )
         
         # Copy items

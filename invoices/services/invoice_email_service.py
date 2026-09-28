@@ -59,7 +59,7 @@ class InvoiceEmailService:
             return False
 
         # Build email body
-        doc_number = invoice.invoice_number or f"Pro Forma #{invoice.id}"
+        doc_number = invoice.display_number
         total_str = f"{number_format(invoice.total_amount.amount, 2)} €"
 
         body_html = EmailService.render_document_email(

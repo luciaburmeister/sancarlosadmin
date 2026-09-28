@@ -164,7 +164,7 @@ class ListSalesInvoices(BaseTool):
             "invoices": [
                 {
                     "id": inv.id,
-                    "invoice_number": inv.invoice_number or f"Pro Forma #{inv.id}",
+                    "invoice_number": inv.display_number,
                     "client": str(inv.client) if inv.client else "",
                     "status": inv.get_status_display(),
                     "date_issued": inv.date_issued.strftime("%d/%m/%Y") if inv.date_issued else "",
@@ -312,7 +312,7 @@ class GetInvoiceDetail(BaseTool):
         return {
             "type": "sales",
             "id": inv.id,
-            "invoice_number": inv.invoice_number or f"Pro Forma #{inv.id}",
+            "invoice_number": inv.display_number,
             "client": str(inv.client) if inv.client else "",
             "status": inv.get_status_display(),
             "date_issued": inv.date_issued.strftime("%d/%m/%Y") if inv.date_issued else "",

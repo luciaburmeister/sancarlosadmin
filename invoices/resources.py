@@ -338,6 +338,7 @@ class SalesInvoiceResource(resources.ModelResource):
         model = SalesInvoice
         fields = (
             'invoice_number',
+            'proforma_number',
             'incremental_id',
             'status',
             'date_issued',

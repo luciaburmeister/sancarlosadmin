@@ -144,7 +144,10 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "client_data": client_data,
             "payment_method_display": payment_method_display,
             "items": items_data,
-            "invoice_number": self.sales_invoice.invoice_number,
+            # Templates print this as the document number, so a proforma
+            # shows its proforma number until it becomes an invoice.
+            "invoice_number": self.sales_invoice.display_number,
+            "proforma_number": self.sales_invoice.proforma_number,
             "date_issued": self.sales_invoice.date_issued,
             "due_date": self.sales_invoice.due_date,
             "subtotal": float(subtotal),

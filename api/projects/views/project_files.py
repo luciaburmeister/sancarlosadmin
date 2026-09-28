@@ -179,6 +179,7 @@ class ProjectFileDetailView(CompanyAPIView):
             {
                 "id": inv.id,
                 "invoice_number": inv.invoice_number,
+                "proforma_number": inv.proforma_number,
                 "status": inv.status,
                 "payment_status": inv.payment_status,
                 "payment_method": inv.payment_method,

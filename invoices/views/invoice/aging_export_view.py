@@ -88,7 +88,7 @@ class AgingExportView(View):
 
         def row(inv):
             return [
-                inv.invoice_number or f"Pro Forma #{inv.id}",
+                inv.display_number,
                 str(inv.client) if inv.client else "—",
                 inv.date_issued,
                 inv.due_date,

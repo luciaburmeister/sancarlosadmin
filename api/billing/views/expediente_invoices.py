@@ -101,7 +101,7 @@ class SalesInvoicePdfView(CompanyAPIView):
                 status=404,
             )
 
-        doc_number = invoice.invoice_number or f"Proforma_{invoice.id}"
+        doc_number = invoice.display_number
         safe_name = "".join(c if c.isalnum() or c in "-_" else "_" for c in doc_number)
         filename = f"factura_{safe_name}.pdf"
 
@@ -297,7 +297,9 @@ class SalesInvoiceListView(CompanyAPIView):
         search = request.GET.get("search", "").strip()
         if search:
             qs = qs.filter(
-                Q(invoice_number__icontains=search) | Q(client__name__icontains=search)
+                Q(invoice_number__icontains=search)
+                | Q(proforma_number__icontains=search)
+                | Q(client__name__icontains=search)
             )
 
         try:

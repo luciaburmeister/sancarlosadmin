@@ -311,6 +311,7 @@ class SalesInvoiceDetailSerializer(serializers.Serializer):
         return {
             "id": invoice.id,
             "invoice_number": invoice.invoice_number,
+            "proforma_number": invoice.proforma_number,
             "status": invoice.status,
             "payment_status": invoice.payment_status,
             "payment_method": invoice.payment_method,
@@ -349,6 +350,7 @@ class SalesInvoiceListItemSerializer(serializers.Serializer):
         return {
             "id": invoice.id,
             "invoice_number": invoice.invoice_number,
+            "proforma_number": invoice.proforma_number,
             "status": invoice.status,
             "payment_status": invoice.payment_status,
             "date_issued": invoice.date_issued.strftime("%Y-%m-%d") if invoice.date_issued else None,

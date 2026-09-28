@@ -197,6 +197,17 @@ class Company(models.Model):
             "Default: INV-{year}-{number}"
         ),
     )
+    proforma_number_format = models.CharField(
+        max_length=100,
+        default="PF-{year}-{number}",
+        blank=True,
+        verbose_name=_("Proforma Number Format"),
+        help_text=_(
+            "Format pattern for generated proforma numbers, a sequence separate "
+            "from invoice numbers. Available placeholders: {year}, {number}. "
+            "Default: PF-{year}-{number}"
+        ),
+    )
     require_asset_on_project_file = models.BooleanField(
         default=False,
         verbose_name=_("Require asset on project files"),

@@ -393,3 +393,76 @@ class InvoiceNumberFormatTest(TestCase):
         self.assertEqual(inv1.invoice_number, f"{year}-FX-00001")
         self.assertEqual(inv2.invoice_number, f"{year}-FX-00002")
 
+
+@override_settings(AEAT_SUBMISSIONS_ENABLED=False)
+class ProformaNumberTest(TestCase):
+    """Proforma numbers: own per-company sequence, kept after finalizing."""
+
+    def setUp(self):
+        self.company = Company.objects.create(name="Proforma Co")
+        self.client = Client.objects.create(name="Test Client", company=self.company)
+        self.year = timezone.now().year
+
+    def _make_invoice(self, company=None, **kwargs):
+        company = company or self.company
+        return SalesInvoice.objects.create(company=company, client=self.client, **kwargs)
+
+    def test_assigned_on_creation(self):
+        invoice = self._make_invoice()
+
+        self.assertEqual(invoice.proforma_number, f"PF-{self.year}-00001")
+        self.assertEqual(invoice.proforma_incremental_id, 1)
+        self.assertIsNone(invoice.invoice_number)
+        self.assertEqual(invoice.display_number, f"PF-{self.year}-00001")
+
+    def test_sequential_per_company(self):
+        other = Company.objects.create(name="Other Co")
+        first = self._make_invoice()
+        second = self._make_invoice()
+        other_first = self._make_invoice(company=other)
+
+        self.assertEqual(first.proforma_incremental_id, 1)
+        self.assertEqual(second.proforma_incremental_id, 2)
+        self.assertEqual(other_first.proforma_incremental_id, 1)
+
+    def test_custom_format(self):
+        self.company.proforma_number_format = "PRO/{year}/{number}"
+        self.company.save(update_fields=["proforma_number_format"])
+
+        invoice = self._make_invoice()
+
+        self.assertEqual(invoice.proforma_number, f"PRO/{self.year}/00001")
+
+    def test_kept_after_finalize_and_independent_of_invoice_sequence(self):
+        self._make_invoice()  # a proforma that is never finalized
+        invoice = self._make_invoice()
+
+        SalesInvoiceService.finalize_invoice(invoice, send_email=False)
+        invoice.refresh_from_db()
+
+        self.assertEqual(invoice.proforma_number, f"PF-{self.year}-00002")
+        self.assertEqual(invoice.invoice_number, f"INV-{self.year}-00001")
+        self.assertEqual(invoice.display_number, f"INV-{self.year}-00001")
+
+    def test_resave_does_not_renumber(self):
+        invoice = self._make_invoice()
+        invoice.notes = "edited"
+        invoice.save()
+        invoice.refresh_from_db()
+
+        self.assertEqual(invoice.proforma_incremental_id, 1)
+
+    def test_external_invoice_gets_no_proforma_number(self):
+        invoice = self._make_invoice(is_external=True, invoice_number="EXT-1")
+
+        self.assertIsNone(invoice.proforma_number)
+        self.assertEqual(invoice.display_number, "EXT-1")
+        # External rows don't consume the sequence.
+        self.assertEqual(self._make_invoice().proforma_incremental_id, 1)
+
+    def test_duplicate_gets_new_proforma_number(self):
+        original = self._make_invoice()
+        copy = SalesInvoiceService.duplicate_invoice(original)
+
+        self.assertEqual(copy.proforma_incremental_id, 2)
+        self.assertEqual(copy.notes, f"Copy of PF-{self.year}-00001")

@@ -33,6 +33,7 @@ class SalesInvoiceSearchFields(SearchFields):
     fields = (
         "id",
         "invoice_number",
+        "proforma_number",
         "incremental_id",
         "status",
         "date_issued",

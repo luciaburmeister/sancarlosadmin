@@ -23,6 +23,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.utils.html import format_html
 from django.db import models
 from django.db.models import OuterRef, Subquery, Sum
+from django.db.models.functions import Coalesce
 from invoices.views.invoice.aging_export_view import AgingExportView
 from general.djangoql.admin import DjangoQLSearchAdminMixin
 
@@ -1021,7 +1022,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
         ),
     )
     list_display = (
-        "invoice_number",
+        "get_document_number",
         "client",
         "total_amount",
         "date_issued",
@@ -1048,13 +1049,13 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
         ("payment_method", MultipleChoicesDropdownFilter),
         IsReconciledFilter,
     )
-    search_fields = ("invoice_number", "client__name")
+    search_fields = ("invoice_number", "proforma_number", "client__name")
     autocomplete_fields = ("company", "client", "configuration", "project_file")
     inlines = [SalesInvoiceItemInline, AppliedTaxInline, DocumentPaymentsInline, EmailLogInline, EInvoicingSubmissionInline, PaymentReminderLogInline]
     list_filter_submit = True
     list_select_related = ["company","client"]
     
-    readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown", "get_late_commitment_warning")
+    readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "proforma_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown", "get_late_commitment_warning")
 
     @display(description=_("Lines total (before discount)"))
     def lines_total_display(self, obj):
@@ -1087,7 +1088,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
             {
                 "fields": (
                     ("company", "client"),
-                    ("status", "invoice_number"),
+                    ("status", "invoice_number", "proforma_number"),
                     ("date_issued", "due_date"),
                     ("payment_commitment_date", "get_late_commitment_warning"),
                     "project_file",
@@ -1248,6 +1249,13 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     )
     def get_status_label(self, obj):
         return obj.status
+
+    @display(
+        description=_("Number"),
+        ordering=Coalesce("invoice_number", "proforma_number"),
+    )
+    def get_document_number(self, obj):
+        return obj.display_number
 
     @display(
         description=_("Payment"),

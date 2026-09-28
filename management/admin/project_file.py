@@ -103,7 +103,7 @@ class SalesInvoicesInline(NonrelatedTabularInline):
 
     @display(description=_("Invoice Number"))
     def invoice_link(self, obj):
-        label = obj.invoice_number or f"Pro Forma #{obj.id}"
+        label = obj.display_number
         url = reverse("admin:invoices_salesinvoice_change", args=[obj.pk])
         return format_html('<a href="{}">{}</a>', url, label)
 

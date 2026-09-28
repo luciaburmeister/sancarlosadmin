@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -39,12 +41,16 @@ class AssetTransactionDocumentTests(TestCase):
         self.assertEqual(context["document_url"], self.transaction.document_url)
         self.assertTrue(context["document_qr"].startswith("data:image/png;base64,"))
 
-    def test_public_document_renders_the_export_template(self):
+    @patch("assets.views.asset_transaction_document.PDFService.html_to_pdf", return_value=b"%PDF-fake")
+    def test_public_document_is_the_export_template_as_pdf(self, html_to_pdf):
         response = self.client.get(self.transaction.document_url.replace("https://erp.example.com", ""))
 
         self.assertEqual(response.status_code, 200)
-        body = response.content.decode()
-        self.assertIn("data:image/png;base64,", body)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("inline;", response["Content-Disposition"])
+        self.assertEqual(response.content, b"%PDF-fake")
+        rendered_html = html_to_pdf.call_args.args[0]
+        self.assertIn("data:image/png;base64,", rendered_html)
 
     def test_unknown_token_is_not_found(self):
         response = self.client.get(reverse("asset_transaction_document", args=["missing-token"]))

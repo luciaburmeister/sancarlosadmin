@@ -5,6 +5,7 @@ from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.utils.translation import gettext_lazy as _
+from django.views import View
 from django.views.generic import TemplateView
 
 from unfold.views import UnfoldModelAdminViewMixin
@@ -115,3 +116,61 @@ class CollectionsForecastView(UnfoldModelAdminViewMixin, TemplateView):
             date_to = date_from + timedelta(days=self.MAX_SPAN_DAYS)
 
         return date_from, date_to
+
+
+class CollectionsForecastSetCommitmentDateView(UnfoldModelAdminViewMixin, View):
+    """
+    "Edit Commitment Date" action from the Collections Forecast calendar:
+    bulk-sets payment_commitment_date on every invoice behind one client's
+    row in one bucket, so the whole row moves together instead of leaving
+    some of its invoices on the old date.
+
+    Which invoices that is comes straight from
+    CollectionsForecastService.row_invoices() -- the same condition the
+    row's total and its "View Invoices" link were built from -- so this
+    action can never touch a different set of invoices than what the row
+    on screen represents.
+    """
+
+    permission_required = ("invoices.collections_forecast",)
+
+    def post(self, request, *args, **kwargs):
+        user_companies = get_user_companies(request.user)
+        try:
+            company = user_companies.get(pk=request.POST.get("company"))
+        except (ValueError, TypeError, user_companies.model.DoesNotExist):
+            company = None
+
+        client_id = request.POST.get("client_id")
+        commitment_date = parse_date(request.POST.get("commitment_date", ""))
+        forecast_date = parse_date(request.POST.get("forecast_date", ""))
+        overdue_before = parse_date(request.POST.get("overdue_before", ""))
+        date_from = parse_date(request.POST.get("date_from", ""))
+        date_to = parse_date(request.POST.get("date_to", ""))
+
+        if not (company and client_id and commitment_date and (forecast_date or overdue_before)):
+            self.model_admin.message_user(
+                request, _("Missing or invalid data -- commitment date not updated."), level="error"
+            )
+        else:
+            invoices = CollectionsForecastService.row_invoices(
+                company, client_id, forecast_date=forecast_date, overdue_before=overdue_before
+            )
+            updated = invoices.update(payment_commitment_date=commitment_date)
+            if date_from and date_to:
+                CollectionsForecastService.invalidate_cache(company, date_from, date_to)
+            self.model_admin.message_user(
+                request,
+                _("Updated the commitment date on %(count)s invoice(s) to %(date)s.")
+                % {"count": updated, "date": commitment_date.strftime("%d/%m/%Y")},
+            )
+
+        redirect_url = reverse("admin:invoices_salesinvoice_collections_forecast")
+        params = []
+        if company:
+            params.append(f"company={company.pk}")
+        if date_from:
+            params.append(f"date_from={date_from.isoformat()}")
+        if date_to:
+            params.append(f"date_to={date_to.isoformat()}")
+        return redirect(f"{redirect_url}?{'&'.join(params)}")

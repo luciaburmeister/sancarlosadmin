@@ -74,7 +74,10 @@ from invoices.views.invoice.import_invoice import InvoiceImportAdminView
 from invoices.views.invoice_register_payment import InvoiceRegisterPaymentView
 from invoices.views.accounts_payable_views import AccountsPayableDashboardView
 from invoices.views.operational_dashboard_view import OperationalDashboardView
-from invoices.views.invoice.collections_forecast_view import CollectionsForecastView
+from invoices.views.invoice.collections_forecast_view import (
+    CollectionsForecastSetCommitmentDateView,
+    CollectionsForecastView,
+)
 from invoices.views.invoice.payments_forecast_view import PaymentsForecastView
 from invoices.services.sales_invoice_service import SalesInvoiceService
 from apps.einvoicing.admin import EInvoicingSubmissionInline
@@ -326,6 +329,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
         "invoice_number",
         "provider",
         "total_amount",
+        "pending_amount_display",
         "date_issued",
         "due_date",
         "created_at",
@@ -431,7 +435,11 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
     ]
 
     def get_queryset(self, request):
+        from payments.mixins import annotate_amount_remaining, annotate_effective_date
+
         qs = super().get_queryset(request)
+        qs = annotate_effective_date(qs)
+        qs = annotate_amount_remaining(qs, Invoice)
         # Independent Subquery annotations — avoids the Django fan-out bug
         # that a single Sum("items__po_allocations__quantity") would hit
         # when an item has multiple allocations. Powers po_match_status_badge.
@@ -451,6 +459,11 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
             _total_item_qty=Subquery(total_qty_sq),
             _matched_item_qty=Subquery(matched_qty_sq),
         )
+
+    def lookup_allowed(self, lookup, value):
+        if lookup.split("__")[0] == "effective_date":
+            return True
+        return super().lookup_allowed(lookup, value)
 
     @display(
         description=_("PO Match"),
@@ -857,6 +870,15 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
     def get_payment_status_label(self, obj):
         return obj.get_payment_status_display()
 
+    @display(description=_("Pending Amount"), ordering="db_amount_remaining")
+    def pending_amount_display(self, obj):
+        from payments.mixins import currency_symbol
+
+        amount = getattr(obj, "db_amount_remaining", None)
+        if amount is None:
+            return "—"
+        return f"{amount} {currency_symbol(obj.total_amount_currency)}"
+
     @action(description=_("Register Payment"), icon="payments")
     def register_payment_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_invoice_register_payment", args=[object_id]))
@@ -1056,6 +1078,18 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     list_select_related = ["company","client"]
     
     readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "proforma_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown", "get_late_commitment_warning")
+
+    def get_queryset(self, request):
+        from payments.mixins import annotate_amount_remaining, annotate_forecast_date
+
+        qs = super().get_queryset(request)
+        qs = annotate_forecast_date(qs)
+        return annotate_amount_remaining(qs, SalesInvoice)
+
+    def lookup_allowed(self, lookup, value):
+        if lookup.split("__")[0] == "forecast_date":
+            return True
+        return super().lookup_allowed(lookup, value)
 
     @display(description=_("Lines total (before discount)"))
     def lines_total_display(self, obj):
@@ -1385,6 +1419,13 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                     CollectionsForecastView.as_view(model_admin=self)
                 ),
                 name="invoices_salesinvoice_collections_forecast",
+            ),
+            path(
+                "dashboard/collections-forecast/set-commitment-date/",
+                self.admin_site.admin_view(
+                    CollectionsForecastSetCommitmentDateView.as_view(model_admin=self)
+                ),
+                name="invoices_salesinvoice_collections_forecast_set_commitment_date",
             ),
         ]
         return custom + urls

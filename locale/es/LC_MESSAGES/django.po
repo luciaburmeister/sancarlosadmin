@@ -15278,6 +15278,36 @@ msgstr "línea(s) pendientes de entrega"
 msgid "line(s) fully delivered (not listed)"
 msgstr "línea(s) totalmente entregadas (no listadas)"
 
+msgid "What to order"
+msgstr "Qué pedir"
+
+msgid "Reports"
+msgstr "Informes"
+
+msgid "Download an inventory report."
+msgstr "Descarga un informe de inventario."
+
+msgid "Download Excel"
+msgstr "Descargar Excel"
+
+msgid "Accepted quotes not yet delivered, set against stock on hand and quantity already coming in on approved purchase orders."
+msgstr "Presupuestos aceptados aún no entregados, frente al stock y a la cantidad que ya viene en pedidos de compra aprobados."
+
+msgid "Article"
+msgstr "Artículo"
+
+msgid "Stock"
+msgstr "Stock"
+
+msgid "Pending to serve"
+msgstr "Pendiente de servir"
+
+msgid "Pending to receive (on the way)"
+msgstr "Pendiente de recibir (en camino)"
+
+msgid "Recommended to order"
+msgstr "Recomendado pedir"
+
 #~ msgid "Configuration ID"
 #~ msgstr "Configuración"
 

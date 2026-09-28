@@ -6,6 +6,7 @@ from assets.models import AssetTransaction
 from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
 from configurator.services.export.service import ConfigurationExportService
 from configurator.templatetags.formatting import qr
+from core.services.pdf_service import PDFService
 
 
 def asset_transaction_document_view(request, token):
@@ -33,4 +34,7 @@ def asset_transaction_document_view(request, token):
             "document_qr": qr(document_url),
         },
     )
-    return HttpResponse(html, content_type="text/html; charset=utf-8")
+    pdf_bytes = PDFService.html_to_pdf(html)
+    response = HttpResponse(pdf_bytes, content_type="application/pdf")
+    response["Content-Disposition"] = f'inline; filename="transaction_{transaction.pk}.pdf"'
+    return response

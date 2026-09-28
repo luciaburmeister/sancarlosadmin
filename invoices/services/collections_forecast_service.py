@@ -27,6 +27,7 @@ from invoices.models import (
     SalesInvoice,
     SalesInvoiceStatus,
 )
+from payments.mixins import annotate_amount_remaining, annotate_forecast_date
 from sales.models import Client
 
 
@@ -73,6 +74,45 @@ class CollectionsForecastService:
             output_field=BooleanField(),
         )
 
+    @staticmethod
+    def _cache_key(company, date_from, date_to) -> str:
+        return f"collections_forecast:{company.pk}:{date_from.isoformat()}:{date_to.isoformat()}"
+
+    @classmethod
+    def invalidate_cache(cls, company, date_from, date_to) -> None:
+        cache.delete(cls._cache_key(company, date_from, date_to))
+
+    @staticmethod
+    def _pending_queryset(company):
+        """
+        The not-fully-paid, FINAL/PRO FORMA SalesInvoice rows a collections
+        forecast is built from, annotated with db_amount_remaining and
+        forecast_date -- single source of truth for "what counts", reused
+        by build_forecast() and by anything else (e.g. the commitment-date
+        editor) that needs to resolve exactly which invoices make up a
+        client's row in a given bucket.
+        """
+        pending_qs = SalesInvoice.objects.filter(
+            company=company,
+            status__in=[SalesInvoiceStatus.FINAL, SalesInvoiceStatus.PROFORMA],
+        ).exclude(payment_status=InvoicePaymentStatus.PAID)
+        pending_qs = annotate_amount_remaining(pending_qs, SalesInvoice)
+        return annotate_forecast_date(pending_qs)
+
+    @classmethod
+    def row_invoices(cls, company, client_id, forecast_date=None, overdue_before=None):
+        """
+        The exact SalesInvoice rows behind one client's row in one bucket --
+        same conditions _build_bucket used to compute that row's totals and
+        Client.invoices_admin_url used to build its "View Invoices" link.
+        Pass exactly one of forecast_date (a single-day bucket) or
+        overdue_before (the overdue bucket).
+        """
+        qs = cls._pending_queryset(company).filter(client_id=client_id)
+        if forecast_date is not None:
+            return qs.filter(forecast_date=forecast_date)
+        return qs.filter(forecast_date__lt=overdue_before)
+
     @classmethod
     def build_forecast(cls, company, date_from, date_to) -> dict:
         """
@@ -109,7 +149,7 @@ class CollectionsForecastService:
             return cls._empty_result(date_from, date_to)
 
         today = timezone.now().date()
-        cache_key = f"collections_forecast:{company.pk}:{date_from.isoformat()}:{date_to.isoformat()}"
+        cache_key = cls._cache_key(company, date_from, date_to)
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
@@ -125,34 +165,15 @@ class CollectionsForecastService:
             ).default
         is_late_commitment_expr = cls._is_late_commitment_expr(late_threshold_days)
 
-        pending_qs = (
-            SalesInvoice.objects.filter(
-                company=company,
-                status__in=[SalesInvoiceStatus.FINAL, SalesInvoiceStatus.PROFORMA],
-            )
-            .exclude(payment_status=InvoicePaymentStatus.PAID)
-            .annotate(
-                forecast_date=Coalesce("payment_commitment_date", "due_date", "date_issued"),
-            )
-        )
-
-        # Total owed per client across ALL of their pending invoices (not just
-        # the ones in the visible window) -- shown as context next to the
-        # amount due on a specific day, so the user sees the full picture
-        # before deciding whether to chase just this invoice or everything.
-        total_owed_by_client = {
-            row["client_id"]: row["total_owed"]
-            for row in pending_qs.values("client_id").annotate(
-                total_owed=Coalesce(Sum("total_amount"), cls.ZERO, output_field=cls.DECIMAL_FIELD)
-            )
-        }
+        pending_qs = cls._pending_queryset(company)
 
         # ── Overdue bucket ────────────────────────────────────────────────
         overdue_rows = list(
             pending_qs.filter(forecast_date__lt=date_from)
             .values("client_id", "client__name")
             .annotate(
-                day_total=Coalesce(Sum("total_amount"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
+                day_total=Coalesce(Sum("db_amount_remaining"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
+                total_owed=Coalesce(Sum("total_amount"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
                 day_count=Count("id"),
                 sample_invoice_id=Min("id"),
                 has_proforma=BoolOr(cls.IS_PROFORMA),
@@ -160,14 +181,15 @@ class CollectionsForecastService:
             )
             .order_by("client__name")
         )
-        overdue = cls._build_bucket(overdue_rows, total_owed_by_client)
+        overdue = cls._build_bucket(overdue_rows, overdue_before=date_from)
 
         # ── Date buckets: one row per calendar day, even with no invoices ──
         window_rows = list(
             pending_qs.filter(forecast_date__gte=date_from, forecast_date__lte=date_to)
             .values("forecast_date", "client_id", "client__name")
             .annotate(
-                day_total=Coalesce(Sum("total_amount"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
+                day_total=Coalesce(Sum("db_amount_remaining"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
+                total_owed=Coalesce(Sum("total_amount"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
                 day_count=Count("id"),
                 sample_invoice_id=Min("id"),
                 has_proforma=BoolOr(cls.IS_PROFORMA),
@@ -181,13 +203,15 @@ class CollectionsForecastService:
         }
 
         days_in_range = (date_to - date_from).days
-        buckets = [
-            {
-                "date": date_from + timedelta(days=offset),
-                **cls._build_bucket(rows_by_date.get(date_from + timedelta(days=offset), []), total_owed_by_client),
-            }
-            for offset in range(days_in_range + 1)
-        ]
+        buckets = []
+        for offset in range(days_in_range + 1):
+            bucket_date = date_from + timedelta(days=offset)
+            buckets.append({
+                "date": bucket_date,
+                **cls._build_bucket(
+                    rows_by_date.get(bucket_date, []), forecast_date=bucket_date,
+                ),
+            })
 
         window_total = sum((b["total"] for b in buckets), Decimal("0.00"))
         window_count = sum(b["count"] for b in buckets)
@@ -198,7 +222,7 @@ class CollectionsForecastService:
         month_agg = pending_qs.filter(
             forecast_date__gte=month_start, forecast_date__lt=next_month_start
         ).aggregate(
-            total=Coalesce(Sum("total_amount"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
+            total=Coalesce(Sum("db_amount_remaining"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
             count=Count("id"),
         )
 
@@ -217,21 +241,25 @@ class CollectionsForecastService:
         return result
 
     @staticmethod
-    def _build_bucket(rows, total_owed_by_client) -> dict:
+    def _build_bucket(rows, forecast_date=None, overdue_before=None) -> dict:
         """Turns a list of already client-aggregated rows into one bucket:
         its own total/count, plus the per-client breakdown. view_url is
         computed once here (via Client.invoices_admin_url) so the calendar,
         its email report, and their templates all share the same link --
-        no separate URL-building logic anywhere else."""
+        no separate URL-building logic anywhere else. Passes the exact same
+        forecast_date condition used to build this bucket's rows, so the
+        link can never disagree with the total it's attached to."""
         clients = [
             {
                 "client_id": row["client_id"],
                 "client_name": row["client__name"],
                 "day_total": row["day_total"],
                 "day_count": row["day_count"],
-                "total_owed": total_owed_by_client.get(row["client_id"], row["day_total"]),
+                "total_owed": row["total_owed"],
                 "sample_invoice_id": row["sample_invoice_id"],
-                "view_url": Client(name=row["client__name"]).invoices_admin_url(),
+                "view_url": Client(pk=row["client_id"]).invoices_admin_url(
+                    forecast_date=forecast_date, overdue_before=overdue_before
+                ),
                 # True when at least one invoice in this row is still a pro
                 # forma -- shown as a small badge in the calendar so the user
                 # knows this amount isn't fully invoiced yet.

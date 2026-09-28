@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from invoices.models import Invoice, InvoicePaymentStatus
 from materials.models import PaymentMethod, Provider
-from payments.mixins import annotate_amount_remaining
+from payments.mixins import annotate_amount_remaining, annotate_effective_date
 
 
 class PaymentsForecastService:
@@ -56,8 +56,11 @@ class PaymentsForecastService:
         and the scheduled/manual email report call this function.
 
         Invoices of any confirmation status (approved, pending review, or
-        declined) with a due_date count -- only already-paid invoices are
-        excluded. Optionally restricted to a subset of payment methods
+        declined) count -- only already-paid invoices are excluded. Bucketed
+        by their effective_date (payments.mixins.annotate_effective_date:
+        commitment_date, else due_date, else date_issued), so an invoice
+        with no due_date still shows up instead of silently dropping out of
+        the calendar. Optionally restricted to a subset of payment methods
         (SEPA, transfer, etc.).
         """
         if not company:
@@ -70,51 +73,43 @@ class PaymentsForecastService:
         if cached is not None:
             return cached
 
-        pending_qs = Invoice.objects.filter(
-            company=company,
-            due_date__isnull=False,
-        ).exclude(payment_status=InvoicePaymentStatus.PAID)
+        pending_qs = Invoice.objects.filter(company=company).exclude(
+            payment_status=InvoicePaymentStatus.PAID
+        )
 
         if payment_methods:
             pending_qs = pending_qs.filter(payment_method__in=payment_methods)
 
         pending_qs = annotate_amount_remaining(pending_qs, Invoice)
-
-        total_owed_by_provider = {
-            row["provider_id"]: row["total_owed"]
-            for row in pending_qs.values("provider_id").annotate(
-                total_owed=Coalesce(Sum("db_amount_remaining"), cls.ZERO, output_field=cls.DECIMAL_FIELD)
-            )
-        }
+        pending_qs = annotate_effective_date(pending_qs).filter(effective_date__isnull=False)
 
         overdue_rows = list(
-            pending_qs.filter(due_date__lt=date_from)
+            pending_qs.filter(effective_date__lt=date_from)
             .values("provider_id", "provider__name")
             .annotate(
                 day_total=Coalesce(Sum("db_amount_remaining"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
+                total_owed=Coalesce(Sum("total_amount"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
                 day_count=Count("id"),
                 has_sepa=BoolOr(cls.IS_SEPA),
             )
             .order_by("provider__name")
         )
-        overdue = cls._build_bucket(
-            overdue_rows, total_owed_by_provider,
-            due_date_from=None, due_date_to=date_from - timedelta(days=1),
-        )
+        overdue = cls._build_bucket(overdue_rows, overdue_before=date_from)
 
         window_rows = list(
-            pending_qs.filter(due_date__gte=date_from, due_date__lte=date_to)
-            .values("due_date", "provider_id", "provider__name")
+            pending_qs.filter(effective_date__gte=date_from, effective_date__lte=date_to)
+            .values("effective_date", "provider_id", "provider__name")
             .annotate(
                 day_total=Coalesce(Sum("db_amount_remaining"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
+                total_owed=Coalesce(Sum("total_amount"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
                 day_count=Count("id"),
                 has_sepa=BoolOr(cls.IS_SEPA),
             )
-            .order_by("due_date", "provider__name")
+            .order_by("effective_date", "provider__name")
         )
         rows_by_date = {
-            due_date: list(rows)
-            for due_date, rows in groupby(window_rows, key=lambda r: r["due_date"])
+            effective_date: list(rows)
+            for effective_date, rows in groupby(window_rows, key=lambda r: r["effective_date"])
         }
 
         days_in_range = (date_to - date_from).days
@@ -124,8 +119,7 @@ class PaymentsForecastService:
             buckets.append({
                 "date": bucket_date,
                 **cls._build_bucket(
-                    rows_by_date.get(bucket_date, []), total_owed_by_provider,
-                    due_date_from=bucket_date, due_date_to=bucket_date,
+                    rows_by_date.get(bucket_date, []), effective_date=bucket_date,
                 ),
             })
 
@@ -136,7 +130,7 @@ class PaymentsForecastService:
         month_start = today.replace(day=1)
         next_month_start = (month_start + timedelta(days=32)).replace(day=1)
         month_agg = pending_qs.filter(
-            due_date__gte=month_start, due_date__lt=next_month_start
+            effective_date__gte=month_start, effective_date__lt=next_month_start
         ).aggregate(
             total=Coalesce(Sum("db_amount_remaining"), cls.ZERO, output_field=cls.DECIMAL_FIELD),
             count=Count("id"),
@@ -157,20 +151,24 @@ class PaymentsForecastService:
         return result
 
     @staticmethod
-    def _build_bucket(rows, total_owed_by_provider, due_date_from=None, due_date_to=None) -> dict:
+    def _build_bucket(rows, effective_date=None, overdue_before=None) -> dict:
         """Turns a list of already provider-aggregated rows into one bucket:
         its own total/count, plus the per-provider breakdown. view_url is
         computed once here (via Provider.invoices_admin_url) so the calendar,
         its email report, and their templates all share the same link --
-        no separate URL-building logic anywhere else."""
+        no separate URL-building logic anywhere else. Passes the exact same
+        effective_date condition used to build this bucket's rows, so the
+        link can never disagree with the total it's attached to."""
         providers = [
             {
                 "provider_id": row["provider_id"],
                 "provider_name": row["provider__name"],
                 "day_total": row["day_total"],
                 "day_count": row["day_count"],
-                "total_owed": total_owed_by_provider.get(row["provider_id"], row["day_total"]),
-                "view_url": Provider(pk=row["provider_id"]).invoices_admin_url(due_date_from, due_date_to),
+                "total_owed": row["total_owed"],
+                "view_url": Provider(pk=row["provider_id"]).invoices_admin_url(
+                    effective_date=effective_date, overdue_before=overdue_before
+                ),
                 # True when at least one invoice in this row is paid by SEPA
                 # direct debit -- shown as a small badge in the calendar so a
                 # SEPA due date (which triggers a bank charge, unlike a

@@ -101,16 +101,24 @@ class Provider(Timestampable,CompanyOwnedModel):
                 )
             })
 
-    def invoices_admin_url(self, due_date_from=None, due_date_to=None) -> str:
+    def invoices_admin_url(self, effective_date=None, overdue_before=None) -> str:
         """
         Absolute link into the Invoice changelist admin, filtered to this
-        provider's pending invoices -- the fixed filters (unpaid/partial,
-        approved) are the Payments Forecast contract, not something callers
-        vary; the due-date range is the only thing that changes between
-        the overdue bucket (due_date_to only) and a single-day bucket
-        (both bounds, same day). Used by the Payments Forecast calendar,
-        its email report, and the "View Invoices" link in both -- single
-        source of truth for that URL.
+        provider's pending invoices -- the fixed filter (unpaid/partial) is
+        the Payments Forecast contract, not something callers vary.
+
+        Filters on `effective_date` (payments.mixins.annotate_effective_date:
+        commitment_date, else due_date, else date_issued), the same field
+        PaymentsForecastService groups its buckets by -- not on due_date
+        directly -- so this link always resolves to exactly the invoices
+        behind the bucket total it's attached to, whichever date actually
+        placed them there.
+
+        Pass exactly one of `effective_date` (a single-day bucket) or
+        `overdue_before` (the overdue bucket: every invoice whose effective
+        date is before that cutoff, unbounded below). Used by the Payments
+        Forecast calendar, its email report, and the "View Invoices" link in
+        both -- single source of truth for that URL.
         """
         from django.conf import settings
         from django.urls import reverse
@@ -121,12 +129,11 @@ class Provider(Timestampable,CompanyOwnedModel):
         params = {
             "provider__id__exact": self.pk,
             "payment_status__in": "unpaid,partial",
-            "confirmation_status__exact": "approved",
         }
-        if due_date_from is not None:
-            params["due_date__gte"] = due_date_from.isoformat()
-        if due_date_to is not None:
-            params["due_date__lte"] = due_date_to.isoformat()
+        if effective_date is not None:
+            params["effective_date"] = effective_date.isoformat()
+        if overdue_before is not None:
+            params["effective_date__lt"] = overdue_before.isoformat()
         return f"{base_url}{path}?{urlencode(params)}"
 
 class ProviderBankAccount(CompanyOwnedModel, BaseBankAccount):

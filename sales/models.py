@@ -538,20 +538,39 @@ class Client(Timestampable, CompanyOwnedModel):
             return [self.email.strip()]
         return []
 
-    def invoices_admin_url(self) -> str:
+    def invoices_admin_url(self, forecast_date=None, overdue_before=None) -> str:
         """
-        Absolute link into the SalesInvoice changelist admin, pre-filtered
-        to this client by name (matches its search_fields) -- the "View
-        Invoices" destination used by the Collections Forecast calendar
-        and its email report. Single source of truth for that URL.
+        Absolute link into the SalesInvoice changelist admin, filtered to
+        this client's pending invoices -- the fixed filter (unpaid/partial)
+        is the Collections Forecast contract, not something callers vary.
+
+        Filters on `forecast_date` (payments.mixins.annotate_forecast_date:
+        payment_commitment_date, else due_date, else date_issued), the same
+        field CollectionsForecastService groups its buckets by -- not on
+        due_date directly -- so this link always resolves to exactly the
+        invoices behind the bucket total it's attached to.
+
+        Pass exactly one of `forecast_date` (a single-day bucket) or
+        `overdue_before` (the overdue bucket: every invoice whose forecast
+        date is before that cutoff, unbounded below). Used by the
+        Collections Forecast calendar, its email report, and the "View
+        Invoices" link in both -- single source of truth for that URL.
         """
         from django.conf import settings
         from django.urls import reverse
-        from urllib.parse import quote
+        from urllib.parse import urlencode
 
         base_url = settings.BACKEND_URL.rstrip("/")
         path = reverse("admin:invoices_salesinvoice_changelist")
-        return f"{base_url}{path}?q={quote(self.name)}"
+        params = {
+            "client__id__exact": self.pk,
+            "payment_status__in": "unpaid,partial",
+        }
+        if forecast_date is not None:
+            params["forecast_date"] = forecast_date.isoformat()
+        if overdue_before is not None:
+            params["forecast_date__lt"] = overdue_before.isoformat()
+        return f"{base_url}{path}?{urlencode(params)}"
 
     @property
     def terms_version(self) -> str:

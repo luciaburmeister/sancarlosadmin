@@ -174,6 +174,40 @@ def annotate_balance_currency(
     })
 
 
+def annotate_effective_date(queryset: QuerySet, annotation_name: str = "effective_date") -> QuerySet:
+    """
+    Annotate an Invoice queryset with the date that actually drives its
+    cash-flow forecasting: commitment_date if the provider agreed to a
+    different payment date, else due_date, else date_issued -- so an
+    invoice with no due_date at all still lands somewhere on a calendar
+    instead of disappearing from it.
+
+    Shared by PaymentsForecastService and InvoiceAdmin (its "View Invoices"
+    drill-down) so a bucket's total and its link always agree on the same
+    invoices.
+    """
+    return queryset.annotate(**{
+        annotation_name: Coalesce("commitment_date", "due_date", "date_issued")
+    })
+
+
+def annotate_forecast_date(queryset: QuerySet, annotation_name: str = "forecast_date") -> QuerySet:
+    """
+    Annotate a SalesInvoice queryset with the date that actually drives its
+    collections forecasting: payment_commitment_date if the client agreed
+    to a different payment date, else due_date, else date_issued.
+
+    SalesInvoice's equivalent of annotate_effective_date -- same idea, but
+    against its own field names (payment_commitment_date, not
+    commitment_date). Shared by CollectionsForecastService and
+    SalesInvoiceAdmin (its "View Invoices" drill-down) so a bucket's total
+    and its link always agree on the same invoices.
+    """
+    return queryset.annotate(**{
+        annotation_name: Coalesce("payment_commitment_date", "due_date", "date_issued")
+    })
+
+
 def overdue_q(today=None) -> Q:
     """
     What makes an unpaid invoice overdue: a due date strictly before today, or

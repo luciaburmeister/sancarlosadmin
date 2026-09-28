@@ -33,6 +33,42 @@
     color: #fff;
     vertical-align: middle;
   }
+  .cf-commitment-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 20;
+    width: 260px;
+    padding: 14px;
+    background: var(--cf-bg, #fff);
+    border: 1px solid var(--cf-border, #e5e7eb);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+    text-align: left;
+  }
+  .cf-commitment-popover label {
+    display: block;
+    font-size: .75rem;
+    font-weight: 600;
+    color: var(--cf-text-sub, #6b7280);
+    margin-bottom: 4px;
+  }
+  .cf-commitment-popover input[type="date"] {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .cf-commitment-confirm {
+    margin: 8px 0 0 0;
+    font-size: .75rem;
+    color: var(--cf-text-sub, #6b7280);
+    line-height: 1.4;
+  }
+  .cf-commitment-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 10px;
+  }
 </style>
 {% endblock %}
 
@@ -114,8 +150,8 @@
           <thead>
             <tr>
               <th>{% trans "Client" %}</th>
-              <th style="text-align:right">{% trans "Overdue Amount" %}</th>
-              <th style="text-align:right">{% trans "Total Owed" %}</th>
+              <th style="text-align:right">{% trans "Balance Due" %}</th>
+              <th style="text-align:right">{% trans "Total Invoiced" %}</th>
               <th></th>
             </tr>
           </thead>
@@ -126,9 +162,30 @@
               <td class="cf-amount">€ {{ client.day_total|floatformat:2 }}</td>
               <td class="cf-amount-sub">€ {{ client.total_owed|floatformat:2 }}</td>
               <td>
-                <div class="cf-actions">
+                <div class="cf-actions" style="position:relative;" x-data="{ editOpen: false, chosenDate: '' }">
+                  <button type="button" class="cf-btn" @click="editOpen = !editOpen">{% trans "Edit Commitment Date" %}</button>
                   <a class="cf-btn" href="{{ client.view_url }}">{% trans "View Invoices" %}</a>
                   <a class="cf-btn cf-btn--primary" href="{% url 'admin:invoices_salesinvoice_send_reminder_now' client.sample_invoice_id %}">{% trans "Send Reminder" %}</a>
+                  <div class="cf-commitment-popover" x-show="editOpen" @click.outside="editOpen = false" x-cloak>
+                    <form method="post" action="{% url 'admin:invoices_salesinvoice_collections_forecast_set_commitment_date' %}">
+                      {% csrf_token %}
+                      <input type="hidden" name="company" value="{{ selected_company.pk }}">
+                      <input type="hidden" name="client_id" value="{{ client.client_id }}">
+                      <input type="hidden" name="overdue_before" value="{{ date_from|date:'Y-m-d' }}">
+                      <input type="hidden" name="date_from" value="{{ date_from|date:'Y-m-d' }}">
+                      <input type="hidden" name="date_to" value="{{ date_to|date:'Y-m-d' }}">
+                      <label>{% trans "New commitment date" %}</label>
+                      <input type="date" name="commitment_date" class="cf-select" x-model="chosenDate" required>
+                      <p class="cf-commitment-confirm" x-show="chosenDate">
+                        {% blocktrans count count=client.day_count with client_name=client.client_name %}This will update the commitment date of {{ count }} invoice of {{ client_name }} to:{% plural %}This will update the commitment date of {{ count }} invoices of {{ client_name }} to:{% endblocktrans %}
+                        <strong x-text="chosenDate"></strong>
+                      </p>
+                      <div class="cf-commitment-buttons">
+                        <button type="button" class="cf-btn" @click="editOpen = false">{% trans "Cancel" %}</button>
+                        <button type="submit" class="cf-btn cf-btn--primary" :disabled="!chosenDate">{% trans "Save" %}</button>
+                      </div>
+                    </form>
+                  </div>
                 </div>
               </td>
             </tr>
@@ -153,8 +210,8 @@
           <thead>
             <tr>
               <th>{% trans "Client" %}</th>
-              <th style="text-align:right">{% trans "Due That Day" %}</th>
-              <th style="text-align:right">{% trans "Total Owed" %}</th>
+              <th style="text-align:right">{% trans "Balance Due" %}</th>
+              <th style="text-align:right">{% trans "Total Invoiced" %}</th>
               <th></th>
             </tr>
           </thead>
@@ -165,9 +222,30 @@
               <td class="cf-amount">€ {{ client.day_total|floatformat:2 }}</td>
               <td class="cf-amount-sub">€ {{ client.total_owed|floatformat:2 }}</td>
               <td>
-                <div class="cf-actions">
+                <div class="cf-actions" style="position:relative;" x-data="{ editOpen: false, chosenDate: '' }">
+                  <button type="button" class="cf-btn" @click="editOpen = !editOpen">{% trans "Edit Commitment Date" %}</button>
                   <a class="cf-btn" href="{{ client.view_url }}">{% trans "View Invoices" %}</a>
                   <a class="cf-btn cf-btn--primary" href="{% url 'admin:invoices_salesinvoice_send_reminder_now' client.sample_invoice_id %}">{% trans "Send Reminder" %}</a>
+                  <div class="cf-commitment-popover" x-show="editOpen" @click.outside="editOpen = false" x-cloak>
+                    <form method="post" action="{% url 'admin:invoices_salesinvoice_collections_forecast_set_commitment_date' %}">
+                      {% csrf_token %}
+                      <input type="hidden" name="company" value="{{ selected_company.pk }}">
+                      <input type="hidden" name="client_id" value="{{ client.client_id }}">
+                      <input type="hidden" name="forecast_date" value="{{ bucket.date|date:'Y-m-d' }}">
+                      <input type="hidden" name="date_from" value="{{ date_from|date:'Y-m-d' }}">
+                      <input type="hidden" name="date_to" value="{{ date_to|date:'Y-m-d' }}">
+                      <label>{% trans "New commitment date" %}</label>
+                      <input type="date" name="commitment_date" class="cf-select" x-model="chosenDate" required>
+                      <p class="cf-commitment-confirm" x-show="chosenDate">
+                        {% blocktrans count count=client.day_count with client_name=client.client_name %}This will update the commitment date of {{ count }} invoice of {{ client_name }} to:{% plural %}This will update the commitment date of {{ count }} invoices of {{ client_name }} to:{% endblocktrans %}
+                        <strong x-text="chosenDate"></strong>
+                      </p>
+                      <div class="cf-commitment-buttons">
+                        <button type="button" class="cf-btn" @click="editOpen = false">{% trans "Cancel" %}</button>
+                        <button type="submit" class="cf-btn cf-btn--primary" :disabled="!chosenDate">{% trans "Save" %}</button>
+                      </div>
+                    </form>
+                  </div>
                 </div>
               </td>
             </tr>

@@ -5,7 +5,8 @@ from django.contrib import admin
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.http import HttpResponse
-from django.urls import reverse
+from django.shortcuts import redirect
+from django.urls import path, reverse
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.forms import BaseDialogForm
 from unfold.views import ChangeList
@@ -178,8 +179,30 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
     def get_changelist(self, request, **kwargs):
         return AssetPlanningChangeList
 
+    def get_urls(self):
+        from assets.views.asset_transaction_wizard import AssetTransactionFromPlanningWizardView
+
+        urls = super().get_urls()
+        custom = [
+            path(
+                "<int:planning_id>/create-transaction/",
+                self.admin_site.admin_view(
+                    AssetTransactionFromPlanningWizardView.as_view(model_admin=self)
+                ),
+                name="assets_assetplanning_create_transaction",
+            ),
+        ]
+        return custom + urls
+
+    @action(description=_("Create Transaction"), icon="add_box")
+    def create_transaction_detail_action(self, request, object_id):
+        return redirect(
+            reverse("admin:assets_assetplanning_create_transaction", args=[object_id])
+        )
+
     actions_list = ["auto_assign_action", "optimize_daily_routes_action"]
     actions_row = ["auto_assign_row_action"]
+    actions_detail = ["create_transaction_detail_action"]
     conditional_fields = CONDITIONAL_FIELDS
     fieldsets = (
         (_("Company"), {

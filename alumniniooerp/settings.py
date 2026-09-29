@@ -455,7 +455,7 @@ UNFOLD = {
     "SITE_TITLE": "ERP - Polipus",
     "SITE_HEADER": "Polipus",
     "SHOW_LANGUAGES": True,
-    "TABS": "assets.admin.tabs.asset_planning_tabs",
+    "TABS": "general.admin_tabs.admin_tabs",
     # Active-company switcher (sidebar-header dropdown) + current-company badge
     "SITE_DROPDOWN": "company.unfold.company_switch_dropdown",
     "ENVIRONMENT": "company.unfold.active_company_badge",

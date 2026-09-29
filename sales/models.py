@@ -1631,10 +1631,24 @@ class ShippingAgency(Timestampable, CompanyOwnedModel):
 
 
 class DeliveryOrderStatus(models.TextChoices):
-    DRAFT = "draft", _("Draft")
-    SENT = "sent", _("Sent")
+    DRAFT = "draft", _("Pending shipment")
+    PREPARED = "prepared", _("Prepared")
+    DISPATCHED = "dispatched", _("Dispatched")
     DELIVERED = "delivered", _("Delivered")
     CANCELLED = "cancelled", _("Cancelled")
+
+
+# The goods of a delivery order are out of the warehouse only while it is in
+# one of these statuses: dispatching takes the stock out, and leaving them
+# (undoing the dispatch, cancelling) gives it back.
+DELIVERY_ORDER_STOCK_OUT_STATUSES = (DeliveryOrderStatus.DISPATCHED, DeliveryOrderStatus.DELIVERED)
+
+
+class DeliveryShippingMethod(models.TextChoices):
+    CARRIER = "carrier", _("Carrier")
+    OWN_TRANSPORT = "own_transport", _("Own transport")
+    CUSTOMER_PICKUP = "customer_pickup", _("Customer pickup")
+
 
 class DeliveryOrder(Timestampable, CompanyOwnedModel):
     number = models.CharField(max_length=50, blank=True, verbose_name=_("Number"))
@@ -1738,6 +1752,33 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
 
     # Shipping information
+    shipping_method = models.CharField(
+        max_length=20,
+        choices=DeliveryShippingMethod.choices,
+        blank=True,
+        verbose_name=_("Shipping Method"),
+    )
+    planned_delivery_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Planned Delivery Date"),
+        help_text=_("Taken from the source quotes' estimated delivery date."),
+    )
+    dispatched_at = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Dispatch Date"),
+    )
+    delivered_at = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Delivery Date"),
+    )
+    received_by = models.CharField(
+        max_length=255,
+        blank=True,
+        verbose_name=_("Received By"),
+    )
     package_count = models.PositiveIntegerField(
         null=True,
         blank=True,
@@ -1798,15 +1839,22 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
             next_id = (last_id or 0) + 1
             self.number = f"{prefix}{next_id:05d}"
             self.incremental_id = next_id
-        super().save(*args, **kwargs)
 
-        # Cancelling gives the goods back to the warehouse; reopening a
-        # cancelled order takes them out again.
-        if self.status != self._original_status:
-            if self.status == DeliveryOrderStatus.CANCELLED:
-                self.return_inventory(cancelled=True)
-            elif self._original_status == DeliveryOrderStatus.CANCELLED:
+        # Dispatching takes the goods out of the warehouse; cancelling or
+        # undoing the dispatch gives them back. Both are idempotent per line,
+        # so orders whose stock left before dispatch existed are safe. Done
+        # before saving the row so the stock-position refresh fired by the
+        # save sees the lines' final stock_deducted flags. A new order has
+        # no lines yet.
+        if not self._state.adding and self.status != self._original_status:
+            if self.status in DELIVERY_ORDER_STOCK_OUT_STATUSES:
                 self.deduct_inventory()
+            elif self.status == DeliveryOrderStatus.CANCELLED:
+                self.return_inventory(cancelled=True)
+            elif self._original_status in DELIVERY_ORDER_STOCK_OUT_STATUSES:
+                self.return_inventory(dispatch_undone=True)
+
+        super().save(*args, **kwargs)
 
         self._original_status = self.status
         self._original_project_file_id = self.project_file_id
@@ -1817,19 +1865,28 @@ class DeliveryOrder(Timestampable, CompanyOwnedModel):
             item.delivery_order = self
             item._deduct_inventory()
 
-    def return_inventory(self, *, cancelled=False, keep_reference=True):
+    def return_inventory(self, *, cancelled=False, dispatch_undone=False, keep_reference=True):
         """Give every line's stock back to the warehouse (idempotent).
 
         Args:
             cancelled: Whether the return comes from cancelling the order,
                 which only changes the wording of the movement note.
+            dispatch_undone: Whether it comes from taking a dispatched order
+                back to the warehouse; also only changes the wording.
             keep_reference: Pass False when the order itself is being
                 deleted, so the compensating transactions are not left
                 pointing at a row that no longer exists.
         """
         for item in self.items.all():
             item.delivery_order = self
-            item._return_inventory(cancelled=cancelled, keep_reference=keep_reference)
+            item._return_inventory(
+                cancelled=cancelled, dispatch_undone=dispatch_undone, keep_reference=keep_reference,
+            )
+
+    @property
+    def is_stock_out(self):
+        """Whether this order's goods have left the warehouse."""
+        return self.status in DELIVERY_ORDER_STOCK_OUT_STATUSES
 
     @property
     def tracking_link(self):
@@ -1968,6 +2025,15 @@ class DeliveryOrderItemQuerySet(models.QuerySet):
 
     def components(self):
         return self.filter(parent_line__isnull=False)
+
+    def shipped(self):
+        """Lines whose goods have left the warehouse: on a dispatched or
+        delivered order, or deducted before dispatch moved the stock (orders
+        created under the old rule)."""
+        return self.filter(
+            models.Q(delivery_order__status__in=DELIVERY_ORDER_STOCK_OUT_STATUSES)
+            | models.Q(stock_deducted=True)
+        )
 
 
 class DeliveryOrderItem(Timestampable):
@@ -2240,9 +2306,11 @@ class DeliveryOrderItem(Timestampable):
     def _deduct_inventory(self):
         """Take this delivery line's goods out of the warehouse.
 
-        Putting an item on a delivery order is the point where it physically
-        leaves, so this is where stock is subtracted. A no-op when this
-        line's stock is already out.
+        Dispatching the order is the point where the goods physically leave,
+        so stock is only subtracted while the order is dispatched or
+        delivered: at dispatch for every line, or on creation for a line added
+        to an order that already left. A no-op when this line's stock is
+        already out.
 
         What moves depends on what the item is. A composite item holds no
         goods of its own, so only its components leave — subtracting the
@@ -2266,8 +2334,8 @@ class DeliveryOrderItem(Timestampable):
             return
 
         order = self.delivery_order
-        if order.status == DeliveryOrderStatus.CANCELLED:
-            return  # a cancelled order ships nothing
+        if not order.is_stock_out:
+            return  # nothing leaves until the order is dispatched
 
         if item.is_composite:
             item.deduct_bom_components(
@@ -2290,7 +2358,7 @@ class DeliveryOrderItem(Timestampable):
 
         self._set_stock_deducted(True)
 
-    def _return_inventory(self, *, cancelled=False, keep_reference=True):
+    def _return_inventory(self, *, cancelled=False, dispatch_undone=False, keep_reference=True):
         """Give this line's stock back with compensating stock-in movements.
 
         A no-op unless this line actually took stock out, so cancelling an
@@ -2303,6 +2371,7 @@ class DeliveryOrderItem(Timestampable):
 
         Args:
             cancelled: Whether the return comes from cancelling the order.
+            dispatch_undone: Whether it comes from undoing the dispatch.
             keep_reference: Pass False when the delivery order is being
                 deleted; the note then carries the trace instead of a
                 reference that would dangle.
@@ -2321,6 +2390,8 @@ class DeliveryOrderItem(Timestampable):
         order = self.delivery_order
         if cancelled:
             reason = f"cancelled Delivery Order {order.number}"
+        elif dispatch_undone:
+            reason = f"undone dispatch of Delivery Order {order.number}"
         elif keep_reference:
             reason = f"Delivery Order {order.number}, line {self.item_number} removed"
         else:

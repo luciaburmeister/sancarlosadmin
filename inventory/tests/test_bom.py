@@ -35,6 +35,7 @@ from inventory.models import (
     Warehouse,
 )
 from invoices.services.delivery_order_service import DeliveryOrderService
+from sales.services.delivery_order_fulfillment_service import DeliveryOrderFulfillmentService
 from management.models import ProjectFile
 from materials.models import Provider
 from purchasing.models import (
@@ -786,7 +787,8 @@ class _DeliveryOrderStockTestCase(_BOMBaseTestCase):
         )
 
     def _deliver(self, quote_line, quantity=None):
-        return DeliveryOrderService.create_delivery_order(
+        """Create the delivery order and dispatch it: that is when the goods leave."""
+        do = DeliveryOrderService.create_delivery_order(
             project_file=self.project_file,
             company=self.company,
             client=self.client_obj,
@@ -798,6 +800,8 @@ class _DeliveryOrderStockTestCase(_BOMBaseTestCase):
                 "unit_price": quote_line.unit_price.amount,
             }],
         )
+        DeliveryOrderFulfillmentService.dispatch(do)
+        return do
 
 
 class DeliveryOrderBOMCascadeTest(_DeliveryOrderStockTestCase):
@@ -1007,7 +1011,7 @@ class DeliveryOrderRestockTest(_DeliveryOrderStockTestCase):
         do.save()
         self.assertEqual(self._stock(parent), 50)
 
-        do.status = DeliveryOrderStatus.SENT
+        do.status = DeliveryOrderStatus.DISPATCHED
         do.save()
 
         self.assertEqual(self._stock(parent), 50)
@@ -1073,6 +1077,7 @@ class DeliveryOrderRestockTest(_DeliveryOrderStockTestCase):
                 },
             ],
         )
+        DeliveryOrderFulfillmentService.dispatch(do)
         self.assertEqual(self._stock(parent_a), 15)
         self.assertEqual(self._stock(parent_b), 23)
 
@@ -1159,7 +1164,7 @@ class ZeroOutCompositeStockMigrationTest(_DeliveryOrderStockTestCase):
         the parent and every component taken out, the line flagged."""
         order = DeliveryOrder.objects.create(
             company=self.company, client=self.client_obj,
-            project_file=self.project_file, status=DeliveryOrderStatus.SENT,
+            project_file=self.project_file, status=DeliveryOrderStatus.DISPATCHED,
         )
         line = DeliveryOrderItem.objects.create(
             delivery_order=order, inventory_item=ventana,

@@ -283,7 +283,7 @@ class RemainderPricingTests(_SyncTestBase):
         config = self._config(quote, "1000.00", units=Decimal("2"))
         legacy = DeliveryOrder.objects.create(
             company=self.company, client=self.client_obj,
-            project_file=self.project_file, status=DeliveryOrderStatus.SENT,
+            project_file=self.project_file, status=DeliveryOrderStatus.DISPATCHED,
         )
         DeliveryOrderItem.objects.create(
             delivery_order=legacy, description="Config (net)",

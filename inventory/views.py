@@ -417,12 +417,12 @@ _QUANTITY_FIELD = DecimalField(max_digits=16, decimal_places=3)
 
 def _delivered_quantity_subquery():
     """Per-line delivered quantity: units shipped against one specific
-    QuoteInventoryItem line, excluding cancelled delivery orders. Same rule
+    QuoteInventoryItem line, counting only lines that have shipped. Same rule
     as the ``delivered`` subquery inside
     ``InventoryItemQuerySet._reserved_expression``, but correlated to a
     single line (``OuterRef("pk")``) instead of aggregated per item, so it
     can be displayed per row."""
-    from sales.models import DeliveryOrderItem, DeliveryOrderStatus, QuoteInventoryItem
+    from sales.models import DeliveryOrderItem, QuoteInventoryItem
 
     return Coalesce(
         Subquery(
@@ -431,7 +431,7 @@ def _delivered_quantity_subquery():
                 source_content_type=ContentType.objects.get_for_model(QuoteInventoryItem),
                 source_object_id=OuterRef("pk"),
             )
-            .exclude(delivery_order__status=DeliveryOrderStatus.CANCELLED)
+            .shipped()
             .values("source_object_id")
             .annotate(total=Sum("quantity", output_field=_QUANTITY_FIELD))
             .values("total")[:1],

@@ -203,12 +203,12 @@ class InventoryItemQuerySet(models.QuerySet):
     def reserved_expression(cls):
         """Promised on accepted quotes for open projects, not yet delivered.
 
-        Stock physically leaves the warehouse when a delivery-order line is
-        created, so what is still reserved is the accepted-quote quantity
-        minus whatever those quote lines have already shipped. Cancelled
-        delivery orders are excluded because their stock has been returned —
-        the same rule DeliveryOrderService uses to compute remaining
-        deliverable quantities.
+        Stock physically leaves the warehouse when a delivery order is
+        dispatched, so what is still reserved is the accepted-quote quantity
+        minus whatever those quote lines have already shipped
+        (``DeliveryOrderItem.objects.shipped()``). A pending or prepared
+        delivery order keeps its goods reserved; a cancelled one has given
+        them back.
 
         A quote has no state after ACCEPTED, and many flows invoice quote
         lines directly without ever raising a delivery order, so acceptance
@@ -244,7 +244,6 @@ class InventoryItemQuerySet(models.QuerySet):
         from management.models import ProjectFileStatus
         from sales.models import (
             DeliveryOrderItem,
-            DeliveryOrderStatus,
             QuoteInventoryItem,
             QuoteStatus,
         )
@@ -283,7 +282,7 @@ class InventoryItemQuerySet(models.QuerySet):
                 source_content_type=ContentType.objects.get_for_model(QuoteInventoryItem),
                 source_object_id__in=accepted_quote_lines(item_ref(2)).values("pk"),
             )
-            .exclude(delivery_order__status=DeliveryOrderStatus.CANCELLED)
+            .shipped()
             .values("source_content_type")  # constant key: one row per subquery
             .annotate(total=models.Sum("quantity", output_field=cls.QUANTITY_FIELD))
             .values("total")[:1],

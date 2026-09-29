@@ -27,6 +27,7 @@ from inventory.models import (
     Warehouse,
 )
 from invoices.services.delivery_order_service import DeliveryOrderService
+from sales.services.delivery_order_fulfillment_service import DeliveryOrderFulfillmentService
 from management.models import ProjectFile
 from sales.models import (
     Client,
@@ -97,8 +98,8 @@ class _ComponentLinesBase(TestCase):
             quantity=Decimal(quantity), unit_price=Decimal("100"),
         )
 
-    def _deliver(self, quote_line, quantity=None):
-        return DeliveryOrderService.create_delivery_order(
+    def _deliver(self, quote_line, quantity=None, dispatch=True):
+        do = DeliveryOrderService.create_delivery_order(
             project_file=self.project_file, company=self.company,
             client=self.client_obj,
             items_data=[{
@@ -109,6 +110,9 @@ class _ComponentLinesBase(TestCase):
                 "unit_price": quote_line.unit_price.amount,
             }],
         )
+        if dispatch:
+            DeliveryOrderFulfillmentService.dispatch(do)
+        return do
 
     def _parent_line(self, do):
         return do.items.top_level().get()
@@ -322,6 +326,7 @@ class ManualProductLineTests(_ComponentLinesBase):
         window.selling_price = Decimal("250.00")
         window.save()
         do = self._draft_order()
+        DeliveryOrderFulfillmentService.dispatch(do)
 
         line = DeliveryOrderItem.objects.create(
             delivery_order=do, inventory_item=window, quantity=Decimal("2"),

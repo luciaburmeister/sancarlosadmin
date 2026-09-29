@@ -22,7 +22,7 @@ from django.db.models import Q, Sum
 def _delivery_counting_statuses():
     from sales.models import DeliveryOrderStatus
 
-    return [DeliveryOrderStatus.SENT, DeliveryOrderStatus.DELIVERED]
+    return [DeliveryOrderStatus.DISPATCHED, DeliveryOrderStatus.DELIVERED]
 
 
 def _ordered_source_lines(project_file):

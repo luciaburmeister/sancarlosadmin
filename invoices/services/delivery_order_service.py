@@ -320,6 +320,7 @@ class DeliveryOrderService:
         # Carry the source quotes' discounts and taxes onto the delivery order,
         # making it a self-contained document.
         cls.recompute_discounts_and_taxes(delivery_order)
+        cls._fill_shipping_defaults(delivery_order)
 
         logger.info(
             "Created DeliveryOrder %s from ProjectFile %s. Items: %d, "
@@ -334,6 +335,28 @@ class DeliveryOrderService:
         )
 
         return delivery_order
+
+    @classmethod
+    def _fill_shipping_defaults(cls, delivery_order):
+        """Plan the delivery from the source quotes and ship to the client's
+        default shipping address. The latest estimated date wins: the order
+        can only leave once everything on it is ready."""
+        from sales.models import ClientAddress
+
+        quote_ids = {
+            cls._source_taxes_and_quote(item)[1]
+            for item in delivery_order.items.top_level()
+        } - {None}
+        dates = [
+            d for d in Quote.objects.filter(pk__in=quote_ids)
+            .values_list("estimated_delivery_date", flat=True) if d
+        ]
+        addresses = ClientAddress.objects.filter(client=delivery_order.client).order_by("-is_default", "pk")
+        delivery_order.planned_delivery_date = max(dates) if dates else None
+        delivery_order.delivery_address = (
+            addresses.filter(address_type="shipping").first() or addresses.first()
+        )
+        delivery_order.save(update_fields=["planned_delivery_date", "delivery_address", "updated_at"])
 
     @classmethod
     @transaction.atomic

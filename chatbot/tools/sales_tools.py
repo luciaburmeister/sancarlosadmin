@@ -337,7 +337,7 @@ class ListDeliveryOrders(BaseTool):
     def description(self) -> str:
         return (
             "List delivery orders (albaranes). "
-            "Filter by client or status (draft, sent, delivered, cancelled)."
+            "Filter by client or status (draft = pending shipment, prepared, dispatched, delivered, cancelled)."
         )
 
     @property
@@ -355,7 +355,7 @@ class ListDeliveryOrders(BaseTool):
                 "status": {
                     "type": "string",
                     "description": "Filter by status.",
-                    "enum": ["draft", "sent", "delivered", "cancelled"],
+                    "enum": ["draft", "prepared", "dispatched", "delivered", "cancelled"],
                 },
                 "limit": {
                     "type": "integer",

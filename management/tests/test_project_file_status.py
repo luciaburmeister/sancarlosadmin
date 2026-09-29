@@ -51,7 +51,7 @@ class _ProjectFileStatusBase(TestCase):
             status=ConfigurationStatus.COMPLETED, units=Decimal(units),
         )
 
-    def _delivery_order(self, status=DeliveryOrderStatus.SENT, project_file=None):
+    def _delivery_order(self, status=DeliveryOrderStatus.DISPATCHED, project_file=None):
         return DeliveryOrder.objects.create(
             company=self.company, client=self.client_obj,
             project_file=project_file or self.project_file, status=status,
@@ -111,7 +111,7 @@ class DeliveryStatusTests(_ProjectFileStatusBase):
         self._line(do, config, "1")
         self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.NOT_DELIVERED)
 
-        do.status = DeliveryOrderStatus.SENT
+        do.status = DeliveryOrderStatus.DISPATCHED
         do.save()
         self.assertEqual(self.pf().delivery_status, ProjectFileDeliveryStatus.DELIVERED)
 

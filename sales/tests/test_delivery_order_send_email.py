@@ -148,8 +148,9 @@ class DeliveryOrderEmailServiceTest(DeliveryOrderEmailTestBase):
         self.assertEqual(filename, f"Albaran_{self.delivery_order.number}.pdf")
         self.assertEqual(mimetype, "application/pdf")
 
+        # Emailing notifies the client; only dispatching marks it as shipped.
         self.delivery_order.refresh_from_db()
-        self.assertEqual(self.delivery_order.status, DeliveryOrderStatus.SENT)
+        self.assertEqual(self.delivery_order.status, DeliveryOrderStatus.DRAFT)
 
         log = EmailLog.objects.get(object_id=self.delivery_order.pk)
         self.assertEqual(log.status, "success")

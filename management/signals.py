@@ -197,7 +197,7 @@ def _recompute_project_file_status(project_file_id):
 
 @receiver(post_save, sender="sales.DeliveryOrder")
 def delivery_order_saved_update_project_file(sender, instance, **kwargs):
-    """A delivery order changing status (draft→sent, →cancelled) or moving to
+    """A delivery order changing status (→dispatched, →cancelled) or moving to
     another expediente re-derives the delivery status of both sides."""
     _recompute_project_file_status(instance.project_file_id)
     previous = getattr(instance, "_original_project_file_id", None)

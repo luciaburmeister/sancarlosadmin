@@ -5,6 +5,7 @@ from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin, StackedInline, TabularInline, GenericTabularInline
 from unfold.contrib.inlines.admin import NonrelatedTabularInline
 from unfold.decorators import action, display
+from unfold.enums import ActionVariant
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter,
     MultipleChoicesDropdownFilter,
@@ -23,6 +24,14 @@ from sales.models import (
 )
 from sales.views.delivery_order_export_view import DeliveryOrderExportView
 from sales.views.delivery_order_send_email_view import DeliveryOrderSendEmailView
+from sales.views.delivery_order_fulfillment_views import (
+    DeliveryOrderConfirmDeliveryView,
+    DeliveryOrderDispatchView,
+)
+from sales.services.delivery_order_fulfillment_service import (
+    PREVIOUS_STATUS,
+    DeliveryOrderFulfillmentService,
+)
 from sales.views.delivery_order_identity_codes_view import (
     DeliveryOrderLinkIdentityCodesView,
     DeliveryOrderUnlinkIdentityCodeView,
@@ -230,8 +239,16 @@ class DeliveryOrderComponentInline(TabularInline):
 
 @admin.register(DeliveryOrder)
 class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["number", "get_status_label", "client", "date", "total_amount", "get_invoiced_label"]
-    list_filter = [ ("status",MultipleChoicesDropdownFilter), ("date",RangeDateFilter)]
+    list_display = [
+        "number", "get_status_label", "client", "date", "planned_delivery_date",
+        "shipping_method", "total_amount", "get_invoiced_label",
+    ]
+    list_filter = [
+        ("status", MultipleChoicesDropdownFilter),
+        ("shipping_method", MultipleChoicesDropdownFilter),
+        ("date", RangeDateFilter),
+        ("planned_delivery_date", RangeDateFilter),
+    ]
     search_fields = ["number", "external_id", "client__name", "shipment_number", "shipping_agency__name"]
     autocomplete_fields = ["company", "client", "sales_invoice", "configuration", "project_file", "shipping_agency"]
     inlines = [
@@ -242,8 +259,10 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         DeliveryOrderDocumentInline,
         EmailLogInline,
     ]
+    # The status moves only through the shipping buttons, which also move
+    # the stock (see DeliveryOrderFulfillmentService).
     readonly_fields = [
-         "subtotal_amount", "lines_total_display",
+        "status", "subtotal_amount", "lines_total_display",
         "taxable_base_display", "discount_amount", "tax_amount", "total_amount",
     ]
     list_filter_submit = True
@@ -273,20 +292,50 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         (_("Shipping"), {
             "classes": ["tab"],
             "fields": (
+                ("shipping_method", "planned_delivery_date"),
                 "delivery_address",
                 ("package_count", "shipping_agency"),
                 ("shipment_number", "tracking_url"),
+                ("dispatched_at", "delivered_at"),
+                "received_by",
             )
         }),
     )
 
     actions_row = ["create_invoice_from_do_row_action", "export_delivery_order_action", "send_email_row_action"]
+    # Grouped into dropdowns so the change page header stays readable; a
+    # dropdown whose actions are all hidden for this order is not rendered.
     actions_detail = [
+        {
+            "title": _("Shipping"),
+            "icon": "local_shipping",
+            "variant": ActionVariant.PRIMARY,
+            "items": [
+                "mark_prepared_detail_action",
+                "dispatch_detail_action",
+                "confirm_delivery_detail_action",
+                "undo_status_detail_action",
+                "cancel_detail_action",
+                "reopen_detail_action",
+            ],
+        },
+        {
+            "title": _("PDF & Email"),
+            "icon": "description",
+            "items": [
+                "export_delivery_order_detail_action",
+                "send_email_detail_action",
+            ],
+        },
         "create_invoice_from_do_detail_action",
-        "export_delivery_order_detail_action",
-        "send_email_detail_action",
-        "link_identity_codes_detail_action",
-        "sync_from_quote_detail_action",
+        {
+            "title": _("More"),
+            "icon": "more_horiz",
+            "items": [
+                "link_identity_codes_detail_action",
+                "sync_from_quote_detail_action",
+            ],
+        },
     ]
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
@@ -329,6 +378,16 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 name="sales_deliveryorder_send_email",
             ),
             path(
+                "<int:delivery_order_id>/dispatch/",
+                self.admin_site.admin_view(DeliveryOrderDispatchView.as_view(model_admin=self)),
+                name="sales_deliveryorder_dispatch",
+            ),
+            path(
+                "<int:delivery_order_id>/confirm-delivery/",
+                self.admin_site.admin_view(DeliveryOrderConfirmDeliveryView.as_view(model_admin=self)),
+                name="sales_deliveryorder_confirm_delivery",
+            ),
+            path(
                 "<int:delivery_order_id>/link-identity-codes/",
                 self.admin_site.admin_view(DeliveryOrderLinkIdentityCodesView.as_view(model_admin=self)),
                 name="sales_deliveryorder_link_identity_codes",
@@ -345,14 +404,15 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         description=_("Status"),
         ordering="status",
         label={
-            _(DeliveryOrderStatus.DRAFT): "warning",
-            _(DeliveryOrderStatus.DELIVERED): "success",
-            _(DeliveryOrderStatus.SENT): "info",
-            _(DeliveryOrderStatus.CANCELLED): "danger",
+            DeliveryOrderStatus.DRAFT.label: "warning",
+            DeliveryOrderStatus.PREPARED.label: "primary",
+            DeliveryOrderStatus.DISPATCHED.label: "info",
+            DeliveryOrderStatus.DELIVERED.label: "success",
+            DeliveryOrderStatus.CANCELLED.label: "danger",
         },
     )
     def get_status_label(self, obj):
-        return obj.status
+        return obj.get_status_display()
 
     @display(
         description=_("Invoiced"),
@@ -478,6 +538,83 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     def has_sync_from_quote_permission(self, request, object_id=None):
         return request.user.is_superuser
+
+    # ── Shipping lifecycle ──────────────────────────────────────────────
+
+    def _status_in(self, request, object_id, statuses):
+        """Shows a shipping button only on orders it applies to; the service
+        re-checks the transition when the button is pressed."""
+        if not object_id or not self.has_change_permission(request):
+            return False
+        return DeliveryOrder.objects.filter(pk=object_id, status__in=statuses).exists()
+
+    def _run_step(self, request, object_id, step, message):
+        from django.core.exceptions import ValidationError
+
+        do = DeliveryOrder.objects.get(pk=object_id)
+        try:
+            step(do)
+        except ValidationError as e:
+            self.message_user(request, " ".join(e.messages), level="error")
+        else:
+            self.message_user(request, message % {"number": do.number, "status": do.get_status_display()})
+        return redirect(reverse("admin:sales_deliveryorder_change", args=[object_id]))
+
+    @action(description=_("Mark as Prepared"), icon="inventory_2", permissions=["mark_prepared"])
+    def mark_prepared_detail_action(self, request, object_id):
+        return self._run_step(
+            request, object_id, DeliveryOrderFulfillmentService.mark_prepared,
+            _("Delivery Order %(number)s is prepared and ready to dispatch."),
+        )
+
+    def has_mark_prepared_permission(self, request, object_id=None):
+        return self._status_in(request, object_id, [DeliveryOrderStatus.DRAFT])
+
+    @action(description=_("Dispatch"), icon="local_shipping", permissions=["dispatch"])
+    def dispatch_detail_action(self, request, object_id):
+        return redirect(reverse("admin:sales_deliveryorder_dispatch", args=[object_id]))
+
+    def has_dispatch_permission(self, request, object_id=None):
+        return self._status_in(request, object_id, [DeliveryOrderStatus.DRAFT, DeliveryOrderStatus.PREPARED])
+
+    @action(description=_("Confirm Delivery"), icon="task_alt", permissions=["confirm_delivery"])
+    def confirm_delivery_detail_action(self, request, object_id):
+        return redirect(reverse("admin:sales_deliveryorder_confirm_delivery", args=[object_id]))
+
+    def has_confirm_delivery_permission(self, request, object_id=None):
+        return self._status_in(request, object_id, [DeliveryOrderStatus.DISPATCHED])
+
+    @action(description=_("Undo Last Step"), icon="undo", permissions=["undo_status"])
+    def undo_status_detail_action(self, request, object_id):
+        return self._run_step(
+            request, object_id, DeliveryOrderFulfillmentService.undo,
+            _("Delivery Order %(number)s is back to “%(status)s”."),
+        )
+
+    def has_undo_status_permission(self, request, object_id=None):
+        return self._status_in(request, object_id, list(PREVIOUS_STATUS))
+
+    @action(description=_("Cancel Delivery Order"), icon="block", permissions=["cancel_order"])
+    def cancel_detail_action(self, request, object_id):
+        return self._run_step(
+            request, object_id, DeliveryOrderFulfillmentService.cancel,
+            _("Delivery Order %(number)s cancelled; any stock it took out is back in the warehouse."),
+        )
+
+    def has_cancel_order_permission(self, request, object_id=None):
+        return self._status_in(request, object_id, [
+            DeliveryOrderStatus.DRAFT, DeliveryOrderStatus.PREPARED, DeliveryOrderStatus.DISPATCHED,
+        ])
+
+    @action(description=_("Reopen"), icon="restart_alt", permissions=["reopen"])
+    def reopen_detail_action(self, request, object_id):
+        return self._run_step(
+            request, object_id, DeliveryOrderFulfillmentService.reopen,
+            _("Delivery Order %(number)s reopened as pending shipment."),
+        )
+
+    def has_reopen_permission(self, request, object_id=None):
+        return self._status_in(request, object_id, [DeliveryOrderStatus.CANCELLED])
 
 
 @admin.register(DeliveryOrderItem)

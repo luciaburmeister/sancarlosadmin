@@ -104,11 +104,6 @@ class DeliveryOrderEmailService:
             reply_to=reply_to,
         )
 
-        if ok:
-            from sales.models import DeliveryOrderStatus
-
-            if delivery_order.status == DeliveryOrderStatus.DRAFT:
-                delivery_order.status = DeliveryOrderStatus.SENT
-                delivery_order.save(update_fields=["status"])
-
+        # Emailing only notifies the client: the order is marked as shipped
+        # by dispatching it, which is also what takes its stock out.
         return ok

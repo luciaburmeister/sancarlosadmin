@@ -23,6 +23,7 @@ from inventory.services.stock_position import (
     refresh_stock_position,
 )
 from invoices.services.delivery_order_service import DeliveryOrderService
+from sales.services.delivery_order_fulfillment_service import DeliveryOrderFulfillmentService
 from management.models import ProjectFile, ProjectFileStatus
 from materials.models import Provider
 from purchasing.models import (
@@ -124,7 +125,8 @@ class _StockPositionTestCase(TestCase):
         )
 
     def _deliver(self, quote_line, quantity=None):
-        return DeliveryOrderService.create_delivery_order(
+        """Create the delivery order and dispatch it: that is when the goods leave."""
+        do = DeliveryOrderService.create_delivery_order(
             project_file=self.project_file,
             company=self.company,
             client=self.client_obj,
@@ -136,6 +138,8 @@ class _StockPositionTestCase(TestCase):
                 "unit_price": quote_line.unit_price.amount,
             }],
         )
+        DeliveryOrderFulfillmentService.dispatch(do)
+        return do
 
     # ── Assertions ───────────────────────────────────────────────────────
 
@@ -251,6 +255,14 @@ class ReservedQuantityTest(_StockPositionTestCase):
         # Two units shipped: stock drops and the reservation drops with it.
         self.assertPosition(item, on_hand=18, incoming=0, reserved="4")
 
+    def test_a_pending_delivery_order_keeps_the_goods_reserved(self):
+        item = self._make_item("RES-4B", stock=20)
+        line = self._accepted_quote_line(item, "6")
+        do = self._deliver(line, Decimal("2"))
+        DeliveryOrderFulfillmentService.undo(do)
+        # Prepared but not dispatched: still on the shelf, still promised.
+        self.assertPosition(item, on_hand=20, incoming=0, reserved="6")
+
     def test_full_delivery_clears_the_reservation(self):
         item = self._make_item("RES-5", stock=20)
         line = self._accepted_quote_line(item, "6")
@@ -352,6 +364,7 @@ class ReservedQuantityTest(_StockPositionTestCase):
             company=self.company,
             client=self.client_obj,
             project_file=self.project_file,
+            status=DeliveryOrderStatus.DISPATCHED,
         ).items.create(
             description=item.name,
             quantity=Decimal("9"),

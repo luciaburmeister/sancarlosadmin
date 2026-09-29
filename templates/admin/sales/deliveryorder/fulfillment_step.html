@@ -1,0 +1,64 @@
+{% extends "admin/base_site.html" %}
+{% load i18n crispy_forms_tags %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="{% url 'admin:jsi18n' %}"></script>
+{{ form.media }}
+{% endblock %}
+
+{% block content %}
+<div class="max-w-2xl mx-auto p-6">
+
+    <div class="mb-8 pb-4 border-b border-gray-100 dark:border-gray-800">
+        <h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100">{{ title }}</h1>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {{ delivery_order.number }} &mdash; {{ delivery_order.client }}
+        </p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            {% trans "Status" %}: <span class="font-semibold">{{ delivery_order.get_status_display }}</span>
+            {% if delivery_order.planned_delivery_date %}
+            &middot; {% trans "Planned Delivery Date" %}: <span class="font-semibold">{{ delivery_order.planned_delivery_date|date:"d/m/Y" }}</span>
+            {% endif %}
+        </p>
+        {% if delivery_order.delivery_address %}
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            {% trans "Delivery Address" %}: <span class="font-semibold">{{ delivery_order.delivery_address }}</span>
+        </p>
+        {% endif %}
+    </div>
+
+    <form method="post" novalidate>
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+        <div class="mb-4 px-4 py-3 rounded-lg bg-red-50 text-red-700 text-sm dark:bg-red-900/30 dark:text-red-300">
+            {{ form.non_field_errors }}
+        </div>
+        {% endif %}
+
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
+            <div class="p-6">
+                {% crispy form %}
+            </div>
+        </div>
+
+        <div class="flex justify-between items-center py-6 border-t border-gray-100 dark:border-gray-800 mt-6">
+            <a
+                href="{{ cancel_url }}"
+                class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:text-gray-900 shadow-sm transition-all text-sm font-medium dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300"
+            >
+                {% trans "Cancel" %}
+            </a>
+
+            <button
+                type="submit"
+                class="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 shadow-md transition-all text-sm font-medium focus:ring-4 focus:ring-primary-100"
+            >
+                {{ submit_label }}
+            </button>
+        </div>
+    </form>
+
+</div>
+{% endblock %}

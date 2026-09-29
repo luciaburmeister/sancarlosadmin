@@ -58,7 +58,7 @@ class _PendingDeliveryBase(TestCase):
             quote=quote, inventory_item=item, quantity=Decimal(quantity),
         )
 
-    def _delivery_order(self, status=DeliveryOrderStatus.SENT):
+    def _delivery_order(self, status=DeliveryOrderStatus.DISPATCHED):
         return DeliveryOrder.objects.create(
             company=self.company, client=self.client_obj,
             project_file=self.project_file, status=status,

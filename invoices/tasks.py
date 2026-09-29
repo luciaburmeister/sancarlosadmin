@@ -5,6 +5,7 @@ from .models import IncomingInvoice, Invoice
 from invoices.services.invoice.invoice_service import InvoiceService
 from invoices.services.ocr_services.gemini_ocr import GeminiInvoiceProcessor
 from core.services.email_service import EmailService
+from general.email import resolve_reply_to
 from google.genai.errors import ClientError
 import logging
 import tempfile
@@ -1000,12 +1001,17 @@ def send_payment_reminder_email(self, log_id: int):
             invoice.pk,
         )
 
+    # Resolved here rather than left to EmailService so the address the
+    # email tells the client to reply to is the one in its Reply-To header.
+    reply_to = resolve_reply_to(company=log.company, email_document="payment_reminder")
+
     with translation.override(language):
         body_html = render_to_string(
             template_name,
             {
                 "client_name": client.name,
                 "company_name": log.company.name,
+                "reply_to_email": reply_to[0] if reply_to else "",
                 "company_email": log.company.email,
                 "company_phone": log.company.phone,
                 "invoice_number": invoice.invoice_number,
@@ -1029,6 +1035,7 @@ def send_payment_reminder_email(self, log_id: int):
             related_object=invoice,
             company=log.company,
             email_document="payment_reminder",
+            reply_to=reply_to or None,
         )
     except Exception as exc:
         logger.exception("Error sending payment reminder for invoice %s", invoice.pk)
@@ -1175,12 +1182,15 @@ def send_consolidated_payment_reminder_email(self, log_ids: list[int]):
                 invoice.pk,
             )
 
+    reply_to = resolve_reply_to(company=company, email_document="payment_reminder")
+
     with translation.override(language):
         body_html = render_to_string(
             template_name,
             {
                 "client_name": client.name,
                 "company_name": company.name,
+                "reply_to_email": reply_to[0] if reply_to else "",
                 "company_email": company.email,
                 "company_phone": company.phone,
                 "invoice_count": len(valid_logs),
@@ -1201,6 +1211,7 @@ def send_consolidated_payment_reminder_email(self, log_ids: list[int]):
             related_object=client,
             company=company,
             email_document="payment_reminder",
+            reply_to=reply_to or None,
         )
     except Exception as exc:
         logger.exception("Error sending consolidated payment reminder for client %s", client.pk)

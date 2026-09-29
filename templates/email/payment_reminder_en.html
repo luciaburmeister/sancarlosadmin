@@ -54,6 +54,9 @@
             <p style="margin:0; font-size:13px; color:#6b7280; line-height:1.6;">
               If you have already made this payment, please disregard this automated notice.
             </p>
+            <p style="margin:16px 0 0 0; font-size:13px; color:#6b7280; line-height:1.6;">
+              You can reply to this email. If you would like to provide information, report an issue or clarify anything about the invoice in question, simply reply directly to this message{% if reply_to_email %} or write to us at <a href="mailto:{{ reply_to_email }}" style="color:#0f766e;">{{ reply_to_email }}</a>{% endif %}.
+            </p>
             <p style="margin:20px 0 0 0; font-size:13px; color:#1f2937; line-height:1.6;">
               Best regards,<br>{{ company_name }}
             </p>

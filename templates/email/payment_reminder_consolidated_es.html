@@ -60,6 +60,9 @@
             <p style="margin:0; font-size:13px; color:#6b7280; line-height:1.6;">
               Si ya ha realizado alguno de estos pagos, le rogamos disculpe este aviso automático.
             </p>
+            <p style="margin:16px 0 0 0; font-size:13px; color:#6b7280; line-height:1.6;">
+              Este correo admite respuestas. Si desea aportar información, comunicar alguna incidencia o realizar cualquier aclaración relacionada con las facturas reclamadas, puede responder directamente a este mensaje{% if reply_to_email %} o escribirnos a <a href="mailto:{{ reply_to_email }}" style="color:#0f766e;">{{ reply_to_email }}</a>{% endif %}.
+            </p>
             <p style="margin:20px 0 0 0; font-size:13px; color:#1f2937; line-height:1.6;">
               Atentamente,<br>{{ company_name }}
             </p>

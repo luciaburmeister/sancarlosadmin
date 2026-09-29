@@ -17492,6 +17492,362 @@ msgstr "Ausencias pasadas"
 msgid "No past absences."
 msgstr "No hay ausencias pasadas"
 
+#. DjangoQL advanced-search field names (see general/djangoql/).
+#. Translations must be valid identifiers: ASCII letters, digits and
+#. underscores only, no accents or spaces, or the search parser can't read
+#. them and the English name is used instead.
+msgctxt "djangoql field"
+msgid "invoice_number"
+msgstr "numero_factura"
+
+msgctxt "djangoql field"
+msgid "document_type"
+msgstr "tipo_documento"
+
+msgctxt "djangoql field"
+msgid "date_issued"
+msgstr "fecha_emision"
+
+msgctxt "djangoql field"
+msgid "accounting_date"
+msgstr "fecha_contable"
+
+msgctxt "djangoql field"
+msgid "due_date"
+msgstr "fecha_vencimiento"
+
+msgctxt "djangoql field"
+msgid "payment_commitment_date"
+msgstr "fecha_compromiso_pago"
+
+msgctxt "djangoql field"
+msgid "created_at"
+msgstr "creado_en"
+
+msgctxt "djangoql field"
+msgid "updated_at"
+msgstr "actualizado_en"
+
+msgctxt "djangoql field"
+msgid "net_amount"
+msgstr "base_imponible"
+
+msgctxt "djangoql field"
+msgid "subtotal_amount"
+msgstr "subtotal"
+
+msgctxt "djangoql field"
+msgid "tax_amount"
+msgstr "importe_impuestos"
+
+msgctxt "djangoql field"
+msgid "total_amount"
+msgstr "importe_total"
+
+msgctxt "djangoql field"
+msgid "currency"
+msgstr "moneda"
+
+msgctxt "djangoql field"
+msgid "payment_status"
+msgstr "estado_pago"
+
+msgctxt "djangoql field"
+msgid "payment_method"
+msgstr "metodo_pago"
+
+msgctxt "djangoql field"
+msgid "payment_terms_days"
+msgstr "dias_vencimiento"
+
+msgctxt "djangoql field"
+msgid "confirmation_status"
+msgstr "estado_confirmacion"
+
+msgctxt "djangoql field"
+msgid "needs_manual_review"
+msgstr "necesita_revision"
+
+msgctxt "djangoql field"
+msgid "is_total_balanced"
+msgstr "total_cuadrado"
+
+msgctxt "djangoql field"
+msgid "ocr_processed"
+msgstr "ocr_procesado"
+
+msgctxt "djangoql field"
+msgid "ocr_processing"
+msgstr "ocr_en_proceso"
+
+msgctxt "djangoql field"
+msgid "ocr_error"
+msgstr "error_ocr"
+
+msgctxt "djangoql field"
+msgid "observations"
+msgstr "observaciones"
+
+msgctxt "djangoql field"
+msgid "notes"
+msgstr "notas"
+
+msgctxt "djangoql field"
+msgid "reference"
+msgstr "referencia"
+
+msgctxt "djangoql field"
+msgid "status"
+msgstr "estado"
+
+msgctxt "djangoql field"
+msgid "incremental_id"
+msgstr "id_incremental"
+
+msgctxt "djangoql field"
+msgid "is_external"
+msgstr "externa"
+
+msgctxt "djangoql field"
+msgid "provider"
+msgstr "proveedor"
+
+msgctxt "djangoql field"
+msgid "client"
+msgstr "cliente"
+
+msgctxt "djangoql field"
+msgid "company"
+msgstr "empresa"
+
+msgctxt "djangoql field"
+msgid "account"
+msgstr "cuenta"
+
+msgctxt "djangoql field"
+msgid "project_file"
+msgstr "expediente"
+
+msgctxt "djangoql field"
+msgid "project_files"
+msgstr "expedientes"
+
+msgctxt "djangoql field"
+msgid "rectifies"
+msgstr "rectifica_a"
+
+msgctxt "djangoql field"
+msgid "uploaded_by"
+msgstr "subido_por"
+
+msgctxt "djangoql field"
+msgid "items"
+msgstr "lineas"
+
+msgctxt "djangoql field"
+msgid "sale_zone"
+msgstr "zona_venta"
+
+msgctxt "djangoql field"
+msgid "agent"
+msgstr "agente"
+
+msgctxt "djangoql field"
+msgid "is_paid"
+msgstr "pagada"
+
+msgctxt "djangoql field"
+msgid "is_overdue"
+msgstr "vencida"
+
+msgctxt "djangoql field"
+msgid "is_final"
+msgstr "definitiva"
+
+msgctxt "djangoql field"
+msgid "is_credit_note"
+msgstr "es_rectificativa"
+
+msgctxt "djangoql field"
+msgid "has_file"
+msgstr "tiene_archivo"
+
+msgctxt "djangoql field"
+msgid "items_missing_account"
+msgstr "lineas_sin_cuenta"
+
+msgctxt "djangoql field"
+msgid "has_tax_identifier"
+msgstr "tiene_nif"
+
+msgctxt "djangoql field"
+msgid "has_email"
+msgstr "tiene_email"
+
+msgctxt "djangoql field"
+msgid "has_account"
+msgstr "tiene_cuenta"
+
+msgctxt "djangoql field"
+msgid "exceeds_risk_limit"
+msgstr "supera_riesgo"
+
+msgctxt "djangoql field"
+msgid "terms_accepted"
+msgstr "condiciones_aceptadas"
+
+msgctxt "djangoql field"
+msgid "description"
+msgstr "descripcion"
+
+msgctxt "djangoql field"
+msgid "quantity"
+msgstr "cantidad"
+
+msgctxt "djangoql field"
+msgid "unit_price"
+msgstr "precio_unitario"
+
+msgctxt "djangoql field"
+msgid "discount_percentage"
+msgstr "porcentaje_descuento"
+
+msgctxt "djangoql field"
+msgid "discount_amount"
+msgstr "importe_descuento"
+
+msgctxt "djangoql field"
+msgid "gross_total"
+msgstr "total_bruto"
+
+msgctxt "djangoql field"
+msgid "line_total"
+msgstr "total_linea"
+
+msgctxt "djangoql field"
+msgid "quote_name"
+msgstr "presupuesto"
+
+msgctxt "djangoql field"
+msgid "source_id"
+msgstr "id_origen"
+
+msgctxt "djangoql field"
+msgid "name"
+msgstr "nombre"
+
+msgctxt "djangoql field"
+msgid "legal_name"
+msgstr "razon_social"
+
+msgctxt "djangoql field"
+msgid "commercial_name"
+msgstr "nombre_comercial"
+
+msgctxt "djangoql field"
+msgid "tax_identifier"
+msgstr "nif"
+
+msgctxt "djangoql field"
+msgid "industry_identifier"
+msgstr "cnae"
+
+msgctxt "djangoql field"
+msgid "contact"
+msgstr "contacto"
+
+msgctxt "djangoql field"
+msgid "phone"
+msgstr "telefono"
+
+msgctxt "djangoql field"
+msgid "address"
+msgstr "direccion"
+
+msgctxt "djangoql field"
+msgid "is_insured"
+msgstr "asegurado"
+
+msgctxt "djangoql field"
+msgid "max_risk"
+msgstr "riesgo_maximo"
+
+msgctxt "djangoql field"
+msgid "current_risk"
+msgstr "riesgo_actual"
+
+msgctxt "djangoql field"
+msgid "commission_percentage"
+msgstr "porcentaje_comision"
+
+msgctxt "djangoql field"
+msgid "is_active"
+msgstr "activo"
+
+msgctxt "djangoql field"
+msgid "code"
+msgstr "codigo"
+
+msgctxt "djangoql field"
+msgid "account_type"
+msgstr "tipo_cuenta"
+
+msgctxt "djangoql field"
+msgid "is_postable"
+msgstr "imputable"
+
+msgctxt "djangoql field"
+msgid "start_date"
+msgstr "fecha_inicio"
+
+msgctxt "djangoql field"
+msgid "end_date"
+msgstr "fecha_fin"
+
+msgctxt "djangoql field"
+msgid "total_invoiced"
+msgstr "total_facturado"
+
+msgctxt "djangoql field"
+msgid "percentage_invoiced"
+msgstr "porcentaje_facturado"
+
+msgctxt "djangoql field"
+msgid "username"
+msgstr "usuario"
+
+msgctxt "djangoql field"
+msgid "first_name"
+msgstr "nombre_pila"
+
+msgctxt "djangoql field"
+msgid "last_name"
+msgstr "apellidos"
+
+msgctxt "djangoql field"
+msgid "cost_center"
+msgstr "centro_coste"
+
+msgctxt "djangoql field"
+msgid "default_cost_center"
+msgstr "centro_coste_defecto"
+
+msgctxt "djangoql field"
+msgid "has_cost_center"
+msgstr "tiene_centro_coste"
+
+msgctxt "djangoql field"
+msgid "is_assignable"
+msgstr "es_imputable"
+
+msgctxt "djangoql field"
+msgid "parent"
+msgstr "padre"
+
+msgctxt "djangoql field"
+msgid "proforma_number"
+msgstr "numero_proforma"
+
 #, fuzzy
 #~ msgid "orange stripe — no truck assigned yet"
 #~ msgstr "Aún sin camión asignado"
@@ -17534,330 +17890,6 @@ msgstr "No hay ausencias pasadas"
 #, fuzzy
 #~ msgid "Search by code, item name or item code…"
 #~ msgstr "Buscar por número de factura o contraparte…"
-
-#~ msgctxt "djangoql field"
-#~ msgid "invoice_number"
-#~ msgstr "numero_factura"
-
-#~ msgctxt "djangoql field"
-#~ msgid "document_type"
-#~ msgstr "tipo_documento"
-
-#~ msgctxt "djangoql field"
-#~ msgid "date_issued"
-#~ msgstr "fecha_emision"
-
-#~ msgctxt "djangoql field"
-#~ msgid "accounting_date"
-#~ msgstr "fecha_contable"
-
-#~ msgctxt "djangoql field"
-#~ msgid "due_date"
-#~ msgstr "fecha_vencimiento"
-
-#~ msgctxt "djangoql field"
-#~ msgid "payment_commitment_date"
-#~ msgstr "fecha_compromiso_pago"
-
-#~ msgctxt "djangoql field"
-#~ msgid "created_at"
-#~ msgstr "creado_en"
-
-#~ msgctxt "djangoql field"
-#~ msgid "net_amount"
-#~ msgstr "base_imponible"
-
-#~ msgctxt "djangoql field"
-#~ msgid "subtotal_amount"
-#~ msgstr "subtotal"
-
-#~ msgctxt "djangoql field"
-#~ msgid "tax_amount"
-#~ msgstr "importe_impuestos"
-
-#~ msgctxt "djangoql field"
-#~ msgid "total_amount"
-#~ msgstr "importe_total"
-
-#~ msgctxt "djangoql field"
-#~ msgid "currency"
-#~ msgstr "moneda"
-
-#~ msgctxt "djangoql field"
-#~ msgid "payment_status"
-#~ msgstr "estado_pago"
-
-#~ msgctxt "djangoql field"
-#~ msgid "payment_method"
-#~ msgstr "metodo_pago"
-
-#~ msgctxt "djangoql field"
-#~ msgid "payment_terms_days"
-#~ msgstr "dias_vencimiento"
-
-#~ msgctxt "djangoql field"
-#~ msgid "confirmation_status"
-#~ msgstr "estado_confirmacion"
-
-#~ msgctxt "djangoql field"
-#~ msgid "needs_manual_review"
-#~ msgstr "necesita_revision"
-
-#~ msgctxt "djangoql field"
-#~ msgid "is_total_balanced"
-#~ msgstr "total_cuadrado"
-
-#~ msgctxt "djangoql field"
-#~ msgid "ocr_processed"
-#~ msgstr "ocr_procesado"
-
-#~ msgctxt "djangoql field"
-#~ msgid "ocr_processing"
-#~ msgstr "ocr_en_proceso"
-
-#~ msgctxt "djangoql field"
-#~ msgid "ocr_error"
-#~ msgstr "error_ocr"
-
-#~ msgctxt "djangoql field"
-#~ msgid "observations"
-#~ msgstr "observaciones"
-
-#~ msgctxt "djangoql field"
-#~ msgid "notes"
-#~ msgstr "notas"
-
-#~ msgctxt "djangoql field"
-#~ msgid "reference"
-#~ msgstr "referencia"
-
-#~ msgctxt "djangoql field"
-#~ msgid "status"
-#~ msgstr "estado"
-
-#~ msgctxt "djangoql field"
-#~ msgid "incremental_id"
-#~ msgstr "id_incremental"
-
-#~ msgctxt "djangoql field"
-#~ msgid "is_external"
-#~ msgstr "externa"
-
-#~ msgctxt "djangoql field"
-#~ msgid "provider"
-#~ msgstr "proveedor"
-
-#~ msgctxt "djangoql field"
-#~ msgid "client"
-#~ msgstr "cliente"
-
-#~ msgctxt "djangoql field"
-#~ msgid "company"
-#~ msgstr "empresa"
-
-#~ msgctxt "djangoql field"
-#~ msgid "account"
-#~ msgstr "cuenta"
-
-#~ msgctxt "djangoql field"
-#~ msgid "project_file"
-#~ msgstr "expediente"
-
-#~ msgctxt "djangoql field"
-#~ msgid "project_files"
-#~ msgstr "expedientes"
-
-#~ msgctxt "djangoql field"
-#~ msgid "uploaded_by"
-#~ msgstr "subido_por"
-
-#~ msgctxt "djangoql field"
-#~ msgid "items"
-#~ msgstr "lineas"
-
-#~ msgctxt "djangoql field"
-#~ msgid "sale_zone"
-#~ msgstr "zona_venta"
-
-#~ msgctxt "djangoql field"
-#~ msgid "agent"
-#~ msgstr "agente"
-
-#~ msgctxt "djangoql field"
-#~ msgid "is_paid"
-#~ msgstr "pagada"
-
-#~ msgctxt "djangoql field"
-#~ msgid "is_overdue"
-#~ msgstr "vencida"
-
-#~ msgctxt "djangoql field"
-#~ msgid "is_final"
-#~ msgstr "definitiva"
-
-#~ msgctxt "djangoql field"
-#~ msgid "is_credit_note"
-#~ msgstr "es_rectificativa"
-
-#~ msgctxt "djangoql field"
-#~ msgid "has_file"
-#~ msgstr "tiene_archivo"
-
-#~ msgctxt "djangoql field"
-#~ msgid "items_missing_account"
-#~ msgstr "lineas_sin_cuenta"
-
-#~ msgctxt "djangoql field"
-#~ msgid "has_tax_identifier"
-#~ msgstr "tiene_nif"
-
-#~ msgctxt "djangoql field"
-#~ msgid "has_email"
-#~ msgstr "tiene_email"
-
-#~ msgctxt "djangoql field"
-#~ msgid "has_account"
-#~ msgstr "tiene_cuenta"
-
-#~ msgctxt "djangoql field"
-#~ msgid "exceeds_risk_limit"
-#~ msgstr "supera_riesgo"
-
-#~ msgctxt "djangoql field"
-#~ msgid "terms_accepted"
-#~ msgstr "condiciones_aceptadas"
-
-#~ msgctxt "djangoql field"
-#~ msgid "description"
-#~ msgstr "descripcion"
-
-#~ msgctxt "djangoql field"
-#~ msgid "quantity"
-#~ msgstr "cantidad"
-
-#~ msgctxt "djangoql field"
-#~ msgid "unit_price"
-#~ msgstr "precio_unitario"
-
-#~ msgctxt "djangoql field"
-#~ msgid "discount_percentage"
-#~ msgstr "porcentaje_descuento"
-
-#~ msgctxt "djangoql field"
-#~ msgid "discount_amount"
-#~ msgstr "importe_descuento"
-
-#~ msgctxt "djangoql field"
-#~ msgid "gross_total"
-#~ msgstr "total_bruto"
-
-#~ msgctxt "djangoql field"
-#~ msgid "line_total"
-#~ msgstr "total_linea"
-
-#~ msgctxt "djangoql field"
-#~ msgid "quote_name"
-#~ msgstr "presupuesto"
-
-#~ msgctxt "djangoql field"
-#~ msgid "source_id"
-#~ msgstr "id_origen"
-
-#~ msgctxt "djangoql field"
-#~ msgid "name"
-#~ msgstr "nombre"
-
-#~ msgctxt "djangoql field"
-#~ msgid "legal_name"
-#~ msgstr "razon_social"
-
-#~ msgctxt "djangoql field"
-#~ msgid "commercial_name"
-#~ msgstr "nombre_comercial"
-
-#~ msgctxt "djangoql field"
-#~ msgid "tax_identifier"
-#~ msgstr "nif"
-
-#~ msgctxt "djangoql field"
-#~ msgid "industry_identifier"
-#~ msgstr "cnae"
-
-#~ msgctxt "djangoql field"
-#~ msgid "contact"
-#~ msgstr "contacto"
-
-#~ msgctxt "djangoql field"
-#~ msgid "phone"
-#~ msgstr "telefono"
-
-#~ msgctxt "djangoql field"
-#~ msgid "address"
-#~ msgstr "direccion"
-
-#~ msgctxt "djangoql field"
-#~ msgid "is_insured"
-#~ msgstr "asegurado"
-
-#~ msgctxt "djangoql field"
-#~ msgid "max_risk"
-#~ msgstr "riesgo_maximo"
-
-#~ msgctxt "djangoql field"
-#~ msgid "current_risk"
-#~ msgstr "riesgo_actual"
-
-#~ msgctxt "djangoql field"
-#~ msgid "commission_percentage"
-#~ msgstr "porcentaje_comision"
-
-#~ msgctxt "djangoql field"
-#~ msgid "is_active"
-#~ msgstr "activo"
-
-#~ msgctxt "djangoql field"
-#~ msgid "code"
-#~ msgstr "codigo"
-
-#~ msgctxt "djangoql field"
-#~ msgid "account_type"
-#~ msgstr "tipo_cuenta"
-
-#~ msgctxt "djangoql field"
-#~ msgid "is_postable"
-#~ msgstr "imputable"
-
-#~ msgctxt "djangoql field"
-#~ msgid "start_date"
-#~ msgstr "fecha_inicio"
-
-#~ msgctxt "djangoql field"
-#~ msgid "end_date"
-#~ msgstr "fecha_fin"
-
-#~ msgctxt "djangoql field"
-#~ msgid "percentage_invoiced"
-#~ msgstr "porcentaje_facturado"
-
-#~ msgctxt "djangoql field"
-#~ msgid "username"
-#~ msgstr "usuario"
-
-#~ msgctxt "djangoql field"
-#~ msgid "first_name"
-#~ msgstr "nombre_pila"
-
-#~ msgctxt "djangoql field"
-#~ msgid "last_name"
-#~ msgstr "apellidos"
-
-#~ msgctxt "djangoql field"
-#~ msgid "cost_center"
-#~ msgstr "centro_coste"
-
-#~ msgctxt "djangoql field"
-#~ msgid "has_cost_center"
-#~ msgstr "tiene_centro_coste"
 
 #~ msgid "Configuration ID"
 #~ msgstr "Configuración"
@@ -18137,7 +18169,3 @@ msgstr "No hay ausencias pasadas"
 
 #~ msgid "Porte Action"
 #~ msgstr "Acción del Porte"
-
-#~ msgctxt "djangoql field"
-#~ msgid "proforma_number"
-#~ msgstr "numero_proforma"

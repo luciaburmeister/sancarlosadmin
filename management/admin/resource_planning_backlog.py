@@ -161,13 +161,13 @@ class ResourcePlanningBacklogItemAdmin(CompanyRestrictedAdmin, ModelAdmin):
         description=_("Status"),
         ordering="status",
         label={
-            _(ResourcePlanningBacklogStatus.PENDING.label): "info",
-            _(ResourcePlanningBacklogStatus.SCHEDULED.label): "success",
-            _(ResourcePlanningBacklogStatus.CANCELLED.label): "danger",
+            ResourcePlanningBacklogStatus.PENDING: "info",
+            ResourcePlanningBacklogStatus.SCHEDULED: "success",
+            ResourcePlanningBacklogStatus.CANCELLED: "danger",
         },
     )
     def show_status(self, obj):
-        return _(obj.get_status_display())
+        return obj.status, obj.get_status_display()
 
     # ── actions ───────────────────────────────────────────────────────────────
 

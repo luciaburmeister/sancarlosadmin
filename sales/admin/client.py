@@ -194,13 +194,11 @@ class ClientAdmin(_CompanyImportMixin, OutstandingBalanceAdminMixin, CompanyRest
 
     @display(
         description=_("T&C firmados"),
-        label={
-            _("Sí"): "success",
-            _("No"): "danger",
-        },
+        label={True: "success", False: "danger"},
     )
     def has_signed_terms(self, obj):
-        return _("Sí") if obj.terms_signature else _("No")
+        signed = bool(obj.terms_signature)
+        return signed, _("Sí") if signed else _("No")
 
     @display(description=_("Firma"))
     def terms_signature_preview(self, obj):

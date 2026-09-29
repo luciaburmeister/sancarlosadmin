@@ -702,56 +702,56 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         description=_("Status"),
         ordering="status",
         label={
-            _(ProjectFileStatus.NEW.label): "info",  # blue
-            _(ProjectFileStatus.ACTIVE.label): "success",  # green
-            _(ProjectFileStatus.ON_HOLD.label): "warning",  # orange
-            _(ProjectFileStatus.COMPLETED.label): "primary",  # purple
-            _(ProjectFileStatus.CANCELLED.label): "danger",  # red
+            ProjectFileStatus.NEW: "info",  # blue
+            ProjectFileStatus.ACTIVE: "success",  # green
+            ProjectFileStatus.ON_HOLD: "warning",  # orange
+            ProjectFileStatus.COMPLETED: "primary",  # purple
+            ProjectFileStatus.CANCELLED: "danger",  # red
         },
     )
     def show_status_customized_color(self, obj):
-        return _(obj.get_status_display())
+        return obj.status, obj.get_status_display()
 
     @display(
         description=_("Progress"),
         ordering="_operational_rank",
         label={
-            _("In production"): "warning",
-            _("Ready to deliver"): "info",
-            _("Partially delivered"): "info",
-            _("Delivered"): "success",
-            _("Nothing pending"): "",
+            "in_production": "warning",
+            "ready_to_deliver": "info",
+            "partially_delivered": "info",
+            "delivered": "success",
+            "nothing_pending": "",
         },
     )
     def show_operational_status(self, obj):
         """Combined production + delivery view, derived on the model."""
-        return obj.operational_status[1]
+        return obj.operational_status
 
     @display(
         description=_("Delivery"),
         ordering="delivery_status",
         label={
-            _(ProjectFileDeliveryStatus.NOT_APPLICABLE.label): "",
-            _(ProjectFileDeliveryStatus.NOT_DELIVERED.label): "warning",
-            _(ProjectFileDeliveryStatus.PARTIALLY_DELIVERED.label): "info",
-            _(ProjectFileDeliveryStatus.DELIVERED.label): "success",
+            ProjectFileDeliveryStatus.NOT_APPLICABLE: "",
+            ProjectFileDeliveryStatus.NOT_DELIVERED: "warning",
+            ProjectFileDeliveryStatus.PARTIALLY_DELIVERED: "info",
+            ProjectFileDeliveryStatus.DELIVERED: "success",
         },
     )
     def show_delivery_status(self, obj):
-        return _(obj.get_delivery_status_display())
+        return obj.delivery_status, obj.get_delivery_status_display()
 
     @display(
         description=_("Production"),
         ordering="production_status",
         label={
-            _(ProjectFileProductionStatus.NO_PRODUCTION.label): "",
-            _(ProjectFileProductionStatus.PENDING.label): "warning",
-            _(ProjectFileProductionStatus.IN_PROGRESS.label): "info",
-            _(ProjectFileProductionStatus.DONE.label): "success",
+            ProjectFileProductionStatus.NO_PRODUCTION: "",
+            ProjectFileProductionStatus.PENDING: "warning",
+            ProjectFileProductionStatus.IN_PROGRESS: "info",
+            ProjectFileProductionStatus.DONE: "success",
         },
     )
     def show_production_status(self, obj):
-        return _(obj.get_production_status_display())
+        return obj.production_status, obj.get_production_status_display()
 
     @display(description=_("Invoicing"))
     def invoicing_status(self, obj):

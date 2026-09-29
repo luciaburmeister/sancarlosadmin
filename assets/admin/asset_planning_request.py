@@ -304,16 +304,16 @@ class AssetPlanningRequestAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, Mode
         description=_("Status"),
         ordering="status",
         label={
-            AssetPlanningRequestStatus.PENDING_REVIEW.label: "warning",
-            _("Changes pending"): "info",
-            AssetPlanningRequestStatus.APPROVED.label: "success",
-            AssetPlanningRequestStatus.REJECTED.label: "danger",
+            AssetPlanningRequestStatus.PENDING_REVIEW: "warning",
+            "changes_pending": "info",
+            AssetPlanningRequestStatus.APPROVED: "success",
+            AssetPlanningRequestStatus.REJECTED: "danger",
         },
     )
     def show_status(self, obj):
         if obj.awaits_rereview:
-            return _("Changes pending")
-        return obj.get_status_display()
+            return "changes_pending", _("Changes pending")
+        return obj.status, obj.get_status_display()
 
     @display(description=_("Notice"))
     def rereview_notice(self, obj):

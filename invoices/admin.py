@@ -833,14 +833,12 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
         
     @display(description=_("Balance"),
     label={
-            _("Balanced"): "success",  # green
-            _("Unbalanced"): "danger",  # red
+            True: "success",  # green
+            False: "danger",  # red
         },)
     def balance_status(self, obj):
-        if obj.is_total_balanced:
-            return _("Balanced")
-        else:
-            return _("Unbalanced")
+        balanced = bool(obj.is_total_balanced)
+        return balanced, _("Balanced") if balanced else _("Unbalanced")
         
     @display(
         description=_("Confirmation"),
@@ -862,13 +860,13 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
         description=_("Payment"),
         ordering="payment_status",
         label={
-            _("Unpaid"): "danger",
-            _("Partial"): "warning",
-            _("Paid"): "success",
+            InvoicePaymentStatus.UNPAID: "danger",
+            InvoicePaymentStatus.PARTIAL: "warning",
+            InvoicePaymentStatus.PAID: "success",
         },
     )
     def get_payment_status_label(self, obj):
-        return obj.get_payment_status_display()
+        return obj.payment_status, obj.get_payment_status_display()
 
     @display(description=_("Pending Amount"), ordering="db_amount_remaining")
     def pending_amount_display(self, obj):
@@ -1276,13 +1274,13 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
         description=_("Status"),
         ordering="status",
         label={
-            _(SalesInvoiceStatus.FINAL): "success",  
-            _(SalesInvoiceStatus.PROFORMA): "warning",
-            _(SalesInvoiceStatus.CANCELLED): "danger",
+            SalesInvoiceStatus.FINAL: "success",
+            SalesInvoiceStatus.PROFORMA: "warning",
+            SalesInvoiceStatus.CANCELLED: "danger",
         },
     )
     def get_status_label(self, obj):
-        return obj.status
+        return obj.status, obj.get_status_display()
 
     @display(
         description=_("Number"),
@@ -1295,13 +1293,13 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
         description=_("Payment"),
         ordering="payment_status",
         label={
-            _("Unpaid"): "danger",
-            _("Partial"): "warning",
-            _("Paid"): "success",
+            InvoicePaymentStatus.UNPAID: "danger",
+            InvoicePaymentStatus.PARTIAL: "warning",
+            InvoicePaymentStatus.PAID: "success",
         },
     )
     def get_payment_status_label(self, obj):
-        return obj.get_payment_status_display()
+        return obj.payment_status, obj.get_payment_status_display()
 
     @display(description=_("Late Commitment"))
     def get_late_commitment_warning(self, obj):
@@ -1506,14 +1504,13 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     @display(
         description=_("External"),
         label={
-            _("External"): "info",
-            _("Internal"): "default",
+            True: "info",
+            False: "default",
         },
     )
     def get_external_label(self, obj):
-        if obj.is_external:
-            return _("External")
-        return _("Internal")
+        external = bool(obj.is_external)
+        return external, _("External") if external else _("Internal")
 
     @action(description=_("Submit to AEAT"), icon="cloud_upload")
     def submit_aeat_row_action(self, request, object_id):

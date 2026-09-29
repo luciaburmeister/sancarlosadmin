@@ -24,6 +24,7 @@ from production.models import (
     ProductionTicket,
     ProductionItem,
     ProductionItemSession,
+    ProductionItemSessionKind,
     ProductionItemSessionStatus,
     PlannedProductionSession,
     PlannedSessionResource,
@@ -202,15 +203,15 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         description=_("Status"),
         ordering="status",
         label={
-            _(ProductionTicketStatus.DONE.label): "success",  # green
-            _(ProductionTicketStatus.PENDING.label): "info",  # blue
-            _(ProductionTicketStatus.IN_PROGRESS.label): "warning",  # orange
-            _(ProductionTicketStatus.CANCELLED.label): "danger",  # red
+            ProductionTicketStatus.DONE: "success",  # green
+            ProductionTicketStatus.PENDING: "info",  # blue
+            ProductionTicketStatus.IN_PROGRESS: "warning",  # orange
+            ProductionTicketStatus.CANCELLED: "danger",  # red
             
         },
     )
     def show_status_customized_color(self, obj):
-        return _(obj.get_status_display())
+        return obj.status, obj.get_status_display()
 
     @display(description=_("Stages"))
     def go_to_stages_display(self, obj):
@@ -377,17 +378,17 @@ class ProductionItemSessionInline(StackedInline):
     @display(
         description=_("Type"),
         label={
-            "activityfinished": "success",
-            "session_finished": "info",
+            ProductionItemSessionKind.ACTIVITY_FINISHED: "success",
+            ProductionItemSessionKind.SESSION_FINISHED: "info",
             "working": "warning",
         },
     )
     def session_type_display(self, obj):
         if obj.kind:
-            return obj.get_kind_display()
+            return obj.kind, obj.get_kind_display()
 
         if obj.status == ProductionItemSessionStatus.IN_PROGRESS:
-            return "working"
+            return "working", _("Working")
 
         return None
 
@@ -947,15 +948,15 @@ class AssemblyLineAdmin(CompanyRestrictedAdmin, ModelAdmin):
         description=_("Status"),
         ordering="status",
         label={
-            _(AssemblyLineStatus.DRAFT.label): "info",
-            _(AssemblyLineStatus.READY.label): "info",
-            _(AssemblyLineStatus.IN_PROGRESS.label): "warning",
-            _(AssemblyLineStatus.PAUSED.label): "warning",
-            _(AssemblyLineStatus.DONE.label): "success",
+            AssemblyLineStatus.DRAFT: "info",
+            AssemblyLineStatus.READY: "info",
+            AssemblyLineStatus.IN_PROGRESS: "warning",
+            AssemblyLineStatus.PAUSED: "warning",
+            AssemblyLineStatus.DONE: "success",
         },
     )
     def show_status_colored(self, obj):
-        return _(obj.get_status_display())
+        return obj.status, obj.get_status_display()
 
     @display(description=_("Tickets"))
     def ticket_count_display(self, obj):

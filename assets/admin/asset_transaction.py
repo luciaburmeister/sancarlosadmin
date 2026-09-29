@@ -473,14 +473,14 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         description=_("Billing"),
         ordering="billing_status",
         label={
-            BillingStatus.PROCESSED.label: "success",
-            BillingStatus.PENDING.label: "warning",
-            BillingStatus.FAILED.label: "danger",
-            BillingStatus.NONE.label: None,
+            BillingStatus.PROCESSED: "success",
+            BillingStatus.PENDING: "warning",
+            BillingStatus.FAILED: "danger",
+            BillingStatus.NONE: None,
         },
     )
     def billing_status_badge(self, obj):
-        return obj.get_billing_status_display()
+        return obj.billing_status, obj.get_billing_status_display()
 
     @action(description=_("Create Work Entry"), icon="add_task")
     def create_work_entry_row_action(self, request, object_id):

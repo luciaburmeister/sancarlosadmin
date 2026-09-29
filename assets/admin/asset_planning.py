@@ -416,14 +416,14 @@ class AssetPlanningAdmin(CompanyRestrictedAdmin, SimpleHistoryAdmin, ModelAdmin)
     @display(
         description=_("Assignment"),
         label={
-            _("Pending"): "warning",
-            _("Conflict"): "danger",
-            _("Auto-assigned"): "info",
-            _("Manual"): "success",
+            "pending": "warning",
+            "conflict": "danger",
+            "auto": "info",
+            "manual": "success",
         },
     )
     def show_traceability(self, obj):
-        return obj.traceability_label
+        return obj.traceability
 
     def computed_end_time_display(self, obj):
         return obj.scheduled_end_time or "—"

@@ -404,25 +404,23 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         description=_("Status"),
         ordering="status",
         label={
-            DeliveryOrderStatus.DRAFT.label: "warning",
-            DeliveryOrderStatus.PREPARED.label: "primary",
-            DeliveryOrderStatus.DISPATCHED.label: "info",
-            DeliveryOrderStatus.DELIVERED.label: "success",
-            DeliveryOrderStatus.CANCELLED.label: "danger",
+            DeliveryOrderStatus.DRAFT: "warning",
+            DeliveryOrderStatus.PREPARED: "primary",
+            DeliveryOrderStatus.DISPATCHED: "info",
+            DeliveryOrderStatus.DELIVERED: "success",
+            DeliveryOrderStatus.CANCELLED: "danger",
         },
     )
     def get_status_label(self, obj):
-        return obj.get_status_display()
+        return obj.status, obj.get_status_display()
 
     @display(
         description=_("Invoiced"),
-        label={
-            _("Yes"): "success",
-            _("No"): "warning",
-        },
+        label={True: "success", False: "warning"},  # see get_status_label
     )
     def get_invoiced_label(self, obj):
-        return _("Yes") if obj.sales_invoice_id else _("No")
+        invoiced = bool(obj.sales_invoice_id)
+        return invoiced, _("Yes") if invoiced else _("No")
 
     def save_related(self, request, form, formsets, change):
         from invoices.services.delivery_order_service import DeliveryOrderService

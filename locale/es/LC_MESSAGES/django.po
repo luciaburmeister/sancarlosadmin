@@ -15791,13 +15791,11 @@ msgstr "Códigos"
 msgid "Shipping"
 msgstr "Envío"
 
-#, fuzzy
-#| msgid "Work Email"
 msgid "PDF & Email"
-msgstr "Correo electrónico"
+msgstr "PDF y email"
 
 msgid "More"
-msgstr ""
+msgstr "Más"
 
 msgid "This delivery order is already linked to an invoice."
 msgstr "Esta orden de entrega ya está vinculada a una factura."
@@ -17847,6 +17845,9 @@ msgstr "padre"
 msgctxt "djangoql field"
 msgid "proforma_number"
 msgstr "numero_proforma"
+
+msgid "Working"
+msgstr "Trabajando"
 
 #, fuzzy
 #~ msgid "orange stripe — no truck assigned yet"

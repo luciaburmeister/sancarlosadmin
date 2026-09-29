@@ -185,6 +185,19 @@ class AdminTests(_ComponentLinesBase):
         for hidden in ("confirm_delivery_detail_action", "undo_status_detail_action", "reopen_detail_action"):
             self.assertNotIn(hidden, content)
 
+    def test_status_badge_keeps_its_colour_when_translated(self):
+        from django.contrib.admin.sites import site
+        from django.utils import translation
+        from unfold.utils import display_for_label
+
+        model_admin = site._registry[DeliveryOrder]
+        method = model_admin.get_status_label
+        for language in ("es", "en"):
+            with self.subTest(language=language), translation.override(language):
+                html = display_for_label(method(self.do), "-", method.label)
+                self.assertIn(str(DeliveryOrderStatus.DRAFT.label), html)
+                self.assertIn("bg-orange-100", html)  # "warning", not the grey fallback
+
     def test_status_tabs_count_the_pending_queue(self):
         request = RequestFactory().get(reverse("admin:sales_deliveryorder_changelist"), {"status__exact": "draft"})
         request.user = self.superuser

@@ -140,15 +140,15 @@ class EInvoicingSubmissionAdmin(ModelAdmin):
         description=_("Status"),
         ordering="status",
         label={
-            _("Accepted"): "success",
-            _("Submitted"): "info",
-            _("Pending"): "warning",
-            _("Rejected"): "danger",
-            _("Error"): "danger",
+            SubmissionStatus.ACCEPTED: "success",
+            SubmissionStatus.SUBMITTED: "info",
+            SubmissionStatus.PENDING: "warning",
+            SubmissionStatus.REJECTED: "danger",
+            SubmissionStatus.ERROR: "danger",
         },
     )
     def get_status_label(self, obj):
-        return _(obj.get_status_display())
+        return obj.status, obj.get_status_display()
 
 
 # ── Inline for SalesInvoiceAdmin ─────────────────────────────────────────

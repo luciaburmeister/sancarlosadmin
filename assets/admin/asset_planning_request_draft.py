@@ -100,28 +100,28 @@ class AssetPlanningRequestDraftAdmin(CompanyRestrictedAdmin, ModelAdmin):
         description=_("Status"),
         ordering="status",
         label={
-            AssetPlanningRequestDraftStatus.DRAFT.label: "info",
-            AssetPlanningRequestDraftStatus.SUBMITTED.label: "warning",
-            AssetPlanningRequestDraftStatus.PROCESSED.label: "success",
-            AssetPlanningRequestDraftStatus.CANCELLED.label: "danger",
+            AssetPlanningRequestDraftStatus.DRAFT: "info",
+            AssetPlanningRequestDraftStatus.SUBMITTED: "warning",
+            AssetPlanningRequestDraftStatus.PROCESSED: "success",
+            AssetPlanningRequestDraftStatus.CANCELLED: "danger",
         },
     )
     def show_status(self, obj):
-        return obj.get_status_display()
+        return obj.status, obj.get_status_display()
 
-    @display(description=_("Client"), label={_("New client"): "danger"})
+    @display(description=_("Client"), label={"new": "danger"})
     def show_client(self, obj):
         if obj.requests_new_client:
             label = obj.new_client_name
             if obj.new_client_tax_id:
                 label += f" ({obj.new_client_tax_id})"
-            return _("New client"), label
+            return "new", label
         return obj.client.name if obj.client_id else "—"
 
-    @display(description=_("Destination"), label={_("New zone"): "danger"})
+    @display(description=_("Destination"), label={"new": "danger"})
     def show_destination(self, obj):
         if obj.requests_new_destination_zone:
-            return _("New zone"), f"{obj.destination_text}, {obj.destination_city}"
+            return "new", f"{obj.destination_text}, {obj.destination_city}"
         return obj.to_zone.name if obj.to_zone_id else "—"
 
     @display(description=_("New Client Request"))

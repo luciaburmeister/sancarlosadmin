@@ -258,15 +258,15 @@ class ResourcePlanningAdmin(CompanyRestrictedAdmin, ModelAdmin):
         description=_("Status"),
         ordering="status",
         label={
-            _(ResourcePlanningStatus.PLANNED.label): "info",
-            _(ResourcePlanningStatus.CONFIRMED.label): "info",
-            _(ResourcePlanningStatus.IN_PROGRESS.label): "warning",
-            _(ResourcePlanningStatus.COMPLETED.label): "success",
-            _(ResourcePlanningStatus.CANCELLED.label): "danger",
+            ResourcePlanningStatus.PLANNED: "info",
+            ResourcePlanningStatus.CONFIRMED: "info",
+            ResourcePlanningStatus.IN_PROGRESS: "warning",
+            ResourcePlanningStatus.COMPLETED: "success",
+            ResourcePlanningStatus.CANCELLED: "danger",
         },
     )
     def show_status(self, obj):
-        return _(obj.get_status_display())
+        return obj.status, obj.get_status_display()
 
     @display(description=_("Group"))
     def group_link(self, obj):

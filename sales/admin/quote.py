@@ -44,11 +44,13 @@ from sales.views_analysis import ConversionAnalysisView
 from .filters import HasProductionFilter, ProductionSchedulingFilter
 from .mixins import _CompanyImportMixin
 
-PRODUCTION_BADGE_NONE = _("No production")
-PRODUCTION_BADGE_PENDING = _("Production")
-PRODUCTION_BADGE_NOT_CONVERTED = _("Not converted")
-PRODUCTION_BADGE_UNSCHEDULED = _("Unscheduled")
-PRODUCTION_BADGE_SCHEDULED = _("Scheduled")
+# (key, label): the badge colour is looked up by the key, which stays the
+# same in every language.
+PRODUCTION_BADGE_NONE = ("none", _("No production"))
+PRODUCTION_BADGE_PENDING = ("pending", _("Production"))
+PRODUCTION_BADGE_NOT_CONVERTED = ("not_converted", _("Not converted"))
+PRODUCTION_BADGE_UNSCHEDULED = ("unscheduled", _("Unscheduled"))
+PRODUCTION_BADGE_SCHEDULED = ("scheduled", _("Scheduled"))
 
 
 class QuotePhotoInline(TabularInline):
@@ -521,23 +523,23 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
         description=_("Status"),
         ordering="status",
         label={
-            _(QuoteStatus.ACCEPTED.label): "success",
-            _(QuoteStatus.SENT.label): "info",
-            _(QuoteStatus.REJECTED.label): "warning",
-            _(QuoteStatus.DRAFT.label): "primary",
+            QuoteStatus.ACCEPTED: "success",
+            QuoteStatus.SENT: "info",
+            QuoteStatus.REJECTED: "warning",
+            QuoteStatus.DRAFT: "primary",
         },
     )
     def show_status_customized_color(self, obj):
-        return _(obj.get_status_display())
+        return obj.status, obj.get_status_display()
 
     @display(
         description=_("Production"),
         ordering="production_status",
         label={
-            PRODUCTION_BADGE_PENDING: "info",
-            PRODUCTION_BADGE_NOT_CONVERTED: "danger",
-            PRODUCTION_BADGE_UNSCHEDULED: "warning",
-            PRODUCTION_BADGE_SCHEDULED: "success",
+            PRODUCTION_BADGE_PENDING[0]: "info",
+            PRODUCTION_BADGE_NOT_CONVERTED[0]: "danger",
+            PRODUCTION_BADGE_UNSCHEDULED[0]: "warning",
+            PRODUCTION_BADGE_SCHEDULED[0]: "success",
         },
     )
     def production_planning_badge(self, obj):

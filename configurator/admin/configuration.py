@@ -321,26 +321,26 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
         description=_("Status"),
         ordering="status",
         label={
-            _(ConfigurationStatus.COMPLETED.label): "success",  # green
-            _(ConfigurationStatus.DRAFT.label): "info",  # blue
-            _(ConfigurationStatus.CONVERTED.label): "warning",  # orange
-            _(ConfigurationStatus.PRODUCTION_DONE.label): "success", # purple/grey
-            _(ConfigurationStatus.SHOP.label): "warning", # purple/grey
+            ConfigurationStatus.COMPLETED: "success",  # green
+            ConfigurationStatus.DRAFT: "info",  # blue
+            ConfigurationStatus.CONVERTED: "warning",  # orange
+            ConfigurationStatus.PRODUCTION_DONE: "success", # purple/grey
+            ConfigurationStatus.SHOP: "warning", # purple/grey
         },
     )
     def show_status_customized_color(self, obj):
-        return _(obj.get_status_display())
+        return obj.status, obj.get_status_display()
 
     @display(
         description=_("Planning"),
         ordering="planning_status",
         label={
-            _(ConfigurationPlanningStatus.PLANNED.label): "success",
-            _(ConfigurationPlanningStatus.UNPLANNED.label): "warning",
+            ConfigurationPlanningStatus.PLANNED: "success",
+            ConfigurationPlanningStatus.UNPLANNED: "warning",
         },
     )
     def show_planning_status_badge(self, obj):
-        return _(obj.get_planning_status_display())
+        return obj.planning_status, obj.get_planning_status_display()
 
     fieldsets = (
         (_("Configuration"), {

@@ -182,26 +182,26 @@ class ExpenseClaimAdmin(CompanyRestrictedAdmin, ModelAdmin):
     @display(
         description=_("Status"),
         label={
-            ExpenseClaimStatus.DRAFT.label: "default",
-            ExpenseClaimStatus.SUBMITTED.label: "warning",
-            ExpenseClaimStatus.APPROVED.label: "info",
-            ExpenseClaimStatus.REIMBURSED.label: "success",
-            ExpenseClaimStatus.REJECTED.label: "danger",
+            ExpenseClaimStatus.DRAFT: "default",
+            ExpenseClaimStatus.SUBMITTED: "warning",
+            ExpenseClaimStatus.APPROVED: "info",
+            ExpenseClaimStatus.REIMBURSED: "success",
+            ExpenseClaimStatus.REJECTED: "danger",
         },
     )
     def status_badge(self, obj):
-        return obj.get_status_display()
+        return obj.status, obj.get_status_display()
 
     @display(
         description=_("Payment"),
         label={
-            InvoicePaymentStatus.UNPAID.label: "danger",
-            InvoicePaymentStatus.PARTIAL.label: "warning",
-            InvoicePaymentStatus.PAID.label: "success",
+            InvoicePaymentStatus.UNPAID: "danger",
+            InvoicePaymentStatus.PARTIAL: "warning",
+            InvoicePaymentStatus.PAID: "success",
         },
     )
     def payment_status_badge(self, obj):
-        return obj.get_payment_status_display()
+        return obj.payment_status, obj.get_payment_status_display()
 
     @display(description=_("Outstanding"))
     def amount_outstanding(self, obj):

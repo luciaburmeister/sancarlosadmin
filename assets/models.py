@@ -1500,14 +1500,19 @@ class AssetPlanning(CompanyOwnedModel, Timestampable):
         )
 
     @property
-    def traceability_label(self):
+    def traceability(self):
+        """``(key, label)``: the key stays the same in every language."""
         if not self.assigned_to_id or not self.transport_asset_id or not self.scheduled_time:
-            return _("Pending")
+            return "pending", _("Pending")
         if self.has_conflict:
-            return _("Conflict")
+            return "conflict", _("Conflict")
         if self.assignment_origin == AssignmentOrigin.AUTO:
-            return _("Auto-assigned")
-        return _("Manual")
+            return "auto", _("Auto-assigned")
+        return "manual", _("Manual")
+
+    @property
+    def traceability_label(self):
+        return self.traceability[1]
 
     @property
     def service_type_color(self) -> str:

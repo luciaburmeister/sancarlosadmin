@@ -1,6 +1,7 @@
 from import_export import resources, fields
 from import_export.widgets import ForeignKeyWidget
 from .models import Invoice, SalesInvoice, InvoiceItem, SalesInvoiceItem, AppliedTax
+from .services.discounts import is_advance_line_source
 from materials.models import Provider
 from accounting.models import CostCenter
 from company.models import Company
@@ -73,6 +74,37 @@ def _prefetch_tax_data(model_class, queryset):
         result[obj_id] = _bucket_taxes(taxes_by_obj.get(obj_id, []))
 
     return result
+
+
+def _prefetch_advance_deductions(invoice_ids):
+    """
+    Single bulk query: fetch the advance deduction lines of every invoice,
+    then return a dict  {invoice_id: (amount_deducted, advance_numbers)}.
+
+    The amount is positive (the lines themselves are negative) and each
+    advance invoice deducted is listed once, in the order it was deducted.
+    """
+    from collections import defaultdict
+
+    if not invoice_ids:
+        return {}
+
+    lines = (
+        SalesInvoiceItem.objects
+        .filter(invoice_id__in=invoice_ids, advance_line__isnull=False)
+        .select_related("advance_line__invoice")
+        .order_by("invoice_id", "pk")
+    )
+
+    deducted = defaultdict(lambda: Decimal("0.00"))
+    numbers = defaultdict(list)
+    for line in lines:
+        deducted[line.invoice_id] -= line.line_total.amount if line.line_total else Decimal("0.00")
+        number = line.advance_line.invoice.display_number
+        if number not in numbers[line.invoice_id]:
+            numbers[line.invoice_id].append(number)
+
+    return {invoice_id: (deducted[invoice_id], numbers[invoice_id]) for invoice_id in deducted}
 
 
 def _build_tax_fields():
@@ -318,6 +350,8 @@ class SalesInvoiceResource(resources.ModelResource):
         widget=ForeignKeyWidget(Company, 'name')
     )
     company_tax_identifier = fields.Field(column_name=_('Company NIF/CIF'))
+    advance_invoice_numbers = fields.Field(column_name=_('Advance Invoices'))
+    advances_deducted_value = fields.Field(column_name=_('Advances Deducted'))
     discount_amount_value = fields.Field(column_name=_('Discount Amount'))
     subtotal_amount_value = fields.Field(column_name=_('Subtotal'))
     tax_amount_value = fields.Field(column_name=_('Tax Amount'))
@@ -341,6 +375,8 @@ class SalesInvoiceResource(resources.ModelResource):
             'proforma_number',
             'incremental_id',
             'status',
+            'document_type',
+            'advance_percentage',
             'date_issued',
             'due_date',
             'payment_commitment_date',
@@ -350,6 +386,8 @@ class SalesInvoiceResource(resources.ModelResource):
             'client_phone',
             'company',
             'company_tax_identifier',
+            'advance_invoice_numbers',
+            'advances_deducted_value',
             'discount_amount_value',
             'subtotal_amount_value',
             'tax_amount_value',
@@ -392,10 +430,27 @@ class SalesInvoiceResource(resources.ModelResource):
         # Bulk-prefetch all taxes in 1 query → attach to each instance
         tax_lookup = _prefetch_tax_data(SalesInvoice, queryset)
         instances = list(queryset)
+        # Same for the advances each invoice deducts (1 query)
+        advance_lookup = _prefetch_advance_deductions([inst.pk for inst in instances])
         for inst in instances:
             inst._tax_cache = tax_lookup.get(inst.pk, ([], Decimal("0.00")))
+            inst._advance_cache = advance_lookup.get(inst.pk, (Decimal("0.00"), []))
 
         return super().export(queryset=instances, *args, **kwargs)
+
+    def _get_advance_data(self, invoice):
+        """Read from pre-attached _advance_cache (set in export())."""
+        return getattr(invoice, '_advance_cache', (Decimal("0.00"), []))
+
+    def dehydrate_advance_invoice_numbers(self, invoice):
+        _, numbers = self._get_advance_data(invoice)
+        return ", ".join(numbers)
+
+    def dehydrate_advances_deducted_value(self, invoice):
+        # Positive, like the discount: the goods' base is Subtotal + Discount
+        # Amount + Advances Deducted.
+        deducted, _ = self._get_advance_data(invoice)
+        return deducted
 
     def dehydrate_discount_amount_value(self, invoice):
         return invoice.discount_amount.amount if invoice.discount_amount else 0
@@ -471,6 +526,8 @@ class SalesInvoiceItemResource(resources.ModelResource):
     unit_price_amount = fields.Field(column_name=_('Unit Price'))
     line_total_amount = fields.Field(column_name=_('Line Total'))
     currency = fields.Field(column_name=_('Currency'))
+    is_advance_deduction = fields.Field(column_name=_('Advance Deduction'))
+    advance_invoice_number = fields.Field(column_name=_('Advance Invoice'))
 
     class Meta:
         model = SalesInvoiceItem
@@ -484,8 +541,32 @@ class SalesInvoiceItemResource(resources.ModelResource):
             'unit_price_amount',
             'line_total_amount',
             'currency',
+            'is_advance_deduction',
+            'advance_invoice_number',
         )
         export_order = fields
+
+    def export(self, queryset=None, *args, **kwargs):
+        if queryset is None:
+            queryset = SalesInvoiceItem.objects.all()
+        # Invoice columns and the advance a line deducts come in the same
+        # query instead of one query per line.
+        queryset = queryset.select_related(
+            "invoice__client", "invoice__company", "advance_line__invoice",
+        )
+        return super().export(queryset=queryset, *args, **kwargs)
+
+    def dehydrate_is_advance_deduction(self, item):
+        return item.advance_line_id is not None
+
+    def dehydrate_advance_invoice_number(self, item):
+        # The advance a line deducts, or the advance invoice an advance line
+        # belongs to: together, every movement of the client's advances.
+        if item.advance_line_id:
+            return item.advance_line.invoice.display_number
+        if is_advance_line_source(item.source_id):
+            return item.invoice.display_number
+        return ""
 
     def dehydrate_unit_price_amount(self, item):
         return item.unit_price.amount if item.unit_price else 0

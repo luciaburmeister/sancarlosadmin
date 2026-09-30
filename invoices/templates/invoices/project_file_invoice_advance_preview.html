@@ -1,0 +1,43 @@
+{% load i18n %}
+{# The advance the wizard is about to issue, as AdvanceInvoiceService.preview() rounds it #}
+<div class="mb-6 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm dark:bg-gray-800 dark:border-gray-700">
+    <h3 class="text-base font-semibold text-gray-800 dark:text-gray-200 mb-3">{% trans "Preview" %}</h3>
+    {% if preview.error %}
+    <p class="mb-3 font-medium text-red-600 dark:text-red-400">{{ preview.error }}</p>
+    {% endif %}
+    <table class="w-full">
+        <tbody>
+            {% for line in preview.lines %}
+            <tr>
+                <td class="py-1">{{ line.description }}</td>
+                <td class="py-1 text-right">{{ line.base|floatformat:2 }} €</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tbody class="text-gray-500 dark:text-gray-400">
+            {% for tax in preview.taxes %}
+            <tr>
+                <td class="py-1">{{ tax.name }} {{ tax.percentage|floatformat:"-2" }} %</td>
+                <td class="py-1 text-right">{% if tax.retention %}−{% endif %}{{ tax.amount|floatformat:2 }} €</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot class="font-semibold text-gray-900 dark:text-gray-100">
+            <tr>
+                <td class="py-1">{% trans "Base" %}</td>
+                <td class="py-1 text-right">{{ preview.base|floatformat:2 }} €</td>
+            </tr>
+            <tr>
+                <td class="py-1">{% trans "Tax Amount" %}</td>
+                <td class="py-1 text-right">{{ preview.tax_amount|floatformat:2 }} €</td>
+            </tr>
+            <tr>
+                <td class="py-1">{% trans "Total" %}</td>
+                <td class="py-1 text-right">{{ preview.total|floatformat:2 }} €</td>
+            </tr>
+        </tfoot>
+    </table>
+    <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+        {% trans "Largest advance still allowed" %}: {{ preview.max_amount|floatformat:2 }} €
+    </p>
+</div>

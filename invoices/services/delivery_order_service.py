@@ -1,6 +1,7 @@
 import logging
 from decimal import Decimal
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.contrib.contenttypes.models import ContentType
@@ -380,7 +381,8 @@ class DeliveryOrderService:
         from configurator.models import Configuration
         from sales.models import QuoteInventoryItem
 
-        if delivery_order.sales_invoice_id:
+        # A cancelled invoice bills nothing: the order is free again
+        if cls.has_active_invoice(delivery_order):
             raise ValidationError(
                 _("This delivery order is already invoiced. Unlink or delete the invoice before syncing it.")
             )
@@ -644,15 +646,26 @@ class DeliveryOrderService:
     @classmethod
     def get_invoiceable_delivery_orders(cls, project_file):
         """
-        Returns delivery orders linked to a ProjectFile that have items
-        not yet associated with an invoice (sales_invoice is null).
+        Returns delivery orders linked to a ProjectFile that are not billed
+        yet: no invoice, or only a cancelled one (see has_active_invoice).
         """
         return DeliveryOrder.objects.filter(
+            Q(sales_invoice__isnull=True)
+            | Q(sales_invoice__status=SalesInvoiceStatus.CANCELLED),
             project_file=project_file,
-            sales_invoice__isnull=True,
         ).exclude(
             status=DeliveryOrderStatus.CANCELLED,
         ).order_by('date', 'number')
+
+    @staticmethod
+    def has_active_invoice(delivery_order):
+        """Whether the delivery order is billed: linked to an invoice that is
+        not cancelled. A cancelled invoice bills nothing, so its delivery
+        order can be invoiced again; the new invoice takes over the link."""
+        return bool(
+            delivery_order.sales_invoice_id
+            and delivery_order.sales_invoice.status != SalesInvoiceStatus.CANCELLED
+        )
 
     @classmethod
     @transaction.atomic
@@ -673,6 +686,8 @@ class DeliveryOrderService:
         (component lines are skipped) and the delivery order's header
         discount is copied as the invoice's.
         Taxes are copied from the source objects' AppliedTax records.
+        The expediente's advances are then deducted on the invoice (the
+        default plan); the delivery orders themselves are left as they are.
 
         Args:
             delivery_orders: queryset or list of DeliveryOrder instances
@@ -687,7 +702,24 @@ class DeliveryOrderService:
             SalesInvoice instance
         """
         from configurator.models import Configuration
+        from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
+        from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
         from sales.models import QuoteInventoryItem
+
+        # Expedientes first, then their advances, before any numbering lock
+        project_file_ids = [do.project_file_id for do in delivery_orders]
+        ProjectFileInvoiceService.lock_project_files(project_file_ids)
+        AdvanceInvoiceService.lock_advances(project_file_ids)
+        AdvanceInvoiceService.check_no_proforma_advance(project_file_ids)
+
+        for do in delivery_orders:
+            if cls.has_active_invoice(do):
+                raise ValidationError(
+                    _("Delivery order %(number)s is already invoiced (%(invoice)s).") % {
+                        "number": do.number,
+                        "invoice": do.sales_invoice.display_number,
+                    }
+                )
 
         resolved_payment_method = resolve_sales_invoice_payment_method(
             client=client,
@@ -806,7 +838,11 @@ class DeliveryOrderService:
         computed_total_tax = Decimal("0.00")
 
         for order, entry in enumerate(tax_agg.values()):
-            computed_total_tax += entry["calculated_amount"]
+            # Retentions (IRPF) reduce the total, as in SalesInvoice.recalculate_totals
+            if entry["tax_type"].behavior == "add":
+                computed_total_tax += entry["calculated_amount"]
+            else:
+                computed_total_tax -= entry["calculated_amount"]
             AppliedTax.objects.create(
                 content_type=ct,
                 object_id=invoice.id,
@@ -826,6 +862,9 @@ class DeliveryOrderService:
             'subtotal_amount', 'discount_amount', 'discount_amount_currency',
             'discount_breakdown', 'tax_amount', 'total_amount',
         ])
+
+        # The invoice's total goes down by the advances; the delivery order's does not
+        AdvanceDeductionService.apply(invoice)
 
         logger.info(
             "Created SalesInvoice #%s from %d DeliveryOrders. "

@@ -8,10 +8,12 @@ from assets import urls
 from unfold.admin import StackedInline
 from django.contrib import admin
 from django.contrib import messages
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect
 from unfold.decorators import action, display
 from django.urls import path, reverse
 from django import forms
+from django.core.exceptions import ValidationError
 from materials.models import PaymentMethod
 
 logger = logging.getLogger(__name__)
@@ -20,8 +22,9 @@ from datetime import timedelta
 from unfold.admin import ModelAdmin, GenericTabularInline, TabularInline
 from unfold.contrib.forms.widgets import ArrayWidget
 from django.contrib.postgres.fields import ArrayField
-from django.utils.html import format_html
-from django.db import models
+from django.utils.formats import number_format
+from django.utils.html import format_html, format_html_join
+from django.db import models, transaction
 from django.db.models import OuterRef, Subquery, Sum
 from django.db.models.functions import Coalesce
 from invoices.views.invoice.aging_export_view import AgingExportView
@@ -36,6 +39,7 @@ from invoices.models import (
     IncomingInvoice,
     InvoicePaymentStatus,
     SalesInvoice,
+    SalesInvoiceDocumentType,
     SalesInvoiceItem,
     SalesInvoiceStatus,
     InvoiceItem,
@@ -80,7 +84,17 @@ from invoices.views.invoice.collections_forecast_view import (
 )
 from invoices.views.invoice.payments_forecast_view import PaymentsForecastView
 from invoices.services.sales_invoice_service import SalesInvoiceService
+from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
+from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
+from invoices.services.discounts import (
+    ADVANCE_DEDUCTION_PREFIX,
+    ADVANCE_LINE_PREFIX,
+    is_advance_deduction_source,
+    is_advance_line_source,
+)
 from apps.einvoicing.admin import EInvoicingSubmissionInline
+from apps.einvoicing.models import EInvoicingAccount
+from apps.einvoicing.services import EInvoicingService
 from apps.einvoicing.tasks import submit_invoice_to_aeat, cancel_invoice_at_aeat
 from invoices.tasks import process_incoming_invoices, process_manual_invoice
 from banking.tasks import run_invoice_matcher_task
@@ -214,6 +228,50 @@ class IncomingInvoiceAdmin(CompanyRestrictedAdmin,ModelAdmin):
             process_incoming_invoices.delay(invoice_ids=[id])
         self.message_user(request, f"Started processing {len(selected_ids)} invoices in background.")
 
+# Issued and cancelled sales invoices: their lines and taxes cannot change
+# (SalesInvoiceItem.save / AppliedTax.save refuse it too).
+FROZEN_SALES_INVOICE_STATUSES = (SalesInvoiceStatus.FINAL, SalesInvoiceStatus.CANCELLED)
+
+
+def _has_advance_lines(invoice):
+    """Whether the sales invoice is an advance or deducts one: its tax bases
+    are then kept by the advance services."""
+    # Asked several times per change page (fields, fieldsets, inlines)
+    if not hasattr(invoice, "_has_advance_lines"):
+        invoice._has_advance_lines = invoice.items.filter(
+            models.Q(source_id__startswith=ADVANCE_LINE_PREFIX)
+            | models.Q(source_id__startswith=ADVANCE_DEDUCTION_PREFIX)
+        ).exists()
+    return invoice._has_advance_lines
+
+
+def _is_advance_related(invoice):
+    """An advance invoice, or an invoice that deducts one."""
+    return invoice.document_type == SalesInvoiceDocumentType.ADVANCE or _has_advance_lines(invoice)
+
+
+# An advance and the invoices deducting it keep the header the deduction was
+# matched on (AdvanceDeductionService only deducts within one expediente,
+# company, client and currency).
+ADVANCE_LOCKED_FIELDS = ("project_file", "company", "client", "currency")
+
+
+def _sales_invoice_link(invoice):
+    return format_html(
+        '<a href="{}">{}</a>',
+        reverse("admin:invoices_salesinvoice_change", args=[invoice.pk]),
+        invoice.display_number,
+    )
+
+
+def _pill(text, color):
+    return format_html(
+        '<span style="display:inline-block;padding:1px 8px;border-radius:999px;'
+        'background:{};color:white;font-size:11px;font-weight:600;">{}</span>',
+        color, text,
+    )
+
+
 class AppliedTaxInline(GenericTabularInline):
     model = AppliedTax
     extra = 0
@@ -234,18 +292,36 @@ class AppliedTaxInline(GenericTabularInline):
     verbose_name = "Applied tax"
     verbose_name_plural = "Applied taxes"
 
+    def get_readonly_fields(self, request, obj=None):
+        readonly_fields = super().get_readonly_fields(request, obj)
+        # A deduction lowered these bases by its amount; only the pro
+        # forma's advance actions move them.
+        if isinstance(obj, SalesInvoice) and obj.pk and _has_advance_lines(obj):
+            return (*readonly_fields, "base_amount")
+        return readonly_fields
+
+    @staticmethod
+    def _kept_elsewhere(obj):
+        """Frozen invoices, and advances: an advance's taxes mirror its
+        lines' taxes (AdvanceInvoiceService); to change one, delete the pro
+        forma and issue it again."""
+        return isinstance(obj, SalesInvoice) and (
+            obj.status in FROZEN_SALES_INVOICE_STATUSES
+            or obj.document_type == SalesInvoiceDocumentType.ADVANCE
+        )
+
     def has_add_permission(self, request, obj):
-        if isinstance(obj, SalesInvoice) and obj.status == SalesInvoiceStatus.FINAL:
+        if self._kept_elsewhere(obj):
             return False
         return super().has_add_permission(request, obj)
 
     def has_change_permission(self, request, obj=None):
-        if isinstance(obj, SalesInvoice) and obj.status == SalesInvoiceStatus.FINAL:
+        if self._kept_elsewhere(obj):
             return False
         return super().has_change_permission(request, obj)
 
     def has_delete_permission(self, request, obj=None):
-        if isinstance(obj, SalesInvoice) and obj.status == SalesInvoiceStatus.FINAL:
+        if self._kept_elsewhere(obj):
             return False
         return super().has_delete_permission(request, obj)
 
@@ -959,8 +1035,30 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
     def has_bulk_mark_paid_invoice_permission(self, request):
         return request.user.has_perm("invoices.bulk_mark_paid_invoice")
 
+class SalesInvoiceItemInlineFormSet(forms.BaseInlineFormSet):
+    """Advance lines and advance deductions are kept by the advance services
+    (their amounts are in the tax bases): they cannot be edited or deleted
+    here."""
+
+    def clean(self):
+        super().clean()
+        for form in self.forms:
+            line = form.instance
+            if not line.pk or not (
+                is_advance_line_source(line.source_id) or is_advance_deduction_source(line.source_id)
+            ):
+                continue
+            if self._should_delete_form(form) or form.has_changed():
+                raise ValidationError(_(
+                    "Advance lines and advance deductions cannot be edited or deleted here. "
+                    "Deductions are changed with the pro forma's Remove advances and "
+                    "Reapply advances actions."
+                ))
+
+
 class SalesInvoiceItemInline(StackedInline):
     model = SalesInvoiceItem
+    formset = SalesInvoiceItemInlineFormSet
     extra = 0
     tab = True
     readonly_fields = ("discount_amount", "line_total", "source_id", "project_file")
@@ -984,17 +1082,21 @@ class SalesInvoiceItemInline(StackedInline):
     )
 
     def has_add_permission(self, request, obj):
-        if obj and obj.status == SalesInvoiceStatus.FINAL:
+        if obj and obj.status in FROZEN_SALES_INVOICE_STATUSES:
+            return False
+        # An advance's lines are its VAT groups (AdvanceInvoiceService): a line
+        # added here would be billed untaxed and deducted as a group of its own.
+        if obj and obj.document_type == SalesInvoiceDocumentType.ADVANCE:
             return False
         return super().has_add_permission(request, obj)
 
     def has_change_permission(self, request, obj=None):
-        if obj and obj.status == SalesInvoiceStatus.FINAL:
+        if obj and obj.status in FROZEN_SALES_INVOICE_STATUSES:
             return False
         return super().has_change_permission(request, obj)
 
     def has_delete_permission(self, request, obj=None):
-        if obj and obj.status == SalesInvoiceStatus.FINAL:
+        if obj and obj.status in FROZEN_SALES_INVOICE_STATUSES:
             return False
         return super().has_delete_permission(request, obj)
 
@@ -1043,6 +1145,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     )
     list_display = (
         "get_document_number",
+        "get_document_type_label",
         "client",
         "total_amount",
         "date_issued",
@@ -1062,6 +1165,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
         ("total_amount",RangeNumericFilter),
         # Document state
         ("status", MultipleChoicesDropdownFilter),
+        ("document_type", ChoicesDropdownFilter),
         ("is_external", BooleanRadioFilter),
         # Payment
         ("payment_status", MultipleChoicesDropdownFilter),
@@ -1075,7 +1179,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     list_filter_submit = True
     list_select_related = ["company","client"]
     
-    readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "proforma_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown", "get_late_commitment_warning")
+    readonly_fields = ("incremental_id", "subtotal_amount", "lines_total_display", "taxable_base_display", "tax_amount", "total_amount", "status", "invoice_number", "proforma_number", "amount_paid", "amount_remaining", "is_external", "discount_amount", "discount_breakdown", "get_late_commitment_warning", "advances_display")
 
     def get_queryset(self, request):
         from payments.mixins import annotate_amount_remaining, annotate_forecast_date
@@ -1099,6 +1203,8 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
 
     def get_readonly_fields(self, request, obj=None):
         readonly_fields = super().get_readonly_fields(request, obj)
+        # Pro formas included: the deduction was matched on these fields
+        locked = obj is not None and obj.pk is not None and _is_advance_related(obj)
         if obj and obj.status == SalesInvoiceStatus.FINAL:
             all_fields = list(set(
                 [f.name for f in self.model._meta.fields] +
@@ -1106,13 +1212,117 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                 list(readonly_fields)
             ))
             excluded_from_readonly = {"payment_status", "exclude_from_payment_reminders", "payment_commitment_date","project_file"}
+            if locked:
+                excluded_from_readonly -= set(ADVANCE_LOCKED_FIELDS)
             return [f for f in all_fields if f not in excluded_from_readonly]
+        if locked:
+            return [*readonly_fields, *(f for f in ADVANCE_LOCKED_FIELDS if f not in readonly_fields)]
         return readonly_fields
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = super().get_fieldsets(request, obj)
+        if obj is not None and obj.pk is not None and _is_advance_related(obj):
+            general, *rest = fieldsets
+            return (general, (_("Advances"), {"fields": ("advances_display",)}), *rest)
+        return fieldsets
 
     def has_delete_permission(self, request, obj=None):
         if obj and obj.status == SalesInvoiceStatus.FINAL and not request.user.is_superuser:
             return False
         return super().has_delete_permission(request, obj)
+
+    @display(description=_("Deductions"))
+    def advances_display(self, obj):
+        """An advance: where it has been deducted and what is left to deduct.
+        Any other invoice: the advances it deducts."""
+        if not obj.pk:
+            return "—"
+        if obj.document_type == SalesInvoiceDocumentType.ADVANCE:
+            return self._advance_panel(obj)
+        return self._deductions_panel(obj)
+
+    def _advance_panel(self, invoice):
+        [advance] = ProjectFileInvoiceService._advances_data([invoice])
+        # Deductions on cancelled invoices give the advance back
+        deducted_in = {}
+        for line in (
+            SalesInvoiceItem.objects.filter(advance_line__invoice=invoice)
+            .exclude(invoice__status=SalesInvoiceStatus.CANCELLED)
+            .select_related("invoice")
+            .order_by("invoice_id", "pk")
+        ):
+            deducted_in[line.invoice] = deducted_in.get(line.invoice, Decimal("0.00")) + line.line_total.amount
+
+        badges = []
+        if invoice.status == SalesInvoiceStatus.PROFORMA:
+            badges.append(_pill(_("pro forma: issue it as final to deduct it"), "#d97706"))
+        elif invoice.status == SalesInvoiceStatus.FINAL:
+            if not advance["paid"]:
+                badges.append(_pill(_("Unpaid"), "#dc2626"))
+            if not advance["deductible"]:
+                badges.append(_pill(_("not deductible"), "#6b7280"))
+        else:
+            badges.append(_pill(invoice.get_status_display(), "#6b7280"))
+
+        percentage = (
+            f"{AdvanceInvoiceService._format_percentage(invoice.advance_percentage)} %"
+            if invoice.advance_percentage is not None else "—"
+        )
+        rows = [
+            (_("Advance (%)"), percentage, format_html_join(" ", "{}", ((b,) for b in badges))),
+            (_("Base"), number_format(advance["base"], 2), ""),
+        ]
+        for deducting, amount in deducted_in.items():
+            label = format_html(_("Deducted in {invoice}"), invoice=_sales_invoice_link(deducting))
+            if deducting.status != SalesInvoiceStatus.FINAL:
+                label = format_html("{} ({})", label, deducting.get_status_display())
+            rows.append((label, number_format(amount, 2), ""))
+        if invoice.status != SalesInvoiceStatus.CANCELLED:
+            rows.append((_("Pending"), number_format(advance["pending"], 2), ""))
+        return self._advance_rows_table(rows)
+
+    def _deductions_panel(self, invoice):
+        deducted = {}  # advance invoice → what this invoice deducts of it (≤ 0)
+        for line in AdvanceDeductionService.deduction_lines(invoice):
+            advance = line.advance_line.invoice
+            deducted[advance] = deducted.get(advance, Decimal("0.00")) + line.line_total.amount
+        if not deducted:
+            return "—"
+
+        rows = []
+        for advance, amount in deducted.items():
+            label = format_html(
+                "{} · {}", _sales_invoice_link(advance), advance.date_issued.strftime("%d/%m/%Y"),
+            )
+            if advance.advance_percentage is not None:
+                label = format_html(
+                    "{} ({} %)", label, AdvanceInvoiceService._format_percentage(advance.advance_percentage),
+                )
+            # Deductible once final, paid or not: say when it is not paid yet
+            if advance.status != SalesInvoiceStatus.FINAL:
+                badge = _pill(advance.get_status_display(), "#6b7280")
+            elif advance.payment_status != InvoicePaymentStatus.PAID:
+                badge = _pill(_("Unpaid"), "#dc2626")
+            else:
+                badge = ""
+            rows.append((label, number_format(amount, 2), badge))
+        return self._advance_rows_table(rows)
+
+    @staticmethod
+    def _advance_rows_table(rows):
+        """``rows`` of (label, amount, badges) as a small table."""
+        return format_html(
+            '<table style="width: 100%; max-width: 640px; font-size: 13px; color: #374151;">{}</table>',
+            format_html_join(
+                "",
+                '<tr style="border-top: 1px solid #e5e7eb;">'
+                '<td style="padding: 4px 6px 4px 0;">{}</td>'
+                '<td style="padding: 4px 6px; text-align: right; white-space: nowrap;">{}</td>'
+                '<td style="padding: 4px 0 4px 6px;">{}</td>'
+                '</tr>',
+                rows,
+            ),
+        )
 
     fieldsets = (
         (
@@ -1166,6 +1376,15 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     def send_reminder_now_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_salesinvoice_send_reminder_now", args=[object_id]))
 
+    def save_model(self, request, obj, form, change):
+        if change:
+            # Its expedientes before its row, as every invoicing path locks
+            # them: saving the invoice updates their totals
+            ProjectFileInvoiceService.lock_project_files(
+                ProjectFileInvoiceService.project_file_ids_of(obj)
+            )
+        super().save_model(request, obj, form, change)
+
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         form.instance.recalculate_totals(save=True)
@@ -1203,6 +1422,8 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                 "send_email_detail_action",
                 "register_payment_detail_action",
                 "run_invoice_matcher_detail_action",
+                "remove_advances_detail_action",
+                "reapply_advances_detail_action",
             ],
         },
         {
@@ -1242,33 +1463,121 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     def download_pdf_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_salesinvoice_download_pdf", args=[object_id]))
 
-    @action(description=_("Finalize"), icon="gavel")
-    def finalize_invoice_row_action(self, request, object_id):
-        invoice = SalesInvoice.objects.get(pk=object_id)
+    def _finalize_with_message(self, request, object_id):
+        invoice = get_object_or_404(self.get_queryset(request), pk=object_id)
         if invoice.status == SalesInvoiceStatus.FINAL:
             self.message_user(request, _("Invoice is already final."), level="warning")
-        else:
+            return
+        try:
             SalesInvoiceService.finalize_invoice(
                 invoice,
                 reply_to=sender_reply_to(request.user),
                 cc_emails=sender_cc(request.user),
             )
-            self.message_user(request, _("Invoice finalized and Delivery Order generated."))
-        return redirect(reverse("admin:invoices_salesinvoice_changelist"))
+        except ValidationError as e:
+            self.message_user(request, " ".join(e.messages), level=messages.ERROR)
+        else:
+            self.message_user(request, _("Invoice %s finalized.") % invoice.invoice_number)
 
-    @action(description=_("Finalize"), icon="gavel")
-    def finalize_invoice_detail_action(self, request, object_id):
-        invoice = SalesInvoice.objects.get(pk=object_id)
-        if invoice.status == SalesInvoiceStatus.FINAL:
-            self.message_user(request, _("Invoice is already final."), level="warning")
+    # Finalize, Cancel at AEAT, Remove and Reapply advances change the
+    # invoice: behind a dialog, so they only run on its CSRF-protected POST
+    # and never on a plain link.
+    _FINALIZE_DIALOG = {
+        "title": _("Finalize"),
+        "description": _(
+            "Issues this pro forma with the next invoice number and emails it "
+            "to the client. An issued invoice can no longer be changed."
+        ),
+        "form_submit_text": _("Finalize"),
+    }
+
+    @action(
+        description=_("Finalize"), icon="gavel",
+        permissions=["invoices.change_salesinvoice"], dialog=_FINALIZE_DIALOG,
+    )
+    def finalize_invoice_row_action(self, request, form, object_id):
+        self._finalize_with_message(request, object_id)
+        return self._dialog_redirect()
+
+    @action(
+        description=_("Finalize"), icon="gavel",
+        permissions=["invoices.change_salesinvoice"], dialog=_FINALIZE_DIALOG,
+    )
+    def finalize_invoice_detail_action(self, request, form, object_id):
+        self._finalize_with_message(request, object_id)
+        return self._dialog_redirect(object_id)
+
+    @staticmethod
+    def _dialog_redirect(object_id=None):
+        """Back to the invoice, or to the list after a row action (no
+        ``object_id``), after a dialog action. The dialog posts with htmx,
+        which would follow a real redirect inside the modal: see
+        ExpenseClaimAdmin.reject_claim_detail_action."""
+        response = HttpResponse(status=200)
+        if object_id is None:
+            response["HX-Redirect"] = reverse("admin:invoices_salesinvoice_changelist")
         else:
-            SalesInvoiceService.finalize_invoice(
-                invoice,
-                reply_to=sender_reply_to(request.user),
-                cc_emails=sender_cc(request.user),
-            )
-            self.message_user(request, _("Invoice finalized and Delivery Order generated."))
-        return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
+            response["HX-Redirect"] = reverse("admin:invoices_salesinvoice_change", args=[object_id])
+        return response
+
+    @action(
+        description=_("Remove advances"), icon="remove_circle",
+        permissions=["invoices.change_salesinvoice"],
+        dialog={
+            "title": _("Remove advances"),
+            "description": _(
+                "Removes this pro forma's advance deductions. "
+                "Reapply advances deducts them again."
+            ),
+            "form_submit_text": _("Remove advances"),
+        },
+    )
+    def remove_advances_detail_action(self, request, form, object_id):
+        invoice = get_object_or_404(self.get_queryset(request), pk=object_id)
+        try:
+            restored = AdvanceDeductionService.remove(invoice)
+        except ValidationError as e:
+            self.message_user(request, " ".join(e.messages), level=messages.ERROR)
+        else:
+            if restored:
+                self.message_user(request, _("Advance deductions removed (%(amount)s).") % {
+                    "amount": number_format(restored, 2),
+                })
+            else:
+                self.message_user(request, _("This invoice deducts no advances."), level=messages.WARNING)
+        return self._dialog_redirect(object_id)
+
+    @action(
+        description=_("Reapply advances"), icon="replay",
+        permissions=["invoices.change_salesinvoice"],
+        dialog={
+            "title": _("Reapply advances"),
+            "description": _(
+                "Removes this pro forma's advance deductions and deducts "
+                "the default plan again."
+            ),
+            "form_submit_text": _("Reapply advances"),
+        },
+    )
+    def reapply_advances_detail_action(self, request, form, object_id):
+        """Deducts the default plan again, e.g. after its goods lines changed."""
+        invoice = get_object_or_404(self.get_queryset(request), pk=object_id)
+        try:
+            with transaction.atomic():
+                AdvanceDeductionService.remove(invoice)
+                lines = AdvanceDeductionService.apply(invoice)
+        except ValidationError as e:
+            self.message_user(request, " ".join(e.messages), level=messages.ERROR)
+        else:
+            if lines:
+                self.message_user(
+                    request,
+                    _("Advances deducted: %(amount)s (%(advances)s).")
+                    % AdvanceDeductionService.describe(AdvanceDeductionService.deduction_lines(invoice)),
+                )
+            else:
+                self.message_user(request, _("There are no advances to deduct."), level=messages.WARNING)
+        return self._dialog_redirect(object_id)
 
     @display(
         description=_("Status"),
@@ -1281,6 +1590,17 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     )
     def get_status_label(self, obj):
         return obj.status, obj.get_status_display()
+
+    @display(
+        description=_("Type"),
+        ordering="document_type",
+        label={
+            SalesInvoiceDocumentType.INVOICE: "default",
+            SalesInvoiceDocumentType.ADVANCE: "info",
+        },
+    )
+    def get_document_type_label(self, obj):
+        return obj.document_type, obj.get_document_type_display()
 
     @display(
         description=_("Number"),
@@ -1314,14 +1634,27 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     @admin.action(description=_("Finalize selected pro forma invoices"))
     def finalize_invoice_action(self, request, queryset):
         count = 0
+        failed = []
+        # One invoice that cannot be finalized must not stop the others.
         for invoice in queryset.filter(status=SalesInvoiceStatus.PROFORMA):
-            SalesInvoiceService.finalize_invoice(
-                invoice,
-                reply_to=sender_reply_to(request.user),
-                cc_emails=sender_cc(request.user),
-            )
+            try:
+                SalesInvoiceService.finalize_invoice(
+                    invoice,
+                    reply_to=sender_reply_to(request.user),
+                    cc_emails=sender_cc(request.user),
+                )
+            except ValidationError as e:
+                failed.append(f"{invoice.display_number}: {' '.join(e.messages)}")
+                continue
             count += 1
-        self.message_user(request, _("Finalized %d invoices and generated Delivery Orders.") % count)
+        self.message_user(request, _("Finalized %d invoices.") % count)
+        if failed:
+            self.message_user(
+                request,
+                _("Could not finalize %(count)d invoices: %(invoices)s")
+                % {"count": len(failed), "invoices": "; ".join(failed)},
+                level=messages.ERROR,
+            )
 
     @admin.action(description=_("Mark selected invoices as Paid"))
     def mark_as_paid(self, request, queryset):
@@ -1536,25 +1869,62 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
             self.message_user(request, _("AEAT submission queued for invoice %s.") % invoice.invoice_number)
         return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
 
-    @action(description=_("Cancel at AEAT"), icon="cancel")
-    def cancel_aeat_row_action(self, request, object_id):
-        invoice = SalesInvoice.objects.get(pk=object_id)
+    def _cancel_with_message(self, request, object_id):
+        invoice = get_object_or_404(self.get_queryset(request), pk=object_id)
         if invoice.status == SalesInvoiceStatus.CANCELLED:
             self.message_user(request, _("Invoice is already cancelled."), level="warning")
-        else:
-            cancel_invoice_at_aeat.delay(invoice.id)
-            self.message_user(request, _("AEAT cancellation queued for invoice %s.") % (invoice.invoice_number or invoice.pk))
-        return redirect(reverse("admin:invoices_salesinvoice_changelist"))
+            return
+        # An advance still deducted or paid is refused here; the task checks
+        # again, under lock, before anything is sent.
+        try:
+            SalesInvoiceService.validate_for_cancel(invoice)
+        except ValidationError as e:
+            self.message_user(request, " ".join(e.messages), level=messages.ERROR)
+            return
+        number = invoice.invoice_number or invoice.pk
+        if not EInvoicingAccount.objects.filter(company_id=invoice.company_id, is_active=True).exists():
+            # Cancelled locally, right away (checked again under lock, as the
+            # task would: one already registered at the AEAT is refused)
+            try:
+                EInvoicingService.cancel_invoice(invoice)
+            except ValidationError as e:
+                self.message_user(request, " ".join(e.messages), level=messages.ERROR)
+            else:
+                self.message_user(
+                    request,
+                    _("Invoice %s cancelled locally: its company has no e-invoicing account.") % number,
+                )
+            return
+        cancel_invoice_at_aeat.delay(invoice.id)
+        self.message_user(request, _("AEAT cancellation queued for invoice %s.") % number)
 
-    @action(description=_("Cancel at AEAT"), icon="cancel")
-    def cancel_aeat_detail_action(self, request, object_id):
-        invoice = SalesInvoice.objects.get(pk=object_id)
-        if invoice.status == SalesInvoiceStatus.CANCELLED:
-            self.message_user(request, _("Invoice is already cancelled."), level="warning")
-        else:
-            cancel_invoice_at_aeat.delay(invoice.id)
-            self.message_user(request, _("AEAT cancellation queued for invoice %s.") % (invoice.invoice_number or invoice.pk))
-        return redirect(reverse("admin:invoices_salesinvoice_change", args=[object_id]))
+    # Behind a dialog, like Finalize: it queues the cancellation or, without
+    # an e-invoicing account, cancels the invoice right away
+    _CANCEL_DIALOG = {
+        "title": _("Cancel at AEAT"),
+        "description": _(
+            "Cancels this invoice at the AEAT. If its company has no "
+            "e-invoicing account, it is cancelled here straight away. "
+            "This cannot be undone."
+        ),
+        "form_submit_text": _("Cancel invoice"),
+    }
+
+    @action(
+        description=_("Cancel at AEAT"), icon="cancel",
+        permissions=["invoices.change_salesinvoice"], dialog=_CANCEL_DIALOG,
+    )
+    def cancel_aeat_row_action(self, request, form, object_id):
+        self._cancel_with_message(request, object_id)
+        return self._dialog_redirect()
+
+    @action(
+        description=_("Cancel at AEAT"), icon="cancel",
+        permissions=["invoices.change_salesinvoice"], dialog=_CANCEL_DIALOG,
+    )
+    def cancel_aeat_detail_action(self, request, form, object_id):
+        self._cancel_with_message(request, object_id)
+        return self._dialog_redirect(object_id)
 
     @action(description=_("Run Matcher"), url_path="run-matcher", icon="compare_arrows")
     def run_invoice_matcher_detail_action(self, request, object_id):

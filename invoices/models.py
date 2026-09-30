@@ -14,7 +14,7 @@ from datetime import date, datetime, time, timedelta
 from materials.models import Provider, PaymentMethod
 from django_countries.fields import CountryField
 from django.utils.translation import gettext_lazy as _ 
-from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import FileExtensionValidator
@@ -790,43 +790,59 @@ class AppliedTax(models.Model):
     # are allowed through so that recalculate_totals() can still run.
     _SENSITIVE_FIELDS = frozenset({"tax_type_id", "selected_percentage", "order"})
 
+    def _sales_invoice(self):
+        """The sales invoice this tax belongs to: the invoice itself for an
+        invoice-level tax, the line's invoice for a per-line tax on a sales
+        invoice item. None for taxes on anything else."""
+        model = self.content_type.model
+        if model == 'salesinvoice':
+            return self.content_object
+        if model == 'salesinvoiceitem':
+            item = self.content_object
+            return item.invoice if item else None
+        return None
+
     def save(self, *args, **kwargs):
         from django.core.exceptions import ValidationError
 
-        if self.content_type.model == 'salesinvoice':
-            from invoices.models import SalesInvoiceStatus
-            invoice = self.content_object
-            if invoice and invoice.status == SalesInvoiceStatus.FINAL:
-                update_fields = kwargs.get("update_fields")
+        invoice = self._sales_invoice()
+        if invoice and invoice.status in (SalesInvoiceStatus.FINAL, SalesInvoiceStatus.CANCELLED):
+            if invoice.status == SalesInvoiceStatus.CANCELLED:
+                message = _("Cannot edit taxes in a cancelled invoice.")
+            else:
+                message = _("Cannot edit taxes in a finalized invoice.")
+            update_fields = kwargs.get("update_fields")
 
-                if not self.pk:
-                    # New tax being added to a finalized invoice — always block.
-                    raise ValidationError(_("Cannot edit taxes in a finalized invoice."))
+            if not self.pk:
+                # New tax being added to a finalized invoice — always block.
+                raise ValidationError(message)
 
-                if update_fields is not None:
-                    # Explicit partial save: only block if a sensitive field is included.
-                    if self._SENSITIVE_FIELDS.intersection(update_fields):
-                        raise ValidationError(_("Cannot edit taxes in a finalized invoice."))
-                    # e.g. only base_amount / calculated_amount — allow through.
-                else:
-                    # Full save triggered by Django's inline formset machinery.
-                    # Only block if a sensitive field has actually changed.
-                    db = (
-                        AppliedTax.objects.filter(pk=self.pk)
-                        .values(*self._SENSITIVE_FIELDS)
-                        .first()
-                    )
-                    if db and any(
-                        getattr(self, field) != db[field]
-                        for field in self._SENSITIVE_FIELDS
-                    ):
-                        raise ValidationError(_("Cannot edit taxes in a finalized invoice."))
+            if update_fields is not None:
+                # Explicit partial save: only block if a sensitive field is included.
+                if self._SENSITIVE_FIELDS.intersection(update_fields):
+                    raise ValidationError(message)
+                # e.g. only base_amount / calculated_amount — allow through.
+            else:
+                # Full save triggered by Django's inline formset machinery.
+                # Only block if a sensitive field has actually changed.
+                db = (
+                    AppliedTax.objects.filter(pk=self.pk)
+                    .values(*self._SENSITIVE_FIELDS)
+                    .first()
+                )
+                if db and any(
+                    getattr(self, field) != db[field]
+                    for field in self._SENSITIVE_FIELDS
+                ):
+                    raise ValidationError(message)
 
+        # A per-line tax takes its currency from the line's invoice.
+        owner = invoice if invoice is not None else self.content_object
         currency = None
-        if self.content_object and hasattr(self.content_object, 'currency'):
-            currency = self.content_object.currency
-        elif self.content_object and hasattr(self.content_object, 'total_amount') and self.content_object.total_amount:
-            currency = str(self.content_object.total_amount.currency)
+        if owner and hasattr(owner, 'currency'):
+            currency = owner.currency
+        elif owner and hasattr(owner, 'total_amount') and owner.total_amount:
+            currency = str(owner.total_amount.currency)
         currency = currency or 'EUR'
 
         if self.base_amount is not None:
@@ -984,12 +1000,33 @@ class SalesInvoiceStatus(models.TextChoices):
     CANCELLED = "cancelled", _("Cancelled")
 
 
+class SalesInvoiceDocumentType(models.TextChoices):
+    INVOICE = "invoice", _("Invoice")
+    ADVANCE = "advance", _("Advance Invoice")
+
+
 class SalesInvoice(CompanyOwnedModel, Payable):
     status = models.CharField(
         max_length=20, 
         choices=SalesInvoiceStatus.choices, 
         default=SalesInvoiceStatus.PROFORMA,
         verbose_name=_("Status")
+    )
+    document_type = models.CharField(
+        max_length=20,
+        choices=SalesInvoiceDocumentType.choices,
+        default=SalesInvoiceDocumentType.INVOICE,
+        db_index=True,
+        verbose_name=_("Document Type"),
+        help_text=_("Advance invoices bill a share of a project file before its goods are invoiced."),
+    )
+    advance_percentage = models.DecimalField(
+        max_digits=7,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        verbose_name=_("Advance (%)"),
+        help_text=_("Share of the project file's taxable base billed by this advance invoice."),
     )
     created_at = models.DateTimeField(auto_now_add=True, verbose_name=_("Created At"))
     updated_at = models.DateTimeField(auto_now=True, verbose_name=_("Updated At"))
@@ -1127,6 +1164,20 @@ class SalesInvoice(CompanyOwnedModel, Payable):
                 fields=['company', 'proforma_number'],
                 name='salesinv_unique_company_proforma_number',
             ),
+            # Every advance belongs to a project file: that is what it is
+            # later deducted from.
+            models.CheckConstraint(
+                condition=Q(document_type=SalesInvoiceDocumentType.INVOICE) | Q(project_file__isnull=False),
+                name='salesinv_advance_has_project_file',
+            ),
+            models.CheckConstraint(
+                condition=Q(advance_percentage__isnull=True) | Q(
+                    document_type=SalesInvoiceDocumentType.ADVANCE,
+                    advance_percentage__gt=0,
+                    advance_percentage__lte=100,
+                ),
+                name='salesinv_advance_percentage_valid',
+            ),
         ]
         permissions = [
             ("bulk_mark_paid_salesinvoice", _("Can bulk update payment status (sales invoices)")),
@@ -1183,9 +1234,10 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         Recalculates the total and tax amounts by applying taxes sequentially
         on top of the subtotal (which is summed from line items).
         
-        If the status is FINAL, no recalculation is performed to preserve history.
+        If the status is FINAL or CANCELLED, no recalculation is performed to
+        preserve history.
         """
-        if self.status == SalesInvoiceStatus.FINAL:
+        if self.status in (SalesInvoiceStatus.FINAL, SalesInvoiceStatus.CANCELLED):
             return {
                 'subtotal': self.subtotal_amount,
                 'tax': self.tax_amount,
@@ -1309,7 +1361,11 @@ class SalesInvoice(CompanyOwnedModel, Payable):
             or 0
         )
 
-        if total_applied <= 0:
+        if self.total_amount.amount == 0:
+            # Nothing to collect (e.g. goods fully covered by advances), and a
+            # zero payment cannot be registered: settled as is.
+            new_status = InvoicePaymentStatus.PAID
+        elif total_applied <= 0:
             new_status = InvoicePaymentStatus.UNPAID
         elif total_applied >= self.total_amount.amount:
             new_status = InvoicePaymentStatus.PAID
@@ -1444,7 +1500,8 @@ class SalesInvoice(CompanyOwnedModel, Payable):
         was_adding = self._state.adding
         super().save(*args, **kwargs)
 
-        # Line items and applied taxes always carry the invoice's currency.
+        # Line items and applied taxes (the invoice's and its lines') always
+        # carry the invoice's currency.
         # Only worth a query when the currency actually moved: a brand-new
         # invoice has no children yet, and an unchanged one nothing to fix.
         if not was_adding and self.currency and getattr(self, "_loaded_currency", None) != self.currency:
@@ -1454,7 +1511,11 @@ class SalesInvoice(CompanyOwnedModel, Payable):
                 line_total_currency=self.currency,
             )
             ct = ContentType.objects.get_for_model(self)
-            AppliedTax.objects.filter(content_type=ct, object_id=self.pk).exclude(
+            item_ct = ContentType.objects.get_for_model(SalesInvoiceItem)
+            AppliedTax.objects.filter(
+                Q(content_type=ct, object_id=self.pk)
+                | Q(content_type=item_ct, object_id__in=self.items.values("pk"))
+            ).exclude(
                 calculated_amount_currency=self.currency
             ).update(
                 base_amount_currency=self.currency,
@@ -1534,11 +1595,28 @@ class SalesInvoiceItem(models.Model):
         verbose_name=_("Project File"),
         help_text=_("Source project file for this line item (used in bulk invoicing)."),
     )
+    advance_line = models.ForeignKey(
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="deductions",
+        verbose_name=_("Advance line"),
+        help_text=_("On a deduction line: the advance invoice line it deducts."),
+    )
+    # Per-line taxes (advance lines keep their VAT group here); deleted with the line.
+    applied_taxes = GenericRelation(
+        AppliedTax,
+        content_type_field="content_type",
+        object_id_field="object_id",
+    )
 
     def save(self, *args, **kwargs):
-        if self.invoice.status == SalesInvoiceStatus.FINAL and self.pk:
-            from django.core.exceptions import ValidationError
+        # Issued and cancelled invoices are frozen: no new lines, no edits.
+        if self.invoice.status == SalesInvoiceStatus.FINAL:
             raise ValidationError(_("Cannot edit items in a finalized invoice."))
+        if self.invoice.status == SalesInvoiceStatus.CANCELLED:
+            raise ValidationError(_("Cannot edit items in a cancelled invoice."))
 
         # Auto-populate reference from inventory item code when source is an inventory item
         if not self.reference and self.source_id and self.source_id.startswith("inv_item_"):
@@ -1561,6 +1639,10 @@ class SalesInvoiceItem(models.Model):
 
         self.discount_amount = (self.unit_price * self.quantity) * (self.discount_percentage / Decimal("100"))
         self.line_total = (self.unit_price * self.quantity) - self.discount_amount
+
+        # A deduction takes an advance off the invoice, it never adds to it.
+        if self.advance_line_id and self.line_total.amount > 0:
+            raise ValidationError(_("An advance deduction line cannot have a positive total."))
         super().save(*args, **kwargs)
 
     def __str__(self):

@@ -12,7 +12,7 @@ from configurator.utils import (
 from django.core.exceptions import ValidationError
 from .validators import pricing_expression_validator
 from configurator.services import ConfigurationExportService
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from django.utils.translation import gettext_lazy as _
 from django.contrib.postgres.fields import ArrayField
 from viewflow.fsm import State
@@ -881,31 +881,35 @@ class Configuration(Timestampable, CompanyOwnedModel):
 
     def calculate_taxes_and_snapshot(self, base_amount: Decimal):
         """
-        Applies taxes sequentially and returns:
+        Applies every tax (IVA, recargo, IRPF) to the taxable base, as
+        invoices do — retentions subtract — and returns:
         - final total
         - tax breakdown snapshot (JSON-serializable)
         """
         breakdown = []
-        total = Decimal(base_amount)
+        base = Decimal(base_amount)
+        total = base
 
         for tax in self.get_taxes():
-            tax.base_amount = total
+            tax.base_amount = base
             tax.save()
             tax.calculate_and_store()
 
-            result = tax.calculate(total)
+            result = tax.calculate(base)
+            if tax.tax_type.behavior == "add":
+                total = (total + result["tax_amount"]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            else:
+                total = (total - result["tax_amount"]).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
             breakdown.append(
                 {
                     "tax_name": tax.tax_type.tax_name,
                     "percentage": str(tax.selected_percentage),
-                    "base": str(total.quantize(Decimal("0.01"))),
+                    "base": str(base.quantize(Decimal("0.01"))),
                     "tax_amount": str(result["tax_amount"]),
-                    "total_after_tax": str(result["total_amount"]),
+                    "total_after_tax": str(total),
                 }
             )
-
-            total = result["total_amount"]
 
         return total, breakdown
 

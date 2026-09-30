@@ -1,10 +1,12 @@
 import datetime
+from decimal import Decimal
 
 from django import forms
 from django.contrib import admin
 from django.contrib.admin.widgets import AutocompleteSelect, AutocompleteSelectMultiple
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
+from django.utils.formats import number_format
 from django.utils.translation import gettext_lazy as _
 from unfold.contrib.forms.widgets import WysiwygWidget
 from unfold.widgets import (
@@ -77,6 +79,21 @@ class ProjectFileAdminForm(forms.ModelForm):
                 "asset",
                 _("The asset belongs to another client (%(client)s).")
                 % {"client": asset.client},
+            )
+        # Advances left to deduct must be deducted (or cancelled) first, as
+        # the API's status change refuses too
+        advance_pending = self.instance.advance_pending_amount.amount
+        if (
+            not is_new
+            and "status" in self.changed_data
+            and cleaned.get("status") in (ProjectFileStatus.CANCELLED, ProjectFileStatus.COMPLETED)
+            and advance_pending > Decimal("0.01")
+        ):
+            self.add_error(
+                "status",
+                _("This project file has advances pending deduction (%(amount)s): "
+                  "invoice its goods or cancel the advances first.")
+                % {"amount": number_format(advance_pending, 2)},
             )
         return cleaned
 

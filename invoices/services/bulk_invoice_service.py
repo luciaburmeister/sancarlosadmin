@@ -2,7 +2,8 @@
 Service for creating a single SalesInvoice from multiple ProjectFiles.
 
 Invoices 100% of the remaining amount for each selected ProjectFile,
-tagging each line item with its source PF for tracking.
+tagging each line item with its source PF for tracking, and deducts the
+advances each of them has left to deduct.
 """
 import logging
 from decimal import Decimal
@@ -15,6 +16,7 @@ from django.utils.translation import gettext_lazy as _
 from invoices.models import (
     SalesInvoice, SalesInvoiceItem, SalesInvoiceStatus, AppliedTax,
 )
+from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from invoices.services.sales_invoice_payment import resolve_sales_invoice_payment_method
 
@@ -32,7 +34,8 @@ class BulkProjectFileInvoiceService:
     ):
         """
         Create one SalesInvoice that invoices 100 % of the remaining amount
-        for every ProjectFile in the list.
+        for every ProjectFile in the list, less the advances each of them
+        has left to deduct: the invoice closes every expediente it bills.
 
         Args:
             project_files: queryset or list of ProjectFile instances
@@ -67,25 +70,36 @@ class BulkProjectFileInvoiceService:
                 _("All selected project files must belong to the same company.")
             )
 
-        # ---------- gather items from each PF ----------
-        all_items_data = []       # list of dicts ready for SalesInvoiceItem.objects.create
-        pf_summaries = {}         # pf.pk → summary dict
+        # Expedientes first, then their advances, before any numbering lock
+        pf_ids = [pf.pk for pf in pf_list]
+        ProjectFileInvoiceService.lock_project_files(pf_ids)
+        AdvanceInvoiceService.lock_advances(pf_ids)
+
+        # ---------- price each PF's lines ----------
+        billed = []  # (pf, items, PricedLines) of each PF with goods left
 
         for pf in pf_list:
             summary = ProjectFileInvoiceService.get_invoiceable_summary(pf)
-            pf_summaries[pf.pk] = summary
-
-            if summary["remaining"] <= Decimal("0.01"):
-                continue  # already fully invoiced, skip
+            if not summary["can_invoice"]:
+                continue  # goods already fully invoiced, skip
 
             # Build items at 100 % of remaining
             items = cls._build_items_for_pf(pf, summary)
-            all_items_data.extend(items)
+            if not items:
+                continue
+            # Each PF's quotes carry their own discounts onto its lines
+            priced = ProjectFileInvoiceService.price_lines(summary, items)
+            # The same net over-invoicing check as a single expediente's invoice
+            AdvanceDeductionService.check(
+                summary, priced.subtotal - priced.resolution.discount_amount,
+            )
+            billed.append((pf, items, priced))
 
-        if not all_items_data:
+        if not billed:
             raise ValidationError(
                 _("All selected project files are already fully invoiced.")
             )
+        AdvanceInvoiceService.check_no_proforma_advance([pf.pk for pf, _items, _priced in billed])
 
         # ---------- create invoice ----------
         resolved_pm = resolve_sales_invoice_payment_method(
@@ -106,101 +120,39 @@ class BulkProjectFileInvoiceService:
         )
 
         # ---------- create line items + aggregate taxes ----------
-        from configurator.models import Configuration
-        from management.models import WorkEntry
-        from sales.models import QuoteInventoryItem
-        from invoices.services.discounts import QuoteDiscountResolver, SourceLine, source_kind
-
-        config_ct = ContentType.objects.get_for_model(Configuration)
-        inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
-        work_entry_ct = ContentType.objects.get_for_model(WorkEntry)
-
-        subtotal = Decimal("0.00")
+        discount = Decimal("0.00")
+        breakdown = []
         tax_agg: dict[tuple, dict] = {}
-        line_taxes = []    # (line_total, source_taxes, quote_id, kind) — taxed after the discount is known
-        source_lines = []  # SourceLine records for the discount resolver
 
-        for item_data in all_items_data:
-            item = SalesInvoiceItem.objects.create(
-                invoice=invoice,
-                description=item_data["description"],
-                quote_name=item_data.get("quote_name", ""),
-                quantity=item_data.get("quantity", Decimal("1")),
-                unit_price=item_data["unit_price"],
-                discount_percentage=item_data.get("discount_percentage", Decimal("0.00")),
-                source_id=item_data.get("source_id", ""),
-                project_file_id=item_data["project_file_id"],
-            )
-            line_total = item.line_total.amount
-            subtotal += line_total
-
-            # Resolve source taxes and owning quote
-            source_id = item_data.get("source_id", "")
-            source_taxes = []
-            quote_id = item_data.get("quote_id")
-
-            if source_id.startswith("config_") or source_id.startswith("direct_"):
-                obj_id = source_id.split("_", 1)[1]
-                source_taxes = list(
-                    AppliedTax.objects.filter(
-                        content_type=config_ct, object_id=obj_id,
-                    ).select_related("tax_type")
+        for pf, items, priced in billed:
+            for item_data in items:
+                SalesInvoiceItem.objects.create(
+                    invoice=invoice,
+                    description=item_data["description"],
+                    quote_name=item_data.get("quote_name", ""),
+                    quantity=item_data.get("quantity", Decimal("1")),
+                    unit_price=item_data["unit_price"],
+                    discount_percentage=item_data.get("discount_percentage", Decimal("0.00")),
+                    source_id=item_data.get("source_id", ""),
+                    project_file_id=pf.pk,
                 )
-            elif source_id.startswith("inv_item_"):
-                obj_id = source_id.split("_", 2)[2]
-                source_taxes = list(
-                    AppliedTax.objects.filter(
-                        content_type=inv_item_ct, object_id=obj_id,
-                    ).select_related("tax_type")
-                )
-            elif source_id.startswith("work_entry_"):
-                obj_id = source_id.split("_", 2)[2]
-                source_taxes = list(
-                    AppliedTax.objects.filter(
-                        content_type=work_entry_ct, object_id=obj_id,
-                    ).select_related("tax_type")
-                )
-
-            kind = source_kind(source_id)
-            source_lines.append(SourceLine(source_id, line_total, quote_id, kind))
-            line_taxes.append((line_total, source_taxes, quote_id, kind))
-
-        # Carry each quote's discount onto the invoice via the per-level
-        # strategies, scaled by how much of that quote's base is invoiced.
-        source_quotes = [
-            qd["quote"]
-            for summary in pf_summaries.values()
-            for qd in summary["quotes"]
-        ]
-        resolution = QuoteDiscountResolver().resolve(source_quotes, source_lines)
-
-        # Taxes apply to each line's discounted base.
-        for line_total, source_taxes, quote_id, kind in line_taxes:
-            frac = resolution.taxable_fraction(quote_id, kind)
-            taxable = (line_total * (Decimal("1") - frac)).quantize(Decimal("0.01"))
-            for tax in source_taxes:
-                if tax.selected_percentage <= 0:
-                    continue
-                key = (tax.tax_type_id, tax.tax_type.behavior, tax.selected_percentage)
-                rate = tax.selected_percentage / Decimal("100")
-                calc = (taxable * rate).quantize(Decimal("0.01"))
-
+            discount += priced.resolution.discount_amount
+            breakdown.extend(priced.resolution.breakdown)
+            for key, entry in priced.tax_agg.items():
                 if key not in tax_agg:
                     tax_agg[key] = {
-                        "tax_type": tax.tax_type,
-                        "selected_percentage": tax.selected_percentage,
+                        "tax_type": entry["tax_type"],
+                        "selected_percentage": entry["selected_percentage"],
                         "base_amount": Decimal("0.00"),
                         "calculated_amount": Decimal("0.00"),
                     }
-                tax_agg[key]["base_amount"] += taxable
-                tax_agg[key]["calculated_amount"] += calc
+                tax_agg[key]["base_amount"] += entry["base_amount"]
+                tax_agg[key]["calculated_amount"] += entry["calculated_amount"]
 
         # Create aggregated AppliedTax records
         ct = ContentType.objects.get_for_model(invoice)
-        total_tax = Decimal("0.00")
 
         for order, entry in enumerate(tax_agg.values()):
-            total_tax += entry["calculated_amount"]
             AppliedTax.objects.create(
                 content_type=ct,
                 object_id=invoice.id,
@@ -212,22 +164,26 @@ class BulkProjectFileInvoiceService:
             )
 
         # ---------- update invoice totals ----------
-        invoice.subtotal_amount = subtotal
-        invoice.discount_amount = resolution.discount_amount
-        invoice.discount_breakdown = resolution.breakdown
-        invoice.tax_amount = total_tax
-        invoice.total_amount = subtotal - resolution.discount_amount + total_tax
+        invoice.discount_amount = discount
+        invoice.discount_breakdown = breakdown
+        # Each rate's tax on its base, as SalesInvoice.recalculate_totals
+        # rounds it (so saving the pro forma again moves no cent);
+        # retentions (IRPF) subtract
+        invoice.recalculate_totals(save=False)
         invoice.save(update_fields=[
             "subtotal_amount", "discount_amount", "discount_amount_currency",
             "discount_breakdown", "tax_amount", "total_amount",
         ])
 
         ProjectFileInvoiceService.lock_invoiced_work_entries(
-            [item_data.get("source_id", "") for item_data in all_items_data]
+            [item_data.get("source_id", "") for _pf, items, _priced in billed for item_data in items]
         )
 
         # Link M2M
         invoice.project_files.set(pf_list)
+
+        # It bills what each PF has left, so it takes all of its advances
+        AdvanceDeductionService.apply(invoice)
 
         # Recalculate all affected PFs
         for pf in pf_list:
@@ -245,111 +201,17 @@ class BulkProjectFileInvoiceService:
     @classmethod
     def _build_items_for_pf(cls, project_file, summary):
         """
-        Build item dicts for 100% of remaining on a single ProjectFile.
-        Each dict has project_file_id set for item-level tracking.
+        Build item dicts for 100% of remaining on a single ProjectFile, as
+        the expediente's own invoices build them (build_items_for_ratio),
+        each configuration one line at its subtotal. Each description is
+        prefixed with the PF reference.
         """
-        items = []
         pf_ref = project_file.reference or f"PF#{project_file.pk}"
-
-        for quote_data in summary["quotes"]:
-            quote = quote_data["quote"]
-
-            for config in quote.configurations.all():
-                sub = config.subtotal_price.amount
-                # Zero-value items are kept as 0-amount lines on the invoice
-                if sub < 0:
-                    continue
-                if config.units and config.units > 0:
-                    qty = config.units
-                    up = (sub / qty).quantize(Decimal("0.01"))
-                else:
-                    qty = Decimal("1")
-                    up = sub
-                items.append({
-                    "source_id": f"config_{config.id}",
-                    "description": f"[{pf_ref}] {config.name} (Q#{quote.id})",
-                    "quote_name": quote.project_name or "",
-                    "quantity": qty,
-                    "unit_price": up,
-                    "discount_percentage": Decimal("0.00"),
-                    "project_file_id": project_file.pk,
-                    "quote_id": quote.id,
-                })
-
-            for item in quote.items.all():
-                line_amt = item.line_total.amount
-                if line_amt < 0:
-                    continue
-                items.append({
-                    "source_id": f"quote_item_{item.id}",
-                    "description": f"[{pf_ref}] {item.material} x{item.quantity} (Q#{quote.id})",
-                    "quote_name": quote.project_name or "",
-                    "quantity": Decimal("1"),
-                    "unit_price": line_amt,
-                    "discount_percentage": Decimal("0.00"),
-                    "project_file_id": project_file.pk,
-                    "quote_id": quote.id,
-                })
-
-            for inv_item in quote.inventory_items.select_related("inventory_item").all():
-                line_amt = inv_item.line_total.amount if inv_item.line_total else Decimal("0.00")
-                if line_amt < 0:
-                    continue
-                desc = inv_item.inventory_item.name if inv_item.inventory_item else inv_item.description
-                items.append({
-                    "source_id": f"inv_item_{inv_item.id}",
-                    "description": f"[{pf_ref}] {desc}",
-                    "quote_name": quote.project_name or "",
-                    "quantity": inv_item.quantity,
-                    "unit_price": inv_item.unit_price.amount,
-                    # Line-item level discounts travel with the line itself
-                    "discount_percentage": inv_item.discount or Decimal("0.00"),
-                    "project_file_id": project_file.pk,
-                    "quote_id": quote.id,
-                })
-
-        # Direct configurations (not linked to any quote)
-        for config_data in summary["direct_configurations"]:
-            from configurator.models import Configuration
-            config = Configuration.objects.get(pk=config_data["id"])
-            sub = config.subtotal_price.amount
-            if sub < 0:
-                continue
-            if config.units and config.units > 0:
-                qty = config.units
-                up = (sub / qty).quantize(Decimal("0.01"))
-            else:
-                qty = Decimal("1")
-                up = sub
-            items.append({
-                "source_id": f"direct_{config.id}",
-                "description": f"[{pf_ref}] {config.name}",
-                "quote_name": "",
-                "quantity": qty,
-                "unit_price": up,
-                "discount_percentage": Decimal("0.00"),
-                "project_file_id": project_file.pk,
-            })
-
-        # Work entries (billed at full price, like the other bulk lines)
-        for entry_data in summary.get("work_entries", []):
-            total = entry_data["total"]
-            if total < 0:
-                continue
-            qty = entry_data.get("quantity")
-            if qty and qty > 0:
-                up = (total / qty).quantize(Decimal("0.01"))
-            else:
-                qty = Decimal("1")
-                up = total
-            items.append({
-                "source_id": f"work_entry_{entry_data['id']}",
-                "description": f"[{pf_ref}] {entry_data['description']}",
-                "quote_name": "",
-                "quantity": qty,
-                "unit_price": up,
-                "discount_percentage": Decimal("0.00"),
-                "project_file_id": project_file.pk,
-            })
-
+        ratio = ProjectFileInvoiceService.compute_invoice_line_ratio(
+            summary, "percentage", Decimal("100"),
+        )
+        items = ProjectFileInvoiceService.build_items_for_ratio(summary, ratio, split_configs=False)
+        for item in items:
+            item["description"] = f"[{pf_ref}] {item['description']}"
+            item["project_file_id"] = project_file.pk
         return items

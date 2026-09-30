@@ -8403,10 +8403,8 @@ msgstr "AEAT / Verifactu"
 msgid "View PDF"
 msgstr "Ver PDF"
 
-#, fuzzy
-#| msgid "Final price"
 msgid "Finalize"
-msgstr "Precio final"
+msgstr "Finalizar"
 
 msgid "Invoice is already final."
 msgstr "La factura ya está finalizada."
@@ -8484,20 +8482,15 @@ msgstr "Solo se pueden enviar a la AEAT las facturas finalizadas."
 msgid "AEAT submission queued for invoice %s."
 msgstr "Envío de AEAT en cola para la factura %s."
 
-#, fuzzy
-#| msgid "Cancel"
 msgid "Cancel at AEAT"
-msgstr "Cancelar"
+msgstr "Anular en la AEAT"
 
-#, fuzzy
-#| msgid "Invoice is already final."
 msgid "Invoice is already cancelled."
-msgstr "La factura ya está finalizada."
+msgstr "La factura ya está cancelada."
 
-#, fuzzy, python-format
-#| msgid "Invoice email queued for %s."
+#, python-format
 msgid "AEAT cancellation queued for invoice %s."
-msgstr "Correo electrónico de factura en cola para %s."
+msgstr "Anulación en la AEAT en cola para la factura %s."
 
 msgid "Timing"
 msgstr "Programación"
@@ -8716,10 +8709,8 @@ msgstr "Monto subtotal personalizado para esta factura"
 msgid "Payment Method"
 msgstr "Método de Pago"
 
-#, fuzzy
-#| msgid "Please select an existing expediente."
 msgid "Please enter a valid percentage."
-msgstr "Por favor, selecciona un expediente existente."
+msgstr "Por favor, ingrese un porcentaje válido."
 
 msgid "Percentage cannot exceed 100%."
 msgstr "El porcentaje no puede exceder del 100%."
@@ -9544,15 +9535,12 @@ msgstr "Cantidad Recibida"
 msgid "Quantity must be greater than zero."
 msgstr "La fecha de inicio debe ser antes de la fecha de fin."
 
-#, fuzzy
-#| msgid ""
-#| "This project file has no accepted quotes. Cannot create an invoice."
 msgid ""
 "This project file has no accepted quotes, direct configurations or work "
 "entries. Cannot create an invoice."
 msgstr ""
-"Este archivo de proyecto no tiene cotizaciones aceptadas. No se puede crear "
-"una factura."
+"Este expediente no tiene presupuestos aceptados, configuraciones directas ni"
+" partes de trabajo. No se puede crear una factura."
 
 #, python-format
 msgid ""
@@ -13609,10 +13597,8 @@ msgstr "Otro Horas Extras"
 msgid "Additional Solidarity Contribution"
 msgstr "Contribución Solidaria Adicional"
 
-#, fuzzy
-#| msgid "General Information"
 msgid "Base"
-msgstr "Información General"
+msgstr "Base"
 
 #, fuzzy
 #| msgid "Production Stage"
@@ -17848,6 +17834,459 @@ msgstr "numero_proforma"
 
 msgid "Working"
 msgstr "Trabajando"
+
+msgid ""
+"Advance lines and advance deductions cannot be edited or deleted here. "
+"Deductions are changed with the pro forma's Remove advances and Reapply "
+"advances actions."
+msgstr ""
+"Las líneas de anticipo y las deducciones de anticipos no se pueden editar ni"
+" eliminar aquí. Las deducciones se cambian con las acciones Quitar anticipos"
+" y Reaplicar anticipos de la proforma."
+
+msgid "Advances"
+msgstr "Anticipos"
+
+msgid "pro forma: issue it as final to deduct it"
+msgstr "proforma: emítela como definitiva para descontarla"
+
+msgid "not deductible"
+msgstr "no descontable"
+
+msgid "Advance (%)"
+msgstr "Anticipo (%)"
+
+#, python-brace-format
+msgid "Deducted in {invoice}"
+msgstr "Descontado en {invoice}"
+
+msgid "Remove advances"
+msgstr "Quitar anticipos"
+
+#, python-format
+msgid "Advance deductions removed (%(amount)s)."
+msgstr "Deducciones de anticipos quitadas (%(amount)s)."
+
+msgid "This invoice deducts no advances."
+msgstr "Esta factura no descuenta ningún anticipo."
+
+msgid "Reapply advances"
+msgstr "Reaplicar anticipos"
+
+#, python-format
+msgid "Advances deducted: %(amount)s (%(advances)s)."
+msgstr "Anticipos descontados: %(amount)s (%(advances)s)."
+
+msgid "There are no advances to deduct."
+msgstr "No hay anticipos que descontar."
+
+#, python-format
+msgid "Could not finalize %(count)d invoices: %(invoices)s"
+msgstr "No se pudieron finalizar %(count)d facturas: %(invoices)s"
+
+msgid "Advance invoice (% of the project file)"
+msgstr "Factura de anticipo (% del expediente)"
+
+#, python-format
+msgid ""
+"An advance invoice is issued by the project file's company (%(company)s)."
+msgstr ""
+"La factura de anticipo la emite la empresa del expediente (%(company)s)."
+
+msgid "Issue as final now"
+msgstr "Emitir como definitiva ahora"
+
+msgid ""
+"Assigns the invoice number straight away. VAT on an advance is due when it "
+"is received, so an advance is usually issued once it is paid."
+msgstr ""
+"Asigna el número de factura de inmediato. El IVA de un anticipo se devenga "
+"al cobrarlo, así que un anticipo suele emitirse como definitiva una vez "
+"pagado."
+
+msgid "Amount to deduct"
+msgstr "Importe a descontar"
+
+msgid "This advance cannot be deducted on this invoice."
+msgstr "Este anticipo no se puede descontar en esta factura."
+
+#, python-format
+msgid "Enter an amount between %(minimum)s and %(maximum)s."
+msgstr "Introduce un importe entre %(minimum)s y %(maximum)s."
+
+msgid "Cannot edit taxes in a cancelled invoice."
+msgstr "No se pueden editar los impuestos en una factura cancelada."
+
+msgid "Advance Invoice"
+msgstr "Factura de anticipo"
+
+msgid ""
+"Advance invoices bill a share of a project file before its goods are "
+"invoiced."
+msgstr ""
+"Las facturas de anticipo facturan una parte del expediente antes de facturar"
+" sus bienes."
+
+msgid ""
+"Share of the project file's taxable base billed by this advance invoice."
+msgstr ""
+"Porcentaje de la base imponible del expediente que factura esta factura de "
+"anticipo."
+
+msgid "Advance line"
+msgstr "Línea de anticipo"
+
+msgid "On a deduction line: the advance invoice line it deducts."
+msgstr ""
+"En una línea de deducción: la línea de la factura de anticipo que descuenta."
+
+msgid "Cannot edit items in a cancelled invoice."
+msgstr "No se pueden editar elementos en una factura cancelada."
+
+msgid "An advance deduction line cannot have a positive total."
+msgstr "Una línea de deducción de anticipo no puede tener un total positivo."
+
+msgid "Advance Invoices"
+msgstr "Facturas de anticipo"
+
+msgid "Advances Deducted"
+msgstr "Anticipos deducidos"
+
+msgid "Advance Deduction"
+msgstr "Deducción de anticipo"
+
+#, python-format
+msgid ""
+"Advance %(advances)s is still a pro forma: finalize or delete it before "
+"invoicing the goods of this project file."
+msgstr ""
+"El anticipo %(advances)s sigue siendo una proforma: finalízalo o elimínalo "
+"antes de facturar los bienes de este expediente."
+
+#, python-format
+msgid ""
+"The cancellation of advance %(advances)s at the AEAT is in progress: wait "
+"for it to finish before invoicing the goods of this project file."
+msgstr ""
+"La anulación del anticipo %(advances)s en la AEAT está en curso: espera a "
+"que termine antes de facturar los bienes de este expediente."
+
+#, python-format
+msgid ""
+"Advance %(percentage)s %% of the taxable base %(base)s € — Project file "
+"%(reference)s"
+msgstr ""
+"Anticipo %(percentage)s %% s/ base imponible %(base)s € — Expediente "
+"%(reference)s"
+
+msgid "This project file has no company."
+msgstr "Este expediente no tiene empresa."
+
+msgid "Enter the advance percentage or amount."
+msgstr "Introduce el porcentaje o el importe del anticipo."
+
+#, python-format
+msgid ""
+"The advance (%(amount)s) exceeds the largest advance still allowed on "
+"%(project_file)s (%(max)s): the taxable base neither invoiced nor advanced "
+"yet."
+msgstr ""
+"El anticipo (%(amount)s) supera el anticipo máximo aún permitido en "
+"%(project_file)s (%(max)s): la base imponible que todavía no se ha facturado"
+" ni anticipado."
+
+msgid "no taxes"
+msgstr "sin impuestos"
+
+#, python-format
+msgid ""
+"This invoice would exceed the invoiceable amount of %(project_file)s. "
+"Invoiceable (taxable base): %(invoiceable)s, already invoiced: %(invoiced)s,"
+" this invoice: %(amount)s, over by: %(over)s"
+msgstr ""
+"Esta factura excedería el importe facturable de %(project_file)s. Facturable"
+" (base imponible): %(invoiceable)s, ya facturado: %(invoiced)s, esta "
+"factura: %(amount)s, exceso: %(over)s"
+
+msgid ""
+"Advances can only be deducted on a pro forma invoice that is not an advance "
+"itself."
+msgstr ""
+"Los anticipos solo se pueden descontar en una factura proforma que no sea a "
+"su vez un anticipo."
+
+msgid "This invoice already deducts advances: remove them first."
+msgstr "Esta factura ya descuenta anticipos: quítalos primero."
+
+msgid "Advance deductions can only be changed on a pro forma invoice."
+msgstr ""
+"Las deducciones de anticipos solo se pueden cambiar en una factura proforma."
+
+#, python-format
+msgid ""
+"Advance %(advance)s can no longer be deducted on %(invoice)s: remove the "
+"advances and reapply them."
+msgstr ""
+"El anticipo %(advance)s ya no se puede descontar en %(invoice)s: quita los "
+"anticipos y vuelve a aplicarlos."
+
+#, python-format
+msgid ""
+"%(invoice)s must deduct between %(minimum)s and %(maximum)s of advance "
+"%(advance)s and deducts %(amount)s: reapply the advances."
+msgstr ""
+"%(invoice)s debe descontar entre %(minimum)s y %(maximum)s del anticipo "
+"%(advance)s y descuenta %(amount)s: vuelve a aplicar los anticipos."
+
+#, python-format
+msgid ""
+"The %(tax)s base of %(invoice)s (%(base)s) is not its goods' base at that "
+"rate less its advance deductions (%(expected)s): remove the advances, "
+"correct the taxes and reapply them."
+msgstr ""
+"La base de %(tax)s de %(invoice)s (%(base)s) no es la base de sus bienes a "
+"ese tipo menos sus deducciones de anticipos (%(expected)s): quita los "
+"anticipos, corrige los impuestos y vuelve a aplicarlos."
+
+#, python-format
+msgid ""
+"The advance deductions would take %(invoice)s below zero: a tax base, its "
+"taxable base or its total."
+msgstr ""
+"Las deducciones de anticipos dejarían %(invoice)s por debajo de cero: una "
+"base de impuesto, su base imponible o su total."
+
+#, python-format
+msgid "Advance line %(line)s is not an advance this invoice can deduct."
+msgstr ""
+"La línea de anticipo %(line)s no es un anticipo que esta factura pueda "
+"descontar."
+
+#, python-format
+msgid ""
+"The deduction of advance %(advance)s must be between %(minimum)s and "
+"%(maximum)s; %(amount)s was entered."
+msgstr ""
+"La deducción del anticipo %(advance)s debe estar entre %(minimum)s y "
+"%(maximum)s; se ha introducido %(amount)s."
+
+#, python-format
+msgid "Less advance on invoice %(number)s of %(date)s (%(percentage)s %%)"
+msgstr ""
+"A deducir: anticipo s/ factura %(number)s de %(date)s (%(percentage)s %%)"
+
+#, python-format
+msgid "Less advance on invoice %(number)s of %(date)s"
+msgstr "A deducir: anticipo s/ factura %(number)s de %(date)s"
+
+#, python-format
+msgid "Delivery order %(number)s is already invoiced (%(invoice)s)."
+msgstr "La orden de entrega %(number)s ya está facturada (%(invoice)s)."
+
+#, python-format
+msgid ""
+"%(project_file)s has advances pending deduction (%(amount)s): invoice it "
+"from the project file so they are deducted."
+msgstr ""
+"%(project_file)s tiene anticipos pendientes de descontar (%(amount)s): "
+"factúralo desde el expediente para que se descuenten."
+
+#, python-format
+msgid "Only pro forma invoices can be finalized; %(number)s is %(status)s."
+msgstr ""
+"Solo se pueden finalizar facturas proforma; %(number)s está en estado "
+"%(status)s."
+
+#, python-format
+msgid ""
+"Advance %(advance)s is deducted on %(invoices)s: cancel those invoices, or "
+"remove the advances from the pro formas, before cancelling it."
+msgstr ""
+"El anticipo %(advance)s está descontado en %(invoices)s: cancela esas "
+"facturas, o quita los anticipos de las proformas, antes de cancelarlo."
+
+#, python-format
+msgid ""
+"Advance %(advance)s has payments allocated: remove them first, so the money "
+"stays as the client's credit, then cancel it."
+msgstr ""
+"El anticipo %(advance)s tiene pagos asignados: quítalos primero, para que el"
+" dinero quede como saldo a favor del cliente, y después cancélalo."
+
+msgid ""
+"Advance invoices and invoices that deduct advances cannot be duplicated."
+msgstr ""
+"Las facturas de anticipo y las facturas que descuentan anticipos no se "
+"pueden duplicar."
+
+msgid "Largest advance still allowed"
+msgstr "Anticipo máximo aún permitido"
+
+msgid "Advances to deduct"
+msgstr "Anticipos a descontar"
+
+msgid ""
+"Each advance is taken off this invoice as a negative line. The amount can go"
+" from the minimum, which keeps the advances still open within the goods left"
+" to invoice, to what is pending; the invoice that completes the goods takes "
+"all of it."
+msgstr ""
+"Cada anticipo se descuenta de esta factura como una línea negativa. El "
+"importe puede ir desde el mínimo, que mantiene los anticipos aún abiertos "
+"dentro de los bienes pendientes de facturar, hasta lo pendiente; la factura "
+"que completa los bienes lo descuenta entero."
+
+msgid "Advance"
+msgstr "Anticipo"
+
+msgid "Minimum"
+msgstr "Mínimo"
+
+msgid "This invoice has no advance to deduct."
+msgstr "Esta factura no tiene ningún anticipo que descontar."
+
+msgid "Advances pending deduction"
+msgstr "Anticipos pendientes de descontar"
+
+#, python-format
+msgid "+%(percentage)s%% advance"
+msgstr "+%(percentage)s%% anticipo"
+
+msgid "Advanced"
+msgstr "Anticipado"
+
+msgid "Deducted"
+msgstr "Descontado"
+
+msgid "Pending to deduct"
+msgstr "Pendiente de descontar"
+
+msgid "Unsettled advance: no goods are left to deduct it from"
+msgstr "Anticipo sin regularizar: no quedan bienes de los que descontarlo"
+
+msgid "Advances Pending Deduction"
+msgstr "Anticipos pendientes de descontar"
+
+msgid ""
+"Cached taxable base of non-cancelled advance invoices not yet deducted on a "
+"later invoice."
+msgstr ""
+"Base imponible en caché de las facturas de anticipo no canceladas que aún no"
+" se ha descontado en una factura posterior."
+
+#, python-format
+msgid ""
+"Invoice created from Delivery Order %(number)s, deducting %(amount)s of "
+"advances (%(advances)s)."
+msgstr ""
+"Factura creada a partir de la Orden de Entrega %(number)s, descontando "
+"%(amount)s de anticipos (%(advances)s)."
+
+#, python-format
+msgid ""
+"Invoice %(invoice)s is registered at the AEAT: reactivate the company's "
+"e-invoicing account to cancel it."
+msgstr ""
+"La factura %(invoice)s está registrada en la AEAT: reactiva la cuenta de "
+"facturación electrónica de la empresa para anularla."
+
+#, python-format
+msgid "Invoice %s finalized."
+msgstr "Factura %s finalizada."
+
+msgid ""
+"Removes this pro forma's advance deductions. Reapply advances deducts them "
+"again."
+msgstr ""
+"Quita las deducciones de anticipos de esta proforma. Reaplicar anticipos las"
+" vuelve a descontar."
+
+msgid ""
+"Removes this pro forma's advance deductions and deducts the default plan "
+"again."
+msgstr ""
+"Quita las deducciones de anticipos de esta proforma y vuelve a descontar el "
+"plan por defecto."
+
+#, python-format
+msgid "Finalized %d invoices."
+msgstr "Se finalizaron %d facturas."
+
+#, python-format
+msgid "Invoice %s cancelled locally: its company has no e-invoicing account."
+msgstr ""
+"Factura %s cancelada localmente: su empresa no tiene cuenta de facturación "
+"electrónica."
+
+msgid "Percentage of the project file's taxable base (%)"
+msgstr "Porcentaje de la base imponible del expediente (%)"
+
+msgid ""
+"Applied to the project file's whole net taxable base, not to what is left to"
+" invoice."
+msgstr ""
+"Se aplica a toda la base imponible neta del expediente, no a lo que queda "
+"por facturar."
+
+msgid "Advance base (€)"
+msgstr "Base del anticipo (€)"
+
+msgid ""
+"Taxable base of the advance invoice; its percentage is derived from it."
+msgstr ""
+"Base imponible de la factura de anticipo; el porcentaje se calcula a partir "
+"de ella."
+
+#, python-format
+msgid ""
+"This project file has advances to deduct: its goods are invoiced by its "
+"company (%(company)s)."
+msgstr ""
+"Este expediente tiene anticipos por descontar: sus bienes los factura su "
+"empresa (%(company)s)."
+
+#, python-format
+msgid ""
+"The %(taxes)s part of the advance (%(amount)s) exceeds what that VAT group "
+"of %(project_file)s has left to invoice (%(max)s)."
+msgstr ""
+"La parte %(taxes)s del anticipo (%(amount)s) supera lo que le queda por "
+"facturar a ese grupo de IVA de %(project_file)s (%(max)s)."
+
+#, python-format
+msgid ""
+"Advance %(advances)s of %(project_file)s was issued by another company, to "
+"another client or in another currency: invoice its goods with the advance's "
+"company, client and currency, or cancel the advance first."
+msgstr ""
+"El anticipo %(advances)s de %(project_file)s se emitió con otra empresa, a "
+"otro cliente o en otra moneda: factura sus bienes con la empresa, el cliente"
+" y la moneda del anticipo, o cancela antes el anticipo."
+
+#, python-format
+msgid ""
+"This project file has advances pending deduction (%(amount)s): invoice its "
+"goods or cancel the advances first."
+msgstr ""
+"Este expediente tiene anticipos pendientes de descontar (%(amount)s): "
+"factura sus bienes o cancela antes los anticipos."
+
+msgid ""
+"Issues this pro forma with the next invoice number and emails it to the "
+"client. An issued invoice can no longer be changed."
+msgstr ""
+"Emite esta proforma con el siguiente número de factura y la envía por correo"
+" al cliente. Una factura emitida ya no se puede modificar."
+
+msgid ""
+"Cancels this invoice at the AEAT. If its company has no e-invoicing "
+"account, it is cancelled here straight away. This cannot be undone."
+msgstr ""
+"Anula esta factura en la AEAT. Si su empresa no tiene cuenta de facturación "
+"electrónica, se cancela aquí directamente. No se puede deshacer."
+
+msgid "Cancel invoice"
+msgstr "Anular factura"
 
 #, fuzzy
 #~ msgid "orange stripe — no truck assigned yet"

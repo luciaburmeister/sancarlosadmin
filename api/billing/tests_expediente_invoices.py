@@ -360,7 +360,11 @@ class BulkEmitQuoteObservationsTests(_ProjectFileInvoiceTestBase):
         with (
             patch(
                 "api.billing.serializers.ProjectFileInvoiceService.get_invoiceable_summary",
-                return_value={"total_invoiceable": Decimal("121"), "remaining": Decimal("121")},
+                return_value={
+                    "total_invoiceable": Decimal("121"),
+                    "remaining": Decimal("121"),
+                    "can_invoice": True,
+                },
             ),
             patch(
                 "api.billing.serializers.build_items_from_summary",
@@ -370,6 +374,7 @@ class BulkEmitQuoteObservationsTests(_ProjectFileInvoiceTestBase):
                 "api.billing.serializers.ProjectFileInvoiceService.create_invoice_from_project_file",
                 side_effect=fake_create,
             ),
+            patch("api.billing.serializers.AdvanceDeductionService.apply"),
             patch(
                 "api.billing.serializers.SalesInvoiceService.finalize_invoice",
                 side_effect=lambda invoice, send_email=True: invoice,

@@ -249,6 +249,8 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         ("date", RangeDateFilter),
         ("planned_delivery_date", RangeDateFilter),
     ]
+    # get_invoiced_label reads the invoice's status
+    list_select_related = ["client", "sales_invoice"]
     search_fields = ["number", "external_id", "client__name", "shipment_number", "shipping_agency__name"]
     autocomplete_fields = ["company", "client", "sales_invoice", "configuration", "project_file", "shipping_agency"]
     inlines = [
@@ -419,7 +421,10 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
         label={True: "success", False: "warning"},  # see get_status_label
     )
     def get_invoiced_label(self, obj):
-        invoiced = bool(obj.sales_invoice_id)
+        from invoices.services.delivery_order_service import DeliveryOrderService
+
+        # A cancelled invoice bills nothing, as in the invoiceable filter
+        invoiced = DeliveryOrderService.has_active_invoice(obj)
         return invoiced, _("Yes") if invoiced else _("No")
 
     def save_related(self, request, form, formsets, change):
@@ -455,13 +460,18 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     @action(description=_("Create Invoice"), icon="receipt_long")
     def create_invoice_from_do_row_action(self, request, object_id):
+        from django.core.exceptions import ValidationError
+        from invoices.services.advances import AdvanceDeductionService
         from invoices.services.delivery_order_service import DeliveryOrderService
         from django.utils import timezone
         from django.contrib import messages as django_messages
 
-        do = DeliveryOrder.objects.select_related("client", "company", "project_file").get(pk=object_id)
+        do = DeliveryOrder.objects.select_related(
+            "client", "company", "project_file", "sales_invoice",
+        ).get(pk=object_id)
 
-        if do.sales_invoice_id:
+        # A cancelled invoice bills nothing: its delivery order can be invoiced again.
+        if DeliveryOrderService.has_active_invoice(do):
             django_messages.warning(request, _("This delivery order is already linked to an invoice."))
             return redirect(reverse("admin:sales_deliveryorder_changelist"))
 
@@ -472,11 +482,24 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 client=do.client,
                 date_issued=timezone.now().date(),
             )
-            django_messages.success(
-                request,
-                _("Invoice created from Delivery Order %(number)s.") % {"number": do.number},
-            )
+            deductions = AdvanceDeductionService.deduction_lines(invoice)
+            if deductions:
+                django_messages.success(
+                    request,
+                    _("Invoice created from Delivery Order %(number)s, deducting %(amount)s "
+                      "of advances (%(advances)s).") % {
+                        "number": do.number, **AdvanceDeductionService.describe(deductions),
+                    },
+                )
+            else:
+                django_messages.success(
+                    request,
+                    _("Invoice created from Delivery Order %(number)s.") % {"number": do.number},
+                )
             return redirect(reverse("admin:invoices_salesinvoice_change", args=[invoice.id]))
+        except ValidationError as e:
+            django_messages.error(request, " ".join(e.messages))
+            return redirect(reverse("admin:sales_deliveryorder_changelist"))
         except Exception as e:
             django_messages.error(request, str(e))
             return redirect(reverse("admin:sales_deliveryorder_changelist"))

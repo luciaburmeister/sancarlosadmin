@@ -36,7 +36,11 @@ class TaxStrategy(ABC):
 
     @abstractmethod
     def build_breakdown(self, quote, ct, raw_subtotal, discounted_subtotal):
-        """Return ``(total_tax, breakdown_list)``."""
+        """Return ``(total_tax, breakdown_list)``.
+
+        ``total_tax`` is the additive taxes minus the retentions (IRPF);
+        every breakdown entry keeps its positive amount.
+        """
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +110,11 @@ class ClientTaxStrategy(TaxStrategy):
                 "base": str(base.quantize(Decimal("0.01"))),
                 "tax_amount": str(calc),
             })
-            total_tax += calc
+            # Retentions (IRPF) reduce the total, as in SalesInvoice.recalculate_totals
+            if tax.tax_type.behavior == "add":
+                total_tax += calc
+            else:
+                total_tax -= calc
         return total_tax, breakdown
 
 
@@ -212,7 +220,11 @@ class SourceTaxStrategy(TaxStrategy):
                 "base": str(base),
                 "tax_amount": str(calc),
             })
-            total_tax += calc
+            # Retentions (IRPF) reduce the total, as in SalesInvoice.recalculate_totals
+            if tax.tax_type.behavior == "add":
+                total_tax += calc
+            else:
+                total_tax -= calc
         return total_tax, breakdown
 
 

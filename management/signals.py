@@ -6,6 +6,7 @@ saved or deleted.
 """
 import logging
 
+from django.db import transaction
 from django.db.models.signals import post_save, post_delete, pre_delete
 from django.dispatch import receiver
 
@@ -164,8 +165,14 @@ def cost_entry_deleted_update_project_file(sender, instance, **kwargs):
 
 
 @receiver(post_save, sender="invoices.SalesInvoice")
-def sales_invoice_saved_update_project_file(sender, instance, **kwargs):
+def sales_invoice_saved_update_project_file(sender, instance, update_fields=None, **kwargs):
     """Recalculate ProjectFile totals when a sales invoice is saved."""
+    # A payment only moves the payment status, which neither the totals nor
+    # the derived status read: leaving the expediente alone keeps payment
+    # transactions from locking it after the invoice (invoicing paths lock
+    # the expediente first).
+    if update_fields is not None and set(update_fields) <= {"payment_status"}:
+        return
     recalculated = set()
     # Single FK
     if instance.project_file_id:
@@ -248,12 +255,32 @@ def production_ticket_deleted_update_project_file(sender, instance, **kwargs):
     _recompute_project_file_status(instance.project_file_id)
 
 
+@receiver(pre_delete, sender="invoices.SalesInvoice")
+def sales_invoice_deleting_collect_project_files(sender, instance, **kwargs):
+    """Note every expediente the invoice counts toward while its M2M rows and
+    lines (which carry a bulk invoice's expedientes) still exist."""
+    from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
+
+    instance._counted_project_file_ids = ProjectFileInvoiceService.project_file_ids_of(instance)
+
+
 @receiver(post_delete, sender="invoices.SalesInvoice")
 def sales_invoice_deleted_update_project_file(sender, instance, **kwargs):
-    """Recalculate ProjectFile totals when a sales invoice is deleted."""
-    # Note: M2M is cleared on delete so we can only handle the FK
-    if instance.project_file_id:
+    """Recalculate the totals of every expediente the deleted invoice counted
+    toward (bulk invoices included), and re-derive their status once the
+    deletion is committed."""
+    from management.models import ProjectFile
+
+    project_file_ids = getattr(instance, "_counted_project_file_ids", None)
+    if project_file_ids is None:
+        project_file_ids = {instance.project_file_id} - {None}
+    # Expedientes deleted in the same operation are simply not found.
+    for project_file in ProjectFile.objects.filter(pk__in=project_file_ids):
         try:
-            instance.project_file.recalculate_total_amount()
+            project_file.recalculate_total_amount()
         except Exception:
-            logger.debug("ProjectFile already deleted, skipping recalculation.")
+            logger.debug("ProjectFile %s could not be recalculated.", project_file.pk)
+    for project_file_id in project_file_ids:
+        transaction.on_commit(
+            lambda pk=project_file_id: _recompute_project_file_status(pk)
+        )

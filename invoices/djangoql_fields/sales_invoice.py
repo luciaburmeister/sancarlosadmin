@@ -36,6 +36,7 @@ class SalesInvoiceSearchFields(SearchFields):
         "proforma_number",
         "incremental_id",
         "status",
+        "document_type",
         "date_issued",
         "due_date",
         "payment_commitment_date",

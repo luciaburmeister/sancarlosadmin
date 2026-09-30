@@ -57,7 +57,12 @@ def submit_invoice_to_aeat(self, sales_invoice_id: int):
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def cancel_invoice_at_aeat(self, sales_invoice_id: int):
-    """Cancel a SalesInvoice at the AEAT via the configured provider."""
+    """Cancel a SalesInvoice at the AEAT via the configured provider.
+
+    The invoice is checked again before anything is sent (an advance still
+    deducted or paid is refused); without an e-invoicing account it is
+    cancelled locally."""
+    from django.core.exceptions import ValidationError
     from invoices.models import SalesInvoice, SalesInvoiceStatus
     from apps.einvoicing.services import EInvoicingService
 
@@ -76,11 +81,15 @@ def cancel_invoice_at_aeat(self, sales_invoice_id: int):
         )
         return {"task": "cancel_invoice_at_aeat", "invoice_id": sales_invoice_id, "status": "skipped", "detail": "already cancelled"}
 
-    submission = EInvoicingService.cancel_invoice(invoice)
+    try:
+        submission = EInvoicingService.cancel_invoice(invoice)
+    except ValidationError as exc:
+        detail = " ".join(exc.messages)
+        logger.warning("SalesInvoice %s cannot be cancelled: %s", sales_invoice_id, detail)
+        return {"task": "cancel_invoice_at_aeat", "invoice_id": sales_invoice_id, "status": "refused", "detail": detail}
 
     if submission is None:
-        logger.info("No e-invoicing account configured — nothing to do.")
-        return {"task": "cancel_invoice_at_aeat", "invoice_id": sales_invoice_id, "status": "skipped", "detail": "no einvoicing configured"}
+        return {"task": "cancel_invoice_at_aeat", "invoice_id": sales_invoice_id, "status": "cancelled", "detail": "no einvoicing configured: cancelled locally"}
 
     if submission.status == "error":
         raise self.retry(exc=Exception(submission.error_message))

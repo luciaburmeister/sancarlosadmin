@@ -41,7 +41,9 @@ class FinalizeInvoiceCcTest(TestCase):
         )
 
     def _finalize(self, **kwargs):
-        with patch("core.tasks.send_invoice_email_task.delay") as delay:
+        # The email is queued once the finalize commits
+        with patch("core.tasks.send_invoice_email_task.delay") as delay, \
+                self.captureOnCommitCallbacks(execute=True):
             SalesInvoiceService.finalize_invoice(self.invoice, **kwargs)
         return delay
 

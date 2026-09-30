@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.http import JsonResponse
 
@@ -43,6 +44,8 @@ class QuoteInvoiceView(CompanyAPIView):
                 if quote.status != "accepted":
                     quote.status = "accepted"
                     quote.save(update_fields=["status", "updated_at"])
+        except ValidationError as e:
+            return JsonResponse({"error": " ".join(e.messages)}, status=400)
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=400)
 

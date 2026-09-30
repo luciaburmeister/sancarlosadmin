@@ -260,7 +260,8 @@ class ClientTaxStrategyTest(_QuoteTaxBase):
         self.assertEqual(iva_entry["tax_amount"], "189.00")
         self.assertEqual(irpf_entry["base"], "900.00")
         self.assertEqual(irpf_entry["tax_amount"], "135.00")
-        self.assertEqual(tax_amount, Decimal("189.00") + Decimal("135.00"))
+        # The IRPF retention is subtracted; its breakdown entry stays positive.
+        self.assertEqual(tax_amount, Decimal("189.00") - Decimal("135.00"))
 
     def test_multiple_configs_single_tax(self):
         """Multiple configs — base is still the full discounted_subtotal."""
@@ -465,6 +466,28 @@ class SourceTaxStrategyTest(_QuoteTaxBase):
         self.assertEqual(breakdown[0]["base"], "1000.00")
         self.assertEqual(tax_amount, Decimal("210.00"))
 
+    def test_retention_is_subtracted(self):
+        """IVA + IRPF on one config: the retention lowers the total tax, its
+        breakdown entry stays positive."""
+        client = self._make_client()
+        quote = self._make_quote(client)
+        config = self._make_config(quote, Decimal("1000.00"), taxes=[
+            (self.iva, Decimal("21.00")),
+            (self.irpf, Decimal("15.00")),
+        ])
+        # Each tax on the config base (the helper's snapshot chains IRPF onto IVA).
+        Configuration.objects.filter(pk=config.pk).update(tax_breakdown=[])
+
+        tax_amount, breakdown = QuoteTaxService.apply(
+            quote, Decimal("1000.00"), Decimal("900.00"),
+        )
+
+        # IVA: 900 * 21% = 189.00, IRPF: 900 * 15% = 135.00
+        irpf_entry = next(b for b in breakdown if b["tax_name"] == "IRPF")
+        self.assertEqual(irpf_entry["base"], "900.00")
+        self.assertEqual(irpf_entry["tax_amount"], "135.00")
+        self.assertEqual(tax_amount, Decimal("54.00"))
+
     def test_no_taxes_on_any_source(self):
         """If no source has taxes, quote should have no taxes."""
         client = self._make_client()
@@ -523,6 +546,28 @@ class RecalcTotalsIntegrationTest(_QuoteTaxBase):
         # IVA 21% on 600 = 126, IVA 10% on 400 = 40 → total tax = 166
         self.assertEqual(quote.tax_amount.amount, Decimal("166.00"))
         self.assertEqual(quote.total_price.amount, Decimal("1166.00"))
+
+    def test_recalc_subtracts_retention_from_total(self):
+        """total_price = base + IVA - IRPF, like SalesInvoice.recalculate_totals."""
+        self.company.auto_apply_client_taxes = False
+        self.company.save()
+
+        client = self._make_client()
+        quote = self._make_quote(client)
+        config = self._make_config(quote, Decimal("1000.00"), taxes=[
+            (self.iva, Decimal("21.00")),
+            (self.irpf, Decimal("15.00")),
+        ])
+        # Each tax on the config base (the helper's snapshot chains IRPF onto IVA).
+        Configuration.objects.filter(pk=config.pk).update(tax_breakdown=[])
+
+        quote.recalc_totals()
+        quote.refresh_from_db()
+
+        self.assertEqual(quote.tax_amount.amount, Decimal("60.00"))  # 210 - 150
+        self.assertEqual(quote.total_price.amount, Decimal("1060.00"))
+        irpf = self._quote_taxes(quote).get(tax_type=self.irpf)
+        self.assertEqual(irpf.calculated_amount.amount, Decimal("150.00"))
 
     def test_recalc_updates_applied_tax_records(self):
         """recalc_totals persists base_amount and calculated_amount on AppliedTax."""

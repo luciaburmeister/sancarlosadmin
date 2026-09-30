@@ -241,21 +241,26 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         url_path="generate-invoice",
     )
     def generate_invoice_action(self, request, object_id):
+        from django.core.exceptions import ValidationError
         from invoices.services.sales_invoice_service import SalesInvoiceService
         from invoices.models import SalesInvoice
         from production.models import ProductionTicket
-        
+
         ticket = ProductionTicket.objects.get(pk=object_id)
         if ticket.content_type.model == 'configuration':
             from configurator.models import Configuration
             config = Configuration.objects.get(pk=ticket.object_id)
-            
+
             existing = SalesInvoice.objects.filter(configuration=config).first()
             if existing:
                 self.message_user(request, _("An invoice already exists for this configuration."), level="warning")
                 return redirect(reverse("admin:invoices_salesinvoice_change", args=[existing.id]))
 
-            invoice = SalesInvoiceService.create_from_configuration(config)
+            try:
+                invoice = SalesInvoiceService.create_from_configuration(config)
+            except ValidationError as e:
+                self.message_user(request, " ".join(e.messages), level=messages.ERROR)
+                return redirect(reverse("admin:production_productionticket_changelist"))
             self.message_user(request, _("Invoice {} generated successfully.").format(invoice.invoice_number))
             return redirect(reverse("admin:invoices_salesinvoice_change", args=[invoice.id]))
         else:

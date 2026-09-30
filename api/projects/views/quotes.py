@@ -21,7 +21,13 @@ from configurator.models import (
 from configurator.models import ExportTemplateKind
 from core.services.pdf_service import PDFService
 from management.models import ProjectFile, ProjectFileStatus
-from invoices.models import AppliedTax, SalesInvoice, SalesInvoiceItem
+from invoices.models import (
+    AppliedTax,
+    SalesInvoice,
+    SalesInvoiceDocumentType,
+    SalesInvoiceItem,
+    SalesInvoiceStatus,
+)
 from sales.models import Quote
 
 _ALLOWED_QUOTE_STATUSES = {"draft", "sent", "accepted", "rejected"}
@@ -104,6 +110,16 @@ class PresupuestoDetailView(CompanyAPIView):
             if new_status not in _ALLOWED_QUOTE_STATUSES:
                 return JsonResponse({"error": f"Invalid status: {new_status}"}, status=400)
             if new_status == "draft" and quote.status != "draft":
+                # The expediente's advances were billed on its accepted quotes
+                if quote.project_file_id and SalesInvoice.objects.filter(
+                    project_file_id=quote.project_file_id,
+                    document_type=SalesInvoiceDocumentType.ADVANCE,
+                ).exclude(status=SalesInvoiceStatus.CANCELLED).exists():
+                    return JsonResponse(
+                        {"error": "No se puede revertir a borrador un presupuesto de un expediente "
+                                  "con facturas de anticipo."},
+                        status=400,
+                    )
                 config_ids = list(quote.configurations.values_list("id", flat=True))
                 if config_ids:
                     has_invoice = SalesInvoice.objects.filter(

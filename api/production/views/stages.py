@@ -3,6 +3,7 @@
 import json
 import unicodedata as _uc
 
+from django.core.exceptions import ValidationError
 from django.http import JsonResponse
 
 from api._serializers import (
@@ -14,7 +15,7 @@ from api._serializers import (
 from api._utils import CompanyAPIView
 from company.models import Employee
 from management.models import ProjectFileStatus
-from production.models import ProductionTicket, ProductionTicketStatus
+from production.models import ProductionItemStatus, ProductionTicket, ProductionTicketStatus
 from production.exceptions import StageHasActiveWorkersError
 from production.services.stages_to_sessions import StagesToSessionsService
 from production.services.ticket_cancel import cancel_production_ticket
@@ -226,11 +227,28 @@ class StageRevertItemView(CompanyAPIView):
             return JsonResponse({"error": "Stage not defined for this production item."}, status=404)
 
         try:
-            count = StagesToSessionsService.revert_activity(
-                stage_name=stage_name_n,
-                items=[item],
-                target_status=target_status,
-            )
+            if Employee.can_reopen_production_stages(request.user, ticket.company_id):
+                count = StagesToSessionsService.revert_activity(
+                    stage_name=stage_name_n,
+                    items=[item],
+                    target_status=target_status,
+                    user=request.user,
+                    employee=self.employee,
+                )
+            elif target_status == ProductionItemStatus.IN_PROGRESS:
+                count = StagesToSessionsService.undo_finish(
+                    stage_name=stage_name_n, items=[item], employee=self.employee
+                )
+            else:
+                return JsonResponse(
+                    {
+                        "error": "Solo los supervisores de producción pueden reabrir etapas.",
+                        "code": "not_authorized_to_reopen_stage",
+                    },
+                    status=403,
+                )
+        except ValidationError as e:
+            return JsonResponse({"error": " ".join(e.messages)}, status=400)
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=400)
 

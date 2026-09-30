@@ -14728,6 +14728,36 @@ msgstr "No hay etapas definidas para este elemento"
 msgid "Your user is not linked to an Employee."
 msgstr "Tu usuario no está vinculado a un Empleado"
 
+msgid "You are not assigned to this production stage."
+msgstr "No estás asignado a esta etapa de producción."
+
+msgid "Only production supervisors can reopen finished stages."
+msgstr "Solo los supervisores de producción pueden reabrir etapas finalizadas."
+
+msgid "A later stage of this item has already started. Reopen that stage first."
+msgstr "Una etapa posterior de este artículo ya ha comenzado. Reabre primero esa etapa."
+
+msgid "This stage can no longer be undone. Ask a production supervisor to reopen it."
+msgstr "Esta etapa ya no se puede deshacer. Pide a un supervisor de producción que la reabra."
+
+msgid "A later stage has already started. Reopen that stage first."
+msgstr "Una etapa posterior ya ha comenzado. Reabre primero esa etapa."
+
+msgid "Undo finish"
+msgstr "Deshacer finalización"
+
+msgid "Reopen stage"
+msgstr "Reabrir etapa"
+
+msgid "Reset to pending"
+msgstr "Volver a pendiente"
+
+msgid "Production stage undo window (minutes)"
+msgstr "Margen para deshacer etapas de producción (minutos)"
+
+msgid "How long a worker can undo finishing a production stage they finished themselves. Use 0 to disable undo; production supervisors can still reopen stages."
+msgstr "Tiempo durante el cual un operario puede deshacer la finalización de una etapa que finalizó él mismo. Usa 0 para desactivarlo; los supervisores de producción siempre pueden reabrir etapas."
+
 #, python-format
 msgid "Started %(count)d items across all tickets."
 msgstr "Se empezaron %(count)d elementos en todos los tickets."

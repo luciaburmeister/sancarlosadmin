@@ -9,7 +9,6 @@ from django.views.generic import TemplateView
 from django.utils.dateparse import parse_datetime
 
 from production.models import (
-    ProductionTicket,
     ProductionItemSession,
     ProductionItemSessionStatus,
     ProductionItemStatus,
@@ -99,46 +98,28 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
 
-        ticket = get_object_or_404(ProductionTicket, pk=self.kwargs["object_id"])
+        ticket = get_object_or_404(
+            self.model_admin.get_queryset(self.request), pk=self.kwargs["object_id"]
+        )
         ctx["ticket"] = ticket
 
         config = ticket.source_object
         product = getattr(config, "product", None)
 
-        items = list(ticket.items.select_related("component").order_by("id"))
+        items = list(ticket.items.select_related("component", "company").order_by("id"))
         stage_order = [
-            unicodedata.normalize("NFC", s) 
+            unicodedata.normalize("NFC", s)
             for s in (getattr(product, "production_stages", []) or [])
         ]
 
-        employee = (
-            Employee.objects.filter(
-                user=self.request.user,
-                company=ticket.company,
-                is_active=True,
-            )
-            .only("id", "production_stages", "can_work_on_production", "company")
-            .first()
-        )
-
-        if employee is None:
-            employee = (
-                Employee.objects.filter(
-                    user=self.request.user,
-                    is_active=True,
-                )
-                .only("id", "production_stages", "can_work_on_production", "company")
-                .first()
-            )
+        employee = Employee.objects.filter(user=self.request.user, is_active=True).first()
 
         authorized_stages = stage_order
-
-        if not self.request.user.is_superuser:
-            if not employee or employee.company_id != ticket.company_id or not employee.can_work_on_production:
-                authorized_stages = []
-            else:
-                allowed = set(employee.production_stages or [])
-                authorized_stages = [s for s in stage_order if s in allowed]
+        restricted_worker = Employee.stage_restricted_worker(self.request.user)
+        if restricted_worker is not None:
+            visible = restricted_worker.visible_production_stages(ticket.company_id)
+            authorized_stages = [s for s in stage_order if s in visible]
+        can_reopen = Employee.can_reopen_production_stages(self.request.user, ticket.company_id)
 
         stage_component_map = self._build_stage_component_map(product, stage_order)
 
@@ -150,28 +131,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             status__in=[AssemblyLineStatus.DONE]
         ).exists()
 
-        item_current_stages = {}
-        for it in items:
-            planning = {unicodedata.normalize("NFC", k): v for k, v in (it.planning or {}).items()}
-            current_s = None
-
-            for sname in stage_order:
-                if not self._stage_applies_to_item(it, sname, stage_component_map):
-                    continue
-
-                info = planning.get(sname) or {}
-                status = info.get("status") or ProductionItemStatus.PENDING
-
-                if status != ProductionItemStatus.DONE:
-                    current_s = sname
-                    break
-
-            item_current_stages[it.id] = current_s
-
-        authorized_stages = stage_order
-        if employee and employee.production_stages:
-            emp_stages = [unicodedata.normalize("NFC", s) for s in employee.production_stages]
-            authorized_stages = [s for s in stage_order if s in emp_stages]
+        item_current_stages = {it.id: it.current_stage(stage_order) for it in items}
 
         stages_ui = []
 
@@ -217,6 +177,8 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
                         item_current_stages,
                         stage_component_map,
                         is_parallel_line=is_parallel_line,
+                        stage_order=stage_order,
+                        can_reopen=can_reopen,
                     )
                     if unit["relevant"]:
                         units.append(unit)
@@ -232,6 +194,8 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
                     item_current_stages,
                     stage_component_map,
                     is_parallel_line=is_parallel_line,
+                    stage_order=stage_order,
+                    can_reopen=can_reopen,
                 )
                 if unit["relevant"]:
                     units.append(unit)
@@ -319,7 +283,10 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
         return ctx
 
-    def _build_unit(self, stage_name, items, employee, item_current_stages, stage_component_map, is_parallel_line=False):
+    def _build_unit(
+        self, stage_name, items, employee, item_current_stages, stage_component_map,
+        is_parallel_line=False, stage_order=(), can_reopen=False,
+    ):
         infos = []
 
         for item in items:
@@ -404,7 +371,16 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
         )
         blocking_employee_name = self._employee_display_name(blocking_employee)
 
-        relevant = any(status != ProductionItemStatus.DONE for status in statuses)
+        # Finished units stay visible while the viewer can undo or reopen them.
+        is_done = agg_status == ProductionItemStatus.DONE
+        can_undo = is_done and employee is not None and all(
+            item.can_undo_stage_finish(stage_name, employee) for item, _, _ in infos
+        )
+        can_reopen = is_done and can_reopen
+        later_stage_started = (can_undo or can_reopen) and any(
+            item.later_stage_started(stage_name, list(stage_order)) for item, _, _ in infos
+        )
+        relevant = not is_done or can_undo or can_reopen
 
         # In parallel mode, all non-done stages are actionable
         if is_parallel_line:
@@ -441,4 +417,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
             "is_current": is_current,
             "is_parallel_line": is_parallel_line,
             "relevant": relevant,
+            "can_undo": can_undo,
+            "can_reopen": can_reopen,
+            "later_stage_started": later_stage_started,
         }

@@ -1,8 +1,11 @@
+import unicodedata
+
 from django.utils.translation import gettext_lazy as _
 from django.core.cache import cache
 
 from unfold.contrib.filters.admin import MultipleDropdownFilter
 
+from company.models import Employee
 from production.models import ProductionItem, ProductionTicket
 from production.constants import (
     TICKET_STAGE_LOOKUPS_KEY,
@@ -25,7 +28,22 @@ def selected_values(value):
     return [v for v in value if v not in (None, "")]
 
 
-class TicketStageFilter(MultipleDropdownFilter):
+class WorkerStageLookupsMixin:
+    """Limit stage choices to a shop-floor worker's assigned stages."""
+
+    def lookups(self, request, model_admin):
+        choices = super().lookups(request, model_admin)
+        worker = Employee.stage_restricted_worker(request.user)
+        if worker is None:
+            return choices
+        visible = worker.visible_production_stages(worker.company_id)
+        return [
+            (value, label) for value, label in choices
+            if unicodedata.normalize("NFC", value) in visible
+        ]
+
+
+class TicketStageFilter(WorkerStageLookupsMixin, MultipleDropdownFilter):
     title = _("Stage")
     parameter_name = "stage"
 
@@ -61,7 +79,7 @@ class TicketStageFilter(MultipleDropdownFilter):
         return queryset.filter(items__planning__has_any_keys=stages).distinct()
 
 
-class TicketIncompleteStageFilter(MultipleDropdownFilter):
+class TicketIncompleteStageFilter(WorkerStageLookupsMixin, MultipleDropdownFilter):
     title = _("Incomplete stage")
     parameter_name = "incomplete_stage"
 
@@ -134,7 +152,7 @@ class TicketStageStatusFilter(MultipleDropdownFilter):
         return queryset.filter(id__in=ticket_ids)
 
 
-class TicketLastStageLabelFilter(MultipleDropdownFilter):
+class TicketLastStageLabelFilter(WorkerStageLookupsMixin, MultipleDropdownFilter):
     title = _("Last Stage")
     parameter_name = "last_stage_label"
 

@@ -158,6 +158,14 @@ class Company(models.Model):
             "Disable for companies where only one worker may run a stage at a time (e.g. Aluares)."
         ),
     )
+    production_stage_undo_minutes = models.PositiveSmallIntegerField(
+        default=15,
+        verbose_name=_("Production stage undo window (minutes)"),
+        help_text=_(
+            "How long a worker can undo finishing a production stage they finished themselves. "
+            "Use 0 to disable undo; production supervisors can still reopen stages."
+        ),
+    )
     auto_apply_client_taxes = models.BooleanField(
         default=False,
         verbose_name=_("Auto-apply client taxes"),
@@ -536,6 +544,40 @@ class Employee(CompanyOwnedModel):
         stage_nfc = unicodedata.normalize("NFC", stage_name)
         allowed = [unicodedata.normalize("NFC", s) for s in (self.production_stages or [])]
         return not allowed or stage_nfc in allowed
+
+    @classmethod
+    def stage_restricted_worker(cls, user):
+        """The user's shop-floor employee, whose production admin views are limited
+        to their assigned stages; None for superusers, supervisors and office users."""
+        if not user.is_authenticated or user.is_superuser:
+            return None
+        return cls.objects.filter(
+            user=user,
+            is_active=True,
+            can_work_on_production=True,
+            is_production_supervisor=False,
+        ).first()
+
+    @classmethod
+    def can_reopen_production_stages(cls, user, company_id) -> bool:
+        """Superusers and the company's active production supervisors may reopen finished stages."""
+        if not user.is_authenticated:
+            return False
+        if user.is_superuser:
+            return True
+        return cls.objects.filter(
+            user=user,
+            company_id=company_id,
+            is_active=True,
+            is_production_supervisor=True,
+        ).exists()
+
+    def visible_production_stages(self, company_id) -> set[str]:
+        """NFC stage names this worker may see on a ticket of *company_id*.
+        Unlike can_work_stage(), no assigned stages means no visible stages."""
+        if company_id != self.company_id:
+            return set()
+        return {unicodedata.normalize("NFC", s) for s in (self.production_stages or [])}
 
     def clean(self):
         super().clean()

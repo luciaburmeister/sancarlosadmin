@@ -1,9 +1,11 @@
 
+import unicodedata
 from datetime import datetime
 
 from django.contrib import admin, messages
 from django.http import HttpRequest
 from unfold.admin import ModelAdmin, TabularInline,StackedInline
+from unfold.views import ChangeList
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
@@ -72,6 +74,8 @@ class ProductionItemInline(TabularInline):
         "data",
     )
     readonly_fields = ("planning_display",)
+    # None shows every stage; otherwise the NFC stage names a worker may see.
+    visible_stages = None
 
     def get_queryset(self, request):
         """
@@ -79,6 +83,11 @@ class ProductionItemInline(TabularInline):
         when production_stages_order is empty, so eager-load that chain to
         avoid a ticket + GFK + product query per row.
         """
+        # Inline instances are created per request, so this state is not shared.
+        worker = Employee.stage_restricted_worker(request.user)
+        self.visible_stages = (
+            worker.visible_production_stages(worker.company_id) if worker else None
+        )
         return (
             super()
             .get_queryset(request)
@@ -100,6 +109,11 @@ class ProductionItemInline(TabularInline):
 
         rows = []
         for stage, info in obj.get_ordered_planning():
+            if (
+                self.visible_stages is not None
+                and unicodedata.normalize("NFC", stage) not in self.visible_stages
+            ):
+                continue
             status = (info or {}).get("status", "-")
             color = STATUS_COLORS.get(status, "#6b7280")
 
@@ -152,6 +166,19 @@ class ProductionItemInline(TabularInline):
             </div>
             """,
             format_html("".join(rows)),
+        )
+
+
+class ProductionTicketChangeList(ChangeList):
+    def get_queryset(self, request, exclude_parameters=None):
+        """Shop-floor workers only list tickets whose next step is one of their stages.
+        Applied here rather than in get_queryset so detail pages stay reachable."""
+        queryset = super().get_queryset(request, exclude_parameters)
+        worker = Employee.stage_restricted_worker(request.user)
+        if worker is None:
+            return queryset
+        return queryset.filter(company_id=worker.company_id).ready_for_stages(
+            worker.visible_production_stages(worker.company_id)
         )
 
 
@@ -269,6 +296,9 @@ class ProductionTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
         else:
             self.message_user(request, _("This ticket is not linked to a configuration."), level="error")
             return redirect(request.META.get('HTTP_REFERER'))
+
+    def get_changelist(self, request, **kwargs):
+        return ProductionTicketChangeList
 
     def changelist_view(self, request, extra_context=None):
         extra_context = extra_context or {}

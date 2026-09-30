@@ -1,3 +1,5 @@
+import unicodedata
+
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.views import View
@@ -7,7 +9,8 @@ from django.utils.translation import gettext as _
 from django.core.exceptions import ValidationError
 from unfold.views import UnfoldModelAdminViewMixin
 from django.core.exceptions import ValidationError
-from production.models import ProductionTicket, ProductionItem, ProductionItemSession, ProductionItemSessionStatus
+from company.models import Employee
+from production.models import ProductionItem, ProductionItemSession, ProductionItemSessionStatus
 from production.exceptions import StageHasActiveWorkersError
 from production.services.stages_to_sessions import StagesToSessionsService
 from production.constants import ProductionActions
@@ -49,14 +52,23 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
         return count
 
     def post(self, request: HttpRequest, ticket_id: int, stage_name: str):
-        ticket = get_object_or_404(ProductionTicket, pk=ticket_id)
+        ticket = get_object_or_404(self.model_admin.get_queryset(request), pk=ticket_id)
+        action = request.POST.get("action")
 
         employee = getattr(request.user, "employee_profile", None)
-        if employee is None:
+        # Superusers may reopen stages without an employee profile.
+        if employee is None and action != ProductionActions.REOPEN_STAGE:
             messages.error(request, _("Your user is not linked to an Employee."))
             return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
-        action = request.POST.get("action")
+        restricted_worker = Employee.stage_restricted_worker(request.user)
+        if restricted_worker is not None and (
+            unicodedata.normalize("NFC", stage_name)
+            not in restricted_worker.visible_production_stages(ticket.company_id)
+        ):
+            messages.error(request, _("You are not assigned to this production stage."))
+            return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
+
         raw_ids = (request.POST.get("item_ids") or "").strip()
         anchor = request.POST.get("anchor")
 
@@ -66,8 +78,14 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
             return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
         items = list(
-            ProductionItem.objects.filter(ticket=ticket, id__in=item_ids).select_related("component")
+            ProductionItem.objects.filter(ticket=ticket, id__in=item_ids).select_related("component", "company")
         )
+
+        if action == ProductionActions.REOPEN_STAGE and not Employee.can_reopen_production_stages(
+            request.user, ticket.company_id
+        ):
+            messages.error(request, _("Only production supervisors can reopen finished stages."))
+            return redirect(reverse("admin:production_productionticket_stages", args=[ticket_id]))
 
         count = 0
         try:
@@ -93,6 +111,18 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
             elif action == ProductionActions.END_SESSION:
                 count = StagesToSessionsService.end_session(stage_name=stage_name, items=items, employee=employee)
 
+            elif action == ProductionActions.UNDO_FINISH:
+                count = StagesToSessionsService.undo_finish(stage_name=stage_name, items=items, employee=employee)
+
+            elif action == ProductionActions.REOPEN_STAGE:
+                count = StagesToSessionsService.revert_activity(
+                    stage_name=stage_name,
+                    items=items,
+                    target_status=request.POST.get("target"),
+                    user=request.user,
+                    employee=employee,
+                )
+
             if count > 0:
                 messages.success(request, _("{} items processed successfully.").format(count))
             else:
@@ -109,7 +139,7 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
             )
         except ValidationError as e:
             logger.error(str(e))
-            messages.error(request, _("Validation error: {}").format(str(e)))
+            messages.error(request, _("Validation error: {}").format(" ".join(e.messages)))
 
         if action == ProductionActions.FINISH_ACTIVITY and items:
             # After finishing, try to find the next active stage to scroll there focus

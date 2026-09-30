@@ -490,6 +490,7 @@ class CompanyAdmin(ModelAdmin):
                 "asset_identifier_labels"),
                 "pause_reasons",
                 "allow_shared_production_stage_activities",
+                "production_stage_undo_minutes",
                 "auto_apply_client_taxes",
                 "bulk_emit_copy_quote_observations",
                 ("document_reminder_emails"),

@@ -1,6 +1,7 @@
 from datetime import timedelta
 
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.utils import timezone
 
 from production.models import (
@@ -11,6 +12,7 @@ from production.models import (
     ProductionItemSessionKind,
 )
 from company.models import Employee
+from production.constants import ProductionActions
 from production.exceptions import StageHasActiveWorkersError
 from django.utils.translation import gettext_lazy as _
 
@@ -324,6 +326,7 @@ class StagesToSessionsService:
         stage_info["status"] = ProductionItemStatus.DONE
         stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
         stage_info["completed_at"] = now.isoformat()
+        stage_info.pop("completed_by", None)
         cls._save_planning(item, stage_name, stage_info)
         return 1
 
@@ -372,6 +375,7 @@ class StagesToSessionsService:
             stage_info["status"] = ProductionItemStatus.DONE
             stage_info["started_at"] = stage_info.get("started_at") or now.isoformat()
             stage_info["completed_at"] = now.isoformat()
+            stage_info["completed_by"] = employee.pk
             stage_info.pop("pause_reason", None)
             cls._save_planning(item, stage_name, stage_info)
             count += 1
@@ -513,13 +517,18 @@ class StagesToSessionsService:
         stage_name: str,
         items: list[ProductionItem],
         target_status: str = ProductionItemStatus.IN_PROGRESS,
+        user=None,
+        employee: Employee | None = None,
+        action: str = ProductionActions.REOPEN_STAGE,
     ) -> int:
         """Revert a completed stage back to in_progress or pending.
 
         target_status must be 'in_progress' or 'pending'.
         Open ProductionItemSession rows for this stage are closed (cancelled) so
         planning and sessions stay aligned and a new start_activity can run.
-        Finished sessions from prior completions remain in the audit trail.
+        Finished sessions from prior completions remain in the audit trail, and
+        each revert is logged in the stage planning with the acting user/employee.
+        Raises ValidationError when a later stage of the item has already started.
         """
         if target_status not in (ProductionItemStatus.IN_PROGRESS, ProductionItemStatus.PENDING):
             raise ValidationError(
@@ -527,6 +536,7 @@ class StagesToSessionsService:
             )
 
         stage_name = unicodedata.normalize("NFC", stage_name)
+        now = timezone.now()
         count = 0
 
         # Which source statuses are valid depends on the target:
@@ -538,28 +548,76 @@ class StagesToSessionsService:
             else {ProductionItemStatus.DONE}
         )
 
-        for item in items:
-            planning = {unicodedata.normalize("NFC", k): v for k, v in (item.planning or {}).items()}
-            if stage_name not in planning:
-                continue
+        stage_orders = {}
+        with transaction.atomic():
+            locked_items = (
+                ProductionItem.objects.select_for_update(of=("self",))
+                .select_related("ticket")
+                .filter(pk__in=[item.pk for item in items])
+                .order_by("pk")
+            )
+            for item in locked_items:
+                planning = {unicodedata.normalize("NFC", k): v for k, v in (item.planning or {}).items()}
+                if stage_name not in planning:
+                    continue
 
-            stage_info = planning.get(stage_name) or {}
-            current_status = stage_info.get("status") or ProductionItemStatus.PENDING
-            if current_status not in valid_sources:
-                continue
+                stage_info = planning.get(stage_name) or {}
+                current_status = stage_info.get("status") or ProductionItemStatus.PENDING
+                if current_status not in valid_sources:
+                    continue
 
-            cls._close_open_sessions_for_stage(item, stage_name)
+                if item.ticket_id not in stage_orders:
+                    stage_orders[item.ticket_id] = [
+                        unicodedata.normalize("NFC", s) for s in item.ticket.get_stage_order()
+                    ]
+                if item.later_stage_started(stage_name, stage_orders[item.ticket_id]):
+                    raise ValidationError(
+                        _("A later stage of this item has already started. Reopen that stage first.")
+                    )
 
-            stage_info["status"] = target_status
-            stage_info["completed_at"] = None
-            stage_info.pop("pause_reason", None)
-            # Reverting to pending also clears the start timestamp
-            if target_status == ProductionItemStatus.PENDING:
-                stage_info["started_at"] = None
-            cls._save_planning(item, stage_name, stage_info)
-            count += 1
+                cls._close_open_sessions_for_stage(item, stage_name)
+
+                stage_info["status"] = target_status
+                stage_info["completed_at"] = None
+                stage_info.pop("completed_by", None)
+                stage_info.pop("pause_reason", None)
+                # Reverting to pending also clears the start timestamp
+                if target_status == ProductionItemStatus.PENDING:
+                    stage_info["started_at"] = None
+                entry = {
+                    "at": now.isoformat(),
+                    "action": action,
+                    "from_status": current_status,
+                    "to_status": target_status,
+                }
+                if user is not None:
+                    entry["user_id"] = user.pk
+                    entry["user"] = user.get_full_name() or user.get_username()
+                if employee is not None:
+                    entry["employee_id"] = employee.pk
+                    entry["employee"] = employee.full_name
+                stage_info.setdefault("revert_log", []).append(entry)
+                cls._save_planning(item, stage_name, stage_info)
+                count += 1
 
         return count
+
+    @classmethod
+    def undo_finish(cls, *, stage_name: str, items: list[ProductionItem], employee: Employee) -> int:
+        """Let a worker undo their own finish within the company's undo window."""
+        stage_name = unicodedata.normalize("NFC", stage_name)
+        eligible = [item for item in items if item.can_undo_stage_finish(stage_name, employee)]
+        if not eligible:
+            raise ValidationError(
+                _("This stage can no longer be undone. Ask a production supervisor to reopen it.")
+            )
+        return cls.revert_activity(
+            stage_name=stage_name,
+            items=eligible,
+            target_status=ProductionItemStatus.IN_PROGRESS,
+            employee=employee,
+            action=ProductionActions.UNDO_FINISH,
+        )
 
     @classmethod
     def _get_current_stage(cls, production_item: ProductionItem, requested_stage: str | None = None):

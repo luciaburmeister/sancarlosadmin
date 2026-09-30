@@ -8,6 +8,8 @@ class ProductionActions:
     START_SESSION = "start_session"
     END_SESSION = "end_session"
     ADVANCE_STAGE = "advance_stage"
+    UNDO_FINISH = "undo_finish"
+    REOPEN_STAGE = "reopen_stage"
     
     # Kanban Actions
     UPDATE_STATUS = "update_status"

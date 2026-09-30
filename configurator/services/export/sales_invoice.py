@@ -80,17 +80,31 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
         return contexts
 
     def get_context(self) -> Dict[str, Any]:
-        from invoices.services.discounts import is_discount_line_source
+        from invoices.models import SalesInvoiceDocumentType
+        from invoices.services.discounts import (
+            is_advance_line_source,
+            is_discount_line_source,
+        )
 
         # Discount lines only exist on invoices created before financing
         # moved into the header discount.
         items_data = []
         financing_discount_amount = Decimal("0.00")
-        for item in self.sales_invoice.items.all():
+        # Advance deductions (negative lines taking an advance invoice off
+        # this one) print after the goods, whatever order they were added in.
+        advances_deducted = Decimal("0.00")
+        items = sorted(
+            self.sales_invoice.items.select_related("advance_line__invoice").order_by("pk"),
+            key=lambda item: item.advance_line_id is not None,
+        )
+        for item in items:
 
             is_discount_line = is_discount_line_source(item.source_id)
             if is_discount_line and item.line_total:
                 financing_discount_amount += -Decimal(str(item.line_total.amount))
+            advance_invoice = item.advance_line.invoice if item.advance_line_id else None
+            if advance_invoice and item.line_total:
+                advances_deducted += -Decimal(str(item.line_total.amount))
             item_dict = {
                 "id": item.id,
                 "description": item.description,
@@ -103,6 +117,12 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
                 "discount_percentage": float(item.discount_percentage or 0),
                 "discount_amount": float(item.discount_amount.amount) if item.discount_amount else 0,
                 "is_discount_line": is_discount_line,
+                # A line of an advance invoice, or a line deducting one (with
+                # the advance invoice it takes off).
+                "is_advance_line": is_advance_line_source(item.source_id),
+                "is_advance_deduction": advance_invoice is not None,
+                "advance_invoice_number": advance_invoice.display_number if advance_invoice else None,
+                "advance_invoice_date": advance_invoice.date_issued if advance_invoice else None,
             }
             items_data.append(item_dict)
 
@@ -116,8 +136,9 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
         # Invoice-level discount as a percentage of the line subtotal. The
         # invoice stores only the amount (rules can cascade), so the effective
         # rate is derived from it — against the gross subtotal, since the
-        # financing lines already netted themselves out of it.
-        gross_subtotal = lines_total + financing_discount_amount
+        # financing lines and the advance deductions already netted
+        # themselves out of it.
+        gross_subtotal = lines_total + financing_discount_amount + advances_deducted
         discount_percentage = (
             float((discount / gross_subtotal * Decimal("100")).quantize(Decimal("0.01")))
             if gross_subtotal > 0
@@ -158,6 +179,15 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
             "discount_breakdown": self.sales_invoice.discount_breakdown or [],
             "has_financing_discount": financing_discount_amount > 0,
             "financing_discount_amount": float(financing_discount_amount),
+            "advances_deducted": float(advances_deducted),
+            # Advance invoices bill a share of a project file before its goods.
+            "is_advance": self.sales_invoice.document_type == SalesInvoiceDocumentType.ADVANCE,
+            "advance_percentage": (
+                float(self.sales_invoice.advance_percentage)
+                if self.sales_invoice.advance_percentage is not None
+                else None
+            ),
+            "document_type_label": self.sales_invoice.get_document_type_display(),
             "tax_amount": float(self.sales_invoice.tax_amount.amount),
             "total_amount": float(self.sales_invoice.total_amount.amount),
             "reference": self.sales_invoice.reference,

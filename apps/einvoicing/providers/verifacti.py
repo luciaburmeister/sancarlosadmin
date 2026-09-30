@@ -9,8 +9,9 @@ API reference: https://www.verifacti.com/docs
 from __future__ import annotations
 
 import logging
+import re
 import uuid
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
 import requests
@@ -24,11 +25,33 @@ if TYPE_CHECKING:
     from invoices.models import SalesInvoice
 
 logger = logging.getLogger(__name__)
-from invoices.models import AppliedTax
+from invoices.models import A3TaxGroup, AppliedTax, TaxType
 
 # Verifacti date format: DD-MM-YYYY
 _DATE_FMT = "%d-%m-%Y"
 _TIMEOUT = 30  # seconds
+
+_CENT = Decimal("0.01")
+_AMOUNT_FIELDS = ("base_imponible", "cuota_repercutida", "cuota_recargo_equivalencia")
+
+# Verifactu 'impuesto' codes (AEAT list L1)
+_IMPUESTO_IVA = "01"
+_IMPUESTO_IPSI = "02"
+_IMPUESTO_IGIC = "03"
+# clave_regimen of a sale under the recargo de equivalencia
+_CLAVE_REGIMEN_RECARGO = "18"
+# Nothing records why part of a base carries no tax (not subject, or exempt
+# under which article), so it goes as not subject, the generic N1 (arts. 7,
+# 14 and others). To be confirmed in the Verifacti sandbox.
+_CALIFICACION_UNTAXED = "N1"
+# The recargo de equivalencia of each IVA rate (art. 161 LIVA)
+_RECARGO_FOR_IVA_RATE = {
+    Decimal("21"): Decimal("5.2"),
+    Decimal("10"): Decimal("1.4"),
+    Decimal("5"): Decimal("0.62"),
+    Decimal("4"): Decimal("0.5"),
+    Decimal("2"): Decimal("0.26"),
+}
 
 
 class VerifactiProvider(EInvoicingProvider):
@@ -156,7 +179,7 @@ class VerifactiProvider(EInvoicingProvider):
             "tipo_factura": "F1",  # Standard invoice
             "descripcion": self._build_description(invoice),
             "lineas": lineas,
-            "importe_total": str(invoice.total_amount.amount.quantize(Decimal("0.01"))),
+            "importe_total": str(self._importe_total(lineas)),
         }
 
         # Client identification
@@ -180,57 +203,149 @@ class VerifactiProvider(EInvoicingProvider):
         }
 
     def _build_lineas(self, invoice: "SalesInvoice") -> list[dict]:
-        """Build the 'lineas' array from invoice items and their taxes."""
+        """Build the 'lineas' array: the invoice's tax breakdown (the AEAT's
+        desglose, at most 12 entries), one entry per tax and rate rather than
+        one per item.
+
+        Each entry is an invoice-level additive tax row as stored (IGIC, IPSI,
+        or else IVA), so its base_amount and calculated_amount already net out
+        the header discount and any advance deductions. The recargo de
+        equivalencia goes in the recargo fields of its IVA entry. Retentions
+        (IRPF) are never sent: the AEAT does not record them. The part of the
+        taxable base that no tax row covers (untaxed lines) is sent as an
+        entry of its own.
+        """
 
         ct = ContentType.objects.get_for_model(invoice)
-        taxes = list(
+        taxes = (
             AppliedTax.objects.filter(content_type=ct, object_id=invoice.pk)
             .select_related("tax_type")
-            .order_by("order")
+            .order_by("order", "id")
         )
 
-        lineas = []
-
-        for item in invoice.items.all():
-            line_total = item.line_total.amount.quantize(Decimal("0.01"))
-
-            linea: dict = {
-                "descripcion": item.description[:250],
-                "cantidad": str(item.quantity),
-                "precio": str(item.unit_price.amount.quantize(Decimal("0.01"))),
-                "importe": str(line_total),
-                "base_imponible": str(line_total),
+        entries: dict[tuple, dict] = {}  # (impuesto, %) → entry
+        surcharges: dict[Decimal, list] = {}  # recargo % → [base, cuota]
+        for tax in taxes:
+            if self._is_retention(tax.tax_type):
+                continue
+            pct = tax.selected_percentage
+            base, cuota = self._tax_figures(tax, invoice)
+            if self._is_surcharge(tax.tax_type):
+                figures = surcharges.setdefault(pct, [Decimal("0.00"), Decimal("0.00")])
+                figures[0] += base
+                figures[1] += cuota
+                continue
+            code = self._map_tax_key(tax.tax_type)
+            if code == _IMPUESTO_IVA and not self._is_iva(tax.tax_type):
+                logger.warning(
+                    "SalesInvoice %s: tax %s is neither IVA, IGIC nor IPSI — sent to Verifactu as IVA at %s%%.",
+                    invoice.pk,
+                    tax.tax_type,
+                    pct,
+                )
+            entry = entries.setdefault((code, pct), {
+                "impuesto": code,
                 "calificacion_operacion": "S1",  # Subject to tax, not exempt
+                "base_imponible": Decimal("0.00"),
+                "tipo_impositivo": pct,
+                "cuota_repercutida": Decimal("0.00"),
+            })
+            entry["base_imponible"] += base
+            entry["cuota_repercutida"] += cuota
+
+        lineas = list(entries.values())
+        for pct, (base, cuota) in surcharges.items():
+            self._add_surcharge(invoice, lineas, pct, base, cuota)
+
+        untaxed = invoice.taxable_base.amount - sum(
+            (linea["base_imponible"] for linea in lineas), Decimal("0.00")
+        )
+        # Each tax base adds up per-line rounded amounts: up to a cent per
+        # line is rounding, not an untaxed line.
+        tolerance = _CENT * max(1, invoice.items.count())
+        if abs(untaxed) > tolerance or not lineas:
+            lineas.append({
+                "calificacion_operacion": _CALIFICACION_UNTAXED,
+                "base_imponible": untaxed,
+            })
+
+        return [
+            {
+                key: str((value + 0).quantize(_CENT)) if key in _AMOUNT_FIELDS else str(value)
+                for key, value in linea.items()
             }
+            for linea in lineas
+        ]
 
-            # Add the primary tax rate at the line level (required when S1)
-            if taxes:
-                primary_tax = taxes[0]
-                pct = primary_tax.selected_percentage
-                cuota = (line_total * pct / Decimal("100")).quantize(Decimal("0.01"))
-                linea["tipo_impositivo"] = str(pct)
-                linea["cuota_repercutida"] = str(cuota)
+    @staticmethod
+    def _tax_figures(tax, invoice: "SalesInvoice") -> tuple[Decimal, Decimal]:
+        """(base, amount) of an invoice-level tax row as stored. A row with no
+        base applies to the whole taxable base, as in recalculate_totals."""
+        if tax.base_amount is not None:
+            base = tax.base_amount.amount
+        else:
+            base = invoice.taxable_base.amount
+        if tax.calculated_amount is not None:
+            return base, tax.calculated_amount.amount
+        return base, tax.calculate(base)["tax_amount"]
 
-            # Attach full tax breakdown
-            impuestos = []
-            for tax in taxes:
-                pct = tax.selected_percentage
-                base = line_total
-                cuota = (base * pct / Decimal("100")).quantize(Decimal("0.01"))
-                impuesto = {
-                    "clave_impuesto": self._map_tax_key(tax.tax_type.tax_name),
-                    "tipo_impositivo": str(pct),
-                    "base_imponible": str(base),
-                    "cuota": str(cuota),
-                }
-                impuestos.append(impuesto)
+    def _add_surcharge(
+        self, invoice: "SalesInvoice", lineas: list[dict], pct: Decimal, base: Decimal, cuota: Decimal
+    ) -> None:
+        """Put a recargo de equivalencia in the recargo fields of its IVA entry
+        (clave_regimen 18). When it covers only part of that IVA base, that
+        part becomes an entry of its own and the rest keeps the general regime."""
+        linea = self._surcharge_entry(lineas, pct, base)
+        if linea is None:
+            logger.warning(
+                "SalesInvoice %s: recargo de equivalencia %s%% has no IVA to go with — not sent to Verifactu.",
+                invoice.pk,
+                pct,
+            )
+            return
+        iva_base = linea["base_imponible"]
+        if base * iva_base > 0 and abs(base) < abs(iva_base) - _CENT:
+            iva_cuota = (base * linea["tipo_impositivo"] / Decimal("100")).quantize(
+                _CENT, rounding=ROUND_HALF_UP
+            )
+            rest = dict(
+                linea,
+                base_imponible=iva_base - base,
+                cuota_repercutida=linea["cuota_repercutida"] - iva_cuota,
+            )
+            linea["base_imponible"] = base
+            linea["cuota_repercutida"] = iva_cuota
+            position = next(i for i, other in enumerate(lineas) if other is linea)
+            lineas.insert(position + 1, rest)
+        linea["clave_regimen"] = _CLAVE_REGIMEN_RECARGO
+        linea["tipo_recargo_equivalencia"] = pct
+        linea["cuota_recargo_equivalencia"] = cuota
 
-            if impuestos:
-                linea["impuestos"] = impuestos
+    @staticmethod
+    def _surcharge_entry(lineas: list[dict], pct: Decimal, base: Decimal) -> dict | None:
+        """The IVA entry a recargo goes with: the IVA rate that recargo belongs
+        to, else the entry with the same base, else the largest one."""
+        candidates = [
+            linea for linea in lineas
+            if linea["impuesto"] == _IMPUESTO_IVA and "tipo_recargo_equivalencia" not in linea
+        ]
+        for linea in candidates:
+            if _RECARGO_FOR_IVA_RATE.get(linea["tipo_impositivo"]) == pct:
+                return linea
+        for linea in candidates:
+            if abs(linea["base_imponible"] - base) <= _CENT:
+                return linea
+        return max(candidates, key=lambda linea: abs(linea["base_imponible"]), default=None)
 
-            lineas.append(linea)
-
-        return lineas
+    @staticmethod
+    def _importe_total(lineas: list[dict]) -> Decimal:
+        """What the AEAT records as the invoice total: Σ bases + Σ IVA/IGIC/IPSI
+        + Σ recargo. A retention (IRPF) is not taken off, so on an invoice
+        with one this is not invoice.total_amount."""
+        return sum(
+            (Decimal(linea[field]) for linea in lineas for field in _AMOUNT_FIELDS if field in linea),
+            Decimal("0.00"),
+        )
 
     def _build_description(self, invoice: SalesInvoice) -> str:
         """Build a summary description from the invoice items."""
@@ -242,16 +357,48 @@ class VerifactiProvider(EInvoicingProvider):
         return desc[:250] if desc else f"Factura {invoice.invoice_number}"
 
     @staticmethod
-    def _map_tax_key(tax_name: str) -> str:
-        """Map internal tax names to Verifactu clave_impuesto codes."""
-        name = tax_name.upper().strip()
-        if "IVA" in name:
-            return "01"  # IVA
+    def _is_retention(tax_type) -> bool:
+        """IRPF and any other tax that subtracts: never sent to Verifactu."""
+        name = TaxType.normalize_tax_name(tax_type.tax_name)
+        return (
+            tax_type.behavior == "subtract"
+            or tax_type.a3_tax_group == A3TaxGroup.IRPF
+            or "IRPF" in name
+            or "RETENC" in name
+        )
+
+    @staticmethod
+    def _is_surcharge(tax_type) -> bool:
+        """Recargo de equivalencia: sent in the recargo fields of its IVA entry."""
+        name = TaxType.normalize_tax_name(tax_type.tax_name)
+        return (
+            tax_type.a3_tax_group == A3TaxGroup.RE
+            or "RECARGO" in name
+            or re.fullmatch(r"RE\d*", name) is not None
+        )
+
+    @staticmethod
+    def _is_iva(tax_type) -> bool:
+        """A tax recognised as IVA by its A3 group or its name."""
+        name = TaxType.normalize_tax_name(tax_type.tax_name)
+        return tax_type.a3_tax_group == A3TaxGroup.IVA or "IVA" in name or name.startswith("VAT")
+
+    @classmethod
+    def _map_tax_key(cls, tax_type) -> str | None:
+        """Map a tax to its Verifactu 'impuesto' code (AEAT list L1). None for
+        retentions (IRPF) and the recargo de equivalencia, which never get an
+        entry of their own."""
+        if cls._is_retention(tax_type) or cls._is_surcharge(tax_type):
+            return None
+        name = TaxType.normalize_tax_name(tax_type.tax_name)
         if "IGIC" in name:
-            return "02"  # IGIC
+            return _IMPUESTO_IGIC
         if "IPSI" in name:
-            return "03"  # IPSI
-        return "01"  # Default to IVA
+            return _IMPUESTO_IPSI
+        # Anything else additive goes as IVA at its stored rate, as before: the
+        # 0 % EXENTO/EXENTA rows (mostly inversión del sujeto pasivo) keep the
+        # S1 0 % the AEAT already accepted instead of turning into N1.
+        return _IMPUESTO_IVA
 
     # ── helpers ──────────────────────────────────────────────────────────
 

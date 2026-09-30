@@ -3,7 +3,7 @@ from crispy_forms.helper import FormHelper
 from django.utils.translation import gettext_lazy as _
 from crispy_forms.layout import Layout, Row, Column, Field, HTML
 from django.conf import settings
-from invoices.models import PaymentMethod, SalesInvoice, SalesInvoiceStatus, TaxType
+from invoices.models import PaymentMethod, SalesInvoice, TaxType
 from django.contrib import admin
 from core.admin.company_access import get_user_companies
 from sales.models import Client
@@ -28,8 +28,7 @@ class SalesInvoiceBasicFormHelper(FormHelper):
             HTML(f"""<div class="col-span-12 mb-6 rounded-lg border border-gray-200 bg-white p-4">
                     <h3 class="text-base font-semibold text-gray-800 mb-3">{_('Invoice Details')}</h3>"""),
             Row(
-                Column(Field('company'), css_class="col-span-12 md:col-span-6"),
-                Column(Field('status'), css_class="col-span-12 md:col-span-6"),
+                Column(Field('company'), css_class="col-span-12"),
                 css_class="gap-4 mb-4"
             ),
             Row(
@@ -81,9 +80,10 @@ class SalesInvoiceBasicForm(forms.ModelForm):
 
     class Meta:
         model = SalesInvoice
-        fields = ['company', 'status', 'client', 'date_issued', 'due_date', 'payment_method', 'currency']
+        # No status: an invoice created here is always a pro forma; it gets
+        # its number and goes to the AEAT only through Finalize.
+        fields = ['company', 'client', 'date_issued', 'due_date', 'payment_method', 'currency']
         widgets = {
-            'status': UnfoldAdminSelectWidget,
             'date_issued': UnfoldAdminDateWidget,
             'due_date': UnfoldAdminDateWidget,
             'payment_method': UnfoldAdminSelectWidget,
@@ -94,7 +94,6 @@ class SalesInvoiceBasicForm(forms.ModelForm):
         self.request = kwargs.pop("request", None)
         super().__init__(*args, **kwargs)
         self.helper = SalesInvoiceBasicFormHelper()
-        self.fields['status'].initial = SalesInvoiceStatus.PROFORMA
         
         if self.request and self.request.method == "GET":
              if "initial" not in kwargs:

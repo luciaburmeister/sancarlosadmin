@@ -1,18 +1,69 @@
 import logging
+from dataclasses import dataclass
 from decimal import Decimal
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from django.contrib.contenttypes.models import ContentType
 from django.utils.translation import gettext_lazy as _
 
-from invoices.models import SalesInvoice, SalesInvoiceItem, SalesInvoiceStatus, AppliedTax
+from invoices.models import (
+    AppliedTax,
+    InvoicePaymentStatus,
+    SalesInvoice,
+    SalesInvoiceDocumentType,
+    SalesInvoiceItem,
+    SalesInvoiceStatus,
+)
+from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
+from invoices.services.discounts import (
+    DiscountResolution,
+    QuoteDiscountResolver,
+    SourceLine,
+    source_kind,
+)
 from invoices.services.sales_invoice_payment import resolve_sales_invoice_payment_method
 from management.models import ProjectFile
 from sales.models import Quote, QuoteStatus
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class PricedLines:
+    """What a set of invoice lines comes to, computed without writing anything.
+
+    - ``subtotal``: sum of the line totals.
+    - ``resolution``: the source quotes' discounts carried onto the lines
+      (header ``discount_amount``/``breakdown`` + per-line taxable fractions).
+    - ``tax_agg``: invoice-level taxes keyed by ``(tax_type_id, behavior, %)``,
+      each ``{tax_type, selected_percentage, base_amount, calculated_amount}``
+      on the lines' discounted bases.
+    - ``groups``: taxable base per VAT group. A group's signature is the
+      frozenset of ``(tax_type, %)`` a line carries (the same taxes that feed
+      ``tax_agg``); lines without taxes share the empty frozenset.
+    """
+
+    subtotal: Decimal
+    resolution: DiscountResolution
+    tax_agg: dict
+    groups: dict
+
+    @property
+    def tax_amount(self):
+        """Additive taxes minus retentions (IRPF), as in SalesInvoice.recalculate_totals."""
+        total = Decimal("0.00")
+        for entry in self.tax_agg.values():
+            if entry["tax_type"].behavior == "add":
+                total += entry["calculated_amount"]
+            else:
+                total -= entry["calculated_amount"]
+        return total
+
+    @property
+    def total_amount(self):
+        return self.subtotal - self.resolution.discount_amount + self.tax_amount
 
 
 class ProjectFileInvoiceService:
@@ -37,7 +88,7 @@ class ProjectFileInvoiceService:
         ]
 
     @classmethod
-    def get_invoiceable_summary(cls, project_file):
+    def get_invoiceable_summary(cls, project_file, with_groups=False, exclude_invoice=None):
         """
         Returns a dict with the invoicing status for a ProjectFile:
         - total_invoiceable: sum of accepted quotes' total_price + direct configurations' total_price
@@ -46,6 +97,26 @@ class ProjectFileInvoiceService:
         - quotes: list of accepted quotes
         - direct_configurations: list of direct (non-quote) configurations
         - invoices: list of existing invoices
+
+        Cancelled invoices bill nothing and are left out of every figure.
+        Money figures (total_invoiced, remaining, *_net) count advance
+        invoices like any invoice; they are for display. The gross ratio
+        base (total_invoiced_subtotal, remaining_subtotal) and the gates
+        count goods only:
+        - goods_remaining_net: net (taxable) goods base still to invoice —
+          advance invoices left out, their deductions added back;
+        - can_invoice: goods_remaining_net > 0.01;
+        - advances: one entry per advance invoice (oldest first) with its
+          base, deducted and pending amounts, overall and per line;
+        - advances_open_net: base of the advances still to deduct;
+        - advances_deductible_net: the part of it on FINAL advances with no
+          cancellation pending or done at the AEAT.
+        With ``with_groups``, also goods_remaining_net_by_group: the same
+        figure per VAT group (keyed like PricedLines.groups), and
+        invoiceable_net_by_group: the expediente's net base per VAT group.
+        It re-prices the expediente and its invoices' lines, so it is opt-in.
+        With ``exclude_invoice``, the expediente as if that invoice (its
+        goods and its deductions) did not exist: what it can bill.
         """
         accepted_quotes = Quote.objects.filter(
             project_file=project_file,
@@ -119,7 +190,7 @@ class ProjectFileInvoiceService:
 
         work_entries = WorkEntry.objects.filter(
             project_file=project_file,
-        ).select_related('entry_type').prefetch_related('applied_taxes')
+        ).select_related('entry_type').prefetch_related('applied_taxes__tax_type')
 
         work_entries_data = []
         for entry in work_entries:
@@ -143,13 +214,24 @@ class ProjectFileInvoiceService:
 
         # Sum existing invoices linked to this project file
         # Source 1: single-PF invoices (FK on invoice)
-        existing_invoices = SalesInvoice.objects.filter(
-            project_file=project_file,
-        ).order_by('-date_issued')
+        existing_invoices = (
+            SalesInvoice.objects.filter(project_file=project_file)
+            .exclude(status=SalesInvoiceStatus.CANCELLED)
+            # What its advance deduction lines took off the subtotal (≤ 0)
+            .annotate(deducted=Sum(
+                'items__line_total', filter=Q(items__advance_line__isnull=False),
+            ))
+            .order_by('-date_issued')
+        )
+        if exclude_invoice is not None:
+            existing_invoices = existing_invoices.exclude(pk=exclude_invoice.pk)
 
         total_invoiced = Decimal("0.00")
         total_invoiced_subtotal = Decimal("0.00")
         total_invoiced_subtotal_net = Decimal("0.00")
+        goods_invoiced_net = Decimal("0.00")
+        goods_net_by_invoice = {}  # goods invoice id → its goods net for this PF
+        advance_invoices = []
         invoices_data = []
 
         for invoice in existing_invoices:
@@ -160,12 +242,19 @@ class ProjectFileInvoiceService:
                 if invoice.discount_amount else Decimal("0.00")
             )
             total_invoiced += inv_total
-            total_invoiced_subtotal += inv_subtotal
             total_invoiced_subtotal_net += inv_subtotal - inv_discount
+            if invoice.document_type == SalesInvoiceDocumentType.ADVANCE:
+                advance_invoices.append(invoice)
+            else:
+                deducted = invoice.deducted or Decimal("0.00")
+                total_invoiced_subtotal += inv_subtotal - deducted
+                goods_net_by_invoice[invoice.id] = inv_subtotal - inv_discount - deducted
+                goods_invoiced_net += goods_net_by_invoice[invoice.id]
             invoices_data.append({
                 'id': invoice.id,
                 'invoice_number': invoice.display_number,
                 'status': invoice.get_status_display(),
+                'document_type': invoice.document_type,
                 'subtotal': inv_subtotal,
                 'total': inv_total,
                 'date_issued': invoice.date_issued,
@@ -175,12 +264,22 @@ class ProjectFileInvoiceService:
         bulk_items = SalesInvoiceItem.objects.filter(
             project_file=project_file,
             invoice__project_file__isnull=True,  # only bulk invoices
+        ).exclude(
+            invoice__status=SalesInvoiceStatus.CANCELLED,
         ).select_related("invoice")
+        if exclude_invoice is not None:
+            bulk_items = bulk_items.exclude(invoice_id=exclude_invoice.pk)
 
+        bulk_goods_items = []
         seen_bulk_invoices = set()
         for item in bulk_items:
-            total_invoiced_subtotal += Decimal(str(item.line_total.amount))
-            total_invoiced_subtotal_net += Decimal(str(item.line_total.amount))
+            line_amount = Decimal(str(item.line_total.amount))
+            total_invoiced_subtotal_net += line_amount
+            # Advance deduction lines are not goods
+            if item.advance_line_id is None:
+                total_invoiced_subtotal += line_amount
+                goods_invoiced_net += line_amount
+                bulk_goods_items.append(item)
             # Count total for each bulk invoice only once
             if item.invoice_id not in seen_bulk_invoices:
                 seen_bulk_invoices.add(item.invoice_id)
@@ -190,6 +289,7 @@ class ProjectFileInvoiceService:
                     'id': inv.id,
                     'invoice_number': inv.invoice_number or f"{inv.display_number} (bulk)",
                     'status': inv.get_status_display(),
+                    'document_type': inv.document_type,
                     'subtotal': Decimal("0"),  # per-item, not per-invoice
                     'total': Decimal("0"),
                     'date_issued': inv.date_issued,
@@ -199,8 +299,13 @@ class ProjectFileInvoiceService:
         remaining = total_invoiceable - total_invoiced
         remaining_subtotal = total_invoiceable_subtotal - total_invoiced_subtotal
         remaining_subtotal_net = total_invoiceable_subtotal_net - total_invoiced_subtotal_net
+        goods_remaining_net = total_invoiceable_subtotal_net - goods_invoiced_net
 
-        return {
+        advances = cls._advances_data(
+            advance_invoices, exclude_invoice_id=exclude_invoice.pk if exclude_invoice else None,
+        )
+
+        summary = {
             'total_invoiceable': total_invoiceable,
             'total_invoiceable_subtotal': total_invoiceable_subtotal,
             'total_invoiceable_subtotal_net': total_invoiceable_subtotal_net,
@@ -210,6 +315,15 @@ class ProjectFileInvoiceService:
             'remaining': remaining,
             'remaining_subtotal': remaining_subtotal,
             'remaining_subtotal_net': remaining_subtotal_net,
+            'goods_remaining_net': goods_remaining_net,
+            'can_invoice': goods_remaining_net > Decimal("0.01"),
+            'advances': advances,
+            'advances_open_net': sum(
+                (a['pending'] for a in advances), Decimal("0.00"),
+            ),
+            'advances_deductible_net': sum(
+                (a['pending'] for a in advances if a['deductible']), Decimal("0.00"),
+            ),
             'quotes': quotes_data,
             'direct_configurations': direct_configs_data,
             'work_entries': work_entries_data,
@@ -220,6 +334,165 @@ class ProjectFileInvoiceService:
                 if total_invoiceable > 0 else Decimal("0.00")
             ),
         }
+        if with_groups:
+            # The whole expediente priced at 100 %, squared with its net base
+            summary['invoiceable_net_by_group'] = cls._reconcile_groups(
+                cls.price_lines(
+                    summary, cls.build_items_for_ratio(summary, Decimal("1"), split_configs=False),
+                ).groups,
+                total_invoiceable_subtotal_net,
+            )
+            summary['goods_remaining_net_by_group'] = cls._goods_remaining_net_by_group(
+                summary, goods_net_by_invoice, bulk_goods_items,
+            )
+        return summary
+
+    @classmethod
+    def _advances_data(cls, advance_invoices, exclude_invoice_id=None):
+        """The ``advances`` entries of get_invoiceable_summary, oldest first.
+
+        An advance line's deducted amount counts its deduction lines on
+        non-cancelled invoices, pro formas included (they reserve it), bar
+        those of ``exclude_invoice_id``.
+        """
+        if not advance_invoices:
+            return []
+        from apps.einvoicing.models import (
+            EInvoicingSubmission, SubmissionAction, SubmissionStatus,
+        )
+
+        counted = Q(deductions__invoice__status__in=[
+            SalesInvoiceStatus.PROFORMA, SalesInvoiceStatus.FINAL,
+        ])
+        if exclude_invoice_id is not None:
+            counted &= ~Q(deductions__invoice_id=exclude_invoice_id)
+        advance_invoices = sorted(advance_invoices, key=lambda inv: inv.pk)
+        lines_by_invoice = {}
+        for line in (
+            SalesInvoiceItem.objects.filter(invoice__in=advance_invoices)
+            .annotate(deducted=Sum('deductions__line_total', filter=counted))
+            .order_by('pk')
+        ):
+            base = Decimal(str(line.line_total.amount))
+            deducted = -(line.deducted or Decimal("0.00"))
+            lines_by_invoice.setdefault(line.invoice_id, []).append({
+                'id': line.id,
+                'base': base,
+                'deducted': deducted,
+                'pending': base - deducted,
+            })
+        # A cancellation queued, in flight or accepted at the AEAT takes the
+        # advance out of reach; a rejected or failed one does not. Until the
+        # AEAT answers (``cancelling``) the goods wait: it may come back.
+        markers = list(
+            EInvoicingSubmission.objects.filter(
+                sales_invoice__in=advance_invoices,
+                action=SubmissionAction.CANCEL,
+                status__in=[
+                    SubmissionStatus.PENDING,
+                    SubmissionStatus.SUBMITTED,
+                    SubmissionStatus.ACCEPTED,
+                ],
+            ).values_list('sales_invoice_id', 'status')
+        )
+        out_of_reach = {invoice_id for invoice_id, _status in markers}
+        cancelling = {
+            invoice_id for invoice_id, status in markers if status != SubmissionStatus.ACCEPTED
+        }
+
+        advances = []
+        for invoice in advance_invoices:
+            lines = lines_by_invoice.get(invoice.id, [])
+            base = sum((line['base'] for line in lines), Decimal("0.00"))
+            deducted = sum((line['deducted'] for line in lines), Decimal("0.00"))
+            advances.append({
+                'id': invoice.id,
+                'invoice_number': invoice.display_number,
+                'date_issued': invoice.date_issued,
+                'status': invoice.status,
+                'percentage': invoice.advance_percentage,
+                'base': base,
+                'deducted': deducted,
+                'pending': base - deducted,
+                'paid': invoice.payment_status == InvoicePaymentStatus.PAID,
+                'deductible': (
+                    invoice.status == SalesInvoiceStatus.FINAL
+                    and invoice.id not in out_of_reach
+                ),
+                'cancelling': (
+                    invoice.status == SalesInvoiceStatus.FINAL
+                    and invoice.id in cancelling
+                ),
+                'lines': lines,
+            })
+        return advances
+
+    @classmethod
+    def _goods_remaining_net_by_group(cls, summary, goods_net_by_invoice, bulk_goods_items):
+        """goods_remaining_net per VAT group: invoiceable_net_by_group (the
+        whole expediente priced at 100 %) less each goods invoice's lines,
+        re-priced the same way. Each pricing is squared with the figure the
+        totals use, so the groups add up to goods_remaining_net."""
+        remaining = dict(summary['invoiceable_net_by_group'])
+
+        invoiced = []  # (lines, goods net they come to) per invoice
+        lines_by_invoice = {}
+        for line in SalesInvoiceItem.objects.filter(
+            invoice_id__in=list(goods_net_by_invoice), advance_line__isnull=True,
+        ).order_by('pk'):
+            lines_by_invoice.setdefault(line.invoice_id, []).append(line)
+        for invoice_id, goods_net in goods_net_by_invoice.items():
+            invoiced.append((lines_by_invoice.get(invoice_id, []), goods_net))
+        bulk_by_invoice = {}
+        for line in bulk_goods_items:
+            bulk_by_invoice.setdefault(line.invoice_id, []).append(line)
+        for lines in bulk_by_invoice.values():
+            invoiced.append((
+                lines,
+                sum((Decimal(str(line.line_total.amount)) for line in lines), Decimal("0.00")),
+            ))
+
+        for lines, goods_net in invoiced:
+            for signature, amount in cls.goods_net_by_group(summary, lines, goods_net).items():
+                remaining[signature] = remaining.get(signature, Decimal("0.00")) - amount
+        return remaining
+
+    @classmethod
+    def goods_net_by_group(cls, summary, lines, goods_net):
+        """``goods_net``, what an invoice's goods ``lines`` (SalesInvoiceItem)
+        come to, per VAT group: the lines re-priced against the expediente's
+        quotes, squared with that figure. Lines of no known kind (manual,
+        legacy discount lines) are left to the reconciliation."""
+        return cls._reconcile_groups(
+            cls.price_lines(summary, cls.repriceable_items(lines)).groups, goods_net,
+        )
+
+    @staticmethod
+    def repriceable_items(lines):
+        """Invoice lines (SalesInvoiceItem) as price_lines() items, at the
+        total each was stored with; lines of no known kind are left out."""
+        return [
+            {
+                'source_id': line.source_id,
+                'unit_price': Decimal(str(line.line_total.amount)),
+                'quantity': Decimal("1"),
+                'discount_percentage': Decimal("0.00"),
+            }
+            for line in lines
+            if source_kind(line.source_id)
+        ]
+
+    @staticmethod
+    def _reconcile_groups(groups, total):
+        """``groups`` made to add up to ``total``: the cents per-line
+        rounding leaves over (and lines no group claims) go to the largest
+        group."""
+        groups = dict(groups)
+        difference = total - sum(groups.values(), Decimal("0.00"))
+        if difference:
+            largest = max(groups, key=lambda signature: abs(groups[signature]), default=frozenset())
+            groups[largest] = groups.get(largest, Decimal("0.00")) + difference
+        return groups
 
     @classmethod
     def compute_invoice_line_ratio(cls, summary, invoice_mode, percentage, custom_amount=None):
@@ -250,6 +523,153 @@ class ProjectFileInvoiceService:
         # Must divide by total_sub, not remaining_sub — otherwise invoicing the full
         # pending amount yields ratio=1 and re-bills the entire expediente.
         return min(custom, remaining_sub) / total_sub
+
+    @classmethod
+    def get_config_component_lines(cls, config) -> list:
+        """A configuration's invoice lines: its pricing lines, else its BOM
+        scaled to the subtotal, else one line for the whole subtotal."""
+        override_subtotal = Decimal(str(config.subtotal_price.amount))
+
+        pb = config.pricing_breakdown or {}
+        lines = pb.get("lines", [])
+        is_override_only = (
+            len(lines) == 1 and lines[0].get("type") == "override"
+        ) or (not lines and config.price_override is not None and config.price_override.amount >= 0)
+
+        if not is_override_only and lines:
+            return [
+                {"label": line.get("label", ""), "amount": Decimal(str(line.get("amount", 0)))}
+                for line in lines
+                if Decimal(str(line.get("amount", 0))) != 0
+            ]
+
+        bom_lines = []
+        bom_total = Decimal("0")
+        for item in config.items.all():
+            lt = Decimal(str(item.line_total.amount)) if item.line_total else Decimal("0")
+            if lt <= 0:
+                continue
+            label = item.label or (item.component.name if item.component else "")
+            if " × " in label:
+                label = label.rsplit(" × ", 1)[0].strip()
+            bom_lines.append({"label": label, "amount": lt})
+            bom_total += lt
+
+        if bom_lines:
+            scale = override_subtotal / bom_total if bom_total else Decimal("1")
+            return [
+                {"label": bl["label"], "amount": (bl["amount"] * scale).quantize(Decimal("0.01"))}
+                for bl in bom_lines
+            ]
+
+        return [{"label": config.name, "amount": override_subtotal}]
+
+    @classmethod
+    def build_items_for_ratio(cls, summary, ratio, show_vehicle_name=True, split_configs=True):
+        """
+        Invoice line dicts (for create_invoice_from_project_file) billing
+        ``ratio`` of every source in ``summary``: configurations (split into
+        their component lines), quote material lines, direct configurations
+        and work entries scale; inventory items go in full. Negative sources
+        are dropped, zero-value ones kept as 0 lines; ratio ≤ 0 gives no lines.
+
+        With ``split_configs=False`` each quote configuration is one line at
+        its subtotal instead: its component lines need not add up to it
+        (the BOM base and hidden discount rules are no line of their own).
+        """
+        items = []
+
+        if ratio <= 0:
+            return items
+
+        for quote_data in summary["quotes"]:
+            quote = quote_data["quote"]
+            quote_name = quote.project_name if show_vehicle_name else "."
+            for config in quote.configurations.prefetch_related("items__component").all():
+                sub = Decimal(str(config.subtotal_price.amount))
+                # Zero-value configs are kept as a single 0-amount line
+                if sub < 0:
+                    continue
+                if not split_configs:
+                    items.append({
+                        "source_id": f"config_{config.id}",
+                        "description": f"{config.name} (Q#{quote.id})",
+                        "quote_name": quote_name,
+                        "quantity": Decimal("1"),
+                        "unit_price": (sub * ratio).quantize(Decimal("0.01")),
+                        "discount_percentage": Decimal("0.00"),
+                    })
+                    continue
+                for comp in cls.get_config_component_lines(config):
+                    comp_price = (comp["amount"] * ratio).quantize(Decimal("0.01"))
+                    if comp_price < 0:
+                        continue
+                    items.append({
+                        "source_id": f"config_{config.id}",
+                        "description": comp["label"],
+                        "quote_name": quote_name,
+                        "quantity": Decimal("1"),
+                        "unit_price": comp_price,
+                        "discount_percentage": Decimal("0.00"),
+                    })
+
+            for item in quote.items.all():
+                item_price = (item.line_total.amount * ratio).quantize(Decimal("0.01"))
+                if item_price < 0:
+                    continue
+                items.append({
+                    "source_id": f"quote_item_{item.id}",
+                    "description": f"{item.material} x{item.quantity} (P#{quote.id})",
+                    "quote_name": quote_name,
+                    "quantity": Decimal("1"),
+                    "unit_price": item_price,
+                    "discount_percentage": Decimal("0.00"),
+                })
+
+            for inv_item in quote.inventory_items.select_related("inventory_item").all():
+                line_amt = inv_item.line_total.amount if inv_item.line_total else Decimal("0.00")
+                if line_amt < 0:
+                    continue
+                inv_name = (
+                    inv_item.inventory_item.name
+                    if inv_item.inventory_item_id
+                    else f"Inventory Item #{inv_item.pk}"
+                )
+                items.append({
+                    "source_id": f"inv_item_{inv_item.id}",
+                    "description": inv_name,
+                    "quote_name": quote_name,
+                    "quantity": inv_item.quantity,
+                    "unit_price": inv_item.unit_price.amount,
+                    "discount_percentage": inv_item.discount,
+                })
+
+        for config_data in summary.get("direct_configurations", []):
+            sub = config_data["subtotal"]
+            item_price = (sub * ratio).quantize(Decimal("0.01"))
+            if item_price < 0:
+                continue
+            items.append({
+                "source_id": f"direct_{config_data['id']}",
+                "description": config_data["name"],
+                "quantity": Decimal("1"),
+                "unit_price": item_price,
+                "discount_percentage": Decimal("0.00"),
+            })
+
+        for entry_data in summary.get("work_entries", []):
+            item_price = (entry_data["total"] * ratio).quantize(Decimal("0.01"))
+            if item_price < 0:
+                continue
+            items.append({
+                "source_id": f"work_entry_{entry_data['id']}",
+                "description": entry_data["description"],
+                "quantity": Decimal("1"),
+                "unit_price": item_price,
+                "discount_percentage": Decimal("0.00"),
+            })
+
+        return items
 
     @classmethod
     def get_aggregated_quote_taxes(cls, project_file):
@@ -342,98 +762,62 @@ class ProjectFileInvoiceService:
 
         return unique_taxes
 
+    @staticmethod
+    def line_total(item_data):
+        """A line's total as SalesInvoiceItem.save computes it: unit price ×
+        quantity less its line discount, before the database rounds it."""
+        unit_price = item_data['unit_price']
+        unit_price = getattr(unit_price, 'amount', unit_price)
+        gross = unit_price * item_data.get('quantity', Decimal("1"))
+        discount = gross * (item_data.get('discount_percentage', Decimal("0.00")) / Decimal("100"))
+        return gross - discount
+
     @classmethod
-    @transaction.atomic
-    def create_invoice_from_project_file(
-        cls,
-        project_file,
-        company,
-        client,
-        date_issued,
-        due_date,
-        items_data,
-        notes="",
-        payment_method=None,
-    ):
+    def price_lines(cls, summary, items_data):
         """
-        Creates a SalesInvoice from a ProjectFile with validation.
+        Prices invoice lines without writing anything (see PricedLines).
 
         Taxes are computed per line item from each source's own AppliedTax
-        records (Configuration or QuoteInventoryItem), supporting mixed rates.
+        records (Configuration, QuoteInventoryItem or WorkEntry), on the
+        line's base after its quote's discount, supporting mixed rates. A
+        configuration or inventory line of a quote taxed in client-tax mode
+        takes the quote's header taxes instead, as the quote and its
+        delivery orders tax it (DeliveryOrderService._source_taxes_and_quote).
 
         Args:
-            project_file: The ProjectFile to invoice
-            company: Company for the invoice
-            client: Client for the invoice
-            date_issued: Invoice date
-            due_date: Payment due date
+            summary: get_invoiceable_summary() of the ProjectFile; its
+                     accepted quotes own the discounts carried onto the lines
             items_data: List of dicts with description, quantity, unit_price,
                         discount_percentage, and source_id
-            notes: Optional notes
-            payment_method: Expected payment method (defaults to client.payment_method)
-
-        Returns:
-            SalesInvoice instance
-
-        Raises:
-            ValidationError if the invoice amount would exceed the remaining invoiceable amount
         """
-        summary = cls.get_invoiceable_summary(project_file)
-
-        if summary['total_invoiceable'] <= 0:
-            raise ValidationError(
-                _("This project file has no accepted quotes, direct configurations or work entries. Cannot create an invoice.")
-            )
-
-        resolved_payment_method = resolve_sales_invoice_payment_method(
-            client=client,
-            explicit=payment_method,
-        )
-
-        # Create the invoice
-        invoice = SalesInvoice.objects.create(
-            company=company,
-            status=SalesInvoiceStatus.PROFORMA,
-            invoice_number=None,
-            date_issued=date_issued,
-            due_date=due_date,
-            client=client,
-            project_file=project_file,
-            notes=notes,
-            payment_method=resolved_payment_method,
-        )
-
-        # Create line items and compute per-line taxes from each source's
-        # own AppliedTax records. This handles mixed tax rates correctly
-        # (e.g. configs at 21% IVA, inventory items at 10% reduced rate).
-        subtotal = Decimal("0.00")
-        # Aggregation: (tax_type_id, behavior, percentage) → {tax_type, base, calc}
-        tax_agg: dict[tuple, dict] = {}
-
         from configurator.models import Configuration
+        from invoices.services.delivery_order_service import DeliveryOrderService
         from management.models import WorkEntry
         from sales.models import QuoteInventoryItem, QuoteItem
-        from invoices.services.discounts import QuoteDiscountResolver, SourceLine, source_kind
 
         config_ct = ContentType.objects.get_for_model(Configuration)
         inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
         work_entry_ct = ContentType.objects.get_for_model(WorkEntry)
 
+        subtotal = Decimal("0.00")
         line_taxes = []  # (line_total, source_taxes, quote_id, kind) — taxed after the discount is known
         source_lines = []  # SourceLine records for the discount resolver
-        invoiced_source_ids = []
+        header_taxes = {}  # quote id → its client-tax header taxes, or None
+
+        def own_taxes(source_ct, obj_id, quote_id):
+            # A client-tax quote taxes the line with its header taxes
+            if quote_id is not None:
+                taxes = DeliveryOrderService._quote_header_taxes(quote_id, header_taxes)
+                if taxes is not None:
+                    return taxes
+            return list(
+                AppliedTax.objects.filter(
+                    content_type=source_ct, object_id=obj_id
+                ).select_related("tax_type")
+            )
 
         for item_data in items_data:
-            item = SalesInvoiceItem.objects.create(
-                invoice=invoice,
-                description=item_data['description'],
-                quote_name=item_data.get('quote_name', ''),
-                quantity=item_data.get('quantity', Decimal("1")),
-                unit_price=item_data['unit_price'],
-                discount_percentage=item_data.get('discount_percentage', Decimal("0.00")),
-                source_id=item_data.get('source_id', ''),
-            )
-            line_total = item.line_total.amount
+            line_total = cls.line_total(item_data)
             subtotal += line_total
 
             # Resolve the source's taxes and owning quote from its source_id
@@ -443,26 +827,18 @@ class ProjectFileInvoiceService:
 
             if source_id.startswith("config_") or source_id.startswith("direct_"):
                 obj_id = source_id.split("_", 1)[1]
-                source_taxes = list(
-                    AppliedTax.objects.filter(
-                        content_type=config_ct, object_id=obj_id
-                    ).select_related("tax_type")
-                )
                 quote_id = (
                     Configuration.objects.filter(pk=obj_id)
                     .values_list("quote_id", flat=True).first()
                 )
+                source_taxes = own_taxes(config_ct, obj_id, quote_id)
             elif source_id.startswith("inv_item_"):
                 obj_id = source_id.split("_", 2)[2]
-                source_taxes = list(
-                    AppliedTax.objects.filter(
-                        content_type=inv_item_ct, object_id=obj_id
-                    ).select_related("tax_type")
-                )
                 quote_id = (
                     QuoteInventoryItem.objects.filter(pk=obj_id)
                     .values_list("quote_id", flat=True).first()
                 )
+                source_taxes = own_taxes(inv_item_ct, obj_id, quote_id)
             elif source_id.startswith("quote_item_"):
                 # quote_item_ lines have no taxes
                 obj_id = source_id.split("_", 2)[2]
@@ -482,7 +858,6 @@ class ProjectFileInvoiceService:
             kind = source_kind(source_id)
             source_lines.append(SourceLine(source_id, line_total, quote_id, kind))
             line_taxes.append((line_total, source_taxes, quote_id, kind))
-            invoiced_source_ids.append(source_id)
 
         # Carry discounts from source quotes via the per-level strategies,
         # each scaled by how much of THAT quote's base this invoice covers —
@@ -491,18 +866,21 @@ class ProjectFileInvoiceService:
         resolution = QuoteDiscountResolver().resolve(
             [qd['quote'] for qd in summary['quotes']], source_lines,
         )
-        invoice_discount = resolution.discount_amount
-        invoice_discount_breakdown = resolution.breakdown
 
         # Taxes apply to the discounted base (the quote's "taxable base"),
         # so reduce each line by its own quote's discount fraction for its
         # line kind.
+        # Aggregation: (tax_type_id, behavior, percentage) → {tax_type, base, calc}
+        tax_agg: dict[tuple, dict] = {}
+        groups: dict[frozenset, Decimal] = {}
         for line_total, source_taxes, quote_id, kind in line_taxes:
             frac = resolution.taxable_fraction(quote_id, kind)
             taxable = (line_total * (Decimal("1") - frac)).quantize(Decimal("0.01"))
+            signature = set()
             for tax in source_taxes:
                 if tax.selected_percentage <= 0:
                     continue
+                signature.add((tax.tax_type, tax.selected_percentage))
                 key = (tax.tax_type_id, tax.tax_type.behavior, tax.selected_percentage)
                 rate = tax.selected_percentage / Decimal("100")
                 calc = (taxable * rate).quantize(Decimal("0.01"))
@@ -516,13 +894,97 @@ class ProjectFileInvoiceService:
                     }
                 tax_agg[key]["base_amount"] += taxable
                 tax_agg[key]["calculated_amount"] += calc
+            signature = frozenset(signature)
+            groups[signature] = groups.get(signature, Decimal("0.00")) + taxable
+
+        return PricedLines(subtotal, resolution, tax_agg, groups)
+
+    @classmethod
+    @transaction.atomic
+    def create_invoice_from_project_file(
+        cls,
+        project_file,
+        company,
+        client,
+        date_issued,
+        due_date,
+        items_data,
+        notes="",
+        payment_method=None,
+    ):
+        """
+        Creates a SalesInvoice from a ProjectFile with validation.
+
+        Lines are priced by price_lines(): taxes per line item from each
+        source's own AppliedTax records, supporting mixed rates.
+
+        Args:
+            project_file: The ProjectFile to invoice
+            company: Company for the invoice
+            client: Client for the invoice
+            date_issued: Invoice date
+            due_date: Payment due date
+            items_data: List of dicts with description, quantity, unit_price,
+                        discount_percentage, and source_id
+            notes: Optional notes
+            payment_method: Expected payment method (defaults to client.payment_method)
+
+        Returns:
+            SalesInvoice instance
+
+        Raises:
+            ValidationError if the invoice's goods would exceed the remaining
+            invoiceable (net) amount, or an advance of the expediente is
+            still a pro forma or being cancelled at the AEAT
+        """
+        cls.lock_project_files([project_file.pk])
+        AdvanceInvoiceService.lock_advances([project_file.pk])
+        AdvanceInvoiceService.check_no_proforma_advance([project_file.pk])
+        summary = cls.get_invoiceable_summary(project_file)
+
+        if summary['total_invoiceable'] <= 0:
+            raise ValidationError(
+                _("This project file has no accepted quotes, direct configurations or work entries. Cannot create an invoice.")
+            )
+
+        resolved_payment_method = resolve_sales_invoice_payment_method(
+            client=client,
+            explicit=payment_method,
+        )
+
+        priced = cls.price_lines(summary, items_data)
+        goods_net = priced.subtotal - priced.resolution.discount_amount
+        AdvanceDeductionService.check(summary, goods_net)
+
+        # Create the invoice
+        invoice = SalesInvoice.objects.create(
+            company=company,
+            status=SalesInvoiceStatus.PROFORMA,
+            invoice_number=None,
+            date_issued=date_issued,
+            due_date=due_date,
+            client=client,
+            project_file=project_file,
+            notes=notes,
+            payment_method=resolved_payment_method,
+        )
+
+        invoiced_source_ids = []
+        for item_data in items_data:
+            SalesInvoiceItem.objects.create(
+                invoice=invoice,
+                description=item_data['description'],
+                quote_name=item_data.get('quote_name', ''),
+                quantity=item_data.get('quantity', Decimal("1")),
+                unit_price=item_data['unit_price'],
+                discount_percentage=item_data.get('discount_percentage', Decimal("0.00")),
+                source_id=item_data.get('source_id', ''),
+            )
+            invoiced_source_ids.append(item_data.get('source_id', ''))
 
         # Create the aggregated AppliedTax records on the invoice
         ct = ContentType.objects.get_for_model(invoice)
-        computed_total_tax = Decimal("0.00")
-
-        for order, entry in enumerate(tax_agg.values()):
-            computed_total_tax += entry["calculated_amount"]
+        for order, entry in enumerate(priced.tax_agg.values()):
             AppliedTax.objects.create(
                 content_type=ct,
                 object_id=invoice.id,
@@ -533,11 +995,12 @@ class ProjectFileInvoiceService:
                 order=order,
             )
 
-        invoice.subtotal_amount = subtotal
-        invoice.discount_amount = invoice_discount
-        invoice.discount_breakdown = invoice_discount_breakdown
-        invoice.tax_amount = computed_total_tax
-        invoice.total_amount = subtotal - invoice_discount + computed_total_tax
+        invoice.discount_amount = priced.resolution.discount_amount
+        invoice.discount_breakdown = priced.resolution.breakdown
+        # Each rate's tax on its base, as SalesInvoice.recalculate_totals
+        # rounds it (so saving the pro forma again moves no cent);
+        # retentions (IRPF) subtract
+        invoice.recalculate_totals(save=False)
         invoice.save(update_fields=[
             'subtotal_amount', 'discount_amount', 'discount_amount_currency',
             'discount_breakdown', 'tax_amount', 'total_amount',
@@ -545,32 +1008,44 @@ class ProjectFileInvoiceService:
 
         cls.lock_invoiced_work_entries(invoiced_source_ids)
 
-        # Validate: the new total should not exceed the remaining invoiceable amount.
-        # Use a tolerance because per-config tax rounding may cause small differences.
-        new_summary = cls.get_invoiceable_summary(project_file)
-        tolerance = summary['total_invoiceable'] * Decimal("0.001")  # 2% tolerance
-
-        if new_summary['remaining'] < -tolerance:
-            raise ValidationError(
-                _("This invoice would exceed the invoiceable amount. "
-                  "Total invoiceable: %(invoiceable)s, "
-                  "Already invoiced (including this): %(invoiced)s, "
-                  "Over by: %(over)s") % {
-                    'invoiceable': summary['total_invoiceable'],
-                    'invoiced': new_summary['total_invoiced'],
-                    'over': abs(new_summary['remaining']),
-                }
-            )
-
         logger.info(
             "Created SalesInvoice #%s from ProjectFile %s. "
-            "Amount: %s (subtotal: %s, tax: %s). Remaining: %s",
+            "Amount: %s (subtotal: %s, tax: %s). Goods remaining (net): %s",
             invoice.id, project_file.reference,
             invoice.total_amount, invoice.subtotal_amount,
-            invoice.tax_amount, new_summary['remaining']
+            invoice.tax_amount, summary['goods_remaining_net'] - goods_net,
         )
 
         return invoice
+
+    @classmethod
+    def lock_project_files(cls, project_file_ids):
+        """Row-lock expedientes, in pk order, for the rest of the transaction.
+
+        Every path that writes an expediente's invoices takes these locks
+        first — before advance invoice rows and the proforma/invoice
+        numbering rows — so two of them can never deadlock: saving an
+        invoice updates its expedientes' cached totals, i.e. locks them.
+        """
+        ids = sorted({pk for pk in project_file_ids if pk})
+        if ids:
+            list(
+                ProjectFile.objects.select_for_update()
+                .filter(pk__in=ids).order_by('pk').values_list('pk', flat=True)
+            )
+
+    @classmethod
+    def project_file_ids_of(cls, invoice):
+        """Every expediente an invoice counts toward: its own, the bulk
+        invoice's selection (M2M) and the one tagged on each line."""
+        ids = {invoice.project_file_id} if invoice.project_file_id else set()
+        if invoice.pk:
+            ids.update(invoice.project_files.values_list('pk', flat=True))
+            ids.update(
+                invoice.items.filter(project_file__isnull=False)
+                .values_list('project_file_id', flat=True)
+            )
+        return ids
 
     WORK_ENTRY_SOURCE_PREFIX = "work_entry_"
 

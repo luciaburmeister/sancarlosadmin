@@ -73,11 +73,12 @@ class DjangoQLSearchTestBase(TestCase):
         )
         self.invoice_without_provider = self._invoice("F-003", due_in_days=10, provider=None)
 
+        # Lines can only be added while the invoice is a pro forma.
         self.sales_invoice = SalesInvoice.objects.create(
             company=self.company,
             client=self.customer,
             invoice_number="V-001",
-            status=SalesInvoiceStatus.FINAL,
+            status=SalesInvoiceStatus.PROFORMA,
             date_issued=self.today,
             due_date=self.today - timedelta(days=5),
         )
@@ -87,6 +88,8 @@ class DjangoQLSearchTestBase(TestCase):
             quantity=Decimal("1"),
             unit_price=Money("800.00", "EUR"),
         )
+        self.sales_invoice.status = SalesInvoiceStatus.FINAL
+        self.sales_invoice.save(update_fields=["status"])
         self.proforma = SalesInvoice.objects.create(
             company=self.company,
             client=self.customer,

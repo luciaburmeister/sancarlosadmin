@@ -2,10 +2,12 @@ import logging
 from datetime import timedelta
 from decimal import Decimal
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.models import ContentType
-from invoices.models import SalesInvoice, SalesInvoiceItem, AppliedTax, SalesInvoiceStatus
+from invoices.models import SalesInvoice, SalesInvoiceItem, AppliedTax, SalesInvoiceStatus, SalesInvoiceDocumentType
 from sales.models import DeliveryOrder, DeliveryOrderItem
 from configurator.models import ExportTemplateKind, ConfigurationExportTemplate
 from configurator.services.export.service import ConfigurationExportService
@@ -21,7 +23,25 @@ class SalesInvoiceService:
     def create_from_configuration(cls, configuration):
         """
         Generates a SalesInvoice (Pro Forma) and a Delivery Order from a Configuration.
+
+        The invoice belongs to no expediente, so it cannot deduct an
+        expediente's advances: while its expediente has advances pending
+        deduction it is refused (ValidationError) rather than billing them twice.
         """
+        quote = getattr(configuration, 'quote', None)
+        project_file = (quote.project_file if quote is not None else None) or configuration.project_file
+        if (
+            project_file is not None
+            and project_file.advance_pending_amount.amount > Decimal("0.01")
+        ):
+            raise ValidationError(
+                _("%(project_file)s has advances pending deduction (%(amount)s): invoice it "
+                  "from the project file so they are deducted.") % {
+                    "project_file": project_file.reference or project_file.name,
+                    "amount": project_file.advance_pending_amount,
+                }
+            )
+
         company = configuration.company
         client_id = getattr(configuration, 'client_id', None)
         
@@ -40,7 +60,6 @@ class SalesInvoiceService:
             from sales.models import Client
             client = Client.objects.filter(pk=client_id).first()
 
-        quote = getattr(configuration, 'quote', None)
         payment_terms_days = cls.resolve_payment_terms_days(quote=quote, client=client)
         date_issued = timezone.now().date()
 
@@ -101,12 +120,47 @@ class SalesInvoiceService:
         `reply_to` is forwarded to the invoice email so the client replies to
         whoever finalized the invoice, and `cc_emails` copies that same person
         on the message so they keep what the client received.
+
+        Only a pro forma can be finalized: a FINAL invoice is returned as is,
+        and anything else (a cancelled invoice), or a pro forma that
+        validate_for_finalize() refuses, raises ValidationError. The status
+        is read from the invoice's row once locked, so a request that waited
+        on another finalizing it gets it back as issued. Advances and
+        invoices deducting them are re-totalled first (any other pro forma
+        is issued with the totals it was sent with), and an invoice with
+        nothing to collect (a zero total) is settled (PAID) once final. The
+        AEAT submission and the client email are queued once committed.
         """
-        if sales_invoice.status == SalesInvoiceStatus.FINAL:
-            sales_invoice._finalize_email_status = cls._email_queue_status(
-                queued=False, reason="already_final"
-            )
+        if cls._already_final(sales_invoice):
             return sales_invoice
+
+        from invoices.services.advances import AdvanceInvoiceService
+        from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
+
+        # Expedientes, then their advances, then the invoice itself, before
+        # the numbering lock
+        project_file_ids = ProjectFileInvoiceService.project_file_ids_of(sales_invoice)
+        ProjectFileInvoiceService.lock_project_files(project_file_ids)
+        AdvanceInvoiceService.lock_advances(project_file_ids)
+        # Another request may have issued or cancelled it while this one
+        # waited for the locks: decide on the row as it is now
+        sales_invoice.status = (
+            SalesInvoice.objects.select_for_update()
+            .values_list("status", flat=True).get(pk=sales_invoice.pk)
+        )
+        if sales_invoice.status == SalesInvoiceStatus.FINAL:
+            sales_invoice.refresh_from_db()
+        if cls._already_final(sales_invoice):
+            return sales_invoice
+
+        update_fields = ['status', 'date_issued', 'invoice_number', 'incremental_id']
+        # Issued as its lines and taxes add up. Only where advances are
+        # involved: any other pro forma (a delivery order's invoice keeps
+        # its orders' figures) is issued as it was sent.
+        if cls._retotalled_at_finalize(sales_invoice):
+            sales_invoice.recalculate_totals(save=False)
+            update_fields += ['subtotal_amount', 'tax_amount', 'total_amount']
+        cls.validate_for_finalize(sales_invoice, project_file_ids)
 
         company = sales_invoice.company
         sales_invoice.status = SalesInvoiceStatus.FINAL
@@ -116,19 +170,29 @@ class SalesInvoiceService:
         next_invoice = cls._generate_next_invoice_data(company)
         sales_invoice.invoice_number = next_invoice['number']
         sales_invoice.incremental_id = next_invoice['incremental_id']
-        sales_invoice.save(update_fields=['status', 'date_issued', 'invoice_number', 'incremental_id'])
+        sales_invoice.save(update_fields=update_fields)
+        # Nothing to collect (goods covered by advances): settled as is.
+        # Any other invoice keeps its payment status, which may be set by hand.
+        if sales_invoice.total_amount.amount == 0:
+            sales_invoice.recalculate_payment_status()
 
-        # Submit to AEAT via e-invoicing provider (async, non-blocking)
+        # Submit to AEAT via e-invoicing provider (async, non-blocking), once
+        # committed: a worker picking it up earlier would not find it issued
         if settings.AEAT_SUBMISSIONS_ENABLED:
-            try:
-                from apps.einvoicing.tasks import submit_invoice_to_aeat
-                submit_invoice_to_aeat.delay(sales_invoice.id)
-            except Exception:
-                logger.exception("Failed to queue AEAT submission for invoice %s", sales_invoice.pk)
+            invoice_id = sales_invoice.pk
+
+            def queue_aeat_submission():
+                try:
+                    from apps.einvoicing.tasks import submit_invoice_to_aeat
+                    submit_invoice_to_aeat.delay(invoice_id)
+                except Exception:
+                    logger.exception("Failed to queue AEAT submission for invoice %s", invoice_id)
+
+            transaction.on_commit(queue_aeat_submission)
 
         if send_email:
             sales_invoice._finalize_email_status = cls.queue_client_email(
-                sales_invoice, reply_to=reply_to, cc_emails=cc_emails
+                sales_invoice, reply_to=reply_to, cc_emails=cc_emails, on_commit=True,
             )
         else:
             sales_invoice._finalize_email_status = cls._email_queue_status(
@@ -136,6 +200,107 @@ class SalesInvoiceService:
             )
 
         return sales_invoice
+
+    @classmethod
+    def _already_final(cls, sales_invoice):
+        """True for a FINAL invoice, which finalize returns as is; raises
+        ValidationError for anything else that is not a pro forma."""
+        if sales_invoice.status == SalesInvoiceStatus.FINAL:
+            sales_invoice._finalize_email_status = cls._email_queue_status(
+                queued=False, reason="already_final"
+            )
+            return True
+        if sales_invoice.status != SalesInvoiceStatus.PROFORMA:
+            raise ValidationError(
+                _("Only pro forma invoices can be finalized; %(number)s is %(status)s.")
+                % {"number": sales_invoice.display_number, "status": sales_invoice.get_status_display()}
+            )
+        return False
+
+    @staticmethod
+    def _retotalled_at_finalize(sales_invoice):
+        """Whether finalize recalculates the pro forma's totals: an advance,
+        or an invoice deducting advances (the checks read its totals)."""
+        return (
+            sales_invoice.document_type == SalesInvoiceDocumentType.ADVANCE
+            or sales_invoice.items.filter(advance_line__isnull=False).exists()
+        )
+
+    @classmethod
+    def validate_for_finalize(cls, sales_invoice, project_file_ids=None):
+        """
+        Raises ValidationError if the pro forma cannot be issued as it
+        stands. finalize_invoice runs it under the locks of its expedientes
+        and their advances, on fresh totals.
+
+        - An advance must still fit what its expediente has left to invoice.
+        - A goods invoice's advance deductions must still hold (see
+          AdvanceDeductionService.check_for_finalize); an invoice deducting
+          nothing is only checked when its expedientes have advances to
+          deduct, so a manual credit note (negative total) is issued as before.
+        """
+        from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
+
+        if sales_invoice.document_type == SalesInvoiceDocumentType.ADVANCE:
+            AdvanceInvoiceService.check_cap(sales_invoice)
+        else:
+            AdvanceDeductionService.check_for_finalize(sales_invoice, project_file_ids)
+
+    @classmethod
+    def validate_for_cancel(cls, sales_invoice):
+        """
+        Raises ValidationError if the invoice cannot be cancelled. Only an
+        advance can be refused:
+        - while another invoice (a pro forma included) deducts it: that
+          invoice is cancelled, or its deductions removed, first;
+        - while payments are allocated to it: they are removed first, so the
+          money stays as the client's credit (a refund needs a corrective
+          invoice).
+        """
+        if sales_invoice.document_type != SalesInvoiceDocumentType.ADVANCE:
+            return
+        deducting = [
+            invoice.display_number
+            for invoice in SalesInvoice.objects.filter(
+                items__advance_line__invoice=sales_invoice,
+            ).exclude(status=SalesInvoiceStatus.CANCELLED).distinct().order_by("pk")
+        ]
+        if deducting:
+            raise ValidationError(
+                _("Advance %(advance)s is deducted on %(invoices)s: cancel those invoices, or "
+                  "remove the advances from the pro formas, before cancelling it.") % {
+                    "advance": sales_invoice.display_number,
+                    "invoices": ", ".join(deducting),
+                }
+            )
+
+        from payments.models import PaymentAllocation
+
+        if PaymentAllocation.objects.filter(
+            content_type=ContentType.objects.get_for_model(SalesInvoice),
+            object_id=sales_invoice.pk,
+        ).exists():
+            raise ValidationError(
+                _("Advance %(advance)s has payments allocated: remove them first, so the money "
+                  "stays as the client's credit, then cancel it.") % {
+                    "advance": sales_invoice.display_number,
+                }
+            )
+
+    @classmethod
+    def lock_for_cancel(cls, sales_invoice):
+        """Row-lock an invoice about to be cancelled — its expedientes
+        first, as every invoicing path takes them — and reload its status.
+        Run inside a transaction."""
+        from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
+
+        ProjectFileInvoiceService.lock_project_files(
+            ProjectFileInvoiceService.project_file_ids_of(sales_invoice)
+        )
+        sales_invoice.status = (
+            SalesInvoice.objects.select_for_update()
+            .values_list("status", flat=True).get(pk=sales_invoice.pk)
+        )
 
     @classmethod
     def _email_queue_status(cls, *, queued, client_email=None, reason=None):
@@ -149,13 +314,16 @@ class SalesInvoiceService:
         return status
 
     @classmethod
-    def queue_client_email(cls, sales_invoice, to_email=None, reply_to=None, cc_emails=None):
+    def queue_client_email(cls, sales_invoice, to_email=None, reply_to=None, cc_emails=None,
+                           on_commit=False):
         """
         Enqueue invoice PDF email to the client (async via Celery).
 
         `reply_to` is the sending user's own address when a person triggered
         this, so the client's reply reaches them instead of the shared mailbox;
-        `cc_emails` copies them on the message itself.
+        `cc_emails` copies them on the message itself. With `on_commit` the
+        task is queued once the transaction commits (a failure then is only
+        logged), so the worker renders the invoice as committed.
 
         Returns metadata for API/UI: email_queued, client_email, email_skip_reason.
         """
@@ -173,10 +341,16 @@ class SalesInvoiceService:
 
         from core.tasks import send_invoice_email_task
 
-        try:
+        def queue_email():
             send_invoice_email_task.delay(
                 sales_invoice.id, to_email=email, reply_to=reply_to or [], cc_emails=cc
             )
+
+        try:
+            if on_commit:
+                transaction.on_commit(queue_email, robust=True)
+            else:
+                queue_email()
         except Exception:
             logger.exception(
                 "Failed to queue invoice email for SalesInvoice %s", sales_invoice.pk
@@ -201,7 +375,17 @@ class SalesInvoiceService:
         """
         Creates a copy of an existing SalesInvoice and its line items.
         The new invoice will be in PROFORMA status without an invoice number.
+
+        Advance invoices and invoices deducting advances are refused
+        (ValidationError): a copy would bill or deduct the advance twice.
         """
+        if (
+            sales_invoice.document_type == SalesInvoiceDocumentType.ADVANCE
+            or sales_invoice.items.filter(advance_line__isnull=False).exists()
+        ):
+            raise ValidationError(
+                _("Advance invoices and invoices that deduct advances cannot be duplicated.")
+            )
         original_items = list(sales_invoice.items.all())
         
         # Create the new invoice (Pro Forma)

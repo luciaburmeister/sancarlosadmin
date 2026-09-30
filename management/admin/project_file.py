@@ -22,6 +22,7 @@ from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.translation import gettext_lazy as _
 from django.utils.html import format_html, format_html_join
+from django.utils.text import capfirst
 from django.utils.timezone import localtime
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.decorators import action, display
@@ -29,9 +30,18 @@ from import_export.admin import ExportActionModelAdmin
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from sales.models import Quote, DeliveryOrder
 from production.models import ProductionTicket
-from invoices.models import SalesInvoice, Invoice, AppliedTax
+from invoices.models import (
+    AppliedTax,
+    Invoice,
+    SalesInvoice,
+    SalesInvoiceDocumentType,
+    SalesInvoiceStatus,
+)
 from purchasing.models import PurchaseOrder
-from invoices.views.invoice.project_file_wizard_views import ProjectFileInvoiceWizardView
+from invoices.views.invoice.project_file_wizard_views import (
+    ProjectFileAdvancePreviewView,
+    ProjectFileInvoiceWizardView,
+)
 from invoices.views.invoice.delivery_order_wizard_views import DeliveryOrderWizardView
 from invoices.views.invoice.bulk_invoice_views import BulkInvoiceConfirmView
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
@@ -44,6 +54,14 @@ from management.models import WorkEntry, CostEntry
 from unfold.contrib.filters.admin import (
     AutocompleteSelectMultipleFilter
 )
+
+
+def _pill(text, color):
+    return format_html(
+        '<span style="display:inline-block;padding:1px 8px;border-radius:999px;'
+        'background:{};color:white;font-size:11px;font-weight:600;">{}</span>',
+        color, text,
+    )
 
 
 class QuoteInline(TabularInline):
@@ -80,8 +98,8 @@ class SalesInvoicesInline(NonrelatedTabularInline):
     can_delete = False
     tab = True
     tab_title = _("Sales Invoices")
-    fields = ["invoice_link", "date_issued", "pf_amount", "total_amount", "status_display"]
-    readonly_fields = ["invoice_link", "date_issued", "pf_amount", "total_amount", "status_display"]
+    fields = ["invoice_link", "type_display", "date_issued", "pf_amount", "total_amount", "status_display"]
+    readonly_fields = ["invoice_link", "type_display", "date_issued", "pf_amount", "total_amount", "status_display"]
 
     def get_form_queryset(self, obj):
         self._project_file = obj
@@ -106,6 +124,13 @@ class SalesInvoicesInline(NonrelatedTabularInline):
         label = obj.display_number
         url = reverse("admin:invoices_salesinvoice_change", args=[obj.pk])
         return format_html('<a href="{}">{}</a>', url, label)
+
+    @display(description=_("Type"))
+    def type_display(self, obj):
+        return _pill(
+            obj.get_document_type_display(),
+            "#2563eb" if obj.document_type == SalesInvoiceDocumentType.ADVANCE else "#6b7280",
+        )
 
     @display(description=_("This PF"))
     def pf_amount(self, obj):
@@ -574,6 +599,25 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
             )
         )
 
+    def has_delete_permission(self, request, obj=None):
+        # An advance invoice always keeps its expediente
+        if obj is not None and obj.has_advance_invoices():
+            return False
+        return super().has_delete_permission(request, obj)
+
+    def get_deleted_objects(self, objs, request):
+        # Their advance invoices protect them: the delete confirmation lists
+        # them and deletes nothing (bulk "Delete selected" included).
+        deleted, model_count, perms_needed, protected = super().get_deleted_objects(objs, request)
+        advances = SalesInvoice.objects.filter(
+            project_file__in=[obj.pk for obj in objs],
+            document_type=SalesInvoiceDocumentType.ADVANCE,
+        ).order_by("pk")
+        protected = list(protected) + [
+            f"{capfirst(SalesInvoice._meta.verbose_name)}: {advance}" for advance in advances
+        ]
+        return deleted, model_count, perms_needed, protected
+
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
         # Adopt orphan assets: linking one to an expediente ties it to the client.
@@ -604,6 +648,13 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
                     ProjectFileInvoiceWizardView.as_view(model_admin=self)
                 ),
                 name="management_projectfile_create_invoice",
+            ),
+            path(
+                "<int:project_file_id>/create-invoice/advance-preview/",
+                self.admin_site.admin_view(
+                    ProjectFileAdvancePreviewView.as_view(model_admin=self)
+                ),
+                name="management_projectfile_advance_preview",
             ),
             path(
                 "<int:project_file_id>/create-delivery-order/",
@@ -759,6 +810,21 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         pct = obj.percentage_invoiced or Decimal("0")
         if obj.total_amount.amount <= 0:
             return "—"
+
+        # The invoiced % counts advances not deducted yet: show them apart
+        advance_pending = obj.advance_pending_amount.amount
+        if advance_pending > Decimal("0.01"):
+            advance_pct = (
+                advance_pending / obj.total_amount.amount * Decimal("100")
+            ).quantize(Decimal("0.01"))
+            goods_pct = max(pct - advance_pct, Decimal("0.00"))
+            return format_html(
+                '<span style="color: {}; font-weight: 600;">{}%</span> '
+                '<span style="color: #d97706; font-weight: 600;">{}</span>',
+                "#2563eb" if goods_pct > 0 else "#9ca3af",
+                goods_pct,
+                _("+%(percentage)s%% advance") % {"percentage": advance_pct},
+            )
 
         if pct >= 100:
             return format_html(
@@ -916,7 +982,94 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
             <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">{pct}% {_("invoiced")}</div>
         </div>
         """
-        return format_html(html)
+        if not summary['advances']:
+            return format_html(html)
+        return format_html("{}{}", format_html(html), self._advances_summary_html(summary))
+
+    def _advances_summary_html(self, summary):
+        """The expediente's advance invoices (cancelled ones left out): what
+        they billed, what later invoices deducted of it and what is left to
+        deduct, then one row per advance."""
+        advances = summary['advances']
+        advanced = sum((a['base'] for a in advances), Decimal("0.00"))
+        deducted = sum((a['deducted'] for a in advances), Decimal("0.00"))
+        pending = summary['advances_open_net']
+
+        tiles = format_html_join(
+            "",
+            '<div style="background: {}; border-radius: 8px; padding: 12px; text-align: center;">'
+            '<div style="font-size: 11px; color: {}; margin-bottom: 4px;">{}</div>'
+            '<div style="font-size: 18px; font-weight: 700; color: {};">{} €</div>'
+            '</div>',
+            (
+                ("#f5f3ff", "#7c3aed", _("Advanced"), "#6d28d9", f"{advanced:.2f}"),
+                ("#f5f3ff", "#7c3aed", _("Deducted"), "#6d28d9", f"{deducted:.2f}"),
+                ("#fffbeb", "#d97706", _("Pending to deduct"), "#b45309", f"{pending:.2f}"),
+            ),
+        )
+
+        def badges(advance):
+            if advance['status'] != SalesInvoiceStatus.FINAL:
+                return _pill(SalesInvoiceStatus(advance['status']).label, "#d97706")
+            parts = []
+            # Deductible once final, paid or not: say when it is not paid yet
+            if not advance['paid']:
+                parts.append(_pill(_("Unpaid"), "#dc2626"))
+            if not advance['deductible']:
+                parts.append(_pill(_("not deductible"), "#6b7280"))
+            return format_html_join(" ", "{}", ((part,) for part in parts))
+
+        header = format_html(
+            '<tr style="font-size: 11px; color: #6b7280; text-align: left;">'
+            '<th style="padding: 4px 6px 4px 0; font-weight: 500;">{}</th>'
+            '<th style="padding: 4px 6px; font-weight: 500;">{}</th>'
+            '<th style="padding: 4px 6px; font-weight: 500; text-align: right;">%</th>'
+            '<th style="padding: 4px 6px; font-weight: 500; text-align: right;">{}</th>'
+            '<th style="padding: 4px 6px; font-weight: 500; text-align: right;">{}</th>'
+            '<th style="padding: 4px 6px; font-weight: 500; text-align: right;">{}</th>'
+            '<th style="padding: 4px 0 4px 6px;"></th>'
+            '</tr>',
+            _("Advance"), _("Date"), _("Base"), _("Deducted"), _("Pending"),
+        )
+        rows = format_html_join(
+            "",
+            '<tr style="border-top: 1px solid #e5e7eb;">'
+            '<td style="padding: 4px 6px 4px 0;"><a href="{}">{}</a></td>'
+            '<td style="padding: 4px 6px;">{}</td>'
+            '<td style="padding: 4px 6px; text-align: right;">{}</td>'
+            '<td style="padding: 4px 6px; text-align: right;">{}</td>'
+            '<td style="padding: 4px 6px; text-align: right;">{}</td>'
+            '<td style="padding: 4px 6px; text-align: right; font-weight: 600;">{}</td>'
+            '<td style="padding: 4px 0 4px 6px;">{}</td>'
+            '</tr>',
+            (
+                (
+                    reverse("admin:invoices_salesinvoice_change", args=[advance['id']]),
+                    advance['invoice_number'],
+                    advance['date_issued'].strftime("%d/%m/%Y"),
+                    f"{advance['percentage']:.2f}" if advance['percentage'] is not None else "—",
+                    f"{advance['base']:.2f}",
+                    f"{advance['deducted']:.2f}",
+                    f"{advance['pending']:.2f}",
+                    badges(advance),
+                )
+                for advance in advances
+            ),
+        )
+
+        # No goods left to invoice, so nothing left to deduct the rest from
+        # (the expediente shrank): it needs a corrective invoice.
+        unsettled = format_html(
+            '<div style="margin-top: 6px;">{}</div>',
+            _pill(_("Unsettled advance: no goods are left to deduct it from"), "#dc2626"),
+        ) if not summary['can_invoice'] and pending > Decimal("0.01") else ""
+
+        return format_html(
+            '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; max-width: 600px; margin-top: 12px;">{}</div>'
+            '<table style="width: 100%; max-width: 760px; margin-top: 8px; font-size: 12px; color: #374151;">{}{}</table>'
+            '{}',
+            tiles, header, rows, unsettled,
+        )
 
     @admin.display(description=_("Production Hours"))
     def production_hours_summary_display(self, obj):

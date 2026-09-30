@@ -1,15 +1,17 @@
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+from django.db import transaction
+from django.http import JsonResponse
 from django.shortcuts import redirect, get_object_or_404
 from django.urls import reverse
 from django.contrib import messages
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
 from django.forms import formset_factory
+from django.views import View
 
 from unfold.views import UnfoldModelAdminViewMixin
 from formtools.wizard.views import SessionWizardView
 
-from management.models import ProjectFile
 from invoices.models import SalesInvoice, SalesInvoiceItem, AppliedTax
 from django.contrib.contenttypes.models import ContentType
 from invoices.forms.wizard_forms import (
@@ -17,24 +19,51 @@ from invoices.forms.wizard_forms import (
     WizardItemFormsetHelper,
 )
 from invoices.forms.project_file_wizard_forms import (
+    AdvanceDeductionForm,
     ProjectFileInvoiceSetupForm,
     ProjectFileInvoiceNotesForm,
 )
+from general.email import sender_cc, sender_reply_to
+from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
+from invoices.services.sales_invoice_service import SalesInvoiceService
+
+
+def _is_advance(wizard):
+    setup_data = wizard.get_cleaned_data_for_step("setup") or {}
+    return setup_data.get('invoice_mode') == 'advance'
+
+
+def _deducts_advances(wizard):
+    """A goods invoice of an expediente with advances it can deduct."""
+    return (
+        not _is_advance(wizard)
+        and wizard.invoicing_summary['advances_deductible_net'] > 0
+    )
 
 
 class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
     form_list = [
         ("setup", ProjectFileInvoiceSetupForm),
         ("items", formset_factory(WizardItemForm, extra=1, can_delete=True)),
+        # Kept apart from the goods lines: deductions are never items
+        ("deductions", formset_factory(AdvanceDeductionForm, extra=0)),
         ("notes", ProjectFileInvoiceNotesForm),
     ]
+    # An advance has no goods lines to edit: its lines come from the setup
+    condition_dict = {
+        "items": lambda wizard: not _is_advance(wizard),
+        "deductions": _deducts_advances,
+    }
     template_name = "invoices/project_file_invoice_wizard.html"
     permission_required = ("invoices.add_salesinvoice",)
     title = _("Create Invoice from Project File")
 
     def dispatch(self, request, *args, **kwargs):
-        self.project_file = get_object_or_404(ProjectFile, pk=kwargs.get('project_file_id'))
+        # Scoped like the expediente's change page: another company's is not found
+        self.project_file = get_object_or_404(
+            self.model_admin.get_queryset(request), pk=kwargs.get('project_file_id')
+        )
         self.invoicing_summary = ProjectFileInvoiceService.get_invoiceable_summary(self.project_file)
         return super().dispatch(request, *args, **kwargs)
 
@@ -44,9 +73,44 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
             kwargs["request"] = self.request
             kwargs["project_file"] = self.project_file
             kwargs["invoicing_summary"] = self.invoicing_summary
+        elif step == "deductions":
+            kwargs["form_kwargs"] = {
+                "rows": {row.line.pk: row for row in self._deduction_plan()},
+            }
         elif step == "notes":
             kwargs["request"] = self.request
+            kwargs["advance"] = _is_advance(self)
         return kwargs
+
+    @staticmethod
+    def _items_data(rows):
+        """Goods line dicts from the items step's cleaned rows."""
+        return [
+            {
+                'source_id': row.get('source_id', ''),
+                'description': row.get('description', ''),
+                'quantity': row.get('quantity', Decimal("1")),
+                'unit_price': row.get('unit_price'),
+                'discount_percentage': row.get('discount_percentage', Decimal("0.00")),
+            }
+            for row in rows
+            if row and not row.get('DELETE')
+        ]
+
+    def _deduction_plan(self):
+        """The default deduction plan of the goods entered in the items step
+        (a dry run; nothing is written)."""
+        if not hasattr(self, "_deduction_plan_rows"):
+            setup_data = self.get_cleaned_data_for_step("setup") or {}
+            items_data = self._items_data(self.get_cleaned_data_for_step("items") or [])
+            self._deduction_plan_rows = (
+                AdvanceDeductionService.preview_plan(
+                    self.project_file, items_data,
+                    company=setup_data['company'], client=self.project_file.client,
+                )
+                if setup_data.get('company') and items_data else []
+            )
+        return self._deduction_plan_rows
 
     def _build_items_initial(self):
         """
@@ -194,6 +258,11 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
 
         if step == "items":
             return self._build_items_initial()
+        if step == "deductions":
+            return [
+                {'advance_line': row.line.pk, 'amount': row.amount}
+                for row in self._deduction_plan()
+            ]
 
         return initial
 
@@ -221,6 +290,9 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
 
         if self.steps.current == "setup":
             context["helper"] = context["form"].helper
+            context["advance_preview_url"] = reverse(
+                "admin:management_projectfile_advance_preview", args=[self.project_file.id]
+            )
         elif self.steps.current == "items":
             helper = WizardItemFormsetHelper()
             context["helper"] = helper
@@ -229,38 +301,48 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
             context["form_add"] = helper.form_add
         elif self.steps.current == "notes":
             context["helper"] = context["form"].helper
+            if _is_advance(self):
+                # What will be issued, as the server rounds it
+                context["advance_preview"] = AdvanceInvoiceService.preview(
+                    self.project_file,
+                    summary=self.invoicing_summary,
+                    **ProjectFileInvoiceSetupForm.advance_input(
+                        self.get_cleaned_data_for_step("setup")
+                    ),
+                )
 
         return context
 
-    def done(self, form_list, **kwargs):
-        all_forms = list(form_list)
-        setup_form = all_forms[0]
-        items_formset = all_forms[1]
-        notes_form = all_forms[2]
-
-        items_data = []
-        for form in items_formset:
-            if not form.cleaned_data or form.cleaned_data.get('DELETE'):
-                continue
-            items_data.append({
-                'source_id': form.cleaned_data.get('source_id', ''),
-                'description': form.cleaned_data.get('description', ''),
-                'quantity': form.cleaned_data.get('quantity', Decimal("1")),
-                'unit_price': form.cleaned_data.get('unit_price'),
-                'discount_percentage': form.cleaned_data.get('discount_percentage', Decimal("0.00")),
-            })
+    def done(self, form_list, form_dict, **kwargs):
+        setup_form = form_dict["setup"]
+        notes_form = form_dict["notes"]
+        if setup_form.cleaned_data.get('invoice_mode') == 'advance':
+            return self._done_advance(setup_form, notes_form)
+        # Goods come from the items step only; deductions never go through it
+        items_data = self._items_data(form.cleaned_data for form in form_dict["items"])
+        # Keyed by advance line; apply() checks them against its own plan.
+        # Without the step (nothing deductible when it started) the default plan.
+        amounts = None
+        if "deductions" in form_dict:
+            amounts = {
+                form.cleaned_data['advance_line']: form.cleaned_data['amount']
+                for form in form_dict["deductions"]
+                if form.cleaned_data
+            }
 
         try:
-            invoice = ProjectFileInvoiceService.create_invoice_from_project_file(
-                project_file=self.project_file,
-                company=setup_form.cleaned_data['company'],
-                client=self.project_file.client,
-                date_issued=setup_form.cleaned_data['date_issued'],
-                due_date=setup_form.cleaned_data.get('due_date'),
-                items_data=items_data,
-                notes=notes_form.cleaned_data.get('notes', ''),
-                payment_method=setup_form.cleaned_data.get('payment_method'),
-            )
+            with transaction.atomic():
+                invoice = ProjectFileInvoiceService.create_invoice_from_project_file(
+                    project_file=self.project_file,
+                    company=setup_form.cleaned_data['company'],
+                    client=self.project_file.client,
+                    date_issued=setup_form.cleaned_data['date_issued'],
+                    due_date=setup_form.cleaned_data.get('due_date'),
+                    items_data=items_data,
+                    notes=notes_form.cleaned_data.get('notes', ''),
+                    payment_method=setup_form.cleaned_data.get('payment_method'),
+                )
+                AdvanceDeductionService.apply(invoice, amounts)
 
             messages.success(
                 self.request,
@@ -274,9 +356,74 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
             )
 
         except ValidationError as e:
-            messages.error(self.request, str(e.message))
+            messages.error(self.request, " ".join(e.messages))
             return redirect(
                 reverse("admin:management_projectfile_change", args=[self.project_file.id])
             )
 
+    def _done_advance(self, setup_form, notes_form):
+        """Issue the advance entered in the setup step, as a pro forma or
+        straight away as final."""
+        setup_data = setup_form.cleaned_data
+        try:
+            with transaction.atomic():
+                invoice = AdvanceInvoiceService.create(
+                    project_file=self.project_file,
+                    date_issued=setup_data['date_issued'],
+                    due_date=setup_data.get('due_date'),
+                    notes=notes_form.cleaned_data.get('notes', ''),
+                    payment_method=setup_data.get('payment_method'),
+                    **ProjectFileInvoiceSetupForm.advance_input(setup_data),
+                )
+                if notes_form.cleaned_data.get('finalize'):
+                    SalesInvoiceService.finalize_invoice(
+                        invoice,
+                        reply_to=sender_reply_to(self.request.user),
+                        cc_emails=sender_cc(self.request.user),
+                    )
+        except ValidationError as e:
+            messages.error(self.request, " ".join(e.messages))
+            return redirect(
+                reverse("admin:management_projectfile_change", args=[self.project_file.id])
+            )
 
+        messages.success(
+            self.request,
+            _("Sales Invoice created successfully from %(ref)s.") % {
+                'ref': self.project_file.reference
+            }
+        )
+        return redirect(reverse("admin:invoices_salesinvoice_change", args=[invoice.id]))
+
+
+class ProjectFileAdvancePreviewView(UnfoldModelAdminViewMixin, View):
+    """GET ?percentage= or ?amount= → AdvanceInvoiceService.preview() as
+    JSON, for the invoice wizard's live preview: all rounding stays on the
+    server."""
+
+    permission_required = ("invoices.add_salesinvoice",)
+
+    def get(self, request, project_file_id):
+        project_file = get_object_or_404(
+            self.model_admin.get_queryset(request), pk=project_file_id
+        )
+        amount = self._decimal(request.GET.get("amount"))
+        percentage = None if amount is not None else self._decimal(request.GET.get("percentage"))
+        return JsonResponse(
+            AdvanceInvoiceService.preview(project_file, percentage=percentage, amount=amount)
+        )
+
+    @staticmethod
+    def _decimal(value):
+        """A typed number (comma or dot decimals); None when empty, 0 when
+        not a usable number, which the preview reports as invalid."""
+        value = (value or "").strip().replace(",", ".")
+        if not value:
+            return None
+        try:
+            number = Decimal(value)
+        except InvalidOperation:
+            return Decimal("0")
+        if not number.is_finite() or abs(number) >= Decimal("1e12"):
+            return Decimal("0")
+        return number

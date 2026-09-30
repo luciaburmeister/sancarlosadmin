@@ -68,6 +68,25 @@
             </div>
             {% endif %}
 
+            {# Advances still to deduct: the goods invoices take them off #}
+            {% if invoicing_summary.advances_open_net > 0 %}
+            <div
+                class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-900/20">
+                <p class="font-medium text-amber-800 dark:text-amber-300">
+                    {% trans "Advances pending deduction" %}: {{ invoicing_summary.advances_open_net|floatformat:2 }} €
+                </p>
+                <ul class="mt-1 space-y-0.5 text-amber-700 dark:text-amber-400">
+                    {% for advance in invoicing_summary.advances %}{% if advance.pending > 0 %}
+                    <li>
+                        {{ advance.invoice_number }} ({{ advance.date_issued|date:"d/m/Y" }}):
+                        {{ advance.pending|floatformat:2 }} €
+                        {% if advance.status == "proforma" %}— {% trans "pro forma: issue it as final to deduct it" %}{% elif not advance.deductible %}— {% trans "not deductible" %}{% elif not advance.paid %}— {% trans "Unpaid" %}{% endif %}
+                    </li>
+                    {% endif %}{% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
             {# Existing Invoices #}
             {% if invoicing_summary.invoices %}
             <div class="mt-4">
@@ -115,12 +134,47 @@
         <div
             class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
             <div class="p-6">
+                {% if advance_preview %}
+                {% include "invoices/project_file_invoice_advance_preview.html" with preview=advance_preview %}
+                {% endif %}
                 {% if wizard.steps.current == 'items' %}
                 {% include "invoices/stacked_inline_formset.html" with formset=wizard.form formset_tag=False form_add=True form_id="item-formset" formset_id="item-formset" %}
+                {% elif wizard.steps.current == 'deductions' %}
+                {% include "invoices/project_file_invoice_deductions.html" with formset=wizard.form %}
                 {% elif helper %}
                 {% crispy wizard.form helper "unfold_crispy" %}
                 {% else %}
                 {% crispy wizard.form %}
+                {% endif %}
+                {% if advance_preview_url %}
+                {# Advance mode: filled as you type from the server's preview #}
+                <div id="advance-preview" data-url="{{ advance_preview_url }}" hidden
+                    class="mt-2 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm dark:bg-gray-800 dark:border-gray-700">
+                    <h3 class="text-base font-semibold text-gray-800 dark:text-gray-200 mb-1">{% trans "Preview" %}</h3>
+                    <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">{% trans "Share of the project file's taxable base billed by this advance invoice." %}</p>
+                    <p data-preview="error" hidden class="mb-3 font-medium text-red-600 dark:text-red-400"></p>
+                    <table class="w-full">
+                        <tbody data-preview="lines"></tbody>
+                        <tbody data-preview="taxes" class="text-gray-500 dark:text-gray-400"></tbody>
+                        <tfoot class="font-semibold text-gray-900 dark:text-gray-100">
+                            <tr>
+                                <td class="py-1">{% trans "Base" %}</td>
+                                <td class="py-1 text-right" data-preview="base"></td>
+                            </tr>
+                            <tr>
+                                <td class="py-1">{% trans "Tax Amount" %}</td>
+                                <td class="py-1 text-right" data-preview="tax_amount"></td>
+                            </tr>
+                            <tr>
+                                <td class="py-1">{% trans "Total" %}</td>
+                                <td class="py-1 text-right" data-preview="total"></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                        {% trans "Largest advance still allowed" %}: <span data-preview="max_amount"></span>
+                    </p>
+                </div>
                 {% endif %}
             </div>
         </div>
@@ -200,13 +254,102 @@
         // Invoice mode toggle
         const modeSelect = document.querySelector('[name$="invoice_mode"]');
         if (modeSelect) {
+            const pctField = document.querySelector('[name$="percentage"]');
+            const amtField = document.querySelector('[name$="custom_amount"]');
+            const preview = document.getElementById('advance-preview');
+
+            // Advance mode: the server's preview, refreshed as you type
+            let previewTimer = null;
+            let previewRequest = 0;
+            const formatAmount = function (value) {
+                return Number(value).toLocaleString(document.documentElement.lang || undefined, {
+                    minimumFractionDigits: 2, maximumFractionDigits: 2,
+                }) + ' €';
+            };
+            const previewPart = function (name) {
+                return preview.querySelector('[data-preview="' + name + '"]');
+            };
+            const row = function (label, amount) {
+                const tr = document.createElement('tr');
+                [label, amount].forEach(function (text, index) {
+                    const td = document.createElement('td');
+                    td.className = index ? 'py-1 text-right' : 'py-1';
+                    td.textContent = text;
+                    tr.appendChild(td);
+                });
+                return tr;
+            };
+            const renderPreview = function (data) {
+                previewPart('error').hidden = !data.error;
+                previewPart('error').textContent = data.error || '';
+                previewPart('lines').replaceChildren(...data.lines.map(function (line) {
+                    return row(line.description, formatAmount(line.base));
+                }));
+                previewPart('taxes').replaceChildren(...data.taxes.map(function (tax) {
+                    const amount = formatAmount(tax.amount);
+                    const rate = Number(tax.percentage).toLocaleString(document.documentElement.lang || undefined);
+                    return row(tax.name + ' ' + rate + ' %', tax.retention ? '−' + amount : amount);
+                }));
+                previewPart('base').textContent = formatAmount(data.base);
+                previewPart('tax_amount').textContent = formatAmount(data.tax_amount);
+                previewPart('total').textContent = formatAmount(data.total);
+                previewPart('max_amount').textContent = formatAmount(data.max_amount);
+            };
+            const refreshPreview = function () {
+                const params = new URLSearchParams();
+                if (amtField && amtField.value.trim()) {
+                    params.set('amount', amtField.value.trim());
+                } else if (pctField) {
+                    params.set('percentage', pctField.value.trim());
+                }
+                const request = ++previewRequest;
+                fetch(preview.dataset.url + '?' + params.toString(), {
+                    credentials: 'same-origin', headers: {'Accept': 'application/json'},
+                })
+                    .then(function (response) { return response.json(); })
+                    .then(function (data) { if (request === previewRequest) renderPreview(data); })
+                    .catch(function () {});
+            };
+            const schedulePreview = function () {
+                if (!preview || modeSelect.value !== 'advance') return;
+                clearTimeout(previewTimer);
+                previewTimer = setTimeout(refreshPreview, 300);
+            };
+
+            // Advance mode shows the field's data-advance-label/-help instead
+            // of its own label and help text (kept to switch back)
+            const relabel = function (field, advance) {
+                if (!field) return;
+                const label = document.querySelector('label[for="' + field.id + '"]');
+                const help = document.getElementById(field.id + '_helptext');
+                if (label && !('goodsLabel' in field.dataset)) field.dataset.goodsLabel = label.firstChild.nodeValue;
+                if (help && !('goodsHelp' in field.dataset)) field.dataset.goodsHelp = help.textContent;
+                if (label) label.firstChild.nodeValue = advance ? field.dataset.advanceLabel : field.dataset.goodsLabel;
+                if (help) help.textContent = advance ? field.dataset.advanceHelp : field.dataset.goodsHelp;
+            };
+
             function toggleFields() {
                 const mode = modeSelect.value;
-                const pctField = document.querySelector('[name$="percentage"]');
-                const amtField = document.querySelector('[name$="custom_amount"]');
 
-                if (pctField) pctField.closest('.col-span-12, [class*="col-span"]').style.display = mode === 'percentage' ? '' : 'none';
-                if (amtField) amtField.closest('.col-span-12, [class*="col-span"]').style.display = mode === 'custom' ? '' : 'none';
+                if (pctField) pctField.closest('.col-span-12, [class*="col-span"]').style.display = (mode === 'percentage' || mode === 'advance') ? '' : 'none';
+                if (amtField) amtField.closest('.col-span-12, [class*="col-span"]').style.display = (mode === 'custom' || mode === 'advance') ? '' : 'none';
+                relabel(pctField, mode === 'advance');
+                relabel(amtField, mode === 'advance');
+                if (preview) {
+                    preview.hidden = mode !== 'advance';
+                    schedulePreview();
+                }
+            }
+            // Advance mode takes a percentage or an amount: typing one clears the other
+            if (pctField && amtField) {
+                pctField.addEventListener('input', function () {
+                    if (modeSelect.value === 'advance' && pctField.value) amtField.value = '';
+                    schedulePreview();
+                });
+                amtField.addEventListener('input', function () {
+                    if (modeSelect.value === 'advance' && amtField.value) pctField.value = '';
+                    schedulePreview();
+                });
             }
             modeSelect.addEventListener('change', toggleFields);
             toggleFields();

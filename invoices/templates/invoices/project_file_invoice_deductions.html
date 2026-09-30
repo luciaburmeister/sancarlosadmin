@@ -1,0 +1,47 @@
+{% load i18n %}
+{# The invoice wizard's "advances to deduct" step: one row per advance line #}
+{{ formset.management_form }}
+<h3 class="text-base font-semibold text-gray-800 dark:text-gray-200 mb-1">{% trans "Advances to deduct" %}</h3>
+<p class="mb-4 text-xs text-gray-500 dark:text-gray-400">
+    {% trans "Each advance is taken off this invoice as a negative line. The amount can go from the minimum, which keeps the advances still open within the goods left to invoice, to what is pending; the invoice that completes the goods takes all of it." %}
+</p>
+{% if formset.non_form_errors %}
+<p class="mb-3 font-medium text-red-600 dark:text-red-400">{{ formset.non_form_errors|join:" " }}</p>
+{% endif %}
+{% if formset.forms %}
+<table class="w-full text-sm">
+    <thead class="text-left text-xs text-gray-500 dark:text-gray-400">
+        <tr>
+            <th class="py-1">{% trans "Advance" %}</th>
+            <th class="py-1">{% trans "Taxes" %}</th>
+            <th class="py-1 text-right">{% trans "Pending" %}</th>
+            <th class="py-1 text-right">{% trans "Minimum" %}</th>
+            <th class="py-1 text-right">{% trans "Amount to deduct" %}</th>
+        </tr>
+    </thead>
+    <tbody class="text-gray-700 dark:text-gray-300">
+        {% for form in formset %}
+        <tr class="border-t border-gray-100 dark:border-gray-800">
+            <td class="py-2">
+                {{ form.advance_line }}
+                {% if form.row %}
+                {{ form.row.advance.invoice_number }} ({{ form.row.advance.date_issued|date:"d/m/Y" }},
+                {{ form.row.advance.percentage|floatformat:2 }} %)
+                {% if not form.row.advance.paid %}<span class="ml-1 rounded bg-red-100 px-1.5 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">{% trans "Unpaid" %}</span>{% endif %}
+                {% endif %}
+                {% for error in form.non_field_errors %}<p class="text-xs text-red-600 dark:text-red-400">{{ error }}</p>{% endfor %}
+            </td>
+            <td class="py-2">{{ form.row.taxes_label }}</td>
+            <td class="py-2 text-right">{{ form.row.pending|floatformat:2 }} €</td>
+            <td class="py-2 text-right">{{ form.row.minimum|floatformat:2 }} €</td>
+            <td class="py-2 text-right">
+                {{ form.amount }}
+                {% for error in form.amount.errors %}<p class="text-xs text-red-600 dark:text-red-400">{{ error }}</p>{% endfor %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="text-sm text-gray-500 dark:text-gray-400">{% trans "This invoice has no advance to deduct." %}</p>
+{% endif %}

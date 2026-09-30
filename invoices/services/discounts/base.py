@@ -59,6 +59,23 @@ def is_discount_line_source(source_id) -> bool:
     return bool(source_id) and source_id.startswith(DISCOUNT_LINE_PREFIX)
 
 
+# source_id prefixes of advance invoicing. These lines are neither discounts
+# nor goods: source_kind() maps them to None, so they never form part of a
+# discount's base.
+ADVANCE_LINE_PREFIX = "advance_pf_"         # advance_pf_<project_file_id>, on the advance invoice
+ADVANCE_DEDUCTION_PREFIX = "advance_ded_"   # advance_ded_<advance_line_id>, on the invoice deducting it
+
+
+def is_advance_line_source(source_id) -> bool:
+    """Whether a source_id belongs to a line of an advance invoice."""
+    return bool(source_id) and source_id.startswith(ADVANCE_LINE_PREFIX)
+
+
+def is_advance_deduction_source(source_id) -> bool:
+    """Whether a source_id belongs to a line deducting an advance."""
+    return bool(source_id) and source_id.startswith(ADVANCE_DEDUCTION_PREFIX)
+
+
 def source_kind(source_id):
     """Map a SalesInvoiceItem.source_id to its line kind (None if unknown)."""
     if not source_id:

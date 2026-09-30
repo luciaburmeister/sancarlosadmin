@@ -169,6 +169,16 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         help_text=_("Cached sum of cost entries linked to this project file."),
     )
 
+    advance_pending_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        editable=False,
+        verbose_name=_("Advances Pending Deduction"),
+        help_text=_("Cached taxable base of non-cancelled advance invoices not yet deducted on a later invoice."),
+    )
+
     class Meta:
         verbose_name = _("Project File")
         verbose_name_plural = _("Project Files")
@@ -193,13 +203,27 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
 
     @property
     def is_fully_invoiced(self) -> bool:
-        """True when the expediente is invoiced at (practically) 100%.
+        """True when the expediente is invoiced at (practically) 100% and no
+        advance is left to deduct — a 100% advance alone does not count.
 
         Uses the cached totals so no extra queries are needed.
         """
         total = getattr(self.total_amount, "amount", self.total_amount)
         pct = self.percentage_invoiced or Decimal("0.00")
-        return bool(total and total > 0 and pct >= Decimal("99.99"))
+        advance_pending = (
+            getattr(self.advance_pending_amount, "amount", self.advance_pending_amount)
+            or Decimal("0.00")
+        )
+        return bool(
+            total and total > 0 and pct >= Decimal("99.99")
+            and advance_pending <= Decimal("0.01")
+        )
+
+    def has_advance_invoices(self) -> bool:
+        """Whether an advance invoice, a cancelled one included, belongs to
+        this expediente. An advance always keeps its expediente, so the
+        expediente cannot be deleted then."""
+        return self.sales_invoices.filter(document_type="advance").exists()
 
     @property
     def operational_status(self):
@@ -344,8 +368,10 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
 
     def recalculate_total_amount(self):
         """
-        Recompute total_amount, total_invoiced, and percentage_invoiced.
+        Recompute total_amount, total_invoiced, percentage_invoiced and
+        advance_pending_amount.
         All values are subtotals (pre-tax) so the comparison is apples-to-apples.
+        Cancelled invoices bill nothing and are left out.
         Call this whenever a related Quote, Configuration, or SalesInvoice changes.
         """
         from django.apps import apps
@@ -397,6 +423,8 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         fk_invoiced = (
             SalesInvoice.objects.filter(
                 project_file=self,
+            ).exclude(
+                status="cancelled",
             ).aggregate(total=Sum(F("subtotal_amount") - F("discount_amount")))["total"]
             or Decimal("0.00")
         )
@@ -408,6 +436,8 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
             SalesInvoiceItem.objects.filter(
                 project_file=self,
                 invoice__project_file__isnull=True,  # only bulk invoices
+            ).exclude(
+                invoice__status="cancelled",
             ).aggregate(total=Sum("line_total"))["total"]
             or Decimal("0.00")
         )
@@ -421,13 +451,36 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
             if invoiceable > 0 else Decimal("0.00")
         )
 
+        # Advances still to deduct: the advance lines' base less the
+        # deduction lines (≤ 0) of later invoices, pro formas included.
+        advance_lines = SalesInvoiceItem.objects.filter(
+            invoice__project_file=self,
+            invoice__document_type="advance",
+        ).exclude(invoice__status="cancelled")
+        advance_base = advance_lines.aggregate(total=Sum("line_total"))["total"]
+        advance_deducted = None
+        if advance_base is not None:  # no advance, nothing to deduct
+            advance_deducted = (
+                SalesInvoiceItem.objects.filter(
+                    advance_line__in=advance_lines,
+                ).exclude(
+                    invoice__status="cancelled",
+                ).aggregate(total=Sum("line_total"))["total"]
+            )
+        advance_pending = Decimal("0.00")
+        for amount in (advance_base, advance_deducted):
+            if amount is not None:
+                advance_pending += Decimal(str(getattr(amount, "amount", amount)))
+
         self.total_amount = invoiceable
         self.total_invoiced = invoiced
         self.percentage_invoiced = pct
+        self.advance_pending_amount = advance_pending
         self.save(update_fields=[
             "total_amount", "total_amount_currency",
             "total_invoiced", "total_invoiced_currency",
             "percentage_invoiced",
+            "advance_pending_amount", "advance_pending_amount_currency",
         ])
 
     def recalculate_total_purchased(self):
@@ -1226,13 +1279,16 @@ class WorkEntry(ProjectFileEntryBase):
 
     @property
     def total_with_tax(self):
-        """total_price + sum of all applied tax amounts."""
+        """total_price + applied tax amounts, retentions (IRPF) subtracted."""
         from djmoney.money import Money
         tax_sum = Decimal("0")
         for tax in self.applied_taxes.all():
             if tax.calculated_amount is not None:
                 amt = tax.calculated_amount.amount if isinstance(tax.calculated_amount, Money) else Decimal(str(tax.calculated_amount))
-                tax_sum += amt
+                if tax.tax_type.behavior == "add":
+                    tax_sum += amt
+                else:
+                    tax_sum -= amt
         base = self.total_price.amount if hasattr(self.total_price, 'amount') else Decimal(str(self.total_price or 0))
         currency = self.total_price.currency if hasattr(self.total_price, 'currency') else 'EUR'
         return Money(base + tax_sum, currency)

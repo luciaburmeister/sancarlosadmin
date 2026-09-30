@@ -14,6 +14,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from company.models import EmailLog
 from general.email import sender_cc, sender_reply_to
 from invoices.models import SalesInvoice, SalesInvoiceStatus
+from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
 from invoices.services.sales_invoice_payment import ALLOWED_SALES_INVOICE_PAYMENT_METHODS
 from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from invoices.services.sales_invoice_service import SalesInvoiceService
@@ -89,131 +90,30 @@ def quote_has_content(quote):
     return False
 
 
-def get_config_component_lines(config) -> list:
-    override_subtotal = Decimal(str(config.subtotal_price.amount))
-
-    pb = config.pricing_breakdown or {}
-    lines = pb.get("lines", [])
-    is_override_only = (
-        len(lines) == 1 and lines[0].get("type") == "override"
-    ) or (not lines and config.price_override is not None and config.price_override.amount >= 0)
-
-    if not is_override_only and lines:
-        return [
-            {"label": line.get("label", ""), "amount": Decimal(str(line.get("amount", 0)))}
-            for line in lines
-            if Decimal(str(line.get("amount", 0))) != 0
-        ]
-
-    bom_lines = []
-    bom_total = Decimal("0")
-    for item in config.items.all():
-        lt = Decimal(str(item.line_total.amount)) if item.line_total else Decimal("0")
-        if lt <= 0:
-            continue
-        label = item.label or (item.component.name if item.component else "")
-        if " × " in label:
-            label = label.rsplit(" × ", 1)[0].strip()
-        bom_lines.append({"label": label, "amount": lt})
-        bom_total += lt
-
-    if bom_lines:
-        scale = override_subtotal / bom_total if bom_total else Decimal("1")
-        return [
-            {"label": bl["label"], "amount": (bl["amount"] * scale).quantize(Decimal("0.01"))}
-            for bl in bom_lines
-        ]
-
-    return [{"label": config.name, "amount": override_subtotal}]
-
-
 def build_items_from_summary(summary, invoice_mode, percentage, custom_amount, show_vehicle_name=True):
+    """Invoice line dicts for the API's percentage/custom invoice modes."""
     ratio = ProjectFileInvoiceService.compute_invoice_line_ratio(
         summary, invoice_mode, percentage, custom_amount
     )
-    items = []
+    return ProjectFileInvoiceService.build_items_for_ratio(
+        summary, ratio, show_vehicle_name=show_vehicle_name,
+    )
 
-    if ratio <= 0:
-        return items
 
-    for quote_data in summary["quotes"]:
-        quote = quote_data["quote"]
-        quote_name = quote.project_name if show_vehicle_name else "."
-        for config in quote.configurations.prefetch_related("items__component").all():
-            sub = Decimal(str(config.subtotal_price.amount))
-            # Zero-value configs are kept as a single 0-amount line
-            if sub < 0:
-                continue
-            for comp in get_config_component_lines(config):
-                comp_price = (comp["amount"] * ratio).quantize(Decimal("0.01"))
-                if comp_price < 0:
-                    continue
-                items.append({
-                    "source_id": f"config_{config.id}",
-                    "description": comp["label"],
-                    "quote_name": quote_name,
-                    "quantity": Decimal("1"),
-                    "unit_price": comp_price,
-                    "discount_percentage": Decimal("0.00"),
-                })
-
-        for item in quote.items.all():
-            item_price = (item.line_total.amount * ratio).quantize(Decimal("0.01"))
-            if item_price < 0:
-                continue
-            items.append({
-                "source_id": f"quote_item_{item.id}",
-                "description": f"{item.material} x{item.quantity} (P#{quote.id})",
-                "quote_name": quote_name,
-                "quantity": Decimal("1"),
-                "unit_price": item_price,
-                "discount_percentage": Decimal("0.00"),
-            })
-
-        for inv_item in quote.inventory_items.select_related("inventory_item").all():
-            line_amt = inv_item.line_total.amount if inv_item.line_total else Decimal("0.00")
-            if line_amt < 0:
-                continue
-            inv_name = (
-                inv_item.inventory_item.name
-                if inv_item.inventory_item_id
-                else f"Inventory Item #{inv_item.pk}"
-            )
-            items.append({
-                "source_id": f"inv_item_{inv_item.id}",
-                "description": inv_name,
-                "quote_name": quote_name,
-                "quantity": inv_item.quantity,
-                "unit_price": inv_item.unit_price.amount,
-                "discount_percentage": inv_item.discount,
-            })
-
-    for config_data in summary.get("direct_configurations", []):
-        sub = config_data["subtotal"]
-        item_price = (sub * ratio).quantize(Decimal("0.01"))
-        if item_price < 0:
-            continue
-        items.append({
-            "source_id": f"direct_{config_data['id']}",
-            "description": config_data["name"],
-            "quantity": Decimal("1"),
-            "unit_price": item_price,
-            "discount_percentage": Decimal("0.00"),
-        })
-
-    for entry_data in summary.get("work_entries", []):
-        item_price = (entry_data["total"] * ratio).quantize(Decimal("0.01"))
-        if item_price < 0:
-            continue
-        items.append({
-            "source_id": f"work_entry_{entry_data['id']}",
-            "description": entry_data["description"],
-            "quantity": Decimal("1"),
-            "unit_price": item_price,
-            "discount_percentage": Decimal("0.00"),
-        })
-
-    return items
+def advance_block_reason(summary):
+    """Why the expediente's goods cannot be invoiced while one of its
+    advances is still a pro forma (it must be finalized or deleted first)
+    or being cancelled at the AEAT (its answer is awaited), or None when
+    there is none."""
+    numbers = [
+        advance["invoice_number"]
+        for advance in summary["advances"]
+        if advance["status"] == SalesInvoiceStatus.PROFORMA
+    ]
+    if numbers:
+        return f"Anticipo en proforma ({', '.join(numbers)})"
+    numbers = [advance["invoice_number"] for advance in summary["advances"] if advance["cancelling"]]
+    return f"Anulación del anticipo en curso en la AEAT ({', '.join(numbers)})" if numbers else None
 
 
 class SalesInvoiceDetailSerializer(serializers.Serializer):
@@ -305,14 +205,25 @@ class SalesInvoiceDetailSerializer(serializers.Serializer):
                 "unit_price": float(item.unit_price.amount) if item.unit_price else 0.0,
                 "discount_percentage": float(item.discount_percentage),
                 "line_total": float(item.line_total.amount) if item.line_total else 0.0,
+                # A deduction line takes part of an advance invoice back off
+                "is_advance_deduction": item.advance_line_id is not None,
+                "advance_invoice_number": (
+                    item.advance_line.invoice.display_number
+                    if item.advance_line_id else None
+                ),
             }
-            for item in invoice.items.all()
+            for item in invoice.items.select_related("advance_line__invoice")
         ]
         return {
             "id": invoice.id,
             "invoice_number": invoice.invoice_number,
             "proforma_number": invoice.proforma_number,
             "status": invoice.status,
+            "document_type": invoice.document_type,
+            "advance_percentage": (
+                float(invoice.advance_percentage)
+                if invoice.advance_percentage is not None else None
+            ),
             "payment_status": invoice.payment_status,
             "payment_method": invoice.payment_method,
             "payment_method_label": invoice.get_payment_method_display(),
@@ -352,6 +263,11 @@ class SalesInvoiceListItemSerializer(serializers.Serializer):
             "invoice_number": invoice.invoice_number,
             "proforma_number": invoice.proforma_number,
             "status": invoice.status,
+            "document_type": invoice.document_type,
+            "advance_percentage": (
+                float(invoice.advance_percentage)
+                if invoice.advance_percentage is not None else None
+            ),
             "payment_status": invoice.payment_status,
             "date_issued": invoice.date_issued.strftime("%Y-%m-%d") if invoice.date_issued else None,
             "total_amount": float(invoice.total_amount.amount) if invoice.total_amount else 0.0,
@@ -390,20 +306,28 @@ class BulkEmitCandidateSerializer(serializers.Serializer):
             if q.status in (QuoteStatus.DRAFT, QuoteStatus.SENT) and quote_has_content(q)
         ]
         has_content = bool(accepted or pending)
-        accepted_total = sum(float(q.total_price.amount) for q in accepted if q.total_price)
-        total_invoiced = float(
-            ProjectFileInvoiceService.get_invoiceable_summary(pf)["total_invoiced"]
-        ) if accepted else 0.0
-        accepted_remaining = max(0.0, accepted_total - total_invoiced)
-        already_invoiced = has_content and accepted and accepted_remaining < 0.01 and not pending
+        # Net (pre-tax) goods figures: an advance does not make it invoiced.
+        # Also with pending quotes only: bulk-emit accepts them, and a pro
+        # forma advance (or one being cancelled) blocks it all the same.
+        summary = ProjectFileInvoiceService.get_invoiceable_summary(pf) if has_content else None
+        accepted_remaining = (
+            max(0.0, float(summary["goods_remaining_net"])) if accepted else 0.0
+        )
+        advances_open_net = float(summary["advances_open_net"]) if summary else 0.0
+        already_invoiced = (
+            has_content and accepted and not summary["can_invoice"] and not pending
+        )
+        advance_block = advance_block_reason(summary) if summary else None
         pending_value = sum(float(q.total_price.amount) for q in pending if q.total_price)
-        facturable = has_content and not already_invoiced
+        facturable = has_content and not already_invoiced and not advance_block
 
         block_reason = None
         if not has_content:
             block_reason = "Sin presupuestos con contenido"
         elif already_invoiced:
             block_reason = "Completamente facturado"
+        elif advance_block:
+            block_reason = advance_block
 
         return {
             "id": pf.id,
@@ -416,12 +340,17 @@ class BulkEmitCandidateSerializer(serializers.Serializer):
             "block_reason": block_reason,
             "pending_quote_count": len(pending),
             "accepted_remaining": accepted_remaining,
+            "advances_open_net": advances_open_net,
             "pending_value": pending_value,
         }
 
 
 class ProjectFileInvoiceCreateSerializer(serializers.Serializer):
-    invoice_mode = serializers.ChoiceField(choices=["percentage", "custom"], default="percentage")
+    # "advance": an advance invoice of ``percentage`` of the expediente's
+    # taxable base, or of ``custom_amount`` (its base) when that is given.
+    invoice_mode = serializers.ChoiceField(
+        choices=["percentage", "custom", "advance"], default="percentage"
+    )
     percentage = serializers.DecimalField(max_digits=8, decimal_places=2, default=Decimal("100"))
     custom_amount = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False, allow_null=True
@@ -435,6 +364,9 @@ class ProjectFileInvoiceCreateSerializer(serializers.Serializer):
     # proforma → finalize flow where sending was a separate user action.
     finalize = serializers.BooleanField(default=False)
     send_email = serializers.BooleanField(default=False)  # only used with finalize
+    # Deduct the expediente's advances (default plan). false is refused
+    # when the invoice must deduct some of them (every closing invoice).
+    deduct_advances = serializers.BooleanField(default=True)
 
     def validate_payment_method(self, value):
         value = (value or "").strip()
@@ -452,6 +384,11 @@ class ProjectFileInvoiceCreateSerializer(serializers.Serializer):
                 "La fecha de vencimiento no puede ser anterior a la fecha de emisión."
             )
 
+        if data.get("percentage", Decimal("100")) > Decimal("100"):
+            raise serializers.ValidationError(
+                {"percentage": "percentage no puede superar el 100%."}
+            )
+
         if data.get("invoice_mode") == "custom":
             custom_amount = data.get("custom_amount")
             if custom_amount is None:
@@ -459,6 +396,17 @@ class ProjectFileInvoiceCreateSerializer(serializers.Serializer):
                     {"custom_amount": "custom_amount requerido cuando invoice_mode es 'custom'."}
                 )
             if custom_amount <= 0:
+                raise serializers.ValidationError(
+                    {"custom_amount": "custom_amount debe ser un número positivo."}
+                )
+        elif data.get("invoice_mode") == "advance":
+            # No silent 100 % advance from the percentage default
+            custom_amount = data.get("custom_amount")
+            if custom_amount is None and "percentage" not in self.initial_data:
+                raise serializers.ValidationError(
+                    {"percentage": "percentage o custom_amount requerido cuando invoice_mode es 'advance'."}
+                )
+            if custom_amount is not None and custom_amount <= 0:
                 raise serializers.ValidationError(
                     {"custom_amount": "custom_amount debe ser un número positivo."}
                 )
@@ -476,10 +424,13 @@ class ProjectFileInvoiceCreateSerializer(serializers.Serializer):
         due_date = validated_data.get("due_date")
         date_issued = timezone.now().date()
 
+        if invoice_mode == "advance":
+            return self._create_advance(project_file, validated_data, date_issued)
+
         summary = ProjectFileInvoiceService.get_invoiceable_summary(project_file)
         if summary["total_invoiceable"] <= 0:
             raise serializers.ValidationError("Este expediente no tiene presupuestos aceptados.")
-        if summary["remaining"] <= Decimal("0.01"):
+        if not summary["can_invoice"]:
             raise serializers.ValidationError("Este expediente ya está completamente facturado.")
         if (
             invoice_mode == "custom"
@@ -517,18 +468,43 @@ class ProjectFileInvoiceCreateSerializer(serializers.Serializer):
                     notes=notes,
                     payment_method=payment_method or None,
                 )
-                if validated_data.get("finalize"):
-                    user = getattr(self.context.get("request"), "user", None)
-                    invoice = SalesInvoiceService.finalize_invoice(
-                        invoice,
-                        send_email=validated_data.get("send_email", False),
-                        reply_to=sender_reply_to(user),
-                        cc_emails=sender_cc(user),
-                    )
+                AdvanceDeductionService.apply(
+                    invoice, None if validated_data.get("deduct_advances", True) else {},
+                )
+                invoice = self._finalize_if_requested(invoice, validated_data)
             return invoice
         except DjangoValidationError as exc:
             msg = exc.message if hasattr(exc, "message") else str(exc)
             raise serializers.ValidationError(msg) from exc
+
+    def _create_advance(self, project_file, validated_data, date_issued):
+        custom_amount = validated_data.get("custom_amount")
+        try:
+            with transaction.atomic():
+                invoice = AdvanceInvoiceService.create(
+                    project_file=project_file,
+                    date_issued=date_issued,
+                    due_date=validated_data.get("due_date"),
+                    percentage=validated_data.get("percentage") if custom_amount is None else None,
+                    amount=custom_amount,
+                    notes=validated_data.get("notes", ""),
+                    payment_method=validated_data.get("payment_method", "") or None,
+                )
+                invoice = self._finalize_if_requested(invoice, validated_data)
+            return invoice
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(" ".join(exc.messages)) from exc
+
+    def _finalize_if_requested(self, invoice, validated_data):
+        if not validated_data.get("finalize"):
+            return invoice
+        user = getattr(self.context.get("request"), "user", None)
+        return SalesInvoiceService.finalize_invoice(
+            invoice,
+            send_email=validated_data.get("send_email", False),
+            reply_to=sender_reply_to(user),
+            cc_emails=sender_cc(user),
+        )
 
 
 class SalesInvoiceFinalizeSerializer(serializers.Serializer):
@@ -539,12 +515,15 @@ class SalesInvoiceFinalizeSerializer(serializers.Serializer):
         if invoice.status == SalesInvoiceStatus.FINAL:
             raise serializers.ValidationError("La factura ya está finalizada.")
         send_email = self.validated_data.get("send_email", True)
-        return SalesInvoiceService.finalize_invoice(
-            invoice,
-            send_email=send_email,
-            reply_to=self._sender_reply_to(),
-            cc_emails=self._sender_cc(),
-        )
+        try:
+            return SalesInvoiceService.finalize_invoice(
+                invoice,
+                send_email=send_email,
+                reply_to=self._sender_reply_to(),
+                cc_emails=self._sender_cc(),
+            )
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages) from exc
 
     def _sender_reply_to(self):
         return sender_reply_to(self._request_user())
@@ -714,7 +693,7 @@ class BulkEmitInvoicesSerializer(serializers.Serializer):
                             "reason": "Sin presupuestos con contenido.",
                         })
                         continue
-                    if summary["remaining"] <= Decimal("0.01"):
+                    if not summary["can_invoice"]:
                         failures.append({
                             "project_file_id": pf_id,
                             "reason": "Ya está completamente facturado.",
@@ -751,6 +730,8 @@ class BulkEmitInvoicesSerializer(serializers.Serializer):
                         notes=invoice_notes,
                         payment_method=payment_method or None,
                     )
+                    # 100 % of what is left: it takes every advance pending
+                    AdvanceDeductionService.apply(invoice)
                     invoice = SalesInvoiceService.finalize_invoice(invoice, send_email=send_email)
 
                 auto_accepted = sum(1 for q in pending_quotes if quote_has_content(q))

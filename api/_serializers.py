@@ -1,11 +1,13 @@
 """Shared serializers and lookup helpers for the API views."""
 
 import unicodedata
+from decimal import Decimal
 
 from django.contrib.contenttypes.models import ContentType
 from django.http import JsonResponse
 
 from configurator.models import Configuration
+from invoices.models import SalesInvoiceStatus
 from production.models import ProductionItemSession, ProductionItemSessionStatus, ProductionTicket
 
 
@@ -13,10 +15,15 @@ from production.models import ProductionItemSession, ProductionItemSessionStatus
 
 
 def project_file_can_mark_completed(project_file):
-    """Open expediente, fully invoiced, all sales invoices paid."""
+    """Open expediente, its goods fully invoiced with no advance left to
+    deduct, all its sales invoices paid. Cancelled invoices bill nothing and
+    are ignored."""
     if project_file.status in ("completed", "cancelled"):
         return False
-    invoices = list(project_file.sales_invoices.all())
+    invoices = [
+        inv for inv in project_file.sales_invoices.all()
+        if inv.status != SalesInvoiceStatus.CANCELLED
+    ]
     if not invoices:
         return False
     if not all(
@@ -27,8 +34,9 @@ def project_file_can_mark_completed(project_file):
         return False
     from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 
-    remaining = ProjectFileInvoiceService.get_invoiceable_summary(project_file)["remaining"]
-    return float(remaining) < 0.01
+    # Net (pre-tax) figures, so tax rounding and retentions cannot block it.
+    summary = ProjectFileInvoiceService.get_invoiceable_summary(project_file)
+    return not summary["can_invoice"] and summary["advances_open_net"] <= Decimal("0.01")
 
 
 def serialize_project_file(

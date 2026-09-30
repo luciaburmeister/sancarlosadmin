@@ -31,21 +31,9 @@ class AssetTransactionExportStrategy(BaseExportStrategy):
         working_zones = []
         if project_file:
             working_zones = [
-                {
-                    "name": zone.name,
-                    "zone_type": zone.zone_type,
-                    "zone_type_display": zone.get_zone_type_display(),
-                    "street_address": zone.street_address,
-                    "city": zone.city,
-                    "postal_code": zone.postal_code,
-                    "province": zone.province,
-                    "country": zone.country.code if zone.country else "",
-                    "full_address": zone.full_address,
-                    "cnae": zone.cnae,
-                    "nima": zone.nima,
-                }
-                for zone in project_file.working_zones.all()
+                zone.export_context() for zone in project_file.working_zones.all()
             ]
+        landfill = self.transaction.get_landfill()
 
         context = {
             "transaction": self.transaction,
@@ -89,6 +77,7 @@ class AssetTransactionExportStrategy(BaseExportStrategy):
             "project_file_province": join_unique(zone["province"] for zone in working_zones),
             "project_file_cnae": join_unique(zone["cnae"] for zone in working_zones),
             "project_file_nima": join_unique(zone["nima"] for zone in working_zones),
+            "landfill": landfill.export_context() if landfill else None,
             "document_url": self.transaction.document_url,
             "document_qr": qr(self.transaction.document_url),
         }

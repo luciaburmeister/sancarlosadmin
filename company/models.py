@@ -767,6 +767,21 @@ class WorkingZone(CompanyOwnedModel):
         parts = [p for p in [self.street_address, self.city, self.postal_code] if p]
         return ", ".join(parts)
 
+    def export_context(self) -> dict:
+        return {
+            "name": self.name,
+            "zone_type": self.zone_type,
+            "zone_type_display": self.get_zone_type_display(),
+            "street_address": self.street_address,
+            "city": self.city,
+            "postal_code": self.postal_code,
+            "province": self.province,
+            "country": self.country.code if self.country else "",
+            "full_address": self.full_address,
+            "cnae": self.cnae,
+            "nima": self.nima,
+        }
+
     def get_coordinates(self):
         """
         Returns (lat, lng) parsed from `location`, or (None, None) if unset/invalid.

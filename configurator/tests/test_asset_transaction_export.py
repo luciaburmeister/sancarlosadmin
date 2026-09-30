@@ -220,3 +220,101 @@ class AssetTransactionExportWorkingZoneContextTests(TestCase):
         self.assertEqual(context["project_file_province"], "")
         self.assertEqual(context["project_file_cnae"], "")
         self.assertEqual(context["project_file_nima"], "")
+
+
+class AssetTransactionExportLandfillContextTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.company = Company.objects.create(name="Taller Co")
+        cls.asset_type = AssetType.objects.create(company=cls.company, name="Cuba")
+        cls.asset = Asset.objects.create(
+            company=cls.company,
+            asset_type=cls.asset_type,
+            name="Cuba 1",
+        )
+        cls.landfill = WorkingZone.objects.create(
+            company=cls.company,
+            name="Reciclados San Carlos",
+            zone_type=WorkingZone.ZoneType.VERTEDERO,
+            street_address="Polígono 1",
+            city="Antequera",
+            postal_code="29200",
+            province="Málaga",
+            cnae="3821",
+            nima="2900099999",
+        )
+        cls.warehouse = WorkingZone.objects.create(
+            company=cls.company,
+            name="Almacén",
+            zone_type=WorkingZone.ZoneType.ALMACEN,
+        )
+
+    def test_movement_resolves_the_named_landfill(self):
+        transaction = AssetTransaction.objects.create(
+            company=self.company,
+            asset=self.asset,
+            transaction_type=TransactionTypeChoices.MOVEMENT,
+            to_zone=self.warehouse,
+            date=timezone.now(),
+            data={"vertedero": "Reciclados San Carlos"},
+        )
+
+        context = AssetTransactionExportStrategy(transaction).get_context()
+
+        self.assertEqual(
+            context["landfill"],
+            {
+                "name": "Reciclados San Carlos",
+                "zone_type": "vertedero",
+                "zone_type_display": "Vertedero",
+                "street_address": "Polígono 1",
+                "city": "Antequera",
+                "postal_code": "29200",
+                "province": "Málaga",
+                "country": "ES",
+                "full_address": "Polígono 1, Antequera, 29200",
+                "cnae": "3821",
+                "nima": "2900099999",
+            },
+        )
+
+    def test_movement_without_a_matching_landfill_is_empty(self):
+        transaction = AssetTransaction.objects.create(
+            company=self.company,
+            asset=self.asset,
+            transaction_type=TransactionTypeChoices.MOVEMENT,
+            date=timezone.now(),
+            data={"vertedero": "No existe"},
+        )
+
+        context = AssetTransactionExportStrategy(transaction).get_context()
+
+        self.assertIsNone(context["landfill"])
+
+    def test_receipt_uses_its_destination_when_that_zone_is_a_landfill(self):
+        transaction = AssetTransaction.objects.create(
+            company=self.company,
+            asset=self.asset,
+            transaction_type=TransactionTypeChoices.RECEIPT,
+            to_zone=self.landfill,
+            date=timezone.now(),
+        )
+
+        context = AssetTransactionExportStrategy(transaction).get_context()
+
+        self.assertEqual(context["landfill"]["name"], "Reciclados San Carlos")
+        self.assertEqual(context["landfill"]["nima"], "2900099999")
+        self.assertEqual(context["landfill"]["full_address"], "Polígono 1, Antequera, 29200")
+
+    def test_receipt_destination_that_is_not_a_landfill_is_empty(self):
+        transaction = AssetTransaction.objects.create(
+            company=self.company,
+            asset=self.asset,
+            transaction_type=TransactionTypeChoices.RECEIPT,
+            to_zone=self.warehouse,
+            date=timezone.now(),
+        )
+
+        context = AssetTransactionExportStrategy(transaction).get_context()
+
+        self.assertIsNone(context["landfill"])

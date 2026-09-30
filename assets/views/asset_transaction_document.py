@@ -3,7 +3,11 @@ from django.shortcuts import get_object_or_404
 from django.utils.translation import gettext_lazy as _
 
 from assets.models import AssetTransaction
-from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
+from configurator.models import (
+    ConfigurationExportTemplate,
+    ExportTemplateKind,
+    ExportTemplateSubtype,
+)
 from configurator.services.export.service import ConfigurationExportService
 from configurator.templatetags.formatting import qr
 from core.services.pdf_service import PDFService
@@ -22,6 +26,7 @@ def asset_transaction_document_view(request, token):
         product=None,
         kind=ExportTemplateKind.ASSET_TRANSACTION,
         company=transaction.company,
+        subtype=ExportTemplateSubtype.DOCUMENT,
     )
     if template is None:
         raise Http404(_("Asset transaction document is not available."))

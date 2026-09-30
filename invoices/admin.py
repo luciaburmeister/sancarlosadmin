@@ -1493,7 +1493,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
 
     @action(
         description=_("Finalize"), icon="gavel",
-        permissions=["invoices.change_salesinvoice"], dialog=_FINALIZE_DIALOG,
+        permissions=["change_salesinvoice"], dialog=_FINALIZE_DIALOG,
     )
     def finalize_invoice_row_action(self, request, form, object_id):
         self._finalize_with_message(request, object_id)
@@ -1501,7 +1501,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
 
     @action(
         description=_("Finalize"), icon="gavel",
-        permissions=["invoices.change_salesinvoice"], dialog=_FINALIZE_DIALOG,
+        permissions=["change_salesinvoice"], dialog=_FINALIZE_DIALOG,
     )
     def finalize_invoice_detail_action(self, request, form, object_id):
         self._finalize_with_message(request, object_id)
@@ -1522,7 +1522,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
 
     @action(
         description=_("Remove advances"), icon="remove_circle",
-        permissions=["invoices.change_salesinvoice"],
+        permissions=["change_salesinvoice"],
         dialog={
             "title": _("Remove advances"),
             "description": _(
@@ -1549,7 +1549,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
 
     @action(
         description=_("Reapply advances"), icon="replay",
-        permissions=["invoices.change_salesinvoice"],
+        permissions=["change_salesinvoice"],
         dialog={
             "title": _("Reapply advances"),
             "description": _(
@@ -1812,6 +1812,12 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     def has_bulk_mark_paid_salesinvoice_permission(self, request):
         return request.user.has_perm("invoices.bulk_mark_paid_salesinvoice")
 
+    def has_change_salesinvoice_permission(self, request, object_id=None):
+        # A dotted "invoices.change_salesinvoice" in @action(permissions=...)
+        # makes unfold's system check query auth_permission, which breaks
+        # manage.py commands on a database that has not been migrated yet.
+        return request.user.has_perm("invoices.change_salesinvoice")
+
     @admin.action(description=_("Import sales invoices from Excel"))
     def import_from_excel(self, request, queryset):
         return redirect(reverse("admin:invoices_salesinvoice_import"))
@@ -1912,7 +1918,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
 
     @action(
         description=_("Cancel at AEAT"), icon="cancel",
-        permissions=["invoices.change_salesinvoice"], dialog=_CANCEL_DIALOG,
+        permissions=["change_salesinvoice"], dialog=_CANCEL_DIALOG,
     )
     def cancel_aeat_row_action(self, request, form, object_id):
         self._cancel_with_message(request, object_id)
@@ -1920,7 +1926,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
 
     @action(
         description=_("Cancel at AEAT"), icon="cancel",
-        permissions=["invoices.change_salesinvoice"], dialog=_CANCEL_DIALOG,
+        permissions=["change_salesinvoice"], dialog=_CANCEL_DIALOG,
     )
     def cancel_aeat_detail_action(self, request, form, object_id):
         self._cancel_with_message(request, object_id)

@@ -1,0 +1,93 @@
+{% load i18n %}
+<div class="mb-3 flex items-center justify-between gap-3">
+  <h2 class="text-sm font-semibold text-base-700">{% trans "Pending orders" %}</h2>
+  {% if can_unplan %}
+    <span x-show="isDraggingSession" x-cloak class="inline-flex items-center gap-1 text-xs font-semibold ps-text-warn">
+      <span class="material-symbols-outlined text-sm">undo</span>
+      {% trans "Drop here to return it to pending" %}
+    </span>
+  {% endif %}
+  <span x-show="!isDraggingSession" class="text-xs text-base-400">{% trans "Scroll to see more" %}</span>
+</div>
+
+{% if not backlog %}
+  <p class="text-sm text-base-500">{% trans "Nothing waiting to be planned." %}</p>
+{% else %}
+  <div class="ps-backlog-scroll flex gap-3 overflow-x-auto pb-2">
+    {% for item in backlog %}
+      <div
+        class="ps-backlog-card shrink-0 rounded-lg border p-3 transition-colors {% if can_plan %}cursor-grab{% endif %}"
+        :class="expandedBacklogTicketId === {{ item.ticket_id }} ? 'border-primary-400 bg-primary-50' : 'border-base-200 bg-white'"
+        draggable="{% if can_plan %}true{% else %}false{% endif %}"
+        data-ticket-id="{{ item.ticket_id }}"
+        data-needs-time-configuration="{{ item.needs_time_configuration|yesno:'1,0' }}"
+      >
+        <div class="flex items-center justify-between gap-2">
+          <span class="text-sm font-semibold truncate">{{ item.label }}</span>
+          <span class="h-2 w-2 shrink-0 rounded-full {% if item.urgency == 'overdue' %}bg-red-500{% elif item.urgency == 'soon' %}ps-dot-warn{% elif item.urgency == 'later' %}ps-dot-success{% else %}bg-base-400{% endif %}"></span>
+        </div>
+        <div class="text-xs text-base-500 truncate">{{ item.product }}</div>
+        <div class="flex items-center justify-between mt-1 text-xs text-base-500">
+          <span>
+            {% if item.delivery_date %}
+              {{ item.delivery_date|date:"d/m/Y" }}
+            {% else %}
+              {% trans "No delivery date" %}
+            {% endif %}
+          </span>
+          {% if item.needs_time_configuration %}
+            <span class="inline-flex items-center gap-1 font-semibold ps-text-warn">
+              <span class="material-symbols-outlined text-sm">timer</span>
+              {% trans "Times required" %}
+            </span>
+          {% else %}
+            <span>{{ item.stage_count }} {% trans "stages" %} · {{ item.hours_label }}</span>
+          {% endif %}
+        </div>
+        {% if can_plan %}
+          <button
+            type="button"
+            class="mt-2 inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold transition-colors"
+            :class="expandedBacklogTicketId === {{ item.ticket_id }} ? 'border-primary-400 bg-white text-primary-600' : 'border-base-300 bg-white text-base-700 hover:bg-base-50'"
+            @click.stop="toggleTicketStages({{ item.ticket_id }})"
+            :aria-expanded="expandedBacklogTicketId === {{ item.ticket_id }}"
+          >
+            <span class="material-symbols-outlined text-sm transition-transform"
+                  :class="expandedBacklogTicketId === {{ item.ticket_id }} && 'rotate-90'">chevron_right</span>
+            <span x-show="expandedBacklogTicketId !== {{ item.ticket_id }}">{% trans "View stages" %}</span>
+            <span x-show="expandedBacklogTicketId === {{ item.ticket_id }}" x-cloak>{% trans "Hide stages" %}</span>
+          </button>
+        {% endif %}
+      </div>
+
+      {% comment %}The expanded ticket's stages, tinted to match its card.{% endcomment %}
+      <template x-if="expandedBacklogTicketId === {{ item.ticket_id }}">
+        <div class="ps-backlog-stages shrink-0 flex items-start gap-2 rounded-lg border border-primary-400 bg-primary-50">
+          <template x-for="(stage, index) in ticketStages" :key="stage.stage">
+            <div
+              class="ps-backlog-stage shrink-0 rounded-md border transition-colors"
+              :class="stage.isPlanned ? 'border-base-200 bg-base-50 text-base-400' : 'cursor-grab border-base-200 bg-white hover:border-base-400'"
+              :draggable="!stage.isPlanned"
+              data-ticket-id="{{ item.ticket_id }}"
+              :data-stage-name="stage.stage"
+            >
+              <div class="flex items-center justify-between gap-1">
+                <span class="inline-flex h-5 w-5 items-center justify-center rounded bg-base-100 text-[10px] font-bold text-base-600" x-text="index + 1"></span>
+                <span class="material-symbols-outlined text-sm" :class="stage.isPlanned ? 'ps-text-success' : 'text-base-400'" x-text="stage.isPlanned ? 'check_circle' : 'drag_indicator'"></span>
+              </div>
+              <strong class="mt-1 block truncate text-xs" x-text="stage.stage"></strong>
+              <label class="mt-1 flex min-w-0 items-center justify-between gap-1 text-[10px] font-semibold text-base-500" @mousedown.stop @click.stop>
+                <span class="truncate">{% trans "Duration" %}</span>
+                <span class="flex shrink-0 items-center gap-1">
+                  <input class="rounded border border-base-300 bg-white px-1 py-0.5 text-right text-[11px] font-bold text-base-800 focus:border-primary-500 focus:outline-none disabled:bg-base-100" type="number" min="1" step="1" inputmode="numeric" x-model="stage.durationMinutes" :disabled="stage.isPlanned" aria-label="{% trans 'Duration in minutes' %}">
+                  <span>{% trans "min" %}</span>
+                </span>
+              </label>
+              <span class="mt-1 block text-[10px] font-semibold" x-text="stage.isPlanned ? '{% trans 'On calendar' %}' : '{% trans 'Drag to schedule' %}'"></span>
+            </div>
+          </template>
+        </div>
+      </template>
+    {% endfor %}
+  </div>
+{% endif %}

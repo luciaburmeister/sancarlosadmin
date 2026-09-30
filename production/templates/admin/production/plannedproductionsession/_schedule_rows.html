@@ -1,0 +1,36 @@
+{% load i18n %}
+<div class="ps-scroll">
+  <div class="ps-content">
+    {% include "admin/production/plannedproductionsession/_axis_header.html" %}
+
+    {% for row in rows %}
+      <div
+        class="ps-row border-b border-base-200"
+        {% if row.resource_id %}data-row-resource-id="{{ row.resource_id }}"{% endif %}
+        {% if row.ticket_id %}data-row-ticket-id="{{ row.ticket_id }}"{% endif %}
+        data-row-kind="{{ row.kind }}"
+      >
+        <div class="ps-label flex flex-col justify-center gap-0.5 bg-white px-3 py-2">
+          <span class="truncate text-sm font-medium">{{ row.label }}</span>
+          <span class="text-[10px] uppercase tracking-wider text-base-500">{{ row.sublabel }}</span>
+        </div>
+        <div class="ps-track">
+          {% include "admin/production/plannedproductionsession/_track_background.html" %}
+          {% for block in row.blocks %}
+            {% if is_machine %}
+              {% include "admin/production/plannedproductionsession/_block.html" with block_detail=block.employee_labels %}
+            {% elif is_employee %}
+              {% include "admin/production/plannedproductionsession/_block.html" with block_detail=block.machine_labels %}
+            {% else %}
+              {% include "admin/production/plannedproductionsession/_block.html" with block_detail=block.resource_labels %}
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+    {% empty %}
+      <div class="p-8 text-center text-sm text-base-500">{% trans "Nothing to show for this day." %}</div>
+    {% endfor %}
+
+    {% include "admin/production/plannedproductionsession/_now_line.html" %}
+  </div>
+</div>

@@ -1,0 +1,160 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n unfold static %}
+
+{% block extrahead %}
+  {{ block.super }}
+  <script src="{% url 'admin:jsi18n' %}"></script>
+  {{ form.media }}
+  <link rel="stylesheet" href="{% static 'production/schedule.css' %}">
+{% endblock %}
+
+{% block content %}
+<div
+  class="flex flex-col gap-4 pb-16"
+  x-data="productionSchedule()"
+  id="ps-root"
+  data-action-url="{{ action_url }}"
+  data-snap-minutes="{{ snap_minutes }}"
+  data-window-start="{{ window_start_iso }}"
+  data-window-end="{{ window_end_iso }}"
+  data-csrf-token="{{ csrf_token }}"
+  data-can-change="{{ can_change|yesno:'1,0' }}"
+  data-can-plan="{{ can_plan|yesno:'1,0' }}"
+  data-can-unplan="{{ can_unplan|yesno:'1,0' }}"
+>
+  <header class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-base-200 bg-white px-3 py-2.5">
+    <div class="flex min-w-0 items-center gap-1" aria-label="{% trans 'Calendar day navigation' %}">
+      <a href="{{ previous_day_url }}" class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-base-200 text-base-700 transition-colors hover:bg-base-50" title="{% trans 'Previous day' %}" aria-label="{% trans 'Previous day' %}">
+        <span class="material-symbols-outlined">chevron_left</span>
+      </a>
+      <strong class="whitespace-nowrap px-2 text-sm text-base-800">{{ day|date:"D, d M Y" }}</strong>
+      <a href="{{ next_day_url }}" class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-base-200 text-base-700 transition-colors hover:bg-base-50" title="{% trans 'Next day' %}" aria-label="{% trans 'Next day' %}">
+        <span class="material-symbols-outlined">chevron_right</span>
+      </a>
+      <form method="get" class="relative ml-1 h-9 w-9">
+        <input type="hidden" name="group_by" value="{{ group_by }}">
+        <input type="date"
+               name="day"
+               value="{{ day|date:'Y-m-d' }}"
+               class="ps-day-picker-input"
+               x-ref="dayPicker"
+               aria-label="{% trans 'Choose day' %}"
+               @change="$el.closest('form').submit()">
+        <button type="button"
+                class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-base-200 text-base-700 transition-colors hover:bg-base-50"
+                title="{% trans 'Choose day' %}"
+                aria-label="{% trans 'Choose day' %}"
+                @click="$refs.dayPicker.showPicker ? $refs.dayPicker.showPicker() : $refs.dayPicker.focus()">
+          <span class="material-symbols-outlined" aria-hidden="true">calendar_month</span>
+        </button>
+      </form>
+    </div>
+
+    {% comment %}Sits in the toolbar's spare middle space; CSS hides it before it can wrap.{% endcomment %}
+    <ul class="ps-legend">
+      <li><span class="ps-legend__swatch ps-legend__swatch--done" aria-hidden="true"></span>{% trans "Completed" %}</li>
+      <li><span class="ps-legend__swatch ps-legend__swatch--running" aria-hidden="true"></span>{% trans "In progress" %}</li>
+      <li><span class="ps-legend__swatch ps-legend__swatch--overdue" aria-hidden="true"></span>{% trans "Overdue" %}</li>
+      <li><span class="ps-legend__swatch ps-legend__swatch--warning" aria-hidden="true"></span>{% trans "Warnings" %}</li>
+    </ul>
+
+    <div class="flex items-center gap-2">
+      <form method="get" class="flex items-center gap-2">
+        <input type="hidden" name="day" value="{{ day|date:'Y-m-d' }}">
+        <label class="whitespace-nowrap text-xs font-medium text-base-500" for="{{ form.group_by.id_for_label }}">{{ form.group_by.label }}</label>
+        <div class="w-44" @change="$el.closest('form').submit()">
+          {{ form.group_by }}
+        </div>
+      </form>
+
+      <button type="button"
+              @click="backlogOpen = !backlogOpen"
+              class="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-base-200 bg-white px-3 text-xs font-semibold transition-colors hover:bg-base-50"
+              :class="backlogOpen ? 'border-primary-400 bg-primary-50 text-primary-600' : ''">
+        <span class="material-symbols-outlined">pending_actions</span>
+        {% trans "Pending" %}
+        <span id="ps-backlog-count">{% if backlog %}<span class="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-primary-600 px-1 text-[10px] font-bold text-white">{{ backlog|length }}</span>{% endif %}</span>
+      </button>
+    </div>
+  </header>
+
+  <section id="ps-backlog-section" x-show="backlogOpen" x-cloak
+           class="ps-backlog-panel rounded-2xl border border-base-200 bg-white p-4"
+           :class="unplanHover ? 'ps-backlog-panel--unplan' : ''">
+    {% include "admin/production/plannedproductionsession/_backlog.html" %}
+  </section>
+
+  <div id="ps-board" class="min-w-0 rounded-2xl border border-base-200 bg-white overflow-hidden">
+    {% if not data.has_schedule %}
+      <div class="p-8 text-center text-base-500">
+        <span class="material-symbols-outlined mb-2 block text-[32px]">event_busy</span>
+        {% trans "This company has no working schedule configured yet." %}
+      </div>
+    {% elif data.window.is_empty %}
+      <div class="p-8 text-center text-base-500">
+        <span class="material-symbols-outlined mb-2 block text-[32px]">free_cancellation</span>
+        {% trans "This is not a working day in the company schedule." %}
+      </div>
+    {% elif data.is_empty %}
+      <div class="p-8 text-center text-base-500">
+        {% trans "No active resources to show for this day." %}
+      </div>
+    {% else %}
+      {% if is_machine_people %}
+        {% include "admin/production/plannedproductionsession/_view_machine_people.html" %}
+      {% else %}
+        {% include "admin/production/plannedproductionsession/_schedule_rows.html" %}
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {# One small modal for every warning/error shape: overridable conflicts ("confirm") and everything that used to be a bare alert() ("error"). #}
+  <div x-show="modalOpen" x-cloak class="ps-confirm-overlay"
+       @keydown.escape.window="closeModal()"
+       @click.self="closeModal()">
+    <section class="ps-confirm-dialog rounded-2xl bg-white p-5 shadow-lg"
+             role="dialog" aria-modal="true" aria-labelledby="ps-modal-title">
+      <h2 id="ps-modal-title" class="mb-3 flex items-center gap-2 text-base font-semibold"
+          :class="modalKind === 'error' ? 'ps-modal-heading--error' : 'ps-modal-heading--warn'">
+        <span class="material-symbols-outlined text-xl" x-text="modalKind === 'error' ? 'error' : 'warning'"></span>
+        <span x-text="modalTitle"></span>
+      </h2>
+
+      <p x-show="modalMessage" x-text="modalMessage" class="mb-3 text-sm text-base-700"></p>
+
+      <ul x-show="modalConflicts.length" class="mb-4 flex flex-col gap-2 overflow-auto">
+        <template x-for="conflict in modalConflicts" :key="conflict.code + '-' + conflict.resource_id + '-' + conflict.session_id">
+          <li class="rounded-lg border px-3 py-2 text-sm"
+              :class="modalKind === 'error' ? 'ps-modal-item--error' : 'ps-modal-item--warn'"
+              x-text="conflict.message"></li>
+        </template>
+      </ul>
+
+      <div class="flex justify-end gap-2">
+        <template x-if="modalKind === 'confirm'">
+          {% component "unfold/components/button.html" with variant="default" %}
+            <span @click="closeModal()">{% trans "Cancel" %}</span>
+          {% endcomponent %}
+        </template>
+        <template x-if="modalKind === 'confirm'">
+          {% component "unfold/components/button.html" with variant="primary" %}
+            <span x-show="!modalConfirmLabel" @click="confirmModal()">{% trans "Do it anyway" %}</span>
+            <span x-show="modalConfirmLabel" x-text="modalConfirmLabel" @click="confirmModal()"></span>
+          {% endcomponent %}
+        </template>
+        <template x-if="modalKind === 'error'">
+          {% component "unfold/components/button.html" with variant="danger" %}
+            <span @click="closeModal()">{% trans "Close" %}</span>
+          {% endcomponent %}
+        </template>
+      </div>
+    </section>
+  </div>
+</div>
+
+{{ data.window.segments_json|json_script:"ps-segments" }}
+{{ backlog_json|json_script:"ps-backlog-data" }}
+{{ js_strings|json_script:"ps-i18n" }}
+
+<script src="{% static 'production/schedule.js' %}"></script>
+{% endblock %}

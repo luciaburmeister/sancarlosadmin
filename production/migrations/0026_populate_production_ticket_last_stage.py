@@ -1,6 +1,9 @@
 from django.db import migrations
 
 def populate_last_stage(apps, schema_editor):
+    # Fresh installs must not load the live model before later columns exist.
+    if not apps.get_model("production", "ProductionTicket").objects.exists():
+        return
     from production.models import ProductionTicket
     for ticket in ProductionTicket.objects.all():
         ticket.recompute_status()

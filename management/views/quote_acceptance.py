@@ -55,6 +55,7 @@ class QuoteAcceptanceWizardView(UnfoldModelAdminViewMixin, FormView):
                 name=project_name,
                 client=quote.client,
                 company=quote.company,
+                created_by=self.request.user,
             )
             working_zones = form.cleaned_data.get("working_zones")
             if working_zones:

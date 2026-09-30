@@ -14,6 +14,7 @@ from management.models import (
     ResourcePlanning,
     ResourcePlanningBacklogItem,
 )
+from management.admin.filters import ProjectFileCreatedByFilter, ProjectFileInvoicingFilter
 from management.forms import ProjectFileAdminForm
 from management.resources import ProjectFileResource
 from django.contrib import admin, messages
@@ -512,6 +513,8 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         ("status", MultipleChoicesDropdownFilter),
         ("delivery_status", MultipleChoicesDropdownFilter),
         ("production_status", MultipleChoicesDropdownFilter),
+        ProjectFileInvoicingFilter,
+        ProjectFileCreatedByFilter,
         ("company", AutocompleteSelectMultipleFilter),
         ("created_at", RangeDateFilter),
     ]
@@ -619,6 +622,8 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         return deleted, model_count, perms_needed, protected
 
     def save_model(self, request, obj, form, change):
+        if not change and not obj.created_by_id:
+            obj.created_by = request.user
         super().save_model(request, obj, form, change)
         # Adopt orphan assets: linking one to an expediente ties it to the client.
         asset = obj.asset

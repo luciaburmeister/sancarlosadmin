@@ -6432,10 +6432,8 @@ msgstr "Página %(number)s de %(total)s."
 msgid "Mechanics — Daily Performance"
 msgstr ""
 
-#, fuzzy
-#| msgid "Days"
 msgid "Day"
-msgstr "Días"
+msgstr "Día"
 
 #, python-format
 msgid ""
@@ -7913,10 +7911,8 @@ msgstr "Recomendado pedir"
 msgid "Worker QR Code"
 msgstr "Codigo QR"
 
-#, fuzzy
-#| msgid "Closed"
 msgid "Close"
-msgstr "Cerrado"
+msgstr "Cerrar"
 
 #, python-format
 msgid "%(label)s QR for %(code)s"
@@ -10607,10 +10603,8 @@ msgstr "Solicitud rechazada."
 msgid "Match confirmed."
 msgstr "Sin confirmar"
 
-#, fuzzy
-#| msgid "Component"
 msgid "Unknown action."
-msgstr "Componente"
+msgstr "Acción desconocida."
 
 #, fuzzy, python-format
 #| msgid "%(count)d banks synced."
@@ -18425,9 +18419,8 @@ msgstr "Anular factura"
 #~ msgid "Fetched At"
 #~ msgstr "Recibido el"
 
-#, fuzzy
-#~ msgid "Sequence"
-#~ msgstr "Método de Pago"
+#~ msgid "Match Qty"
+#~ msgstr "Cantidad a emparejar"
 
 #~ msgid "— skip —"
 #~ msgstr "— omitir —"
@@ -18603,6 +18596,464 @@ msgstr "Anular factura"
 #~ msgid "Origin (written by requester)"
 #~ msgstr "Origen (escrito por quien solicita)"
 
+#: production/views/production_schedule_view.py:164
+msgid "Network error while saving the change."
+msgstr "Error de red al guardar el cambio."
+
+#: production/models.py:723
+msgid ""
+"Position of this stage within its ticket. Stored rather than read from the "
+"product template, so editing the template does not silently reorder work "
+"that is already planned."
+msgstr "Posición de esta etapa dentro de su ticket. Se almacena en vez de leerse de la plantilla del producto, para que editar la plantilla no reordene silenciosamente trabajo que ya está planificado."
+
+#: production/services/planning_conflicts.py:218
+#, python-format
+msgid "%(resource)s belongs to another company."
+msgstr "%(resource)s pertenece a otra empresa."
+
+#: production/services/production_planning.py:472
+msgid "The stage needs a duration greater than zero minutes."
+msgstr "La etapa necesita una duración mayor a cero minutos."
+
+#: production/services/planning_conflicts.py:43
+msgid "Stage order violated"
+msgstr "Orden de etapas incumplido"
+
+#: production/models.py:752
+msgid "Planned Production Sessions"
+msgstr "Sesiones de Producción Planificadas"
+
+#: production/services/production_planning.py:371
+#: production/services/production_planning.py:497
+msgid "A selected resource is unavailable or belongs to another company."
+msgstr "Un recurso seleccionado no está disponible o pertenece a otra empresa."
+
+#: production/templates/admin/production/plannedproductionsession/schedule.html:27
+msgid "Previous day"
+msgstr "Día anterior"
+
+#: production/templates/admin/production/plannedproductionsession/_backlog.html:86
+msgid "Duration in minutes"
+msgstr "Duración en minutos"
+
+#: production/models.py:751
+msgid "Planned Production Session"
+msgstr "Sesión de Producción Planificada"
+
+#: production/services/schedule_context.py:539
+msgid "Ends after a later production stage starts."
+msgstr "Termina después de que empiece una etapa de producción posterior."
+
+#: production/services/planning_conflicts.py:310
+#, python-format
+msgid "%(resource)s is not flagged as production staff."
+msgstr "%(resource)s no está marcado como personal de producción."
+
+#: production/views/production_schedule_view.py:165
+msgid "This has some warnings"
+msgstr "Esto tiene algunas advertencias"
+
+#: production/services/planning_conflicts.py:38
+msgid "Daily capacity exceeded"
+msgstr "Capacidad diaria superada"
+
+#: production/templates/admin/production/plannedproductionsession/_block.html:29
+msgid "Open planned production session"
+msgstr "Abrir sesión de producción planificada"
+
+#: production/views/production_schedule_view.py:163
+msgid "Network error"
+msgstr "Error de red"
+
+#: production/models.py:78
+msgid "Production Stage Order"
+msgstr "Orden de Etapas de Producción"
+
+#: production/services/schedule_context.py:174
+#: production/tests/test_schedule_context.py:354
+msgid "In progress"
+msgstr "En curso"
+
+#: production/templates/admin/production/plannedproductionsession/_view_machine_people.html:128
+msgid "No production stages are configured."
+msgstr "No hay etapas de producción configuradas."
+
+#: production/templates/admin/production/plannedproductionsession/_backlog.html:44
+msgid "stages"
+msgstr "etapas"
+
+#: production/services/production_planning.py:456
+#: production/services/production_planning.py:462
+msgid "Choose a valid production stage."
+msgstr "Elija una etapa de producción válida."
+
+#: production/templates/admin/production/plannedproductionsession/_backlog.html:10
+msgid "Scroll to see more"
+msgstr "Desplácese para ver más"
+
+#: production/services/planning_conflicts.py:502
+#, python-format
+msgid "Stage '%(stage)s' needs %(needed)s operator(s); %(got)s assigned."
+msgstr "La etapa '%(stage)s' necesita %(needed)s operario(s); %(got)s asignado(s)."
+
+#: production/templates/admin/production/plannedproductionsession/_track_background.html:6
+msgid "Non-working time"
+msgstr "Tiempo no laborable"
+
+#: production/services/planning_conflicts.py:559
+#, python-format
+msgid "Ends after '%(stage)s' has started."
+msgstr "Termina después de que empiece '%(stage)s'."
+
+#: production/services/planning_conflicts.py:41
+msgid "Resource cannot work this stage"
+msgstr "El recurso no puede trabajar en esta etapa"
+
+#: production/templates/admin/production/plannedproductionsession/_block.html:42
+msgid "Drag to change start time"
+msgstr "Arrastrar para cambiar la hora de inicio"
+
+#: production/services/production_planning.py:608
+msgid "A stage cannot be placed next to itself."
+msgstr "Una etapa no puede colocarse junto a sí misma."
+
+#: production/services/production_planning.py:342
+#: production/services/production_planning.py:477
+msgid "Stage resources must be a list."
+msgstr "Los recursos de la etapa deben ser una lista."
+
+#: production/templates/admin/production/plannedproductionsession/_backlog.html:90
+msgid "On calendar"
+msgstr "En el calendario"
+
+#: production/services/planning_conflicts.py:36
+msgid "Duplicate stage time slot"
+msgstr "Franja horaria de etapa duplicada"
+
+#: production/views/production_schedule_view.py:154
+msgid "Return to pending"
+msgstr "Devolver a pendientes"
+
+#: production/forms/production_schedule_filters.py:19
+#: production/services/schedule_context.py:617
+#: production/services/schedule_context.py:753
+msgid "Operator"
+msgstr "Operario"
+
+#: production/services/production_planning.py:484
+msgid "Assign at least one machine or operator to this stage."
+msgstr "Asigne al menos una máquina u operario a esta etapa."
+
+#: production/templates/admin/production/plannedproductionsession/_block.html:46
+msgid "Change end time"
+msgstr "Cambiar hora de fin"
+
+#: production/services/planning_conflicts.py:40
+msgid "Non-working day"
+msgstr "Día no laborable"
+
+#: production/views/production_schedule_view.py:222
+msgid "Not found."
+msgstr "No encontrado."
+
+#: production/services/planning_conflicts.py:249
+#, python-format
+msgid "%(day)s is not a working day."
+msgstr "%(day)s no es un día laborable."
+
+#: production/services/schedule_context.py:470
+msgid "An assigned resource is not configured for this stage."
+msgstr "Un recurso asignado no está configurado para esta etapa."
+
+#: production/forms/production_schedule_filters.py:20
+msgid "Production order"
+msgstr "Orden de producción"
+
+#: production/views/production_schedule_view.py:269
+#, python-format
+msgid "Invalid date/time: %(value)s"
+msgstr "Fecha/hora inválida: %(value)s"
+
+#: production/templates/admin/production/plannedproductionsession/schedule.html:88
+msgid "This is not a working day in the company schedule."
+msgstr "Este no es un día laborable en el horario de la empresa."
+
+#: production/templates/admin/production/plannedproductionsession/_backlog.html:87
+msgid "min"
+msgstr "min"
+
+#: production/templates/admin/production/plannedproductionsession/_backlog.html:58
+msgid "Hide stages"
+msgstr "Ocultar etapas"
+
+#: production/services/schedule_context.py:456
+msgid "Starts or ends outside working hours."
+msgstr "Empieza o termina fuera del horario laboral."
+
+#: production/services/schedule_context.py:508
+msgid "Assigned resource exceeds its daily capacity."
+msgstr "El recurso asignado supera su capacidad diaria."
+
+#: production/services/production_planning.py:336
+msgid "Every stage needs a duration greater than zero minutes."
+msgstr "Cada etapa necesita una duración mayor a cero minutos."
+
+#: production/templates/admin/production/plannedproductionsession/schedule.html:83
+msgid "This company has no working schedule configured yet."
+msgstr "Esta empresa aún no tiene un horario laboral configurado."
+
+#: production/templates/admin/production/plannedproductionsession/schedule.html:133
+msgid "Do it anyway"
+msgstr "Hacerlo de todas formas"
+
+#: production/services/planning_conflicts.py:345
+#, python-format
+msgid ""
+"%(resource)s already has %(busy)s task(s) here and handles %(capacity)s at a "
+"time."
+msgstr "%(resource)s ya tiene %(busy)s tarea(s) aquí y gestiona %(capacity)s a la vez."
+
+#: production/services/planning_conflicts.py:204
+msgid "This session is locked. Unlock it before moving it."
+msgstr "Esta sesión está bloqueada. Desbloquéela antes de moverla."
+
+#: production/services/planning_conflicts.py:270
+#, python-format
+msgid ""
+"Starts or ends outside working hours (%(open)s of %(total)s minutes are "
+"open)."
+msgstr "Empieza o termina fuera del horario laboral (%(open)s de %(total)s minutos están dentro de horario)."
+
+#: production/templates/admin/production/plannedproductionsession/_backlog.html:35
+msgid "No delivery date"
+msgstr "Sin fecha de entrega"
+
+#: production/services/production_planning.py:716
+msgid "That planning no longer exists. Reload the board."
+msgstr "Esa planificación ya no existe. Recargue el tablero."
+
+#: production/services/planning_conflicts.py:45
+msgid "Invalid interval"
+msgstr "Intervalo inválido"
+
+#: production/templates/admin/production/plannedproductionsession/schedule.html:92
+msgid "No active resources to show for this day."
+msgstr "No hay recursos activos para mostrar este día."
+
+#: production/views/production_schedule_view.py:210
+msgid "Permission denied."
+msgstr "Permiso denegado."
+
+#: production/services/planning_conflicts.py:445
+#, python-format
+msgid ""
+"%(resource)s would reach %(total)s min on %(day)s, over its %(capacity)s min "
+"capacity."
+msgstr "%(resource)s alcanzaría %(total)s min el %(day)s, superando su capacidad de %(capacity)s min."
+
+#: production/views/production_schedule_view.py:50
+msgid "You have no company assigned."
+msgstr "No tiene una empresa asignada."
+
+#: production/templates/admin/production/plannedproductionsession/_backlog.html:7
+msgid "Drop here to return it to pending"
+msgstr "Suelte aquí para devolver a pendientes"
+
+#: production/templates/admin/production/plannedproductionsession/_view_machine_people.html:59
+msgid "machines"
+msgstr "máquinas"
+
+#: production/services/planning_conflicts.py:491
+#, python-format
+msgid "Stage '%(stage)s' needs %(needed)s machine(s); %(got)s assigned."
+msgstr "La etapa '%(stage)s' necesita %(needed)s máquina(s); %(got)s asignada(s)."
+
+#: production/services/planning_conflicts.py:42
+msgid "Missing required resources"
+msgstr "Faltan recursos requeridos"
+
+#: production/services/planning_conflicts.py:46
+msgid "Resource belongs to another company"
+msgstr "El recurso pertenece a otra empresa"
+
+#: production/services/planning_conflicts.py:389
+msgid "This production stage is already scheduled in that time slot."
+msgstr "Esta etapa de producción ya está programada en esa franja horaria."
+
+#: production/templates/admin/production/plannedproductionsession/schedule.html:26
+msgid "Calendar day navigation"
+msgstr "Navegación de días del calendario"
+
+#: production/services/planning_conflicts.py:44
+msgid "Session is locked"
+msgstr "La sesión está bloqueada"
+
+#: production/services/planning_conflicts.py:541
+#, python-format
+msgid "Starts before '%(stage)s' finishes."
+msgstr "Empieza antes de que termine '%(stage)s'."
+
+#: production/views/production_schedule_view.py:159
+msgid "Missing information"
+msgstr "Falta información"
+
+#: production/templates/admin/production/plannedproductionsession/_backlog.html:14
+msgid "Nothing waiting to be planned."
+msgstr "No hay nada esperando ser planificado."
+
+#: production/services/planning_conflicts.py:192
+msgid "The end must come after the start."
+msgstr "El fin debe ser posterior al inicio."
+
+#: production/services/production_planning.py:508
+msgid "This stage is already on the calendar. Reload the board."
+msgstr "Esta etapa ya está en el calendario. Recargue el tablero."
+
+#: production/services/production_planning.py:604
+msgid "The selected stages do not belong to this ticket."
+msgstr "Las etapas seleccionadas no pertenecen a este ticket."
+
+#: production/views/production_schedule_view.py:185
+msgid "Malformed request body."
+msgstr "Cuerpo de la solicitud mal formado."
+
+#: production/views/production_schedule_view.py:226
+msgid "Invalid identifier."
+msgstr "Identificador inválido."
+
+#: production/services/planning_conflicts.py:39
+msgid "Outside working hours"
+msgstr "Fuera del horario laboral"
+
+#: production/services/schedule_context.py:726
+msgid "Unassigned operator"
+msgstr "Operario sin asignar"
+
+#: production/services/schedule_context.py
+msgid "Unassigned machine"
+msgstr "Máquina sin asignar"
+
+#: production/templates/admin/production/plannedproductionsession/_backlog.html:3
+msgid "Pending orders"
+msgstr "Pedidos pendientes"
+
+#: production/templates/admin/production/plannedproductionsession/schedule.html:31
+msgid "Next day"
+msgstr "Día siguiente"
+
+#: production/models.py:721
+msgid "Sequence"
+msgstr "Secuencia"
+
+#: production/views/production_schedule_view.py:166
+msgid "The change could not be applied"
+msgstr "No se pudo aplicar el cambio"
+
+#: production/services/schedule_context.py:487
+msgid "Assigned resource is over its parallel capacity."
+msgstr "El recurso asignado supera su capacidad simultánea."
+
+#: production/views/production_schedule_view.py:161
+msgid "Enter the stage's duration before dragging it."
+msgstr "Introduzca la duración de la etapa antes de arrastrarla."
+
+#: production/templates/admin/production/plannedproductionsession/_block.html:41
+msgid "Change start time"
+msgstr "Cambiar hora de inicio"
+
+#: production/services/production_planning.py:299
+#: production/services/production_planning.py:453
+msgid "This ticket's product has no production stages configured."
+msgstr "El producto de este ticket no tiene etapas de producción configuradas."
+
+#: production/services/production_planning.py:581
+msgid "Choose either the stage before or after the drop, not both."
+msgstr "Elija la etapa anterior o la posterior al soltar, no ambas."
+
+#: production/templates/admin/production/plannedproductionsession/_schedule_rows.html:31
+msgid "Nothing to show for this day."
+msgstr "No hay nada que mostrar para este día."
+
+#: production/services/production_planning.py:353
+msgid "Assign at least one machine or operator to every stage."
+msgstr "Asigne al menos una máquina u operario a cada etapa."
+
+#: production/templates/admin/production/plannedproductionsession/_backlog.html:41
+msgid "Times required"
+msgstr "Duraciones requeridas"
+
+#: production/services/planning_conflicts.py:298
+#, python-format
+msgid "%(resource)s is not set up for stage '%(stage)s'."
+msgstr "%(resource)s no está configurado para la etapa '%(stage)s'."
+
+#: production/services/production_planning.py:348
+#: production/services/production_planning.py:481
+msgid "A selected resource is invalid."
+msgstr "Un recurso seleccionado no es válido."
+
+#: production/services/planning_conflicts.py:37
+msgid "Resource overlap"
+msgstr "Solapamiento de recursos"
+
+#: production/models.py:76
+msgid "Ticket-specific stage order. Empty uses the product's default order."
+msgstr "Orden de etapas específico del ticket. Si está vacío, se usa el orden por defecto del producto."
+
+#: production/services/planning_conflicts.py:148
+#, python-format
+msgid "Resource %s"
+msgstr "Recurso %s"
+
+#: production/services/production_planning.py:304
+msgid "The stage plan must be a list."
+msgstr "El plan de etapas debe ser una lista."
+
+#: production/views/production_schedule_view.py:156
+msgid ""
+"It will be removed from the calendar and returned to the pending list. Its "
+"time and assigned resources will be lost."
+msgstr "Se eliminará del calendario y volverá a la lista de pendientes. Se perderán su horario y los recursos asignados."
+
+#: production/templates/admin/production/plannedproductionsession/_backlog.html:57
+msgid "View stages"
+msgstr "Ver etapas"
+
+#: production/forms/production_schedule_filters.py:33
+msgid "Group by"
+msgstr "Agrupar por"
+
+#: production/views/production_schedule_view.py:57
+msgid "Production schedule"
+msgstr "Planificación de producción"
+
+#: production/templates/admin/production/plannedproductionsession/_block.html:47
+msgid "Drag to change end time"
+msgstr "Arrastrar para cambiar la hora de fin"
+
+#: production/services/production_planning.py:201
+msgid "This ticket has no stages with a configured duration."
+msgstr "Este ticket no tiene etapas con una duración configurada."
+
+#: production/templates/admin/production/plannedproductionsession/_backlog.html:90
+msgid "Drag to schedule"
+msgstr "Arrastrar para planificar"
+
+#: production/services/production_planning.py:319
+msgid "Include every product stage exactly once."
+msgstr "Incluya cada etapa del producto exactamente una vez."
+
+#: production/services/schedule_context.py:531
+msgid "Starts before an earlier production stage finishes."
+msgstr "Empieza antes de que termine una etapa de producción anterior."
+
+#: production/templates/admin/production/plannedproductionsession/schedule.html:41
+#: production/templates/admin/production/plannedproductionsession/schedule.html:45
+#: production/templates/admin/production/plannedproductionsession/schedule.html:46
+msgid "Choose day"
+msgstr "Elegir día"
+
 #~ msgid ""
 #~ "Delivery: destination zone (defaults to the planning's destination if left "
 #~ "blank). Receipt: the landfill/vertedero, if known. Not used for Movement."
@@ -18624,3 +19075,15 @@ msgstr "Anular factura"
 
 #~ msgid "Porte Action"
 #~ msgstr "Acción del Porte"
+
+msgid "Not invoiced"
+msgstr "Sin facturar"
+
+msgid "Partially invoiced"
+msgstr "Facturado parcialmente"
+
+msgid "Fully invoiced"
+msgstr "Facturado completamente"
+
+msgid "Creator"
+msgstr "Creador"

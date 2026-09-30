@@ -204,7 +204,12 @@ class PlanningBoardServiceTest(TestCase):
             day=self.MONDAY, start_time=time(9, 0), end_time=time(10, 0),
         )
         self.assertEqual(session.source, PlannedProductionSessionSource.MANUAL)
+        self.assertEqual(session.company, self.company)
         self.assertEqual(session.primary_resource_id, self.resource.id)
+        self.assertEqual(
+            list(session.resources.values_list("resource_id", flat=True)),
+            [self.resource.id],
+        )
         self.assertEqual(timezone.localtime(session.planned_start).time(), time(9, 0))
 
     def test_create_session_conflict_raises(self):
@@ -388,4 +393,3 @@ class PlanningBoardServiceTest(TestCase):
                 company=self.company, resource=self.resource, day=self.MONDAY,
                 session_ids=[session.id],
             )
-

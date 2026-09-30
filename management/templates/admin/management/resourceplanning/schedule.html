@@ -110,8 +110,8 @@
   {# Filters — Unfold widgets #}
   <div class="rounded-2xl border border-base-200 bg-white p-4">
     <form method="get" class="flex flex-col gap-4 schedule-filters">
-      {% for key, value in preserved_backlog_params %}
-        <input type="hidden" name="{{ key }}" value="{{ value }}">
+      {% for key, values in preserved_backlog_params.lists %}
+        {% for value in values %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
       {% endfor %}
       <div class="flex flex-wrap items-end gap-4">
 
@@ -192,8 +192,8 @@
     </div>
 
     <form method="get" class="flex flex-col gap-3 backlog-filters">
-      {% for key, value in preserved_schedule_params %}
-        <input type="hidden" name="{{ key }}" value="{{ value }}">
+      {% for key, values in preserved_schedule_params.lists %}
+        {% for value in values %}<input type="hidden" name="{{ key }}" value="{{ value }}">{% endfor %}
       {% endfor %}
       {% for field in backlog_filter_form %}
         {% include "unfold/helpers/field.html" with field=field %}

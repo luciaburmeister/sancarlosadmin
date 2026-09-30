@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from company.models import Company, Employee
 from production.exceptions import PlannedSessionConflictError
-from production.models import PlannedProductionSession
+from production.models import PlannedProductionSession, PlannedSessionResource
 from production.services.session_scheduler import get_or_create_resource_for_target
 
 
@@ -40,6 +40,25 @@ class PlannedProductionSessionConflictTest(TestCase):
             exclude_pk=self.existing.pk,
         )
         self.assertEqual(list(qs), [])
+
+    def test_conflicts_for_finds_resource_link_when_it_is_not_the_anchor(self):
+        linked = PlannedProductionSession.objects.create(
+            production_stage="pintura",
+            planned_start=datetime(2026, 9, 14, 13, tzinfo=dt_timezone.utc),
+            planned_end=datetime(2026, 9, 14, 14, tzinfo=dt_timezone.utc),
+        )
+        PlannedSessionResource.objects.create(
+            planned_session=linked,
+            resource=self.resource,
+        )
+
+        qs = PlannedProductionSession.conflicts_for(
+            primary_resource_id=self.resource.id,
+            start=datetime(2026, 9, 14, 13, 30, tzinfo=dt_timezone.utc),
+            end=datetime(2026, 9, 14, 14, 30, tzinfo=dt_timezone.utc),
+        )
+
+        self.assertEqual(list(qs), [linked])
 
     def test_assert_no_conflict_raises_on_overlap(self):
         with self.assertRaises(PlannedSessionConflictError) as ctx:

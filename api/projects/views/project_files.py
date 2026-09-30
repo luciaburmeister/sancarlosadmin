@@ -126,6 +126,7 @@ class ProjectFileListCreateView(CompanyAPIView):
 
         project_file = ProjectFile.objects.create(
             company=company, client=client, name=name, start_date=start_date,
+            created_by=request.user,
         )
         return JsonResponse(serialize_project_file(project_file), status=201)
 

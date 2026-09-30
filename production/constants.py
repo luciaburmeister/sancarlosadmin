@@ -27,3 +27,31 @@ class ProductionPermissions:
 
     REORDER_ITEMS = "production.can_reorder_items"
     RESCHEDULE_SESSIONS = "production.can_reschedule_planned_sessions"
+
+
+class PlanningActions:
+    """Mutations the planning calendar posts to its action endpoint."""
+
+    MOVE_SESSION = "move_session"
+    RESIZE_SESSION = "resize_session"
+    SET_RESOURCES = "set_resources"
+    UNPLAN_SESSION = "unplan_session"
+    PLAN_TICKET = "plan_ticket"
+    PLAN_TICKET_CUSTOM = "plan_ticket_custom"
+    PLAN_TICKET_STAGE_CUSTOM = "plan_ticket_stage_custom"
+    REORDER_TICKET = "reorder_ticket"
+
+
+# A ticket's colour is its id modulo the palette -- stable, and never stored.
+TICKET_PALETTE = [
+    "#f5a524",  # amber
+    "#4cc2e0",  # sky
+    "#f0629b",  # pink
+    "#9b8cf5",  # violet
+    "#8bd450",  # lime
+    "#f97362",  # coral
+    "#48c9b0",  # teal
+    "#d4a5f5",  # lilac
+    "#e5c454",  # gold
+    "#6fb1f0",  # blue
+]

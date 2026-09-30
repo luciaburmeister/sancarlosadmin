@@ -63,6 +63,35 @@ class AssetTransactionExportClientContextTests(TestCase):
         self.assertEqual(context["client_tax_id"], "")
         self.assertEqual(context["client_nima"], "")
 
+    def test_project_file_client_takes_priority_over_asset_client(self):
+        project_client = Client.objects.create(
+            company=self.company,
+            name="Expediente Norte S.L.",
+            phone="600111222",
+            tax_identifier="B99999999",
+            nima="2900099999",
+        )
+        project_file = ProjectFile.objects.create(
+            company=self.company,
+            client=project_client,
+            name="Expediente Norte",
+        )
+        transaction = AssetTransaction.objects.create(
+            company=self.company,
+            asset=self.asset,
+            project_file=project_file,
+            transaction_type=TransactionTypeChoices.MOVEMENT,
+            date=timezone.now(),
+        )
+
+        context = AssetTransactionExportStrategy(transaction).get_context()
+
+        self.assertEqual(context["client"], project_client)
+        self.assertEqual(context["client_name"], "Expediente Norte S.L.")
+        self.assertEqual(context["client_phone"], "600111222")
+        self.assertEqual(context["client_tax_id"], "B99999999")
+        self.assertEqual(context["client_nima"], "2900099999")
+
 
 class AssetTransactionExportWorkingZoneContextTests(TestCase):
     @classmethod

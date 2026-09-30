@@ -69,24 +69,6 @@ BACKLOG_FILTER_KEYS = frozenset({
 })
 
 
-def _query_param_items(params, exclude=frozenset(), include_only=None):
-    items = []
-    for key in params:
-        if key in exclude:
-            continue
-        if include_only is not None and key not in include_only:
-            continue
-        for value in params.getlist(key):
-            items.append((key, value))
-    return items
-
-
-def _url_with_params(path, param_items):
-    if not param_items:
-        return path
-    return path + "?" + urlencode(param_items, doseq=True)
-
-
 def _parse_backlog_filters(GET):
     """Parse backlog filter values from GET when the form is invalid."""
     planning_type_ids = []
@@ -547,9 +529,16 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
         )
         backlog_items = list(backlog_qs.order_by("priority", "created_at")[:100])
 
-        preserved_schedule_params = _query_param_items(GET, exclude=BACKLOG_FILTER_KEYS)
-        preserved_backlog_params = _query_param_items(GET, include_only=BACKLOG_FILTER_KEYS)
-        backlog_reset_url = _url_with_params(self.request.path, preserved_schedule_params)
+        preserved_schedule_params = GET.copy()
+        for key in BACKLOG_FILTER_KEYS:
+            preserved_schedule_params.pop(key, None)
+        preserved_backlog_params = GET.copy()
+        for key in GET.keys() - BACKLOG_FILTER_KEYS:
+            preserved_backlog_params.pop(key)
+        backlog_reset_url = reverse(
+            "admin:management_resourceplanning_schedule",
+            query=preserved_schedule_params,
+        )
 
         ctx.update(
             backlog_items=backlog_items,
@@ -582,4 +571,3 @@ class ResourcePlanningScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             schedule_return_url=self.request.get_full_path(),
         )
         return ctx
-

@@ -70,6 +70,16 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
         verbose_name=_("Last Stage")
     )
 
+    stage_order = ArrayField(
+        base_field=models.CharField(max_length=50),
+        default=list,
+        blank=True,
+        help_text=_(
+            "Ticket-specific stage order. Empty uses the product's default order."
+        ),
+        verbose_name=_("Production Stage Order"),
+    )
+
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -110,9 +120,18 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
             return None
 
     def get_stage_order(self):
+        if self.stage_order:
+            return list(self.stage_order)
         source = self.source_object
         product = getattr(source, "product", None) if source else None
         return list(getattr(product, "production_stages", []) or [])
+
+    @property
+    def display_label(self) -> str:
+        """A readable name for this ticket. __str__ stays the bare pk since
+        admin search/autocomplete depend on it."""
+        project_file = self.resolved_project_file
+        return str(project_file) if project_file else f"OP-{self.pk}"
 
 
     def get_first_incomplete_stage(self):
@@ -267,10 +286,8 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
         if not items:
             return None
 
-        # 1. Get global stage order from product template
-        product_stages = []
-        if self.source_object and hasattr(self.source_object, 'product'):
-             product_stages = list(getattr(self.source_object.product, "production_stages", []) or [])
+        # The ticket may deliberately override the product's normal workflow.
+        product_stages = self.get_stage_order()
 
         candidates = [] # (stage_name, weight)
         
@@ -407,7 +424,16 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
         """
         planning = self.planning or {}
 
-        stage_order = list(self.production_stages_order or [])
+        # A ticket-level reorder applies to every item; BOM order is only a
+        # fallback for stages the ticket order doesn't mention.
+        ticket_order = self.ticket.get_stage_order() if self.ticket_id else []
+        stage_order = list(ticket_order or self.production_stages_order or [])
+        if ticket_order:
+            stage_order.extend(
+                stage
+                for stage in (self.production_stages_order or [])
+                if stage not in ticket_order
+            )
 
         if not stage_order and self.ticket and self.ticket.source_object:
             product = getattr(self.ticket.source_object, "product", None)
@@ -712,7 +738,16 @@ class PlannedProductionSessionSource(models.TextChoices):
     AUTOMATIC= "auto",_("Automatic")
     MANUAL = "manual", _("Manual")
 
-class PlannedProductionSession(Timestampable,CompanyOwnedModel):
+class PlannedProductionSession(Timestampable, CompanyOwnedModel):
+    """One stage of a ticket, planned into a time slot on one or more resources.
+
+    A machine *and* an operator on the same stage is one session with two
+    ``PlannedSessionResource`` rows, never two sessions -- ``resources`` is the
+    source of truth. ``primary_resource`` is a denormalised anchor (first
+    machine, else first employee) kept only for the optimizer and admin;
+    ``sync_session_resources`` is the single helper that maintains both.
+    """
+
     production_ticket = models.ForeignKey(
         ProductionTicket,
         on_delete=models.CASCADE,
@@ -725,6 +760,16 @@ class PlannedProductionSession(Timestampable,CompanyOwnedModel):
         max_length=50,
         db_index=True,
         verbose_name=_("Production Stage"),
+    )
+
+    sequence = models.PositiveSmallIntegerField(
+        default=0,
+        verbose_name=_("Sequence"),
+        help_text=_(
+            "Position of this stage within its ticket. Stored rather than read "
+            "from the product template, so editing the template does not "
+            "silently reorder work that is already planned."
+        ),
     )
 
     planned_start = models.DateTimeField(db_index=True,verbose_name=_("Planned Start"))
@@ -749,22 +794,50 @@ class PlannedProductionSession(Timestampable,CompanyOwnedModel):
     notes = models.TextField(blank=True,verbose_name=_("Notes"))
 
     class Meta:
+        verbose_name = _("Planned Production Session")
+        verbose_name_plural = _("Planned Production Sessions")
         indexes = [
             models.Index(fields=["planned_start", "planned_end"]),
             models.Index(fields=["primary_resource"]),
+            models.Index(fields=["company", "planned_start"]),
+            models.Index(fields=["production_ticket", "sequence"]),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "production_ticket",
+                    "production_stage",
+                    "planned_start",
+                    "planned_end",
+                ],
+                name="unique_ticket_stage_time_slot",
+            ),
         ]
         permissions = [
-            ("can_reschedule_planned_sessions", _("Can reschedule planned production sessions")),
+            (
+                "can_reschedule_planned_sessions",
+                _("Can reschedule planned production sessions"),
+            ),
         ]
+
+    def __str__(self):
+        ticket = f"OP-{self.production_ticket_id}" if self.production_ticket_id else "OP-?"
+        return f"{ticket} · {self.production_stage}"
+
+    @property
+    def duration_minutes(self) -> int:
+        """Wall-clock length. Use WorkingCalendar for *working* minutes."""
+        return int((self.planned_end - self.planned_start).total_seconds() // 60)
 
     @classmethod
     def conflicts_for(cls, *, primary_resource_id, start, end, exclude_pk=None):
-        """Planned sessions on *primary_resource_id* overlapping [start, end)."""
+        """Sessions using *primary_resource_id* that overlap [start, end)."""
         qs = cls.objects.filter(
-            primary_resource_id=primary_resource_id,
+            Q(primary_resource_id=primary_resource_id)
+            | Q(resources__resource_id=primary_resource_id),
             planned_start__lt=end,
             planned_end__gt=start,
-        )
+        ).distinct()
         if exclude_pk is not None:
             qs = qs.exclude(pk=exclude_pk)
         return qs

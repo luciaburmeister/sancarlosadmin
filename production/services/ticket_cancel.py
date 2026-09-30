@@ -14,6 +14,7 @@ from production.models import (
     ProductionTicket,
     ProductionTicketStatus,
 )
+from production.services.production_planning import ProductionPlanningService
 from production.services.stages_to_sessions import StagesToSessionsService
 
 
@@ -60,6 +61,9 @@ def cancel_production_ticket(ticket: ProductionTicket) -> bool:
             )
         _close_all_open_sessions(item)
         _cancel_item_planning(item)
+
+    # Free the calendar time; locked sessions are left for a human to deal with.
+    ProductionPlanningService.unplan_ticket(ticket.pk)
 
     ProductionTicket.objects.filter(pk=ticket.pk).update(
         status=ProductionTicketStatus.CANCELLED,

@@ -1,0 +1,46 @@
+{% load i18n %}
+{% comment %}One session block, included once per resource row it belongs to.{% endcomment %}
+<div
+  class="ps-block {% if block.border_status %}ps-block--status-{{ block.border_status }}{% endif %} {% if block.is_displaced %}ps-block--displaced{% endif %} {% if block.is_locked %}ps-block--locked{% endif %} {% if block.minutes <= 15 and can_change and not block.is_locked %}ps-block--compact{% endif %}"
+  style="left: {{ block.left }}%; width: {{ block.width }}%; top: calc({{ block.top }}% + 2px); height: calc({{ block.height }}% - 4px); background: {{ block.color }}; color: {{ block.text_color }};"
+  draggable="{% if not block.is_locked and can_change %}true{% else %}false{% endif %}"
+  data-session-id="{{ block.session_id }}"
+  data-ticket-id="{{ block.ticket_id|default:'' }}"
+  data-start="{{ block.start.isoformat }}"
+  data-end="{{ block.end.isoformat }}"
+  data-minutes="{{ block.minutes }}"
+  data-sequence="{{ block.sequence }}"
+  data-stage="{{ block.stage }}"
+  data-resource-ids="{{ block.resource_ids|join:',' }}"
+  data-locked="{{ block.is_locked|yesno:'1,0' }}"
+  title="{{ block.title }}"
+>
+  {% if block.show_label %}
+  <span class="ps-block__move">
+    <span class="material-symbols-outlined ps-block__move-grip" aria-hidden="true">drag_indicator</span>
+    <span class="ps-block__label">
+      <a class="ps-block__session-link"
+         href="{% url 'admin:production_plannedproductionsession_change' block.session_id %}"
+         draggable="false"
+         title="{% trans 'Open planned production session' %}">#{{ block.session_id }}</a>
+      <span>{% if not is_ticket %}{{ block.ticket_label }} · {% endif %}{{ block.stage_abbr }}</span>
+      {% if block_detail %}<small>{{ block_detail|join:", " }}</small>{% endif %}
+    </span>
+    {% if block.is_locked %}
+      <span class="material-symbols-outlined ps-block__warning" style="font-size:14px;">lock</span>
+    {% endif %}
+  </span>
+  {% if can_change and not block.is_locked %}
+    <span class="material-symbols-outlined ps-block__resize ps-block__resize--start"
+          data-resize-edge="start"
+          role="button"
+          aria-label="{% trans 'Change start time' %}"
+          title="{% trans 'Drag to change start time' %}">drag_indicator</span>
+    <span class="material-symbols-outlined ps-block__resize ps-block__resize--end"
+          data-resize-edge="end"
+          role="button"
+          aria-label="{% trans 'Change end time' %}"
+          title="{% trans 'Drag to change end time' %}">drag_indicator</span>
+  {% endif %}
+  {% endif %}
+</div>

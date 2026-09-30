@@ -1,0 +1,518 @@
+/*
+ * Surfaces, controls and typography use Unfold/Tailwind in the templates.
+ * This file only holds time-axis layout, interaction and overlay states.
+ */
+
+.ps-scroll {
+  position: relative;
+  max-height: calc(100dvh - 22rem);
+  overflow: auto;
+}
+
+.ps-content {
+  position: relative;
+  min-width: 840px;
+}
+
+.ps-row {
+  display: flex;
+  align-items: stretch;
+}
+
+.ps-row--header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.ps-label {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  flex: 0 0 220px;
+  width: 220px;
+  min-width: 220px;
+  overflow: hidden;
+  border-right: 1px solid var(--color-base-200, #e5e7eb);
+}
+
+.ps-row--header .ps-label {
+  z-index: 25;
+}
+
+.ps-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 3rem;
+}
+
+.ps-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  padding-left: .3rem;
+  border-left: 1px solid var(--color-base-100, #f3f4f6);
+  color: var(--color-base-500, #6b7280);
+  font-size: .68rem;
+}
+
+.ps-closed-band {
+  position: absolute;
+  inset-block: 0;
+  z-index: 4;
+  pointer-events: none;
+  border-inline: 1px dashed var(--color-base-300, #d1d5db);
+  background: repeating-linear-gradient(
+    -45deg,
+    rgba(148, 163, 184, .11),
+    rgba(148, 163, 184, .11) 5px,
+    rgba(248, 250, 252, .35) 5px,
+    rgba(248, 250, 252, .35) 10px
+  );
+}
+
+.ps-stage-group + .ps-stage-group {
+  border-top: 5px solid var(--color-base-100, #f3f4f6);
+}
+
+.ps-row--child .ps-label {
+  padding-left: 2.45rem;
+}
+
+.ps-row--child .ps-label::before {
+  position: absolute;
+  top: 0;
+  left: 1.45rem;
+  width: .65rem;
+  height: 50%;
+  border-bottom: 1px solid var(--color-base-300, #d1d5db);
+  border-left: 1px solid var(--color-base-300, #d1d5db);
+  content: "";
+}
+
+.ps-row--stage-operator .ps-label {
+  padding-left: 3.45rem;
+}
+
+.ps-row--stage-operator .ps-label::before {
+  left: 2.45rem;
+}
+
+/* top/height come from the inline style; see split_overlaps in schedule_geometry.py. */
+.ps-block {
+  position: absolute;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: .25rem;
+  overflow: hidden;
+  padding: 0 .4rem;
+  border-radius: .4rem;
+  cursor: grab;
+  font-size: .72rem;
+  font-weight: 600;
+  transition: box-shadow .15s, outline-color .15s;
+}
+
+/* Accessible but visually hidden; the calendar button owns the native picker. */
+.ps-day-picker-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.ps-block__move {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: .25rem;
+  min-width: 0;
+}
+
+.ps-block__move-grip {
+  display: none;
+}
+
+.ps-block[draggable="false"] {
+  cursor: default;
+}
+
+.ps-block__label {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ps-block__label span,
+.ps-block__label small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ps-block__session-link {
+  width: fit-content;
+  color: inherit;
+  font-size: .58rem;
+  font-weight: 700;
+  line-height: 1;
+  opacity: .8;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ps-block__session-link:hover,
+.ps-block__session-link:focus-visible {
+  opacity: 1;
+}
+
+.ps-block__label small {
+  font-size: .58rem;
+  font-weight: 500;
+  opacity: .82;
+}
+
+.ps-block__warning {
+  flex: none;
+}
+
+.ps-block__resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: .55rem;
+  cursor: ew-resize;
+  background: transparent;
+  color: currentColor;
+  font-size: 0;
+  line-height: 1;
+  touch-action: none;
+}
+
+.ps-block__resize::before {
+  width: 2px;
+  height: 1.3rem;
+  border-radius: 999px;
+  background: currentColor;
+  content: "";
+  opacity: .38;
+  transition: opacity .15s, transform .15s;
+}
+
+.ps-block__resize--start {
+  left: 0;
+}
+
+.ps-block__resize--end {
+  right: 0;
+}
+
+.ps-block__resize:hover,
+.ps-block__resize:focus-visible {
+  outline: none;
+}
+
+.ps-block:hover .ps-block__resize::before,
+.ps-block:focus-within .ps-block__resize::before,
+.ps-block--resizing .ps-block__resize::before {
+  opacity: .8;
+  transform: scaleY(1.08);
+}
+
+.ps-block--resizing {
+  cursor: ew-resize;
+  transition: none;
+  user-select: none;
+}
+
+/* A stage too narrow for its label gets a centred move grip instead. */
+.ps-block--compact {
+  padding-right: .1rem;
+  padding-left: .1rem;
+}
+
+.ps-block--compact .ps-block__resize {
+  width: .4rem;
+}
+
+.ps-block--compact .ps-block__resize::before {
+  height: 1rem;
+}
+
+.ps-block--compact .ps-block__move {
+  justify-content: center;
+  padding: 0;
+}
+
+.ps-block--compact .ps-block__move-grip {
+  display: block;
+  font-size: .9rem;
+  line-height: 1;
+}
+
+.ps-block--compact .ps-block__label {
+  display: none;
+}
+
+.ps-block--status-done::after,
+.ps-block--status-running::after,
+.ps-block--status-overdue::after,
+.ps-block--status-warning::after {
+  position: absolute;
+  z-index: 3;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  content: "";
+}
+
+.ps-block--status-done::after { box-shadow: inset 0 0 0 2px #16a34a; }
+.ps-block--status-running::after { box-shadow: inset 0 0 0 2px #2563eb; }
+.ps-block--status-overdue::after { box-shadow: inset 0 0 0 2px #dc2626; }
+.ps-block--status-warning::after { box-shadow: inset 0 0 0 2px #d97706; }
+
+/* Toolbar legend for the four borders above -- keep the colours in step. */
+.ps-legend {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-base-500, #6b7280);
+  font-size: .68rem;
+}
+
+.ps-legend li {
+  display: flex;
+  align-items: center;
+  gap: .3rem;
+  white-space: nowrap;
+}
+
+/* Outlined, not filled: the blocks carry their status as a border too. */
+.ps-legend__swatch {
+  flex: none;
+  width: .7rem;
+  height: .7rem;
+  border: 2px solid currentColor;
+  border-radius: .2rem;
+}
+
+.ps-legend__swatch--done { color: #16a34a; }
+.ps-legend__swatch--running { color: #2563eb; }
+.ps-legend__swatch--overdue { color: #dc2626; }
+.ps-legend__swatch--warning { color: #d97706; }
+
+/* Below this the toolbar would wrap to a second row, so drop the legend. */
+@media (max-width: 1200px) {
+  .ps-legend {
+    display: none;
+  }
+}
+
+.ps-block--displaced {
+  opacity: .9;
+}
+
+.ps-block--locked {
+  cursor: not-allowed;
+}
+
+.ps-block.ps-block--dragging,
+.ps-backlog-card--dragging {
+  opacity: .5;
+}
+
+.ps-block.ps-block--linked {
+  outline: 2px solid #f8fafc;
+  outline-offset: -3px;
+  opacity: .2;
+}
+
+.ps-block.ps-block--linked.ps-block--dragging {
+  opacity: .5;
+}
+
+.ps-track.ps-track--dragover {
+  background-color: rgba(59, 130, 246, .06);
+}
+
+.ps-drop-preview {
+  position: absolute;
+  top: .3rem;
+  bottom: .3rem;
+  z-index: 2;
+  pointer-events: none;
+  border: 1.5px dashed #3b82f6;
+  border-radius: .4rem;
+  background: rgba(59, 130, 246, .14);
+}
+
+/* Duration isn't known yet (a bare backlog ticket, before its stage is
+   configured) -- show where it would land as a line, not a sized box. */
+.ps-drop-preview--marker {
+  border: none;
+  border-radius: 1px;
+  background: #3b82f6;
+}
+
+/* Only rows that can fulfil the dragged stage's resource requirements. */
+.ps-row--stage-available .ps-label,
+.ps-row--stage-available .ps-track {
+  background-color: rgba(16, 185, 129, .08);
+}
+
+.ps-row--stage-available .ps-track {
+  box-shadow: inset 0 0 0 1px rgba(5, 150, 105, .28);
+}
+
+.ps-now-overlay {
+  position: absolute;
+  inset: 0;
+  left: 220px;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.ps-now-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #ef4444;
+}
+
+.ps-now-chip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: .05rem .3rem;
+  transform: translateX(-50%);
+  border-radius: .2rem;
+  background: #ef4444;
+  color: white;
+  font-size: .62rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* The notch ties the tray to the ticket card on its left. */
+.ps-backlog-stages {
+  position: relative;
+  padding: .45rem;
+}
+
+.ps-backlog-stages::before {
+  position: absolute;
+  top: 50%;
+  left: -.36rem;
+  width: .5rem;
+  height: .5rem;
+  transform: translateY(-50%) rotate(45deg);
+  border-bottom: 1px solid var(--color-primary-400, #60a5fa);
+  border-left: 1px solid var(--color-primary-400, #60a5fa);
+  background: var(--color-primary-50, #eff6ff);
+  content: "";
+}
+
+/* Tailwind's w-64 is not in Unfold's precompiled bundle; set directly instead. */
+.ps-backlog-card {
+  width: 16rem;
+}
+
+/* Narrower than the ticket cards, so the tray reads as subordinate. */
+.ps-backlog-stage {
+  width: 10rem;
+  padding: .45rem .5rem;
+}
+
+.ps-backlog-stage input[type="number"] {
+  flex: none;
+  width: 2.8rem;
+}
+
+/* Amber rather than the blue calendar-drop colour -- it undoes, not moves. */
+.ps-backlog-panel--unplan {
+  border-color: #f59e0b;
+  background-color: rgba(245, 158, 11, .06);
+  box-shadow: inset 0 0 0 2px rgba(245, 158, 11, .35);
+}
+
+/* Fixed and isolated so it doesn't compete with the sticky rows' paint layers. */
+.ps-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+  padding: 1rem;
+  background: rgba(15, 23, 42, .5);
+}
+
+.ps-confirm-overlay[x-cloak] {
+  display: none !important;
+}
+
+.ps-confirm-dialog {
+  position: relative;
+  z-index: 1;
+  /* `max-w-md` is a no-op: Unfold's precompiled bundle never had a use for it. */
+  width: 100%;
+  max-width: 22rem;
+  max-height: calc(100dvh - 2rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* `max-h-64` is another class missing from Unfold's bundle; see max-w-md above. */
+.ps-confirm-dialog ul {
+  max-height: 16rem;
+}
+
+/* Same bundle gap, for warning/error colours Unfold's own chrome never uses. */
+.ps-text-warn { color: #b45309; }
+.ps-text-success { color: #059669; }
+.ps-dot-warn { background-color: #f59e0b; }
+.ps-dot-success { background-color: #10b981; }
+
+.ps-modal-heading--warn { color: #d97706; }
+.ps-modal-heading--error { color: #dc2626; }
+
+.ps-modal-item--warn {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.ps-modal-item--error {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+@media (max-width: 1024px) {
+  .ps-scroll {
+    max-height: calc(100dvh - 26rem);
+  }
+}

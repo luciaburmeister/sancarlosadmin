@@ -11,6 +11,9 @@
 const BACKLOG_OPEN_KEY = "ps-backlog-open";
 const BACKLOG_SCROLL_KEY = "ps-backlog-scroll";
 const BACKLOG_EXPANDED_KEY = "ps-backlog-expanded-ticket";
+// Hover time before a collapsed group opens under a backlog drag, so merely
+// crossing a header on the way elsewhere doesn't expand it.
+const GROUP_EXPAND_DELAY_MS = 400;
 
 function productionSchedule() {
   return {
@@ -54,6 +57,8 @@ function productionSchedule() {
     _backlogItems: new Map(),
     _dropPreviewEl: null, // snapped drop-target box shown on the hovered track
     _dropPreviewTrack: null,
+    _groupExpandKey: null, // collapsed group waiting to open under a drag
+    _groupExpandTimer: null,
 
     init() {
       const root = document.getElementById("ps-root");
@@ -372,6 +377,7 @@ function productionSchedule() {
         row.classList.remove("ps-row--stage-available");
       });
       this._clearDropPreview();
+      this._cancelGroupExpand();
       this._dragged = null;
       this._draggedTicketId = null;
       this._draggedStage = null;
@@ -405,6 +411,8 @@ function productionSchedule() {
         this._clearDropPreview();
         return;
       }
+
+      this._scheduleGroupExpand(event);
 
       const track = event.target.closest(".ps-track");
       if (!track || (!this._dragged && !this._draggedTicketId && !this._draggedStage)) {
@@ -793,6 +801,59 @@ function productionSchedule() {
           row.classList.add("ps-row--stage-available");
         }
       });
+    },
+
+    // --- expanding collapsed groups under a backlog drag -----------------
+
+    // The stages a backlog drag would plan: the dragged stage itself, or every
+    // stage a whole ticket still has pending (plan_ticket lays them all out).
+    _backlogDragStages() {
+      if (this._draggedStage) return [this._draggedStage];
+      if (!this._draggedTicketId) return [];
+      const item = this._backlogItems.get(String(this._draggedTicketId));
+      if (!item || !item.stages) return [];
+      return item.stages
+        .filter((source) => !source.is_planned)
+        .map((source) => ({
+          stageName: source.stage,
+          compatibleResourceIds: source.compatible_resource_ids || [],
+          machineQty: source.machine_qty || 0,
+          employeeQty: source.employee_qty || 0,
+        }));
+    },
+
+    // Only groups hiding a row one of the dragged stages can land on are opened.
+    _groupHasDropTarget(headerRow, stages) {
+      const content = headerRow.nextElementSibling;
+      if (!content) return false;
+      const rows = Array.from(content.querySelectorAll(".ps-row"));
+      return stages.some(
+        (stage) => rows.some((row) => this._stageCanDropOnRow(stage, row))
+      );
+    },
+
+    _scheduleGroupExpand(event) {
+      const headerRow = event.target.closest(".ps-row[data-group-key]");
+      const key = headerRow ? headerRow.dataset.groupKey : null;
+      if (key !== null && key === this._groupExpandKey) return;
+      this._cancelGroupExpand();
+      if (key === null || this.isGroupOpen(key)) return;
+
+      const stages = this._backlogDragStages();
+      if (!stages.length || !this._groupHasDropTarget(headerRow, stages)) return;
+
+      this._groupExpandKey = key;
+      this._groupExpandTimer = setTimeout(() => {
+        this.openGroups[key] = true;
+        this._groupExpandKey = null;
+        this._groupExpandTimer = null;
+      }, GROUP_EXPAND_DELAY_MS);
+    },
+
+    _cancelGroupExpand() {
+      clearTimeout(this._groupExpandTimer);
+      this._groupExpandTimer = null;
+      this._groupExpandKey = null;
     },
 
     toggleTicketStages(ticketId) {

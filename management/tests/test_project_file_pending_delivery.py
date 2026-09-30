@@ -9,7 +9,8 @@ from django.test import TestCase
 
 from company.models import Company
 from configurator.models import Configuration, ConfigurationStatus, ProductTemplate
-from inventory.models import InventoryItem
+from inventory.choices import MovementType
+from inventory.models import InventoryItem, ItemTransaction, Warehouse
 from management.admin.project_file import ProjectFileAdmin
 from management.models import ProjectFile
 from management.services.project_file_status import get_pending_delivery_lines
@@ -142,6 +143,37 @@ class PendingDeliveryLinesTests(_PendingDeliveryBase):
         self.assertEqual(row["description"], "Direct")
 
 
+    def _stock(self, item, quantity):
+        warehouse = Warehouse.objects.create(code="WH1", name="Main", company=self.company)
+        ItemTransaction.objects.create(
+            item=item, warehouse=warehouse, movement_type=MovementType.IN,
+            quantity_change=quantity, note="Initial stock",
+        )
+
+    def test_inventory_line_reports_stock_and_incoming(self):
+        inv_line = self._inventory_line(self._quote(), quantity="5")
+        self._stock(inv_line.inventory_item, 2)
+        InventoryItem.objects.filter(pk=inv_line.inventory_item_id).update(
+            incoming_quantity=Decimal("4"),
+        )
+        row = self._rows()["HNG-1"]
+        self.assertEqual(row["stock"], Decimal("2"))
+        self.assertEqual(row["incoming"], Decimal("4"))
+
+    def test_configuration_has_no_stock_figures(self):
+        config = self._config(self._quote(), units="1")
+        row = self._rows()[f"CFG-{config.pk}"]
+        self.assertIsNone(row["stock"])
+        self.assertIsNone(row["incoming"])
+
+    def test_composite_item_has_no_stock_figures(self):
+        inv_line = self._inventory_line(self._quote(), quantity="1")
+        InventoryItem.objects.filter(pk=inv_line.inventory_item_id).update(has_components=True)
+        row = self._rows()["HNG-1"]
+        self.assertIsNone(row["stock"])
+        self.assertIsNone(row["incoming"])
+
+
 class PendingDeliveryAdminDisplayTests(_PendingDeliveryBase):
 
     def setUp(self):
@@ -177,3 +209,20 @@ class PendingDeliveryAdminDisplayTests(_PendingDeliveryBase):
         self.assertIn(">2.5</td>", html)
         self.assertNotIn("2.500", html)
         self.assertEqual(config.units, Decimal("2.500"))
+
+    def test_shows_stock_and_incoming_and_flags_shortfall(self):
+        inv_line = self._inventory_line(self._quote(), quantity="10")
+        InventoryItem.objects.filter(pk=inv_line.inventory_item_id).update(
+            incoming_quantity=Decimal("3"),
+        )
+        html = self.model_admin.pending_delivery_display(self.project_file)
+        self.assertIn("color: #2563eb;\">3</td>", html)
+        self.assertIn("color: #dc2626;\">10</td>", html)
+
+    def test_covered_line_is_not_flagged(self):
+        inv_line = self._inventory_line(self._quote(), quantity="3")
+        InventoryItem.objects.filter(pk=inv_line.inventory_item_id).update(
+            incoming_quantity=Decimal("3"),
+        )
+        html = self.model_admin.pending_delivery_display(self.project_file)
+        self.assertNotIn("#dc2626", html)

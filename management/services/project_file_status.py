@@ -138,16 +138,36 @@ def get_pending_delivery_lines(project_file):
     delivered orders count as shipped. Quantities sitting on draft orders are
     reported separately in ``in_draft`` so a prepared-but-unsent order is
     visible without being mistaken for a delivery. Rows are returned for every
-    line, including fully delivered ones (``pending`` is zero there)."""
+    line, including fully delivered ones (``pending`` is zero there).
+
+    Inventory lines also carry the item's warehouse position: ``stock`` (on
+    hand, across all warehouses) and ``incoming`` (approved purchase orders
+    not yet received). Both are company-wide figures, not earmarked for this
+    expediente. They are None for configurations, which are made to order,
+    and for composite items, which hold no stock of their own."""
+    from inventory.models import InventoryItem
     from sales.models import DeliveryOrderStatus
 
     shipped = get_shipped_quantities(project_file)
     in_draft = _quantities_by_source(project_file, [DeliveryOrderStatus.DRAFT])
+    source_lines = _ordered_source_lines(project_file)
+
+    item_ids = {
+        source.inventory_item_id
+        for _key, source, _ordered in source_lines
+        if getattr(source, "inventory_item_id", None)
+    }
+    items = {
+        item.pk: item
+        for item in InventoryItem.objects.filter(pk__in=item_ids).with_stock_on_hand()
+    } if item_ids else {}
 
     rows = []
-    for key, source, ordered in _ordered_source_lines(project_file):
+    for key, source, ordered in source_lines:
         shipped_qty = shipped.get(key, Decimal("0"))
         reference, description = _source_display(source)
+        item = items.get(getattr(source, "inventory_item_id", None))
+        tracks_stock = item is not None and not item.is_composite
         rows.append({
             "source": source,
             "reference": reference,
@@ -156,6 +176,8 @@ def get_pending_delivery_lines(project_file):
             "shipped": shipped_qty,
             "in_draft": in_draft.get(key, Decimal("0")),
             "pending": max(ordered - shipped_qty, Decimal("0")),
+            "stock": Decimal(item.stock_on_hand) if tracks_stock else None,
+            "incoming": item.incoming_quantity if tracks_stock else None,
         })
     return rows
 

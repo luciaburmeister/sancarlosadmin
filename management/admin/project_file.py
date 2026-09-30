@@ -779,7 +779,9 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
     def pending_delivery_display(self, obj):
         """Detail page read-only field: deliverable lines still owed to the
         client. Only sent/delivered orders count as shipped (same rule as the
-        derived delivery status); draft quantities are shown apart."""
+        derived delivery status); draft quantities are shown apart. Inventory
+        lines show the item's stock on hand and incoming purchase quantity;
+        the pending figure turns red when those two cannot cover it."""
         if not obj.pk:
             return "—"
 
@@ -807,10 +809,21 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
             '<th style="padding: 4px 6px; font-weight: 500; text-align: right;">{}</th>'
             '<th style="padding: 4px 6px; font-weight: 500; text-align: right;">{}</th>'
             '<th style="padding: 4px 6px; font-weight: 500; text-align: right;">{}</th>'
+            '<th style="padding: 4px 6px; font-weight: 500; text-align: right;">{}</th>'
+            '<th style="padding: 4px 6px; font-weight: 500; text-align: right;">{}</th>'
             '<th style="padding: 4px 0 4px 6px; font-weight: 500; text-align: right;">{}</th>'
             '</tr>',
-            _("Reference"), _("Item"), _("Ordered"), _("Shipped"), _("In draft"), _("Pending"),
+            _("Reference"), _("Item"), _("Ordered"), _("Shipped"), _("In draft"),
+            _("Stock"), _("Incoming"), _("Pending"),
         )
+
+        def pending_color(line):
+            """Red when stock plus what is on the way cannot cover the line."""
+            if line["stock"] is None:
+                return "#b45309"
+            if line["stock"] + line["incoming"] < line["pending"]:
+                return "#dc2626"
+            return "#b45309"
         rows = format_html_join(
             "",
             '<tr style="border-top: 1px solid #e5e7eb;">'
@@ -819,7 +832,9 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
             '<td style="padding: 4px 6px; text-align: right;">{}</td>'
             '<td style="padding: 4px 6px; text-align: right;">{}</td>'
             '<td style="padding: 4px 6px; text-align: right; color: #d97706;">{}</td>'
-            '<td style="padding: 4px 0 4px 6px; text-align: right; font-weight: 600; color: #b45309;">{}</td>'
+            '<td style="padding: 4px 6px; text-align: right;">{}</td>'
+            '<td style="padding: 4px 6px; text-align: right; color: #2563eb;">{}</td>'
+            '<td style="padding: 4px 0 4px 6px; text-align: right; font-weight: 600; color: {};">{}</td>'
             '</tr>',
             (
                 (
@@ -828,6 +843,9 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
                     qty(line["ordered"]),
                     qty(line["shipped"]),
                     qty(line["in_draft"]) if line["in_draft"] > 0 else "—",
+                    qty(line["stock"]) if line["stock"] is not None else "—",
+                    qty(line["incoming"]) if line["incoming"] else "—",
+                    pending_color(line),
                     qty(line["pending"]),
                 )
                 for line in pending
@@ -841,7 +859,7 @@ class ProjectFileAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmi
         ) if delivered_count else ""
 
         return format_html(
-            '<div style="border: 1px solid #fde68a; background: #fffbeb; border-radius: 8px; padding: 10px 12px; max-width: 800px;">'
+            '<div style="border: 1px solid #fde68a; background: #fffbeb; border-radius: 8px; padding: 10px 12px; max-width: 960px;">'
             '<div style="font-size: 13px; font-weight: 600; color: #92400e; margin-bottom: 6px;">{} {}</div>'
             '<table style="width: 100%; font-size: 12px; color: #374151;">{}{}</table>'
             '{}'

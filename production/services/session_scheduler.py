@@ -4,16 +4,18 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta
 
 from django.contrib.contenttypes.models import ContentType
-from django.db.models import DurationField, ExpressionWrapper, F, Sum
+from django.db.models import DurationField, ExpressionWrapper, F, Max, Sum
 from django.utils import timezone
 
 from company.models import Employee, Machine
 from production.models import (
     PlannedProductionSession,
     PlannedProductionSessionSource,
+    PlannedSessionResource,
     ProductionResource,
     ProductionTicket,
 )
+from production.services.session_resources import sync_session_resources
 
 
 # ---------------------------------------------------------------------------
@@ -60,10 +62,15 @@ def get_or_create_resource_for_target(target) -> ProductionResource | None:
     return resource
 
 
-def get_resources_for_stage(stage: str, stage_info: dict) -> dict[str, list[ProductionResource]]:
+def get_resources_for_stage(
+    stage: str, stage_info: dict, *, company=None
+) -> dict[str, list[ProductionResource]]:
     """
     Return ProductionResource wrappers for all active machines/employees
     that can work on this stage.
+
+    Pass *company* to scope the pools: without it this returns every qualified
+    machine and employee across all tenants.
     """
     machine_qty = int(stage_info.get("machine_qty", 0) or 0)
     employee_qty = int(stage_info.get("employee_qty", 0) or 0)
@@ -71,12 +78,17 @@ def get_resources_for_stage(stage: str, stage_info: dict) -> dict[str, list[Prod
     machine_resources: list[ProductionResource] = []
     employee_resources: list[ProductionResource] = []
 
+    def _scoped(queryset):
+        return queryset.filter(company=company) if company is not None else queryset
+
     if machine_qty > 0:
         machine_resources = [
             get_or_create_resource_for_target(machine)
-            for machine in Machine.objects.filter(
-                is_active=True,
-                production_stages__contains=[stage],
+            for machine in _scoped(
+                Machine.objects.filter(
+                    is_active=True,
+                    production_stages__contains=[stage],
+                )
             )
         ]
         machine_resources = [r for r in machine_resources if r is not None]
@@ -84,10 +96,12 @@ def get_resources_for_stage(stage: str, stage_info: dict) -> dict[str, list[Prod
     if employee_qty > 0:
         employee_resources = [
             get_or_create_resource_for_target(employee)
-            for employee in Employee.objects.filter(
-                is_active=True,
-                can_work_on_production=True,
-                production_stages__contains=[stage],
+            for employee in _scoped(
+                Employee.objects.filter(
+                    is_active=True,
+                    can_work_on_production=True,
+                    production_stages__contains=[stage],
+                )
             )
         ]
         employee_resources = [r for r in employee_resources if r is not None]
@@ -103,33 +117,40 @@ def possible_resources_for_stage(
     day,
     duration: timedelta,
 ) -> set:
-    """Return PKs of resources that still have enough daily capacity for *duration*."""
+    """Return PKs of resources that still have enough daily capacity for *duration*.
+
+    Load is counted through ``PlannedSessionResource`` so a session occupies
+    *every* resource assigned to it, not just its anchor. Capacity comes from
+    ``ProductionResource.daily_capacity_minutes``, which the Employee/Machine
+    signals already keep in sync -- the previous ``Machine.objects.filter(
+    pk=res.object_id)`` looked up a Machine by an *employee's* pk for employee
+    resources, returning whichever unrelated machine happened to collide.
+    """
     start_of_day = timezone.make_aware(datetime.combine(day, time.min))
     end_of_day = timezone.make_aware(datetime.combine(day, time.max))
 
     time_used_by_resource = dict(
-        PlannedProductionSession.objects
+        PlannedSessionResource.objects
         .filter(
-            primary_resource__in=resources,
-            planned_start__lt=end_of_day,
-            planned_end__gt=start_of_day,
+            resource__in=resources,
+            planned_session__planned_start__lt=end_of_day,
+            planned_session__planned_end__gt=start_of_day,
         )
         .annotate(
             duration=ExpressionWrapper(
-                F("planned_end") - F("planned_start"),
+                F("planned_session__planned_end") - F("planned_session__planned_start"),
                 output_field=DurationField(),
             )
         )
-        .values("primary_resource")
+        .values("resource")
         .annotate(total=Sum("duration"))
-        .values_list("primary_resource", "total")
+        .values_list("resource", "total")
     )
 
     possible = set()
     for res in resources:
         used_time = time_used_by_resource.get(res.pk) or timedelta(0)
-        machine = Machine.objects.filter(pk=res.object_id).first()
-        capacity = timedelta(minutes=getattr(machine, "daily_capacity_minutes", 0) or 0)
+        capacity = timedelta(minutes=res.daily_capacity_minutes or 0)
         if used_time + duration <= capacity:
             possible.add(res.pk)
 
@@ -162,7 +183,7 @@ class SessionScheduler:
 
         last_end = None
 
-        for stage, stage_info in (stage_resources or {}).items():
+        for sequence, (stage, stage_info) in enumerate((stage_resources or {}).items()):
             start = last_end if last_end else search_start
 
             result = cls._schedule_stage(
@@ -171,6 +192,7 @@ class SessionScheduler:
                 stage_info=stage_info,
                 schedule_ctx=schedule_ctx,
                 search_start=start,
+                sequence=sequence,
             )
 
             if result is None:
@@ -186,6 +208,7 @@ class SessionScheduler:
         stage_info: dict,
         schedule_ctx: ScheduleContext,
         search_start: datetime,
+        sequence: int = 0,
     ) -> datetime | None:
         """
         Find a slot and create sessions for one stage.
@@ -199,7 +222,9 @@ class SessionScheduler:
         if machine_qty <= 0 and employee_qty <= 0:
             return None
 
-        pools = get_resources_for_stage(stage, stage_info)
+        pools = get_resources_for_stage(
+            stage, stage_info, company=production_ticket.company
+        )
         machine_resources = pools["machines"]
         employee_resources = pools["employees"]
 
@@ -222,16 +247,18 @@ class SessionScheduler:
         slot_start, selected_machine_ids, selected_employee_ids = result
         slot_end = slot_start + duration
 
-        for resource_id in selected_machine_ids + selected_employee_ids:
-            PlannedProductionSession.objects.create(
-                production_ticket=production_ticket,
-                production_stage=stage,
-                planned_start=slot_start,
-                planned_end=slot_end,
-                locked=False,
-                source=PlannedProductionSessionSource.AUTOMATIC,
-                primary_resource_id=resource_id,
-            )
+        # ONE session for the stage, with every chosen resource attached to it.
+        session = PlannedProductionSession.objects.create(
+            production_ticket=production_ticket,
+            company=production_ticket.company,
+            production_stage=stage,
+            sequence=sequence,
+            planned_start=slot_start,
+            planned_end=slot_end,
+            locked=False,
+            source=PlannedProductionSessionSource.AUTOMATIC,
+        )
+        sync_session_resources(session, selected_machine_ids + selected_employee_ids)
 
         return slot_end
 
@@ -298,26 +325,25 @@ class SessionScheduler:
                 )
                 continue
 
-            # Remove resources already busy in the time window
-            conflicts = (
-                PlannedProductionSession.objects.filter(
-                    planned_start__lt=cursor + duration,
-                    planned_end__gt=cursor,
-                    primary_resource__in=machine_resources + employee_resources,
-                )
-                .order_by("-planned_end")
+            # Read through the join table so a session blocks every resource it
+            # uses, not only its anchor.
+            conflicts = PlannedSessionResource.objects.filter(
+                resource__in=machine_resources + employee_resources,
+                planned_session__planned_start__lt=cursor + duration,
+                planned_session__planned_end__gt=cursor,
             )
 
-            used_resource_ids = set(
-                conflicts.values_list("primary_resource_id", flat=True).distinct()
-            )
+            used_resource_ids = set(conflicts.values_list("resource_id", flat=True))
 
             free_machine_ids = sorted(available_machine_ids - used_resource_ids)
             free_employee_ids = sorted(available_employee_ids - used_resource_ids)
 
             if len(free_machine_ids) < machine_qty or len(free_employee_ids) < employee_qty:
-                if conflicts.exists():
-                    cursor = conflicts.first().planned_end
+                latest_end = conflicts.aggregate(
+                    latest=Max("planned_session__planned_end")
+                )["latest"]
+                if latest_end is not None:
+                    cursor = latest_end
                     continue
 
                 days_ahead += 1

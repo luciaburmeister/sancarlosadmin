@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.core.exceptions import ValidationError
 from configurator.utils.evaluator import safe_eval
 
-from production.models import PlannedProductionSession, ProductionResource
+from production.models import PlannedSessionResource, ProductionResource
 from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from collections import defaultdict
@@ -314,15 +314,21 @@ def optimization_dict_creation(
             {configuration_company[c] for c in configurations},
         )
 
-    # Used sessions
-    sessions = PlannedProductionSession.objects.filter(
-        primary_resource__in=active_resources,
-        planned_start__date__lte=end_date,
-        planned_end__date__gte=start_date,
+    # Read through the join table: primary_resource alone undercounts existing load.
+    resources_by_id = {resource.pk: resource for resource in active_resources}
+
+    assignments = (
+        PlannedSessionResource.objects.filter(
+            resource_id__in=resources_by_id,
+            planned_session__planned_start__date__lte=end_date,
+            planned_session__planned_end__date__gte=start_date,
+        )
+        .select_related("planned_session")
     )
 
-    for session in sessions:
-        resource = session.primary_resource
+    for assignment in assignments:
+        resource = resources_by_id[assignment.resource_id]
+        session = assignment.planned_session
         company = resource.company
 
         slot_cap = resource_parallel_capacity.get(resource, 0)

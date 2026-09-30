@@ -1,0 +1,11 @@
+{% load i18n %}
+{% comment %}The single-day time axis shared by every calendar row.{% endcomment %}
+<div class="ps-row ps-row--header border-b border-base-200 bg-base-50">
+  <div class="ps-label flex items-center bg-base-50 px-3 py-2 text-xs font-semibold text-base-500">{% trans "Time" %}</div>
+  <div class="ps-track">
+    {% include "admin/production/plannedproductionsession/_track_background.html" %}
+    {% for tick in data.window.ticks %}
+      <div class="ps-tick" style="left: {{ tick.left }}%;">{{ tick.label }}</div>
+    {% endfor %}
+  </div>
+</div>

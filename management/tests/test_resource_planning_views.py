@@ -10,9 +10,11 @@ Covers:
 - Schedule: exclude_weekends hides planning on weekends
 """
 import datetime
+from urllib.parse import urlsplit
 
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
+from django.http import QueryDict
 from django.test import TestCase, Client as HttpClient, override_settings
 from django.urls import reverse
 from django.utils import timezone, translation
@@ -771,6 +773,40 @@ class TestScheduleBacklogFilters(_ViewBase):
         self.assertEqual(len(backlog_items), 1)
         self.assertEqual(backlog_items[0].pk, self.install_backlog.pk)
         self.assertTrue(response.context["backlog_filters_active"])
+
+    def test_independent_filter_forms_preserve_repeated_values(self):
+        response = self.http.get(
+            self.schedule_url,
+            {
+                "day": "2026-07-06",
+                "planning_type": [str(self.planning_type.pk), str(self.other_planning_type.pk)],
+                "backlog_internal_label": [str(self.urgent_label.pk), str(self.waiting_label.pk)],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(
+            response,
+            f'<input type="hidden" name="planning_type" value="{self.planning_type.pk}">',
+        )
+        self.assertContains(
+            response,
+            f'<input type="hidden" name="planning_type" value="{self.other_planning_type.pk}">',
+        )
+        for label in (self.urgent_label, self.waiting_label):
+            self.assertContains(
+                response,
+                f'<input type="hidden" name="backlog_internal_label" value="{label.pk}">',
+            )
+
+        reset_url = urlsplit(response.context["backlog_reset_url"])
+        reset_params = QueryDict(reset_url.query)
+        self.assertEqual(reset_url.path, self.schedule_url)
+        self.assertEqual(
+            reset_params.getlist("planning_type"),
+            [str(self.planning_type.pk), str(self.other_planning_type.pk)],
+        )
+        self.assertNotIn("backlog_internal_label", reset_params)
 
     def test_backlog_internal_label_filter(self):
         response = self.http.get(

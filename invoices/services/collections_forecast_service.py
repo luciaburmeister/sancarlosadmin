@@ -49,7 +49,7 @@ class CollectionsForecastService:
         default=False,
         output_field=BooleanField(),
     )
- 
+
     @classmethod
     def _is_late_commitment_expr(cls, threshold_days):
         """

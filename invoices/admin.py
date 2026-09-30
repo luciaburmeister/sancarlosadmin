@@ -1152,10 +1152,10 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
         "get_payment_status_label",
         "due_date",
         "payment_commitment_date",
-         "get_status_label",
+        "get_status_label",
         "get_external_label",
         "company",
-        )
+    )
     list_filter = (
         ("company", AutocompleteSelectMultipleFilter),
         ("client", AutocompleteSelectMultipleFilter),

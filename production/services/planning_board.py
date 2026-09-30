@@ -11,6 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from production.exceptions import PlannedSessionConflictError
 from production.models import PlannedProductionSession, PlannedProductionSessionSource
 from production.services.session_scheduler import get_or_create_resource_for_target
+from production.services.session_resources import sync_session_resources
 
 # Nominal duration when a backlog drop doesn't specify a time.
 DEFAULT_SESSION_DURATION = timedelta(minutes=60)
@@ -78,9 +79,20 @@ def move_session(
         new_start, new_end = slot
 
     session.primary_resource = resource
+    if session.company_id is None:
+        session.company = company
     session.planned_start = new_start
     session.planned_end = new_end
-    session.save(update_fields=["primary_resource", "planned_start", "planned_end"])
+    session.save(
+        update_fields=[
+            "company",
+            "primary_resource",
+            "planned_start",
+            "planned_end",
+            "updated_at",
+        ]
+    )
+    sync_session_resources(session, [resource.id])
     return session
 
 
@@ -115,7 +127,8 @@ def create_session(
             primary_resource_id=resource.id, start=new_start, end=new_end,
         )
 
-    return PlannedProductionSession.objects.create(
+    session = PlannedProductionSession.objects.create(
+        company=company,
         production_ticket=ticket,
         production_stage=stage,
         planned_start=new_start,
@@ -124,6 +137,8 @@ def create_session(
         locked=False,
         source=PlannedProductionSessionSource.MANUAL,
     )
+    sync_session_resources(session, [resource.id])
+    return session
 
 
 def _pack_sequential(

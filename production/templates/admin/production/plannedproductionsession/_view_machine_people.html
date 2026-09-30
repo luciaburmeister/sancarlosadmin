@@ -1,0 +1,150 @@
+{% load i18n %}
+<div class="ps-scroll">
+  <div class="ps-content">
+    {% include "admin/production/plannedproductionsession/_axis_header.html" %}
+
+    {% for stage_group in data.stage_groups %}
+      {% if stage_group.has_single_machine %}
+        {% with machine_group=stage_group.machine_groups.0 %}
+        {% with gkey=machine_group.machine.key|escapejs %}
+          <section class="ps-stage-group">
+            <div class="ps-row border-b border-base-200 bg-base-50" data-row-resource-id="{{ machine_group.machine.resource_id }}" data-row-kind="machine" data-stage-name="{{ stage_group.stage }}">
+              <div class="ps-label bg-base-50 px-3 py-2">
+                <button type="button" class="flex w-full min-w-0 items-center gap-1.5 text-left" @click="toggleGroup('{{ gkey }}')" :aria-expanded="isGroupOpen('{{ gkey }}')">
+                  <span class="material-symbols-outlined text-lg transition-transform" :class="isGroupOpen('{{ gkey }}') && 'rotate-90'">chevron_right</span>
+                  <span class="flex min-w-0 flex-col">
+                    <strong class="truncate text-sm">{{ stage_group.stage }}</strong>
+                    <small class="truncate text-[11px] text-base-500">{{ machine_group.machine.label }}</small>
+                  </span>
+                </button>
+              </div>
+              <div class="ps-track">
+                {% include "admin/production/plannedproductionsession/_track_background.html" %}
+                {% for block in machine_group.blocks %}
+                  {% include "admin/production/plannedproductionsession/_block.html" with block_detail=block.employee_labels %}
+                {% endfor %}
+              </div>
+            </div>
+
+            <div x-show="isGroupOpen('{{ gkey }}')">
+              {% for row in machine_group.operator_rows %}
+                <div class="ps-row ps-row--child border-b border-base-200" data-row-resource-id="{{ row.resource_id }}" data-parent-machine-id="{{ machine_group.machine.resource_id }}" data-row-kind="employee" data-stage-name="{{ stage_group.stage }}">
+                  <div class="ps-label flex flex-col justify-center gap-0.5 bg-white px-3 py-2">
+                    <span class="truncate text-sm font-medium">{{ row.label }}</span>
+                    <span class="text-[10px] uppercase tracking-wider text-base-500">{{ row.sublabel }}</span>
+                  </div>
+                  <div class="ps-track">
+                    {% include "admin/production/plannedproductionsession/_track_background.html" %}
+                    {% for block in row.blocks %}{% include "admin/production/plannedproductionsession/_block.html" %}{% endfor %}
+                  </div>
+                </div>
+              {% endfor %}
+              {% if machine_group.unassigned_row %}
+                <div class="ps-row ps-row--child border-b border-base-200" data-parent-machine-id="{{ machine_group.machine.resource_id }}" data-row-kind="unassigned" data-stage-name="{{ stage_group.stage }}">
+                  <div class="ps-label flex flex-col justify-center gap-0.5 bg-white px-3 py-2"><span class="truncate text-sm font-medium ps-text-warn">{{ machine_group.unassigned_row.label }}</span><span class="text-[10px] uppercase tracking-wider text-base-500">{{ machine_group.unassigned_row.sublabel }}</span></div>
+                  <div class="ps-track">{% include "admin/production/plannedproductionsession/_track_background.html" %}{% for block in machine_group.unassigned_row.blocks %}{% include "admin/production/plannedproductionsession/_block.html" %}{% endfor %}</div>
+                </div>
+              {% endif %}
+              {% if stage_group.unassigned_machine_row %}
+                <div class="ps-row ps-row--child border-b border-base-200" data-row-kind="unassigned" data-stage-name="{{ stage_group.stage }}">
+                  <div class="ps-label flex flex-col justify-center gap-0.5 bg-white px-3 py-2"><span class="truncate text-sm font-medium ps-text-warn">{{ stage_group.unassigned_machine_row.label }}</span><span class="text-[10px] uppercase tracking-wider text-base-500">{{ stage_group.unassigned_machine_row.sublabel }}</span></div>
+                  <div class="ps-track">{% include "admin/production/plannedproductionsession/_track_background.html" %}{% for block in stage_group.unassigned_machine_row.blocks %}{% include "admin/production/plannedproductionsession/_block.html" with block_detail=block.employee_labels %}{% endfor %}</div>
+                </div>
+              {% endif %}
+            </div>
+          </section>
+        {% endwith %}
+        {% endwith %}
+      {% elif stage_group.machine_groups %}
+        {% with skey=stage_group.stage|escapejs %}
+        <section class="ps-stage-group">
+          <div class="ps-row border-b border-base-200 bg-base-100" data-row-kind="stage" data-stage-name="{{ stage_group.stage }}">
+            <div class="ps-label bg-base-100 px-3 py-2">
+              <button type="button" class="flex w-full min-w-0 items-center gap-1.5 text-left" @click="toggleGroup('{{ skey }}')" :aria-expanded="isGroupOpen('{{ skey }}')">
+                <span class="material-symbols-outlined text-lg transition-transform" :class="isGroupOpen('{{ skey }}') && 'rotate-90'">chevron_right</span>
+                <span class="flex min-w-0 flex-col">
+                  <strong class="truncate text-sm">{{ stage_group.stage }}</strong>
+                  <small class="truncate text-[10px] text-base-500">
+                    {% if stage_group.machine_groups|length == 1 %}{{ stage_group.machine_groups.0.machine.label }}{% else %}{{ stage_group.machine_groups|length }} {% trans "machines" %}{% endif %}
+                  </small>
+                </span>
+              </button>
+            </div>
+            <div class="ps-track">
+              {% include "admin/production/plannedproductionsession/_track_background.html" %}
+              {% for block in stage_group.blocks %}{% include "admin/production/plannedproductionsession/_block.html" with block_detail=block.employee_labels %}{% endfor %}
+            </div>
+          </div>
+
+          <div x-show="isGroupOpen('{{ skey }}')">
+            {% for machine_group in stage_group.machine_groups %}
+              {% with gkey=machine_group.machine.key|escapejs %}
+              <section>
+                <div class="ps-row ps-row--child border-b border-base-200 bg-base-50" data-row-resource-id="{{ machine_group.machine.resource_id }}" data-row-kind="machine" data-stage-name="{{ stage_group.stage }}">
+                  <div class="ps-label bg-base-50 px-3 py-2">
+                    <button type="button" class="flex w-full min-w-0 items-center gap-1.5 text-left" @click="toggleGroup('{{ gkey }}')" :aria-expanded="isGroupOpen('{{ gkey }}')">
+                      <span class="material-symbols-outlined text-lg transition-transform" :class="isGroupOpen('{{ gkey }}') && 'rotate-90'">chevron_right</span>
+                      <span class="material-symbols-outlined text-lg text-primary-600">precision_manufacturing</span>
+                      <span class="min-w-0 truncate text-sm font-semibold">{{ machine_group.machine.label }}</span>
+                    </button>
+                  </div>
+                  <div class="ps-track">{% include "admin/production/plannedproductionsession/_track_background.html" %}{% for block in machine_group.blocks %}{% include "admin/production/plannedproductionsession/_block.html" with block_detail=block.employee_labels %}{% endfor %}</div>
+                </div>
+
+                <div x-show="isGroupOpen('{{ gkey }}')">
+                  {% for row in machine_group.operator_rows %}
+                    <div class="ps-row ps-row--child ps-row--stage-operator border-b border-base-200" data-row-resource-id="{{ row.resource_id }}" data-parent-machine-id="{{ machine_group.machine.resource_id }}" data-row-kind="employee" data-stage-name="{{ stage_group.stage }}">
+                      <div class="ps-label flex flex-col justify-center gap-0.5 bg-white px-3 py-2"><span class="truncate text-sm font-medium">{{ row.label }}</span><span class="text-[10px] uppercase tracking-wider text-base-500">{{ row.sublabel }}</span></div>
+                      <div class="ps-track">{% include "admin/production/plannedproductionsession/_track_background.html" %}{% for block in row.blocks %}{% include "admin/production/plannedproductionsession/_block.html" %}{% endfor %}</div>
+                    </div>
+                  {% endfor %}
+                  {% if machine_group.unassigned_row %}
+                    <div class="ps-row ps-row--child ps-row--stage-operator border-b border-base-200" data-parent-machine-id="{{ machine_group.machine.resource_id }}" data-row-kind="unassigned" data-stage-name="{{ stage_group.stage }}">
+                      <div class="ps-label flex flex-col justify-center gap-0.5 bg-white px-3 py-2"><span class="truncate text-sm font-medium ps-text-warn">{{ machine_group.unassigned_row.label }}</span><span class="text-[10px] uppercase tracking-wider text-base-500">{{ machine_group.unassigned_row.sublabel }}</span></div>
+                      <div class="ps-track">{% include "admin/production/plannedproductionsession/_track_background.html" %}{% for block in machine_group.unassigned_row.blocks %}{% include "admin/production/plannedproductionsession/_block.html" %}{% endfor %}</div>
+                    </div>
+                  {% endif %}
+                </div>
+              </section>
+              {% endwith %}
+            {% endfor %}
+            {% if stage_group.unassigned_machine_row %}
+              <div class="ps-row ps-row--child border-b border-base-200" data-row-kind="unassigned" data-stage-name="{{ stage_group.stage }}">
+                <div class="ps-label flex flex-col justify-center gap-0.5 bg-white px-3 py-2"><span class="truncate text-sm font-medium ps-text-warn">{{ stage_group.unassigned_machine_row.label }}</span><span class="text-[10px] uppercase tracking-wider text-base-500">{{ stage_group.unassigned_machine_row.sublabel }}</span></div>
+                <div class="ps-track">{% include "admin/production/plannedproductionsession/_track_background.html" %}{% for block in stage_group.unassigned_machine_row.blocks %}{% include "admin/production/plannedproductionsession/_block.html" with block_detail=block.employee_labels %}{% endfor %}</div>
+              </div>
+            {% endif %}
+          </div>
+        </section>
+        {% endwith %}
+      {% else %}
+        {% with skey=stage_group.stage|escapejs %}
+        <section class="ps-stage-group">
+          <div class="ps-row border-b border-base-200 bg-base-50" data-row-kind="stage" data-stage-name="{{ stage_group.stage }}">
+            <div class="ps-label bg-base-50 px-3 py-2">
+              <button type="button" class="flex w-full min-w-0 items-center gap-1.5 text-left" @click="toggleGroup('{{ skey }}')" :aria-expanded="isGroupOpen('{{ skey }}')">
+                <span class="material-symbols-outlined text-lg transition-transform" :class="isGroupOpen('{{ skey }}') && 'rotate-90'">chevron_right</span>
+                <strong class="min-w-0 truncate text-sm">{{ stage_group.stage }}</strong>
+              </button>
+            </div>
+            <div class="ps-track">{% include "admin/production/plannedproductionsession/_track_background.html" %}{% for block in stage_group.blocks %}{% include "admin/production/plannedproductionsession/_block.html" with block_detail=block.employee_labels %}{% endfor %}</div>
+          </div>
+
+          <div x-show="isGroupOpen('{{ skey }}')">
+            {% for row in stage_group.operator_rows %}
+              <div class="ps-row ps-row--child border-b border-base-200" data-row-resource-id="{{ row.resource_id }}" data-row-kind="employee" data-stage-name="{{ stage_group.stage }}">
+                <div class="ps-label flex flex-col justify-center gap-0.5 bg-white px-3 py-2"><span class="truncate text-sm font-medium">{{ row.label }}</span><span class="text-[10px] uppercase tracking-wider text-base-500">{{ row.sublabel }}</span></div>
+                <div class="ps-track">{% include "admin/production/plannedproductionsession/_track_background.html" %}{% for block in row.blocks %}{% include "admin/production/plannedproductionsession/_block.html" %}{% endfor %}</div>
+              </div>
+            {% endfor %}
+          </div>
+        </section>
+        {% endwith %}
+      {% endif %}
+    {% empty %}
+      <div class="p-8 text-center text-sm text-base-500">{% trans "No production stages are configured." %}</div>
+    {% endfor %}
+
+    {% include "admin/production/plannedproductionsession/_now_line.html" %}
+  </div>
+</div>

@@ -44,7 +44,10 @@ from production.filters.ticket_filters import (
 from production.services.scheduler import ScheduleProposalApplier, proposal_from_dict
 from production.services.scheduler.reasons import describe_reason
 from production.views.configuration_autocomplete import ConfigurationAutocompleteView
-from production.views.planned_sessions_schedule_view import PlannedSessionsScheduleDayView
+from production.views.production_schedule_view import (
+    ProductionScheduleActionView,
+    ProductionScheduleView,
+)
 from production.views.production_item_stages_view import ProductionItemAdvanceStageView
 from production.views.production_ticket_stages_view import ProductionTicketStagesView
 from production.views.production_control_view import ProductionControlView
@@ -557,11 +560,12 @@ class PlannedSessionResourceInline(TabularInline):
 
 
 @admin.register(PlannedProductionSession)
-class PlannedProductionSessionAdmin(CompanyRestrictedAdmin,ModelAdmin):
+class PlannedProductionSessionAdmin(CompanyRestrictedAdmin, ModelAdmin):
     list_display = (
         "id",
         "production_ticket",
         "production_stage",
+        "sequence",
         "planned_start",
         "planned_end",
         "primary_resource",
@@ -580,8 +584,10 @@ class PlannedProductionSessionAdmin(CompanyRestrictedAdmin,ModelAdmin):
     fieldsets = (
         (None, {
             "fields": (
+                "company",
                 "production_ticket",
                 "production_stage",
+                "sequence",
             )
         }),
         ("Schedule", {
@@ -613,19 +619,24 @@ class PlannedProductionSessionAdmin(CompanyRestrictedAdmin,ModelAdmin):
     def get_urls(self):
         urls = super().get_urls()
 
-        schedule_view = self.admin_site.admin_view(
-            PlannedSessionsScheduleDayView.as_view(model_admin=self)
-        )
-
         custom = [
             path(
                 "schedule/",
-                schedule_view,
+                self.admin_site.admin_view(
+                    ProductionScheduleView.as_view(model_admin=self)
+                ),
                 name="production_plannedproductionsession_schedule",
+            ),
+            path(
+                "schedule/action/",
+                self.admin_site.admin_view(
+                    ProductionScheduleActionView.as_view(model_admin=self)
+                ),
+                name="production_plannedproductionsession_schedule_action",
             ),
         ]
         return custom + urls
-    
+
 
 @admin.register(SchedulingRun)
 class SchedulingRunAdmin(ModelAdmin):

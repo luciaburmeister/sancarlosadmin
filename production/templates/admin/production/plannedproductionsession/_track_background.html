@@ -1,0 +1,8 @@
+{% load i18n %}
+{% for gap in data.window.closed_segments %}
+  <span
+    class="ps-closed-band"
+    style="left: {{ gap.left }}%; width: {{ gap.width }}%;"
+    title="{% trans 'Non-working time' %}"
+  ></span>
+{% endfor %}

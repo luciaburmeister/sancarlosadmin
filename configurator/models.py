@@ -856,7 +856,15 @@ class Configuration(Timestampable, CompanyOwnedModel):
                     context[p.name] = ""
 
         # 2️⃣ Overlay the actual user-supplied parameter values.
-        for pv in self.param_values.select_related("parameter"):
+        prefetched_values = getattr(self, "_prefetched_objects_cache", {}).get(
+            "param_values"
+        )
+        values = (
+            prefetched_values
+            if prefetched_values is not None
+            else self.param_values.select_related("parameter")
+        )
+        for pv in values:
             context[pv.parameter.name] = pv.parameter.normalize_value(pv.value)
 
         # 3️⃣ Basic aggregates (always needed)

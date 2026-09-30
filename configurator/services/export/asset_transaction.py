@@ -17,7 +17,8 @@ class AssetTransactionExportStrategy(BaseExportStrategy):
 
     def get_context(self, include_rendered_templates: bool = True) -> Dict[str, Any]:
         asset = self.transaction.asset
-        client = asset.client if asset else None
+        project_file = self.transaction.project_file
+        client = (project_file.client if project_file else None) or (asset.client if asset else None)
 
         identifiers = []
         if asset:
@@ -27,7 +28,6 @@ class AssetTransactionExportStrategy(BaseExportStrategy):
                     "value": ident.value,
                 })
 
-        project_file = self.transaction.project_file
         working_zones = []
         if project_file:
             working_zones = [

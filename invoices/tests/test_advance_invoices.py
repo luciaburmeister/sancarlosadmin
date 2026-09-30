@@ -46,7 +46,7 @@ from invoices.services.sales_invoice_service import SalesInvoiceService
 from invoices.tests.advance_fixtures import AdvanceExpedienteMixin, UserExpedienteMixin
 from management.models import ProjectFile
 from materials.models import PaymentMethod
-from sales.models import Client
+from sales.models import Client, Quote, QuoteStatus
 
 
 def _create(project_file, **kwargs):
@@ -188,6 +188,65 @@ class _AdvanceTestBase(AdvanceExpedienteMixin, TestCase):
             object_id=config.pk,
             tax_type=tax_type,
             selected_percentage=percentage,
+        )
+
+
+class DescriptionTests(_AdvanceTestBase):
+    """The advance line names the accepted quotes (number, name and date),
+    not the expediente."""
+
+    def _description(self):
+        return _create(self.project_file, percentage=Decimal("30")).items.get().description
+
+    def test_names_the_accepted_quote_with_number_and_date(self):
+        Quote.objects.filter(pk=self.quote.pk).update(
+            project_name="Ventanas planta baja", date=date(2026, 9, 15),
+        )
+        description = self._description()
+        self.assertIn(f"nº {self.quote.pk} Ventanas planta baja (15/09/2026)", description)
+        self.assertNotIn(self.project_file.reference, description)
+
+    def test_lists_every_accepted_quote(self):
+        Quote.objects.filter(pk=self.quote.pk).update(project_name="Fachada", date=date(2026, 9, 1))
+        other = Quote.objects.create(
+            project_name="Cocina", date=date(2026, 9, 10), company=self.company,
+            client=self.client_obj, project_file=self.project_file, status=QuoteStatus.ACCEPTED,
+        )
+        self.add_config(other, Decimal("200.00"))
+        Quote.objects.create(
+            project_name="Rechazado", company=self.company, client=self.client_obj,
+            project_file=self.project_file, status=QuoteStatus.REJECTED,
+        )
+        description = self._description()
+        self.assertIn(
+            f"nº {self.quote.pk} Fachada (01/09/2026), nº {other.pk} Cocina (10/09/2026)",
+            description,
+        )
+        self.assertNotIn("Rechazado", description)
+
+    def test_many_quotes_are_trimmed_to_fit_the_line(self):
+        for i in range(30):
+            quote = Quote.objects.create(
+                project_name=f"Presupuesto con un nombre bastante largo {i}",
+                company=self.company, client=self.client_obj,
+                project_file=self.project_file, status=QuoteStatus.ACCEPTED,
+            )
+            self.add_config(quote, Decimal("10.00"))
+        description = self._description()
+        self.assertLessEqual(len(description), 500)
+        self.assertTrue(description.endswith(", …"))
+        self.assertIn(f"nº {self.quote.pk} ", description)
+
+    def test_quote_without_name_or_date_shows_its_number(self):
+        Quote.objects.filter(pk=self.quote.pk).update(project_name="", date=None)
+        self.assertTrue(self._description().endswith(f"nº {self.quote.pk}"))
+
+    def test_falls_back_to_the_expediente_without_accepted_quotes(self):
+        Quote.objects.filter(pk=self.quote.pk).update(status=QuoteStatus.DRAFT)
+        self.config.quote = None
+        self.config.save()
+        self.assertIn(
+            self.project_file.reference or self.project_file.name, self._description(),
         )
 
 

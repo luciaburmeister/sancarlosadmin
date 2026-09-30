@@ -17979,6 +17979,21 @@ msgstr ""
 "Anticipo %(percentage)s %% s/ base imponible %(base)s € — Expediente "
 "%(reference)s"
 
+#, python-format
+msgid "Advance %(percentage)s %% of the taxable base %(base)s € — Quote %(quotes)s"
+msgid_plural ""
+"Advance %(percentage)s %% of the taxable base %(base)s € — Quotes %(quotes)s"
+msgstr[0] ""
+"Anticipo %(percentage)s %% s/ base imponible %(base)s € — Presupuesto "
+"%(quotes)s"
+msgstr[1] ""
+"Anticipo %(percentage)s %% s/ base imponible %(base)s € — Presupuestos "
+"%(quotes)s"
+
+#, python-format
+msgid "No. %(number)s"
+msgstr "nº %(number)s"
+
 msgid "This project file has no company."
 msgstr "Este expediente no tiene empresa."
 

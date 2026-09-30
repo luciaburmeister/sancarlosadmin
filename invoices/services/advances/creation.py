@@ -7,7 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import translation
 from django.utils.formats import number_format
-from django.utils.translation import gettext
+from django.utils.translation import gettext, ngettext
 from django.utils.translation import gettext_lazy as _
 
 from invoices.models import (
@@ -436,13 +436,32 @@ class AdvanceInvoiceService:
                 signature: cls._tax_label(signature)
                 for signature, base in bases.items() if base > 0
             }
-            description = gettext(
-                "Advance %(percentage)s %% of the taxable base %(base)s € — Project file %(reference)s"
-            ) % {
+            values = {
                 "percentage": cls._format_percentage(plan["percentage"]),
                 "base": number_format(net_base, 2),
-                "reference": project_file.reference or project_file.name,
             }
+            # Named after the accepted quotes the base comes from; the
+            # expediente only when it has none (direct configurations)
+            quotes = [cls._quote_label(entry["quote"]) for entry in summary["quotes"]]
+            if quotes:
+                template = ngettext(
+                    "Advance %(percentage)s %% of the taxable base %(base)s € — Quote %(quotes)s",
+                    "Advance %(percentage)s %% of the taxable base %(base)s € — Quotes %(quotes)s",
+                    len(quotes),
+                )
+                # The line's text is a CharField: drop trailing quotes rather
+                # than fail, leaving room for the VAT group suffix below
+                max_length = SalesInvoiceItem._meta.get_field("description").max_length - 60
+                shown = len(quotes)
+                description = template % {**values, "quotes": ", ".join(quotes)}
+                while len(description) > max_length and shown > 1:
+                    shown -= 1
+                    description = template % {**values, "quotes": ", ".join(quotes[:shown]) + ", …"}
+                description = description[:max_length]
+            else:
+                description = gettext(
+                    "Advance %(percentage)s %% of the taxable base %(base)s € — Project file %(reference)s"
+                ) % {**values, "reference": project_file.reference or project_file.name}
         # Main group first
         signatures = sorted(labels, key=lambda signature: (-bases[signature], labels[signature]))
         taxes = {}  # (tax_type pk, %) → invoice-level tax, in print order
@@ -552,6 +571,18 @@ class AdvanceInvoiceService:
             f"{tax_type.tax_name} {cls._format_rate(pct)} %"
             for tax_type, pct in cls._ordered_taxes(signature)
         )
+
+    @staticmethod
+    def _quote_label(quote):
+        """A quote as the advance line names it: "nº 12 Fachada (15/09/2026)",
+        without the name or date it lacks. Its id is the quote number."""
+        label = gettext("No. %(number)s") % {"number": quote.pk}
+        name = (quote.project_name or "").strip()
+        if name:
+            label = f"{label} {name}"
+        if quote.date:
+            label = f"{label} ({quote.date.strftime('%d/%m/%Y')})"
+        return label
 
     @staticmethod
     def _format_percentage(value):

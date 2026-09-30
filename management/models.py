@@ -58,6 +58,9 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
     """
     Expediente: The central hub for a project's lifecycle.
     """
+    FULLY_INVOICED_PERCENTAGE = Decimal("99.99")
+    ADVANCE_PENDING_TOLERANCE = Decimal("0.01")
+
     reference = models.CharField(
         max_length=50, 
         unique=False,  
@@ -123,6 +126,15 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
         blank=True,
         verbose_name=_("Notification Email"),
         help_text=_("Email address for project notifications (e.g., asset transactions). Falls back to the client email if left empty."),
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        editable=False,
+        verbose_name=_("Created by"),
     )
 
     total_amount = MoneyField(
@@ -215,8 +227,8 @@ class ProjectFile(Timestampable, CompanyOwnedModel):
             or Decimal("0.00")
         )
         return bool(
-            total and total > 0 and pct >= Decimal("99.99")
-            and advance_pending <= Decimal("0.01")
+            total and total > 0 and pct >= self.FULLY_INVOICED_PERCENTAGE
+            and advance_pending <= self.ADVANCE_PENDING_TOLERANCE
         )
 
     def has_advance_invoices(self) -> bool:

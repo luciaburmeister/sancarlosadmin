@@ -18609,3 +18609,15 @@ msgstr "Anular factura"
 
 #~ msgid "Porte Action"
 #~ msgstr "Acción del Porte"
+
+msgid "Not invoiced"
+msgstr "Sin facturar"
+
+msgid "Partially invoiced"
+msgstr "Facturado parcialmente"
+
+msgid "Fully invoiced"
+msgstr "Facturado completamente"
+
+msgid "Creator"
+msgstr "Creador"

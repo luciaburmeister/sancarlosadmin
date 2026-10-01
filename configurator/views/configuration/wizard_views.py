@@ -92,17 +92,16 @@ class ConfigurationWizardView(UnfoldModelAdminViewMixin, SessionWizardView):
 
         config.recalculate_price()
 
-        # If editing and a production ticket exists, regenerate its HTML
+        # If editing and production tickets exist, regenerate their HTML
         if self.instance:
             from django.contrib.contenttypes.models import ContentType
             from production.models import ProductionTicket
             from production.services.configuration_to_production import ConfigurationToProductionService
 
             config_ct = ContentType.objects.get_for_model(config)
-            ticket = ProductionTicket.objects.filter(
+            for ticket in ProductionTicket.objects.filter(
                 content_type=config_ct, object_id=config.id
-            ).first()
-            if ticket:
+            ):
                 ConfigurationToProductionService._assign_default_templates(ticket, config)
 
         url = reverse(

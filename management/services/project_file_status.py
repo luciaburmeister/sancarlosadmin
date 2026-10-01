@@ -57,11 +57,10 @@ def _ordered_source_lines(project_file):
         )
     ).order_by("quote_id", "id")
     for config in configs:
-        units = config.units
         lines.append((
             (config_ct.id, config.id),
             config,
-            units if units and units > 0 else Decimal("1"),
+            config.invoice_quantity,
         ))
 
     inv_items = QuoteInventoryItem.objects.filter(

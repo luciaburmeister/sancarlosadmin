@@ -99,7 +99,7 @@ class DeliveryOrderService:
             items.append(entry)
 
         def config_entry(config, quote_id, source_type, description):
-            total_qty = config.units if config.units and config.units > 0 else Decimal("1")
+            total_qty = config.invoice_quantity
             # Gross (pre-discount) value — the quote's discount is carried
             # onto the delivery order explicitly as the header discount by
             # create_delivery_order, never baked into item prices.

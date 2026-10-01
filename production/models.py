@@ -69,6 +69,11 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
     )
     object_id = models.PositiveBigIntegerField()
     source_object = GenericForeignKey("content_type", "object_id")
+    unit_index = models.PositiveIntegerField(
+        default=1,
+        verbose_name=_("Unit"),
+        help_text=_("Which piece of the source (1..quantity) this ticket produces."),
+    )
 
     status = models.CharField(
         max_length=20,
@@ -142,8 +147,8 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["content_type", "object_id"],
-                name="unique_production_ticket_per_source"
+                fields=["content_type", "object_id", "unit_index"],
+                name="unique_production_ticket_per_source_unit"
             )
         ]
         permissions = [
@@ -173,7 +178,11 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
         """A readable name for this ticket. __str__ stays the bare pk since
         admin search/autocomplete depend on it."""
         project_file = self.resolved_project_file
-        return str(project_file) if project_file else f"OP-{self.pk}"
+        label = str(project_file) if project_file else f"OP-{self.pk}"
+        unit_count = (self.context or {}).get("unit_count") or 1
+        if unit_count > 1:
+            label = f"{label} ({self.unit_index}/{unit_count})"
+        return label
 
     def has_ready_stage(self, stages, *, parallel=False):
         """True when an item's current stage is in *stages* (NFC names).
@@ -315,7 +324,17 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
         from configurator.models import Configuration, ConfigurationStatus
         source = self.source_object
         if isinstance(source, Configuration):
-            if new_status == ProductionTicketStatus.DONE:
+            # With several pieces the configuration is done once every
+            # piece's ticket is (cancelled ones don't hold it back).
+            all_units_done = new_status == ProductionTicketStatus.DONE and not (
+                ProductionTicket.objects.filter(
+                    content_type_id=self.content_type_id, object_id=self.object_id,
+                )
+                .exclude(pk=self.pk)
+                .exclude(status__in=[ProductionTicketStatus.DONE, ProductionTicketStatus.CANCELLED])
+                .exists()
+            )
+            if all_units_done:
                 target_cfg_status = ConfigurationStatus.PRODUCTION_DONE
             elif source.status == ConfigurationStatus.SHOP:
                 target_cfg_status = ConfigurationStatus.SHOP

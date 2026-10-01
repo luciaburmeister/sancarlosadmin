@@ -78,9 +78,13 @@ def _batch_stage_summaries(config_ids):
     tickets = list(
         ProductionTicket.objects
         .filter(content_type=ct, object_id__in=config_ids)
+        .order_by("unit_index")
         .prefetch_related("items")
     )
-    ticket_by_config = {t.object_id: t for t in tickets}
+    # Multi-piece configurations: the API follows the first piece's ticket.
+    ticket_by_config = {}
+    for t in tickets:
+        ticket_by_config.setdefault(t.object_id, t)
     result = {}
     for config_id in config_ids:
         ticket = ticket_by_config.get(config_id)
@@ -112,6 +116,7 @@ def serialize_product_config(config, stage_summary=None):
         "status": config.status,
         "template_id": config.product_id,
         "template_name": config.product.name if config.product else None,
+        "quantity": config.quantity,
         "total_price": float(config.total_price.amount) if config.total_price else None,
         "price_override": float(config.price_override.amount) if config.price_override is not None else None,
         "param_values": {
@@ -222,6 +227,7 @@ def serialize_configuration(config):
         "status": config.status,
         "template_id": config.product_id,
         "template_name": config.product.name if config.product else None,
+        "quantity": config.quantity,
         "price_override": float(config.price_override.amount) if config.price_override is not None else None,
         "total_price": float(config.total_price.amount) if config.total_price else None,
         "subtotal_price": float(config.subtotal_price.amount) if config.subtotal_price else None,
@@ -307,6 +313,7 @@ def _config_needs_assignment(config):
     ticket = (
         ProductionTicket.objects.prefetch_related("items__assigned_employees")
         .filter(content_type=ct, object_id=config.id)
+        .order_by("unit_index")
         .first()
     )
     if ticket is None:
@@ -333,14 +340,15 @@ def get_ticket_for_config(config_id, company):
     except Configuration.DoesNotExist:
         return None, None, JsonResponse({"error": "Not found"}, status=404)
 
+    # Multi-piece configurations have one ticket per piece; the API works on
+    # the first piece's.
     ct = ContentType.objects.get_for_model(config)
-    try:
-        ticket = ProductionTicket.objects.prefetch_related(
-            "items__assigned_employees"
-        ).get(content_type=ct, object_id=config.id)
-    except ProductionTicket.DoesNotExist:
-        return config, None, None
-
+    ticket = (
+        ProductionTicket.objects.prefetch_related("items__assigned_employees")
+        .filter(content_type=ct, object_id=config.id)
+        .order_by("unit_index")
+        .first()
+    )
     return config, ticket, None
 
 

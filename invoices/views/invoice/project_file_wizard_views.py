@@ -152,13 +152,8 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                 # Zero-value items are kept as 0-amount lines on the invoice
                 if item_price < 0:
                     continue
-                # ponytail: use config units/unit_price when available
-                if config.units and config.units > 0:
-                    qty = config.units
-                    up = (item_price / qty).quantize(Decimal("0.01"))
-                else:
-                    qty = Decimal("1")
-                    up = item_price
+                qty = config.invoice_quantity
+                up = (item_price / qty).quantize(Decimal("0.01"))
                 items_initial.append({
                     'source_id': line_sources.source_id(line_sources.CONFIG, config.id),
                     'description': f"{config.name} (Q#{quote.id})",

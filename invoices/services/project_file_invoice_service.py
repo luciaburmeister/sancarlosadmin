@@ -180,7 +180,7 @@ class ProjectFileInvoiceService:
                 'name': config.name,
                 'subtotal': sub,
                 'total': tot,
-                'units': config.units,
+                'units': config.invoice_quantity,
                 'status': config.get_status_display(),
             })
 

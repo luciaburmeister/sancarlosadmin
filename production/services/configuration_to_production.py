@@ -40,11 +40,43 @@ class ConfigurationToProductionService:
 
     @classmethod
     def create_ticket(cls, configuration, project_file=None):
+        """Create/sync every piece's ticket and return the first piece's one
+        (what callers that work on a single ticket use)."""
+        return cls.create_tickets(configuration, project_file=project_file)[0]
+
+    @classmethod
+    def create_tickets(cls, configuration, project_file=None):
+        """One ticket per piece (``configuration.quantity``), unit_index 1..N.
+
+        Re-converting creates the pieces that are missing and cancels the
+        tickets of pieces the quantity no longer covers.
+        """
+        from production.services.ticket_cancel import cancel_production_ticket
+
+        unit_count = configuration.quantity or 1
+        tickets = [
+            cls._create_unit_ticket(configuration, unit_index, unit_count, project_file)
+            for unit_index in range(1, unit_count + 1)
+        ]
+
+        surplus = ProductionTicket.objects.filter(
+            content_type=ContentType.objects.get_for_model(configuration),
+            object_id=configuration.id,
+            unit_index__gt=unit_count,
+        )
+        for ticket in surplus:
+            cancel_production_ticket(ticket)
+
+        return tickets
+
+    @classmethod
+    def _create_unit_ticket(cls, configuration, unit_index, unit_count, project_file):
         ct = ContentType.objects.get_for_model(configuration)
 
         ticket, created = ProductionTicket.objects.get_or_create(
             content_type=ct,
             object_id=configuration.id,
+            unit_index=unit_index,
             defaults={
                 "company": configuration.company,
                 "project_file": project_file,
@@ -52,9 +84,14 @@ class ConfigurationToProductionService:
                     "configuration_id": configuration.id,
                     "product": configuration.product.name,
                     "client": configuration.client_id,
+                    "unit_count": unit_count,
                 }
             },
         )
+
+        if not created and (ticket.context or {}).get("unit_count") != unit_count:
+            ticket.context = {**(ticket.context or {}), "unit_count": unit_count}
+            ticket.save(update_fields=["context"])
 
         if created:
             if configuration.work_order_pdf:

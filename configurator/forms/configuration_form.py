@@ -108,6 +108,15 @@ class ConfigurationForm(forms.Form):
         if not self.product:
             raise ValueError("ConfigurationForm requires a product.")
 
+        self.fields["quantity"] = forms.IntegerField(
+            label=_("Quantity"),
+            min_value=1,
+            required=False,
+            initial=self.instance.quantity if self.instance else 1,
+            help_text=_("Identical pieces; each gets its own production ticket."),
+        )
+        self.fields["quantity"].parameter_group = _("General")
+
         if self.instance:
             existing_values = {
                 f"param_{pv.parameter_id}": pv.value
@@ -145,6 +154,7 @@ class ConfigurationForm(forms.Form):
                 config.client = client
             if asset:
                 config.asset = asset
+            config.quantity = self.cleaned_data.get("quantity") or 1
             config.save()
             config.param_values.all().delete()
         else:
@@ -154,7 +164,8 @@ class ConfigurationForm(forms.Form):
                 status=ConfigurationStatus.DRAFT,
                 client=client,
                 asset=asset,
-                company=product.company
+                company=product.company,
+                quantity=self.cleaned_data.get("quantity") or 1,
             )
 
         for param in self.product.parameters.all():

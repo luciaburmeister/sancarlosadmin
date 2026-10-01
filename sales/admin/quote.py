@@ -234,12 +234,12 @@ class ConfigurationReadOnlyInline(TabularInline):
     extra = 0
     tab = True
     readonly_fields = [
-        "config_link", "status", "planning_status",
+        "config_link", "quantity", "status", "planning_status",
         "cost_display", "margin_display", "margin_pct_display","subtotal_price", "total_price_display",
         "convert_to_production_link",
     ]
     fields = [
-        "config_link", "status", "planning_status", "quote_group",
+        "config_link", "quantity", "status", "planning_status", "quote_group",
         "cost_display",
         "margin_display", "margin_pct_display",
         "subtotal_price", "total_price_display",

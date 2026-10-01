@@ -282,6 +282,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
         "name",
         "product__name",
         "client",
+        "quantity",
         "subtotal_price",
         "total_price_display",
         "show_status_customized_color",
@@ -357,7 +358,7 @@ class ConfigurationAdmin(ImportExportModelAdmin, CompanyRestrictedAdmin, ModelAd
             "fields": (
                 ("total_cost", "subtotal_price"),
                 ("price_override", "total_price"),
-                ("unit_price")
+                ("quantity", "unit_price"),
                 ),
         }),
         (_("Computed variables"), {

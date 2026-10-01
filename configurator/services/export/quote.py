@@ -20,6 +20,8 @@ class QuoteExportStrategy(BaseExportStrategy):
         config_context = strategy.get_context(include_rendered_templates=include_rendered_templates)
         config_context["subtotal"] = float(config.subtotal_price.amount)
         config_context["total"] = float(config.total_price.amount)
+        # "quantity" in this context is the BOM sum; pieces are config.quantity.
+        config_context["piece_subtotal"] = float(config.subtotal_price.amount) / (config.quantity or 1)
         pb = config.pricing_breakdown or {}
         config_context["discounts"] = [
             l for l in pb.get("lines", []) if l.get("type") == "discount"

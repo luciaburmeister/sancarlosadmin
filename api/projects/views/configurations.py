@@ -102,6 +102,9 @@ class ConfigurationCreateView(CompanyAPIView):
         param_values = body.get("param_values", {})
         price = body.get("price")
         config_name = (body.get("name") or "").strip()
+        quantity = body.get("quantity", 1)
+        if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity < 1:
+            return JsonResponse({"error": "quantity must be a positive integer"}, status=400)
 
         try:
             template = ProductTemplate.objects.get(id=template_id, company=self.company)
@@ -126,6 +129,7 @@ class ConfigurationCreateView(CompanyAPIView):
                 product=template,
                 name=config_name,
                 status=ConfigurationStatus.DRAFT,
+                quantity=quantity,
                 price_override=Money(price, "EUR") if price is not None else None,
             )
             params_by_name = {p.name: p for p in template.parameters.all()}
@@ -159,6 +163,11 @@ class ConfigurationManageView(CompanyAPIView):
         body = json.loads(request.body)
         param_values = body.get("param_values", {})
 
+        if "quantity" in body:
+            quantity = body["quantity"]
+            if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity < 1:
+                return JsonResponse({"error": "quantity must be a positive integer"}, status=400)
+
         if "param_values" in body:
             missing_required = missing_required_params(config.product, param_values)
             if missing_required:
@@ -175,6 +184,11 @@ class ConfigurationManageView(CompanyAPIView):
                 price = body["price"]
                 config.price_override = Money(price, "EUR") if price is not None else None
                 update_fields += ["price_override", "price_override_currency"]
+                price_changed = True
+
+            if "quantity" in body:
+                config.quantity = body["quantity"]
+                update_fields.append("quantity")
                 price_changed = True
 
             if "status" in body:

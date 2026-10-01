@@ -2,14 +2,21 @@ from django.utils import timezone
 
 
 def sync_configuration_planning_status(ticket):
-    """Mirrors the existence of planned sessions onto the ticket's configuration."""
+    """Mirrors the existence of planned sessions onto the ticket's configuration.
+    With several pieces it is planned once every active piece's ticket is."""
     from configurator.models import Configuration, ConfigurationPlanningStatus
+    from production.models import ProductionTicket, ProductionTicketStatus
 
     config = ticket.source_object
     if not isinstance(config, Configuration):
         return
 
-    planned = ticket.planned_sessions.exists()
+    unit_tickets = ProductionTicket.objects.filter(
+        content_type_id=ticket.content_type_id, object_id=ticket.object_id,
+    ).exclude(status=ProductionTicketStatus.CANCELLED)
+    planned = ticket.planned_sessions.exists() and not unit_tickets.filter(
+        planned_sessions__isnull=True,
+    ).exists()
     new_status = (
         ConfigurationPlanningStatus.PLANNED
         if planned

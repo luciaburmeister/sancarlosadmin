@@ -10,6 +10,7 @@ from configurator.utils import (
     validate_expression_for_safe_eval,
 )
 from django.core.exceptions import ValidationError
+from django.core.validators import MinValueValidator
 from .validators import pricing_expression_validator
 from configurator.services import ConfigurationExportService
 from decimal import ROUND_HALF_UP, Decimal
@@ -634,6 +635,17 @@ class Configuration(Timestampable, CompanyOwnedModel):
         verbose_name=_("Status"),
     )
 
+    quantity = models.PositiveIntegerField(
+        default=1,
+        validators=[MinValueValidator(1)],
+        verbose_name=_("Quantity"),
+        help_text=_(
+            "Identical pieces of this configuration. Prices and units are "
+            "multiplied by it; the BOM stays per piece and each piece gets "
+            "its own production ticket."
+        ),
+    )
+
     planning_status = models.CharField(
         max_length=20,
         choices=ConfigurationPlanningStatus.choices,
@@ -789,6 +801,15 @@ class Configuration(Timestampable, CompanyOwnedModel):
     def __str__(self):
         return f"Config #{self.id} — {self.name or 'Unnamed'}"
 
+    @property
+    def invoice_quantity(self) -> Decimal:
+        """Quantity a delivery order / invoice line carries for this
+        configuration: its units when the product has a unit price variable,
+        otherwise the number of pieces."""
+        if self.units and self.units > 0:
+            return self.units
+        return Decimal(self.quantity or 1)
+
     def clone(self, *, name_suffix=" (copy)"):
         """
         Create an independent DRAFT copy with the same parameter values.
@@ -805,6 +826,7 @@ class Configuration(Timestampable, CompanyOwnedModel):
                 project_file=self.project_file,
                 name=f"{self.name}{name_suffix}",
                 notes=self.notes,
+                quantity=self.quantity,
                 status=ConfigurationStatus.DRAFT,
             )
             new_config.copy_default_pricing_rules_from_product()
@@ -1033,7 +1055,17 @@ class Configuration(Timestampable, CompanyOwnedModel):
 
                 context["base_total"] = float(subtotal)
 
-        self.total_cost = base_subtotal
+        # Everything above priced one piece; the stored totals, units and
+        # breakdown lines are for all of them (rule_results stay per piece).
+        pieces = Decimal(self.quantity or 1)
+        piece_subtotal = subtotal
+        subtotal = piece_subtotal * pieces
+        for line in pricing_lines:
+            for key in ("amount", "subtotal_before", "subtotal_after"):
+                if key in line:
+                    line[key] = str((Decimal(line[key]) * pieces).quantize(Decimal("0.01")))
+
+        self.total_cost = base_subtotal * pieces
         self.subtotal_price = subtotal
 
         # Compute unit price if the product defines a divisor variable
@@ -1041,8 +1073,8 @@ class Configuration(Timestampable, CompanyOwnedModel):
         if unit_var_name and unit_var_name in context:
             divisor = Decimal(str(context[unit_var_name]))
             if divisor:
-                self.unit_price = (subtotal / divisor).quantize(Decimal("0.01"))
-                self.units = divisor
+                self.unit_price = (piece_subtotal / divisor).quantize(Decimal("0.01"))
+                self.units = divisor * pieces
             else:
                 self.unit_price = Decimal("0")
                 self.units = Decimal("0")
@@ -1056,11 +1088,13 @@ class Configuration(Timestampable, CompanyOwnedModel):
         self.tax_breakdown = tax_breakdown
 
         self.pricing_breakdown = {
-            "base_subtotal": str(base_subtotal.quantize(Decimal("0.01"))),
+            "quantity": int(pieces),
+            "piece_subtotal": str(piece_subtotal.quantize(Decimal("0.01"))),
+            "base_subtotal": str((base_subtotal * pieces).quantize(Decimal("0.01"))),
             "pre_discount_subtotal": str(
-                pre_discount_subtotal.quantize(Decimal("0.01"))
+                (pre_discount_subtotal * pieces).quantize(Decimal("0.01"))
             ),
-            "discount_total": str(discount_total.quantize(Decimal("0.01"))),
+            "discount_total": str((discount_total * pieces).quantize(Decimal("0.01"))),
             "post_discount_subtotal": str(subtotal.quantize(Decimal("0.01"))),
             "lines": pricing_lines,
             "rules": list(rule_results.values()),

@@ -14,6 +14,7 @@ from sales.models import (
     Quote,
     QuoteStatus,
 )
+from invoices import line_sources
 from invoices.models import SalesInvoice, SalesInvoiceItem, SalesInvoiceStatus, AppliedTax
 from invoices.services.sales_invoice_payment import resolve_sales_invoice_payment_method
 
@@ -904,9 +905,9 @@ class DeliveryOrderService:
         inv_item_ct = ContentType.objects.get_for_model(QuoteInventoryItem)
 
         if delivery_order_item.source_content_type_id == config_ct.id:
-            return f"config_{delivery_order_item.source_object_id}"
+            return line_sources.source_id(line_sources.CONFIG, delivery_order_item.source_object_id)
         elif delivery_order_item.source_content_type_id == inv_item_ct.id:
-            return f"inv_item_{delivery_order_item.source_object_id}"
+            return line_sources.source_id(line_sources.INV_ITEM, delivery_order_item.source_object_id)
 
         return f"source_{delivery_order_item.source_content_type_id}_{delivery_order_item.source_object_id}"
 

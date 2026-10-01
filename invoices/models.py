@@ -28,6 +28,7 @@ import re
 import uuid
 from payments.models import PaymentAllocation
 from payments.mixins import Payable
+from invoices import line_sources
 import os
 
 class InvoiceGroup(models.Model):
@@ -1451,6 +1452,7 @@ class SalesInvoice(CompanyOwnedModel, Payable):
     def from_db(cls, db, field_names, values):
         instance = super().from_db(db, field_names, values)
         instance._loaded_currency = getattr(instance, "currency", None)
+        instance._loaded_status = instance.__dict__.get("status")
         return instance
 
     def _sync_money_currency(self):
@@ -1522,6 +1524,14 @@ class SalesInvoice(CompanyOwnedModel, Payable):
                 calculated_amount_currency=self.currency,
             )
         self._loaded_currency = self.currency
+
+        # Issuing or cancelling releases (or takes back) agents' commissions
+        loaded_status = getattr(self, "_loaded_status", None)
+        if not was_adding and loaded_status is not None and loaded_status != self.status:
+            from configurator.commission.services import CommissionReleaseService
+
+            CommissionReleaseService.sync_for_invoice(self)
+        self._loaded_status = self.__dict__.get("status")
 
         update_fields = kwargs.get('update_fields')
         if update_fields is None or 'payment_status' in update_fields:
@@ -1619,11 +1629,11 @@ class SalesInvoiceItem(models.Model):
             raise ValidationError(_("Cannot edit items in a cancelled invoice."))
 
         # Auto-populate reference from inventory item code when source is an inventory item
-        if not self.reference and self.source_id and self.source_id.startswith("inv_item_"):
+        inv_item_id = line_sources.pk_of(self.source_id, line_sources.INV_ITEM)
+        if not self.reference and inv_item_id:
             try:
                 from sales.models import QuoteInventoryItem
-                obj_id = self.source_id.split("_", 2)[2]
-                qi = QuoteInventoryItem.objects.select_related("inventory_item").get(pk=obj_id)
+                qi = QuoteInventoryItem.objects.select_related("inventory_item").get(pk=inv_item_id)
                 if qi.inventory_item_id:
                     self.reference = qi.inventory_item.code
             except (QuoteInventoryItem.DoesNotExist, ValueError, IndexError):

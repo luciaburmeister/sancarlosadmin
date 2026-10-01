@@ -34,6 +34,8 @@ don't change: they all go through ``resolver.QuoteDiscountResolver``.
 """
 from decimal import Decimal
 
+from invoices import line_sources
+
 # How a strategy's scaled amount lands on the invoice.
 INVOICE_LEVEL = "invoice_level"   # add to invoice.discount_amount + discount_breakdown
 PASS_THROUGH = "pass_through"     # already carried by the source line itself
@@ -51,7 +53,7 @@ LINE_ITEM_KINDS = frozenset({KIND_INV_ITEM, KIND_QUOTE_ITEM})
 
 # source_id prefix of legacy financing lines on invoices created before
 # financing moved into the header discount.
-DISCOUNT_LINE_PREFIX = "discount_quote_"
+DISCOUNT_LINE_PREFIX = line_sources.DISCOUNT_QUOTE
 
 
 def is_discount_line_source(source_id) -> bool:
@@ -62,8 +64,8 @@ def is_discount_line_source(source_id) -> bool:
 # source_id prefixes of advance invoicing. These lines are neither discounts
 # nor goods: source_kind() maps them to None, so they never form part of a
 # discount's base.
-ADVANCE_LINE_PREFIX = "advance_pf_"         # advance_pf_<project_file_id>, on the advance invoice
-ADVANCE_DEDUCTION_PREFIX = "advance_ded_"   # advance_ded_<advance_line_id>, on the invoice deducting it
+ADVANCE_LINE_PREFIX = line_sources.ADVANCE_LINE
+ADVANCE_DEDUCTION_PREFIX = line_sources.ADVANCE_DEDUCTION
 
 
 def is_advance_line_source(source_id) -> bool:
@@ -76,19 +78,19 @@ def is_advance_deduction_source(source_id) -> bool:
     return bool(source_id) and source_id.startswith(ADVANCE_DEDUCTION_PREFIX)
 
 
+_KIND_OF_PREFIX = {
+    line_sources.CONFIG: KIND_CONFIG,
+    line_sources.DIRECT: KIND_CONFIG,
+    line_sources.INV_ITEM: KIND_INV_ITEM,
+    line_sources.QUOTE_ITEM: KIND_QUOTE_ITEM,
+    line_sources.WORK_ENTRY: KIND_WORK_ENTRY,
+}
+
+
 def source_kind(source_id):
     """Map a SalesInvoiceItem.source_id to its line kind (None if unknown)."""
-    if not source_id:
-        return None
-    if source_id.startswith("config_") or source_id.startswith("direct_"):
-        return KIND_CONFIG
-    if source_id.startswith("inv_item_"):
-        return KIND_INV_ITEM
-    if source_id.startswith("quote_item_"):
-        return KIND_QUOTE_ITEM
-    if source_id.startswith("work_entry_"):
-        return KIND_WORK_ENTRY
-    return None
+    prefix, _pk = line_sources.parse(source_id)
+    return _KIND_OF_PREFIX.get(prefix)
 
 
 class InvoiceDiscountStrategy:

@@ -12,6 +12,7 @@ from django.views import View
 from unfold.views import UnfoldModelAdminViewMixin
 from formtools.wizard.views import SessionWizardView
 
+from invoices import line_sources
 from invoices.models import SalesInvoice, SalesInvoiceItem, AppliedTax
 from django.contrib.contenttypes.models import ContentType
 from invoices.forms.wizard_forms import (
@@ -159,7 +160,7 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                     qty = Decimal("1")
                     up = item_price
                 items_initial.append({
-                    'source_id': f"config_{config.id}",
+                    'source_id': line_sources.source_id(line_sources.CONFIG, config.id),
                     'description': f"{config.name} (Q#{quote.id})",
                     'quantity': qty,
                     'unit_price': up,
@@ -172,7 +173,7 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                 if item_price < 0:
                     continue
                 items_initial.append({
-                    'source_id': f"quote_item_{item.id}",
+                    'source_id': line_sources.source_id(line_sources.QUOTE_ITEM, item.id),
                     'description': f"{item.material} x{item.quantity} (Q#{quote.id})",
                     'quantity': Decimal("1"),
                     'unit_price': item_price,
@@ -197,7 +198,7 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                     else f"Inventory Item #{inv_item.pk}"
                 )
                 items_initial.append({
-                    'source_id': f"inv_item_{inv_item.id}",
+                    'source_id': line_sources.source_id(line_sources.INV_ITEM, inv_item.id),
                     'description': f"{inv_name} (Q#{quote.id})",
                     'quantity': inv_item.quantity,
                     'unit_price': inv_item.unit_price.amount,
@@ -221,7 +222,7 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                 qty = Decimal("1")
                 up = item_price
             items_initial.append({
-                'source_id': f"direct_{config_data['id']}",
+                'source_id': line_sources.source_id(line_sources.DIRECT, config_data['id']),
                 'description': config_data['name'],
                 'quantity': qty,
                 'unit_price': up,
@@ -243,7 +244,7 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                 qty = Decimal("1")
                 up = item_price
             items_initial.append({
-                'source_id': f"work_entry_{entry_data['id']}",
+                'source_id': line_sources.source_id(line_sources.WORK_ENTRY, entry_data['id']),
                 'description': entry_data['description'],
                 'quantity': qty,
                 'unit_price': up,

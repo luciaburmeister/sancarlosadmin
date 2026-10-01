@@ -16,6 +16,7 @@ from invoices.models import (
     SalesInvoiceItem,
     SalesInvoiceStatus,
 )
+from invoices import line_sources
 from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
 from invoices.services.discounts import (
     DiscountResolution,
@@ -592,7 +593,7 @@ class ProjectFileInvoiceService:
                     continue
                 if not split_configs:
                     items.append({
-                        "source_id": f"config_{config.id}",
+                        "source_id": line_sources.source_id(line_sources.CONFIG, config.id),
                         "description": f"{config.name} (Q#{quote.id})",
                         "quote_name": quote_name,
                         "quantity": Decimal("1"),
@@ -605,7 +606,7 @@ class ProjectFileInvoiceService:
                     if comp_price < 0:
                         continue
                     items.append({
-                        "source_id": f"config_{config.id}",
+                        "source_id": line_sources.source_id(line_sources.CONFIG, config.id),
                         "description": comp["label"],
                         "quote_name": quote_name,
                         "quantity": Decimal("1"),
@@ -618,7 +619,7 @@ class ProjectFileInvoiceService:
                 if item_price < 0:
                     continue
                 items.append({
-                    "source_id": f"quote_item_{item.id}",
+                    "source_id": line_sources.source_id(line_sources.QUOTE_ITEM, item.id),
                     "description": f"{item.material} x{item.quantity} (P#{quote.id})",
                     "quote_name": quote_name,
                     "quantity": Decimal("1"),
@@ -636,7 +637,7 @@ class ProjectFileInvoiceService:
                     else f"Inventory Item #{inv_item.pk}"
                 )
                 items.append({
-                    "source_id": f"inv_item_{inv_item.id}",
+                    "source_id": line_sources.source_id(line_sources.INV_ITEM, inv_item.id),
                     "description": inv_name,
                     "quote_name": quote_name,
                     "quantity": inv_item.quantity,
@@ -650,7 +651,7 @@ class ProjectFileInvoiceService:
             if item_price < 0:
                 continue
             items.append({
-                "source_id": f"direct_{config_data['id']}",
+                "source_id": line_sources.source_id(line_sources.DIRECT, config_data['id']),
                 "description": config_data["name"],
                 "quantity": Decimal("1"),
                 "unit_price": item_price,
@@ -662,7 +663,7 @@ class ProjectFileInvoiceService:
             if item_price < 0:
                 continue
             items.append({
-                "source_id": f"work_entry_{entry_data['id']}",
+                "source_id": line_sources.source_id(line_sources.WORK_ENTRY, entry_data['id']),
                 "description": entry_data["description"],
                 "quantity": Decimal("1"),
                 "unit_price": item_price,
@@ -825,30 +826,27 @@ class ProjectFileInvoiceService:
             source_taxes = []
             quote_id = None
 
-            if source_id.startswith("config_") or source_id.startswith("direct_"):
-                obj_id = source_id.split("_", 1)[1]
+            prefix, obj_id = line_sources.parse(source_id)
+            if prefix in (line_sources.CONFIG, line_sources.DIRECT):
                 quote_id = (
                     Configuration.objects.filter(pk=obj_id)
                     .values_list("quote_id", flat=True).first()
                 )
                 source_taxes = own_taxes(config_ct, obj_id, quote_id)
-            elif source_id.startswith("inv_item_"):
-                obj_id = source_id.split("_", 2)[2]
+            elif prefix == line_sources.INV_ITEM:
                 quote_id = (
                     QuoteInventoryItem.objects.filter(pk=obj_id)
                     .values_list("quote_id", flat=True).first()
                 )
                 source_taxes = own_taxes(inv_item_ct, obj_id, quote_id)
-            elif source_id.startswith("quote_item_"):
+            elif prefix == line_sources.QUOTE_ITEM:
                 # quote_item_ lines have no taxes
-                obj_id = source_id.split("_", 2)[2]
                 quote_id = (
                     QuoteItem.objects.filter(pk=obj_id)
                     .values_list("quote_id", flat=True).first()
                 )
-            elif source_id.startswith("work_entry_"):
+            elif prefix == line_sources.WORK_ENTRY:
                 # Work entries carry their own AppliedTax and belong to no quote
-                obj_id = source_id.split("_", 2)[2]
                 source_taxes = list(
                     AppliedTax.objects.filter(
                         content_type=work_entry_ct, object_id=obj_id
@@ -1047,20 +1045,15 @@ class ProjectFileInvoiceService:
             )
         return ids
 
-    WORK_ENTRY_SOURCE_PREFIX = "work_entry_"
+    WORK_ENTRY_SOURCE_PREFIX = line_sources.WORK_ENTRY
 
     @classmethod
     def work_entry_ids_from_source_ids(cls, source_ids):
         """Extract WorkEntry pks from ``work_entry_<id>`` source ids."""
-        prefix = cls.WORK_ENTRY_SOURCE_PREFIX
-        ids = []
-        for source_id in source_ids:
-            if not source_id or not source_id.startswith(prefix):
-                continue
-            raw = source_id[len(prefix):]
-            if raw.isdigit():
-                ids.append(int(raw))
-        return ids
+        return [
+            pk for pk in (line_sources.pk_of(s, line_sources.WORK_ENTRY) for s in source_ids)
+            if pk is not None
+        ]
 
     @classmethod
     def lock_invoiced_work_entries(cls, source_ids):

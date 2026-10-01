@@ -283,6 +283,11 @@ class ClientContact(models.Model):
         role_label = self.get_role_display() if self.role else self.position
         return f"{self.name} ({role_label})"
 
+class CommissionReleasePolicy(models.TextChoices):
+    ON_PAYMENT = "on_payment", _("When the client pays")
+    ON_INVOICE = "on_invoice", _("When the invoice is issued")
+
+
 class CommissionistAgent(Timestampable, CompanyOwnedModel):
     """An external or internal commissionist agent who earns commissions on sales."""
 
@@ -311,6 +316,17 @@ class CommissionistAgent(Timestampable, CompanyOwnedModel):
         default=0,
         verbose_name=_("Default Commission (%)"),
         help_text=_("Default commission percentage for this agent."),
+    )
+    release_policy = models.CharField(
+        max_length=20,
+        choices=CommissionReleasePolicy.choices,
+        default=CommissionReleasePolicy.ON_PAYMENT,
+        verbose_name=_("Commission release"),
+        help_text=_(
+            "When this agent's commission is released: as the client pays "
+            "each invoice (in proportion to the amount collected), or in full "
+            "as soon as the invoice is issued."
+        ),
     )
     is_active = models.BooleanField(
         default=True,
@@ -1058,6 +1074,12 @@ class Quote(Timestampable, CompanyOwnedModel):
             'discounted_subtotal', 'total_cost',
             'tax_amount', 'total_price', 'tax_breakdown',
         ])
+
+        # The commission is a function of these totals: keep it in step
+        # whichever path (admin, API, configuration or line save) re-totalled.
+        from configurator.commission.services import CommissionService
+
+        CommissionService.refresh(self)
 
     def _calculate_subtotal(self):
         """Returns (item_total, config_subtotal) as raw Decimals."""

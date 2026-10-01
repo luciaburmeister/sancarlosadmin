@@ -21,6 +21,7 @@ from configurator.models import (
 from configurator.models import ExportTemplateKind
 from core.services.pdf_service import PDFService
 from management.models import ProjectFile, ProjectFileStatus
+from invoices import line_sources
 from invoices.models import (
     AppliedTax,
     SalesInvoice,
@@ -126,7 +127,7 @@ class PresupuestoDetailView(CompanyAPIView):
                         configuration_id__in=config_ids
                     ).exists()
                     if not has_invoice:
-                        source_ids = [f"config_{cid}" for cid in config_ids]
+                        source_ids = [line_sources.source_id(line_sources.CONFIG, cid) for cid in config_ids]
                         has_invoice = SalesInvoiceItem.objects.filter(
                             source_id__in=source_ids,
                             invoice__project_file=quote.project_file,

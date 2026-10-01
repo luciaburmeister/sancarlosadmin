@@ -5577,10 +5577,8 @@ msgstr "Presupuesto"
 msgid "Commission rule used"
 msgstr "Regla de comisión utilizada"
 
-#, fuzzy
-#| msgid "items missing account"
 msgid "Commission amount"
-msgstr "artículos sin cuenta"
+msgstr "Importe de comisión"
 
 #, fuzzy
 #| msgid "Rule key"
@@ -19087,3 +19085,60 @@ msgstr "Facturado completamente"
 
 msgid "Creator"
 msgstr "Creador"
+
+msgid "Released"
+msgstr "Liberada"
+
+msgid "Pending release"
+msgstr "Pendiente de liberar"
+
+msgid "Release"
+msgstr "Liberación"
+
+msgid "Releases"
+msgstr "Liberaciones"
+
+msgid "Release date"
+msgstr "Fecha de liberación"
+
+msgid "Base covered"
+msgstr "Base cubierta"
+
+msgid "Released commission"
+msgstr "Comisión liberada"
+
+msgid "Commission release"
+msgstr "Liberación de comisión"
+
+msgid "Commission releases"
+msgstr "Liberaciones de comisión"
+
+msgid "Sales invoice"
+msgstr "Factura de venta"
+
+msgid "Payment allocation"
+msgstr "Asignación de pago"
+
+msgid "Not released"
+msgstr "Sin liberar"
+
+msgid "Partially released"
+msgstr "Liberada parcialmente"
+
+msgid "When the client pays"
+msgstr "Cuando el cliente paga"
+
+msgid "When the invoice is issued"
+msgstr "Al emitir la factura"
+
+msgid "Net (taxable) base of the quote this release covers."
+msgstr "Base imponible del presupuesto que cubre esta liberación."
+
+msgid "Empty when the agent's commission is released on issue."
+msgstr "Vacía cuando la comisión del agente se libera al emitir la factura."
+
+msgid "Payment date, or the invoice's issue date when released on issue."
+msgstr "Fecha del cobro, o fecha de emisión de la factura cuando se libera al emitirla."
+
+msgid "When this agent's commission is released: as the client pays each invoice (in proportion to the amount collected), or in full as soon as the invoice is issued."
+msgstr "Cuándo se libera la comisión de este agente: a medida que el cliente paga cada factura (en proporción a lo cobrado), o completa en cuanto se emite la factura."

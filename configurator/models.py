@@ -22,7 +22,7 @@ from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.db.models import Q, F
 from django.utils import timezone
-from configurator.commission.models import AgentCommissionRule, QuoteCommission
+from configurator.commission.models import AgentCommissionRule, CommissionRelease, QuoteCommission
 
 class ConfigurationStatus(models.TextChoices):
     DRAFT = "draft", _("Draft")

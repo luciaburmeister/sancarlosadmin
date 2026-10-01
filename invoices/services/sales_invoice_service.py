@@ -7,6 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.models import ContentType
+from invoices import line_sources
 from invoices.models import SalesInvoice, SalesInvoiceItem, AppliedTax, SalesInvoiceStatus, SalesInvoiceDocumentType
 from sales.models import DeliveryOrder, DeliveryOrderItem
 from configurator.models import ExportTemplateKind, ConfigurationExportTemplate
@@ -85,7 +86,7 @@ class SalesInvoiceService:
             quantity=Decimal("1.000"),
             unit_price=pre_discount_subtotal,
             discount_percentage=discount_percentage,
-            source_id=f"config_{configuration.id}",
+            source_id=line_sources.source_id(line_sources.CONFIG, configuration.id),
             # discount_amount and line_total are auto-calculated in model's save()
         )
 

@@ -18,36 +18,9 @@ class SalesInvoiceExportStrategy(BaseExportStrategy):
 
     @staticmethod
     def _quote_id_from_source(source_id: str):
-        from configurator.models import Configuration
-        from sales.models import QuoteItem, QuoteInventoryItem
-        from invoices.services.discounts import (
-            DISCOUNT_LINE_PREFIX,
-            is_discount_line_source,
-        )
+        from invoices import line_sources
 
-        # A materialized discount line names its quote directly.
-        if is_discount_line_source(source_id):
-            try:
-                return int(source_id[len(DISCOUNT_LINE_PREFIX):])
-            except ValueError:
-                return None
-
-        # Maps source_id prefix → model that holds a quote_id FK
-        prefix_to_model = {
-            "config_":     Configuration,
-            "quote_item_": QuoteItem,
-            "inv_item_":   QuoteInventoryItem,
-        }
-
-        for prefix, model in prefix_to_model.items():
-            if source_id.startswith(prefix):
-                pk = source_id[len(prefix):]
-                try:
-                    return model.objects.values_list("quote_id", flat=True).get(pk=pk)
-                except (model.DoesNotExist, ValueError):
-                    return None
-
-        return None
+        return line_sources.quote_id_of(source_id)
 
     def _delivery_order_contexts(self):
         """

@@ -5,7 +5,11 @@ from django.urls import path, reverse
 from django.shortcuts import redirect
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin, TabularInline
-from unfold.decorators import action
+from unfold.decorators import action, display
+from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter, RangeDateFilter
+from unfold.contrib.import_export.forms import SelectableFieldsExportForm
+from import_export import fields, resources
+from import_export.admin import ExportActionModelAdmin
 from unfold.widgets import (
     UnfoldAdminTextareaWidget,
     UnfoldAdminSelect2Widget,
@@ -15,6 +19,8 @@ from unfold.widgets import (
 from core.admin.company_admin import CompanyRestrictedAdmin
 from configurator.commission.models import (
     AgentCommissionRule,
+    CommissionRelease,
+    CommissionReleaseStatus,
     CommissionRuleTemplate,
     CommissionRuleType,
     QuoteCommission,
@@ -113,6 +119,8 @@ class QuoteCommissionInline(TabularInline):
         "rule_type_snapshot",
         "rule_value_snapshot",
         "commission_amount",
+        "released_amount",
+        "pending_amount",
     )
 
     fields = (
@@ -120,7 +128,17 @@ class QuoteCommissionInline(TabularInline):
         "rule_type_snapshot",
         "rule_value_snapshot",
         "commission_amount",
+        "released_amount",
+        "pending_amount",
     )
+
+    @admin.display(description=_("Released"))
+    def released_amount(self, obj):
+        return obj.released_amount if obj.pk else "-"
+
+    @admin.display(description=_("Pending release"))
+    def pending_amount(self, obj):
+        return obj.pending_amount if obj.pk else "-"
 
     def has_add_permission(self, request, obj=None):
         return False
@@ -290,14 +308,44 @@ class AgentCommissionRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
 
 
+RELEASE_STATUS_LABELS = {
+    CommissionReleaseStatus.NONE: "info",
+    CommissionReleaseStatus.PARTIAL: "warning",
+    CommissionReleaseStatus.FULL: "success",
+}
+
+
+class CommissionReleaseInline(TabularInline):
+    model = CommissionRelease
+    extra = 0
+    tab = True
+    verbose_name = _("Release")
+    verbose_name_plural = _("Releases")
+    fields = ("release_date", "sales_invoice", "allocation", "base_amount", "released_amount")
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 @admin.register(QuoteCommission)
 class QuoteCommissionAdmin(ModelAdmin):
+    inlines = [CommissionReleaseInline]
     list_display = (
         "quote",
         "agent",
         "rule_type_snapshot",
         "rule_value_display",
         "commission_amount",
+        "released_amount_display",
+        "pending_amount_display",
+        "release_status_display",
         "calculated_at",
     )
     list_filter = ("rule_type_snapshot",)
@@ -314,10 +362,92 @@ class QuoteCommissionAdmin(ModelAdmin):
     )
     list_select_related = ["agent", "quote", "rule"]
 
+    def get_queryset(self, request):
+        return super().get_queryset(request).with_released()
+
     def rule_value_display(self, obj):
         return format_rule_snapshot(obj.rule_type_snapshot, obj.rule_value_snapshot)
     rule_value_display.short_description = _("Value")
 
+    @admin.display(description=_("Released"))
+    def released_amount_display(self, obj):
+        return obj.released_amount
+
+    @admin.display(description=_("Pending release"))
+    def pending_amount_display(self, obj):
+        return obj.pending_amount
+
+    @display(description=_("Release"), label=RELEASE_STATUS_LABELS)
+    def release_status_display(self, obj):
+        status = obj.release_status
+        return status, CommissionReleaseStatus(status).label
+
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
         CommissionService.recalculate(obj.quote)
+
+
+class CommissionReleaseResource(resources.ModelResource):
+    agent = fields.Field(attribute="quote_commission__agent__name", column_name=_("Agent"))
+    quote = fields.Field(attribute="quote_commission__quote", column_name=_("Quote"))
+    sales_invoice = fields.Field(attribute="sales_invoice", column_name=_("Sales invoice"))
+    release_date = fields.Field(attribute="release_date", column_name=_("Release date"))
+    base_amount = fields.Field(column_name=_("Base covered"))
+    released_amount = fields.Field(column_name=_("Released commission"))
+
+    class Meta:
+        model = CommissionRelease
+        fields = ("agent", "quote", "sales_invoice", "release_date", "base_amount", "released_amount")
+        export_order = ("agent", "quote", "sales_invoice", "release_date", "base_amount", "released_amount")
+
+    def dehydrate_base_amount(self, obj):
+        return obj.base_amount.amount
+
+    def dehydrate_released_amount(self, obj):
+        return obj.released_amount.amount
+
+
+@admin.register(CommissionRelease)
+class CommissionReleaseAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
+    """Read-only ledger: the agent statement, filtered by agent and date."""
+
+    company_field_name = "sales_invoice__company"
+    resource_classes = [CommissionReleaseResource]
+    export_form_class = SelectableFieldsExportForm
+    list_display = (
+        "release_date",
+        "agent_display",
+        "quote_display",
+        "sales_invoice",
+        "base_amount",
+        "released_amount",
+    )
+    list_filter = (
+        ("quote_commission__agent", AutocompleteSelectMultipleFilter),
+        ("release_date", RangeDateFilter),
+    )
+    list_filter_submit = True
+    search_fields = (
+        "quote_commission__agent__name",
+        "sales_invoice__invoice_number",
+        "quote_commission__quote__project_name",
+    )
+    list_select_related = ["quote_commission__agent", "quote_commission__quote", "sales_invoice"]
+    date_hierarchy = "release_date"
+
+    @admin.display(description=_("Agent"), ordering="quote_commission__agent__name")
+    def agent_display(self, obj):
+        return obj.quote_commission.agent
+
+    @admin.display(description=_("Quote"))
+    def quote_display(self, obj):
+        return obj.quote_commission.quote
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

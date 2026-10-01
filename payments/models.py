@@ -250,9 +250,12 @@ def _recalculate_invoice_payment_status(content_type, object_id):
     model_class = content_type.model_class()
 
     if model_class is SalesInvoice:
+        from configurator.commission.services import CommissionReleaseService
+
         try:
             invoice = SalesInvoice.objects.get(pk=object_id)
             invoice.recalculate_payment_status()
+            CommissionReleaseService.sync_for_invoice(invoice)
         except SalesInvoice.DoesNotExist:
             pass
     elif model_class is Invoice:

@@ -1,5 +1,7 @@
 from django.db import models
+from django.db.models import Sum
 from djmoney.models.fields import MoneyField
+from djmoney.money import Money
 from decimal import Decimal
 from django.utils.translation import gettext_lazy as _
 from company.models import CompanyOwnedModel
@@ -155,6 +157,13 @@ class AgentCommissionRule(CompanyOwnedModel):
     def __str__(self):
         return f"{self.agent} [{self.format_value()}]"
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if self.is_active and self.agent_id:
+            from configurator.commission.services import CommissionService
+
+            CommissionService.recalculate_unruled_for_agent(self.agent_id)
+
     def compute_commission(
         self,
         subtotal: Decimal,
@@ -190,6 +199,12 @@ def format_rule_snapshot(rule_type: str, rule_value) -> str:
     if rule_type == CommissionRuleType.FIXED:
         return f"€{rule_value:.2f}"
     return str(rule_value)
+
+
+class QuoteCommissionQuerySet(models.QuerySet):
+    def with_released(self):
+        """Annotate the released total so listing rows need no query each."""
+        return self.annotate(released_total=Sum("releases__released_amount"))
 
 
 class QuoteCommission(models.Model):
@@ -253,6 +268,8 @@ class QuoteCommission(models.Model):
         verbose_name=_("Last calculated at"),
     )
 
+    objects = QuoteCommissionQuerySet.as_manager()
+
     class Meta:
         unique_together = (("quote", "agent"),)
         verbose_name = _("Quote commission")
@@ -262,3 +279,88 @@ class QuoteCommission(models.Model):
     def __str__(self):
         agent = self.agent or _("No agent")
         return f"Commission for {agent} on {self.quote}"
+
+    @property
+    def released_amount(self):
+        if hasattr(self, "released_total"):
+            total = self.released_total
+        else:
+            total = self.releases.aggregate(total=Sum("released_amount"))["total"]
+        return Money(total or 0, self.commission_amount_currency)
+
+    @property
+    def pending_amount(self):
+        return self.commission_amount - self.released_amount
+
+    @property
+    def release_status(self):
+        released = self.released_amount.amount
+        if released <= 0:
+            return CommissionReleaseStatus.NONE
+        if released >= self.commission_amount.amount:
+            return CommissionReleaseStatus.FULL
+        return CommissionReleaseStatus.PARTIAL
+
+
+class CommissionReleaseStatus(models.TextChoices):
+    NONE = "none", _("Not released")
+    PARTIAL = "partial", _("Partially released")
+    FULL = "full", _("Released")
+
+
+class CommissionRelease(models.Model):
+    """
+    The part of a quote's commission an invoice has released: one row per
+    payment allocated to it, or a single row when the agent is paid on issue.
+    Rebuilt by CommissionReleaseService.sync_for_invoice on every change, so
+    rows are never edited by hand.
+    """
+
+    quote_commission = models.ForeignKey(
+        QuoteCommission,
+        on_delete=models.CASCADE,
+        related_name="releases",
+        verbose_name=_("Quote commission"),
+    )
+    sales_invoice = models.ForeignKey(
+        "invoices.SalesInvoice",
+        on_delete=models.CASCADE,
+        related_name="commission_releases",
+        verbose_name=_("Sales invoice"),
+    )
+    allocation = models.ForeignKey(
+        "payments.PaymentAllocation",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="commission_releases",
+        verbose_name=_("Payment allocation"),
+        help_text=_("Empty when the agent's commission is released on issue."),
+    )
+    release_date = models.DateField(
+        verbose_name=_("Release date"),
+        help_text=_("Payment date, or the invoice's issue date when released on issue."),
+    )
+    base_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Base covered"),
+        help_text=_("Net (taxable) base of the quote this release covers."),
+    )
+    released_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Released commission"),
+    )
+
+    class Meta:
+        verbose_name = _("Commission release")
+        verbose_name_plural = _("Commission releases")
+        ordering = ["-release_date", "-id"]
+
+    def __str__(self):
+        return f"{self.released_amount} — {self.quote_commission} ({self.release_date})"

@@ -8,7 +8,7 @@ from sales.models import CommissionistAgent
 
 @admin.register(CommissionistAgent)
 class CommissionistAgentAdmin(CompanyRestrictedAdmin, ModelAdmin):
-    list_display = ["name", "tax_identifier", "commission_percentage", "is_active", "company"]
+    list_display = ["name", "tax_identifier", "commission_percentage", "release_policy", "is_active", "company"]
     list_filter = ["is_active", "company"]
     search_fields = ["name", "tax_identifier", "email"]
     autocomplete_fields = ["company"]
@@ -18,7 +18,7 @@ class CommissionistAgentAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ("name", "company"),
                 ("tax_identifier", "commission_percentage"),
                 ("email", "phone"),
-                "is_active",
+                ("release_policy", "is_active"),
             ),
         }),
     )

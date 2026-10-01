@@ -22,7 +22,6 @@ from unfold.contrib.import_export.forms import ImportForm, SelectableFieldsExpor
 
 from configurator.admin.configuration import AppliedTaxInline
 from configurator.commission.admin import QuoteCommissionInline
-from configurator.commission.services import CommissionService
 from configurator.models import Configuration, ConfigurationStatus
 from core.admin.company_admin import CompanyRestrictedAdmin
 from core.admin.email_log import EmailLogInline
@@ -560,9 +559,8 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
 
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
+        # Also refreshes the commission
         form.instance.recalc_totals()
-        CommissionService.prepopulate_for_quote(form.instance)
-        CommissionService.recalculate(form.instance)
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         from sales.forms import QuotePresetPickerForm

@@ -1448,11 +1448,20 @@ class SalesInvoice(CompanyOwnedModel, Payable):
 
     _MONEY_FIELDS = ("subtotal_amount", "tax_amount", "total_amount", "discount_amount")
 
+    def _commission_state_changed(self):
+        """Whether status or payment_status moved since the row was loaded."""
+        for field in ("status", "payment_status"):
+            loaded = getattr(self, f"_loaded_{field}", None)
+            if loaded is not None and loaded != self.__dict__.get(field, loaded):
+                return True
+        return False
+
     @classmethod
     def from_db(cls, db, field_names, values):
         instance = super().from_db(db, field_names, values)
         instance._loaded_currency = getattr(instance, "currency", None)
         instance._loaded_status = instance.__dict__.get("status")
+        instance._loaded_payment_status = instance.__dict__.get("payment_status")
         return instance
 
     def _sync_money_currency(self):
@@ -1525,13 +1534,13 @@ class SalesInvoice(CompanyOwnedModel, Payable):
             )
         self._loaded_currency = self.currency
 
-        # Issuing or cancelling releases (or takes back) agents' commissions
-        loaded_status = getattr(self, "_loaded_status", None)
-        if not was_adding and loaded_status is not None and loaded_status != self.status:
+        # Issuing, cancelling or settling it releases (or takes back) agents' commissions
+        if not was_adding and self._commission_state_changed():
             from configurator.commission.services import CommissionReleaseService
 
             CommissionReleaseService.sync_for_invoice(self)
         self._loaded_status = self.__dict__.get("status")
+        self._loaded_payment_status = self.__dict__.get("payment_status")
 
         update_fields = kwargs.get('update_fields')
         if update_fields is None or 'payment_status' in update_fields:

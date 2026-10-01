@@ -600,6 +600,14 @@ UNFOLD = {
                         ),
                     },
                     {
+                        "title": _("Commissions"),
+                        "icon": "percent",
+                        "link": reverse_lazy("admin:configurator_invoicecommission_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "configurator.view_invoicecommission"
+                        ),
+                    },
+                    {
                         "title": _("Configuration Presets"),
                         "icon": "dashboard_customize",
                         "link": reverse_lazy("admin:configurator_configurationpreset_changelist"),

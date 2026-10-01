@@ -21,6 +21,7 @@ from configurator.commission.models import (
     AgentCommissionRule,
     CommissionRelease,
     CommissionReleaseStatus,
+    InvoiceCommission,
     CommissionRuleTemplate,
     CommissionRuleType,
     QuoteCommission,
@@ -387,61 +388,106 @@ class QuoteCommissionAdmin(ModelAdmin):
         CommissionService.recalculate(obj.quote)
 
 
-class CommissionReleaseResource(resources.ModelResource):
-    agent = fields.Field(attribute="quote_commission__agent__name", column_name=_("Agent"))
-    quote = fields.Field(attribute="quote_commission__quote", column_name=_("Quote"))
-    sales_invoice = fields.Field(attribute="sales_invoice", column_name=_("Sales invoice"))
-    release_date = fields.Field(attribute="release_date", column_name=_("Release date"))
-    base_amount = fields.Field(column_name=_("Base covered"))
-    released_amount = fields.Field(column_name=_("Released commission"))
+def commission_document_label(invoice):
+    """'Factura 26FC-559', 'Abono 26AB-19', 'Anticipo …' for a commission row."""
+    from invoices.models import SalesInvoiceDocumentType
+
+    if invoice.total_amount.amount < 0:
+        kind = _("Credit note")
+    elif invoice.document_type == SalesInvoiceDocumentType.ADVANCE:
+        kind = _("Advance")
+    else:
+        kind = _("Invoice")
+    return f"{kind} {invoice.invoice_number or invoice.proforma_number or ''}".strip()
+
+
+class InvoiceCommissionResource(resources.ModelResource):
+    release_date = fields.Field(attribute="release_date", column_name=_("Date"))
+    document = fields.Field(column_name=_("Document"))
+    client = fields.Field(attribute="sales_invoice__client__name", column_name=_("Client"))
+    base = fields.Field(column_name=_("Base"))
+    percentage = fields.Field(column_name=_("% Comm."))
+    commission = fields.Field(column_name=_("Commission"))
+    agent = fields.Field(attribute="agent__name", column_name=_("Agent"))
 
     class Meta:
-        model = CommissionRelease
-        fields = ("agent", "quote", "sales_invoice", "release_date", "base_amount", "released_amount")
-        export_order = ("agent", "quote", "sales_invoice", "release_date", "base_amount", "released_amount")
+        model = InvoiceCommission
+        fields = ("release_date", "document", "client", "base", "percentage", "commission", "agent")
+        export_order = ("release_date", "document", "client", "base", "percentage", "commission", "agent")
 
-    def dehydrate_base_amount(self, obj):
-        return obj.base_amount.amount
+    def dehydrate_document(self, obj):
+        return commission_document_label(obj.sales_invoice)
 
-    def dehydrate_released_amount(self, obj):
+    def dehydrate_base(self, obj):
+        return obj.released_base_amount.amount
+
+    def dehydrate_percentage(self, obj):
+        return obj.commission_percentage
+
+    def dehydrate_commission(self, obj):
         return obj.released_amount.amount
 
 
-@admin.register(CommissionRelease)
-class CommissionReleaseAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
-    """Read-only ledger: the agent statement, filtered by agent and date."""
+class InvoiceCommissionReleaseInline(CommissionReleaseInline):
+    fields = ("release_date", "allocation", "quote_commission", "base_amount", "released_amount")
+    readonly_fields = fields
+
+
+@admin.register(InvoiceCommission)
+class InvoiceCommissionAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionModelAdmin):
+    """The commissions list: one row per invoice and agent, filtered by agent and date."""
 
     company_field_name = "sales_invoice__company"
-    resource_classes = [CommissionReleaseResource]
+    resource_classes = [InvoiceCommissionResource]
     export_form_class = SelectableFieldsExportForm
+    inlines = [InvoiceCommissionReleaseInline]
     list_display = (
         "release_date",
-        "agent_display",
-        "quote_display",
-        "sales_invoice",
-        "base_amount",
+        "document_display",
+        "client_display",
+        "released_base_amount",
+        "percentage_display",
         "released_amount",
+        "commission_amount",
+        "release_status_display",
+        "agent",
     )
     list_filter = (
-        ("quote_commission__agent", AutocompleteSelectMultipleFilter),
+        ("agent", AutocompleteSelectMultipleFilter),
         ("release_date", RangeDateFilter),
     )
     list_filter_submit = True
     search_fields = (
-        "quote_commission__agent__name",
+        "agent__name",
         "sales_invoice__invoice_number",
-        "quote_commission__quote__project_name",
+        "sales_invoice__client__name",
     )
-    list_select_related = ["quote_commission__agent", "quote_commission__quote", "sales_invoice"]
-    date_hierarchy = "release_date"
+    list_select_related = ["agent", "sales_invoice__client"]
+    fields = (
+        ("agent", "sales_invoice"),
+        ("base_amount", "commission_amount"),
+        ("released_base_amount", "released_amount", "release_date"),
+        ("own_base_amount", "own_commission_amount"),
+        ("rule", "rule_type_snapshot", "rule_value_snapshot"),
+    )
+    readonly_fields = tuple(name for group in fields for name in group)
 
-    @admin.display(description=_("Agent"), ordering="quote_commission__agent__name")
-    def agent_display(self, obj):
-        return obj.quote_commission.agent
+    @admin.display(description=_("Document"), ordering="sales_invoice__invoice_number")
+    def document_display(self, obj):
+        return commission_document_label(obj.sales_invoice)
 
-    @admin.display(description=_("Quote"))
-    def quote_display(self, obj):
-        return obj.quote_commission.quote
+    @admin.display(description=_("Client"), ordering="sales_invoice__client__name")
+    def client_display(self, obj):
+        return obj.sales_invoice.client.name
+
+    @admin.display(description=_("% Comm."))
+    def percentage_display(self, obj):
+        return f"{obj.commission_percentage.normalize():f}"
+
+    @display(description=_("Release"), label=RELEASE_STATUS_LABELS)
+    def release_status_display(self, obj):
+        status = obj.release_status
+        return status, CommissionReleaseStatus(status).label
 
     def has_add_permission(self, request):
         return False

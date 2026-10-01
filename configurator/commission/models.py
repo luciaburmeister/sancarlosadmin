@@ -302,6 +302,134 @@ class QuoteCommission(models.Model):
         return CommissionReleaseStatus.PARTIAL
 
 
+class InvoiceCommission(models.Model):
+    """
+    What one agent earns on one sales invoice and how much of it has been
+    released: one row per (invoice, agent), the line of the commissions
+    list. It adds up the invoice's quote commissions for that agent and the
+    agent's own commission on the part no quote accounts for (imported
+    invoices, direct sales), whose rule is frozen once the invoice is issued.
+    Kept in step by CommissionReleaseService.sync_for_invoice.
+    """
+
+    sales_invoice = models.ForeignKey(
+        "invoices.SalesInvoice",
+        on_delete=models.CASCADE,
+        related_name="commissions",
+        verbose_name=_("Sales invoice"),
+    )
+    agent = models.ForeignKey(
+        "sales.CommissionistAgent",
+        on_delete=models.CASCADE,
+        related_name="invoice_commissions",
+        verbose_name=_("Agent"),
+    )
+    base_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Commission base"),
+    )
+    commission_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Commission amount"),
+    )
+    released_base_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Base"),
+        help_text=_("The part of the commission base already collected."),
+    )
+    released_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Released commission"),
+    )
+    release_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name=_("Release date"),
+        help_text=_("Date of the last payment that released commission."),
+    )
+    # The part no quote accounts for, with the rule it was calculated with
+    rule = models.ForeignKey(
+        AgentCommissionRule,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invoice_commissions",
+        verbose_name=_("Commission rule used"),
+    )
+    rule_type_snapshot = models.CharField(
+        max_length=20,
+        choices=CommissionRuleType.choices,
+        blank=True,
+        verbose_name=_("Rule type"),
+    )
+    rule_value_snapshot = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("Rule value"),
+    )
+    own_base_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Base without quote"),
+    )
+    own_commission_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        default_currency="EUR",
+        verbose_name=_("Commission without quote"),
+    )
+    calculated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name=_("Last calculated at"),
+    )
+
+    class Meta:
+        unique_together = (("sales_invoice", "agent"),)
+        verbose_name = _("Commission")
+        verbose_name_plural = _("Commissions")
+        ordering = ["-release_date", "-id"]
+
+    def __str__(self):
+        return f"Commission for {self.agent} on {self.sales_invoice}"
+
+    @property
+    def commission_percentage(self):
+        """The effective rate (3, 5…), on what is released or else on the whole."""
+        released_base = self.released_base_amount.amount
+        if released_base:
+            return (self.released_amount.amount / released_base * Decimal("100")).quantize(Decimal("0.01"))
+        if self.base_amount.amount:
+            return (self.commission_amount.amount / self.base_amount.amount * Decimal("100")).quantize(Decimal("0.01"))
+        return Decimal("0.00")
+
+    @property
+    def release_status(self):
+        released = self.released_amount.amount
+        commission = self.commission_amount.amount
+        if not released:
+            return CommissionReleaseStatus.NONE
+        if abs(released) >= abs(commission):
+            return CommissionReleaseStatus.FULL
+        return CommissionReleaseStatus.PARTIAL
+
+
 class CommissionReleaseStatus(models.TextChoices):
     NONE = "none", _("Not released")
     PARTIAL = "partial", _("Partially released")
@@ -310,17 +438,35 @@ class CommissionReleaseStatus(models.TextChoices):
 
 class CommissionRelease(models.Model):
     """
-    The part of a quote's commission an invoice has released: one row per
-    payment allocated to it, or a single row when the agent is paid on issue.
+    The commission an invoice has released for one agent: one row per
+    payment allocated to it, or a single row when it is settled at once
+    (agent paid on issue, credit note, invoice marked paid by hand). It
+    belongs to the quote's commission for the part billed from a quote, or
+    to the invoice's own commission for the rest.
     Rebuilt by CommissionReleaseService.sync_for_invoice on every change, so
     rows are never edited by hand.
     """
 
+    agent = models.ForeignKey(
+        "sales.CommissionistAgent",
+        on_delete=models.CASCADE,
+        related_name="commission_releases",
+        verbose_name=_("Agent"),
+    )
+    invoice_commission = models.ForeignKey(
+        InvoiceCommission,
+        on_delete=models.CASCADE,
+        related_name="releases",
+        verbose_name=_("Commission"),
+    )
     quote_commission = models.ForeignKey(
         QuoteCommission,
         on_delete=models.CASCADE,
+        null=True,
+        blank=True,
         related_name="releases",
         verbose_name=_("Quote commission"),
+        help_text=_("Set for the part of the invoice billed from a quote; empty for the rest."),
     )
     sales_invoice = models.ForeignKey(
         "invoices.SalesInvoice",
@@ -363,4 +509,4 @@ class CommissionRelease(models.Model):
         ordering = ["-release_date", "-id"]
 
     def __str__(self):
-        return f"{self.released_amount} — {self.quote_commission} ({self.release_date})"
+        return f"{self.released_amount} — {self.agent} on {self.sales_invoice} ({self.release_date})"

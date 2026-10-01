@@ -3130,10 +3130,8 @@ msgstr "Confirmado"
 msgid "Review & Approve (%(alt)d alternatives)"
 msgstr "Revisar y Aprobar (%(alt)d alternativas)"
 
-#, fuzzy
-#| msgid "Asset Documents"
 msgid "Document"
-msgstr "Documentos de Activos"
+msgstr "Documento"
 
 #, fuzzy
 #| msgid "Country"
@@ -5396,15 +5394,11 @@ msgstr "Comisión del Agente (%)"
 msgid "Commission rules"
 msgstr "Comisión del Agente (%)"
 
-#, fuzzy
-#| msgid "Agent Commission (%)"
 msgid "Commission"
-msgstr "Comisión del Agente (%)"
+msgstr "Comisión"
 
-#, fuzzy
-#| msgid "Agent Commission (%)"
 msgid "Commissions"
-msgstr "Comisión del Agente (%)"
+msgstr "Comisiones"
 
 msgid "Rule"
 msgstr "Regla"
@@ -10032,10 +10026,8 @@ msgstr "¡Todas las facturas están pagadas!"
 msgid "Tax Balance"
 msgstr "Fuera de balance"
 
-#, fuzzy
-#| msgid "Accepted"
 msgid "Export Excel"
-msgstr "Aceptado"
+msgstr "Exportar Excel"
 
 #, fuzzy
 #| msgid "Current Risk"
@@ -19172,3 +19164,34 @@ msgstr "Fecha del cobro, o fecha de emisión de la factura cuando se libera al e
 
 msgid "When this agent's commission is released: as the client pays each invoice (in proportion to the amount collected), or in full as soon as the invoice is issued."
 msgstr "Cuándo se libera la comisión de este agente: a medida que el cliente paga cada factura (en proporción a lo cobrado), o completa en cuanto se emite la factura."
+
+msgid "Credit note"
+msgstr "Abono"
+
+msgid "% Comm."
+msgstr "% Com."
+
+
+
+
+
+
+
+
+msgid "Commission base"
+msgstr "Base de comisión"
+
+msgid "Base without quote"
+msgstr "Base sin presupuesto"
+
+msgid "Commission without quote"
+msgstr "Comisión sin presupuesto"
+
+msgid "The part of the commission base already collected."
+msgstr "Parte de la base de comisión ya cobrada."
+
+msgid "Date of the last payment that released commission."
+msgstr "Fecha del último cobro que liberó comisión."
+
+msgid "Set for the part of the invoice billed from a quote; empty for the rest."
+msgstr "Indicada para la parte de la factura que procede de un presupuesto; vacía para el resto."

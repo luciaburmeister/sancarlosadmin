@@ -106,6 +106,7 @@ class PDFService:
     @staticmethod
     def render_object_pdf(
         obj, template_kind: str, company=None, extra_context=None, template_id=None,
+        subtype=None,
     ) -> bytes | None:
         """
         Full pipeline: find the best export template → render HTML → convert to PDF.
@@ -120,6 +121,9 @@ class PDFService:
             company: Optional company for template resolution
             template_id: Optional explicit template to use instead of the
                 automatically resolved default (e.g. a user's choice from a picker)
+            subtype: Optional ExportTemplateSubtype. Limits automatic resolution
+                when several templates share template_kind. Ignored when template_id
+                is set.
 
         Returns:
             PDF bytes, or None if no template found.
@@ -135,6 +139,7 @@ class PDFService:
                 product=product,
                 kind=template_kind,
                 company=company,
+                subtype=subtype,
             )
 
         if not template:

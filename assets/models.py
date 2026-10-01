@@ -196,6 +196,7 @@ class AssetFaultStatus(models.TextChoices):
 class CubaTransactionKey:
     ESTADO = "cubaEstado"
     VAS_A_VERTER = "vasAVerter"
+    LANDFILL = "vertedero"
 
 
 class AssetDataKey:
@@ -701,6 +702,29 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
     @property
     def is_full_cuba(self) -> bool:
         return self.payload_is_full(self.data)
+
+    def get_landfill(self):
+        """Landfill a pickup names, or a receipt destination when that zone is one."""
+        if self.transaction_type == TransactionTypeChoices.RECEIPT:
+            zone = self.to_zone if self.to_zone_id else None
+            if zone is not None and zone.zone_type == WorkingZone.ZoneType.VERTEDERO:
+                return zone
+            return None
+        if self.transaction_type != TransactionTypeChoices.MOVEMENT:
+            return None
+        raw_name = (self.data or {}).get(CubaTransactionKey.LANDFILL) or ""
+        name = raw_name.strip() if isinstance(raw_name, str) else ""
+        if not name or not self.company_id:
+            return None
+        return (
+            WorkingZone.objects.filter(
+                company_id=self.company_id,
+                zone_type=WorkingZone.ZoneType.VERTEDERO,
+                name=name,
+            )
+            .order_by("pk")
+            .first()
+        )
 
     def _sync_zones_on_porte_delivery(self):
         """An own-machine porte delivery means the machine — linked via

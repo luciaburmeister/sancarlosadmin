@@ -28,7 +28,6 @@ Run just this file:
 
 import json
 from datetime import date, timedelta
-from unittest.mock import patch
 
 from django.test import TestCase
 from django.utils import timezone
@@ -454,16 +453,15 @@ class ResumeOwnPendingPickupTests(TestCase):
             transaction_type=TransactionTypeChoices.MOVEMENT, date=timezone.now(),
             performed_by=self.employee, planning=planning, data={"vasAVerter": ""},
         )
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            response = self.client.post(
-                self._url(),
-                data=json.dumps({
-                    "transaction_type": "delivery",
-                    "latitude": 40.416775, "longitude": -3.703790,
-                    "zone_id": self.obra.id, "planning_id": planning.id,
-                }),
-                content_type="application/json",
-            )
+        response = self.client.post(
+            self._url(),
+            data=json.dumps({
+                "transaction_type": "delivery",
+                "latitude": 40.416775, "longitude": -3.703790,
+                "zone_id": self.obra.id, "planning_id": planning.id,
+            }),
+            content_type="application/json",
+        )
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json().get("success"))
         self.assertTrue(AssetTransaction.objects.filter(transaction_type=TransactionTypeChoices.DELIVERY).exists())

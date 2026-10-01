@@ -3,7 +3,11 @@ from django.utils.translation import gettext_lazy as _
 
 from core.services.pdf_service import PDFService
 from core.services.email_service import EmailService
-from configurator.models import ExportTemplateKind
+from configurator.models import (
+    ConfigurationExportTemplate,
+    ExportTemplateKind,
+    ExportTemplateSubtype,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +26,9 @@ class AssetTransactionEmailService:
         reply_to: list[str] | None = None,
     ) -> bool:
         """
-        Generates a PDF from the transaction's export template and emails it.
+        Generates a PDF from the asset transaction export template and emails it.
+        Uses the email subtype when one exists, otherwise the same default
+        template the rest of the ERP already resolves for this kind.
 
         Args:
             transaction: AssetTransaction instance (with relations prefetched)
@@ -50,11 +56,17 @@ class AssetTransactionEmailService:
             )
             return False
 
-        # Generate PDF from existing export template
+        email_template = ConfigurationExportTemplate.get_default_for_product(
+            product=None,
+            kind=ExportTemplateKind.ASSET_TRANSACTION,
+            company=transaction.company,
+            subtype=ExportTemplateSubtype.EMAIL,
+        )
         pdf_bytes = PDFService.render_object_pdf(
             transaction,
             ExportTemplateKind.ASSET_TRANSACTION,
             company=transaction.company,
+            template_id=email_template.pk if email_template else None,
         )
 
         if not pdf_bytes:

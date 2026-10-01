@@ -8,8 +8,6 @@ Run just this file:
 """
 
 import json
-from unittest.mock import patch
-
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -87,8 +85,7 @@ class MovementStrategyTests(TestCase):
             data.update(extra_data)
 
         strategy = MovementStrategy(data, self.asset, self.employee, self.user)
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            return strategy.execute()
+        return strategy.execute()
 
     # Test 9
     def test_movement_strategy_saves_transaction(self):
@@ -231,8 +228,7 @@ class DeliveryStrategyTests(TestCase):
         if extra_data:
             data.update(extra_data)
         strategy = DeliveryStrategy(data, self.asset, self.employee, self.user)
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            return strategy.execute()
+        return strategy.execute()
 
     # Test 14
     def test_delivery_strategy_saves_transaction(self):
@@ -640,8 +636,7 @@ class CubaOperationCompletionTests(TestCase):
         }
         if extra_data:
             data.update(extra_data)
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            return MovementStrategy(data, asset, self.employee, self.user).execute()
+        return MovementStrategy(data, asset, self.employee, self.user).execute()
 
     def _deliver(self, planning, asset, zone, extra_data=None):
         from api.fleet.views.assets import DeliveryStrategy
@@ -656,8 +651,7 @@ class CubaOperationCompletionTests(TestCase):
         }
         if extra_data:
             data.update(extra_data)
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            return DeliveryStrategy(data, asset, self.employee, self.user).execute()
+        return DeliveryStrategy(data, asset, self.employee, self.user).execute()
 
     def _vert(self, planning, asset):
         from api.fleet.views.assets import ReceiptStrategy
@@ -955,8 +949,7 @@ class CubaChecklistTests(TestCase):
         }
         if extra_data:
             data.update(extra_data)
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            MovementStrategy(data, self.cuba, self.employee, self.user).execute()
+        MovementStrategy(data, self.cuba, self.employee, self.user).execute()
 
     def _deliver(self, planning, zone):
         from api.fleet.views.assets import DeliveryStrategy
@@ -966,8 +959,7 @@ class CubaChecklistTests(TestCase):
             "zone_id": zone.id, "planning_id": planning.id,
             CubaTransactionKey.ESTADO: CubaFillState.EMPTY,
         }
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            DeliveryStrategy(data, self.cuba, self.employee, self.user).execute()
+        DeliveryStrategy(data, self.cuba, self.employee, self.user).execute()
 
     def _vert(self, planning):
         from api.fleet.views.assets import ReceiptStrategy

@@ -1753,12 +1753,24 @@ class ExportTemplateKind(models.TextChoices):
     PURCHASE_ORDER = "purchase_order", _("Purchase Order")
 
 
+class ExportTemplateSubtype(models.TextChoices):
+    DOCUMENT = "document", _("Document")
+    EMAIL = "email", _("Email")
+
+
 class ConfigurationExportTemplate(CompanyOwnedModel):
     kind = models.CharField(
         max_length=30,
         choices=ExportTemplateKind.choices,
         default=ExportTemplateKind.QUOTATION,
         verbose_name=_("Kind"),
+    )
+    subtype = models.CharField(
+        max_length=30,
+        choices=ExportTemplateSubtype.choices,
+        default=ExportTemplateSubtype.DOCUMENT,
+        verbose_name=_("Subtype"),
+        help_text=_("Which copy to use when several templates share the same kind."),
     )
     product = models.ForeignKey(
         ProductTemplate,
@@ -1780,10 +1792,11 @@ class ConfigurationExportTemplate(CompanyOwnedModel):
     is_active = models.BooleanField(default=True)
 
     @classmethod
-    def get_default_for_product(cls, product, kind, company=None):
+    def get_default_for_product(cls, product, kind, company=None, subtype=None):
         """
         Look up the most specific default template for a given product, kind and company.
         Prioritizes templates explicitly linked to the product and the company.
+        Pass subtype to distinguish templates that share a kind.
         """
         
         templates = cls.objects.filter(
@@ -1791,6 +1804,8 @@ class ConfigurationExportTemplate(CompanyOwnedModel):
             kind=kind,
             is_active=True
         )
+        if subtype is not None:
+            templates = templates.filter(subtype=subtype)
         
         if company:
             templates = templates.filter(Q(company=company) | Q(company__isnull=True))

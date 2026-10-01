@@ -8,7 +8,7 @@
         {% with machine_group=stage_group.machine_groups.0 %}
         {% with gkey=machine_group.machine.key|escapejs %}
           <section class="ps-stage-group">
-            <div class="ps-row border-b border-base-200 bg-base-50" data-row-resource-id="{{ machine_group.machine.resource_id }}" data-row-kind="machine" data-stage-name="{{ stage_group.stage }}">
+            <div class="ps-row border-b border-base-200 bg-base-50" data-row-resource-id="{{ machine_group.machine.resource_id }}" data-row-kind="machine" data-stage-name="{{ stage_group.stage }}" data-group-key="{{ machine_group.machine.key }}">
               <div class="ps-label bg-base-50 px-3 py-2">
                 <button type="button" class="flex w-full min-w-0 items-center gap-1.5 text-left" @click="toggleGroup('{{ gkey }}')" :aria-expanded="isGroupOpen('{{ gkey }}')">
                   <span class="material-symbols-outlined text-lg transition-transform" :class="isGroupOpen('{{ gkey }}') && 'rotate-90'">chevron_right</span>
@@ -58,7 +58,7 @@
       {% elif stage_group.machine_groups %}
         {% with skey=stage_group.stage|escapejs %}
         <section class="ps-stage-group">
-          <div class="ps-row border-b border-base-200 bg-base-100" data-row-kind="stage" data-stage-name="{{ stage_group.stage }}">
+          <div class="ps-row border-b border-base-200 bg-base-100" data-row-kind="stage" data-stage-name="{{ stage_group.stage }}" data-group-key="{{ stage_group.stage }}">
             <div class="ps-label bg-base-100 px-3 py-2">
               <button type="button" class="flex w-full min-w-0 items-center gap-1.5 text-left" @click="toggleGroup('{{ skey }}')" :aria-expanded="isGroupOpen('{{ skey }}')">
                 <span class="material-symbols-outlined text-lg transition-transform" :class="isGroupOpen('{{ skey }}') && 'rotate-90'">chevron_right</span>
@@ -80,7 +80,7 @@
             {% for machine_group in stage_group.machine_groups %}
               {% with gkey=machine_group.machine.key|escapejs %}
               <section>
-                <div class="ps-row ps-row--child border-b border-base-200 bg-base-50" data-row-resource-id="{{ machine_group.machine.resource_id }}" data-row-kind="machine" data-stage-name="{{ stage_group.stage }}">
+                <div class="ps-row ps-row--child border-b border-base-200 bg-base-50" data-row-resource-id="{{ machine_group.machine.resource_id }}" data-row-kind="machine" data-stage-name="{{ stage_group.stage }}" data-group-key="{{ machine_group.machine.key }}">
                   <div class="ps-label bg-base-50 px-3 py-2">
                     <button type="button" class="flex w-full min-w-0 items-center gap-1.5 text-left" @click="toggleGroup('{{ gkey }}')" :aria-expanded="isGroupOpen('{{ gkey }}')">
                       <span class="material-symbols-outlined text-lg transition-transform" :class="isGroupOpen('{{ gkey }}') && 'rotate-90'">chevron_right</span>
@@ -120,7 +120,7 @@
       {% else %}
         {% with skey=stage_group.stage|escapejs %}
         <section class="ps-stage-group">
-          <div class="ps-row border-b border-base-200 bg-base-50" data-row-kind="stage" data-stage-name="{{ stage_group.stage }}">
+          <div class="ps-row border-b border-base-200 bg-base-50" data-row-kind="stage" data-stage-name="{{ stage_group.stage }}" data-group-key="{{ stage_group.stage }}">
             <div class="ps-label bg-base-50 px-3 py-2">
               <button type="button" class="flex w-full min-w-0 items-center gap-1.5 text-left" @click="toggleGroup('{{ skey }}')" :aria-expanded="isGroupOpen('{{ skey }}')">
                 <span class="material-symbols-outlined text-lg transition-transform" :class="isGroupOpen('{{ skey }}') && 'rotate-90'">chevron_right</span>

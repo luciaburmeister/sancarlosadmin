@@ -9,7 +9,6 @@ from company.models import WorkingZone, WorkingZoneAuthorization
 from django.core.files.base import ContentFile
 from assets.constants import AssignRequestKey
 from assets.models import Asset, AssetTransaction, TransactionTypeChoices, AssetTransactionReceipt, AssetPlanning, AssetTransactionPhoto, MachinePermission, PlanningStatus, PlanningType, CubaFillState, CubaTransactionKey, AssetDataKey
-from core.tasks import send_asset_transaction_email_task
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 from rest_framework.permissions import IsAuthenticated
@@ -511,7 +510,6 @@ class MovementStrategy(BaseTransactionStrategy):
         if not AssetTransaction.payload_is_full(form_data):
             planning.mark_cuba_claimed_by_driver()
         planning.sync_cuba_operation_status()
-        send_asset_transaction_email_task.delay(transaction.id)
         return JsonResponse({"success": True, "message": "Recogida registrada", "transaction_id": transaction.id})
 
 
@@ -593,7 +591,6 @@ class DeliveryStrategy(BaseTransactionStrategy):
             )
         else:
             message = f"Entrega registrada en {destination_zone}"
-        send_asset_transaction_email_task.delay(transaction.id)
         return JsonResponse({"success": True, "message": message, "transaction_id": transaction.id})
 
 

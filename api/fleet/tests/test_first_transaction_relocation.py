@@ -12,8 +12,6 @@ Run just this file:
 """
 
 import json
-from unittest.mock import patch
-
 from django.test import TestCase
 
 from assets.models import AssetTransaction, TransactionTypeChoices
@@ -51,8 +49,7 @@ class MovementFirstTransactionRelocationTests(TestCase):
         if zone_id is not None:
             data["zone_id"] = zone_id
         strategy = MovementStrategy(data, asset, employee, user)
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            return strategy.execute()
+        return strategy.execute()
 
     def setUp(self):
         self.company = make_company()
@@ -128,8 +125,7 @@ class DeliveryFirstTransactionRelocationTests(TestCase):
         if zone_id is not None:
             data["zone_id"] = zone_id
         strategy = DeliveryStrategy(data, asset, employee, user)
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            return strategy.execute()
+        return strategy.execute()
 
     def setUp(self):
         self.company = make_company()

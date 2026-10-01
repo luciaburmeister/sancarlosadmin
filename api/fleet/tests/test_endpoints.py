@@ -8,7 +8,6 @@ Run just this file:
 """
 
 import json
-from unittest.mock import patch
 
 from django.test import TestCase
 from rest_framework.test import APIClient
@@ -87,23 +86,21 @@ class AssetTransactionEndpointTests(TestCase):
     # Test 27
     def test_movement_endpoint_returns_200(self):
         """A valid movement payload from an authenticated user must return 200."""
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            response = self.client.post(
-                self._url(),
-                data=json.dumps(self._movement_payload()),
-                content_type="application/json",
-            )
+        response = self.client.post(
+            self._url(),
+            data=json.dumps(self._movement_payload()),
+            content_type="application/json",
+        )
         self.assertEqual(response.status_code, 200)
 
     # Test 28
     def test_delivery_endpoint_returns_200(self):
         """A valid delivery payload must return 200."""
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            response = self.client.post(
-                self._url(),
-                data=json.dumps(self._movement_payload(transaction_type="delivery")),
-                content_type="application/json",
-            )
+        response = self.client.post(
+            self._url(),
+            data=json.dumps(self._movement_payload(transaction_type="delivery")),
+            content_type="application/json",
+        )
         self.assertEqual(response.status_code, 200)
 
     # Test 29
@@ -144,34 +141,31 @@ class AssetTransactionEndpointTests(TestCase):
     # Test 31
     def test_response_contains_success_true(self):
         """The response JSON must contain 'success': true."""
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            response = self.client.post(
-                self._url(),
-                data=json.dumps(self._movement_payload()),
-                content_type="application/json",
-            )
+        response = self.client.post(
+            self._url(),
+            data=json.dumps(self._movement_payload()),
+            content_type="application/json",
+        )
         self.assertTrue(response.json().get("success"))
 
     # Test 32
     def test_response_contains_transaction_id(self):
         """The response JSON must contain a transaction_id — the app uses this."""
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            response = self.client.post(
-                self._url(),
-                data=json.dumps(self._movement_payload()),
-                content_type="application/json",
-            )
+        response = self.client.post(
+            self._url(),
+            data=json.dumps(self._movement_payload()),
+            content_type="application/json",
+        )
         self.assertIn("transaction_id", response.json())
 
     # Test 33
     def test_movement_endpoint_creates_exactly_one_transaction(self):
         """Calling the endpoint once must create exactly one transaction row."""
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            self.client.post(
-                self._url(),
-                data=json.dumps(self._movement_payload()),
-                content_type="application/json",
-            )
+        self.client.post(
+            self._url(),
+            data=json.dumps(self._movement_payload()),
+            content_type="application/json",
+        )
         self.assertEqual(AssetTransaction.objects.count(), 1)
 
     # Test 34
@@ -201,12 +195,11 @@ class AssetTransactionEndpointTests(TestCase):
         self.planning.cuba_operation_type = CubaOperationType.PUESTA
         self.planning.destination = self.zone
         self.planning.save(update_fields=["cuba_operation_type", "destination"])
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            response = self.client.post(
-                self._url(),
-                data=json.dumps(self._movement_payload(transaction_type="delivery", zone_id=self.zone.id)),
-                content_type="application/json",
-            )
+        response = self.client.post(
+            self._url(),
+            data=json.dumps(self._movement_payload(transaction_type="delivery", zone_id=self.zone.id)),
+            content_type="application/json",
+        )
         self.assertEqual(response.status_code, 200)
         self.planning.refresh_from_db()
         self.assertEqual(self.planning.status, PlanningStatus.DELIVERED)
@@ -222,12 +215,11 @@ class AssetTransactionEndpointTests(TestCase):
         self.planning.destination = self.zone
         self.planning.status = PlanningStatus.IN_TRANSIT
         self.planning.save(update_fields=["cuba_operation_type", "destination", "status"])
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            response = self.client.post(
-                self._url(),
-                data=json.dumps(self._movement_payload(transaction_type="delivery", zone_id=other_zone.id)),
-                content_type="application/json",
-            )
+        response = self.client.post(
+            self._url(),
+            data=json.dumps(self._movement_payload(transaction_type="delivery", zone_id=other_zone.id)),
+            content_type="application/json",
+        )
         self.assertEqual(response.status_code, 200)
         body = response.json()
         self.assertTrue(body.get("success"))
@@ -244,12 +236,11 @@ class AssetTransactionEndpointTests(TestCase):
         self.planning.cuba_operation_type = CubaOperationType.PUESTA
         self.planning.save(update_fields=["cuba_operation_type"])
         self.assertIsNone(self.planning.destination_id)
-        with patch("api.fleet.views.assets.send_asset_transaction_email_task.delay"):
-            response = self.client.post(
-                self._url(),
-                data=json.dumps(self._movement_payload(transaction_type="delivery", zone_id=self.zone.id)),
-                content_type="application/json",
-            )
+        response = self.client.post(
+            self._url(),
+            data=json.dumps(self._movement_payload(transaction_type="delivery", zone_id=self.zone.id)),
+            content_type="application/json",
+        )
         self.assertEqual(response.status_code, 200)
         self.planning.refresh_from_db()
         self.assertEqual(self.planning.status, PlanningStatus.DELIVERED)

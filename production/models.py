@@ -1,6 +1,8 @@
 import unicodedata
+from datetime import timedelta
 
 from django.db import models
+from django.utils.dateparse import parse_datetime
 from django.utils.translation import gettext_lazy as _
 from django.contrib.contenttypes.fields import GenericForeignKey
 from django.contrib.contenttypes.models import ContentType
@@ -20,6 +22,44 @@ class ProductionTicketStatus(models.TextChoices):
     IN_PROGRESS = "in_progress", _("In Progress")
     DONE = "done", _("Done")
     CANCELLED = "cancelled", _("Cancelled")
+
+
+class ProductionTicketQuerySet(models.QuerySet):
+    def ready_for_stages(self, stages):
+        """Open tickets where one of *stages* is an item's current (first unfinished) stage.
+
+        Stage order lives in the product and item planning JSON, so readiness is
+        evaluated in Python over open tickets only.
+        """
+        from django.contrib.contenttypes.prefetch import GenericPrefetch
+        from configurator.models import Configuration
+
+        stages = {unicodedata.normalize("NFC", s) for s in stages}
+        if not stages:
+            return self.none()
+
+        open_tickets = self.exclude(
+            status__in=[ProductionTicketStatus.DONE, ProductionTicketStatus.CANCELLED]
+        )
+        parallel_ids = set(
+            open_tickets.filter(
+                assembly_lines__parallel_stages=True,
+                assembly_lines__status__in=[
+                    s for s in AssemblyLineStatus.values if s != AssemblyLineStatus.DONE
+                ],
+            ).values_list("pk", flat=True)
+        )
+        candidates = open_tickets.prefetch_related(
+            GenericPrefetch("source_object", [Configuration.objects.select_related("product")]),
+            models.Prefetch("items", queryset=ProductionItem.objects.only("id", "ticket_id", "planning")),
+        )
+        ready_ids = [
+            ticket.pk
+            for ticket in candidates
+            if ticket.has_ready_stage(stages, parallel=ticket.pk in parallel_ids)
+        ]
+        return self.filter(pk__in=ready_ids)
+
 
 class ProductionTicket(Timestampable, CompanyOwnedModel):
     content_type = models.ForeignKey(
@@ -81,6 +121,8 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
     )
 
 
+    objects = ProductionTicketQuerySet.as_manager()
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Lets the ProjectFile status signal re-derive the expediente this
@@ -133,6 +175,16 @@ class ProductionTicket(Timestampable, CompanyOwnedModel):
         project_file = self.resolved_project_file
         return str(project_file) if project_file else f"OP-{self.pk}"
 
+    def has_ready_stage(self, stages, *, parallel=False):
+        """True when an item's current stage is in *stages* (NFC names).
+        On a parallel assembly line every unfinished stage is workable."""
+        stage_order = [unicodedata.normalize("NFC", s) for s in self.get_stage_order()]
+        for item in self.items.all():
+            remaining = item.unfinished_stages(stage_order)
+            workable = remaining if parallel else remaining[:1]
+            if stages.intersection(workable):
+                return True
+        return False
 
     def get_first_incomplete_stage(self):
         items = list(self.items.all())
@@ -451,6 +503,47 @@ class ProductionItem(Timestampable, CompanyOwnedModel):
                 return (1, stage_name)
 
         return sorted(planning.items(), key=sort_key)
+
+    def unfinished_stages(self, stage_order: list[str]) -> list[str]:
+        """Stages of *stage_order* (NFC names) this item still has to finish, in order."""
+        planning = {unicodedata.normalize("NFC", k): v for k, v in (self.planning or {}).items()}
+        return [
+            stage
+            for stage in stage_order
+            if stage in planning
+            and ((planning[stage] or {}).get("status") or ProductionItemStatus.PENDING)
+            != ProductionItemStatus.DONE
+        ]
+
+    def current_stage(self, stage_order: list[str]) -> str | None:
+        """The first stage of *stage_order* (NFC names) this item has not finished."""
+        remaining = self.unfinished_stages(stage_order)
+        return remaining[0] if remaining else None
+
+    def later_stage_started(self, stage_name: str, stage_order: list[str]) -> bool:
+        """True when a stage after *stage_name* in *stage_order* (NFC names) has left pending."""
+        if stage_name not in stage_order:
+            return False
+        started = {ProductionItemStatus.IN_PROGRESS, ProductionItemStatus.DONE}
+        return any(
+            self.get_stage_planning(stage).get("status") in started
+            for stage in stage_order[stage_order.index(stage_name) + 1:]
+        )
+
+    def can_undo_stage_finish(self, stage_name: str, employee, now=None) -> bool:
+        """True when *employee* finished *stage_name* (NFC) within the company's undo window."""
+        window = self.company.production_stage_undo_minutes
+        info = self.get_stage_planning(stage_name)
+        if (
+            not window
+            or info.get("status") != ProductionItemStatus.DONE
+            or info.get("completed_by") != employee.pk
+        ):
+            return False
+        completed_at = parse_datetime(info.get("completed_at") or "")
+        if completed_at is None:
+            return False
+        return (now or timezone.now()) - completed_at <= timedelta(minutes=window)
 
     def get_stage_planning(self, stage_name_nfc: str) -> dict:
         """This item's planning dict for one stage, matched by NFC-normalized stage name."""

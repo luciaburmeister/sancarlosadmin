@@ -6,7 +6,11 @@ from django.utils import timezone
 
 from assets.models import AssetTransaction, TransactionTypeChoices
 from company.models import Company
-from configurator.models import ConfigurationExportTemplate, ExportTemplateKind
+from configurator.models import (
+    ConfigurationExportTemplate,
+    ExportTemplateKind,
+    ExportTemplateSubtype,
+)
 from configurator.services.export.asset_transaction import AssetTransactionExportStrategy
 
 
@@ -51,6 +55,25 @@ class AssetTransactionDocumentTests(TestCase):
         self.assertEqual(response.content, b"%PDF-fake")
         rendered_html = html_to_pdf.call_args.args[0]
         self.assertIn("data:image/png;base64,", rendered_html)
+
+    @patch("assets.views.asset_transaction_document.PDFService.html_to_pdf", return_value=b"%PDF-fake")
+    def test_public_document_ignores_the_email_template(self, html_to_pdf):
+        self.template.html = "<p>SCAN-DOC</p>"
+        self.template.save(update_fields=["html"])
+        ConfigurationExportTemplate.objects.create(
+            company=self.company,
+            kind=ExportTemplateKind.ASSET_TRANSACTION,
+            subtype=ExportTemplateSubtype.EMAIL,
+            name="Email",
+            html="<p>EMAIL-DOC</p>",
+        )
+
+        response = self.client.get(self.transaction.document_url.replace("https://erp.example.com", ""))
+
+        self.assertEqual(response.status_code, 200)
+        rendered_html = html_to_pdf.call_args.args[0]
+        self.assertIn("SCAN-DOC", rendered_html)
+        self.assertNotIn("EMAIL-DOC", rendered_html)
 
     def test_unknown_token_is_not_found(self):
         response = self.client.get(reverse("asset_transaction_document", args=["missing-token"]))

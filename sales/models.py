@@ -1477,7 +1477,10 @@ class QuoteInventoryItem(Timestampable):
         super().save(*args, **kwargs)
         self._original_inventory_item_id = self.inventory_item_id
 
-        if is_new and self.inventory_item_id:
+        if self.inventory_item_id and (is_new or item_changed):
+            if item_changed:
+                # The previous item's taxes no longer apply to this line
+                self.get_taxes().delete()
             self._copy_taxes_from_item()
 
         # Recalculate stored total_with_tax from per-line taxes

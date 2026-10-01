@@ -7,6 +7,7 @@ from typing import Dict, Optional
 from decimal import Decimal
 from datetime import datetime
 
+from core.currency import normalize_currency
 from core.services.gemini_extraction_service import BaseGeminiExtractor, GeminiJSONParseError
 from .ocr_interface import TicketOcrInterface, TicketData
 
@@ -98,7 +99,7 @@ class GeminiExpenseProcessor(BaseGeminiExtractor, TicketOcrInterface):
             vendor_country=data.get("vendor_country"),
             date_of_purchase=self._parse_date(data.get("date_of_purchase")),
             amount=self._to_decimal(data.get("amount")),
-            currency=(data.get("currency") or "EUR").upper(),
+            currency=normalize_currency(data.get("currency")) or "EUR",
             ticket_number=data.get("ticket_number"),
             raw_response=data,
         )

@@ -1442,12 +1442,26 @@ class QuoteInventoryItem(Timestampable):
         if errors:
             raise ValidationError(errors)
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._original_inventory_item_id = self.inventory_item_id
+
     def save(self, *args, **kwargs):
-        # Auto-fill unit_price from the item's selling_price when not provided
-        if self.inventory_item_id and (not self.unit_price or self.unit_price.amount == 0):
+        # Auto-fill unit_price from the item's selling_price when not provided,
+        # or re-price when the line is switched to a different item.
+        item_changed = (
+            not self._state.adding
+            and self.inventory_item_id != self._original_inventory_item_id
+        )
+        if self.inventory_item_id and (
+            item_changed or not self.unit_price or self.unit_price.amount == 0
+        ):
             sp = self.inventory_item.selling_price
             if sp and sp.amount:
                 self.unit_price = sp
+            elif item_changed:
+                # Don't carry the previous item's price over to an unpriced one
+                self.unit_price = Money(0, self.unit_price.currency)
 
         if self.has_override:
             # The typed amount is the line total; the discount % is a
@@ -1461,6 +1475,7 @@ class QuoteInventoryItem(Timestampable):
             self.line_total = self.unit_price * self.quantity * discount_factor
         is_new = self.pk is None
         super().save(*args, **kwargs)
+        self._original_inventory_item_id = self.inventory_item_id
 
         if is_new and self.inventory_item_id:
             self._copy_taxes_from_item()

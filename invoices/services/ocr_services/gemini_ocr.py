@@ -2,13 +2,11 @@
 Maps raw responses to extracted_dataclass structure
 """
 
-import re
 from typing import Dict, Optional
 from decimal import Decimal
 from datetime import datetime
 
-from moneyed import CURRENCIES
-
+from core.currency import normalize_currency
 from core.services.gemini_extraction_service import BaseGeminiExtractor, GeminiJSONParseError
 from .ocr_interface import OcrInterface, InvoiceData, LineItem, TaxItem
 
@@ -18,16 +16,6 @@ __all__ = ["GeminiInvoiceProcessor", "GeminiJSONParseError"]
 class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
 
     MODEL_NAME = "gemini-3-flash-preview"
-
-    CURRENCY_SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY"}
-
-    CURRENCY_NAMES = {
-        "EURO": "EUR", "EUROS": "EUR", "EURS": "EUR",
-        "DOLLAR": "USD", "DOLLARS": "USD", "DOLAR": "USD", "DOLARES": "USD",
-        "USDOLLAR": "USD", "USDOLLARS": "USD",
-        "POUND": "GBP", "POUNDS": "GBP", "STERLING": "GBP", "LIBRA": "GBP", "LIBRAS": "GBP",
-        "YEN": "JPY", "FRANC": "CHF", "FRANCS": "CHF",
-    }
 
     SCHEMA = {
     "type": "OBJECT",
@@ -300,29 +288,7 @@ class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
         return None
 
     def _normalize_currency(self, currency: Optional[str]) -> Optional[str]:
-        """
-        Coerce whatever the model returns ("€", "Euro", "EUROS", "USD $", "(USD)") into a
-        3-letter ISO code. Invoice.currency is varchar(3), so anything longer
-        would blow up on save; returning None lets the caller keep its default.
-        """
-        if not currency:
-            return None
-        raw = currency.strip()
-        for symbol, code in self.CURRENCY_SYMBOLS.items():
-            if symbol in raw:
-                return code
-        letters = re.sub(r"[^A-Za-z]", "", raw).upper()
-        if letters in CURRENCIES:
-            return letters
-        if letters in self.CURRENCY_NAMES:
-            return self.CURRENCY_NAMES[letters]
-        tokens = re.findall(r"[A-Za-z]+", raw.upper())
-        for token in tokens:
-            if token in CURRENCIES:
-                return token
-            if token in self.CURRENCY_NAMES:
-                return self.CURRENCY_NAMES[token]
-        return None
+        return normalize_currency(currency)
 
     def _parse_date(self, date_str: Optional[str]) -> Optional[str]:
         """

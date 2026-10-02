@@ -8,7 +8,7 @@ from unfold.admin import ModelAdmin, TabularInline
 from unfold.decorators import action, display
 from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter, RangeDateFilter
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
-from import_export import fields, resources
+from import_export import fields, resources, widgets
 from import_export.admin import ExportActionModelAdmin
 from unfold.widgets import (
     UnfoldAdminTextareaWidget,
@@ -402,8 +402,13 @@ def commission_document_label(invoice):
 
 
 class InvoiceCommissionResource(resources.ModelResource):
-    release_date = fields.Field(attribute="release_date", column_name=_("Date"))
+    release_date = fields.Field(
+        attribute="release_date", column_name=_("Release date"), widget=widgets.DateWidget("%d/%m/%Y"),
+    )
     document = fields.Field(column_name=_("Document"))
+    invoice_date = fields.Field(
+        attribute="sales_invoice__date_issued", column_name=_("Invoice date"), widget=widgets.DateWidget("%d/%m/%Y"),
+    )
     client = fields.Field(attribute="sales_invoice__client__name", column_name=_("Client"))
     base = fields.Field(column_name=_("Base"))
     percentage = fields.Field(column_name=_("% Comm."))
@@ -412,8 +417,8 @@ class InvoiceCommissionResource(resources.ModelResource):
 
     class Meta:
         model = InvoiceCommission
-        fields = ("release_date", "document", "client", "base", "percentage", "commission", "agent")
-        export_order = ("release_date", "document", "client", "base", "percentage", "commission", "agent")
+        fields = ("release_date", "document", "invoice_date", "client", "base", "percentage", "commission", "agent")
+        export_order = ("release_date", "document", "invoice_date", "client", "base", "percentage", "commission", "agent")
 
     def dehydrate_document(self, obj):
         return commission_document_label(obj.sales_invoice)
@@ -444,6 +449,7 @@ class InvoiceCommissionAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionMod
     list_display = (
         "release_date",
         "document_display",
+        "invoice_date_display",
         "client_display",
         "released_base_amount",
         "percentage_display",
@@ -455,6 +461,7 @@ class InvoiceCommissionAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionMod
     list_filter = (
         ("agent", AutocompleteSelectMultipleFilter),
         ("release_date", RangeDateFilter),
+        ("sales_invoice__date_issued", RangeDateFilter),
     )
     list_filter_submit = True
     search_fields = (
@@ -464,7 +471,7 @@ class InvoiceCommissionAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionMod
     )
     list_select_related = ["agent", "sales_invoice__client"]
     fields = (
-        ("agent", "sales_invoice"),
+        ("agent", "sales_invoice", "invoice_date_display"),
         ("base_amount", "commission_amount"),
         ("released_base_amount", "released_amount", "release_date"),
         ("own_base_amount", "own_commission_amount"),
@@ -475,6 +482,10 @@ class InvoiceCommissionAdmin(CompanyRestrictedAdmin, ModelAdmin, ExportActionMod
     @admin.display(description=_("Document"), ordering="sales_invoice__invoice_number")
     def document_display(self, obj):
         return commission_document_label(obj.sales_invoice)
+
+    @admin.display(description=_("Invoice date"), ordering="sales_invoice__date_issued")
+    def invoice_date_display(self, obj):
+        return obj.sales_invoice.date_issued
 
     @admin.display(description=_("Client"), ordering="sales_invoice__client__name")
     def client_display(self, obj):

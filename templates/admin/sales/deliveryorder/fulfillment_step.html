@@ -24,6 +24,11 @@
         {% if delivery_order.delivery_address %}
         <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
             {% trans "Delivery Address" %}: <span class="font-semibold">{{ delivery_order.delivery_address }}</span>
+            {% with address=delivery_order.delivery_address %}
+            {% if address.contact_name or address.contact_phone %}
+            &middot; {% trans "Contact" %}: <span class="font-semibold">{{ address.contact_name }}{% if address.contact_name and address.contact_phone %} &ndash; {% endif %}{{ address.contact_phone }}</span>
+            {% endif %}
+            {% endwith %}
         </p>
         {% endif %}
     </div>

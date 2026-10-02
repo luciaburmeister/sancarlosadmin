@@ -19195,3 +19195,12 @@ msgstr "Fecha del último cobro que liberó comisión."
 
 msgid "Set for the part of the invoice billed from a quote; empty for the rest."
 msgstr "Indicada para la parte de la factura que procede de un presupuesto; vacía para el resto."
+
+msgid "Invoice date"
+msgstr "Fecha factura"
+
+msgid "Contact Name"
+msgstr "Nombre de contacto"
+
+msgid "Contact Phone"
+msgstr "Teléfono de contacto"

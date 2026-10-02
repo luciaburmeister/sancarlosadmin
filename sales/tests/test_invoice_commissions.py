@@ -143,16 +143,21 @@ class CommissionsAdminTest(_ClientAgentTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Factura 26FC-1", count=1)
         self.assertContains(response, "Abono 26AB-1", count=1)
+        self.assertContains(response, "Fecha factura")
 
     def test_export_has_the_report_columns(self):
         dataset = InvoiceCommissionResource().export(
             InvoiceCommission.objects.filter(release_date__month=9).order_by("release_date")
         )
-        self.assertEqual(dataset.headers, ["Fecha", "Documento", "Cliente", "Base", "% Com.", "Comisión", "Agente"])
+        self.assertEqual(dataset.headers, [
+            "Fecha de liberación", "Documento", "Fecha factura", "Cliente", "Base", "% Com.", "Comisión", "Agente",
+        ])
         self.assertEqual(
-            [row[1:6] for row in dataset],
+            [row[1:7] for row in dataset],
             [
-                ("Factura 26FC-1", "Cliente SA", Decimal("1000.00"), Decimal("10.00"), Decimal("100.00")),
-                ("Abono 26AB-1", "Cliente SA", Decimal("-200.00"), Decimal("10.00"), Decimal("-20.00")),
+                ("Factura 26FC-1", "10/09/2026", "Cliente SA",
+                 Decimal("1000.00"), Decimal("10.00"), Decimal("100.00")),
+                ("Abono 26AB-1", "27/09/2026", "Cliente SA",
+                 Decimal("-200.00"), Decimal("10.00"), Decimal("-20.00")),
             ],
         )

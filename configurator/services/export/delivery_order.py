@@ -137,6 +137,7 @@ class DeliveryOrderExportStrategy(BaseExportStrategy):
             "financing_discount_amount": float(financing_discount_amount),
             "notes": do.notes,
             # Shipping information
+            "delivery_address": do.delivery_address,
             "shipping_method": do.get_shipping_method_display(),
             "planned_delivery_date": do.planned_delivery_date,
             "dispatched_at": do.dispatched_at,

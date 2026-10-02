@@ -31,8 +31,8 @@ class ClientBankAccountAdmin(CompanyRestrictedAdmin,ModelAdmin):
 
 @admin.register(ClientAddress)
 class ClientAddressAdmin(CompanyRestrictedAdmin,ModelAdmin):
-    list_display = ["street", "postal_code", "locality", "city", "province", "country", "client"]
-    search_fields = ["street", "city", "locality", "postal_code", "province", "country", "client__name"]
+    list_display = ["name", "street", "postal_code", "locality", "city", "province", "country", "contact_name", "contact_phone", "client"]
+    search_fields = ["name", "street", "city", "locality", "postal_code", "province", "country", "contact_name", "contact_phone", "client__name"]
     autocomplete_fields = ["client"]
 
 class ClientAddressInline(StackedInline):
@@ -44,9 +44,11 @@ class ClientAddressInline(StackedInline):
         (None, {
             "fields": (
                 ("address_type", "is_default"),
+                "name",
                 "street",
                 ("postal_code", "locality", "city"),
                 ("province", "country"),
+                ("contact_name", "contact_phone"),
             ),
         }),
     )

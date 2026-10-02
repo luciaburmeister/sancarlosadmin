@@ -172,12 +172,17 @@ class ClientAddress(CompanyOwnedModel):
         default='shipping',
         verbose_name=_("Address Type")
     )
+    # Label to tell addresses apart, e.g. "Warehouse" or "Site Marbella".
+    name = models.CharField(max_length=255, blank=True, default="", verbose_name=_("Name"))
     street = models.CharField(max_length=255, verbose_name=_("Street"))
     city = models.CharField(max_length=100, verbose_name=_("City"))
     postal_code = models.CharField(max_length=20, verbose_name=_("Postal Code"))
     locality = models.CharField(max_length=100, blank=True, default="", verbose_name=_("Locality"))
     province = models.CharField(max_length=100, verbose_name=_("Province"))
     country = CountryField(default="ES", verbose_name=_("Country"))
+    # Who receives the goods at this address; printed on delivery orders.
+    contact_name = models.CharField(max_length=255, blank=True, default="", verbose_name=_("Contact Name"))
+    contact_phone = models.CharField(max_length=50, blank=True, default="", verbose_name=_("Contact Phone"))
     is_default = models.BooleanField(default=False, verbose_name=_("Is Default"))
 
     class Meta:
@@ -185,7 +190,8 @@ class ClientAddress(CompanyOwnedModel):
         verbose_name_plural = _("Client Addresses")
 
     def __str__(self):
-        return f"{self.get_address_type_display()}: {self.formatted}"
+        label = self.name or self.get_address_type_display()
+        return f"{label}: {self.formatted}"
 
     @property
     def formatted(self):

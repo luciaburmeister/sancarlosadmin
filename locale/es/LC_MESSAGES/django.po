@@ -19204,3 +19204,12 @@ msgstr "Nombre de contacto"
 
 msgid "Contact Phone"
 msgstr "Teléfono de contacto"
+
+msgid "No commission"
+msgstr "Sin comisión"
+
+msgid "Configurations of this product earn agents no commission (e.g. portes, transport): they are left out of the commission base of quotes and invoices."
+msgstr "Las configuraciones de este producto no generan comisión a los agentes (p. ej. portes, transporte): quedan fuera de la base de comisión de presupuestos y facturas."
+
+msgid "Lines of this item earn agents no commission (e.g. portes): they are left out of the commission base of quotes and invoices."
+msgstr "Las líneas de este artículo no generan comisión a los agentes (p. ej. portes): quedan fuera de la base de comisión de presupuestos y facturas."

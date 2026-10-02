@@ -473,6 +473,15 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         "has_components",
     )
 
+    exclude_from_commission = models.BooleanField(
+        _("No commission"),
+        default=False,
+        help_text=_(
+            "Lines of this item earn agents no commission (e.g. portes): they "
+            "are left out of the commission base of quotes and invoices."
+        ),
+    )
+
     has_components = models.BooleanField(
         _("Composite Item"),
         default=False,

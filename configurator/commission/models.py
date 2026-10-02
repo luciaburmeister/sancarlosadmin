@@ -179,7 +179,8 @@ class AgentCommissionRule(CompanyOwnedModel):
             quantity = Decimal("0")
 
         if self.rule_type == CommissionRuleType.PERCENTAGE and self.value is not None:
-            return (subtotal * self.value / Decimal("100")).quantize(Decimal("0.01"))
+            # On what the client actually pays: the base after discounts
+            return (discounted_subtotal * self.value / Decimal("100")).quantize(Decimal("0.01"))
         elif self.rule_type == CommissionRuleType.FIXED and self.value is not None:
             return self.value.quantize(Decimal("0.01"))
         elif self.rule_type == CommissionRuleType.CUSTOM and self.custom_rule:

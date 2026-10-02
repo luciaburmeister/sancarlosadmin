@@ -605,6 +605,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
     list_filter = (
         "item_type",
         "has_components",
+        "exclude_from_commission",
         LowStockFilter,
         ["default_warehouse", AutocompleteSelectFilter],
         ["preferred_supplier", AutocompleteSelectFilter],
@@ -640,7 +641,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
                 ("name", "stock_on_hand_display"),
                 ("incoming_quantity_display", "reserved_quantity_display"),
                 ("selling_price", "cost_price"),
-                ("min_stock",),
+                ("min_stock", "exclude_from_commission"),
                 ("description", "image"),
                 ("product_content_type", "product_object_selector"),
             ),

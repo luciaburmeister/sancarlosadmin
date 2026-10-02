@@ -247,7 +247,8 @@ class AgentCommissionRuleTest(_BaseTestCase):
             total=Decimal("1210.00"),
             quantity=Decimal("5"),
         )
-        self.assertEqual(result, Decimal("100.00"))
+        # On the base after discounts
+        self.assertEqual(result, Decimal("90.00"))
 
     def test_compute_fixed_commission(self):
         rule = AgentCommissionRule.objects.create(

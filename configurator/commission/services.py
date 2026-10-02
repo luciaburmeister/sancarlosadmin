@@ -4,24 +4,47 @@ from django.db import transaction
 from django.db.models import Sum
 
 
+def commission_share(quote) -> Decimal:
+    """
+    The part of ``quote`` that earns commission: all of it but the
+    configurations of products and the inventory lines of items marked
+    "No commission" (portes, transport).
+    """
+    subtotal = Decimal(str(quote.subtotal_price.amount))
+    if not subtotal:
+        return Decimal("1")
+    excluded_configs = quote.configurations.filter(
+        product__exclude_from_commission=True,
+    ).aggregate(total=Sum("subtotal_price"))["total"] or 0
+    excluded_items = quote.inventory_items.filter(
+        inventory_item__exclude_from_commission=True,
+    ).aggregate(total=Sum("line_total"))["total"] or 0
+    return (subtotal - Decimal(str(excluded_configs)) - Decimal(str(excluded_items))) / subtotal
+
+
 class CommissionService:
 
     @classmethod
     @transaction.atomic
-    def prepopulate_for_quote(cls, quote) -> None:
+    def prepopulate_for_quote(cls, quote) -> bool:
         """
-        Creates one QuoteCommission row for the quote's agent,
-        if one does not already exist.
+        Creates one QuoteCommission row for the quote's agent, if one does
+        not already exist, and removes the rows of agents the quote no longer
+        has (the agent was changed or cleared). Returns whether any was removed.
         """
         from configurator.commission.models import QuoteCommission
 
-        if not quote.agent_id:
-            return
+        stale = QuoteCommission.objects.filter(quote=quote)
+        if quote.agent_id:
+            stale = stale.exclude(agent_id=quote.agent_id)
+        removed, _ = stale.delete()
 
-        QuoteCommission.objects.get_or_create(
-            quote=quote,
-            agent=quote.agent,
-        )
+        if quote.agent_id:
+            QuoteCommission.objects.get_or_create(
+                quote=quote,
+                agent=quote.agent,
+            )
+        return bool(removed)
 
     @classmethod
     @transaction.atomic
@@ -47,14 +70,19 @@ class CommissionService:
             return Decimal(str(related.aggregate(total=Sum(field))["total"] or 0))
 
         total_quantity = (
-            quantity_of(quote.configurations, "items__quantity")
-            + quantity_of(quote.inventory_items)
+            quantity_of(quote.configurations.exclude(product__exclude_from_commission=True), "items__quantity")
+            + quantity_of(quote.inventory_items.exclude(inventory_item__exclude_from_commission=True))
             + quantity_of(quote.items)
         )
 
+        # Only the part that earns commission (no portes), after discounts
+        share = commission_share(quote)
         subtotal = Decimal(str(quote.subtotal_price.amount))
         discounted_subtotal = Decimal(str(quote.discounted_subtotal.amount)) if quote.discounted_subtotal else subtotal
         total = Decimal(str(quote.total_price.amount))
+        subtotal, discounted_subtotal, total = (
+            (value * share).quantize(CENT) for value in (subtotal, discounted_subtotal, total)
+        )
 
         changed = False
         for row in rows:
@@ -97,8 +125,11 @@ class CommissionService:
     @classmethod
     def refresh(cls, quote) -> None:
         """Make sure the quote's agent has a commission row and it is up to date."""
-        cls.prepopulate_for_quote(quote)
+        removed = cls.prepopulate_for_quote(quote)
         cls.recalculate(quote)
+        if removed:
+            # The old agent's share leaves the invoices billing this quote
+            CommissionReleaseService.sync_for_quote(quote)
 
     @classmethod
     def recalculate_unruled_for_agent(cls, agent_id) -> None:
@@ -207,7 +238,7 @@ class CommissionReleaseService:
         )
         for commission in commissions:
             quote = commission.quote
-            quote_base = Decimal(str((quote.discounted_subtotal or quote.subtotal_price).amount))
+            quote_base = Decimal(str((quote.discounted_subtotal or quote.subtotal_price).amount)) * commission_share(quote)
             if not quote_base:
                 continue
             base = base_by_quote[commission.quote_id]
@@ -415,6 +446,7 @@ class CommissionReleaseService:
             return {}, Decimal("0"), Decimal("0")
 
         quote_of = line_sources.quote_ids_by_source([source for source, _, _ in lines])
+        no_commission = cls._no_commission_sources([source for source, _, _ in lines])
         advance_pf_of = cls._advance_project_files_of([source for source, _, _ in lines])
         weights_of_pf = {}
 
@@ -422,6 +454,8 @@ class CommissionReleaseService:
         other_lines = Decimal("0")
         other_quantity = Decimal("0")
         for source, amount, quantity in lines:
+            if source in no_commission:
+                continue
             prefix, pk = line_sources.parse(source)
             if prefix == line_sources.ADVANCE_LINE:
                 pf_id = pk
@@ -440,9 +474,11 @@ class CommissionReleaseService:
                 continue
             if pf_id not in weights_of_pf:
                 weights_of_pf[pf_id] = cls._quote_weights(pf_id)
-            weights = weights_of_pf[pf_id]
+            weights, shares = weights_of_pf[pf_id]
             for quote_id, weight in weights.items():
-                base_by_quote[quote_id] = base_by_quote.get(quote_id, Decimal("0")) + amount * weight
+                base_by_quote[quote_id] = (
+                    base_by_quote.get(quote_id, Decimal("0")) + amount * weight * shares[quote_id]
+                )
             # The share of the expediente no quote accounts for (direct configurations)
             other_lines += amount * (1 - sum(weights.values(), Decimal("0")))
 
@@ -461,6 +497,34 @@ class CommissionReleaseService:
         return Decimal(str(invoice.subtotal_amount.amount)) - discount
 
     @staticmethod
+    def _no_commission_sources(sources) -> set:
+        """
+        The source_ids among ``sources`` that earn no commission: lines of
+        configurations of "No commission" products and of inventory lines of
+        "No commission" items.
+        """
+        from configurator.models import Configuration
+        from invoices import line_sources
+        from sales.models import QuoteInventoryItem
+
+        flagged = {
+            line_sources.CONFIG: Configuration.objects.filter(product__exclude_from_commission=True),
+            line_sources.DIRECT: Configuration.objects.filter(product__exclude_from_commission=True),
+            line_sources.INV_ITEM: QuoteInventoryItem.objects.filter(inventory_item__exclude_from_commission=True),
+        }
+        pks_by_prefix = {}
+        for source in sources:
+            prefix, pk = line_sources.parse(source)
+            if prefix in flagged:
+                pks_by_prefix.setdefault(prefix, set()).add(pk)
+
+        excluded = set()
+        for prefix, pks in pks_by_prefix.items():
+            for pk in flagged[prefix].filter(pk__in=pks).values_list("pk", flat=True):
+                excluded.add(line_sources.source_id(prefix, pk))
+        return excluded
+
+    @staticmethod
     def _advance_project_files_of(sources) -> dict:
         """{advance line pk: its project file} for the deduction lines among ``sources``."""
         from invoices import line_sources
@@ -475,22 +539,25 @@ class CommissionReleaseService:
         }
 
     @staticmethod
-    def _quote_weights(project_file_id) -> dict:
+    def _quote_weights(project_file_id):
         """
-        {quote_id: share of the expediente's net base}, the same base an
-        advance is taken on (accepted quotes plus direct configurations).
+        ``({quote_id: share of the expediente's net base}, {quote_id: part of
+        that quote earning commission})``: the base an advance is taken on
+        (accepted quotes plus direct configurations) and, of each quote, what
+        is not portes.
         """
         from management.models import ProjectFile
         from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 
         project_file = ProjectFile.objects.filter(pk=project_file_id).first()
         if project_file is None:
-            return {}
+            return {}, {}
         summary = ProjectFileInvoiceService.get_invoiceable_summary(project_file)
         net_base = summary["total_invoiceable_subtotal_net"]
         if not net_base:
-            return {}
+            return {}, {}
         weights = {}
+        shares = {}
         for quote_data in summary["quotes"]:
             quote = quote_data["quote"]
             quote_base = (
@@ -498,7 +565,8 @@ class CommissionReleaseService:
                 if quote.discounted_subtotal else quote_data["subtotal"]
             )
             weights[quote.pk] = quote_base / net_base
-        return weights
+            shares[quote.pk] = commission_share(quote)
+        return weights, shares
 
     @staticmethod
     def _invoice_ids_billing(quote) -> set:

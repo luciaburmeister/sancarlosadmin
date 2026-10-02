@@ -191,6 +191,7 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
         ("show_in_configurator", BooleanRadioFilter),
         ("production_planning_configured", BooleanRadioFilter),
         ("exclude_from_invoicing", BooleanRadioFilter),
+        ("exclude_from_commission", BooleanRadioFilter),
         ("is_labor_hours_template", BooleanRadioFilter),
     )
     list_filter_submit = True
@@ -212,7 +213,7 @@ class ProductTemplateAdmin(CompanyRestrictedAdmin,ModelAdmin):
 
     fieldsets = (
         (_("Product Template"), {
-            "fields": (("name", "image"), "description", ("production_stages", "parameter_group_options"), ("flow_kind", "unit_price_variable"), ("allow_production_without_accepted_quote", "allow_parameter_values_edit_in_any_status"), ("exclude_from_invoicing", "is_labor_hours_template")),
+            "fields": (("name", "image"), "description", ("production_stages", "parameter_group_options"), ("flow_kind", "unit_price_variable"), ("allow_production_without_accepted_quote", "allow_parameter_values_edit_in_any_status"), ("exclude_from_invoicing", "is_labor_hours_template"), "exclude_from_commission"),
         })
         ,(_("Ownership"), {
             "fields": ("company",),

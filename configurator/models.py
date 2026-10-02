@@ -142,6 +142,15 @@ class ProductTemplate(CompanyOwnedModel):
             "production ticket and receival slip creation in the shop flow."
         ),
     )
+    exclude_from_commission = models.BooleanField(
+        default=False,
+        verbose_name=_("No commission"),
+        help_text=_(
+            "Configurations of this product earn agents no commission "
+            "(e.g. portes, transport): they are left out of the commission base "
+            "of quotes and invoices."
+        ),
+    )
     unit_price_variable = models.CharField(
         max_length=100,
         blank=True,

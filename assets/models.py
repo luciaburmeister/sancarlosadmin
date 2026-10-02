@@ -227,6 +227,9 @@ class PorteTransactionDataKey:
     LOAD_DESCRIPTION = "load_description"
     CLIENT_ID = "client_id"
     MACHINE_ID = "machine_id"
+    GOODS_TYPE = "goods_type"
+    TONNES_TRANSPORTED = "tonnes_transported"
+    PACKAGE_COUNT = "package_count"
 
 
 class PorteMovementKind:

@@ -313,6 +313,8 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
                 ("implemento", "tipo_camion"),
                 "load_description",
                 ("client_id", "machine_id"),
+                ("goods_type", "tonnes_transported"),
+                "package_count",
                 "nro_albaran",
                 "material_vertido",
                 ("interval_1_start", "interval_1_end"),

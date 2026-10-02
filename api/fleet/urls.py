@@ -48,4 +48,9 @@ urlpatterns = [
     path("planning-drafts/<int:draft_id>/submit/", planning_drafts.PlanningDraftSubmitView.as_view(), name="planning_draft_submit"),
     path("machines/", planning_drafts.MachinesListView.as_view(), name="machines"),
     path("employees/", employees.EmployeesListView.as_view(), name="employees"),
+    path(
+        "transactions/latest-document/",
+        assets.LatestTransactionDocumentView.as_view(),
+        name="latest_transaction_document",
+    ),
 ]

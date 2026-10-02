@@ -159,7 +159,10 @@ class PorteSchema(TransactionFieldSchema):
     )
     # "action" isn't a field -- it's 1:1 with transaction_type
     # (PORTE_ACTION_TRANSACTION_TYPES, assets/models.py), so build() derives it.
-    field_names = ("matricula", "load_description", "client_id", "machine_id")
+    field_names = (
+        "matricula", "load_description", "client_id", "machine_id",
+        "goods_type", "tonnes_transported", "package_count",
+    )
     ACTION_BY_TYPE = {
         TransactionTypeChoices.PORTE_MOVEMENT: PorteAction.RECOGIDA,
         TransactionTypeChoices.PORTE_LOAD: PorteAction.CARGA,
@@ -175,6 +178,9 @@ class PorteSchema(TransactionFieldSchema):
             "load_description": text_field(_("Load description"), placeholder=_("e.g. zahorra")),
             "client_id": model_select_field(_("Client"), client_qs),
             "machine_id": model_select_field(_("Machine"), machine_qs),
+            "goods_type": config_or_text_field(company, "goods_type", _("Goods type")),
+            "tonnes_transported": text_field(_("Tonnes transported"), placeholder=_("e.g. 12.5")),
+            "package_count": text_field(_("Number of packages"), placeholder=_("Only if transported as packages")),
         }
 
     @classmethod
@@ -185,7 +191,7 @@ class PorteSchema(TransactionFieldSchema):
     @classmethod
     def build(cls, transaction_type, cleaned, existing=None, tx_date=None):
         merged = dict(existing or {})
-        for name in ("matricula", "load_description"):
+        for name in ("matricula", "load_description", "goods_type", "tonnes_transported", "package_count"):
             if name in cleaned:
                 merged[name] = cleaned.get(name) or ""
         for name in ("client_id", "machine_id"):

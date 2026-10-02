@@ -6,6 +6,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 from decimal import Decimal
 from core.admin.company_access import get_user_companies
 import json
+import logging
 from django.template import engines
 from configurator.utils import safe_eval
 from .helpers import strip_wrappers, strip_css_wrappers, clean_final_html
@@ -16,6 +17,8 @@ from django_countries.fields import Country
 
 if TYPE_CHECKING:
     from configurator.models import ConfigurationExportTemplate, Configuration
+
+logger = logging.getLogger(__name__)
 
 
 class CustomJSONEncoder(DjangoJSONEncoder):
@@ -57,10 +60,17 @@ class CustomJSONEncoder(DjangoJSONEncoder):
 
                 for key in keys_to_delete:
                     del data[key]
-                
+
                 return data
+            except RecursionError:
+                # Relations too deep to walk -- this is debug/AI-assist JSON
+                # only, so fall back to a placeholder instead of failing.
+                return f"<{obj.__class__.__name__} pk={getattr(obj, 'pk', None)}>"
             except Exception:
-                return str(obj)
+                try:
+                    return str(obj)
+                except RecursionError:
+                    return f"<{obj.__class__.__name__} pk={getattr(obj, 'pk', None)}>"
         
         if isinstance(obj, QuerySet):
             return list(obj)
@@ -118,7 +128,18 @@ class ConfigurationExportService:
         """
         strategy = ConfigurationExportService.get_strategy(obj)
         context = strategy.get_context()
-        json_str = json.dumps(context, cls=CustomJSONEncoder)
+        return ConfigurationExportService._safe_serialize(context)
+
+    @staticmethod
+    def _safe_serialize(context: dict) -> str:
+        """json.dumps(context, cls=CustomJSONEncoder), never raising -- this
+        output is debug/AI-assist only (context_json in wrap_parts), so a
+        serialization failure must never block the actual document render."""
+        try:
+            json_str = json.dumps(context, cls=CustomJSONEncoder)
+        except Exception:
+            logger.warning("Failed to serialize export context for debug/AI use", exc_info=True)
+            return "{}"
         return json_str.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
     @staticmethod
@@ -141,8 +162,7 @@ class ConfigurationExportService:
         rendered_body = user_tpl.render(context)
         rendered_body = clean_final_html(rendered_body)
 
-        serialized_context = json.dumps(context, cls=CustomJSONEncoder)
-        serialized_context = serialized_context.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+        serialized_context = ConfigurationExportService._safe_serialize(context)
 
         return rendered_body, clean_css, serialized_context
 

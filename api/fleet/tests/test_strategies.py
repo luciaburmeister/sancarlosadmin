@@ -486,6 +486,26 @@ class ReceiptStrategyTests(TestCase):
         receipt = AssetTransactionReceipt.objects.first()
         self.assertEqual(receipt.movement_transaction, self.movement_tx)
 
+    def test_receipt_response_includes_the_related_movement_document(self):
+        """The driver needs both documents after a verteo -- the verteo's own
+        plus the cuba pickup it discharges -- for an inspector."""
+        response = self._run_receipt()
+        body = json.loads(response.content)
+        self.assertEqual(body["related_transaction_id"], self.movement_tx.id)
+        self.assertEqual(body["related_transaction_type"], TransactionTypeChoices.MOVEMENT)
+        self.assertIn(self.movement_tx.public_token, body["related_document_url"])
+
+    def test_receipt_response_omits_related_keys_when_no_movement_to_link(self):
+        """No prior movement for this asset -- e.g. verted straight from a
+        planning with no pickup on record -- must omit the keys entirely,
+        not send them as null, so the app's "only show if present" logic works."""
+        AssetTransaction.objects.filter(pk=self.movement_tx.pk).delete()
+        response = self._run_receipt()
+        body = json.loads(response.content)
+        self.assertNotIn("related_transaction_id", body)
+        self.assertNotIn("related_transaction_type", body)
+        self.assertNotIn("related_document_url", body)
+
     # Test 25
     def test_receipt_requires_nro_albaran(self):
         """

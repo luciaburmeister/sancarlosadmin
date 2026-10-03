@@ -11,7 +11,7 @@ from django.utils import timezone
 from datetime import timedelta
 from rest_framework.test import APIClient, APITestCase
 
-from assets.models import AssetTransaction, TransactionTypeChoices
+from assets.models import AssetTransaction, AssetTransactionReceipt, TransactionTypeChoices
 from api.fleet.tests.helpers import (
     make_company,
     make_user,
@@ -94,6 +94,43 @@ class LatestTransactionDocumentViewTests(APITestCase):
         response = self.client.get(self.URL)
         body = json.loads(response.content)
         self.assertEqual(body["transaction_id"], older.id)
+
+    def test_receipt_includes_the_related_movement_it_discharges(self):
+        """A verteo must also surface the cuba pickup it discharges -- legally
+        the inspector needs to see both documents."""
+        movement = self._make_tx(TransactionTypeChoices.MOVEMENT, minutes_ago=60)
+        receipt_tx = self._make_tx(TransactionTypeChoices.RECEIPT, minutes_ago=5)
+        AssetTransactionReceipt.objects.create(
+            transaction=receipt_tx, nro_albaran="ALB-1", movement_transaction=movement,
+        )
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.URL)
+        body = json.loads(response.content)
+        self.assertEqual(body["related_transaction_id"], movement.id)
+        self.assertEqual(body["related_transaction_type"], TransactionTypeChoices.MOVEMENT)
+        self.assertIn(movement.public_token, body["related_document_url"])
+
+    def test_receipt_without_a_linked_movement_omits_related_keys(self):
+        receipt_tx = self._make_tx(TransactionTypeChoices.RECEIPT)
+        AssetTransactionReceipt.objects.create(
+            transaction=receipt_tx, nro_albaran="ALB-1", movement_transaction=None,
+        )
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.URL)
+        body = json.loads(response.content)
+        self.assertNotIn("related_transaction_id", body)
+        self.assertNotIn("related_transaction_type", body)
+        self.assertNotIn("related_document_url", body)
+
+    def test_movement_type_never_includes_related_keys(self):
+        """Only RECEIPT ever gets the related-movement fields -- MOVEMENT and
+        PORTE_MOVEMENT must never send them, not even as null."""
+        self._make_tx(TransactionTypeChoices.MOVEMENT)
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.URL)
+        body = json.loads(response.content)
+        self.assertNotIn("related_transaction_id", body)
+        self.assertNotIn("related_document_url", body)
 
     def test_only_returns_the_authenticated_employees_own_transactions(self):
         other_user = make_user(username="otherdriver")

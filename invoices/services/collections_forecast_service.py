@@ -179,7 +179,7 @@ class CollectionsForecastService:
                 has_proforma=BoolOr(cls.IS_PROFORMA),
                 has_late_commitment=BoolOr(is_late_commitment_expr),
             )
-            .order_by("client__name")
+            .order_by("-day_total", "client__name")
         )
         overdue = cls._build_bucket(overdue_rows, overdue_before=date_from)
 
@@ -195,7 +195,7 @@ class CollectionsForecastService:
                 has_proforma=BoolOr(cls.IS_PROFORMA),
                 has_late_commitment=BoolOr(is_late_commitment_expr),
             )
-            .order_by("forecast_date", "client__name")
+            .order_by("forecast_date", "-day_total", "client__name")
         )
         rows_by_date = {
             forecast_date: list(rows)

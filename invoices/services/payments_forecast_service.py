@@ -92,7 +92,7 @@ class PaymentsForecastService:
                 day_count=Count("id"),
                 has_sepa=BoolOr(cls.IS_SEPA),
             )
-            .order_by("provider__name")
+            .order_by("-day_total", "provider__name")
         )
         overdue = cls._build_bucket(overdue_rows, overdue_before=date_from)
 
@@ -105,7 +105,7 @@ class PaymentsForecastService:
                 day_count=Count("id"),
                 has_sepa=BoolOr(cls.IS_SEPA),
             )
-            .order_by("effective_date", "provider__name")
+            .order_by("effective_date", "-day_total", "provider__name")
         )
         rows_by_date = {
             effective_date: list(rows)

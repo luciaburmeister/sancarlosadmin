@@ -341,7 +341,8 @@ class QuoteAdmin(CompanyRestrictedAdmin, FormattedXlsxExportMixin, ImportExportM
         ("created_at",RangeDateFilter),
         ("created_by",AutocompleteSelectMultipleFilter),
         ("date_sent", RangeDateFilter),
-        ("date_accepted",RangeDateFilter)]
+        ("date_accepted",RangeDateFilter),
+        ("agent", AutocompleteSelectMultipleFilter)]
     search_fields = ["project_name", "client__name", "id", "external_id"]
     autocomplete_fields = ["client", "agent", "project_file","discount_policies"]
     readonly_fields = [

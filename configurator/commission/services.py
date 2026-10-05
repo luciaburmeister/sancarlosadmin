@@ -3,23 +3,61 @@ from djmoney.money import Money
 from django.db import transaction
 from django.db.models import Sum
 
+from configurator.commission.models import CommissionRuleType
+
+
+def quote_commission_base(quote):
+    """
+    ``(subtotal, net base, quantity)`` of the part of ``quote`` that earns
+    commission: every line but configurations of products and inventory
+    lines of items marked "No commission" (portes, transport). The net base
+    is after the quote's discounts, financing included, each one taken only
+    off the lines it applies to (a line-items discount never off portes
+    configurations), as the discount resolver carries them onto invoices.
+    """
+    from invoices import line_sources
+    from invoices.services.discounts.resolver import QuoteDiscountResolver, SourceLine
+
+    lines = []  # (SourceLine, earns commission, quantity)
+    for config in quote.configurations.select_related("product").annotate(pieces=Sum("items__quantity")):
+        lines.append((
+            SourceLine(line_sources.source_id(line_sources.CONFIG, config.pk),
+                       Decimal(str(config.subtotal_price.amount)), quote.pk),
+            not (config.product_id and config.product.exclude_from_commission),
+            Decimal(str(config.pieces or 0)),
+        ))
+    for item in quote.items.all():
+        lines.append((
+            SourceLine(line_sources.source_id(line_sources.QUOTE_ITEM, item.pk),
+                       Decimal(str(item.line_total.amount)), quote.pk),
+            True,
+            Decimal(str(item.quantity)),
+        ))
+    for item in quote.inventory_items.select_related("inventory_item"):
+        lines.append((
+            SourceLine(line_sources.source_id(line_sources.INV_ITEM, item.pk),
+                       Decimal(str(item.line_total.amount)) if item.line_total else Decimal("0"), quote.pk),
+            not (item.inventory_item_id and item.inventory_item.exclude_from_commission),
+            Decimal(str(item.quantity)),
+        ))
+
+    resolution = QuoteDiscountResolver().resolve([quote], [line for line, _, _ in lines])
+    subtotal = net = quantity = Decimal("0")
+    for line, earns, pieces in lines:
+        if not earns:
+            continue
+        subtotal += line.line_total
+        net += line.line_total * (1 - resolution.taxable_fraction(quote.pk, line.kind))
+        quantity += pieces
+    return subtotal, net, quantity
+
 
 def commission_share(quote) -> Decimal:
-    """
-    The part of ``quote`` that earns commission: all of it but the
-    configurations of products and the inventory lines of items marked
-    "No commission" (portes, transport).
-    """
-    subtotal = Decimal(str(quote.subtotal_price.amount))
-    if not subtotal:
+    """The part of the quote's net base (after discounts) that earns commission."""
+    discounted = Decimal(str((quote.discounted_subtotal or quote.subtotal_price).amount))
+    if not discounted:
         return Decimal("1")
-    excluded_configs = quote.configurations.filter(
-        product__exclude_from_commission=True,
-    ).aggregate(total=Sum("subtotal_price"))["total"] or 0
-    excluded_items = quote.inventory_items.filter(
-        inventory_item__exclude_from_commission=True,
-    ).aggregate(total=Sum("line_total"))["total"] or 0
-    return (subtotal - Decimal(str(excluded_configs)) - Decimal(str(excluded_items))) / subtotal
+    return quote_commission_base(quote)[1] / discounted
 
 
 class CommissionService:
@@ -65,23 +103,14 @@ class CommissionService:
         if not rows:
             return
 
-        # Calculate total quantity across all items on the quote
-        def quantity_of(related, field="quantity"):
-            return Decimal(str(related.aggregate(total=Sum(field))["total"] or 0))
-
-        total_quantity = (
-            quantity_of(quote.configurations.exclude(product__exclude_from_commission=True), "items__quantity")
-            + quantity_of(quote.inventory_items.exclude(inventory_item__exclude_from_commission=True))
-            + quantity_of(quote.items)
-        )
-
         # Only the part that earns commission (no portes), after discounts
-        share = commission_share(quote)
-        subtotal = Decimal(str(quote.subtotal_price.amount))
-        discounted_subtotal = Decimal(str(quote.discounted_subtotal.amount)) if quote.discounted_subtotal else subtotal
+        subtotal, discounted_subtotal, total_quantity = quote_commission_base(quote)
+        quote_discounted = Decimal(str((quote.discounted_subtotal or quote.subtotal_price).amount))
         total = Decimal(str(quote.total_price.amount))
+        if quote_discounted:
+            total = total * discounted_subtotal / quote_discounted
         subtotal, discounted_subtotal, total = (
-            (value * share).quantize(CENT) for value in (subtotal, discounted_subtotal, total)
+            value.quantize(CENT) for value in (subtotal, discounted_subtotal, total)
         )
 
         changed = False
@@ -238,21 +267,31 @@ class CommissionReleaseService:
         )
         for commission in commissions:
             quote = commission.quote
-            quote_base = Decimal(str((quote.discounted_subtotal or quote.subtotal_price).amount)) * commission_share(quote)
+            quote_base = quote_commission_base(quote)[1]
             if not quote_base:
                 continue
             base = base_by_quote[commission.quote_id]
             amount = Decimal(str(commission.commission_amount.amount)) * base / quote_base
-            parts.append((commission.agent, commission, base, amount))
+            rate = (
+                commission.rule_value_snapshot
+                if commission.rule_type_snapshot == CommissionRuleType.PERCENTAGE else None
+            )
+            parts.append((commission.agent, commission, base, amount, rate))
 
         own = cls._own_part(invoice, rows, other_base, other_quantity)
         if own is not None:
             agent, rule_fields, amount = own
-            parts.append((agent, None, other_base, amount))
+            rate = (
+                rule_fields["rule_value_snapshot"]
+                if rule_fields["rule_type_snapshot"] == CommissionRuleType.PERCENTAGE else None
+            )
+            parts.append((agent, None, other_base, amount, rate))
 
         # One row per agent: what the invoice earns them
         kept = {}
-        for agent, _commission, base, amount in parts:
+        rates = {}
+        for agent, _commission, base, amount, rate in parts:
+            rates.setdefault(agent.pk, set()).add(rate)
             row = kept.get(agent.pk) or rows.get(agent.pk) or InvoiceCommission(sales_invoice=invoice, agent=agent)
             if agent.pk not in kept:
                 row.base_amount = Money(0, currency)
@@ -273,12 +312,15 @@ class CommissionReleaseService:
         for agent_id, row in rows.items():
             if agent_id not in kept:
                 row.delete()
-        for row in kept.values():
+        for agent_id, row in kept.items():
+            # One rule's rate, so the list shows 5, not 5.02 off rounded cents
+            agent_rates = rates[agent_id]
+            row.commission_rate = next(iter(agent_rates)) if len(agent_rates) == 1 else None
             row.save()
 
         releases = []
         schedule = None
-        for agent, commission, base, amount in parts:
+        for agent, commission, base, amount, _rate in parts:
             row = kept[agent.pk]
             if total < 0 or agent.release_policy == CommissionReleasePolicy.ON_INVOICE:
                 # Credit notes and agents paid on issue: all of it, once final
@@ -391,11 +433,17 @@ class CommissionReleaseService:
             return None
         frozen = next((row for row in rows.values() if row.own_base_amount.amount and row.rule_id), None)
         if frozen is not None and invoice.status != SalesInvoiceStatus.PROFORMA:
+            # The rule stays as it was on issue; the amount follows the current base
+            if frozen.rule_type_snapshot == CommissionRuleType.PERCENTAGE and frozen.rule_value_snapshot is not None:
+                amount = (base * frozen.rule_value_snapshot / Decimal("100")).quantize(CENT)
+            else:
+                old_base = Decimal(str(frozen.own_base_amount.amount))
+                amount = Decimal(str(frozen.own_commission_amount.amount)) * base / old_base
             return frozen.agent, {
                 "rule": frozen.rule,
                 "rule_type_snapshot": frozen.rule_type_snapshot,
                 "rule_value_snapshot": frozen.rule_value_snapshot,
-            }, Decimal(str(frozen.own_commission_amount.amount))
+            }, amount
 
         agent_id = invoice.client.agent_id if invoice.client_id else None
         if not agent_id:
@@ -431,11 +479,16 @@ class CommissionReleaseService:
     def net_base_by_quote(cls, invoice):
         """
         ``({quote_id: net base of the quote this invoice carries}, the rest of
-        its net base, the quantity of the lines in that rest)``, after the
-        invoice's header discount. Lines with no quote (imported, work
-        entries, direct configurations) form the rest.
+        its net base, the quantity of the lines in that rest)``. Quote lines
+        are taken after their quote's discounts, each only off the lines it
+        applies to, as on the quote; "No commission" lines are left out.
+        Lines with no quote (imported, work entries, direct configurations)
+        form the rest, after the invoice's header discount when no quote
+        accounts for it.
         """
         from invoices import line_sources
+        from invoices.services.discounts.resolver import QuoteDiscountResolver, SourceLine
+        from sales.models import Quote
 
         lines = [
             (item.source_id or "", Decimal(str(item.line_total.amount)), Decimal(str(item.quantity)))
@@ -450,6 +503,17 @@ class CommissionReleaseService:
         advance_pf_of = cls._advance_project_files_of([source for source, _, _ in lines])
         weights_of_pf = {}
 
+        # What of each quote line is discount, per quote and line kind
+        quote_lines = [
+            SourceLine(source, amount, quote_of[source])
+            for source, amount, _ in lines
+            if source in quote_of and source not in no_commission
+            and line_sources.parse(source)[0] != line_sources.DISCOUNT_QUOTE
+        ]
+        resolution = QuoteDiscountResolver().resolve(
+            Quote.objects.filter(pk__in={line.quote_id for line in quote_lines}), quote_lines,
+        )
+
         base_by_quote = {}
         other_lines = Decimal("0")
         other_quantity = Decimal("0")
@@ -463,8 +527,12 @@ class CommissionReleaseService:
                 pf_id = advance_pf_of.get(pk)
             else:
                 quote_id = quote_of.get(source)
+                if prefix == line_sources.DISCOUNT_QUOTE:
+                    # Legacy materialized discount: the resolver already takes it off
+                    continue
                 if quote_id:
-                    base_by_quote[quote_id] = base_by_quote.get(quote_id, Decimal("0")) + amount
+                    net = amount * (1 - resolution.taxable_fraction(quote_id, SourceLine(source, amount, quote_id).kind))
+                    base_by_quote[quote_id] = base_by_quote.get(quote_id, Decimal("0")) + net
                 else:
                     other_lines += amount
                     other_quantity += quantity
@@ -482,9 +550,12 @@ class CommissionReleaseService:
             # The share of the expediente no quote accounts for (direct configurations)
             other_lines += amount * (1 - sum(weights.values(), Decimal("0")))
 
-        discount = Decimal(str(invoice.discount_amount.amount)) if invoice.discount_amount else Decimal("0")
-        factor = (lines_total - discount) / lines_total
-        base_by_quote = {quote_id: base * factor for quote_id, base in base_by_quote.items() if base}
+        # The header discount falls on the rest only when no quote accounts for it
+        factor = Decimal("1")
+        if not quote_lines:
+            discount = Decimal(str(invoice.discount_amount.amount)) if invoice.discount_amount else Decimal("0")
+            factor = (lines_total - discount) / lines_total
+        base_by_quote = {quote_id: base for quote_id, base in base_by_quote.items() if base}
         other_base = other_lines * factor
         if abs(other_base) < CENT:
             other_base = Decimal("0")

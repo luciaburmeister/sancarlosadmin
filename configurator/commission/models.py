@@ -360,6 +360,14 @@ class InvoiceCommission(models.Model):
         verbose_name=_("Release date"),
         help_text=_("Date of the last payment that released commission."),
     )
+    commission_rate = models.DecimalField(
+        max_digits=7,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name=_("% Comm."),
+        help_text=_("The percentage of the rule it was calculated with; empty when its parts use different rules."),
+    )
     # The part no quote accounts for, with the rule it was calculated with
     rule = models.ForeignKey(
         AgentCommissionRule,
@@ -412,7 +420,9 @@ class InvoiceCommission(models.Model):
 
     @property
     def commission_percentage(self):
-        """The effective rate (3, 5…), on what is released or else on the whole."""
+        """The rule's rate (3, 5…); else the effective one, on what is released or on the whole."""
+        if self.commission_rate is not None:
+            return self.commission_rate
         released_base = self.released_base_amount.amount
         if released_base:
             return (self.released_amount.amount / released_base * Decimal("100")).quantize(Decimal("0.01"))

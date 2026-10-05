@@ -19213,3 +19213,6 @@ msgstr "Las configuraciones de este producto no generan comisión a los agentes 
 
 msgid "Lines of this item earn agents no commission (e.g. portes): they are left out of the commission base of quotes and invoices."
 msgstr "Las líneas de este artículo no generan comisión a los agentes (p. ej. portes): quedan fuera de la base de comisión de presupuestos y facturas."
+
+msgid "The percentage of the rule it was calculated with; empty when its parts use different rules."
+msgstr "El porcentaje de la regla con la que se calculó; vacío cuando sus partes usan reglas distintas."

@@ -77,6 +77,13 @@ def match_amount(
         if remaining == target:
             exact_singles.append([doc])
 
+    if exact_singles:
+        return MatchResult(
+            documents=exact_singles[0],
+            confidence="exact",
+            alternatives=exact_singles[1:MAX_ALTERNATIVES],
+        )
+
     # --- Group by counterparty for combination matching ---
     groups = defaultdict(list)
     for doc, remaining, key in entries:
@@ -101,11 +108,12 @@ def match_amount(
             if len(exact_combos) >= MAX_ALTERNATIVES:
                 break
 
-    all_exact = exact_singles + exact_combos
-
-    if all_exact:
-        best = all_exact[0]
-        alternatives = all_exact[1:MAX_ALTERNATIVES]
+    # exact_singles is always empty here (handled above), so this is really
+    # just exact_combos — kept as-is to minimize the diff against the
+    # pre-existing combination logic below.
+    if exact_combos:
+        best = exact_combos[0]
+        alternatives = exact_combos[1:MAX_ALTERNATIVES]
         return MatchResult(
             documents=best,
             confidence="exact",

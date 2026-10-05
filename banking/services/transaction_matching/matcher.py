@@ -5,6 +5,7 @@ from decimal import Decimal
 from django.apps import apps
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction as db_transaction
+from django.db.models import Q
 from django.utils import timezone
 from djmoney.money import Money
 
@@ -236,6 +237,7 @@ class TransactionMatcher:
         LoanInstallment = apps.get_model("loans", "LoanInstallment")
         LoanEvent = apps.get_model("loans", "LoanEvent")
         ExpenseClaim = apps.get_model("expenses", "ExpenseClaim")
+        EmployeePayroll = apps.get_model("payroll", "EmployeePayroll")
         txn_date = self.transaction.transaction_date
         cutoff_date = txn_date + timedelta(days=PAYMENT_DATE_TOLERANCE_DAYS)
 
@@ -269,21 +271,33 @@ class TransactionMatcher:
                 date__lte=cutoff_date,
             ).exclude(pk__in=reconciled_event_ids)
 
-            # Approved expense claims — reimbursement goes to the employee,
-            # not a provider, so counterparty resolution is separate from
-            # self.counterparty (which is Provider/Client-typed).
+            # Approved expense claims go to an employee, not a provider, so
+            # counterparty resolution is separate from self.counterparty
+            # (which is Provider/Client-typed).
             from apps.expenses.models import ExpenseClaimStatus
+            employee = find_employee_counterparty(self.transaction, self.transaction.company)
+            self.employee_counterparty = employee
+
             claim_qs = ExpenseClaim.objects.filter(
                 company=self.transaction.company,
                 status=ExpenseClaimStatus.APPROVED,
                 created_at__date__lte=cutoff_date,
             )
-            employee = find_employee_counterparty(self.transaction, self.transaction.company)
-            self.employee_counterparty = employee
             if employee and employee.user_id:
                 claim_qs = claim_qs.filter(submitted_by_id=employee.user_id)
 
-            return list(qs) + list(installment_qs) + list(event_qs) + list(claim_qs)
+            payroll_qs = EmployeePayroll.objects.filter(
+                company=self.transaction.company,
+                is_paid=False,
+            ).filter(
+                Q(period__year__lt=cutoff_date.year)
+                | Q(period__year=cutoff_date.year, period__month__lte=cutoff_date.month)
+            )
+
+            return (
+                list(qs) + list(installment_qs) + list(event_qs)
+                + list(claim_qs) + list(payroll_qs)
+            )
 
         qs = SalesInvoice.objects.filter(
             company=self.transaction.company,

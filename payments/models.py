@@ -247,6 +247,7 @@ def _recalculate_invoice_payment_status(content_type, object_id):
     Invoice = apps.get_model("invoices", "Invoice")
     LoanInstallment = apps.get_model("loans", "LoanInstallment")
     ExpenseClaim = apps.get_model("expenses", "ExpenseClaim")
+    EmployeePayroll = apps.get_model("payroll", "EmployeePayroll")
     model_class = content_type.model_class()
 
     if model_class is SalesInvoice:
@@ -275,4 +276,10 @@ def _recalculate_invoice_payment_status(content_type, object_id):
             claim = ExpenseClaim.objects.get(pk=object_id)
             claim.recalculate_reimbursement()
         except ExpenseClaim.DoesNotExist:
+            pass
+    elif model_class is EmployeePayroll:
+        try:
+            employee_payroll = EmployeePayroll.objects.get(pk=object_id)
+            employee_payroll.recalculate_paid_status()
+        except EmployeePayroll.DoesNotExist:
             pass

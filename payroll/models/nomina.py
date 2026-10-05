@@ -1,7 +1,15 @@
+from decimal import Decimal
+
+from django.conf import settings
+from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.db.models import Sum
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from timestamps.models import Timestampable
+
+from payments.mixins import Payable
 
 
 class PayrollPeriod(Timestampable):
@@ -190,7 +198,7 @@ class PayrollConcept(Timestampable):
         return f"{self.code} — {self.name}"
 
 
-class EmployeePayroll(Timestampable):
+class EmployeePayroll(Timestampable, Payable):
     """
     One payroll record per employee per period.
     Stores all figures from the payslip.
@@ -349,6 +357,49 @@ class EmployeePayroll(Timestampable):
         verbose_name=_("IBAN"),
     )
 
+    payment_day_override = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        verbose_name=_("Payment Day Override"),
+        help_text=_(
+            "Day of the month this employee is expected to be paid, for cashflow. "
+            "Leave empty to inherit the company's "
+            "configured day."
+        ),
+    )
+
+    is_paid = models.BooleanField(default=False, verbose_name=_("Paid"))
+
+    paid_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name=_("Paid At"),
+    )
+
+    paid_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        verbose_name=_("Paid By"),
+    )
+
+    class PaidVia(models.TextChoices):
+        MANUAL = "manual", _("Manual")
+        RECONCILIATION = "reconciliation", _("Bank Reconciliation")
+
+    paid_via = models.CharField(
+        max_length=20,
+        choices=PaidVia.choices,
+        default=PaidVia.MANUAL,
+        verbose_name=_("Paid Via"),
+        help_text=_(
+            "Whether this was marked paid manually or automatically via "
+            "bank reconciliation."
+        ),
+    )
+
     raw_data = models.JSONField(
         default=dict,
         blank=True,
@@ -370,6 +421,48 @@ class EmployeePayroll(Timestampable):
 
     def __str__(self):
         return f"{self.employee} — {self.period}"
+
+    @property
+    def amount_remaining(self) -> Decimal:
+        """Payable contract: net salary while unpaid, zero once confirmed paid."""
+        return Decimal("0.00") if self.is_paid else self.net_salary
+
+    @property
+    def counterparty_key(self) -> tuple:
+        """Reimbursement/payment goes to the employee, not a provider/client."""
+        return ("employee", self.employee_id)
+
+    def recalculate_paid_status(self) -> None:
+        """
+        Mirrors ExpenseClaim.recalculate_reimbursement() for payroll: sums this
+        payroll's PaymentAllocations and, if they now cover the full net
+        salary, marks it paid automatically (paid_via=RECONCILIATION, paid_by
+        left null since no human clicked anything). If a previously-covering
+        allocation is removed (PaymentAllocation post_delete), reverts is_paid
+        back to False — but ONLY when paid_via is RECONCILIATION, never
+        overriding a manual "mark as paid" done from the admin.
+        """
+        from payments.models import PaymentAllocation
+
+        ct = ContentType.objects.get_for_model(self)
+        total_applied = (
+            PaymentAllocation.objects.filter(content_type=ct, object_id=self.pk)
+            .aggregate(total=Sum("amount_applied"))["total"]
+            or Decimal("0.00")
+        )
+
+        if total_applied >= self.net_salary and not self.is_paid:
+            self.is_paid = True
+            self.paid_at = timezone.now()
+            self.paid_by = None
+            self.paid_via = self.PaidVia.RECONCILIATION
+            self.save(update_fields=["is_paid", "paid_at", "paid_by", "paid_via", "updated_at"])
+        elif total_applied < self.net_salary and self.is_paid and self.paid_via == self.PaidVia.RECONCILIATION:
+            self.is_paid = False
+            self.paid_at = None
+            self.paid_by = None
+            self.paid_via = self.PaidVia.MANUAL
+            self.save(update_fields=["is_paid", "paid_at", "paid_by", "paid_via", "updated_at"])
 
 
 class PayrollConceptLine(Timestampable):

@@ -1,7 +1,10 @@
 from unfold.admin import StackedInline
 from django.contrib import admin, messages
 from unfold.admin import ModelAdmin
+from django.contrib.contenttypes.models import ContentType
 from django.db import models
+from django.db.models import OuterRef, Subquery
+from django.utils.html import format_html
 
 from django.urls import path, reverse
 from django.shortcuts import get_object_or_404, redirect
@@ -30,6 +33,8 @@ from company.views.driver_tracking import DriverTrackingView
 
 from company.forms import BaseDocumentForm
 from vacations.models import VacationWallet, VacationRequest, VacationRequestStatus
+from payments.models import PaymentAllocation
+from payroll.models import EmployeePayroll
 from decimal import Decimal
 from django.db.models import Sum
 
@@ -85,6 +90,97 @@ class VacationRequestInline(TabularInline):
     fields = ("start_date", "end_date", "requested_days", "status", "approved_by")
     readonly_fields = ("requested_days", "approved_by")
     ordering = ("-created_at",)
+
+
+class EmployeePayrollHistoryInline(TabularInline):
+    """
+    Read-only payroll payment history for an employee — mirrors
+    loans.admin.LoanPaymentHistoryInline (Loan aggregating its
+    LoanInstallment children), with Employee aggregating its EmployeePayroll
+    rows across periods instead.
+    """
+    model = EmployeePayroll
+    extra = 0
+    tab = True
+    can_delete = False
+    show_change_link = True
+    fields = (
+        "ph_period",
+        "ph_date",
+        "ph_net_salary",
+        "ph_amount_paid",
+        "ph_transaction",
+    )
+    readonly_fields = fields
+    verbose_name = _("Payment")
+    verbose_name_plural = _("Payroll Payment History")
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        ct = ContentType.objects.get_for_model(EmployeePayroll)
+
+        amount_applied_sq = Subquery(
+            PaymentAllocation.objects.filter(
+                content_type=ct, object_id=OuterRef("pk"),
+            ).order_by("payment__payment_date").values("amount_applied")[:1]
+        )
+        txn_id_sq = Subquery(
+            PaymentAllocation.objects.filter(
+                content_type=ct, object_id=OuterRef("pk"),
+            ).order_by("payment__payment_date")
+            .values("payment__reconciliation__bank_transaction_id")[:1]
+        )
+        return (
+            super().get_queryset(request)
+            .filter(is_paid=True)
+            .select_related("period")
+            .annotate(
+                actual_amount_applied=amount_applied_sq,
+                bank_transaction_id=txn_id_sq,
+            )
+            .order_by("-period__year", "-period__month")
+        )
+
+    @admin.display(description=_("Period"))
+    def ph_period(self, obj):
+        return str(obj.period)
+
+    @admin.display(description=_("Date"))
+    def ph_date(self, obj):
+        # EmployeePayroll already tracks its own confirmation timestamp,
+        # unlike LoanInstallment — no need to subquery it out of
+        # PaymentAllocation like the loans inline does.
+        return obj.paid_at
+
+    @admin.display(description=_("Net Salary"))
+    def ph_net_salary(self, obj):
+        return obj.net_salary
+
+    @admin.display(description=_("Amount Paid"))
+    def ph_amount_paid(self, obj):
+        actual = getattr(obj, "actual_amount_applied", None)
+        return actual if actual is not None else obj.net_salary
+
+    @admin.display(description=_("Bank Transaction"))
+    def ph_transaction(self, obj):
+        txn_id = getattr(obj, "bank_transaction_id", None)
+        if not txn_id:
+            return "—"
+        url = reverse("admin:banking_banktransaction_change", args=[txn_id])
+        label = _("Bank Transaction #%(pk)s") % {"pk": txn_id}
+        return format_html(
+            '<a href="{}" target="_blank" class="font-medium text-primary-600 dark:text-primary-400" '
+            'style="display:inline-flex;align-items:center;gap:4px;padding:2px 10px;'
+            'border-radius:9999px;border:1px solid currentColor;'
+            'background-color:color-mix(in srgb, currentColor 12%, transparent);'
+            'text-decoration:none;font-size:12px;white-space:nowrap;">'
+            '<span class="material-symbols-outlined" style="font-size:14px;">receipt</span>'
+            '{}</a>',
+            url, label,
+        )
+
 
 @admin.register(Employee)
 class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
@@ -190,7 +286,12 @@ class EmployeeAdmin(ModelAdmin, CompanyRestrictedAdmin, ImportExportModelAdmin):
         },
     ),
 )
-    inlines = (EmployeeDocumentInline, VacationRequestInline, VacationWalletInline)
+    inlines = (
+        EmployeeDocumentInline,
+        VacationRequestInline,
+        VacationWalletInline,
+        EmployeePayrollHistoryInline,
+    )
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         if db_field.name == "work_pin":

@@ -2,6 +2,7 @@ from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import path, reverse
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from unfold.admin import ModelAdmin, TabularInline, StackedInline
 from unfold.decorators import action, display
@@ -83,8 +84,8 @@ class PayrollPeriodAdmin(ModelAdmin):
     ordering = ("-year", "-month")
 
     actions_list = ["import_a3_action"]
-    actions_detail = ["close_period_action", "reopen_period_action"]
-    actions_row = ["close_period_action", "reopen_period_action"]
+    actions_detail = ["close_period_action", "reopen_period_action", "pay_all_payrolls_action"]
+    actions_row = ["close_period_action", "reopen_period_action", "pay_all_payrolls_action"]
 
     readonly_fields = (
         "closed_at",
@@ -155,6 +156,31 @@ class PayrollPeriodAdmin(ModelAdmin):
 
     def has_reopen_permission(self, request, object_id=None):
         return request.user.has_perm("payroll.change_payrollperiod")
+
+    @action(
+        description=_("Pay all payrolls in this period"),
+        icon="payments",
+        permissions=["pay_all"],
+    )
+    def pay_all_payrolls_action(self, request, object_id):
+        period = get_object_or_404(PayrollPeriod, pk=object_id)
+        now = timezone.now()
+        updated = 0
+        for payroll in period.payrolls.filter(is_paid=False):
+            payroll.is_paid = True
+            payroll.paid_at = now
+            payroll.paid_by = request.user
+            payroll.paid_via = EmployeePayroll.PaidVia.MANUAL
+            payroll.save(update_fields=["is_paid", "paid_at", "paid_by", "paid_via", "updated_at"])
+            updated += 1
+        messages.success(
+            request,
+            _("%(n)d payroll(s) marked as paid.") % {"n": updated},
+        )
+        return redirect(reverse("admin:payroll_payrollperiod_change", args=[object_id]))
+
+    def has_pay_all_permission(self, request, object_id=None):
+        return request.user.has_perm("payroll.change_employeepayroll")
 
     @display(
         description=_("Status"),
@@ -265,11 +291,15 @@ class EmployeePayrollAdmin(ModelAdmin):
         "net_salary",
         "employer_cost",
         "irpf_percentage",
+        "payment_day_override",
+        "is_paid",
+        "paid_at",
     )
     list_filter = (
         "period__year",
         "period__month",
         "company",
+        "is_paid",
     )
     search_fields = (
         "employee__first_name",
@@ -278,6 +308,12 @@ class EmployeePayrollAdmin(ModelAdmin):
     )
     autocomplete_fields = ("period", "employee", "company")
     ordering = ("-period__year", "-period__month", "employee__last_name")
+
+    actions = ["mark_selected_as_paid"]
+    actions_detail = ["mark_paid_action", "mark_unpaid_action", "run_matcher_action"]
+    actions_row = ["mark_paid_action", "mark_unpaid_action"]
+
+    readonly_fields = ("paid_via",)
 
     fieldsets = (
         (
@@ -288,7 +324,16 @@ class EmployeePayrollAdmin(ModelAdmin):
                     ("category", "social_security_affiliation_number"),
                     ("contract_type", "days_in_period"),
                     ("period_start", "period_end"),
-                    "iban",
+                    ("iban", "payment_day_override"),
+                )
+            },
+        ),
+        (
+            _("Payment Status"),
+            {
+                "fields": (
+                    ("is_paid", "paid_at"),
+                    ("paid_by", "paid_via"),
                 )
             },
         ),
@@ -332,6 +377,55 @@ class EmployeePayrollAdmin(ModelAdmin):
     )
 
     inlines = [PayrollConceptLineInline, PayrollSSBreakdownInline]
+
+    @action(description=_("Mark as paid"), icon="paid", permissions=["mark_paid"])
+    def mark_paid_action(self, request, object_id):
+        payroll = get_object_or_404(EmployeePayroll, pk=object_id)
+        payroll.is_paid = True
+        payroll.paid_at = timezone.now()
+        payroll.paid_by = request.user
+        payroll.paid_via = EmployeePayroll.PaidVia.MANUAL
+        payroll.save(update_fields=["is_paid", "paid_at", "paid_by", "paid_via", "updated_at"])
+        messages.success(request, _("Payroll marked as paid."))
+        return redirect(reverse("admin:payroll_employeepayroll_change", args=[object_id]))
+
+    def has_mark_paid_permission(self, request, object_id=None):
+        return request.user.has_perm("payroll.change_employeepayroll")
+
+    @action(description=_("Mark as unpaid"), icon="money_off", permissions=["mark_unpaid"])
+    def mark_unpaid_action(self, request, object_id):
+        payroll = get_object_or_404(EmployeePayroll, pk=object_id)
+        payroll.is_paid = False
+        payroll.paid_at = None
+        payroll.paid_by = None
+        payroll.paid_via = EmployeePayroll.PaidVia.MANUAL
+        payroll.save(update_fields=["is_paid", "paid_at", "paid_by", "paid_via", "updated_at"])
+        messages.success(request, _("Payroll marked as unpaid."))
+        return redirect(reverse("admin:payroll_employeepayroll_change", args=[object_id]))
+
+    def has_mark_unpaid_permission(self, request, object_id=None):
+        return request.user.has_perm("payroll.change_employeepayroll")
+
+    @admin.action(description=_("Mark selected payrolls as paid"))
+    def mark_selected_as_paid(self, request, queryset):
+        now = timezone.now()
+        updated = 0
+        for payroll in queryset:
+            payroll.is_paid = True
+            payroll.paid_at = now
+            payroll.paid_by = request.user
+            payroll.paid_via = EmployeePayroll.PaidVia.MANUAL
+            payroll.save(update_fields=["is_paid", "paid_at", "paid_by", "paid_via", "updated_at"])
+            updated += 1
+        self.message_user(
+            request,
+            _("%(n)d payroll(s) marked as paid.") % {"n": updated},
+            messages.SUCCESS,
+        )
+
+    @action(description=_("Check bank transactions"), icon="account_balance")
+    def run_matcher_action(self, request, object_id):
+        return redirect(reverse("admin:banking_banktransaction_changelist"))
 
 
 @admin.register(PayrollImportPendingRow)

@@ -15,7 +15,8 @@ from company.models import BankAccount, Company
 from invoices.models import ConfirmationStatus, Invoice, InvoicePaymentStatus, SalesInvoice, SalesInvoiceStatus
 from loans.models import LoanInstallment, LoanInstallmentPaymentStatus
 from finance.models import TaxPeriod, TaxPeriodStatus
-from payroll.models import PayrollPeriod
+from payroll.models import EmployeePayroll, PayrollPeriod
+from payroll.services.payment_projection import get_projected_payment_date
 
 
 class CalendarDirection:
@@ -209,21 +210,42 @@ def _tax_period_entries(company: Company, date_from: datetime.date, date_to: dat
 
 
 def _payroll_salary_entries(company: Company, date_from: datetime.date, date_to: datetime.date) -> list[CalendarEntry]:
-    periods = PayrollPeriod.objects.filter(company=company, salary_payment_date__range=(date_from, date_to))
-    return [
-        CalendarEntry(
-            date=period.salary_payment_date,
-            amount=period.total_net_salary,
-            direction=CalendarDirection.EXPENSE,
-            category="Payroll",
-            description=f"Nóminas {period.month:02d}/{period.year}",
-            source_model="payroll.PayrollPeriod",
-            source_id=period.pk,
-            admin_url=_admin_change_url("payroll.PayrollPeriod", period.pk),
+    today = timezone.localdate()
+    unpaid_payrolls = (
+        EmployeePayroll.objects
+        .filter(company=company, is_paid=False)
+        .select_related("employee", "period")
+    )
+
+    grouped: dict[tuple[datetime.date, int], dict] = {}
+    for employee_payroll in unpaid_payrolls:
+        projected_date = get_projected_payment_date(employee_payroll)
+        effective_date = projected_date if projected_date >= today else today
+        if not (date_from <= effective_date <= date_to):
+            continue
+        key = (effective_date, employee_payroll.employee_id)
+        group = grouped.setdefault(key, {"employee": employee_payroll.employee, "amount": Decimal("0.00"), "payroll_ids": []})
+        group["amount"] += employee_payroll.net_salary
+        group["payroll_ids"].append(employee_payroll.pk)
+
+    entries = []
+    for (effective_date, _employee_id), group in grouped.items():
+        if not group["amount"]:
+            continue
+        is_single = len(group["payroll_ids"]) == 1
+        entries.append(
+            CalendarEntry(
+                date=effective_date,
+                amount=group["amount"],
+                direction=CalendarDirection.EXPENSE,
+                category="Payroll",
+                description=str(group["employee"]),
+                source_model="payroll.EmployeePayroll",
+                source_id=group["payroll_ids"][0],
+                admin_url=_admin_change_url("payroll.EmployeePayroll", group["payroll_ids"][0]) if is_single else "",
+            )
         )
-        for period in periods
-        if period.total_net_salary
-    ]
+    return entries
 
 
 def _payroll_ss_entries(company: Company, date_from: datetime.date, date_to: datetime.date) -> list[CalendarEntry]:

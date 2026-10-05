@@ -510,7 +510,7 @@ class MovementStrategy(BaseTransactionStrategy):
         if not AssetTransaction.payload_is_full(form_data):
             planning.mark_cuba_claimed_by_driver()
         planning.sync_cuba_operation_status()
-        return JsonResponse({"success": True, "message": "Recogida registrada", "transaction_id": transaction.id})
+        return JsonResponse({"success": True, "message": "Recogida registrada", "transaction_id": transaction.id, "document_url": transaction.document_url})
 
 
 class DeliveryStrategy(BaseTransactionStrategy):
@@ -591,7 +591,7 @@ class DeliveryStrategy(BaseTransactionStrategy):
             )
         else:
             message = f"Entrega registrada en {destination_zone}"
-        return JsonResponse({"success": True, "message": message, "transaction_id": transaction.id})
+        return JsonResponse({"success": True, "message": message, "transaction_id": transaction.id, "document_url": transaction.document_url})
 
 
 class ReceiptStrategy(BaseTransactionStrategy):
@@ -668,7 +668,18 @@ class ReceiptStrategy(BaseTransactionStrategy):
             )
         if planning is not None:
             planning.sync_cuba_operation_status()
-        return JsonResponse({"success": True, "message": "Verteo registrado correctamente.", "transaction_id": transaction.id, "receipt_id": receipt.id})
+        response_data = {
+            "success": True,
+            "message": "Verteo registrado correctamente.",
+            "transaction_id": transaction.id,
+            "receipt_id": receipt.id,
+            "document_url": transaction.document_url,
+        }
+        if movement_tx is not None:
+            response_data["related_transaction_id"] = movement_tx.id
+            response_data["related_transaction_type"] = movement_tx.transaction_type
+            response_data["related_document_url"] = movement_tx.document_url
+        return JsonResponse(response_data)
 
 
 def _validate_zone(asset, latitude, longitude, chosen_zone_id):
@@ -1331,3 +1342,58 @@ class LaborerHoursStatusView(APIView):
             "zone_name": open_tx.to_zone.name if open_tx.to_zone else None,
             "intervals": intervals,
         })
+
+
+class LatestTransactionDocumentView(APIView):
+    """The document+QR the driver would open to justify what's currently in/on
+    the truck to an inspecting officer: the most recent cuba pickup, verteo, or
+    porte pickup they performed. Flat "latest of these three" by design -- a
+    verteo closing out a load is itself the proof of what was just dumped, so
+    it's never excluded in favour of some notion of "still loaded"."""
+    permission_classes = [IsAuthenticated]
+
+    DOCUMENT_TRANSACTION_TYPES = (
+        TransactionTypeChoices.MOVEMENT,
+        TransactionTypeChoices.RECEIPT,
+        TransactionTypeChoices.PORTE_MOVEMENT,
+    )
+
+    def get(self, request):
+        employee = get_current_employee(request.user)
+        if employee is None:
+            return JsonResponse({"error": "No employee profile found"}, status=400)
+        transaction = AssetTransaction.objects.filter(
+            performed_by=employee,
+            transaction_type__in=self.DOCUMENT_TRANSACTION_TYPES,
+        ).order_by("-date").first()
+        if transaction is None:
+            return JsonResponse({"error": "No hay ningún documento todavía."}, status=404)
+        response_data = {
+            "transaction_id": transaction.id,
+            "transaction_type": transaction.transaction_type,
+            "date": transaction.date.isoformat(),
+            "document_url": transaction.document_url,
+        }
+        response_data.update(_related_movement_fields(transaction))
+        return JsonResponse(response_data)
+
+
+def _related_movement_fields(receipt_transaction) -> dict:
+    """For a RECEIPT transaction, the cuba pickup (MOVEMENT) it discharges --
+    legally the inspector needs to see both the verteo and the movement that
+    explains why the cuba was on the truck. Uses AssetTransactionReceipt.
+    movement_transaction, the same authoritative link ReceiptStrategy itself
+    sets at verteo time -- not re-derived/guessed here. Returns {} (no keys
+    at all, never null/empty) whenever there's nothing to relate, so callers
+    can just dict-update the response unconditionally."""
+    if receipt_transaction.transaction_type != TransactionTypeChoices.RECEIPT:
+        return {}
+    receipt = receipt_transaction.receipts.select_related("movement_transaction").first()
+    movement_tx = receipt.movement_transaction if receipt else None
+    if movement_tx is None:
+        return {}
+    return {
+        "related_transaction_id": movement_tx.id,
+        "related_transaction_type": movement_tx.transaction_type,
+        "related_document_url": movement_tx.document_url,
+    }

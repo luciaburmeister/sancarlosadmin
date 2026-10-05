@@ -374,6 +374,9 @@ class PorteSubmitView(APIView):
         matricula = raw.get("matricula", "")
         client_id = raw.get("client_id")
         notes = raw.get("notes", "")
+        goods_type = raw.get("goods_type", "")
+        tonnes_transported = raw.get("tonnes_transported", "")
+        package_count = raw.get("package_count", "")
         is_machine_porte = planning.service_type == SERVICE_TYPE_MAQUINA_PROPIA
         transaction_type = PORTE_ACTION_TRANSACTION_TYPES[action]
 
@@ -430,6 +433,9 @@ class PorteSubmitView(APIView):
                 PorteTransactionDataKey.LOAD_DESCRIPTION: planning.load_description,
                 PorteTransactionDataKey.CLIENT_ID: client_id,
                 PorteTransactionDataKey.MACHINE_ID: planning.machine_id,
+                PorteTransactionDataKey.GOODS_TYPE: goods_type,
+                PorteTransactionDataKey.TONNES_TRANSPORTED: tonnes_transported,
+                PorteTransactionDataKey.PACKAGE_COUNT: package_count,
             },
         )
         if firma_b64:
@@ -441,4 +447,9 @@ class PorteSubmitView(APIView):
         elif planning.status != PlanningStatus.DELIVERED:
             planning.status = PlanningStatus.IN_TRANSIT
         planning.save()
-        return JsonResponse({"success": True, "message": f"Porte {action} registered successfully"})
+        return JsonResponse({
+            "success": True,
+            "message": f"Porte {action} registered successfully",
+            "transaction_id": transaction.id,
+            "document_url": transaction.document_url,
+        })

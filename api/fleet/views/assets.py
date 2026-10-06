@@ -1347,7 +1347,9 @@ class LaborerHoursStatusView(APIView):
 class LatestTransactionDocumentView(APIView):
     """The document+QR the driver would open to justify what's currently in/on
     the truck to an inspecting officer: the most recent cuba pickup, verteo, or
-    porte pickup they performed. Flat "latest of these three" by design -- a
+    porte load they performed. For portes it's the load (carga), not the
+    pickup (recogida): the load carries the goods data (type, tonnes,
+    packages) the transport document has to show. Flat "latest of these three" by design -- a
     verteo closing out a load is itself the proof of what was just dumped, so
     it's never excluded in favour of some notion of "still loaded"."""
     permission_classes = [IsAuthenticated]
@@ -1355,7 +1357,7 @@ class LatestTransactionDocumentView(APIView):
     DOCUMENT_TRANSACTION_TYPES = (
         TransactionTypeChoices.MOVEMENT,
         TransactionTypeChoices.RECEIPT,
-        TransactionTypeChoices.PORTE_MOVEMENT,
+        TransactionTypeChoices.PORTE_LOAD,
     )
 
     def get(self, request):

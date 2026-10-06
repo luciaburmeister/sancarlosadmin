@@ -3,7 +3,7 @@ api/fleet/tests/test_latest_document.py
 
 Tests for LatestTransactionDocumentView — GET /en/api/transactions/latest-document/
 This is what the Android "Abrir Documento" button calls to pull the document+QR
-for the most recent cuba pickup/verteo/porte pickup the logged-in driver did.
+for the most recent cuba pickup/verteo/porte load the logged-in driver did.
 """
 import json
 
@@ -77,12 +77,32 @@ class LatestTransactionDocumentViewTests(APITestCase):
         self.assertEqual(body["transaction_id"], newest.id)
         self.assertEqual(body["transaction_type"], TransactionTypeChoices.RECEIPT)
 
-    def test_porte_movement_is_eligible(self):
-        tx = self._make_tx(TransactionTypeChoices.PORTE_MOVEMENT)
+    def test_porte_load_is_eligible(self):
+        tx = self._make_tx(TransactionTypeChoices.PORTE_LOAD)
         self.client.force_authenticate(user=self.user)
         response = self.client.get(self.URL)
         body = json.loads(response.content)
         self.assertEqual(body["transaction_id"], tx.id)
+        self.assertEqual(body["transaction_type"], TransactionTypeChoices.PORTE_LOAD)
+
+    def test_porte_load_wins_over_its_earlier_porte_pickup(self):
+        """The porte document is the load (carga) -- it carries the goods data.
+        The recogida before it is never the document, even if it's newer than
+        everything else."""
+        self._make_tx(TransactionTypeChoices.PORTE_MOVEMENT, minutes_ago=30)
+        load = self._make_tx(TransactionTypeChoices.PORTE_LOAD, minutes_ago=10)
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.URL)
+        body = json.loads(response.content)
+        self.assertEqual(body["transaction_id"], load.id)
+
+    def test_porte_movement_is_not_a_document(self):
+        older = self._make_tx(TransactionTypeChoices.MOVEMENT, minutes_ago=60)
+        self._make_tx(TransactionTypeChoices.PORTE_MOVEMENT, minutes_ago=1)
+        self.client.force_authenticate(user=self.user)
+        response = self.client.get(self.URL)
+        body = json.loads(response.content)
+        self.assertEqual(body["transaction_id"], older.id)
 
     def test_ignores_transaction_types_outside_the_document_set(self):
         """DELIVERY, MACHINE_HOURS etc. are never a document to show, even
@@ -124,7 +144,7 @@ class LatestTransactionDocumentViewTests(APITestCase):
 
     def test_movement_type_never_includes_related_keys(self):
         """Only RECEIPT ever gets the related-movement fields -- MOVEMENT and
-        PORTE_MOVEMENT must never send them, not even as null."""
+        PORTE_LOAD must never send them, not even as null."""
         self._make_tx(TransactionTypeChoices.MOVEMENT)
         self.client.force_authenticate(user=self.user)
         response = self.client.get(self.URL)

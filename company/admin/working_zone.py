@@ -33,7 +33,7 @@ class WorkingZoneAuthorizationInline(TabularInline):
 class WorkingZoneAdmin(ModelAdmin):
     list_display = ("name", "company", "client", "project_file", "city", "province", "zone_type", "is_active")
     search_fields = (
-        "name", "street_address", "city", "cnae", "nima",
+        "name", "street_address", "city", "cnae", "nima", "cif",
         "company__name", "client__name",
     )
     list_filter = (
@@ -57,6 +57,7 @@ class WorkingZoneAdmin(ModelAdmin):
                 "zone_type",
                 "cnae",
                 "nima",
+                "cif",
                 "is_active",
             )
         }),

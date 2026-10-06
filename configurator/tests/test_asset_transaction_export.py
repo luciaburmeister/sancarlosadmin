@@ -120,6 +120,7 @@ class AssetTransactionExportWorkingZoneContextTests(TestCase):
             province="Málaga",
             cnae="3811",
             nima="2900012345",
+            cif="B12345678",
         )
         WorkingZone.objects.create(
             company=cls.company,
@@ -162,6 +163,7 @@ class AssetTransactionExportWorkingZoneContextTests(TestCase):
                     "full_address": "Calle Larios 1, Málaga, 29001",
                     "cnae": "3811",
                     "nima": "2900012345",
+                    "cif": "B12345678",
                 },
                 {
                     "name": "Obra este",
@@ -175,6 +177,7 @@ class AssetTransactionExportWorkingZoneContextTests(TestCase):
                     "full_address": "Málaga",
                     "cnae": "",
                     "nima": "",
+                    "cif": "",
                 },
                 {
                     "name": "Vertedero",
@@ -188,6 +191,7 @@ class AssetTransactionExportWorkingZoneContextTests(TestCase):
                     "full_address": " Antequera ",
                     "cnae": "",
                     "nima": "",
+                    "cif": "",
                 },
             ],
         )
@@ -242,6 +246,7 @@ class AssetTransactionExportLandfillContextTests(TestCase):
             province="Málaga",
             cnae="3821",
             nima="2900099999",
+            cif="B92198522",
         )
         cls.warehouse = WorkingZone.objects.create(
             company=cls.company,
@@ -275,6 +280,7 @@ class AssetTransactionExportLandfillContextTests(TestCase):
                 "full_address": "Polígono 1, Antequera, 29200",
                 "cnae": "3821",
                 "nima": "2900099999",
+                "cif": "B92198522",
             },
         )
 
@@ -304,6 +310,7 @@ class AssetTransactionExportLandfillContextTests(TestCase):
 
         self.assertEqual(context["landfill"]["name"], "Reciclados San Carlos")
         self.assertEqual(context["landfill"]["nima"], "2900099999")
+        self.assertEqual(context["landfill"]["cif"], "B92198522")
         self.assertEqual(context["landfill"]["full_address"], "Polígono 1, Antequera, 29200")
 
     def test_receipt_destination_that_is_not_a_landfill_is_empty(self):

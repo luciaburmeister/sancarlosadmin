@@ -729,6 +729,12 @@ class WorkingZone(CompanyOwnedModel):
             "(Número de Identificación Medioambiental)."
         ),
     )
+    cif = models.CharField(
+        max_length=20,
+        blank=True,
+        verbose_name=_("CIF"),
+        help_text=_("Optional tax identifier of this working zone, printed on the transfer document."),
+    )
     location = LocationField(based_fields=['street_address', 'city', 'postal_code', 'province', 'country'], zoom=18, default='POINT(36.7178 4.4256)')
     location_confirmed_at = models.DateTimeField(
         null=True,
@@ -780,6 +786,7 @@ class WorkingZone(CompanyOwnedModel):
             "full_address": self.full_address,
             "cnae": self.cnae,
             "nima": self.nima,
+            "cif": self.cif,
         }
 
     def get_coordinates(self):

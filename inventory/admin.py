@@ -1,7 +1,9 @@
 from decimal import Decimal
 
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.db import transaction
+from django.db.models import Sum
 from django.contrib.contenttypes.models import ContentType
 from django.utils.formats import date_format
 from django.utils.html import format_html
@@ -43,6 +45,8 @@ from .models import (
     ItemIdentityCode,
     BillOfMaterialsLine,
 )
+from inventory.choices import MovementType
+from inventory.services.stock_position import refresh_stock_position
 from invoices.models import AppliedTax
 from purchasing.models import PurchaseOrderItem
 
@@ -584,6 +588,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
     export_form_class = SelectableFieldsExportForm
     form = InventoryItemForm
     inlines = [BillOfMaterialsInline, ItemProviderInfoInline, ItemIdentityCodeInline, DeliveredItemIdentityCodeInline, PurchaseHistoryInline, ItemTransactionInline, ItemAppliedTaxInline]
+    actions = ["reset_stock_to_zero"]
     actions_row = ["row_receive_stock", "row_transfer_stock", "row_adjust_stock"]
     actions_detail = ["register_identity_codes"]
 
@@ -897,6 +902,48 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
 
     def has_row_adjust_stock_permission(self, request):
         return request.user.has_perm("inventory.change_inventoryitem")
+
+    @action(
+        description=_("Reset stock to 0"),
+        icon="restart_alt",
+        variant=ActionVariant.DANGER,
+        permissions=["reset_stock"],
+    )
+    def reset_stock_to_zero(self, request, queryset):
+        """Zero every warehouse balance with compensating ADJUST rows (ledger stays append-only)."""
+        note = str(_("Stock reset to 0"))
+        reset_ids = []
+        with transaction.atomic():
+            for item in queryset:
+                balances = (
+                    ItemTransaction.objects.filter(item=item)
+                    .values("warehouse")
+                    .annotate(total=Sum("quantity_change"))
+                    .exclude(total=0)
+                )
+                rows = [
+                    ItemTransaction(
+                        item=item,
+                        warehouse_id=b["warehouse"],
+                        movement_type=MovementType.ADJUST,
+                        quantity_change=-b["total"],
+                        user=request.user,
+                        note=note,
+                    )
+                    for b in balances
+                ]
+                if rows:
+                    ItemTransaction.objects.bulk_create(rows)
+                    reset_ids.append(item.pk)
+            refresh_stock_position(reset_ids)
+        self.message_user(
+            request,
+            _("Stock reset to 0 for %(count)d item(s).") % {"count": len(reset_ids)},
+            messages.SUCCESS,
+        )
+
+    def has_reset_stock_permission(self, request):
+        return request.user.has_perm("inventory.can_reset_stock")
 
     def get_urls(self):
         urls = super().get_urls()

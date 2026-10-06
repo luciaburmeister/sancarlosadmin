@@ -19216,3 +19216,16 @@ msgstr "Las líneas de este artículo no generan comisión a los agentes (p. ej.
 
 msgid "The percentage of the rule it was calculated with; empty when its parts use different rules."
 msgstr "El porcentaje de la regla con la que se calculó; vacío cuando sus partes usan reglas distintas."
+
+msgid "Reset stock to 0"
+msgstr "Poner el stock a 0"
+
+msgid "Stock reset to 0"
+msgstr "Stock puesto a 0"
+
+#, python-format
+msgid "Stock reset to 0 for %(count)d item(s)."
+msgstr "Stock puesto a 0 en %(count)d artículo(s)."
+
+msgid "Can reset item stock to zero"
+msgstr "Puede poner a cero el stock de los artículos"

@@ -531,6 +531,9 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
         ]
         verbose_name = _("Item")
         verbose_name_plural = _("Items")
+        permissions = [
+            ("can_reset_stock", _("Can reset item stock to zero")),
+        ]
 
     def __str__(self):
         return f"{self.code} | {self.name}"

@@ -502,6 +502,13 @@ class ManualTransactionForm(forms.Form):
         choices=CUBA_TRANSACTION_TYPE_CHOICES,
         widget=UnfoldAdminSelectWidget,
     )
+    asset = forms.ModelChoiceField(
+        label=_("Asset"),
+        queryset=Asset.objects.none(),
+        required=False,
+        widget=UnfoldAdminSelectWidget,
+        help_text=_("Only needed if the planning has no asset/truck/machine assigned yet — picks what this transaction is recorded against. Pre-filled from the planning when it already has one."),
+    )
     zone = forms.ModelChoiceField(
         label=_("Zone"),
         queryset=WorkingZone.objects.none(),
@@ -524,13 +531,23 @@ class ManualTransactionForm(forms.Form):
         super().__init__(*args, **kwargs)
         company = planning.company if planning is not None else None
         # "" (falsy) renders these ungrouped, above the per-type sections below.
-        for name in ("transaction_type", "zone", "performed_by", "notes"):
+        for name in ("transaction_type", "asset", "zone", "performed_by", "notes"):
             self.fields[name].parameter_group = ""
         # Porte always uses the planning's own origin/destination, never `zone`.
         self.fields["zone"].widget.attrs["data-shows-for"] = "movement,delivery,receipt"
         if planning is not None and planning.planning_type == PlanningType.PORTE:
             self.fields["transaction_type"].choices = PORTE_TRANSACTION_TYPE_CHOICES
         if planning is not None and planning.company_id:
+            self.fields["asset"].queryset = Asset.objects.filter(
+                company_id=planning.company_id
+            ).order_by("name")
+            # Planning may already have one on any of these, depending on type/step
+            # (cuba: asset; porte: transport_asset or, for an own-machine porte,
+            # machine) -- pre-fill from whichever is actually set so re-submitting
+            # a correction doesn't require re-picking it.
+            current_asset = planning.asset or planning.transport_asset or planning.machine
+            if current_asset is not None:
+                self.fields["asset"].initial = current_asset.pk
             self.fields["zone"].queryset = WorkingZone.objects.filter(
                 company_id=planning.company_id
             ).order_by("name")
@@ -581,6 +598,12 @@ class ManualTransactionForm(forms.Form):
     def clean(self):
         cleaned = super().clean()
         transaction_type = cleaned.get("transaction_type")
+        if self.planning is not None and not cleaned.get("asset"):
+            planning_has_asset = bool(
+                self.planning.asset_id or self.planning.transport_asset_id or self.planning.machine_id
+            )
+            if not planning_has_asset:
+                self.add_error("asset", _("This planning has no asset/truck/machine assigned yet — pick one here to continue."))
         if transaction_type == TransactionTypeChoices.DELIVERY:
             zone = cleaned.get("zone")
             destination = self.planning.destination if self.planning else None

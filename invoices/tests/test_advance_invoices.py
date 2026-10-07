@@ -225,13 +225,15 @@ class DescriptionTests(_AdvanceTestBase):
         self.assertNotIn("Rechazado", description)
 
     def test_many_quotes_are_trimmed_to_fit_the_line(self):
-        for i in range(30):
-            quote = Quote.objects.create(
+        # Every accepted quote is named, lines or not, so no configurations:
+        # add_config re-totals the quote and is what made this test slow. Ten
+        # ~63-character labels already overflow the 440 the line leaves.
+        for i in range(10):
+            Quote.objects.create(
                 project_name=f"Presupuesto con un nombre bastante largo {i}",
                 company=self.company, client=self.client_obj,
                 project_file=self.project_file, status=QuoteStatus.ACCEPTED,
             )
-            self.add_config(quote, Decimal("10.00"))
         description = self._description()
         self.assertLessEqual(len(description), 500)
         self.assertTrue(description.endswith(", …"))

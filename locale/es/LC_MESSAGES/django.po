@@ -19229,3 +19229,84 @@ msgstr "Stock puesto a 0 en %(count)d artículo(s)."
 
 msgid "Can reset item stock to zero"
 msgstr "Puede poner a cero el stock de los artículos"
+
+msgid "Bulk stock update"
+msgstr "Actualización masiva de stock"
+
+#, python-format
+msgid "Stock updated: %(changed)d adjustment(s) recorded, %(same)d row(s) already matched."
+msgstr "Stock actualizado: %(changed)d ajuste(s) registrado(s), %(same)d fila(s) ya coincidían."
+
+msgid "Nothing was applied: fix the rows marked below."
+msgstr "No se ha aplicado nada: corrige las filas marcadas abajo."
+
+msgid "Missing item code."
+msgstr "Falta el código del artículo."
+
+msgid "Quantity must be a whole number."
+msgstr "La cantidad debe ser un número entero."
+
+msgid "Quantity cannot be negative."
+msgstr "La cantidad no puede ser negativa."
+
+msgid "No rows to import."
+msgstr "No hay filas que importar."
+
+msgid "No item with this code."
+msgstr "No existe ningún artículo con este código."
+
+msgid "This code exists in more than one company; select a single company."
+msgstr "Este código existe en más de una empresa; selecciona una sola empresa."
+
+msgid "Services hold no stock."
+msgstr "Los servicios no tienen stock."
+
+msgid "Composite item: it holds no stock of its own, update its components."
+msgstr "Artículo compuesto: no tiene stock propio, actualiza sus componentes."
+
+msgid "No warehouse with this code in the item's company."
+msgstr "No hay ningún almacén con este código en la empresa del artículo."
+
+msgid "The item has no default warehouse; add a warehouse column."
+msgstr "El artículo no tiene almacén por defecto; añade una columna de almacén."
+
+#, python-format
+msgid "Duplicate of line %(line)d."
+msgstr "Duplicado de la línea %(line)d."
+
+msgid ""
+"Paste the rows from your spreadsheet: <strong>item code</strong>, "
+"<strong>counted quantity</strong> and, optionally, <strong>warehouse "
+"code</strong> (the item's default warehouse otherwise). Columns may be "
+"separated by tabs, semicolons or commas; a header row is skipped. The "
+"quantity is the stock on hand after the update: the difference is recorded "
+"as an adjustment."
+msgstr ""
+"Pega las filas de tu hoja de cálculo: <strong>código del artículo</strong>, "
+"<strong>cantidad contada</strong> y, opcionalmente, <strong>código de "
+"almacén</strong> (si no, el almacén por defecto del artículo). Las columnas "
+"pueden ir separadas por tabuladores, punto y coma o comas; la fila de "
+"cabecera se ignora. La cantidad es el stock disponible tras la "
+"actualización: la diferencia se registra como un ajuste."
+
+msgid "Rows"
+msgstr "Filas"
+
+msgid "Counted"
+msgstr "Contado"
+
+msgid "Difference"
+msgstr "Diferencia"
+
+msgid "Edit rows"
+msgstr "Editar filas"
+
+#, python-format
+msgid "Apply %(counter)s adjustment"
+msgid_plural "Apply %(counter)s adjustments"
+msgstr[0] "Aplicar %(counter)s ajuste"
+msgstr[1] "Aplicar %(counter)s ajustes"
+
+#, python-format
+msgid "%(count)d row(s) have errors; fix them below."
+msgstr "%(count)d fila(s) con errores; corrígelas abajo."

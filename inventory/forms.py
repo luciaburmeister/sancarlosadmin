@@ -15,6 +15,7 @@ from materials.models import Provider
 from invoices.models import Invoice
 from purchasing.models import PurchaseOrderReceiptItem
 from .models import ItemIdentityCode, Warehouse
+from .services.bulk_stock import build_plan
 
 
 class _BaseMovementForm(forms.Form):
@@ -255,3 +256,49 @@ class ItemIdentityCodesForm(forms.Form):
                 self.parsed_codes[key] = codes
 
         return cleaned
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Bulk stock update
+# ─────────────────────────────────────────────────────────────────────────────
+
+class BulkStockUpdateForm(forms.Form):
+    """Pasted ``code ; counted quantity [; warehouse]`` rows.
+
+    Validating the form resolves every row (see
+    inventory.services.bulk_stock.build_plan) and exposes the result as
+    ``self.plan`` — valid or not, so the page can mark the bad rows.
+    """
+
+    rows = forms.CharField(
+        label=_("Rows"),
+        widget=UnfoldAdminTextareaWidget(attrs={
+            "rows": 14,
+            "spellcheck": "false",
+            "class": "font-mono",
+            "placeholder": "STK-00012;40;WH1\nSTK-00013;0",
+        }),
+    )
+    note = forms.CharField(
+        label=_("Note"),
+        required=False,
+        widget=UnfoldAdminTextInputWidget(attrs={"placeholder": _("Bulk stock update")}),
+    )
+
+    def __init__(self, *args, companies, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.companies = companies
+        self.plan = None
+
+    def clean(self):
+        cleaned_data = super().clean()
+        text = cleaned_data.get("rows")
+        if not text:
+            return cleaned_data
+        self.plan = build_plan(text, self.companies)
+        for error in self.plan.errors:
+            self.add_error("rows", error)
+        invalid = sum(not r.is_valid for r in self.plan.rows)
+        if invalid:
+            self.add_error("rows", _("%(count)d row(s) have errors; fix them below.") % {"count": invalid})
+        return cleaned_data

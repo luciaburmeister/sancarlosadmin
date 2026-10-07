@@ -35,6 +35,7 @@ from .views import (
     TransferStockView,
 )
 from .views_reorder_report import InventoryReportsView, ReorderReportExportView
+from .views_bulk_stock import BulkStockUpdateView
 from .models import (
     Warehouse,
     StockLocation,
@@ -589,6 +590,7 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
     form = InventoryItemForm
     inlines = [BillOfMaterialsInline, ItemProviderInfoInline, ItemIdentityCodeInline, DeliveredItemIdentityCodeInline, PurchaseHistoryInline, ItemTransactionInline, ItemAppliedTaxInline]
     actions = ["reset_stock_to_zero"]
+    actions_list = ["bulk_stock_update_action"]
     actions_row = ["row_receive_stock", "row_transfer_stock", "row_adjust_stock"]
     actions_detail = ["register_identity_codes"]
 
@@ -945,6 +947,13 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
     def has_reset_stock_permission(self, request):
         return request.user.has_perm("inventory.can_reset_stock")
 
+    @action(description=_("Bulk stock update"), url_path="bulk-stock-action", icon="inventory")
+    def bulk_stock_update_action(self, request):
+        return redirect(reverse("admin:inventory_inventoryitem_bulk_stock"))
+
+    def has_bulk_stock_update_action_permission(self, request):
+        return request.user.has_perm("inventory.change_inventoryitem")
+
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
@@ -961,6 +970,13 @@ class InventoryItemAdmin(CompanyRestrictedAdmin, ModelAdmin, ImportExportModelAd
                     ReorderReportExportView.as_view(model_admin=self)
                 ),
                 name="inventory_inventoryitem_reorder_report",
+            ),
+            path(
+                "bulk-stock/",
+                self.admin_site.admin_view(
+                    BulkStockUpdateView.as_view(model_admin=self)
+                ),
+                name="inventory_inventoryitem_bulk_stock",
             ),
             path(
                 "<int:object_id>/qr/receive/",

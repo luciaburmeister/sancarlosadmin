@@ -1,0 +1,103 @@
+{% extends "admin/base_site.html" %}
+{% load i18n unfold %}
+
+{% block title %}{{ title }} | {{ site_title|default:_('Django site admin') }}{% endblock %}
+
+{% block content %}
+
+<div class="mb-6 mt-2">
+  <ul class="flex flex-wrap items-center gap-x-1 text-sm text-font-subtle-light dark:text-font-subtle-dark list-none p-0 m-0">
+    <li><a href="{% url 'admin:index' %}" class="hover:text-primary-600 dark:hover:text-primary-400 transition-colors no-underline">{% trans "Home" %}</a></li>
+    <li class="mx-1">/</li>
+    <li><a href="{% url 'admin:inventory_inventoryitem_changelist' %}" class="hover:text-primary-600 dark:hover:text-primary-400 transition-colors no-underline">{% trans "Items" %}</a></li>
+    <li class="mx-1">/</li>
+    <li class="font-semibold text-font-important-light dark:text-font-important-dark">{{ title }}</li>
+  </ul>
+</div>
+
+<form method="post" novalidate class="flex flex-col gap-6">
+  {% csrf_token %}
+
+  {% component "unfold/components/card.html" with title=title %}
+    <p class="text-sm text-font-subtle-light dark:text-font-subtle-dark mb-4">
+      {% blocktrans trimmed %}
+        Paste the rows from your spreadsheet: <strong>item code</strong>, <strong>counted quantity</strong>
+        and, optionally, <strong>warehouse code</strong> (the item's default warehouse otherwise).
+        Columns may be separated by tabs, semicolons or commas; a header row is skipped.
+        The quantity is the stock on hand after the update: the difference is recorded as an adjustment.
+      {% endblocktrans %}
+    </p>
+    <pre class="text-xs font-mono bg-base-50 dark:bg-base-800 rounded-default px-3 py-2 mb-4">code;quantity;warehouse
+STK-00012;40;WH1
+STK-00013;0</pre>
+
+    {% include "unfold/helpers/field.html" with field=form.rows %}
+    {% include "unfold/helpers/field.html" with field=form.note %}
+  {% endcomponent %}
+
+  {% with plan=form.plan %}
+    {% if plan.rows %}
+    <div class="border border-base-200 dark:border-base-800 rounded-default overflow-x-auto bg-white dark:bg-base-900">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs text-font-subtle-light dark:text-font-subtle-dark border-b border-base-200 dark:border-base-800">
+            <th class="px-4 py-2">{% trans "Line" %}</th>
+            <th class="px-4 py-2">{% trans "Item" %}</th>
+            <th class="px-4 py-2">{% trans "Warehouse" %}</th>
+            <th class="px-4 py-2 text-right">{% trans "Current" %}</th>
+            <th class="px-4 py-2 text-right">{% trans "Counted" %}</th>
+            <th class="px-4 py-2 text-right">{% trans "Difference" %}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in plan.rows %}
+          <tr class="border-b border-base-100 dark:border-base-800 {% if not row.is_valid %}bg-red-50 dark:bg-red-950/30{% endif %}">
+            <td class="px-4 py-2 text-font-subtle-light dark:text-font-subtle-dark">{{ row.line }}</td>
+            <td class="px-4 py-2">
+              <span class="font-mono">{{ row.code|default:"—" }}</span>
+              {% if row.item %}<span class="text-font-subtle-light dark:text-font-subtle-dark"> · {{ row.item.name }}</span>{% endif %}
+              {% for error in row.errors %}
+                <p class="text-xs text-red-600 dark:text-red-400 m-0">{{ error }}</p>
+              {% endfor %}
+            </td>
+            <td class="px-4 py-2">{{ row.warehouse|default:row.warehouse_code|default:"—" }}</td>
+            <td class="px-4 py-2 text-right">{% if row.is_valid %}{{ row.current }}{% endif %}</td>
+            <td class="px-4 py-2 text-right">{{ row.quantity|default_if_none:row.raw_quantity }}</td>
+            <td class="px-4 py-2 text-right font-semibold">
+              {% if row.is_valid %}
+                {% if row.delta > 0 %}<span class="text-green-600 dark:text-green-400">+{{ row.delta }}</span>
+                {% elif row.delta < 0 %}<span class="text-red-600 dark:text-red-400">{{ row.delta }}</span>
+                {% else %}<span class="text-font-subtle-light dark:text-font-subtle-dark">0</span>{% endif %}
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  {% endwith %}
+
+  <div class="flex items-center justify-between">
+    {% if confirm %}
+      {% component "unfold/components/button.html" with name="edit" submit=True variant="default" size="md" %}
+        <span class="material-symbols-outlined text-[18px] leading-none">edit</span>
+        {% trans "Edit rows" %}
+      {% endcomponent %}
+      {% component "unfold/components/button.html" with name="apply" submit=True size="md" %}
+        {% blocktrans count counter=form.plan.changes|length %}Apply {{ counter }} adjustment{% plural %}Apply {{ counter }} adjustments{% endblocktrans %}
+      {% endcomponent %}
+    {% else %}
+      {% url 'admin:inventory_inventoryitem_changelist' as changelist_url %}
+      {% component "unfold/components/button.html" with href=changelist_url variant="default" size="md" %}
+        <span class="material-symbols-outlined text-[18px] leading-none">arrow_back</span>
+        {% trans "Cancel" %}
+      {% endcomponent %}
+      {% component "unfold/components/button.html" with name="preview" submit=True size="md" %}
+        {% trans "Preview" %}
+      {% endcomponent %}
+    {% endif %}
+  </div>
+</form>
+
+{% endblock %}

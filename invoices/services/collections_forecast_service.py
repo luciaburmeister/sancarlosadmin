@@ -148,7 +148,7 @@ class CollectionsForecastService:
         if not company:
             return cls._empty_result(date_from, date_to)
 
-        today = timezone.now().date()
+        today = timezone.localdate()
         cache_key = cls._cache_key(company, date_from, date_to)
         cached = cache.get(cache_key)
         if cached is not None:
@@ -289,7 +289,7 @@ class CollectionsForecastService:
             "window_count": 0,
             "month_total": Decimal("0.00"),
             "month_count": 0,
-            "today": timezone.now().date(),
+            "today": timezone.localdate(),
             "date_from": date_from,
             "date_to": date_to,
         }

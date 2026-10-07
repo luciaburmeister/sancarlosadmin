@@ -300,7 +300,7 @@ class DeliveryOrderService:
             company=company,
             number=next_do['number'],
             incremental_id=next_do['incremental_id'],
-            date=date or timezone.now().date(),
+            date=date or timezone.localdate(),
             client=client,
             project_file=project_file,
             notes=notes,

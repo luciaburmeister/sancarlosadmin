@@ -34,7 +34,7 @@ def send_document_reminders():
         (_("Company Document"), CompanyDocument, 'company', 'company', 'company'),
     ]
 
-    today = timezone.now().date()
+    today = timezone.localdate()
     all_maturing_docs = []
 
     for model_label, model_class, owner_field, app_label, owner_model_name in document_models:

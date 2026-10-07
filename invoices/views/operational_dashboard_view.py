@@ -64,7 +64,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             selected_company = None
 
         # ── Date range ─────────────────────────────────────────────
-        today = timezone.now().date()
+        today = timezone.localdate()
         default_from = today.replace(day=1)
         default_to = today
 
@@ -621,7 +621,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
                 "bucket_90_count": 0,
             }
 
-        today = timezone.now().date()
+        today = timezone.localdate()
         zero = Value(Decimal("0.00"))
         field = DecimalField(max_digits=12, decimal_places=2)
 
@@ -670,7 +670,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
                 "bucket_90_count": 0,
             }
 
-        today = timezone.now().date()
+        today = timezone.localdate()
         zero = Value(Decimal("0.00"))
         field = DecimalField(max_digits=12, decimal_places=2)
 
@@ -725,7 +725,7 @@ class OperationalDashboardView(UnfoldModelAdminViewMixin, TemplateView):
 
         from loans.models import Loan, LoanInstallment, LoanInstallmentPaymentStatus, LoanStatus
 
-        today = timezone.now().date()
+        today = timezone.localdate()
         zero = Value(Decimal("0.00"))
         field = DecimalField(max_digits=14, decimal_places=2)
 

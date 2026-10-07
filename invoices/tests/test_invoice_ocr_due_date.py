@@ -100,7 +100,7 @@ class InvoiceOcrDueDateTests(TestCase):
     def test_no_dates_at_all_defaults_both_to_today(self):
         invoice = self._process_new(date_issued=None, due_date=None)
 
-        today = timezone.now().date()
+        today = timezone.localdate()
         self.assertEqual(invoice.date_issued, today)
         self.assertEqual(invoice.due_date, today)
 
@@ -155,6 +155,6 @@ class InvoiceOcrDueDateTests(TestCase):
 
         invoice = self._process_existing(invoice, date_issued=None, due_date=None)
 
-        today = timezone.now().date()
+        today = timezone.localdate()
         self.assertEqual(invoice.date_issued, today)
         self.assertEqual(invoice.due_date, today)

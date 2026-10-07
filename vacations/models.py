@@ -383,7 +383,7 @@ class VacationRequest(Timestampable):
         )
         
     def cancel(self, cancelled_by=None):
-        today = timezone.now().date()
+        today = timezone.localdate()
 
         if self.status not in (VacationRequestStatus.PENDING, VacationRequestStatus.APPROVED):
             return

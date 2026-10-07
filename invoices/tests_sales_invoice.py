@@ -84,7 +84,7 @@ class SalesInvoiceTest(TestCase):
 
         SalesInvoiceService.finalize_invoice(invoice)
 
-        self.assertEqual(invoice.date_issued, timezone.now().date())
+        self.assertEqual(invoice.date_issued, timezone.localdate())
 
     def test_refinalize_keeps_original_date_issued(self):
         """Finalizing an already-final invoice must not touch its issue date."""

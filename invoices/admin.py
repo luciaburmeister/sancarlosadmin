@@ -1006,7 +1006,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
     @action(description="Export Purchase Invoices to A3 (Last 90 days)")
     def export_a3_purchase_invoices(self, request, queryset):
         company_ids = {cid for cid in queryset.values_list('company_id', flat=True) if cid is not None}
-        end_date = timezone.now().date()
+        end_date = timezone.localdate()
         start_date = end_date - timedelta(days=90)
         
         for cid in company_ids:

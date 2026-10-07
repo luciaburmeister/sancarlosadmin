@@ -66,7 +66,7 @@ class PaymentsForecastService:
         if not company:
             return cls._empty_result(date_from, date_to)
 
-        today = timezone.now().date()
+        today = timezone.localdate()
         methods_key = ",".join(sorted(payment_methods)) if payment_methods else "all"
         cache_key = f"payments_forecast:{company.pk}:{date_from.isoformat()}:{date_to.isoformat()}:{methods_key}"
         cached = cache.get(cache_key)
@@ -196,7 +196,7 @@ class PaymentsForecastService:
             "window_count": 0,
             "month_total": Decimal("0.00"),
             "month_count": 0,
-            "today": timezone.now().date(),
+            "today": timezone.localdate(),
             "date_from": date_from,
             "date_to": date_to,
         }

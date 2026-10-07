@@ -62,7 +62,7 @@ class SalesInvoiceService:
             client = Client.objects.filter(pk=client_id).first()
 
         payment_terms_days = cls.resolve_payment_terms_days(quote=quote, client=client)
-        date_issued = timezone.now().date()
+        date_issued = timezone.localdate()
 
         sales_invoice = SalesInvoice.objects.create(
             company=company,
@@ -167,7 +167,7 @@ class SalesInvoiceService:
         sales_invoice.status = SalesInvoiceStatus.FINAL
         # The legal issue date is when the invoice becomes final, not when the
         # proforma was drafted — keeps invoice numbers chronological.
-        sales_invoice.date_issued = timezone.now().date()
+        sales_invoice.date_issued = timezone.localdate()
         next_invoice = cls._generate_next_invoice_data(company)
         sales_invoice.invoice_number = next_invoice['number']
         sales_invoice.incremental_id = next_invoice['incremental_id']
@@ -395,7 +395,7 @@ class SalesInvoiceService:
             status=SalesInvoiceStatus.PROFORMA,
             invoice_number=None,
             incremental_id=None,
-            date_issued=timezone.now().date(),
+            date_issued=timezone.localdate(),
             due_date=None,
             client=sales_invoice.client,
             configuration=sales_invoice.configuration,
@@ -441,7 +441,7 @@ class SalesInvoiceService:
             company=company,
             number=next_do['number'],
             incremental_id=next_do['incremental_id'],
-            date=timezone.now().date(),
+            date=timezone.localdate(),
             client=sales_invoice.client,
             sales_invoice=sales_invoice,
             configuration=configuration

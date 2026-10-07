@@ -59,7 +59,7 @@ class CollectionsForecastView(UnfoldModelAdminViewMixin, TemplateView):
             "date_from": date_from,
             "date_to": date_to,
             "forecast": forecast,
-            "today": timezone.now().date(),
+            "today": timezone.localdate(),
         })
         return ctx
 
@@ -104,7 +104,7 @@ class CollectionsForecastView(UnfoldModelAdminViewMixin, TemplateView):
 
     def _resolve_date_range(self, request, source=None):
         source = source or request.GET
-        today = timezone.now().date()
+        today = timezone.localdate()
 
         date_from = parse_date(source.get("date_from", "")) or today
         date_to = parse_date(source.get("date_to", "")) or today + timedelta(days=self.DEFAULT_SPAN_DAYS)

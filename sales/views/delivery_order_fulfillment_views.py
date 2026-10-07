@@ -160,7 +160,7 @@ class DeliveryOrderDispatchView(_FulfillmentStepView):
 
     def get_initial(self, delivery_order):
         return {
-            "dispatched_at": timezone.now().date(),
+            "dispatched_at": timezone.localdate(),
             "shipping_method": delivery_order.shipping_method or DeliveryShippingMethod.CARRIER,
             "shipping_agency": delivery_order.shipping_agency_id,
             "package_count": delivery_order.package_count,
@@ -180,7 +180,7 @@ class DeliveryOrderConfirmDeliveryView(_FulfillmentStepView):
     success_message = _("Delivery Order %(number)s marked as delivered.")
 
     def get_initial(self, delivery_order):
-        return {"delivered_at": timezone.now().date()}
+        return {"delivered_at": timezone.localdate()}
 
     def perform(self, delivery_order, data):
         DeliveryOrderFulfillmentService.confirm_delivery(delivery_order, **data)

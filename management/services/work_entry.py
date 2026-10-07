@@ -294,7 +294,7 @@ class WorkEntryService:
             description=description,
             quantity=quantity,
             unit_price=unit_price,
-            date=getattr(source_object, "date", None) or timezone.now().date(),
+            date=getattr(source_object, "date", None) or timezone.localdate(),
             source_content_type=ct,
             source_object_id=source_object.pk,
             company=project_file.company,

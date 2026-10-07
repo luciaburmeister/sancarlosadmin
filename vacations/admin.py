@@ -406,7 +406,7 @@ class VacationRequestAdmin(ModelAdmin):
 
 
             if employee and "wallet" in form.base_fields:
-                current_year = timezone.now().date().year
+                current_year = timezone.localdate().year
                 wallet = (
                     VacationWallet.objects
                     .filter(employee=employee, year=current_year)

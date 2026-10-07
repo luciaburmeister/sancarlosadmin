@@ -61,7 +61,7 @@ class AgingExportView(View):
 
     def _export_ar(self, company):
         """Cuentas por cobrar — facturas de venta pendientes agrupadas por vencimiento."""
-        today = timezone.now().date()
+        today = timezone.localdate()
 
         base_qs = SalesInvoice.objects.filter(
             company=company,
@@ -106,7 +106,7 @@ class AgingExportView(View):
 
     def _export_ap(self, company):
         """Cuentas por pagar — facturas de compra pendientes agrupadas por vencimiento."""
-        today = timezone.now().date()
+        today = timezone.localdate()
 
         base_qs = Invoice.objects.filter(
             company=company,

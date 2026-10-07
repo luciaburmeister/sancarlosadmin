@@ -78,7 +78,7 @@ class AccountsPayableDashboardView(UnfoldModelAdminViewMixin, TemplateView):
             selected_company = None
 
         # ── Date range for cash flow ───────────────────────────────
-        today = timezone.now().date()
+        today = timezone.localdate()
         default_from = today
         default_to = today + timedelta(days=90)
 

@@ -306,7 +306,7 @@ class StockAndTotalsTests(_ComponentLinesBase):
 
         invoice = DeliveryOrderService.create_invoice_from_delivery_orders(
             delivery_orders=[do], company=self.company, client=self.client_obj,
-            date_issued=timezone.now().date(),
+            date_issued=timezone.localdate(),
         )
 
         self.assertEqual(invoice.items.count(), 1)

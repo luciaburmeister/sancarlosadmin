@@ -49,7 +49,7 @@ class PlanningAbandoner:
         return planning
 
     def abandon_remaining(self, employee, reason: str = "") -> list[AssetPlanning]:
-        today = timezone.now().date()
+        today = timezone.localdate()
         with transaction.atomic():
             qs = AssetPlanning.objects.select_for_update().filter(
                 assigned_to=employee,

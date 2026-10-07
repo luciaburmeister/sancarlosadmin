@@ -290,7 +290,8 @@ class HoursSchema(TransactionFieldSchema):
             })
         merged["intervals"] = intervals
 
-        base_date = (tx_date or timezone.now()).date()
+        tx_date = tx_date or timezone.now()
+        base_date = (timezone.localtime(tx_date) if timezone.is_aware(tx_date) else tx_date).date()
         if intervals and intervals[0]["start"]:
             start_time = _datetime.datetime.strptime(intervals[0]["start"], "%H:%M:%S").time()
             merged[f"{prefix}_start_time"] = _datetime.datetime.combine(base_date, start_time).isoformat()

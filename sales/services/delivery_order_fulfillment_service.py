@@ -75,7 +75,7 @@ class DeliveryOrderFulfillmentService:
         return cls._transition(
             delivery_order,
             S.DISPATCHED,
-            dispatched_at=dispatched_at or timezone.now().date(),
+            dispatched_at=dispatched_at or timezone.localdate(),
             shipping_method=shipping_method,
             shipping_agency=shipping_agency,
             package_count=package_count,
@@ -88,7 +88,7 @@ class DeliveryOrderFulfillmentService:
         return cls._transition(
             delivery_order,
             S.DELIVERED,
-            delivered_at=delivered_at or timezone.now().date(),
+            delivered_at=delivered_at or timezone.localdate(),
             received_by=received_by,
         )
 

@@ -44,14 +44,14 @@ def make_open_tx(asset, employee, company, planning_id, zone=None):
         notes="Test start",
         data={
             "planning_id": planning_id,
-            "machine_start_time": now.isoformat(),
+            "machine_start_time": timezone.localtime(now).isoformat(),
             "intervals": [{"start": "09:00:00", "end": None}],
         },
     )
 
 
 def make_completed_tx(asset, employee, company, planning_id, zone=None, days_ago=0):
-    start = timezone.now() - timedelta(days=days_ago)
+    start = timezone.localtime() - timedelta(days=days_ago)
     end = start + timedelta(hours=2)
     return AssetTransaction.objects.create(
         asset=asset,

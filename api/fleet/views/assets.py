@@ -48,7 +48,7 @@ def _save_transaction_photo(transaction, b64_string, photo_type):
 
 
 def _now_iso():
-    return timezone.now().isoformat()
+    return timezone.localtime().isoformat()
 
 
 def _today_str():
@@ -722,7 +722,7 @@ class MachineHoursStrategy(BaseTransactionStrategy):
             return JsonResponse({"error": "action must be: start, pause, resume, or end."}, status=400)
 
     def _now_str(self):
-        return timezone.now().strftime("%H:%M:%S")
+        return timezone.localtime().strftime("%H:%M:%S")
 
     def _handle_start(self) -> JsonResponse:
         asset = self.asset
@@ -865,7 +865,7 @@ class LaborerHoursStrategy:
         self.user = user
 
     def _now_str(self):
-        return timezone.now().strftime("%H:%M:%S")
+        return timezone.localtime().strftime("%H:%M:%S")
 
     def execute(self) -> JsonResponse:
         action = self.data.get("action", "").strip()

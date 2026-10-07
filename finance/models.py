@@ -154,7 +154,7 @@ class TaxScheduleRule(Timestampable, CompanyOwnedModel):
         from dateutil.relativedelta import relativedelta
         from django.utils import timezone
 
-        today = timezone.now().date()
+        today = timezone.localdate()
         start = self.start_date
 
         while start <= today:
@@ -352,7 +352,7 @@ def advance_all_rules():
     from django.utils import timezone
     from dateutil.relativedelta import relativedelta
 
-    today = timezone.now().date()
+    today = timezone.localdate()
 
     for rule in TaxScheduleRule.objects.filter(is_active=True):
         _clean_misaligned_periods(rule)
@@ -381,7 +381,7 @@ def _clean_misaligned_periods(rule):
     if not candidates:
         return
 
-    today = timezone.now().date()
+    today = timezone.localdate()
     valid_starts = set()
     start = rule.start_date
     while start <= today:

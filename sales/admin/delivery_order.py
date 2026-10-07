@@ -480,7 +480,7 @@ class DeliveryOrderAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 delivery_orders=[do],
                 company=do.company,
                 client=do.client,
-                date_issued=timezone.now().date(),
+                date_issued=timezone.localdate(),
             )
             deductions = AdvanceDeductionService.deduction_lines(invoice)
             if deductions:

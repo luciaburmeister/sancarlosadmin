@@ -251,9 +251,9 @@ class InvoiceService:
                         )
 
                 invoice.invoice_number = invoice_num
-                invoice.date_issued = self._parse_date(extracted_data.date_issued) or invoice.date_issued or timezone.now().date()
+                invoice.date_issued = self._parse_date(extracted_data.date_issued) or invoice.date_issued or timezone.localdate()
                 invoice.due_date = self._parse_date(extracted_data.due_date) or invoice.due_date or invoice.date_issued
-                invoice.accounting_date = datetime.now().date()
+                invoice.accounting_date = timezone.localdate()
                 invoice.provider = provider
                 # The model only stamps the provider default on a brand-new
                 # row; here the provider is being linked to an existing one.
@@ -327,7 +327,7 @@ class InvoiceService:
         Create the main Invoice record with image hash
         """
         # Parse dates
-        date_issued = self._parse_date(extracted_data.date_issued) or datetime.now().date()
+        date_issued = self._parse_date(extracted_data.date_issued) or timezone.localdate()
         due_date = self._parse_date(extracted_data.due_date)
 
         currency = extracted_data.currency or 'EUR'
@@ -339,7 +339,7 @@ class InvoiceService:
             invoice_number=extracted_data.invoice_number or 'UNKNOWN',
             date_issued=date_issued,
             due_date=due_date or date_issued,
-            accounting_date=datetime.now().date(),
+            accounting_date=timezone.localdate(),
             provider=provider,  # Will be None if matching failed
             net_amount=net_money,
             total_amount=total_money,
@@ -450,8 +450,8 @@ class InvoiceService:
         """
         invoice = Invoice.objects.create(
             invoice_number=f"FAILED_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-            date_issued=datetime.now().date(),
-            due_date=datetime.now().date(),
+            date_issued=timezone.localdate(),
+            due_date=timezone.localdate(),
             provider=None,
             ocr_processed=False,
             ocr_processing=False,

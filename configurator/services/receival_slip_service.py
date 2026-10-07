@@ -41,7 +41,7 @@ class ReceivalSlipService:
             company=configuration.company,
             configuration=configuration,
             reference=reference,
-            date=timezone.now().date(),
+            date=timezone.localdate(),
         )
         
         return slip

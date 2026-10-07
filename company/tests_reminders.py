@@ -31,7 +31,7 @@ class DocumentReminderTestCase(TestCase):
 
     def test_reminder_sent_for_latest_doc(self):
         # Create a document expiring in 10 days
-        expiry = timezone.now().date() + timedelta(days=10)
+        expiry = timezone.localdate() + timedelta(days=10)
         doc = EmployeeDocument.objects.create(
             employee=self.employee,
             document_type=self.doc_type,
@@ -53,7 +53,7 @@ class DocumentReminderTestCase(TestCase):
 
     def test_grouped_reminders(self):
         # Create 2 documents expiring in 10 days for the same company
-        expiry = timezone.now().date() + timedelta(days=10)
+        expiry = timezone.localdate() + timedelta(days=10)
         EmployeeDocument.objects.create(
             employee=self.employee,
             document_type=self.doc_type,
@@ -86,7 +86,7 @@ class DocumentReminderTestCase(TestCase):
 
     def test_reminder_suppressed_if_newer_doc_exists_with_later_expiry(self):
         # Doc 1: Expiring in 10 days (old)
-        expiry1 = timezone.now().date() + timedelta(days=10)
+        expiry1 = timezone.localdate() + timedelta(days=10)
         doc1 = EmployeeDocument.objects.create(
             employee=self.employee,
             document_type=self.doc_type,
@@ -95,7 +95,7 @@ class DocumentReminderTestCase(TestCase):
         )
 
         # Doc 2: Expiring in 1 year (new)
-        expiry2 = timezone.now().date() + timedelta(days=365)
+        expiry2 = timezone.localdate() + timedelta(days=365)
         doc2 = EmployeeDocument.objects.create(
             employee=self.employee,
             document_type=self.doc_type,

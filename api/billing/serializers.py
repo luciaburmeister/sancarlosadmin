@@ -377,7 +377,7 @@ class ProjectFileInvoiceCreateSerializer(serializers.Serializer):
         return value
 
     def validate(self, data):
-        date_issued = timezone.now().date()
+        date_issued = timezone.localdate()
         due_date = data.get("due_date")
         if due_date and due_date < date_issued:
             raise serializers.ValidationError(
@@ -422,7 +422,7 @@ class ProjectFileInvoiceCreateSerializer(serializers.Serializer):
         show_vehicle_name = validated_data.get("show_vehicle_name", True)
         payment_method = validated_data.get("payment_method", "")
         due_date = validated_data.get("due_date")
-        date_issued = timezone.now().date()
+        date_issued = timezone.localdate()
 
         if invoice_mode == "advance":
             return self._create_advance(project_file, validated_data, date_issued)
@@ -636,7 +636,7 @@ class BulkEmitInvoicesSerializer(serializers.Serializer):
 
     def validate(self, data):
         due_date = data.get("due_date")
-        if due_date and due_date < timezone.now().date():
+        if due_date and due_date < timezone.localdate():
             raise serializers.ValidationError(
                 "La fecha de vencimiento no puede ser anterior a la fecha de emisión."
             )
@@ -653,7 +653,7 @@ class BulkEmitInvoicesSerializer(serializers.Serializer):
         include_observations = self.validated_data.get("include_quote_observations")
         if include_observations is None:
             include_observations = company.bulk_emit_copy_quote_observations
-        date_issued = timezone.now().date()
+        date_issued = timezone.localdate()
 
         pf_map = {
             pf.id: pf

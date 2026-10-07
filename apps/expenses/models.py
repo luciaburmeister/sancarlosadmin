@@ -604,7 +604,7 @@ class FixedCostSchedule(Timestampable, CompanyOwnedModel):
         """
         from dateutil.relativedelta import relativedelta
 
-        horizon = timezone.now().date() + datetime.timedelta(days=self.HORIZON_DAYS)
+        horizon = timezone.localdate() + datetime.timedelta(days=self.HORIZON_DAYS)
         n = 0
         while True:
             due_date = self.start_date + relativedelta(**{self.period_unit: self.period_length * n})

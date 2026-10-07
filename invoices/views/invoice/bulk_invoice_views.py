@@ -74,7 +74,7 @@ class BulkInvoiceConfirmView(UnfoldModelAdminViewMixin, TemplateView):
                 project_files=self.project_files,
                 company=pf.company,
                 client=pf.client,
-                date_issued=timezone.now().date(),
+                date_issued=timezone.localdate(),
             )
         except ValidationError as e:
             messages.error(request, str(e.message))

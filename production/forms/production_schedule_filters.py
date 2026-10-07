@@ -12,6 +12,8 @@ GROUP_MACHINE_PEOPLE = "machine_people"
 GROUP_MACHINE = "machine"
 GROUP_EMPLOYEE = "employee"
 GROUP_TICKET = "ticket"
+PERIOD_DAY = "day"
+PERIOD_WEEK = "week"
 
 GROUPING_CHOICES = (
     (GROUP_MACHINE_PEOPLE, _("All")),
@@ -22,6 +24,12 @@ GROUPING_CHOICES = (
 
 
 class ProductionScheduleFilterForm(UnfoldDateWidgetMediaMixin, forms.Form):
+    period = forms.ChoiceField(
+        choices=((PERIOD_DAY, _("Day")), (PERIOD_WEEK, _("Week"))),
+        required=False,
+        initial=PERIOD_DAY,
+    )
+
     day = forms.DateField(
         label=_("Day"),
         required=False,

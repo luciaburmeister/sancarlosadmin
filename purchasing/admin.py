@@ -318,7 +318,10 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
         project_file = obj.project_file
         if project_file is None or not getattr(obj, "_has_accepted_quote", False):
             return "-"
-        projected_purchased = project_file.total_purchased + obj.total_amount
+        if obj.status in (PurchaseOrderStatus.DRAFT, PurchaseOrderStatus.PENDING_APPROVAL):
+            projected_purchased = project_file.total_purchased + obj.total_amount
+        else:
+            projected_purchased = project_file.total_purchased
         margin_after = project_file.total_amount - projected_purchased
         revenue = project_file.total_amount.amount
         if revenue:

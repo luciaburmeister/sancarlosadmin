@@ -26,7 +26,8 @@
           <span class="text-sm font-semibold truncate">{{ item.label }}</span>
           <span class="h-2 w-2 shrink-0 rounded-full {% if item.urgency == 'overdue' %}bg-red-500{% elif item.urgency == 'soon' %}ps-dot-warn{% elif item.urgency == 'later' %}ps-dot-success{% else %}bg-base-400{% endif %}"></span>
         </div>
-        <div class="text-xs text-base-500 truncate">{{ item.product }}</div>
+        <div class="text-xs text-base-500 truncate" title="{% trans 'Configuration' %} {{ item.configuration_label }}">{% trans "Configuration" %} {{ item.configuration_label }}</div>
+        <div class="text-xs text-base-500 truncate" title="{% trans 'Current stage' %}: {{ item.current_stage }}">{% trans "Current stage" %}: {{ item.current_stage }}</div>
         <div class="flex items-center justify-between mt-1 text-xs text-base-500">
           <span>
             {% if item.delivery_date %}
@@ -41,7 +42,7 @@
               {% trans "Times required" %}
             </span>
           {% else %}
-            <span>{{ item.stage_count }} {% trans "stages" %} · {{ item.hours_label }}</span>
+            <span>{% blocktranslate count count=item.stage_count %}{{ count }} stage remaining{% plural %}{{ count }} stages remaining{% endblocktranslate %} · {{ item.hours_label }}</span>
           {% endif %}
         </div>
         {% if can_plan %}
@@ -63,7 +64,7 @@
       {% comment %}The expanded ticket's stages, tinted to match its card.{% endcomment %}
       <template x-if="expandedBacklogTicketId === {{ item.ticket_id }}">
         <div class="ps-backlog-stages shrink-0 flex items-start gap-2 rounded-lg border border-primary-400 bg-primary-50">
-          <template x-for="(stage, index) in ticketStages" :key="stage.stage">
+          <template x-for="stage in ticketStages" :key="stage.stage">
             <div
               class="ps-backlog-stage shrink-0 rounded-md border transition-colors"
               :class="stage.isPlanned ? 'border-base-200 bg-base-50 text-base-400' : 'cursor-grab border-base-200 bg-white hover:border-base-400'"
@@ -72,7 +73,7 @@
               :data-stage-name="stage.stage"
             >
               <div class="flex items-center justify-between gap-1">
-                <span class="inline-flex h-5 w-5 items-center justify-center rounded bg-base-100 text-[10px] font-bold text-base-600" x-text="index + 1"></span>
+                <span class="inline-flex h-5 w-5 items-center justify-center rounded bg-base-100 text-[10px] font-bold text-base-600" x-text="stage.position"></span>
                 <span class="material-symbols-outlined text-sm" :class="stage.isPlanned ? 'ps-text-success' : 'text-base-400'" x-text="stage.isPlanned ? 'check_circle' : 'drag_indicator'"></span>
               </div>
               <strong class="mt-1 block truncate text-xs" x-text="stage.stage"></strong>
@@ -83,7 +84,7 @@
                   <span>{% trans "min" %}</span>
                 </span>
               </label>
-              <span class="mt-1 block text-[10px] font-semibold" x-text="stage.isPlanned ? '{% trans 'On calendar' %}' : '{% trans 'Drag to schedule' %}'"></span>
+              <span class="mt-1 block text-[10px] font-semibold" x-text="stage.isPlanned ? '{% trans 'On calendar' %}' : stage.isInProgress ? '{% trans 'In Progress' %}' : '{% trans 'Drag to schedule' %}'"></span>
             </div>
           </template>
         </div>

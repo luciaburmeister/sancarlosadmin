@@ -14104,10 +14104,8 @@ msgstr "La sesión ya ha comenzado"
 msgid "Session finished"
 msgstr "Sesiones"
 
-#, fuzzy
-#| msgid "Weekly"
 msgid "Week"
-msgstr "Semanal"
+msgstr "Semana"
 
 msgid "Production Item"
 msgstr "Item de Producción"
@@ -18703,6 +18701,13 @@ msgstr "No hay etapas de producción configuradas."
 msgid "stages"
 msgstr "etapas"
 
+#: production/templates/admin/production/plannedproductionsession/_backlog.html
+#, python-format
+msgid "%(count)s stage remaining"
+msgid_plural "%(count)s stages remaining"
+msgstr[0] "Queda %(count)s etapa"
+msgstr[1] "Quedan %(count)s etapas"
+
 #: production/services/production_planning.py:456
 #: production/services/production_planning.py:462
 msgid "Choose a valid production stage."
@@ -19310,3 +19315,29 @@ msgstr[1] "Aplicar %(counter)s ajustes"
 #, python-format
 msgid "%(count)d row(s) have errors; fix them below."
 msgstr "%(count)d fila(s) con errores; corrígelas abajo."
+msgid "Calendar week navigation"
+msgstr "Navegación por semanas del calendario"
+
+msgid "Calendar period"
+msgstr "Periodo del calendario"
+
+msgid "Choose week"
+msgstr "Elegir semana"
+
+msgid "Weekly production overview"
+msgstr "Resumen semanal de producción"
+
+msgid "Open day plan for %(date)s"
+msgstr "Abrir el plan del día %(date)s"
+
+msgid "Open day"
+msgstr "Abrir día"
+
+#, python-format
+msgid "%(count)s more session"
+msgid_plural "%(count)s more sessions"
+msgstr[0] "%(count)s sesión más"
+msgstr[1] "%(count)s sesiones más"
+
+msgid "No sessions planned for this week. Choose a day to plan."
+msgstr "No hay sesiones planificadas para esta semana. Elige un día para planificar."

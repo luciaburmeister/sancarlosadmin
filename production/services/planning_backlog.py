@@ -1,11 +1,8 @@
-"""Tickets with one or more product stages still waiting for the calendar.
-
-A ticket stays in the backlog until every stage has a session, so stages can
-be placed independently, including on different days.
-"""
+"""Tickets with unfinished stages still waiting for the calendar."""
 
 from __future__ import annotations
 
+import unicodedata
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -22,6 +19,8 @@ from configurator.models import (
 )
 from production.models import (
     PlannedProductionSession,
+    ProductionItem,
+    ProductionItemStatus,
     ProductionResource,
     ProductionTicket,
     ProductionTicketStatus,
@@ -43,11 +42,13 @@ SOON_DAYS = 7
 class BacklogItem:
     ticket_id: int
     label: str
-    product: str
+    configuration_label: str
     delivery_date: date | None
     urgency: str
     total_minutes: int
     stage_count: int
+    completed_stage_count: int
+    current_stage: str
     stages: list[dict]
 
     @property
@@ -67,9 +68,9 @@ class BacklogItem:
         return {
             "ticket_id": self.ticket_id,
             "label": self.label,
-            "product": self.product,
             "total_minutes": self.total_minutes,
             "stage_count": self.stage_count,
+            "completed_stage_count": self.completed_stage_count,
             "needs_time_configuration": self.needs_time_configuration,
             "planned_stage_count": sum(stage["is_planned"] for stage in self.stages),
             "stages": self.stages,
@@ -107,7 +108,6 @@ def _candidate_tickets(
         )
         .annotate(_delivery_date=Subquery(delivery_date))
         .order_by(F("_delivery_date").asc(nulls_last=True), "pk")
-        .select_related("project_file__client")
         .prefetch_related(
             GenericPrefetch(
                 "source_object",
@@ -136,6 +136,12 @@ def _candidate_tickets(
                 "planned_sessions",
                 queryset=PlannedProductionSession.objects.only(
                     "id", "production_ticket_id", "production_stage"
+                ),
+            ),
+            Prefetch(
+                "items",
+                queryset=ProductionItem.objects.filter(company=company).only(
+                    "id", "ticket_id", "planning"
                 ),
             ),
         )[offset : offset + batch_size]
@@ -172,25 +178,51 @@ def unplanned_tickets(company, *, limit: int = DEFAULT_LIMIT) -> list[BacklogIte
             # A ticket with no resolvable stages can't be scheduled; skip its card.
             if not stages:
                 continue
-            for stage in stages:
+            statuses_by_stage: dict[str, list[str]] = {}
+            for item in ticket.items.all():
+                for name, info in (item.planning or {}).items():
+                    key = unicodedata.normalize("NFC", name)
+                    statuses_by_stage.setdefault(key, []).append(
+                        (info or {}).get("status") or ProductionItemStatus.PENDING
+                    )
+
+            remaining = []
+            for position, stage in enumerate(stages, start=1):
+                key = unicodedata.normalize("NFC", stage["stage"])
+                statuses = statuses_by_stage.get(key, [])
+                if statuses and all(
+                    status == ProductionItemStatus.DONE for status in statuses
+                ):
+                    continue
+                stage["position"] = position
                 stage["is_planned"] = stage["stage"] in planned_stage_names
-            if all(stage["is_planned"] for stage in stages):
+                stage["is_in_progress"] = any(
+                    status in (ProductionItemStatus.IN_PROGRESS, ProductionItemStatus.DONE)
+                    for status in statuses
+                )
+                remaining.append(stage)
+            if not remaining or all(stage["is_planned"] for stage in remaining):
                 continue
 
             items.append(
                 BacklogItem(
                     ticket_id=ticket.pk,
-                    label=ticket.display_label,
-                    product=str(getattr(configuration, "product", "") or ""),
+                    label=f"OP-{ticket.pk}",
+                    configuration_label=(
+                        f"#{configuration.pk} · "
+                        f"{configuration.name or configuration.product or ''}"
+                    ),
                     delivery_date=delivery_date,
                     urgency=_urgency(delivery_date, today),
                     total_minutes=sum(
                         stage["total_time_min"]
-                        for stage in stages
+                        for stage in remaining
                         if not stage["is_planned"]
                     ),
-                    stage_count=len(stages),
-                    stages=stages,
+                    stage_count=len(remaining),
+                    completed_stage_count=len(stages) - len(remaining),
+                    current_stage=remaining[0]["stage"],
+                    stages=remaining,
                 )
             )
             if len(items) == limit:

@@ -377,6 +377,7 @@ class PorteSubmitView(APIView):
         goods_type = raw.get("goods_type", "")
         tonnes_transported = raw.get("tonnes_transported", "")
         package_count = raw.get("package_count", "")
+        reference_number = raw.get("reference_number", "")
         is_machine_porte = planning.service_type == SERVICE_TYPE_MAQUINA_PROPIA
         transaction_type = PORTE_ACTION_TRANSACTION_TYPES[action]
 
@@ -436,6 +437,7 @@ class PorteSubmitView(APIView):
                 PorteTransactionDataKey.GOODS_TYPE: goods_type,
                 PorteTransactionDataKey.TONNES_TRANSPORTED: tonnes_transported,
                 PorteTransactionDataKey.PACKAGE_COUNT: package_count,
+                PorteTransactionDataKey.REFERENCE_NUMBER: reference_number,
             },
         )
         if firma_b64:

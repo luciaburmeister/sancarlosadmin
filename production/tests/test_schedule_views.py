@@ -8,14 +8,15 @@ from django.contrib.auth.models import Permission
 from django.http import QueryDict
 from django.test import TestCase
 from django.urls import reverse
-from django.utils import timezone
+from django.utils import timezone, translation
 
 from api.fleet.tests.helpers import make_user
 from company.models import CompanyUser
-from production.models import PlannedProductionSession
+from production.models import PlannedProductionSession, ProductionItem, ProductionItemStatus
 from production.tests.factories import (
     STAGE_CUT,
     STAGE_PAINT,
+    STAGE_WELD,
     add_schedule,
     make_company,
     make_employee,
@@ -106,6 +107,34 @@ class ScheduleViewTest(TestCase):
         self.assertEqual(item["stage_count"], 3)
         self.assertContains(response, "ps-backlog-data")
 
+    def test_pending_card_identifies_the_configuration_and_remaining_work(self):
+        self.login_with_view_permission()
+        configuration = self.ticket.source_object
+        configuration.name = "Window A"
+        configuration.save(update_fields=["name"])
+        ProductionItem.objects.create(
+            ticket=self.ticket,
+            company=self.company,
+            planning={
+                STAGE_CUT: {"status": ProductionItemStatus.DONE},
+                STAGE_WELD: {"status": ProductionItemStatus.PENDING},
+                STAGE_PAINT: {"status": ProductionItemStatus.PENDING},
+            },
+        )
+
+        with translation.override("es"):
+            response = self.client.get(reverse(SCHEDULE_URL))
+
+        item = next(
+            item for item in response.context["backlog_json"]
+            if item["ticket_id"] == self.ticket.pk
+        )
+        self.assertEqual(item["label"], f"OP-{self.ticket.pk}")
+        self.assertEqual(item["completed_stage_count"], 1)
+        self.assertNotIn(STAGE_CUT, [stage["stage"] for stage in item["stages"]])
+        self.assertContains(response, f"#{configuration.pk} · Window A")
+        self.assertContains(response, "Etapa Actual: soldadura")
+
     def test_each_grouping_mode_renders(self):
         self.login_with_view_permission()
 
@@ -163,6 +192,145 @@ class ScheduleViewTest(TestCase):
             self.assertEqual(params.getlist("custom"), ["first", "second"])
             self.assertEqual(params["group_by"], "machine")
             self.assertNotIn("view", params)
+
+    def test_week_navigation_and_day_drilldown_preserve_grouping(self):
+        self.login_with_view_permission()
+
+        response = self.client.get(
+            reverse(SCHEDULE_URL),
+            {
+                "period": "week",
+                "day": "2026-09-16",
+                "group_by": "machine",
+                "custom": ["first", "second"],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.context["is_week"])
+        self.assertEqual(response.context["week_start"].isoformat(), "2026-09-14")
+        self.assertEqual(response.context["week_end"].isoformat(), "2026-09-20")
+        self.assertNotContains(response, 'id="ps-root"')
+        self.assertNotContains(response, 'src="/static/production/schedule.js"')
+        for url, expected_day in (
+            (response.context["previous_day_url"], "2026-09-09"),
+            (response.context["next_day_url"], "2026-09-23"),
+        ):
+            params = QueryDict(urlsplit(url).query)
+            self.assertEqual(params["period"], "week")
+            self.assertEqual(params["day"], expected_day)
+            self.assertEqual(params.getlist("custom"), ["first", "second"])
+
+        monday_url = response.context["week"]["days"][0]["url"]
+        monday_params = QueryDict(urlsplit(monday_url).query)
+        self.assertEqual(monday_params["period"], "day")
+        self.assertEqual(monday_params["day"], "2026-09-14")
+        self.assertEqual(monday_params["group_by"], "machine")
+        self.assertContains(response, monday_url.replace("&", "&amp;"))
+
+        day_response = self.client.get(monday_url)
+        self.assertEqual(day_response.status_code, 200)
+        self.assertFalse(day_response.context["is_week"])
+        self.assertContains(day_response, 'id="ps-root"')
+        week_params = QueryDict(urlsplit(day_response.context["week_view_url"]).query)
+        self.assertEqual(week_params["period"], "week")
+        self.assertEqual(week_params["day"], "2026-09-14")
+        self.assertEqual(week_params["group_by"], "machine")
+
+    def test_week_all_entry_opens_its_stage_category_in_the_day_view(self):
+        self.login_with_view_permission()
+        make_session(
+            self.ticket,
+            stage=STAGE_CUT,
+            start=self.at(9),
+            end=self.at(10),
+            resources=[self.cnc, self.operator],
+        )
+
+        week_response = self.client.get(
+            reverse(SCHEDULE_URL), {"period": "week", "day": "2026-09-14"}
+        )
+        row = next(
+            row for row in week_response.context["week"]["rows"]
+            if row["label"] == STAGE_CUT
+        )
+        entry_url = row["cells"][0]["url"]
+        self.assertEqual(QueryDict(urlsplit(entry_url).query)["expand_stage"], STAGE_CUT)
+        self.assertNotIn(
+            "expand_stage",
+            QueryDict(urlsplit(week_response.context["week"]["days"][0]["url"]).query),
+        )
+
+        day_response = self.client.get(entry_url)
+        self.assertEqual(day_response.context["initial_group_key"], STAGE_CUT)
+        self.assertContains(day_response, 'data-open-group-key="corte"')
+        self.assertContains(day_response, 'data-group-key="corte"')
+        self.assertNotIn(
+            "expand_stage", QueryDict(urlsplit(day_response.context["week_view_url"]).query)
+        )
+
+    def test_stage_drilldown_is_ignored_outside_all_or_for_unknown_stages(self):
+        self.login_with_view_permission()
+        make_session(
+            self.ticket,
+            stage=STAGE_CUT,
+            start=self.at(9),
+            end=self.at(10),
+            resources=[self.cnc, self.operator],
+        )
+
+        machine_week = self.client.get(
+            reverse(SCHEDULE_URL),
+            {"period": "week", "day": "2026-09-14", "group_by": "machine"},
+        )
+        self.assertNotIn(
+            "expand_stage",
+            QueryDict(urlsplit(machine_week.context["week"]["rows"][0]["cells"][0]["url"]).query),
+        )
+        for grouping, stage in (("machine_people", "unknown"), ("machine", STAGE_CUT)):
+            with self.subTest(grouping=grouping):
+                day_response = self.client.get(
+                    reverse(SCHEDULE_URL),
+                    {"day": "2026-09-14", "group_by": grouping, "expand_stage": stage},
+                )
+                self.assertIsNone(day_response.context["initial_group_key"])
+
+    def test_week_has_clickable_days_even_without_sessions(self):
+        self.login_with_view_permission()
+
+        with translation.override("es"):
+            response = self.client.get(
+                reverse(SCHEDULE_URL), {"period": "week", "day": "2026-09-16"}
+            )
+
+        self.assertEqual(len(response.context["week"]["days"]), 5)
+        self.assertEqual(response.context["week"]["rows"], [])
+        self.assertContains(response, "No hay sesiones planificadas para esta semana")
+        self.assertContains(response, "Abrir el plan del día", count=5)
+        self.assertContains(response, 'colspan="6"')
+        self.assertNotContains(response, "day=2026-09-19")
+        self.assertNotContains(response, "day=2026-09-20")
+
+    def test_week_without_a_company_schedule_has_no_empty_day_columns(self):
+        self.login_with_view_permission()
+        self.company.schedule_slots.all().delete()
+
+        with translation.override("en"):
+            response = self.client.get(
+                reverse(SCHEDULE_URL), {"period": "week", "day": "2026-09-16"}
+            )
+
+        self.assertEqual(response.context["week"]["days"], [])
+        self.assertContains(response, "This company has no working schedule configured yet.")
+        self.assertNotContains(response, "ps-week-table")
+
+    def test_unknown_period_falls_back_to_day_view(self):
+        self.login_with_view_permission()
+
+        response = self.client.get(reverse(SCHEDULE_URL), {"period": "month"})
+
+        self.assertFalse(response.context["is_week"])
+        self.assertContains(response, 'id="ps-root"')
 
     def test_anonymous_user_is_redirected_to_login(self):
         response = self.client.get(reverse(SCHEDULE_URL))

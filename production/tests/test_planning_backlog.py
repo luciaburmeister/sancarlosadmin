@@ -13,6 +13,8 @@ from configurator.models import (
     ConfigurationParameterValue,
     ProductParameter,
 )
+from management.models import ProjectFile
+from production.models import ProductionItem, ProductionItemStatus
 from production.services.planning_backlog import (
     URGENCY_LATER,
     URGENCY_NONE,
@@ -119,6 +121,65 @@ class PlanningBacklogTest(TestCase):
             [(stage["stage"], stage["is_planned"]) for stage in item.stages],
             [(STAGE_CUT, True), (STAGE_WELD, False), (STAGE_PAINT, False)],
         )
+
+    def test_completed_stages_are_not_pending_even_without_calendar_sessions(self):
+        ticket = make_ticket(self.company)
+        ProductionItem.objects.create(
+            ticket=ticket,
+            company=self.company,
+            planning={
+                STAGE_CUT: {"status": ProductionItemStatus.DONE},
+                STAGE_WELD: {"status": ProductionItemStatus.IN_PROGRESS},
+                STAGE_PAINT: {"status": ProductionItemStatus.PENDING},
+            },
+        )
+
+        item = unplanned_tickets(self.company)[0]
+
+        self.assertEqual([stage["stage"] for stage in item.stages], [STAGE_WELD, STAGE_PAINT])
+        self.assertEqual([stage["position"] for stage in item.stages], [2, 3])
+        self.assertEqual(item.current_stage, STAGE_WELD)
+        self.assertEqual(item.stage_count, 2)
+        self.assertEqual(item.completed_stage_count, 1)
+        self.assertTrue(item.stages[0]["is_in_progress"])
+        self.assertEqual(item.as_dict()["completed_stage_count"], 1)
+
+    def test_a_stage_done_for_only_one_production_item_remains_pending(self):
+        ticket = make_ticket(self.company)
+        for status in (ProductionItemStatus.DONE, ProductionItemStatus.PENDING):
+            ProductionItem.objects.create(
+                ticket=ticket,
+                company=self.company,
+                planning={STAGE_CUT: {"status": status}},
+            )
+
+        item = unplanned_tickets(self.company)[0]
+
+        self.assertEqual(item.stage_count, 3)
+        self.assertEqual(item.completed_stage_count, 0)
+        self.assertEqual(item.current_stage, STAGE_CUT)
+        self.assertTrue(item.stages[0]["is_in_progress"])
+
+    def test_a_scheduled_unfinished_stage_is_visible_but_not_actionable(self):
+        ticket = make_ticket(self.company)
+        ProductionItem.objects.create(
+            ticket=ticket,
+            company=self.company,
+            planning={STAGE_CUT: {"status": ProductionItemStatus.IN_PROGRESS}},
+        )
+        make_session(
+            ticket,
+            stage=STAGE_CUT,
+            start=datetime(2026, 9, 14, 9, tzinfo=self.tz),
+            end=datetime(2026, 9, 14, 10, tzinfo=self.tz),
+            resources=[self.operator],
+        )
+
+        item = unplanned_tickets(self.company)[0]
+
+        self.assertEqual(item.current_stage, STAGE_CUT)
+        self.assertTrue(item.stages[0]["is_planned"])
+        self.assertEqual(item.as_dict()["planned_stage_count"], 1)
 
     def test_other_companies_are_not_visible(self):
         other = make_company(name="Otra SL")
@@ -289,10 +350,35 @@ class PlanningBacklogTest(TestCase):
         )
         self.assertTrue(item.needs_time_configuration)
 
-    def test_label_falls_back_to_the_ticket_number(self):
+    def test_card_uses_ticket_and_configuration_instead_of_expediente(self):
         ticket = make_ticket(self.company)
+        configuration = ticket.source_object
+        configuration.name = "Window A"
+        configuration.save(update_fields=["name"])
+        second_ticket = make_ticket(self.company)
+        second_configuration = second_ticket.source_object
+        second_configuration.name = "Window B"
+        second_configuration.save(update_fields=["name"])
+        project_file = ProjectFile.objects.create(
+            company=self.company,
+            client=Client.objects.create(company=self.company, name="Acme"),
+            name="Shared expediente",
+            reference="EXP-123",
+        )
+        for current_ticket in (ticket, second_ticket):
+            current_ticket.project_file = project_file
+            current_ticket.save(update_fields=["project_file"])
 
-        self.assertEqual(unplanned_tickets(self.company)[0].label, f"OP-{ticket.pk}")
+        first, second = unplanned_tickets(self.company)
+
+        self.assertEqual(first.label, f"OP-{ticket.pk}")
+        self.assertEqual(first.configuration_label, f"#{configuration.pk} · Window A")
+        self.assertEqual(second.label, f"OP-{second_ticket.pk}")
+        self.assertEqual(
+            second.configuration_label, f"#{second_configuration.pk} · Window B"
+        )
+        self.assertNotEqual(first.label, second.label)
+        self.assertNotIn("EXP-123", first.label)
 
     # --- cost -------------------------------------------------------------
 
@@ -301,7 +387,7 @@ class PlanningBacklogTest(TestCase):
         for _ in range(12):
             self.ticket_with_delivery(self.today + timedelta(days=5))
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(8):
             candidates = _candidate_tickets(self.company)
 
         self.assertEqual(len(candidates), 12)

@@ -14,11 +14,60 @@ from django.test import TestCase
 from api.fleet.tests.helpers import make_company, make_zone
 from assets.models import TransactionTypeChoices
 from assets.transaction_data_schema import (
+    SCHEMAS,
+    TRANSACTION_DATA_CONDITIONAL_FIELDS,
     build_data_from_cleaned,
     data_schema_fields,
     initial_from_data,
 )
 from company.models import ConfigurationList, WorkingZone
+
+
+class ConditionalFieldsVisibilityTests(TestCase):
+    """TRANSACTION_DATA_CONDITIONAL_FIELDS drives the admin's show/hide JS
+    (Unfold's conditional_fields). A field name shared by more than one
+    schema (e.g. "matricula": Cuba+Porte; "reference_number": Cuba+Porte+
+    Receipt) must stay visible for EVERY family that defines it, not just
+    the last one built -- regression test for exactly that: a plain dict
+    comprehension silently let the last schema clobber the others, hiding
+    "reference_number" on every transaction type except receipt (and,
+    pre-existing, "matricula" on cuba movement/delivery)."""
+
+    def test_every_schema_defining_a_field_keeps_it_visible_for_its_own_types(self):
+        """General regression guard, not just the two fields known to have
+        been broken: for every (schema, field) pair, the merged condition
+        must still mention every one of that schema's own transaction_types
+        -- proving no schema's contribution got clobbered by another's."""
+        for schema in SCHEMAS:
+            for field_name in schema.field_names:
+                condition = TRANSACTION_DATA_CONDITIONAL_FIELDS[field_name]
+                for transaction_type in schema.transaction_types:
+                    self.assertIn(
+                        f"transaction_type == '{transaction_type}'", condition,
+                        f"{field_name!r}'s condition is missing {transaction_type!r} "
+                        f"(from {schema.__name__}): {condition!r}",
+                    )
+
+    def test_reference_number_is_visible_for_every_family_that_defines_it(self):
+        defining_types = {
+            t for schema in SCHEMAS if "reference_number" in schema.field_names
+            for t in schema.transaction_types
+        }
+        condition = TRANSACTION_DATA_CONDITIONAL_FIELDS["reference_number"]
+        for transaction_type in defining_types:
+            self.assertIn(f"transaction_type == '{transaction_type}'", condition)
+
+    def test_matricula_is_visible_for_both_cuba_and_porte(self):
+        condition = TRANSACTION_DATA_CONDITIONAL_FIELDS["matricula"]
+        self.assertIn("transaction_type == 'movement'", condition)
+        self.assertIn("transaction_type == 'delivery'", condition)
+        self.assertIn("transaction_type == 'porte_movement'", condition)
+
+    def test_a_single_schema_field_is_unaffected(self):
+        """tipo_cuba only exists on CubaSchema -- sanity check the merge logic
+        doesn't change behaviour for the non-shared common case."""
+        condition = TRANSACTION_DATA_CONDITIONAL_FIELDS["tipo_cuba"]
+        self.assertEqual(condition, "transaction_type == 'movement' || transaction_type == 'delivery'")
 
 
 class CubaFamilySchemaTests(TestCase):

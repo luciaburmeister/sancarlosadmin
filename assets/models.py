@@ -230,6 +230,7 @@ class PorteTransactionDataKey:
     GOODS_TYPE = "goods_type"
     TONNES_TRANSPORTED = "tonnes_transported"
     PACKAGE_COUNT = "package_count"
+    REFERENCE_NUMBER = "reference_number"
 
 
 class PorteMovementKind:

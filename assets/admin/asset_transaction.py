@@ -306,6 +306,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         }),
         (_("Type-Specific Data"), {
             "fields": (
+                "reference_number",
                 ("tipo_cuba", "cubaEstado"),
                 ("vasAVerter", "m3"),
                 ("trabajo", "matricula"),

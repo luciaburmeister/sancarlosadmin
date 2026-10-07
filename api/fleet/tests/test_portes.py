@@ -233,6 +233,45 @@ class PorteWithoutAssetTests(TestCase):
         tx = AssetTransaction.objects.get(data__planning_id=planning.id)
         self.assertEqual(tx.asset_id, cargo.id)
 
+    def test_submit_stores_reference_number(self):
+        from assets.models import AssetTransaction
+
+        planning = self._make_planning(transport_asset=self.truck)
+        response = self.api_client.post(
+            f"/en/api/portes/{planning.id}/submit/",
+            data={
+                "action": "recogida",
+                "firma": TINY_PNG_B64,
+                "imagen": TINY_PNG_B64,
+                "matricula": "1234ABC",
+                "notes": "",
+                "reference_number": "REF-12345",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        tx = AssetTransaction.objects.get(data__planning_id=planning.id)
+        self.assertEqual(tx.data.get("reference_number"), "REF-12345")
+
+    def test_submit_without_reference_number_defaults_to_empty(self):
+        from assets.models import AssetTransaction
+
+        planning = self._make_planning(transport_asset=self.truck)
+        response = self.api_client.post(
+            f"/en/api/portes/{planning.id}/submit/",
+            data={
+                "action": "recogida",
+                "firma": TINY_PNG_B64,
+                "imagen": TINY_PNG_B64,
+                "matricula": "1234ABC",
+                "notes": "",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        tx = AssetTransaction.objects.get(data__planning_id=planning.id)
+        self.assertEqual(tx.data.get("reference_number"), "")
+
 
 class PorteCargaAndMachineTests(TestCase):
     """New 'carga' step + AssetPlanning.machine (own-machine transport carried

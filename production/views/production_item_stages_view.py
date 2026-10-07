@@ -11,7 +11,7 @@ from unfold.views import UnfoldModelAdminViewMixin
 from django.core.exceptions import ValidationError
 from company.models import Employee
 from production.models import ProductionItem, ProductionItemSession, ProductionItemSessionStatus
-from production.exceptions import StageHasActiveWorkersError
+from production.exceptions import StageHasActiveWorkersError, WorkerBusyError
 from production.services.stages_to_sessions import StagesToSessionsService
 from production.constants import ProductionActions
 from django.utils.text import slugify
@@ -99,9 +99,9 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
                     )
 
             if action == ProductionActions.START_ACTIVITY:
-                messages.success(request, _("Activity arrived to start successfully."))
                 count = StagesToSessionsService.start_activity(stage_name=stage_name, items=items, employee=employee)
-            
+                messages.success(request, _("Activity arrived to start successfully."))
+
             elif action == ProductionActions.FINISH_ACTIVITY:
                 count = StagesToSessionsService.finish_activity(stage_name=stage_name, items=items, employee=employee)
 
@@ -137,6 +137,8 @@ class ProductionItemAdvanceStageView(UnfoldModelAdminViewMixin, View):
                 _("Cannot finish: other workers are still active on this stage: %(names)s")
                 % {"names": names},
             )
+        except WorkerBusyError as e:
+            messages.error(request, e.message)
         except ValidationError as e:
             logger.error(str(e))
             messages.error(request, _("Validation error: {}").format(" ".join(e.messages)))

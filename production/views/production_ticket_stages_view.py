@@ -95,6 +95,18 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
 
         return stage_name in normalized_planning
 
+    def _active_session_elsewhere(self, employee, ticket):
+        """The viewer's open session on another ticket; it blocks starting work here."""
+        if employee is None:
+            return None
+        return (
+            ProductionItemSession.objects.open_for(employee)
+            .exclude(production_item__ticket=ticket)
+            .select_related("production_item")
+            .order_by("-start_time")
+            .first()
+        )
+
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
 
@@ -113,6 +125,7 @@ class ProductionTicketStagesView(UnfoldModelAdminViewMixin, TemplateView):
         ]
 
         employee = Employee.objects.filter(user=self.request.user, is_active=True).first()
+        ctx["active_session_elsewhere"] = self._active_session_elsewhere(employee, ticket)
 
         authorized_stages = stage_order
         restricted_worker = Employee.stage_restricted_worker(self.request.user)

@@ -15,8 +15,8 @@ from company.models import BankAccount, Company
 from invoices.models import ConfirmationStatus, Invoice, InvoicePaymentStatus, SalesInvoice, SalesInvoiceStatus
 from loans.models import LoanInstallment, LoanInstallmentPaymentStatus
 from finance.models import TaxPeriod, TaxPeriodStatus
-from payroll.models import EmployeePayroll, PayrollPeriod
-from payroll.services.payment_projection import get_projected_payment_date
+from payroll.models import PayrollPeriod
+from apps.expenses.models import FixedCostInstallment
 
 
 class CalendarDirection:
@@ -47,6 +47,19 @@ def _admin_change_url(source_model: str, source_id: int) -> str:
         return reverse(f"admin:{app_label}_{model_name.lower()}_change", args=[source_id])
     except NoReverseMatch:
         return ""
+
+
+def _roll_forward_to_today(natural_date: datetime.date) -> datetime.date:
+    """
+    If a projected/due date already passed and the obligation is still
+    unpaid, show it today instead of on its original (past) date - unpaid
+    money owed doesn't disappear from the calendar just because its date
+    came and went. Shared by any source that tracks is_paid independently
+    of its natural due date (FixedCostInstallment today; EmployeePayroll
+    once pol-302 merges).
+    """
+    today = timezone.localdate()
+    return natural_date if natural_date >= today else today
 
 
 @dataclasses.dataclass(frozen=True)
@@ -209,6 +222,63 @@ def _tax_period_entries(company: Company, date_from: datetime.date, date_to: dat
     ]
 
 
+class FixedCostCalendarSource:
+    """
+    Builds the "Fixed costs" calendar entries for one company/date window.
+    The only _xxx_entries source currently wrapped in a class - the other 7
+    (loan installments, purchase/sales invoices, proforma, tax periods,
+    payroll) stay as plain module functions, same as before. Only this one
+    moved, since it's the one that came up for discussion.
+    """
+
+    def __init__(self, company: Company, date_from: datetime.date, date_to: datetime.date):
+        self.company = company
+        self.date_from = date_from
+        self.date_to = date_to
+
+    def entries(self) -> list[CalendarEntry]:
+        """
+        Unpaid FixedCostInstallments, rolled forward to today if their due_date
+        already passed (see _roll_forward_to_today) - a recurring cost doesn't
+        drop off the cashflow just because the day came and went without anyone
+        confirming it paid. Grouped by (effective_date, provider), same pattern
+        as _purchase_invoice_entries, since several overdue installments from
+        different schedules can all land on "today" at once.
+        """
+        installments = (
+            FixedCostInstallment.objects
+            .filter(company=self.company, is_paid=False)
+            .select_related("schedule", "schedule__provider")
+        )
+
+        grouped: dict[tuple[datetime.date, int], dict] = {}
+        for installment in installments:
+            effective_date = _roll_forward_to_today(installment.due_date)
+            if not (self.date_from <= effective_date <= self.date_to):
+                continue
+            key = (effective_date, installment.schedule.provider_id)
+            group = grouped.setdefault(key, {"provider": installment.schedule.provider, "amount": Decimal("0.00"), "installment_ids": []})
+            group["amount"] += installment.amount_remaining
+            group["installment_ids"].append(installment.pk)
+
+        entries = []
+        for (effective_date, _provider_id), group in grouped.items():
+            is_single = len(group["installment_ids"]) == 1
+            entries.append(
+                CalendarEntry(
+                    date=effective_date,
+                    amount=group["amount"],
+                    direction=CalendarDirection.EXPENSE,
+                    category="Fixed costs",
+                    description=str(group["provider"]),
+                    source_model="expenses.FixedCostInstallment",
+                    source_id=group["installment_ids"][0],
+                    admin_url=_admin_change_url("expenses.FixedCostInstallment", group["installment_ids"][0]) if is_single else "",
+                )
+            )
+        return entries
+
+
 def _payroll_salary_entries(company: Company, date_from: datetime.date, date_to: datetime.date) -> list[CalendarEntry]:
     today = timezone.localdate()
     unpaid_payrolls = (
@@ -315,6 +385,7 @@ def build_payment_calendar(company: Company, bank_accounts, date_from: datetime.
         + _sales_invoice_entries(company, date_from, date_to)
         + _proforma_entries(company, date_from, date_to)
         + _tax_period_entries(company, date_from, date_to)
+        + FixedCostCalendarSource(company, date_from, date_to).entries()
         + _payroll_salary_entries(company, date_from, date_to)
         + _payroll_ss_entries(company, date_from, date_to)
     )

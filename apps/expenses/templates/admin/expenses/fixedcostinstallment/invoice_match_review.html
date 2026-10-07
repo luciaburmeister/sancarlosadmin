@@ -1,0 +1,161 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n %}
+
+{% block breadcrumbs %}
+<div class="px-4 py-3 bg-gray-50 border-b border-gray-200">
+    <div class="flex items-center text-sm text-gray-500">
+        <a href="{% url 'admin:index' %}" class="hover:text-primary-600">{% trans 'Home' %}</a>
+        <span class="mx-2">&raquo;</span>
+        <a href="{% url 'admin:expenses_fixedcostinstallment_changelist' %}" class="hover:text-primary-600">{% trans 'Fixed Cost Installments' %}</a>
+        <span class="mx-2">&raquo;</span>
+        <a href="{% url 'admin:expenses_fixedcostinstallment_change' installment.id %}" class="hover:text-primary-600">{{ installment }}</a>
+        <span class="mx-2">&raquo;</span>
+        <span>{% trans 'Suggested Matching Invoices' %}</span>
+    </div>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto py-10 px-6">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="p-8 border-b border-gray-100">
+            <h1 class="text-2xl font-bold text-gray-900">{% trans "Suggested Matching Invoices" %}</h1>
+            <p class="mt-2 text-sm text-gray-600">
+                <span class="font-semibold text-gray-800">{{ installment.schedule.concept }}</span>
+                <span class="text-gray-400 mx-1">&middot;</span>{{ installment.due_date }}
+                <span class="text-gray-400 mx-1">&middot;</span>{{ installment.amount }}
+            </p>
+        </div>
+
+        <div class="p-8">
+            {% if messages %}
+            <div class="mb-6 space-y-2">
+                {% for message in messages %}
+                <div class="message-banner {% if message.tags == 'error' %}message-error{% elif message.tags == 'warning' %}message-warning{% else %}message-info{% endif %}">
+                    {{ message }}
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if installment.matched_invoice %}
+            <div class="matched-banner">
+                <span class="matched-check">&#10003;</span>
+                <div class="flex-1">
+                    {% blocktrans %}Matched to{% endblocktrans %}
+                    <a href="{% url 'admin:invoices_invoice_change' installment.matched_invoice.id %}" class="font-semibold text-primary-700 underline">
+                        {{ installment.matched_invoice.invoice_number|default:installment.matched_invoice.pk }}
+                    </a>
+                    {% if confirmed_suggestion %}
+                    <span class="text-xs text-gray-500">
+                        &middot;
+                        {% blocktrans with user=confirmed_suggestion.reviewed_by date=confirmed_suggestion.reviewed_at %}confirmed by {{ user }} on {{ date }}{% endblocktrans %}
+                    </span>
+                    {% endif %}
+                </div>
+                <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="unmatch">
+                    <button type="submit" class="btn-unmatch">{% trans "Unmatch" %}</button>
+                </form>
+                <a href="{% url 'admin:expenses_fixedcostinstallment_change' installment.id %}" class="btn-back">{% trans "Back" %}</a>
+            </div>
+            {% endif %}
+
+            {% if not suggestions %}
+            <div class="empty-state">
+                <p class="text-sm text-gray-600">{% trans "No pending suggestions for this installment." %}</p>
+                <p class="text-xs text-gray-400 mt-1">{% trans "Use \"Find Matching Invoice\" from the installment detail page to search again." %}</p>
+            </div>
+            {% else %}
+            <form method="post" id="match-form">
+                {% csrf_token %}
+                <div class="space-y-3">
+                    {% for suggestion in suggestions %}
+                    <label class="suggestion-card">
+                        <div class="px-5 py-4 flex flex-wrap items-start gap-4">
+                            <input type="radio" name="selected_suggestion" value="{{ suggestion.pk }}" class="suggestion-radio" {% if forloop.first %}checked{% endif %}>
+                            <div class="min-w-0 flex-1">
+                                <div class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">{% trans "Invoice" %}</div>
+                                <div class="font-semibold text-gray-900">{{ suggestion.invoice.invoice_number|default:suggestion.invoice.pk }}</div>
+                                <div class="text-xs text-gray-500 mt-1">
+                                    {{ suggestion.invoice.provider.name }}
+                                    <span class="text-gray-300 mx-1">&middot;</span>{{ suggestion.invoice.date_issued }}
+                                    <span class="text-gray-300 mx-1">&middot;</span>{{ suggestion.invoice.total_amount }}
+                                </div>
+                            </div>
+                            <span class="confidence-badge">
+                                {% if suggestion.confidence == "high" %}{% trans "Exact amount" %}{% else %}{% trans "Close amount" %}{% endif %}
+                            </span>
+                        </div>
+                    </label>
+                    {% endfor %}
+                </div>
+
+                <div class="flex flex-wrap items-center justify-between gap-4 mt-5 pt-5 border-t border-gray-100">
+                    <label class="flex items-center gap-2 text-xs text-gray-500">
+                        <input type="checkbox" name="acknowledge_conflict" value="true">
+                        {% trans "Confirm anyway if bank reconciliations don't match" %}
+                    </label>
+                    <div class="flex items-center gap-2">
+                        <button type="submit" formnovalidate name="action" value="reject_all" class="btn-reject">
+                            {% trans "None of these match" %}
+                        </button>
+                        <button type="submit" name="action" value="confirm" class="btn-confirm">
+                            {% trans "Confirm Selected" %}
+                        </button>
+                    </div>
+                </div>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<style>
+    .message-banner { padding: 0.75rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; }
+    .message-error { background-color: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+    .message-warning { background-color: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+    .message-info { background-color: #eff6ff; border: 1px solid #bfdbfe; color: #1e40af; }
+    .empty-state { padding: 2rem; text-align: center; background-color: #f9fafb; border-radius: 0.5rem; }
+    .matched-banner {
+        display: flex; align-items: center; gap: 0.75rem; padding: 0.875rem 1.25rem;
+        background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 0.5rem;
+        font-size: 0.875rem; color: #166534; margin-bottom: 1.5rem;
+    }
+    .matched-check {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 1.5rem; height: 1.5rem; border-radius: 9999px;
+        background-color: #16a34a; color: white; font-size: 0.8rem; flex-shrink: 0;
+    }
+    .btn-unmatch {
+        background-color: white; color: #166534; border: 1px solid #bbf7d0;
+        padding: 0.4rem 0.9rem; border-radius: 0.5rem; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+    }
+    .btn-back {
+        display: inline-flex; align-items: center;
+        background-color: white; color: #374151; border: 1px solid #d1d5db;
+        padding: 0.4rem 0.9rem; border-radius: 0.5rem; font-size: 0.8rem; font-weight: 600;
+        text-decoration: none; cursor: pointer;
+    }
+    .suggestion-card {
+        display: block; border: 1px solid #e5e7eb; border-radius: 0.75rem; overflow: hidden;
+        cursor: pointer; transition: border-color 0.15s;
+    }
+    .suggestion-card:has(.suggestion-radio:checked) { border-color: #0f6e56; background-color: #f0fdf9; }
+    .suggestion-radio { margin-top: 0.3rem; width: 1rem; height: 1rem; accent-color: #0f6e56; flex-shrink: 0; }
+    .confidence-badge {
+        display: inline-flex; align-items: center; border-radius: 9999px;
+        background-color: #eff6ff; color: #1e40af; padding: 0.25rem 0.75rem;
+        font-size: 0.75rem; font-weight: 600;
+    }
+    .btn-confirm {
+        background-color: #0f6e56; color: white; padding: 0.5rem 1rem;
+        border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; border: none; cursor: pointer;
+    }
+    .btn-reject {
+        background-color: white; color: #991b1b; border: 1px solid #fecaca;
+        padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; cursor: pointer;
+    }
+</style>
+{% endblock %}

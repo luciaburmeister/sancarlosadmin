@@ -1,16 +1,22 @@
+import datetime
+
+from django.conf import settings
 from django.db import models
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.contrib.auth import get_user_model
 from django.contrib.contenttypes.models import ContentType
-from django.core.validators import FileExtensionValidator
+from django.core.validators import FileExtensionValidator, MinValueValidator
 from django.core.exceptions import ValidationError
 from django.db.models import Sum
 from django_countries.fields import CountryField
 from djmoney.models.fields import MoneyField
 from djmoney.money import Money
+from timestamps.models import Timestampable
 from company.models import CompanyOwnedModel
+from finance.models import PeriodUnit
 from invoices.models import InvoicePaymentStatus
-from payments.mixins import Payable
+from payments.mixins import Payable, PaidVia
 from decimal import Decimal
 import requests
 import os
@@ -128,10 +134,6 @@ class ExchangeRate(models.Model):
         )
 
 
-# ─────────────────────────────────────────────
-# EXPENSE CLAIM (defined before ExpenseTicket
-# so ExpenseTicket can reference it)
-# ─────────────────────────────────────────────
 
 class ExpenseClaimStatus(models.TextChoices):
     DRAFT = 'draft', _('Draft')
@@ -146,8 +148,6 @@ VALID_TRANSITIONS = {
     ExpenseClaimStatus.SUBMITTED: [ExpenseClaimStatus.APPROVED, ExpenseClaimStatus.REJECTED],
     ExpenseClaimStatus.APPROVED: [ExpenseClaimStatus.REIMBURSED],
     ExpenseClaimStatus.REIMBURSED: [],
-    # A rejected claim goes back to the submitter as a draft so they can fix
-    # it and resubmit - otherwise it would be a permanent dead end.
     ExpenseClaimStatus.REJECTED: [ExpenseClaimStatus.DRAFT],
 }
 
@@ -263,7 +263,6 @@ class ExpenseClaim(CompanyOwnedModel, Payable):
             total += ticket.get_effective_amount()
         self.total_claimed = total
         if save:
-            # Pass update_fields to skip full_clean() — avoids false validation errors
             self.save(update_fields=['total_claimed'])
         return self.total_claimed
 
@@ -324,7 +323,7 @@ class ExpenseTicket(CompanyOwnedModel):
         verbose_name=_("Submitted By")
     )
     claim = models.ForeignKey(
-        ExpenseClaim,                  # direct reference now, no string needed
+        ExpenseClaim,                
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
@@ -497,3 +496,383 @@ class ExpenseTicket(CompanyOwnedModel):
                     _("Cannot edit a ticket that belongs to a submitted claim.")
                 )
         super().save(*args, **kwargs)
+
+
+
+class FixedCostSchedule(Timestampable, CompanyOwnedModel):
+    provider = models.ForeignKey(
+        'materials.Provider',
+        on_delete=models.PROTECT,
+        related_name='fixed_cost_schedules',
+        verbose_name=_("Provider"),
+    )
+    concept = models.CharField(
+        max_length=200,
+        verbose_name=_("Concept"),
+        help_text=_("E.g. 'BMW Renting', 'Office Rent'"),
+    )
+    amount = MoneyField(
+        max_digits=14, decimal_places=2, default_currency='EUR',
+        verbose_name=_("Amount"),
+    )
+    start_date = models.DateField(verbose_name=_("Start Date"))
+    period_length = models.PositiveIntegerField(
+        validators=[MinValueValidator(1)],
+        verbose_name=_("Period Length"),
+        help_text=_("Number of units per period. E.g. 1 + Months = monthly."),
+    )
+    period_unit = models.CharField(
+        max_length=10,
+        choices=PeriodUnit.choices,
+        default=PeriodUnit.MONTHS,
+        verbose_name=_("Period Unit"),
+    )
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name=_("Active"),
+        help_text=_("Inactive schedules will not generate new installments."),
+    )
+
+    class Meta:
+        verbose_name = _("Fixed Cost Schedule")
+        verbose_name_plural = _("Fixed Cost Schedules")
+        ordering = ["company", "concept"]
+
+    def __str__(self):
+        return self.concept
+
+    REGEN_FIELDS = {"start_date", "period_length", "period_unit", "amount"}
+
+    # How far into the future an installment is generated before it's due -
+    # e.g. 30 means "create it once it's within 30 days of being due", not
+    # the whole future at once (FixedCostSchedule has no end date).
+    HORIZON_DAYS = 30
+
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+
+        changed = set()
+        if not is_new:
+            try:
+                old = FixedCostSchedule.objects.get(pk=self.pk)
+                changed = {f for f in self.REGEN_FIELDS if getattr(old, f) != getattr(self, f)}
+            except FixedCostSchedule.DoesNotExist:
+                pass
+
+        super().save(*args, **kwargs)
+
+        if not self.is_active:
+            return
+
+        if is_new or (changed & self.REGEN_FIELDS):
+
+            FixedCostInstallment.objects.filter(
+                schedule=self,
+                payment_status=InvoicePaymentStatus.UNPAID,
+            ).delete()
+
+        self.generate_due_installments()
+
+    def create_next_period(self, from_date=None):
+        """
+        Create a single installment starting from `from_date`.
+        Uses get_or_create so it is safe to call multiple times.
+        """
+        start = from_date or self.start_date
+
+        installment, _created = FixedCostInstallment.objects.get_or_create(
+            schedule=self,
+            due_date=start,
+            defaults={
+                "company": self.company,
+                "amount": self.amount,
+            },
+        )
+        return installment
+
+    def generate_due_installments(self):
+        """
+        Generate every installment that has become "due enough to track" -
+        anything already due, plus anything due within HORIZON_DAYS from
+        today. Safe to call repeatedly - uses get_or_create so existing
+        installments are never overwritten or duplicated.
+
+        Each due_date is computed directly from start_date (start_date +
+        n periods), never by adding the period onto the previously computed
+        date - a day-31 start date would otherwise drift to the 28th and
+        stay there forever once relativedelta starts clamping short months.
+        """
+        from dateutil.relativedelta import relativedelta
+
+        horizon = timezone.now().date() + datetime.timedelta(days=self.HORIZON_DAYS)
+        n = 0
+        while True:
+            due_date = self.start_date + relativedelta(**{self.period_unit: self.period_length * n})
+            if due_date > horizon:
+                break
+            FixedCostInstallment.objects.get_or_create(
+                schedule=self,
+                due_date=due_date,
+                defaults={
+                    "company": self.company,
+                    "amount": self.amount,
+                },
+            )
+            n += 1
+
+
+class FixedCostInstallment(Timestampable, CompanyOwnedModel, Payable):
+    schedule = models.ForeignKey(
+        FixedCostSchedule,
+        on_delete=models.PROTECT,
+        related_name='installments',
+        verbose_name=_("Fixed Cost Schedule"),
+    )
+    due_date = models.DateField(verbose_name=_("Due Date"))
+    amount = MoneyField(
+        max_digits=14, decimal_places=2, default_currency='EUR',
+        verbose_name=_("Amount"),
+    )
+    payment_status = models.CharField(
+        max_length=20,
+        choices=InvoicePaymentStatus.choices,
+        default=InvoicePaymentStatus.UNPAID,
+        verbose_name=_("Payment Status"),
+        help_text=_("Auto-calculated from the payments allocated to this installment."),
+    )
+    is_paid = models.BooleanField(default=False, verbose_name=_("Paid"))
+    paid_via = models.CharField(
+        max_length=20,
+        choices=PaidVia.choices,
+        blank=True,
+        default="",
+        verbose_name=_("Paid Via"),
+        help_text=_("Empty until the installment is actually paid."),
+    )
+    paid_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Paid At"))
+    paid_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+        verbose_name=_("Paid By"),
+    )
+    matched_invoice = models.ForeignKey(
+        'invoices.Invoice',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='+',
+        verbose_name=_("Matched Invoice"),
+        help_text=_(
+            "The real invoice/receipt eventually loaded for this recurring cost, "
+            "once confirmed as a match. Used to avoid double-counting this expense "
+            "in the cashflow."
+        ),
+    )
+    is_estimated = models.BooleanField(
+        default=False,
+        verbose_name=_("Is Estimated"),
+        help_text=_(
+            "Reserved for future variable-amount fixed costs (utilities, etc.), where "
+            "the amount is a projection to be reconciled against the real expense later. "
+            "Always False for fixed-amount costs like renting or rent."
+        ),
+    )
+
+    class Meta:
+        verbose_name = _("Fixed Cost Installment")
+        verbose_name_plural = _("Fixed Cost Installments")
+        ordering = ["-due_date"]
+        unique_together = [["schedule", "due_date"]]
+
+    def __str__(self):
+        return f"{self.schedule.concept} | {self.due_date}"
+
+    def save(self, *args, **kwargs):
+        """
+        Catches matched_invoice being changed or cleared by a direct field
+        edit (e.g. the admin form, where it's a normal editable autocomplete
+        field) - not just through FixedCostInvoiceMatcher.unmatch()/confirm().
+        If it changed, this installment's mirror allocation (sourced from
+        whichever invoice it was previously linked to) is stale and must go
+        with it; deleting it triggers PaymentAllocation's own post_delete
+        signal, which recalculates this installment's payment_status.
+        """
+        old_matched_invoice_id = None
+        if self.pk:
+            old_matched_invoice_id = (
+                FixedCostInstallment.objects.filter(pk=self.pk)
+                .values_list("matched_invoice_id", flat=True)
+                .first()
+            )
+
+        super().save(*args, **kwargs)
+
+        if old_matched_invoice_id and old_matched_invoice_id != self.matched_invoice_id:
+            from payments.models import PaymentAllocation
+            ct = ContentType.objects.get_for_model(self)
+            PaymentAllocation.objects.filter(
+                content_type=ct, object_id=self.pk, is_mirror=True,
+            ).delete()
+
+    @property
+    def amount_paid(self) -> Money:
+        from payments.models import PaymentAllocation
+
+        ct = ContentType.objects.get_for_model(self)
+        total = (
+            PaymentAllocation.objects.filter(content_type=ct, object_id=self.pk)
+            .aggregate(total=Sum("amount_applied"))["total"]
+            or 0
+        )
+        return Money(total, self.amount_currency)
+
+    @property
+    def amount_remaining(self) -> Decimal:
+        if self.amount:
+            return (self.amount - self.amount_paid).amount
+        return Decimal("0.00")
+
+    def recalculate_payment_status(self):
+        """
+        Recompute payment_status (the ledger: how much of this installment is
+        actually covered by confirmed PaymentAllocations) from scratch, mirroring
+        Invoice.recalculate_payment_status(). Not wired to any signal yet — the
+        bank matcher task will call this once it starts creating
+        PaymentAllocations for installments.
+
+        payment_status and is_paid answer two different questions and are
+        deliberately allowed to disagree:
+        - payment_status: how much of the ledger is covered right now.
+        - is_paid: whether this installment should stop being chased by the
+          Cashflow - which can be confirmed by a human before the ledger
+          catches up, or by the ledger reaching full coverage before anyone
+          confirms it by hand.
+
+        So is_paid is only touched here in two cases:
+        - The ledger just reached full coverage and nobody had confirmed
+          payment yet -> confirm it automatically (paid_via=RECONCILIATION),
+          same rule already used for payroll reconciliation.
+        - The ledger used to be at full coverage but no longer is (e.g. an
+          allocation got deleted) AND the confirmation that made it "paid" was
+          this same automatic reconciliation -> undo it, since the ledger was
+          its only basis. A MANUAL confirmation is never touched here - it
+          came from a person, and a recalculation has no authority to
+          overrule that.
+        A PARTIAL ledger never affects is_paid either way.
+        """
+        total_applied = self.amount_paid.amount
+        total = self.amount.amount if self.amount else Decimal("0.00")
+
+        if total_applied <= 0:
+            new_status = InvoicePaymentStatus.UNPAID
+        elif total_applied >= total:
+            new_status = InvoicePaymentStatus.PAID
+        else:
+            new_status = InvoicePaymentStatus.PARTIAL
+
+        update_fields = ["payment_status", "updated_at"]
+
+        if new_status == InvoicePaymentStatus.PAID and not self.is_paid:
+            self.is_paid = True
+            self.paid_via = PaidVia.RECONCILIATION
+            self.paid_at = timezone.now()
+            self.paid_by = None
+            update_fields += ["is_paid", "paid_via", "paid_at", "paid_by"]
+        elif (
+            new_status != InvoicePaymentStatus.PAID
+            and self.is_paid
+            and self.paid_via == PaidVia.RECONCILIATION
+        ):
+            self.is_paid = False
+            self.paid_via = ""
+            self.paid_at = None
+            self.paid_by = None
+            update_fields += ["is_paid", "paid_via", "paid_at", "paid_by"]
+
+        self.payment_status = new_status
+        self.save(update_fields=update_fields)
+
+    def mark_as_paid(self, user):
+        """Manual confirmation - moved here from FixedCostInstallmentAdmin's
+        mark_paid_action/mark_selected_as_paid, same fields, same values."""
+        self.is_paid = True
+        self.paid_at = timezone.now()
+        self.paid_by = user
+        self.paid_via = PaidVia.MANUAL
+        self.save(update_fields=["is_paid", "paid_at", "paid_by", "paid_via", "updated_at"])
+
+    def mark_as_unpaid(self):
+        """Clears the manual confirmation - moved here from
+        FixedCostInstallmentAdmin's mark_unpaid_action, same fields, same values."""
+        self.is_paid = False
+        self.paid_at = None
+        self.paid_by = None
+        self.paid_via = ""
+        self.save(update_fields=["is_paid", "paid_at", "paid_by", "paid_via", "updated_at"])
+
+
+class FixedCostInvoiceMatchSuggestionStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    CONFIRMED = "confirmed", _("Confirmed")
+    REJECTED = "rejected", _("Rejected")
+
+
+class FixedCostInvoiceMatchSuggestion(Timestampable):
+    """
+    Candidate real Invoice proposed for a recurring FixedCostInstallment,
+    pending human review. Regenerated from scratch on every matcher run for
+    a given installment (old PENDING rows for that installment are deleted
+    first - see banking.services.transaction_matching.fixed_cost_invoice_matcher).
+
+    Confirming a suggestion sets FixedCostInstallment.matched_invoice - this
+    row is never itself the source of truth for the match, same as
+    invoices.AIMatchSuggestion / InvoicePOAllocation.
+
+    A REJECTED suggestion only blocks that specific (installment, invoice)
+    pair from being re-suggested - the invoice remains a normal candidate
+    for any other installment, and even for this one if the schedule/invoice
+    data changes and someone reruns the matcher expecting a fresh look
+    (rejections aren't purged automatically, so re-suggesting the exact same
+    pair is what's blocked, not the invoice in general).
+    """
+    installment = models.ForeignKey(
+        FixedCostInstallment,
+        on_delete=models.CASCADE,
+        related_name="invoice_match_suggestions",
+        verbose_name=_("Fixed Cost Installment"),
+    )
+    invoice = models.ForeignKey(
+        "invoices.Invoice",
+        on_delete=models.CASCADE,
+        related_name="fixedcost_match_suggestions",
+        verbose_name=_("Invoice"),
+    )
+    confidence = models.CharField(
+        max_length=10,
+        default="high",
+        verbose_name=_("Confidence"),
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=FixedCostInvoiceMatchSuggestionStatus.choices,
+        default=FixedCostInvoiceMatchSuggestionStatus.PENDING,
+        verbose_name=_("Status"),
+    )
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name=_("Reviewed By"),
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True, verbose_name=_("Reviewed At"))
+
+    class Meta:
+        verbose_name = _("Fixed Cost Invoice Match Suggestion")
+        verbose_name_plural = _("Fixed Cost Invoice Match Suggestions")
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.installment} → {self.invoice} ({self.status})"

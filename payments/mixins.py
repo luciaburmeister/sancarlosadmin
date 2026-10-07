@@ -20,6 +20,17 @@ from django.db.models import (
 )
 from django.db.models.functions import Coalesce
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+
+
+class PaidVia(models.TextChoices):
+    """
+    How a Payable-derived document got marked as paid: a manual user
+    action, or automatically because it was matched to a bank movement
+    during reconciliation.
+    """
+    MANUAL = "manual", _("Manual")
+    RECONCILIATION = "reconciliation", _("Reconciliation")
 
 
 class Payable(models.Model):

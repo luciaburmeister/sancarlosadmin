@@ -1,4 +1,4 @@
-from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
+from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter, ChoicesDropdownFilter
 from django.contrib.admin.widgets import AutocompleteSelectMultiple
 import os
 
@@ -8,7 +8,7 @@ from django.core.files.base import ContentFile
 from django.db import transaction
 from django.http import HttpResponse
 from django.urls import path, reverse
-from django.shortcuts import redirect
+from django.shortcuts import get_object_or_404, redirect
 from django.utils.translation import gettext_lazy as _
 from djmoney.money import Money
 
@@ -27,6 +27,8 @@ from apps.expenses.models import (
     ExpenseClaim,
     ExpenseClaimStatus,
     ExpenseTicket,
+    FixedCostInstallment,
+    FixedCostSchedule,
 )
 from apps.expenses.tasks import process_expense_ticket
 from apps.expenses.views.expense_ticket_upload import ExpenseTicketUploadAdminView
@@ -783,3 +785,180 @@ class ExpenseTicketAdmin(CompanyRestrictedAdmin, ModelAdmin):
 
     def add_view(self, request, form_url="", extra_context=None):
         return redirect("admin:expenses_expenseticket_upload")
+
+
+class FixedCostInstallmentInline(TabularInline):
+    model = FixedCostInstallment
+    extra = 0
+    tab = True
+    can_delete = False
+    show_change_link = True
+    fields = ("due_date", "amount", "payment_status", "is_paid", "paid_via", "matched_invoice")
+    readonly_fields = fields
+    verbose_name = _("Installment")
+    verbose_name_plural = _("Installments")
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(FixedCostSchedule)
+class FixedCostScheduleAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ["concept", "provider", "amount", "get_frequency_label", "start_date", "company", "get_active_label"]
+    list_filter = (
+        ("company", AutocompleteSelectMultipleFilter),
+        "is_active",
+        ("period_unit", ChoicesDropdownFilter),
+    )
+    search_fields = ["concept", "provider__name"]
+    list_filter_submit = True
+    autocomplete_fields = ["company", "provider"]
+    actions_detail = ["view_installments_action"]
+    inlines = [FixedCostInstallmentInline]
+
+    fieldsets = (
+        (_("General"), {
+            "fields": (
+                "concept",
+                ("company", "provider"),
+                "start_date",
+                "is_active",
+            ),
+        }),
+        (_("Period Definition"), {
+            "description": _(
+                "Define how often a new installment is due. On save, all "
+                "installments from the start date up to today are created "
+                "automatically."
+            ),
+            "fields": (
+                "amount",
+                ("period_length", "period_unit"),
+            ),
+        }),
+    )
+
+    @action(description=_("View Installments"), icon="date_range")
+    def view_installments_action(self, request, object_id: int):
+        url = reverse("admin:expenses_fixedcostinstallment_changelist") + f"?schedule__id__exact={object_id}"
+        return redirect(url)
+
+    @display(description=_("Frequency"))
+    def get_frequency_label(self, obj):
+        return _("Every %(length)s %(unit)s") % {"length": obj.period_length, "unit": obj.get_period_unit_display().lower()}
+
+    @display(
+        description=_("Active"),
+        label={True: "success", False: "danger"},
+    )
+    def get_active_label(self, obj):
+        return obj.is_active
+
+
+@admin.register(FixedCostInstallment)
+class FixedCostInstallmentAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = ["schedule", "due_date", "amount", "get_payment_status_label", "is_paid", "paid_via", "matched_invoice", "company"]
+    list_filter = (
+        ("company", AutocompleteSelectMultipleFilter),
+        ("payment_status", ChoicesDropdownFilter),
+        "is_paid",
+        ("paid_via", ChoicesDropdownFilter),
+    )
+    search_fields = ["schedule__concept", "schedule__provider__name"]
+    list_filter_submit = True
+    autocomplete_fields = ["company", "schedule", "matched_invoice"]
+
+    actions = ["mark_selected_as_paid"]
+    actions_detail = [
+        {
+            "title": _("Payment Status"),
+            "items": ["mark_paid_action", "mark_unpaid_action"],
+        },
+        "find_matching_invoice_action",
+    ]
+    actions_row = ["mark_paid_action", "mark_unpaid_action"]
+    readonly_fields = ["payment_status", "is_paid", "paid_at", "paid_by", "paid_via"]
+    inlines = [DocumentPaymentsInline]
+
+    fieldsets = (
+        (_("Installment"), {
+            "fields": (
+                ("company", "schedule"),
+                ("due_date", "amount"),
+                "payment_status",
+            ),
+        }),
+        (_("Payment"), {
+            "fields": (
+                ("is_paid", "paid_via"),
+                ("paid_at", "paid_by"),
+                "matched_invoice",
+            ),
+        }),
+    )
+
+    @display(
+        description=_("Payment"),
+        ordering="payment_status",
+        label={
+            InvoicePaymentStatus.UNPAID: "danger",
+            InvoicePaymentStatus.PARTIAL: "warning",
+            InvoicePaymentStatus.PAID: "success",
+        },
+    )
+    def get_payment_status_label(self, obj):
+        return obj.payment_status, obj.get_payment_status_display()
+
+    @action(description=_("Mark as paid"), icon="paid", permissions=["mark_paid"])
+    def mark_paid_action(self, request, object_id):
+        installment = get_object_or_404(FixedCostInstallment, pk=object_id)
+        installment.mark_as_paid(request.user)
+        self.message_user(request, _("Installment marked as paid."))
+        return redirect(reverse("admin:expenses_fixedcostinstallment_change", args=[object_id]))
+
+    def has_mark_paid_permission(self, request, object_id=None):
+        return request.user.has_perm("expenses.change_fixedcostinstallment")
+
+    @action(description=_("Mark as unpaid"), icon="money_off", permissions=["mark_unpaid"])
+    def mark_unpaid_action(self, request, object_id):
+        installment = get_object_or_404(FixedCostInstallment, pk=object_id)
+        installment.mark_as_unpaid()
+        self.message_user(request, _("Installment marked as unpaid."))
+        return redirect(reverse("admin:expenses_fixedcostinstallment_change", args=[object_id]))
+
+    def has_mark_unpaid_permission(self, request, object_id=None):
+        return request.user.has_perm("expenses.change_fixedcostinstallment")
+
+    @admin.action(description=_("Mark selected installments as paid"))
+    def mark_selected_as_paid(self, request, queryset):
+        updated = 0
+        for installment in queryset.filter(is_paid=False):
+            installment.mark_as_paid(request.user)
+            updated += 1
+        self.message_user(request, _("%(n)d installment(s) marked as paid.") % {"n": updated})
+
+    @action(description=_("Find Matching Invoice"), url_path="find-invoice", icon="receipt_long")
+    def find_matching_invoice_action(self, request, object_id):
+        from banking.services.transaction_matching import FixedCostInvoiceMatcher
+
+        installment = get_object_or_404(FixedCostInstallment, pk=object_id)
+        if not installment.matched_invoice_id:
+            FixedCostInvoiceMatcher(installment).run()
+        return redirect(
+            reverse("admin:expenses_fixedcostinstallment_find_invoice_review", args=[installment.pk])
+        )
+
+    def get_urls(self):
+        from apps.expenses.views.fixed_cost_invoice_match_view import FixedCostInvoiceMatchView
+
+        urls = super().get_urls()
+        custom = [
+            path(
+                "<path:object_id>/find-invoice-review/",
+                self.admin_site.admin_view(
+                    FixedCostInvoiceMatchView.as_view(model_admin=self)
+                ),
+                name="expenses_fixedcostinstallment_find_invoice_review",
+            ),
+        ]
+        return custom + urls

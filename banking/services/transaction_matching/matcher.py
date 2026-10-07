@@ -257,7 +257,6 @@ class TransactionMatcher:
                 due_date__lte=cutoff_date,
             )
 
-            # LoanEvents (early repayments) that haven't been reconciled yet
             from django.contrib.contenttypes.models import ContentType
             from payments.models import PaymentAllocation
             ct = ContentType.objects.get_for_model(LoanEvent)

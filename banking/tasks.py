@@ -128,6 +128,70 @@ def sync_bank_transactions(self):
         raise self.retry(exc=exc)
 
 
+@shared_task(bind=True, max_retries=2, default_retry_delay=300)
+def match_fixed_cost_invoices_task(self):
+    """Periodic task: for every unmatched FixedCostInstallment of an active
+    schedule, (re)run FixedCostInvoiceMatcher to generate pending suggestions.
+
+    Runs every 6 hours via Celery Beat, same cadence as sync_bank_transactions.
+    Never confirms automatically - same as the manual "Find Matching Invoice"
+    button on FixedCostInstallmentAdmin, just triggered on a schedule instead
+    of a click.
+    """
+    from apps.expenses.models import FixedCostInstallment
+    from banking.services.transaction_matching import FixedCostInvoiceMatcher
+
+    try:
+        installments = FixedCostInstallment.objects.filter(
+            matched_invoice__isnull=True,
+            schedule__is_active=True,
+        )
+        total = installments.count()
+        with_new_suggestions = 0
+        for installment in installments:
+            if FixedCostInvoiceMatcher(installment).run():
+                with_new_suggestions += 1
+
+        logger.info(
+            "Fixed cost invoice matcher: checked %d installment(s), %d got new suggestion(s).",
+            total, with_new_suggestions,
+        )
+        return {"checked": total, "with_new_suggestions": with_new_suggestions}
+    except Exception as exc:
+        logger.exception("Fixed cost invoice matcher failed")
+        raise self.retry(exc=exc)
+
+
+@shared_task(name="banking.tasks.advance_fixed_cost_schedules_task")
+def advance_fixed_cost_schedules_task():
+    """Daily periodic task: generate due FixedCostInstallments for every
+    active FixedCostSchedule.
+
+    Without this, installments only get created when someone edits and
+    saves the schedule in the admin - this is what makes new installments
+    appear on their own as they enter the HORIZON_DAYS window, with no
+    manual step required. One failing schedule is logged and skipped,
+    never blocking the rest.
+    """
+    from apps.expenses.models import FixedCostSchedule
+
+    advanced = 0
+    errors = []
+    for schedule in FixedCostSchedule.objects.filter(is_active=True):
+        try:
+            schedule.generate_due_installments()
+            advanced += 1
+        except Exception as exc:
+            logger.exception("Failed to advance FixedCostSchedule %s", schedule.pk)
+            errors.append(f"schedule {schedule.pk}: {exc}")
+
+    logger.info(
+        "Fixed cost schedules advanced: %d succeeded, %d failed.",
+        advanced, len(errors),
+    )
+    return {"advanced": advanced, "errors": errors}
+
+
 @shared_task(name="banking.tasks.send_bank_accounts_summary")
 def send_bank_accounts_summary():
     """Periodic task: emails each company's bank account balances (last

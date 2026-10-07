@@ -21,9 +21,18 @@ class DocumentPaymentsInline(GenericTabularInline):
     tab = True
     verbose_name = _("Payment")
     verbose_name_plural = _("Payments")
-    fields = ("get_payment_date", "get_method", "get_reference", "amount_applied", "get_status", "get_payment_link")
-    readonly_fields = ("get_payment_date", "get_method", "get_reference", "amount_applied", "get_status", "get_payment_link")
+    fields = ("get_payment_date", "get_method", "get_reference", "amount_applied", "get_status", "get_payment_link", "get_bank_transaction_link")
+    readonly_fields = ("get_payment_date", "get_method", "get_reference", "amount_applied", "get_status", "get_payment_link", "get_bank_transaction_link")
     can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
     def get_payment_date(self, obj):
         return obj.payment.payment_date
@@ -49,5 +58,18 @@ class DocumentPaymentsInline(GenericTabularInline):
         return obj.payment.get_status_display()
     get_status.short_description = _("Status")
 
+    def get_bank_transaction_link(self, obj):
+        from banking.models import BankReconciliation
+
+        try:
+            recon = obj.payment.reconciliation
+        except BankReconciliation.DoesNotExist:
+            return "—"
+        if not recon.bank_transaction_id:
+            return "—"
+        url = reverse("admin:banking_banktransaction_change", args=[recon.bank_transaction_id])
+        return format_html('<a href="{}" class="text-primary-600 underline">{}</a>', url, str(recon.bank_transaction))
+    get_bank_transaction_link.short_description = _("Bank Transaction")
+
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related("payment")
+        return super().get_queryset(request).select_related("payment", "payment__reconciliation", "payment__reconciliation__bank_transaction")

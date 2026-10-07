@@ -360,6 +360,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "banking.tasks.sync_bank_transactions",
         "schedule": crontab(minute=0, hour="*/6"),  # every 6 hours
     },
+    "match-fixed-cost-invoices": {
+        "task": "banking.tasks.match_fixed_cost_invoices_task",
+        "schedule": crontab(minute=0, hour="*/6"),  # every 6 hours
+    },
+    "advance-fixed-cost-schedules": {
+        "task": "banking.tasks.advance_fixed_cost_schedules_task",
+        "schedule": crontab(minute=0, hour=3),  # once a day
+    },
     "process-payment-reminders": {
         "task": "invoices.tasks.process_payment_reminders",
         "schedule": crontab(minute="*/30"),  # matches the 30-min send_time window in the task

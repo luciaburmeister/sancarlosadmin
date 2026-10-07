@@ -457,6 +457,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
         "ocr_error",
         "amount_paid",
         "amount_remaining",
+        "get_linked_fixed_cost_installment",
     )
 
     list_select_related = (
@@ -719,6 +720,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
                     "payment_status",
                     "amount_paid",
                     "amount_remaining",
+                    "get_linked_fixed_cost_installment",
                 ),
             },
         ),
@@ -943,6 +945,19 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
     )
     def get_payment_status_label(self, obj):
         return obj.payment_status, obj.get_payment_status_display()
+
+    @admin.display(description=_("Linked Fixed Cost Installment"))
+    def get_linked_fixed_cost_installment(self, obj):
+        from django.apps import apps
+        from django.urls import reverse
+        from django.utils.html import format_html
+
+        FixedCostInstallment = apps.get_model("expenses", "FixedCostInstallment")
+        installment = FixedCostInstallment.objects.filter(matched_invoice=obj).select_related("schedule").first()
+        if not installment:
+            return "—"
+        url = reverse("admin:expenses_fixedcostinstallment_change", args=[installment.pk])
+        return format_html('<a href="{}" class="text-primary-600 underline">{}</a>', url, str(installment))
 
     @display(description=_("Pending Amount"), ordering="db_amount_remaining")
     def pending_amount_display(self, obj):

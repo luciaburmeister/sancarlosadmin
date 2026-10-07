@@ -361,8 +361,6 @@ class InvoiceMatcher:
                 ).values_list("iban", flat=True)
             )
         if self.invoice_type == "expenseclaim":
-            # Employees have no bank account on file — matching relies on
-            # amount + date only, same as the forward (transaction-side) matcher.
             return []
         ClientBankAccount = apps.get_model("sales", "ClientBankAccount")
         return list(

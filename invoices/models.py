@@ -317,8 +317,6 @@ class Invoice(Timestampable, Payable):
         taxes = list(self.get_taxes().order_by('order', 'id'))
         
         for tax in taxes:
-            # Use the tax's own stored base_amount and calculated_amount
-            # (set during OCR scraping). Only recalculate if calculated_amount is missing.
             if tax.calculated_amount is None:
                 tax_base = Decimal(str(tax.base_amount.amount)) if tax.base_amount else base_amount
                 res = tax.calculate(tax_base)
@@ -478,7 +476,6 @@ class Invoice(Timestampable, Payable):
 
         total = self.total_amount.amount if self.total_amount else 0
         if total < 0:
-            # Credit note: settled by refunds/offsets applied as negative allocations
             if total_applied <= total:
                 new_status = InvoicePaymentStatus.PAID
             elif total_applied < 0:
@@ -494,6 +491,12 @@ class Invoice(Timestampable, Payable):
 
         self.payment_status = new_status
         self.save(update_fields=["payment_status"])
+
+        FixedCostInstallment = apps.get_model("expenses", "FixedCostInstallment")
+        from payments.models import desync_linked_payable, sync_linked_payable
+        for installment in FixedCostInstallment.objects.filter(matched_invoice=self):
+            desync_linked_payable(self, installment)
+            sync_linked_payable(self, installment)
 
     @property
     def amount_paid(self):

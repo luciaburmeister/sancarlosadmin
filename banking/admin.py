@@ -115,12 +115,19 @@ class PaymentAllocationInline(NonrelatedTabularInline):
     )
 
     def get_form_queryset(self, obj):
-        """Return PaymentAllocations for this transaction's reconciliation payment."""
+        """
+        Return PaymentAllocations for this transaction's reconciliation payment.
+        Excludes mirror allocations (is_mirror=True) - a FixedCostInstallment
+        linked to a matched_invoice only ever gets a mirrored allocation, never
+        a real one (it's never a bank-matching candidate on its own), so this
+        naturally always shows the real document (the Invoice), never the
+        installment.
+        """
         try:
             recon = obj.reconciliation
             if recon.payment_id:
                 return PaymentAllocation.objects.filter(
-                    payment=recon.payment,
+                    payment=recon.payment, is_mirror=False,
                 ).select_related("content_type")
         except BankReconciliation.DoesNotExist:
             pass

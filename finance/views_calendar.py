@@ -35,13 +35,7 @@ from .services.payment_calendar import build_calendar_matrix
 
 MAX_WINDOW_DAYS = 14
 
-# Categories with a slot in EXPENSE_CATEGORIES/INCOME_CATEGORIES (see
-# payment_calendar.py) but no _xxx_entries() function feeding them yet.
-# Used only to mute these rows visually on screen until a real data source
-# is wired in. The Excel export deliberately does NOT apply this styling —
-# every category row looks the same there, connected or not.
 UNCONNECTED_CATEGORIES = {
-    "Fixed costs",
     "Projected supplier payment plan",
     "Projected variable cost",
     "Work pending invoicing",
@@ -282,9 +276,7 @@ class PaymentCalendarExportView(UserPassesTestMixin, View):
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Cashflow"
-        # Summary rows (totals, category totals) sit ABOVE their own detail
-        # rows in this layout, matching the dashboard — so the outline's
-        # summary lives above the group it summarizes, not below it.
+
         ws.sheet_properties.outlinePr.summaryBelow = False
         ws.sheet_properties.outlinePr.showOutlineSymbols = True
 

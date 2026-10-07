@@ -70,6 +70,14 @@ function productionSchedule() {
       this._canChange = root.dataset.canChange === "1";
       this._canPlan = root.dataset.canPlan === "1";
       this._canUnplan = root.dataset.canUnplan === "1";
+      if (root.dataset.openGroupKey) {
+        this.openGroups[root.dataset.openGroupKey] = true;
+        this.$nextTick(() => {
+          const row = Array.from(document.querySelectorAll(".ps-stage-group > .ps-row"))
+            .find((candidate) => candidate.dataset.groupKey === root.dataset.openGroupKey);
+          row?.scrollIntoView({ block: "center", inline: "nearest" });
+        });
+      }
 
       const segmentsEl = document.getElementById("ps-segments");
       this._segments = segmentsEl ? JSON.parse(segmentsEl.textContent) : [];
@@ -672,7 +680,9 @@ function productionSchedule() {
 
       const backlogItem = this._backlogItems.get(String(ticketId));
       if (backlogItem && (
-        backlogItem.needs_time_configuration || backlogItem.planned_stage_count > 0
+        backlogItem.needs_time_configuration ||
+        backlogItem.planned_stage_count > 0 ||
+        backlogItem.completed_stage_count > 0
       )) {
         this.openTicketStages(ticketId);
         return;
@@ -741,8 +751,10 @@ function productionSchedule() {
 
       this.ticketStages = item.stages.map((source) => ({
         stage: source.stage,
+        position: source.position,
         durationMinutes: source.total_time_min > 0 ? source.total_time_min : "",
         isPlanned: Boolean(source.is_planned),
+        isInProgress: Boolean(source.is_in_progress),
         compatibleResourceIds: source.compatible_resource_ids || [],
         machineQty: source.machine_qty || 0,
         employeeQty: source.employee_qty || 0,

@@ -450,6 +450,25 @@
   width: 2.8rem;
 }
 
+.ps-week-table {
+  min-width: calc(14rem + 9rem * var(--ps-week-days));
+  table-layout: fixed;
+}
+
+.ps-week-label {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 14rem;
+}
+
+thead .ps-week-label { z-index: 2; }
+.ps-week-column { width: calc((100% - 14rem) / var(--ps-week-days)); }
+.ps-week-header-link { min-height: 3.5rem; }
+.ps-week-day-link { min-height: 5rem; }
+.ps-week-entry { border-left-width: 4px; }
+.ps-week-table a:focus-visible { outline: 2px solid var(--color-primary-600, #2563eb); outline-offset: -2px; }
+
 /* Amber rather than the blue calendar-drop colour -- it undoes, not moves. */
 .ps-backlog-panel--unplan {
   border-color: #f59e0b;

@@ -6,12 +6,12 @@
     {% for stage_group in data.stage_groups %}
       {% if stage_group.has_single_machine %}
         {% with machine_group=stage_group.machine_groups.0 %}
-        {% with gkey=machine_group.machine.key|escapejs %}
+        {% with skey=stage_group.stage|escapejs %}
           <section class="ps-stage-group">
-            <div class="ps-row border-b border-base-200 bg-base-50" data-row-resource-id="{{ machine_group.machine.resource_id }}" data-row-kind="machine" data-stage-name="{{ stage_group.stage }}" data-group-key="{{ machine_group.machine.key }}">
+            <div class="ps-row border-b border-base-200 bg-base-50" data-row-resource-id="{{ machine_group.machine.resource_id }}" data-row-kind="machine" data-stage-name="{{ stage_group.stage }}" data-group-key="{{ stage_group.stage }}">
               <div class="ps-label bg-base-50 px-3 py-2">
-                <button type="button" class="flex w-full min-w-0 items-center gap-1.5 text-left" @click="toggleGroup('{{ gkey }}')" :aria-expanded="isGroupOpen('{{ gkey }}')">
-                  <span class="material-symbols-outlined text-lg transition-transform" :class="isGroupOpen('{{ gkey }}') && 'rotate-90'">chevron_right</span>
+                <button type="button" class="flex w-full min-w-0 items-center gap-1.5 text-left" @click="toggleGroup('{{ skey }}')" :aria-expanded="isGroupOpen('{{ skey }}')">
+                  <span class="material-symbols-outlined text-lg transition-transform" :class="isGroupOpen('{{ skey }}') && 'rotate-90'">chevron_right</span>
                   <span class="flex min-w-0 flex-col">
                     <strong class="truncate text-sm">{{ stage_group.stage }}</strong>
                     <small class="truncate text-[11px] text-base-500">{{ machine_group.machine.label }}</small>
@@ -26,7 +26,7 @@
               </div>
             </div>
 
-            <div x-show="isGroupOpen('{{ gkey }}')">
+            <div x-show="isGroupOpen('{{ skey }}')">
               {% for row in machine_group.operator_rows %}
                 <div class="ps-row ps-row--child border-b border-base-200" data-row-resource-id="{{ row.resource_id }}" data-parent-machine-id="{{ machine_group.machine.resource_id }}" data-row-kind="employee" data-stage-name="{{ stage_group.stage }}">
                   <div class="ps-label flex flex-col justify-center gap-0.5 bg-white px-3 py-2">

@@ -21,6 +21,8 @@ from production.forms.production_schedule_filters import (
     GROUP_MACHINE,
     GROUP_MACHINE_PEOPLE,
     GROUP_TICKET,
+    PERIOD_DAY,
+    PERIOD_WEEK,
     ProductionScheduleFilterForm,
 )
 from production.models import PlannedProductionSession, ProductionTicket
@@ -28,6 +30,7 @@ from production.services.planning_backlog import unplanned_tickets
 from production.services.production_planning import ProductionPlanningService
 from production.services.schedule_context import ProductionScheduleContext
 from production.services.schedule_geometry import ScheduleWindow, fmt_pct
+from production.services.schedule_week import WeeklyScheduleContext
 from production.services.working_calendar import WorkingCalendar
 
 VALID_GROUPINGS = {
@@ -67,34 +70,110 @@ class ProductionScheduleView(UnfoldModelAdminViewMixin, TemplateView):
             params["group_by"] = GROUP_MACHINE_PEOPLE
         if "day" not in params:
             params["day"] = timezone.localdate().isoformat()
+        if "period" not in params:
+            params["period"] = PERIOD_DAY
 
         form = ProductionScheduleFilterForm(params)
         if form.is_valid():
             day = form.cleaned_data["day"] or timezone.localdate()
             group_by = form.cleaned_data["group_by"]
+            period = form.cleaned_data["period"] or PERIOD_DAY
         else:
             day = timezone.localdate()
             group_by = GROUP_MACHINE_PEOPLE
+            period = PERIOD_DAY
         if group_by not in VALID_GROUPINGS:
             group_by = GROUP_MACHINE_PEOPLE
 
-        start = timezone.make_aware(datetime.combine(day, datetime.min.time()))
-        end = start + timedelta(days=1)
-
-        data = ProductionScheduleContext(company=company, start=start, end=end).build()
-
         navigation_params = params.copy()
         navigation_params.pop("view", None)
-        navigation_params["day"] = (day - timedelta(days=1)).isoformat()
+        navigation_params.pop("expand_stage", None)
+        navigation_params["period"] = period
+        navigation_params["group_by"] = group_by
+        step = timedelta(days=7 if period == PERIOD_WEEK else 1)
+        navigation_params["day"] = (day - step).isoformat()
         previous_day_url = reverse(
             "admin:production_plannedproductionsession_schedule",
             query=navigation_params,
         )
-        navigation_params["day"] = (day + timedelta(days=1)).isoformat()
+        navigation_params["day"] = (day + step).isoformat()
         next_day_url = reverse(
             "admin:production_plannedproductionsession_schedule",
             query=navigation_params,
         )
+        navigation_params["day"] = day.isoformat()
+        navigation_params["period"] = PERIOD_DAY
+        day_view_url = reverse(
+            "admin:production_plannedproductionsession_schedule",
+            query=navigation_params,
+        )
+        navigation_params["period"] = PERIOD_WEEK
+        week_view_url = reverse(
+            "admin:production_plannedproductionsession_schedule",
+            query=navigation_params,
+        )
+        ctx.update(
+            company=company,
+            form=form,
+            day=day,
+            group_by=group_by,
+            period=period,
+            is_week=period == PERIOD_WEEK,
+            previous_day_url=previous_day_url,
+            next_day_url=next_day_url,
+            day_view_url=day_view_url,
+            week_view_url=week_view_url,
+        )
+        if period == PERIOD_WEEK:
+            week_start = day - timedelta(days=day.weekday())
+            week = WeeklyScheduleContext(
+                company=company, week_start=week_start, group_by=group_by
+            ).build()
+            for week_day in week["days"]:
+                navigation_params["period"] = PERIOD_DAY
+                navigation_params["day"] = week_day["date"].isoformat()
+                week_day["url"] = reverse(
+                    "admin:production_plannedproductionsession_schedule",
+                    query=navigation_params,
+                )
+            for row in week["rows"]:
+                entry_params = (
+                    navigation_params.copy()
+                    if group_by == GROUP_MACHINE_PEOPLE else None
+                )
+                if entry_params is not None:
+                    entry_params["period"] = PERIOD_DAY
+                    entry_params["expand_stage"] = row["label"]
+                for week_day, cell in zip(week["days"], row["cells"]):
+                    cell["date"] = week_day["date"]
+                    cell["url"] = week_day["url"]
+                    if entry_params is not None:
+                        entry_params["day"] = week_day["date"].isoformat()
+                        cell["url"] = reverse(
+                            "admin:production_plannedproductionsession_schedule",
+                            query=entry_params,
+                        )
+            ctx.update(
+                week=week,
+                week_start=week_start,
+                week_end=week_start + timedelta(days=6),
+            )
+            return ctx
+
+        start = timezone.make_aware(datetime.combine(day, datetime.min.time()))
+        end = start + timedelta(days=1)
+        data = ProductionScheduleContext(company=company, start=start, end=end).build()
+        initial_group_key = None
+        if group_by == GROUP_MACHINE_PEOPLE:
+            requested_stage = self.request.GET.get("expand_stage")
+            initial_group_key = next(
+                (
+                    group.stage
+                    for group in data.stage_groups
+                    if group.stage == requested_stage
+                ),
+                None,
+            )
         rows = {
             GROUP_MACHINE: data.machine_rows,
             GROUP_EMPLOYEE: data.employee_rows,
@@ -103,17 +182,12 @@ class ProductionScheduleView(UnfoldModelAdminViewMixin, TemplateView):
 
         backlog = unplanned_tickets(company)
         ctx.update(
-            company=company,
-            form=form,
-            day=day,
-            group_by=group_by,
             is_machine_people=group_by == GROUP_MACHINE_PEOPLE,
             is_machine=group_by == GROUP_MACHINE,
             is_employee=group_by == GROUP_EMPLOYEE,
             is_ticket=group_by == GROUP_TICKET,
+            initial_group_key=initial_group_key,
             rows=rows,
-            previous_day_url=previous_day_url,
-            next_day_url=next_day_url,
             data=data,
             window_start_iso=start.isoformat(),
             window_end_iso=end.isoformat(),

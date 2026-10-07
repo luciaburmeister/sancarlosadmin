@@ -63,6 +63,18 @@ class CreateManualTransactionMovementTests(TestCase):
         with self.assertRaises(ValueError):
             create_manual_transaction(planning=self.planning, transaction_type=TransactionTypeChoices.MOVEMENT)
 
+    def test_movement_without_asset_but_with_explicit_override_succeeds(self):
+        """The wizard's Asset field exists exactly for this: a planning the
+        mobile app's QR-scan assignment never ran against."""
+        self.planning.asset = None
+        self.planning.save(update_fields=["asset"])
+        other_asset = make_asset(self.company, self.asset_type, name="Cuba-002", zone=self.zone)
+        transaction = create_manual_transaction(
+            planning=self.planning, transaction_type=TransactionTypeChoices.MOVEMENT,
+            asset=other_asset,
+        )
+        self.assertEqual(transaction.asset_id, other_asset.pk)
+
     def test_movement_stores_passed_in_data(self):
         transaction = create_manual_transaction(
             planning=self.planning,
@@ -260,6 +272,30 @@ class CreateManualTransactionPorteTests(TestCase):
         self.planning.save(update_fields=["transport_asset"])
         with self.assertRaises(ValueError):
             create_manual_transaction(planning=self.planning, transaction_type=TransactionTypeChoices.PORTE_MOVEMENT)
+
+    def test_porte_without_any_asset_but_with_explicit_override_succeeds(self):
+        self.planning.transport_asset = None
+        self.planning.save(update_fields=["transport_asset"])
+        other_truck = make_asset(self.company, self.asset_type, name="Truck-002")
+        transaction = create_manual_transaction(
+            planning=self.planning, transaction_type=TransactionTypeChoices.PORTE_MOVEMENT,
+            asset=other_truck,
+        )
+        self.assertEqual(transaction.asset_id, other_truck.pk)
+
+    def test_porte_asset_override_wins_over_machine_delivery_resolution(self):
+        """An explicit pick from the wizard always wins, even on a
+        PORTE_DELIVERY where the planning has an assigned machine that would
+        otherwise be auto-selected."""
+        machine = make_asset(self.company, self.asset_type, name="Machine-001")
+        self.planning.machine = machine
+        self.planning.save(update_fields=["machine"])
+        chosen = make_asset(self.company, self.asset_type, name="Chosen-Instead")
+        transaction = create_manual_transaction(
+            planning=self.planning, transaction_type=TransactionTypeChoices.PORTE_DELIVERY,
+            asset=chosen,
+        )
+        self.assertEqual(transaction.asset_id, chosen.pk)
 
     def test_porte_delivery_uses_assigned_machine_over_transport_asset(self):
         machine = make_asset(self.company, self.asset_type, name="Machine-001")

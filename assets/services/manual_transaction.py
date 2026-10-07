@@ -24,13 +24,18 @@ from assets.models import (
 class BaseManualTransactionStrategy:
     transaction_type = None
 
-    def __init__(self, *, transaction_type, planning, zone=None, performed_by=None, notes="", data=None):
+    def __init__(self, *, transaction_type, planning, zone=None, performed_by=None, notes="", data=None, asset=None):
         self.transaction_type = transaction_type
         self.planning = planning
         self.zone = zone
         self.performed_by = performed_by
         self.notes = notes
         self.data = data or {}
+        # Explicit pick from the wizard, for a planning that has no asset/
+        # transport_asset/machine of its own yet (e.g. the mobile app's QR-scan
+        # assignment step never ran) -- takes priority over whatever the
+        # planning itself carries, since the user chose it deliberately.
+        self.asset_override = asset
 
     def execute(self) -> AssetTransaction:
         raise NotImplementedError
@@ -51,9 +56,9 @@ class BaseManualTransactionStrategy:
         )
 
     def _require_asset(self):
-        asset = self.planning.asset
+        asset = self.asset_override or self.planning.asset
         if asset is None:
-            raise ValueError(_("This planning has no asset assigned yet."))
+            raise ValueError(_("This planning has no asset assigned yet. Pick one in the Asset field above."))
         return asset
 
 
@@ -154,6 +159,10 @@ class PorteStrategy(BaseManualTransactionStrategy):
         return transaction
 
     def _resolve_asset(self):
+        # An explicit pick from the wizard always wins -- the user chose it
+        # deliberately, so skip the delivery-vs-machine auto-resolution below.
+        if self.asset_override is not None:
+            return self.asset_override
         # Mirrors PorteSubmitView: the asset/truck, except on delivery for a
         # machine-porte, where the assigned machine is what's being delivered.
         if self.transaction_type == TransactionTypeChoices.PORTE_DELIVERY and self.planning.machine_id:
@@ -161,7 +170,7 @@ class PorteStrategy(BaseManualTransactionStrategy):
         else:
             asset = self.planning.asset or self.planning.transport_asset
         if asset is None:
-            raise ValueError(_("This planning has no asset, machine, or transport truck assigned yet."))
+            raise ValueError(_("This planning has no asset, machine, or transport truck assigned yet. Pick one in the Asset field above."))
         return asset
 
     def _project_file(self):
@@ -188,7 +197,7 @@ MANUAL_TRANSACTION_STRATEGY_MAP = {
 }
 
 
-def create_manual_transaction(*, planning, transaction_type, zone=None, performed_by=None, notes="", data=None):
+def create_manual_transaction(*, planning, transaction_type, zone=None, performed_by=None, notes="", data=None, asset=None):
     strategy_class = MANUAL_TRANSACTION_STRATEGY_MAP.get(transaction_type)
     if strategy_class is None:
         raise ValueError(
@@ -197,6 +206,6 @@ def create_manual_transaction(*, planning, transaction_type, zone=None, performe
         )
     strategy = strategy_class(
         transaction_type=transaction_type, planning=planning, zone=zone,
-        performed_by=performed_by, notes=notes, data=data,
+        performed_by=performed_by, notes=notes, data=data, asset=asset,
     )
     return strategy.execute()

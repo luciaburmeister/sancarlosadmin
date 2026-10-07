@@ -13,7 +13,7 @@ from production.models import (
 )
 from company.models import Employee
 from production.constants import ProductionActions
-from production.exceptions import StageHasActiveWorkersError
+from production.exceptions import StageHasActiveWorkersError, WorkerBusyError
 from django.utils.translation import gettext_lazy as _
 
 import unicodedata
@@ -21,13 +21,16 @@ import unicodedata
 
 class StagesToSessionsService:
     @classmethod
-    def _worker_has_open_session(cls, employee: Employee) -> bool:
+    def _ensure_worker_is_free(cls, employee: Employee) -> None:
         """A worker can only have one active session at a time globally."""
-        return ProductionItemSession.objects.filter(
-            created_by=employee,
-            status=ProductionItemSessionStatus.IN_PROGRESS,
-            end_time__isnull=True,
-        ).exists()
+        session = (
+            ProductionItemSession.objects.open_for(employee)
+            .select_related("production_item")
+            .order_by("-start_time")
+            .first()
+        )
+        if session is not None:
+            raise WorkerBusyError(session)
 
     @classmethod
     def _stage_has_open_session(cls, item: ProductionItem, stage_name: str) -> bool:
@@ -111,8 +114,8 @@ class StagesToSessionsService:
             raise ValidationError("No employee provided to start activity.")
 
         # Rule: worker cannot already be active on something else
-        if not skip_worker_check and cls._worker_has_open_session(employee):
-            raise ValidationError("This worker already has an active session elsewhere.")
+        if not skip_worker_check:
+            cls._ensure_worker_is_free(employee)
 
         now = timezone.now()
         count = 0
@@ -387,8 +390,7 @@ class StagesToSessionsService:
         now = timezone.now()
         count = 0
 
-        if cls._worker_has_open_session(employee):
-            raise ValidationError(_("You already have an active session elsewhere. End it before starting a new one."))
+        cls._ensure_worker_is_free(employee)
 
         for item in items:
             current_stage, stage_info = cls._get_current_stage(item, requested_stage=stage_name)

@@ -1,6 +1,31 @@
 """Domain exceptions for production workflows."""
 
-from django.utils.translation import gettext_lazy as _
+from django.core.exceptions import ValidationError
+from django.utils import formats, timezone
+from django.utils.translation import gettext, gettext_lazy as _
+
+
+class WorkerBusyError(ValidationError):
+    """Raised when a worker who already has an open session starts another one.
+
+    Subclasses ValidationError so existing callers keep handling it.
+    """
+
+    code = "worker_busy"
+
+    def __init__(self, session):
+        self.session = session
+        message = gettext(
+            "You are already working on stage '%(stage)s' of ticket #%(ticket)s "
+            "since %(since)s. Pause or finish it before starting another one."
+        ) % {
+            "stage": session.production_stage,
+            "ticket": session.production_item.ticket_id,
+            "since": formats.date_format(
+                timezone.localtime(session.start_time), "SHORT_DATETIME_FORMAT"
+            ),
+        }
+        super().__init__(message, code=self.code)
 
 
 class StageHasActiveWorkersError(Exception):

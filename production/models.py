@@ -600,6 +600,14 @@ class HoursGranularity(models.TextChoices):
 
 
 class ProductionItemSessionQuerySet(models.QuerySet):
+    def open_for(self, employee):
+        """Sessions *employee* is actively working on right now."""
+        return self.filter(
+            created_by=employee,
+            status=ProductionItemSessionStatus.IN_PROGRESS,
+            end_time__isnull=True,
+        )
+
     def completed(self):
         """Sessions that represent finished, measurable work."""
         return self.filter(

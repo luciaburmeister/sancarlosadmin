@@ -14359,12 +14359,19 @@ msgstr "Etapa no encontrada en este artículo."
 msgid "La etapa ya está cerrada."
 msgstr "La etapa ya está cerrada."
 
-msgid ""
-"You already have an active session elsewhere. End it before starting a new "
-"one."
-msgstr ""
-"Ya tienes una sesión activa en otro lugar. Termina esa sesión antes de "
-"comenzar una nueva."
+#, python-format
+msgid "You are already working on stage '%(stage)s' of ticket #%(ticket)s since %(since)s. Pause or finish it before starting another one."
+msgstr "Ya estás trabajando en la etapa '%(stage)s' del ticket #%(ticket)s desde %(since)s. Pausa o finaliza esa tarea antes de empezar otra."
+
+msgid "You are currently working on"
+msgstr "Actualmente estás trabajando en"
+
+#, python-format
+msgid "Stage '%(stage)s' of ticket #%(ticket)s since %(since)s"
+msgstr "Etapa '%(stage)s' del ticket #%(ticket)s desde %(since)s"
+
+msgid "Go to task"
+msgstr "Ir a la tarea"
 
 msgid ""
 "Another worker already has an active session on this stage. Wait for them to "

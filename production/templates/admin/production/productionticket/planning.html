@@ -45,6 +45,37 @@
       </a>
     </div>
 
+    {% if active_session_elsewhere %}
+    {% with session=active_session_elsewhere %}
+    <div class="flex flex-col sm:flex-row sm:items-center gap-4 px-5 py-4 rounded-2xl border shadow-sm"
+      style="background-color: #ffedd5; border-color: #fdba74; color: #c2410c;">
+      <div class="flex items-center gap-4 flex-1 min-w-0">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border"
+          style="background-color: #fed7aa; border-color: #fdba74;">
+          <svg class="w-5 h-5 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <div class="min-w-0">
+          <p class="text-[10px] font-black uppercase tracking-widest mb-0.5" style="color: #9a3412;">
+            {% trans "You are currently working on" %}
+          </p>
+          <p class="text-sm font-extrabold" style="color: #c2410c;">
+            {% blocktranslate with stage=session.production_stage ticket=session.production_item.ticket_id since=session.start_time|date:"SHORT_DATETIME_FORMAT" trimmed %}
+              Stage '{{ stage }}' of ticket #{{ ticket }} since {{ since }}
+            {% endblocktranslate %}
+          </p>
+        </div>
+      </div>
+      <a href="{% url 'admin:production_productionticket_stages' session.production_item.ticket_id %}"
+        class="inline-flex items-center justify-center px-4 py-2 rounded-xl text-sm font-bold border shrink-0"
+        style="background-color: #fff; border-color: #fdba74; color: #c2410c;">
+        {% trans "Go to task" %}
+      </a>
+    </div>
+    {% endwith %}
+    {% endif %}
+
     {# ── Assembly Line Banners ── #}
     {% if assembly_lines %}
     {% for al in assembly_lines %}

@@ -46,3 +46,12 @@ class CreditNoteSignTests(SimpleTestCase):
     def test_regular_invoice_untouched(self):
         out = self._run(_data("invoice"))
         self.assertEqual(out.total_amount, Decimal("121"))
+
+    def test_separate_discount_line_keeps_relative_sign(self):
+        data = _data("credit_note")
+        data.line_items.append(
+            LineItem("Descuento", Decimal("1"), Decimal("-10"), None, Decimal("-10"), Decimal("-10"), Decimal("21"))
+        )
+        out = self._run(data)
+        self.assertEqual(out.line_items[1].net_total, Decimal("10"))
+        self.assertEqual(out.line_items[0].net_total, Decimal("-100"))

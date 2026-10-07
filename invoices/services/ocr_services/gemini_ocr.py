@@ -184,24 +184,28 @@ class GeminiInvoiceProcessor(BaseGeminiExtractor, OcrInterface):
     def _force_credit_note_negative(self, data: InvoiceData) -> InvoiceData:
         """
         Credit notes (abonos) are stored with negative amounts. Many print them
-        as positive figures, so flip any positive monetary value to negative.
-        Already-negative values are left alone, so the flip is idempotent.
+        as positive figures, so when the document total is positive, negate every
+        monetary value. Negating (not abs()) keeps relative signs intact, so
+        separate discount lines still cancel against the others and the lines
+        keep summing to net_amount. A document already negative is left alone.
         Quantities and percentages are never touched.
         """
         if data.document_type != "credit_note":
             return data
 
+        reference = data.total_amount if data.total_amount is not None else data.net_amount
+        if reference is None or reference <= 0:
+            return data
+
         def neg(value: Optional[Decimal]) -> Optional[Decimal]:
-            return -abs(value) if value is not None else None
+            return -value if value is not None else None
 
         data.net_amount = neg(data.net_amount)
         data.total_amount = neg(data.total_amount)
         for item in data.line_items:
             item.gross_total = neg(item.gross_total)
             item.net_total = neg(item.net_total)
-            # A negative quantity already makes the line a credit; keep its price as printed.
-            if item.quantity is None or item.quantity >= 0:
-                item.unit_price = neg(item.unit_price)
+            item.unit_price = neg(item.unit_price)
         for tax in data.taxes:
             tax.base_amount = neg(tax.base_amount)
             tax.tax_amount = neg(tax.tax_amount)

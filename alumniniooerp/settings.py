@@ -43,6 +43,9 @@ if not DEBUG:
     sentry_sdk.init(
         dsn="https://8cfd15496c9ae7936b4180533fceab11@o4510538192125952.ingest.de.sentry.io/4510538193371216",
         send_default_pii=True,
+            traces_sample_rate=0.1,
+    profile_session_sample_rate=0.01,
+    profile_lifecycle="trace"
     )
 
 STATIC_URL = "/static/"

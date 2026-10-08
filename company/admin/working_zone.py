@@ -43,7 +43,7 @@ class WorkingZoneAdmin(ModelAdmin):
         ("zone_type", MultipleChoicesDropdownFilter),
     )
     autocomplete_fields = ["company", "project_file", "client"]
-    list_selected_related = ["company", "project_file__company"]
+    list_select_related = ["company", "client", "project_file__client"]
     list_filter_submit = True
     readonly_fields = ("location_confirmed_at",)
     inlines = [AssetTransactionInline, WorkingZoneAuthorizationInline]

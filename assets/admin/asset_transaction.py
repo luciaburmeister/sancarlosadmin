@@ -286,7 +286,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         "firma_preview", "imagen_link", "document_qr_preview",
         "performed_by", "material_vertido_display",
     ]
-    list_select_related = ["from_zone__company", "to_zone__company", "company", "performed_by__company", "asset__asset_type", "project_file"]
+    list_select_related = ["from_zone__company", "to_zone__company", "company", "performed_by__company", "asset__asset_type", "project_file__client"]
     list_filter_submit = True
     inlines = [AssetTransactionEmailLogInline, AssetTransactionReceiptInline, AssetTransactionPhotoInline, RelatedMovementReceiptInline]
 

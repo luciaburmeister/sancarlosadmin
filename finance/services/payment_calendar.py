@@ -254,7 +254,10 @@ class FixedCostCalendarSource:
 
         grouped: dict[tuple[datetime.date, int], dict] = {}
         for installment in installments:
-            effective_date = _roll_forward_to_today(installment.due_date)
+            if installment.schedule.drag_forward_if_unpaid:
+                effective_date = _roll_forward_to_today(installment.due_date)
+            else:
+                effective_date = installment.due_date
             if not (self.date_from <= effective_date <= self.date_to):
                 continue
             key = (effective_date, installment.schedule.provider_id)

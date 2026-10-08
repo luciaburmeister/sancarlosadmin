@@ -532,6 +532,14 @@ class FixedCostSchedule(Timestampable, CompanyOwnedModel):
         verbose_name=_("Active"),
         help_text=_("Inactive schedules will not generate new installments."),
     )
+    drag_forward_if_unpaid = models.BooleanField(
+        default=True,
+        verbose_name=_("Drag forward if unpaid"),
+        help_text=_(
+            "If yes, an unpaid installment keeps reappearing on today's date "
+            "in the cashflow calendar until paid or reconciled."
+    )
+    )
 
     class Meta:
         verbose_name = _("Fixed Cost Schedule")

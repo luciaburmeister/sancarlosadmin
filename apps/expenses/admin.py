@@ -823,6 +823,7 @@ class FixedCostScheduleAdmin(CompanyRestrictedAdmin, ModelAdmin):
                 ("company", "provider"),
                 "start_date",
                 "is_active",
+                "drag_forward_if_unpaid",
             ),
         }),
         (_("Period Definition"), {

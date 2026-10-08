@@ -1,6 +1,7 @@
 """Validation helpers for Amazon SNS HTTPS notifications."""
 
 import base64
+import hashlib
 import re
 from functools import lru_cache
 from urllib.parse import urlparse
@@ -9,6 +10,7 @@ from urllib.request import HTTPRedirectHandler, build_opener
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding
+from django.core.cache import cache
 
 
 class InvalidSNSMessage(ValueError):
@@ -51,11 +53,21 @@ def _validated_sns_url(value, *, certificate=False):
     return value
 
 
+# AWS rotates signing certs under a new filename, so a cached URL never changes.
+_CERT_CACHE_TIMEOUT = 24 * 60 * 60
+
+
 @lru_cache(maxsize=8)
 def _download_certificate(url):
+    """Fetch a signing cert once for all workers; recycled workers start cold."""
     _validated_sns_url(url, certificate=True)
-    with _HTTPS_OPENER.open(url, timeout=5) as response:  # noqa: S310
-        return response.read()
+    key = "sns-cert:" + hashlib.sha256(url.encode()).hexdigest()
+    pem = cache.get(key)
+    if pem is None:
+        with _HTTPS_OPENER.open(url, timeout=5) as response:  # noqa: S310
+            pem = response.read()
+        cache.set(key, pem, timeout=_CERT_CACHE_TIMEOUT)
+    return pem
 
 
 def _canonical_message(message):

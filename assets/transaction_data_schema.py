@@ -9,10 +9,16 @@ RETURN has no schema -- it keeps the raw JSON editor.
 import datetime as _datetime
 
 from django import forms
+from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
-from unfold.widgets import UnfoldAdminSelectWidget, UnfoldAdminTextInputWidget
+from unfold.fields import UnfoldAdminAutocompleteModelChoiceField
+from unfold.widgets import (
+    UnfoldAdminAutocompleteModelChoiceFieldWidget,
+    UnfoldAdminSelectWidget,
+    UnfoldAdminTextInputWidget,
+)
 
 from company.models import ConfigurationList, WorkingZone
 from sales.models import Client
@@ -30,6 +36,34 @@ def model_select_field(label, queryset, required=False, help_text=""):
     return forms.ModelChoiceField(
         label=label, queryset=queryset, required=required, help_text=help_text,
         widget=UnfoldAdminSelectWidget,
+    )
+
+
+class SelectedOnlyAutocompleteWidget(UnfoldAdminAutocompleteModelChoiceFieldWidget):
+    """Unfold's template only prints the selected <option>, but Select.optgroups
+    still walks (and str()s) the whole queryset. Fetch just the selected rows,
+    like django.contrib.admin's AutocompleteMixin; select2 loads the rest."""
+
+    def optgroups(self, name, value, attrs=None):
+        field = self.choices.field
+        selected = {str(v) for v in value if str(v) not in field.empty_values}
+        options = []
+        if selected:
+            try:
+                objs = list(self.choices.queryset.filter(pk__in=selected))
+            except (ValueError, ValidationError):  # legacy non-pk value in data
+                objs = []
+            for index, obj in enumerate(objs):
+                options.append(self.create_option(name, obj.pk, field.label_from_instance(obj), True, index))
+        return [(None, options, 0)]
+
+
+def autocomplete_field(label, queryset, url_path, required=False):
+    """`queryset` still bounds what validates on save; `url_path` only feeds
+    the search dropdown."""
+    return UnfoldAdminAutocompleteModelChoiceField(
+        url_path=url_path, label=label, queryset=queryset, required=required,
+        widget=SelectedOnlyAutocompleteWidget,
     )
 
 
@@ -109,7 +143,7 @@ class CubaSchema(TransactionFieldSchema):
         if company is not None:
             vertedero_qs = WorkingZone.objects.filter(
                 company=company, zone_type=WorkingZone.ZoneType.VERTEDERO
-            ).order_by("name")
+            ).select_related("company").order_by("name")
         return {
             "tipo_cuba": config_or_text_field(company, "materiales", _("Container material")),
             "cubaEstado": select_field(_("Container state"), [_EMPTY_CHOICE] + list(CubaFillState.choices)),
@@ -174,12 +208,12 @@ class PorteSchema(TransactionFieldSchema):
     @classmethod
     def fields(cls, company):
         client_qs = Client.objects.filter(company=company).order_by("name") if company else Client.objects.none()
-        machine_qs = Asset.objects.filter(company=company).order_by("name") if company else Asset.objects.none()
+        machine_qs = Asset.objects.filter(company=company).select_related("asset_type").order_by("name") if company else Asset.objects.none()
         return {
             "matricula": text_field(_("Plate"), placeholder=_("e.g. 0709CBB")),
             "load_description": text_field(_("Load description"), placeholder=_("e.g. zahorra")),
-            "client_id": model_select_field(_("Client"), client_qs),
-            "machine_id": model_select_field(_("Machine"), machine_qs),
+            "client_id": autocomplete_field(_("Client"), client_qs, "admin:client_autocomplete"),
+            "machine_id": autocomplete_field(_("Machine"), machine_qs, "admin:asset_autocomplete"),
             "goods_type": config_or_text_field(company, "goods_type", _("Goods type")),
             "tonnes_transported": text_field(_("Tonnes transported"), placeholder=_("e.g. 12.5")),
             "package_count": text_field(_("Number of packages"), placeholder=_("Only if transported as packages")),

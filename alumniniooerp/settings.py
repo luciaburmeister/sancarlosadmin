@@ -39,23 +39,19 @@ SECRET_KEY = 'django-insecure-s!kcs+p@)v*!76a6vm4w*^pxm0i=r!&if)m%vcsq-(75y&#!43
 DEBUG = os.getenv("DEBUG", "True") == "True"
 if not DEBUG:
     import sentry_sdk
+    from sentry_sdk.integrations.logging import ignore_logger
 
     sentry_sdk.init(
         dsn="https://8cfd15496c9ae7936b4180533fceab11@o4510538192125952.ingest.de.sentry.io/4510538193371216",
         send_default_pii=True,
-            traces_sample_rate=0.1,
-    profile_session_sample_rate=0.01,
-    profile_lifecycle="trace"
+        traces_sample_rate=0.1,
+        profile_session_sample_rate=0.01,
+        profile_lifecycle="trace",
     )
+    # Scanners hitting the raw EB hostname with garbage Host headers; Django already answers 400.
+    ignore_logger("django.security.DisallowedHost")
 
 STATIC_URL = "/static/"
-
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "unique-snowflake",
-    }
-}
 
 ALLOWED_HOSTS = ["*"]
 
@@ -357,6 +353,21 @@ if TESTING:
     # synchronously in-process instead so `.delay()` calls never touch Redis.
     CELERY_TASK_ALWAYS_EAGER = True
     CELERY_TASK_EAGER_PROPAGATES = True
+
+# Shared by all gunicorn workers: they recycle every ~1000 requests, and an
+# invalidation done in one process must be seen by the others.
+CACHES = {
+    "default": (
+        {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+        if TESTING or DEBUG
+        else {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": os.getenv("CACHE_URL", CELERY_BROKER_URL),
+            "KEY_PREFIX": "erp",
+            "OPTIONS": {"socket_connect_timeout": 0.5, "socket_timeout": 0.5},
+        }
+    ),
+}
 
 CELERY_BEAT_SCHEDULE = {
     "sync-bank-transactions": {

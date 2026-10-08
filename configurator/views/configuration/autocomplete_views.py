@@ -27,7 +27,7 @@ class AssetAutocompleteView(BaseAutocompleteView):
     model = Asset
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        qs = super().get_queryset().select_related("asset_type")  # Asset.__str__
         user = self.request.user
         
         if not user.is_superuser:

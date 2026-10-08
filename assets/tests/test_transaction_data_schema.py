@@ -11,7 +11,7 @@ import datetime
 from django import forms
 from django.test import TestCase
 
-from api.fleet.tests.helpers import make_company, make_zone
+from api.fleet.tests.helpers import make_asset, make_asset_type, make_company, make_zone
 from assets.models import TransactionTypeChoices
 from assets.transaction_data_schema import (
     SCHEMAS,
@@ -159,6 +159,28 @@ class PorteFamilySchemaTests(TestCase):
         for transaction_type, expected_action in cases:
             data = build_data_from_cleaned(transaction_type, {"action": "bogus"})
             self.assertEqual(data["action"], expected_action)
+
+    def test_machine_field_renders_only_the_selected_asset(self):
+        # Regression: the admin change page built an <option> (plus an
+        # asset_type query) for every company asset, even when hidden.
+        asset_type = make_asset_type(self.company)
+        assets = [make_asset(self.company, asset_type, name=f"CUBA-{i:03}") for i in range(5)]
+        field = data_schema_fields(TransactionTypeChoices.PORTE_LOAD, self.company)["machine_id"]
+
+        with self.assertNumQueries(1):
+            html = field.widget.render("machine_id", assets[2].pk)
+
+        self.assertIn(f'value="{assets[2].pk}"', html)
+        self.assertNotIn(f'value="{assets[0].pk}"', html)
+        self.assertIn("data-ajax--url", html)
+
+    def test_machine_field_still_validates_against_the_company(self):
+        other = make_company(name="Other Co")
+        foreign = make_asset(other, make_asset_type(other), name="FOREIGN")
+        field = data_schema_fields(TransactionTypeChoices.PORTE_LOAD, self.company)["machine_id"]
+
+        with self.assertRaises(forms.ValidationError):
+            field.clean(foreign.pk)
 
     def test_unmapped_transaction_type_has_no_schema(self):
         self.assertEqual(data_schema_fields(TransactionTypeChoices.RETURN, self.company), {})

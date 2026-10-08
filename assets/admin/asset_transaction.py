@@ -14,11 +14,10 @@ from django.contrib.contenttypes.models import ContentType
 from assets.models import AssetTransaction, BillingStatus
 from assets.resources import AssetTransactionResource
 from assets.transaction_data_schema import (
-    ALL_FAMILIES,
+    SCHEMAS,
     TRANSACTION_DATA_CONDITIONAL_FIELDS,
     ReceiptSchema,
     build_data_from_cleaned,
-    data_schema_fields,
     initial_from_data,
 )
 from assets.views import AssetTransactionExportView
@@ -69,6 +68,11 @@ class AssetTransactionReceiptInline(TabularInline):
     verbose_name_plural = "Albaranes"
     tab = True
 
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            "movement_transaction__asset__asset_type", "movement_transaction__from_zone__company", "movement_transaction__to_zone__company",
+        )
+
     def has_add_permission(self, request, obj=None):
         return False
 
@@ -117,6 +121,11 @@ class RelatedMovementReceiptInline(TabularInline):
     verbose_name = "Recibo del Movimiento"
     verbose_name_plural = "Recibos del Movimiento"
     tab = True
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            "transaction__asset__asset_type", "transaction__from_zone__company", "transaction__to_zone__company",
+        )
 
     def has_add_permission(self, request, obj=None):
         return False
@@ -345,10 +354,11 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         # fresh dynamic subclass with them as real class attributes each request.
         company = obj.company if obj and obj.pk else None
         dynamic_fields = {}
-        for candidate_type in ALL_FAMILIES:
-            for name, field in data_schema_fields(candidate_type, company).items():
-                if name not in dynamic_fields:
-                    dynamic_fields[name] = field
+        # One fields() call per schema, not per transaction type: each call
+        # queries ConfigurationList, and get_form runs several times a request.
+        for schema in SCHEMAS:
+            for name, field in schema.fields(company).items():
+                dynamic_fields.setdefault(name, field)
         kwargs["form"] = type(f"Dynamic{self.form.__name__}", (self.form,), dynamic_fields)
         return super().get_form(request, obj, **kwargs)
 

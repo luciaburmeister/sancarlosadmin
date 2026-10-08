@@ -6,6 +6,7 @@ from unittest.mock import Mock, patch
 
 from django.contrib.contenttypes.models import ContentType
 from django.core import mail
+from django.core.cache import cache
 from django.core.mail.backends.smtp import EmailBackend as SMTPEmailBackend
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.urls import reverse, reverse_lazy
@@ -330,6 +331,9 @@ class SESEventServiceTests(TestCase):
 class SESEventWebhookTests(TestCase):
     url = reverse_lazy("email_event_webhook", args=["ses"])
 
+    def setUp(self):
+        cache.clear()
+
     @patch("core.services.email_event_service.EmailEventService.record")
     @patch("core.services.sns_signature.verify_sns_message")
     def test_verified_notification_is_forwarded_to_event_service(self, verify, record):
@@ -363,6 +367,33 @@ class SESEventWebhookTests(TestCase):
         )
         self.assertEqual(response.status_code, 403)
 
+    @patch("core.services.sns_signature.verify_sns_message")
+    def test_repeated_rejections_throttle_only_that_caller(self, verify):
+        from core.services.sns_signature import InvalidSNSMessage
+        from core.views.email_event_webhook import RejectedWebhookThrottle
+
+        limit = RejectedWebhookThrottle().num_requests
+
+        verify.side_effect = InvalidSNSMessage("bad signature")
+        attacker = {"HTTP_X_FORWARDED_FOR": "1.2.3.4, 52.95.4.10, 10.0.0.5"}
+        for _ in range(limit):
+            response = self.client.post(
+                self.url, data="{}", content_type="application/json", **attacker,
+            )
+            self.assertEqual(response.status_code, 403)
+
+        response = self.client.post(
+            self.url, data="{}", content_type="application/json", **attacker,
+        )
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(verify.call_count, limit)
+
+        response = self.client.post(
+            self.url, data="{}", content_type="application/json",
+            HTTP_X_FORWARDED_FOR="34.120.5.5, 10.0.0.5",
+        )
+        self.assertEqual(response.status_code, 403)
+
     def test_unknown_provider_is_a_404(self):
         response = self.client.post(
             reverse("email_event_webhook", args=["mailgun"]),
@@ -370,6 +401,47 @@ class SESEventWebhookTests(TestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 404)
+
+
+class SNSCertificateCacheTests(SimpleTestCase):
+    url = "https://sns.eu-north-1.amazonaws.com/SimpleNotificationService-abc.pem"
+
+    def setUp(self):
+        from core.services.sns_signature import _download_certificate
+
+        cache.clear()
+        _download_certificate.cache_clear()
+        self.addCleanup(_download_certificate.cache_clear)
+
+    @patch("core.services.sns_signature._HTTPS_OPENER")
+    def test_certificate_is_shared_across_cold_workers(self, opener):
+        from core.services.sns_signature import _download_certificate
+
+        opener.open.return_value.__enter__.return_value.read.return_value = b"PEM"
+
+        self.assertEqual(_download_certificate(self.url), b"PEM")
+        _download_certificate.cache_clear()  # a recycled gunicorn worker
+        self.assertEqual(_download_certificate(self.url), b"PEM")
+
+        opener.open.assert_called_once()
+
+
+class ClientIPTests(SimpleTestCase):
+    def _ip(self, forwarded, remote="10.0.0.1"):
+        from django.test import RequestFactory
+        from general.client_ip import client_ip
+
+        meta = {"REMOTE_ADDR": remote}
+        if forwarded is not None:
+            meta["HTTP_X_FORWARDED_FOR"] = forwarded
+        return client_ip(RequestFactory().post("/", **meta))
+
+    def test_rightmost_public_address_wins_over_forged_ones(self):
+        self.assertEqual(self._ip("8.8.8.8, 52.95.4.10, 10.0.0.5"), "52.95.4.10")
+
+    def test_falls_back_to_remote_addr(self):
+        self.assertEqual(self._ip(None), "10.0.0.1")
+        self.assertEqual(self._ip("garbage, 10.0.0.5"), "10.0.0.1")
 
 
 class EmailProviderRegistryTests(SimpleTestCase):

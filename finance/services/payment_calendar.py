@@ -15,7 +15,8 @@ from company.models import BankAccount, Company
 from invoices.models import ConfirmationStatus, Invoice, InvoicePaymentStatus, SalesInvoice, SalesInvoiceStatus
 from loans.models import LoanInstallment, LoanInstallmentPaymentStatus
 from finance.models import TaxPeriod, TaxPeriodStatus
-from payroll.models import PayrollPeriod
+from payroll.models import EmployeePayroll, PayrollPeriod
+from payroll.services.payment_projection import get_projected_payment_date
 from apps.expenses.models import FixedCostInstallment
 
 

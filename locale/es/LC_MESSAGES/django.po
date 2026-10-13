@@ -700,6 +700,48 @@ msgstr ""
 msgid "Register Payment"
 msgstr "Registrar Pago"
 
+msgid "Step 2 of 2"
+msgstr "Paso 2 de 2"
+
+msgid "Distribute Surplus"
+msgstr "Distribuir Excedente"
+
+msgid "Applied to"
+msgstr "Aplicado a"
+
+msgid "Surplus"
+msgstr "Excedente"
+
+msgid "Distributed"
+msgstr "Distribuido"
+
+msgid "On account"
+msgstr "A cuenta"
+
+msgid "Only selected"
+msgstr "Solo seleccionadas"
+
+msgid "No invoices match."
+msgstr "Ninguna factura coincide."
+
+msgid "Showing"
+msgstr "Mostrando"
+
+msgid "of"
+msgstr "de"
+
+msgid "Show more"
+msgstr "Mostrar más"
+
+msgid "Leave as credit"
+msgstr "Dejar como crédito"
+
+msgid "will stay on account"
+msgstr "quedará a cuenta"
+
+msgid "over the surplus"
+msgstr "por encima del excedente"
+
 msgid "Run Matcher"
 msgstr "Ejecutar Matcher"
 

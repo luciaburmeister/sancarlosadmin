@@ -16,6 +16,7 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from djmoney.money import Money
@@ -108,6 +109,10 @@ class RegisterPaymentView(View):
     direction = None
     change_url_name = None
     template_name = "admin/payments/register_payment.html"
+    distribute_surplus_template_name = "admin/payments/distribute_surplus.html"
+    allow_surplus_distribution = False
+    distribute_surplus_url_name = None
+    apply_credit_url_name = None
 
     # ── Hooks ────────────────────────────────────────────────────────────────
 
@@ -126,8 +131,52 @@ class RegisterPaymentView(View):
         """Return a cap to validate the amount against, or None for no cap."""
         return None
 
+    def get_applied_amount(self, document, money):
+        """The portion of the entered amount applied to this document, capped at what it still owes."""
+        remaining = document.amount_remaining
+        if money.currency != remaining.currency or money <= remaining:
+            return money
+        if remaining.amount <= 0:
+            return Money(0, money.currency)
+        return remaining
+
     def get_cancel_url(self, document):
         return reverse(self.change_url_name, args=[document.pk])
+
+    def get_counterparty_filters(self, document):
+        """Return the invoice_filters narrowing another document to the same counterparty as `document`."""
+        raise NotImplementedError
+
+    def get_counterparty_label(self, document):
+        """Return the provider/client name `document` belongs to, for the surplus screen's header."""
+        raise NotImplementedError
+
+    def get_surplus_candidates(self, document, currency):
+        from payments.mixins import pending_invoices_queryset
+
+        filters = {**self.get_counterparty_filters(document), "company": document.company}
+        return (
+            pending_invoices_queryset(self.model, filters)
+            .exclude(pk=document.pk)
+            .filter(total_amount_currency=str(currency))
+        )
+
+    def get_counterparty_credit(self, document):
+        """Total unallocated credit this document's counterparty has, in the document's currency, or None."""
+        from django.db.models import Sum
+
+        from payments.mixins import unallocated_payments_q
+
+        filters = {**self.get_counterparty_filters(document), "company": document.company}
+        total = (
+            Payment.objects.filter(**filters)
+            .filter(unallocated_payments_q(self.direction))
+            .filter(amount_pending_allocation_currency=document.total_amount_currency)
+            .aggregate(total=Sum("amount_pending_allocation"))["total"]
+        )
+        if not total:
+            return None
+        return Money(total, document.total_amount_currency)
 
     def can_register_payment(self, request, document):
         """
@@ -162,6 +211,12 @@ class RegisterPaymentView(View):
         if form.is_valid():
             data = form.cleaned_data
             money = Money(data["amount"], data["currency"])
+            applied_amount = self.get_applied_amount(document, money)
+            surplus = money - applied_amount
+
+            if self.allow_surplus_distribution and surplus.amount > 0:
+                return self._render_distribute_surplus(request, document, form, applied_amount, surplus)
+
             with transaction.atomic():
                 payment = Payment.objects.create(
                     company=document.company,
@@ -173,13 +228,11 @@ class RegisterPaymentView(View):
                     reference=data["reference"] or None,
                     amount_pending_allocation=money,
                 )
-                # Saving the allocation recalculates the payment's pending
-                # amount and the document's payment status, in one transaction.
                 PaymentAllocation.objects.create(
                     payment=payment,
                     content_type=ContentType.objects.get_for_model(document),
                     object_id=document.pk,
-                    amount_applied=money,
+                    amount_applied=applied_amount,
                 )
             if self.model_admin:
                 self.model_admin.message_user(request, _("Payment registered successfully."))
@@ -189,6 +242,8 @@ class RegisterPaymentView(View):
 
     def _render(self, request, document, form):
         admin_site = self.model_admin.admin_site if self.model_admin else None
+        counterparty_credit = self.get_counterparty_credit(document) if self.apply_credit_url_name else None
+        counterparty_label = self.get_counterparty_label(document) if self.apply_credit_url_name else None
         context = {
             **(admin_site.each_context(request) if admin_site else {}),
             "form": form,
@@ -198,5 +253,44 @@ class RegisterPaymentView(View):
             "cancel_url": self.get_cancel_url(document),
             "title": _("Register Payment"),
             "opts": self.model._meta,
+            "counterparty_label": counterparty_label,
+            "counterparty_credit": counterparty_credit,
+            "apply_credit_url": reverse(self.apply_credit_url_name, args=[document.pk]) if counterparty_credit else None,
         }
         return TemplateResponse(request, self.template_name, context)
+
+    def get_candidate_label(self, invoice):
+        return invoice.invoice_number or f"#{invoice.pk}"
+
+    def _render_distribute_surplus(self, request, document, form, applied_amount, surplus):
+        today = timezone.localdate()
+        candidates = self.get_surplus_candidates(document, surplus.currency)
+        candidates_data = [
+            {
+                "id": invoice.pk,
+                "number": self.get_candidate_label(invoice),
+                "reference": getattr(invoice, "reference", "") or "",
+                "due_date": invoice.due_date,
+                "remaining": invoice.db_amount_remaining,
+                "is_overdue": bool(invoice.due_date and invoice.due_date < today),
+            }
+            for invoice in candidates
+        ]
+        admin_site = self.model_admin.admin_site if self.model_admin else None
+        context = {
+            **(admin_site.each_context(request) if admin_site else {}),
+            "step1_data": form.cleaned_data,
+            "payment_money": Money(form.cleaned_data["amount"], form.cleaned_data["currency"]),
+            "document": document,
+            "document_label": self.get_candidate_label(document),
+            "counterparty_label": self.get_counterparty_label(document),
+            "document_total": self.get_document_total(document),
+            "applied_amount": applied_amount,
+            "surplus": surplus,
+            "candidates_data": candidates_data,
+            "confirm_url": reverse(self.distribute_surplus_url_name, args=[document.pk]),
+            "cancel_url": self.get_cancel_url(document),
+            "title": _("Distribute Surplus"),
+            "opts": self.model._meta,
+        }
+        return TemplateResponse(request, self.distribute_surplus_template_name, context)

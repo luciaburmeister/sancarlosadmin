@@ -69,13 +69,15 @@ from invoices.views.invoice.import_sales_invoice import SalesInvoiceImportAdminV
 from invoices.views.invoice.bulk_mark_paid import BulkMarkPaidAdminView
 from invoices.views.invoice.bulk_mark_invoice_paid import BulkMarkInvoicePaidAdminView
 from invoices.views.invoice.autocomplete_views import TaxTypeAutocompleteView
-from invoices.views.sales_invoice_register_payment import RegisterPaymentView
+from invoices.views.sales_invoice_register_payment import RegisterPaymentView, SalesInvoiceDistributeSurplusView
+from invoices.views.sales_invoice_apply_credit import SalesInvoiceApplyCreditView
 from invoices.views.invoice.review_invoice import InvoiceReviewAdminView
 from invoices.views.invoice.match_po import InvoiceMatchPOView
 from invoices.views.invoice.ai_match_view import InvoiceAIMatchView, InvoiceToggleSkipPOMatchingView
 from invoices.views.invoice.upload_invoice import InvoiceUploadAdminView
 from invoices.views.invoice.import_invoice import InvoiceImportAdminView
-from invoices.views.invoice_register_payment import InvoiceRegisterPaymentView
+from invoices.views.invoice_register_payment import InvoiceRegisterPaymentView, InvoiceDistributeSurplusView
+from invoices.views.invoice_apply_credit import InvoiceApplyCreditView
 from invoices.views.accounts_payable_views import AccountsPayableDashboardView
 from invoices.views.operational_dashboard_view import OperationalDashboardView
 from invoices.views.invoice.collections_forecast_view import (
@@ -498,6 +500,7 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
             "items": [
                 "download_pdf_detail_action",
                 "register_payment_detail_action",
+                "apply_credit_detail_action",
                 "run_invoice_matcher_detail_action",
                 "match_po_detail_action",
                 "ai_match_detail_action",
@@ -834,6 +837,20 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
                 name="invoices_invoice_register_payment",
             ),
             path(
+                "<int:object_id>/register-payment/distribute-surplus/",
+                self.admin_site.admin_view(
+                    InvoiceDistributeSurplusView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_distribute_surplus",
+            ),
+            path(
+                "<int:object_id>/apply-credit/",
+                self.admin_site.admin_view(
+                    InvoiceApplyCreditView.as_view(model_admin=self)
+                ),
+                name="invoices_invoice_apply_credit",
+            ),
+            path(
                 "<int:object_id>/match-po/",
                 self.admin_site.admin_view(
                     InvoiceMatchPOView.as_view(model_admin=self)
@@ -971,6 +988,18 @@ class InvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHistoryA
     @action(description=_("Register Payment"), icon="payments")
     def register_payment_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_invoice_register_payment", args=[object_id]))
+
+    def has_apply_credit_permission(self, request, object_id=None):
+        if not object_id:
+            return True
+        invoice = Invoice.objects.filter(pk=object_id).first()
+        if not invoice:
+            return False
+        return InvoiceApplyCreditView().can_apply_credit(request, invoice)
+
+    @action(description=_("Apply Credit"), icon="account_balance_wallet", permissions=["apply_credit"])
+    def apply_credit_detail_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_invoice_apply_credit", args=[object_id]))
 
     @action(description=_("Journal Entry"), icon="leaderboard")
     def view_journal_entry_row_action(self, request, object_id):
@@ -1436,6 +1465,7 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                 "finalize_invoice_detail_action",
                 "send_email_detail_action",
                 "register_payment_detail_action",
+                "apply_credit_detail_action",
                 "run_invoice_matcher_detail_action",
                 "remove_advances_detail_action",
                 "reapply_advances_detail_action",
@@ -1760,6 +1790,20 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
                 name="invoices_salesinvoice_register_payment",
             ),
             path(
+                "<int:object_id>/register-payment/distribute-surplus/",
+                self.admin_site.admin_view(
+                    SalesInvoiceDistributeSurplusView.as_view(model_admin=self)
+                ),
+                name="invoices_salesinvoice_distribute_surplus",
+            ),
+            path(
+                "<int:object_id>/apply-credit/",
+                self.admin_site.admin_view(
+                    SalesInvoiceApplyCreditView.as_view(model_admin=self)
+                ),
+                name="invoices_salesinvoice_apply_credit",
+            ),
+            path(
                 "dashboard/collections-forecast/",
                 self.admin_site.admin_view(
                     CollectionsForecastView.as_view(model_admin=self)
@@ -1792,6 +1836,18 @@ class SalesInvoiceAdmin(LineItemExportMixin, DjangoQLSearchAdminMixin, SimpleHis
     @action(description=_("Register Payment"), icon="payments")
     def register_payment_detail_action(self, request, object_id):
         return redirect(reverse("admin:invoices_salesinvoice_register_payment", args=[object_id]))
+
+    def has_apply_credit_permission(self, request, object_id=None):
+        if not object_id:
+            return True
+        invoice = SalesInvoice.objects.filter(pk=object_id).first()
+        if not invoice:
+            return False
+        return SalesInvoiceApplyCreditView().can_apply_credit(request, invoice)
+
+    @action(description=_("Apply Credit"), icon="account_balance_wallet", permissions=["apply_credit"])
+    def apply_credit_detail_action(self, request, object_id):
+        return redirect(reverse("admin:invoices_salesinvoice_apply_credit", args=[object_id]))
 
     @action(description=_("Send Email"), icon="mail")
     def send_email_row_action(self, request, object_id):

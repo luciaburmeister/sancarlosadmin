@@ -111,6 +111,20 @@ class Payment(CompanyOwnedModel):
             "that has no invoice yet."
         ),
     )
+    provider = models.ForeignKey(
+        "materials.Provider",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payments",
+        verbose_name=_("Provider"),
+        help_text=_(
+            "The provider this money went to (or came back from). Filled in "
+            "automatically the first time the payment is allocated to one of "
+            "their invoices; set it by hand for a payment on account that has "
+            "no invoice yet."
+        ),
+    )
 
     class Meta:
         verbose_name = _("Payment")
@@ -146,6 +160,18 @@ class Payment(CompanyOwnedModel):
         if client_id:
             self.client_id = client_id
             self.save(update_fields=["client"])
+
+    def sync_provider_from_document(self, content_type, object_id):
+        """
+        Take the provider off an invoice this payment was just allocated to,
+        when nobody has set one yet. Never overrides an explicit provider.
+        """
+        if self.provider_id:
+            return
+        provider_id = _provider_id_for_document(content_type, object_id)
+        if provider_id:
+            self.provider_id = provider_id
+            self.save(update_fields=["provider"])
 
     def recalculate_pending_allocation(self):
         """
@@ -216,6 +242,7 @@ class PaymentAllocation(models.Model):
             super().save(*args, **kwargs)
             self.payment.recalculate_pending_allocation()
             self.payment.sync_client_from_document(self.content_type, self.object_id)
+            self.payment.sync_provider_from_document(self.content_type, self.object_id)
             _recalculate_invoice_payment_status(self.content_type, self.object_id)
 
 
@@ -267,6 +294,20 @@ def _client_id_for_document(content_type, object_id):
     return (
         SalesInvoice.objects.filter(pk=object_id)
         .values_list("client_id", flat=True)
+        .first()
+    )
+
+
+def _provider_id_for_document(content_type, object_id):
+    """The provider behind an allocated document, or None if it has none (purchase invoices only today)."""
+    from django.apps import apps
+
+    Invoice = apps.get_model("invoices", "Invoice")
+    if content_type.model_class() is not Invoice:
+        return None
+    return (
+        Invoice.objects.filter(pk=object_id)
+        .values_list("provider_id", flat=True)
         .first()
     )
 

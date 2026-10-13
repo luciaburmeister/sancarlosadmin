@@ -1,0 +1,213 @@
+{% extends "admin/base_site.html" %}
+{% load i18n l10n %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="{% url 'admin:jsi18n' %}"></script>
+{{ candidates_data|json_script:"candidates-data" }}
+{% endblock %}
+
+{% block content %}
+{% get_current_language as CURRENT_LANGUAGE %}
+<div
+    class="max-w-4xl mx-auto p-6"
+    x-data="applyCredit({
+        remaining: {{ document_remaining.amount|unlocalize }},
+        currency: '{{ document_remaining.currency }}',
+        locale: '{{ CURRENT_LANGUAGE }}',
+        rows: JSON.parse(document.getElementById('candidates-data').textContent)
+    })"
+>
+
+    <div class="mb-8 pb-4 border-b border-gray-100 dark:border-gray-800">
+        <h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100">{% trans "Apply Credit" %}</h1>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {{ counterparty_label }} &middot; {% trans "Invoice" %} {{ document_label }}
+        </p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            {% trans "Remaining" %}: <span class="font-semibold">{{ document_remaining }}</span>
+        </p>
+    </div>
+
+    <div class="grid grid-cols-3 gap-4 mb-6">
+        <div class="bg-green-50 dark:bg-green-900/20 rounded-xl border-2 border-green-300 dark:border-green-700 p-4">
+            <p class="text-xs font-medium text-green-700 dark:text-green-400 uppercase tracking-wide mb-1">{% trans "Credit available" %}</p>
+            <p class="text-xl font-bold text-green-800 dark:text-green-300" x-text="format(available())"></p>
+            <p class="text-xs text-green-600 dark:text-green-500 mt-1" x-text="creditLeftLabel()"></p>
+        </div>
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">{% trans "Credit to apply" %}</p>
+            <p class="text-xl font-bold text-gray-900 dark:text-gray-100" x-text="format(applied())"></p>
+        </div>
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">{% trans "Invoice remaining after" %}</p>
+            <p class="text-xl font-bold" :class="afterClass()" x-text="format(after())"></p>
+        </div>
+    </div>
+
+    <form method="post" action="{{ confirm_url }}" novalidate>
+        {% csrf_token %}
+
+        <p class="text-sm text-gray-500 dark:text-gray-400 mb-3" x-text="sourcesSummary()"></p>
+
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">
+                        <th class="text-left font-medium px-4 py-3 w-10"></th>
+                        <th class="text-left font-medium px-4 py-3">{% trans "Date" %}</th>
+                        <th class="text-left font-medium px-4 py-3">{% trans "Reference / Method" %}</th>
+                        <th class="text-right font-medium px-4 py-3">{% trans "Available" %}</th>
+                        <th class="text-right font-medium px-4 py-3">{% trans "Use" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="row in rows" :key="row.id">
+                        <tr class="border-b border-gray-50 dark:border-gray-800/60 last:border-0">
+                            <td class="px-4 py-2.5">
+                                <input type="checkbox" :checked="row.checked" @change="toggle(row)">
+                            </td>
+                            <td class="px-4 py-2.5 text-gray-900 dark:text-gray-100" x-text="formatDate(row.date)"></td>
+                            <td class="px-4 py-2.5 text-gray-500 dark:text-gray-400">
+                                <span x-text="row.reference || row.method"></span>
+                            </td>
+                            <td class="px-4 py-2.5 text-right text-gray-500 dark:text-gray-400" x-text="format(row.available)"></td>
+                            <td class="px-4 py-2.5 text-right">
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    :max="row.available"
+                                    :name="'use_' + row.id"
+                                    x-model.number="row.amount"
+                                    @input="clamp(row)"
+                                    :disabled="!row.checked"
+                                    class="w-28 px-2 py-1.5 text-sm text-right border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 disabled:opacity-50"
+                                >
+                            </td>
+                        </tr>
+                    </template>
+                    <template x-if="rows.length === 0">
+                        <tr>
+                            <td colspan="5" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                                {% trans "No credit available." %}
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="flex justify-between items-center py-6 border-t border-gray-100 dark:border-gray-800 mt-6">
+            <a
+                href="{{ cancel_url }}"
+                class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:text-gray-900 shadow-sm transition-all text-sm font-medium dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300"
+            >
+                {% trans "Back" %}
+            </a>
+            <div class="flex items-center gap-4">
+                <span class="text-sm font-medium" :class="afterClass()" x-text="afterLabel()"></span>
+                <button
+                    type="submit"
+                    :disabled="applied() <= 0"
+                    class="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 shadow-md transition-all text-sm font-medium focus:ring-4 focus:ring-primary-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    x-text="'{% trans "Apply" %} ' + format(applied()) + ' {% trans "of credit" %}'"
+                ></button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script>
+function applyCredit({ remaining, currency, locale, rows }) {
+    return {
+        remaining,
+        currency,
+        locale,
+        rows: rows.map((row) => ({ ...row, available: Number(row.available), checked: false, amount: 0 })),
+
+        init() {
+            this.prefillFifo();
+        },
+
+        sourcesSummary() {
+            const checked = this.rows.filter((row) => row.checked);
+            if (checked.length === 0) return "{% trans 'No payments selected' %}";
+            if (checked.length === 1) {
+                const row = checked[0];
+                return "{% trans 'Taken from' %}: " + row.method + " {% trans 'of' %} " + this.formatDate(row.date);
+            }
+            return "{% trans 'Taken from' %} " + checked.length + " {% trans 'earlier payments (oldest first)' %}";
+        },
+
+        creditLeftLabel() {
+            const left = Math.round((this.available() - this.applied()) * 100) / 100;
+            return this.format(left) + " {% trans 'left after' %}";
+        },
+
+        prefillFifo() {
+            let left = this.remaining;
+            for (const row of this.rows) {
+                if (left <= 0) break;
+                const use = Math.min(row.available, left);
+                if (use <= 0) continue;
+                row.checked = true;
+                row.amount = use;
+                left -= use;
+            }
+        },
+
+        toggle(row) {
+            row.checked = !row.checked;
+            row.amount = row.checked ? Math.min(row.available, this.after()) : 0;
+        },
+
+        clamp(row) {
+            if (row.amount < 0) row.amount = 0;
+            if (row.amount > row.available) row.amount = row.available;
+            const over = this.applied() - this.remaining;
+            if (over > 0) row.amount = Math.max(0, row.amount - over);
+            row.checked = row.amount > 0;
+        },
+
+        available() {
+            return this.rows.reduce((sum, row) => sum + row.available, 0);
+        },
+
+        applied() {
+            return this.rows.reduce((sum, row) => sum + (row.checked ? Number(row.amount || 0) : 0), 0);
+        },
+
+        after() {
+            return Math.round((this.remaining - this.applied()) * 100) / 100;
+        },
+
+        afterClass() {
+            const value = this.after();
+            if (value === 0) return "text-green-600 dark:text-green-400";
+            return "text-gray-900 dark:text-gray-100";
+        },
+
+        afterLabel() {
+            const value = this.after();
+            if (value === 0) return "{% trans 'Invoice will be fully paid' %}";
+            return "{% trans 'Invoice stays partially paid' %}";
+        },
+
+        format(value) {
+            return new Intl.NumberFormat(this.locale || undefined, {
+                style: "currency",
+                currency: this.currency,
+                useGrouping: true,
+            }).format(Number(value || 0));
+        },
+
+        formatDate(value) {
+            if (!value) return "—";
+            const [year, month, day] = value.split("-");
+            return day + "/" + month + "/" + year;
+        },
+    };
+}
+</script>
+{% endblock %}

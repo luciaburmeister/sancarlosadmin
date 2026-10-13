@@ -29,6 +29,7 @@ from invoices.models import Invoice
 from materials.resources import MaterialResource, PriceSheetItemResource, ProviderResource
 from payments.admin_mixins import OutstandingBalanceAdminMixin, PendingInvoicesSection
 from payments.mixins import currency_symbol
+from payments.models import PaymentDirection
 
 class ComponentPriceRuleInline(TabularInline):
     model = ComponentPriceRule
@@ -220,7 +221,7 @@ class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelA
     resource_classes = [ProviderResource]
     import_form_class = ImportForm
     export_form_class = SelectableFieldsExportForm
-    list_display = ("name", "tax_identifier", "account", "default_cost_center",  "balance_overdue_display", "balance_not_due_display", "balance_owed_display","company")
+    list_display = ("name", "tax_identifier", "account", "default_cost_center",  "balance_overdue_display", "balance_not_due_display", "balance_owed_display", "credit_balance_display", "company")
     list_sections = [PendingInvoicesSection]
     search_fields = ("name", "contact", "phone", "email", "tax_identifier", "associated_emails")
     list_select_related = ["company", "account", "default_cost_center"]
@@ -232,6 +233,26 @@ class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelA
 
     balance_invoice_model = Invoice
     balance_counterparty_field = "provider"
+    credit_payment_field = "provider"
+    credit_payment_direction = PaymentDirection.OUTBOUND
+
+    @display(description=_("Credit (we paid, not yet allocated)"))
+    def credit_balance_detail_display(self, obj):
+        if not obj or not obj.pk:
+            return "—"
+        amount = getattr(obj, "credit_balance", None)
+        if not amount:
+            return "—"
+        symbol = currency_symbol(getattr(obj, "credit_balance_currency", "EUR"))
+        return format_html(
+            '<span style="color:#16a34a;font-weight:600;">{} {}</span> '
+            '<a href="{}" target="_blank" rel="noopener" '
+            'style="display:inline-block;margin-left:10px;padding:4px 12px;border-radius:6px;'
+            'background:#16a34a;color:#fff;font-weight:600;text-decoration:none;white-space:nowrap;">'
+            '{}</a>',
+            amount, symbol,
+            self._unallocated_payments_url(obj), _("See unallocated payments"),
+        )
 
     formfield_overrides = {
         ArrayField: {
@@ -308,11 +329,11 @@ class ProviderAdmin(OutstandingBalanceAdminMixin, CompanyRestrictedAdmin, ModelA
             self._pending_invoices_url(obj), _("See pending invoices"),
         )
 
-    readonly_fields = ["balance_owed_detail_display"]
+    readonly_fields = ["balance_owed_detail_display", "credit_balance_detail_display"]
 
     fieldsets = (
         (_("General Information"), {
-            "fields": (("name", "company"),"balance_owed_detail_display")
+            "fields": (("name", "company"), "balance_owed_detail_display", "credit_balance_detail_display")
         }),
         (_("Contact Details"), {
             "fields": ("contact", ("phone", "email"), "associated_emails")

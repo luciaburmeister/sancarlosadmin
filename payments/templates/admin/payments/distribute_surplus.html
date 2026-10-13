@@ -1,0 +1,281 @@
+{% extends "admin/base_site.html" %}
+{% load i18n l10n %}
+
+{% block extrahead %}
+{{ block.super }}
+<script src="{% url 'admin:jsi18n' %}"></script>
+{{ candidates_data|json_script:"candidates-data" }}
+{% endblock %}
+
+{% block content %}
+{% get_current_language as CURRENT_LANGUAGE %}
+<div
+    class="max-w-4xl mx-auto p-6"
+    x-data="distributeSurplus({
+        surplus: {{ surplus.amount|unlocalize }},
+        currency: '{{ surplus.currency }}',
+        locale: '{{ CURRENT_LANGUAGE }}',
+        rows: JSON.parse(document.getElementById('candidates-data').textContent)
+    })"
+>
+
+    <div class="mb-8 pb-4 border-b border-gray-100 dark:border-gray-800">
+        <p class="text-xs font-semibold text-primary-600 dark:text-primary-500 uppercase tracking-wide mb-1">
+            {% trans "Step 2 of 2" %}
+        </p>
+        <h1 class="text-2xl font-bold text-gray-900 dark:text-gray-100">{% trans "Distribute Surplus" %}</h1>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+            {{ counterparty_label }} &middot; {% trans "Payment" %} {{ payment_money }}
+        </p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+            {% trans "Applied to" %} {{ document_label }}: <span class="font-semibold">{{ applied_amount }}</span>
+        </p>
+    </div>
+
+    <div class="grid grid-cols-3 gap-4 mb-6">
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">{% trans "Surplus" %}</p>
+            <p class="text-xl font-bold text-gray-900 dark:text-gray-100" x-text="format(surplus)"></p>
+        </div>
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">{% trans "Distributed" %}</p>
+            <p class="text-xl font-bold text-gray-900 dark:text-gray-100" x-text="format(distributed())"></p>
+        </div>
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 p-4">
+            <p class="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">{% trans "On account" %}</p>
+            <p class="text-xl font-bold" :class="remainingClass()" x-text="format(remaining())"></p>
+        </div>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-3 mb-4">
+        <input
+            type="text"
+            x-model="search"
+            placeholder="{% trans 'Search' %}"
+            class="flex-1 min-w-[220px] px-3 py-2 text-sm border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
+        >
+        <button
+            type="button"
+            @click="overdueOnly = !overdueOnly"
+            :class="overdueOnly ? 'bg-primary-600 text-white border-primary-600' : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700'"
+            class="px-3 py-2 text-sm font-medium rounded-lg border"
+        >{% trans "Overdue" %}</button>
+        <button
+            type="button"
+            @click="onlySelected = !onlySelected"
+            :class="onlySelected ? 'bg-primary-600 text-white border-primary-600' : 'bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-700'"
+            class="px-3 py-2 text-sm font-medium rounded-lg border"
+        >{% trans "Only selected" %}</button>
+    </div>
+
+    <form method="post" action="{{ confirm_url }}" novalidate>
+        {% csrf_token %}
+        <input type="hidden" name="amount" value="{{ step1_data.amount|unlocalize }}">
+        <input type="hidden" name="currency" value="{{ step1_data.currency }}">
+        <input type="hidden" name="payment_date" value="{{ step1_data.payment_date|date:'Y-m-d' }}">
+        <input type="hidden" name="method" value="{{ step1_data.method }}">
+        <input type="hidden" name="reference" value="{{ step1_data.reference|default:'' }}">
+
+        <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 shadow-sm overflow-hidden">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide border-b border-gray-100 dark:border-gray-800">
+                        <th class="text-left font-medium px-4 py-3 w-10"></th>
+                        <th class="text-left font-medium px-4 py-3">{% trans "Invoice" %}</th>
+                        <th class="text-left font-medium px-4 py-3">{% trans "Due" %}</th>
+                        <th class="text-right font-medium px-4 py-3">{% trans "Remaining" %}</th>
+                        <th class="text-right font-medium px-4 py-3">{% trans "Apply" %}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <template x-for="row in visibleRows()" :key="row.id">
+                        <tr class="border-b border-gray-50 dark:border-gray-800/60 last:border-0">
+                            <td class="px-4 py-2.5">
+                                <input
+                                    type="checkbox"
+                                    :checked="row.checked"
+                                    :disabled="!row.checked && remaining() <= 0"
+                                    @change="toggle(row)"
+                                >
+                            </td>
+                            <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-gray-100" x-text="row.number"></td>
+                            <td class="px-4 py-2.5">
+                                <span class="inline-flex items-center gap-1">
+                                    <span
+                                        class="material-symbols-outlined text-sm! text-red-600 dark:text-red-400"
+                                        x-show="row.is_overdue"
+                                    >warning</span>
+                                    <span
+                                        :class="row.is_overdue ? 'text-red-600 dark:text-red-400 font-medium' : 'text-gray-500 dark:text-gray-400'"
+                                        x-text="formatDate(row.due_date)"
+                                    ></span>
+                                </span>
+                            </td>
+                            <td class="px-4 py-2.5 text-right text-gray-500 dark:text-gray-400" x-text="format(row.remaining)"></td>
+                            <td class="px-4 py-2.5 text-right">
+                                <input
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    :max="row.remaining"
+                                    :name="'alloc_' + row.id"
+                                    x-model.number="row.amount"
+                                    @input="clamp(row)"
+                                    :disabled="!row.checked"
+                                    class="w-28 px-2 py-1.5 text-sm text-right border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 disabled:opacity-50"
+                                >
+                            </td>
+                        </tr>
+                    </template>
+                    <template x-if="visibleRows().length === 0">
+                        <tr>
+                            <td colspan="5" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">
+                                {% trans "No invoices match." %}
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+            </table>
+            <div
+                class="px-4 py-2 text-xs border-t border-gray-100 dark:border-gray-800"
+                x-show="hiddenCount() > 0"
+            >
+                <span class="text-gray-400 dark:text-gray-500" x-text="'{% trans "Showing" %} ' + visibleRows().length + ' {% trans "of" %} ' + totalCount()"></span>
+                <button
+                    type="button"
+                    @click="showAll()"
+                    class="ml-2 font-medium text-primary-600 dark:text-primary-500 hover:underline"
+                    x-text="'{% trans "Show more" %} (' + hiddenCount() + ')'"
+                ></button>
+            </div>
+        </div>
+
+        <div class="flex justify-between items-center py-6 border-t border-gray-100 dark:border-gray-800 mt-6">
+            <a
+                href="{{ cancel_url }}"
+                class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 hover:text-gray-900 shadow-sm transition-all text-sm font-medium dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300"
+            >
+                {% trans "Back" %}
+            </a>
+            <div class="flex items-center gap-4">
+                <span class="text-sm font-medium" :class="remainingClass()" x-text="remainingLabel()"></span>
+                <button
+                    type="submit"
+                    x-show="distributed() === 0"
+                    class="px-5 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 shadow-sm transition-all text-sm font-medium dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300"
+                >
+                    {% trans "Leave as credit" %}
+                </button>
+                <button
+                    type="submit"
+                    x-show="distributed() > 0"
+                    :disabled="remaining() < 0"
+                    class="px-6 py-2.5 bg-primary-600 text-white rounded-lg hover:bg-primary-700 shadow-md transition-all text-sm font-medium focus:ring-4 focus:ring-primary-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    {% trans "Register Payment" %}
+                </button>
+            </div>
+        </div>
+    </form>
+</div>
+
+<script>
+function distributeSurplus({ surplus, currency, locale, rows }) {
+    return {
+        surplus,
+        currency,
+        locale,
+        rows: rows.map((row) => ({ ...row, remaining: Number(row.remaining), checked: false, amount: 0 })),
+        search: "",
+        overdueOnly: false,
+        onlySelected: false,
+        visibleLimit: 12,
+
+        toggle(row) {
+            if (!row.checked && this.remaining() <= 0) return;
+            row.checked = !row.checked;
+            row.amount = row.checked ? Math.min(row.remaining, this.remaining() + Number(row.amount || 0)) : 0;
+        },
+
+        clamp(row) {
+            if (row.amount < 0) row.amount = 0;
+            if (row.amount > row.remaining) row.amount = row.remaining;
+            const over = this.distributed() - this.surplus;
+            if (over > 0) row.amount = Math.max(0, row.amount - over);
+            row.checked = row.amount > 0;
+        },
+
+        distributed() {
+            return this.rows.reduce((sum, row) => sum + (row.checked ? Number(row.amount || 0) : 0), 0);
+        },
+
+        remaining() {
+            return Math.round((this.surplus - this.distributed()) * 100) / 100;
+        },
+
+        remainingClass() {
+            const value = this.remaining();
+            if (value === 0) return "text-gray-500 dark:text-gray-400";
+            if (value > 0) return "text-amber-600 dark:text-amber-400";
+            return "text-red-600 dark:text-red-400";
+        },
+
+        remainingLabel() {
+            const value = this.remaining();
+            if (value === 0) return "";
+            if (value > 0) return this.format(value) + " {% trans 'will stay on account' %}";
+            return this.format(Math.abs(value)) + " {% trans 'over the surplus' %}";
+        },
+
+        format(value) {
+            return new Intl.NumberFormat(this.locale || undefined, {
+                style: "currency",
+                currency: this.currency,
+            }).format(Number(value || 0));
+        },
+
+        formatDate(value) {
+            if (!value) return "—";
+            const [year, month, day] = value.split("-");
+            return day + "/" + month + "/" + year;
+        },
+
+        filteredRows() {
+            const query = this.search.trim().toLowerCase();
+            return this.rows.filter((row) => {
+                if (this.overdueOnly && !row.is_overdue) return false;
+                if (this.onlySelected && !row.checked) return false;
+                if (!query) return true;
+                return (
+                    (row.number || "").toLowerCase().includes(query) ||
+                    (row.reference || "").toLowerCase().includes(query) ||
+                    this.format(row.remaining).toLowerCase().includes(query)
+                );
+            });
+        },
+
+        visibleRows() {
+            const selected = this.rows.filter((row) => row.checked);
+            const selectedIds = new Set(selected.map((row) => row.id));
+            const others = this.filteredRows().filter((row) => !selectedIds.has(row.id));
+            return selected.concat(others).slice(0, this.visibleLimit);
+        },
+
+        totalCount() {
+            const selected = this.rows.filter((row) => row.checked);
+            const selectedIds = new Set(selected.map((row) => row.id));
+            const others = this.filteredRows().filter((row) => !selectedIds.has(row.id));
+            return selected.length + others.length;
+        },
+
+        hiddenCount() {
+            return Math.max(0, this.totalCount() - this.visibleRows().length);
+        },
+
+        showAll() {
+            this.visibleLimit = Infinity;
+        },
+    };
+}
+</script>
+{% endblock %}

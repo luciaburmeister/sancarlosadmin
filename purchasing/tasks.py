@@ -3,11 +3,70 @@ from django.conf import settings
 from django.core.mail import EmailMultiAlternatives
 from django.template.loader import render_to_string
 from django.urls import reverse
+from django.db import transaction
+from django.utils import timezone
 import logging
 
 from general.email import resolve_reply_to
 
 logger = logging.getLogger(__name__)
+
+
+@shared_task(name="purchasing.tasks.process_due_purchase_order_approvals")
+def process_due_purchase_order_approvals():
+    """Approve eligible project orders once their persisted delay has elapsed."""
+    from management.models import ProjectFile
+    from purchasing.models import ProjectPurchaseApprovalRule, PurchaseOrder, PurchaseOrderStatus
+
+    due_at = timezone.now()
+    due_ids = list(
+        PurchaseOrder.objects.filter(
+            status=PurchaseOrderStatus.PENDING_APPROVAL,
+            automatic_approval_due_at__lte=due_at,
+        ).order_by("automatic_approval_due_at", "pk").values_list("pk", flat=True)[:100]
+    )
+    approved = 0
+    for purchase_order_id in due_ids:
+        with transaction.atomic():
+            po = PurchaseOrder.objects.select_for_update(skip_locked=True).filter(
+                pk=purchase_order_id,
+                status=PurchaseOrderStatus.PENDING_APPROVAL,
+                automatic_approval_due_at__lte=due_at,
+            ).first()
+            if po is None:
+                continue
+
+            rule = ProjectPurchaseApprovalRule.objects.filter(
+                company_id=po.company_id, is_active=True
+            ).first()
+            if rule and po.project_file_id:
+                projects = ProjectFile.objects.filter(
+                    pk=po.project_file_id, company_id=po.company_id
+                )
+                if rule.minimum_margin_percent is not None:
+                    projects = projects.select_for_update()
+                project = projects.first()
+                if project is None:
+                    rule = None
+                else:
+                    po.project_file = project
+
+            po.automatic_approval_due_at = None
+            if rule is None or not rule.approves(po):
+                po.save(update_fields=["automatic_approval_due_at"])
+                continue
+
+            po.status = PurchaseOrderStatus.APPROVED
+            po.approved_at = timezone.now()
+            po.approved_automatically = True
+            po.save(update_fields=[
+                "status", "approved_at", "approved_automatically", "automatic_approval_due_at"
+            ])
+            transaction.on_commit(
+                lambda po_id=po.pk: send_purchase_order_decision_notification.delay(po_id, "approved")
+            )
+            approved += 1
+    return {"processed": len(due_ids), "approved": approved}
 
 
 EMAIL_COPY = {
@@ -135,13 +194,16 @@ def send_purchase_order_pending_approval_notification(self, purchase_order_id: i
 
     from company.models import Company
     from core.services.email_service import EmailService
-    from purchasing.models import PurchaseOrder
+    from purchasing.models import PurchaseOrder, PurchaseOrderStatus
 
     try:
         po = PurchaseOrder.objects.select_related("company", "provider", "requested_by").get(pk=purchase_order_id)
     except PurchaseOrder.DoesNotExist:
         logger.error("PurchaseOrder %s does not exist, skipping notification.", purchase_order_id)
         return {"status": "error", "message": f"PurchaseOrder {purchase_order_id} not found."}
+
+    if po.status != PurchaseOrderStatus.PENDING_APPROVAL:
+        return {"status": "skipped", "reason": "not_pending"}
 
     company = po.company
     recipients = company.purchase_order_notification_emails if company else []
@@ -164,6 +226,7 @@ def send_purchase_order_pending_approval_notification(self, purchase_order_id: i
                 "date_ordered": po.date_ordered,
                 "project_file": po.project_file,
                 "requester_name": requester_name,
+                "is_immediate_bank_transfer": po.is_immediate_bank_transfer,
                 "po_url": po_url,
             },
         )
@@ -224,6 +287,7 @@ def send_purchase_order_decision_notification(self, purchase_order_id: int, deci
                 "total_amount": po.total_amount,
                 "project_file": po.project_file,
                 "reviewer_name": reviewer_name,
+                "approved_automatically": po.approved_automatically,
                 "rejection_reason": po.rejection_reason,
                 "po_url": po_url,
             },

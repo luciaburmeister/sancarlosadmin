@@ -12,7 +12,7 @@ from inventory.models import InventoryItem, Warehouse, ItemTransaction
 from inventory.choices import ItemType, MovementType
 from configurator.utils.codegen import next_scoped_code
 from django.core.exceptions import ValidationError
-from django.core.validators import FileExtensionValidator
+from django.core.validators import FileExtensionValidator, MaxValueValidator, MinValueValidator
 
 def po_file_path(instance, filename):
     """Path: purchasing/pos/company_{id}/{filename}"""
@@ -31,6 +31,93 @@ class PurchaseOrderStatus(models.TextChoices):
     REJECTED = "REJECTED", _("Rejected")
     CLOSED = "CLOSED", _("Closed")
     CANCELLED = "CANCELLED", _("Cancelled")
+
+
+class ProjectPurchaseApprovalRule(models.Model):
+    company = models.OneToOneField(
+        "company.Company",
+        on_delete=models.CASCADE,
+        related_name="project_purchase_approval_rule",
+        verbose_name=_("Company"),
+    )
+    maximum_amount = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency="EUR",
+        verbose_name=_("Maximum Amount"),
+        help_text=_("Maximum net amount eligible for automatic approval."),
+    )
+    minimum_margin_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        verbose_name=_("Minimum Project Margin (%)"),
+        help_text=_("Minimum project margin after this purchase order. Leave blank to ignore margin."),
+    )
+    require_manual_approval_for_immediate_transfer = models.BooleanField(
+        default=True,
+        verbose_name=_("Review Immediate Bank Transfers"),
+        help_text=_("Require manual approval when a purchase order uses bank transfer with 0-day payment terms."),
+    )
+    automatic_approval_delay_minutes = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Automatic Approval Delay (Minutes)"),
+        help_text=_("Wait this many minutes after sending the order for approval. Use 0 to approve immediately."),
+    )
+    is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+
+    class Meta:
+        verbose_name = _("Project Purchase Approval Rule")
+        verbose_name_plural = _("Project Purchase Approval Rules")
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(maximum_amount__gt=0),
+                name="project_purchase_approval_maximum_positive",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(minimum_margin_percent__isnull=True)
+                    | models.Q(minimum_margin_percent__gte=0, minimum_margin_percent__lte=100)
+                ),
+                name="project_purchase_approval_margin_range",
+            ),
+        ]
+
+    def __str__(self):
+        return str(self.company)
+
+    def clean(self):
+        super().clean()
+        if self.maximum_amount is not None and self.maximum_amount.amount <= 0:
+            raise ValidationError({"maximum_amount": _("Maximum amount must be greater than zero.")})
+
+    def approves(self, purchase_order):
+        if not (
+            self.is_active
+            and purchase_order.company_id == self.company_id
+            and purchase_order.po_type == PurchaseOrderType.PROJECT
+            and purchase_order.project_file_id
+            and purchase_order.project_file.company_id == self.company_id
+            and purchase_order.provider.company_id == self.company_id
+            and purchase_order.total_amount.amount > 0
+            and purchase_order.total_amount.currency == self.maximum_amount.currency
+            and purchase_order.total_amount <= self.maximum_amount
+            and purchase_order.items.exists()
+            and not purchase_order.items.exclude(inventory_item__company_id=self.company_id).exists()
+        ):
+            return False
+        if (
+            self.require_manual_approval_for_immediate_transfer
+            and purchase_order.is_immediate_bank_transfer
+        ):
+            return False
+        if self.minimum_margin_percent is None:
+            return True
+        margin_percent = purchase_order.projected_margin_percent
+        return margin_percent is not None and margin_percent >= self.minimum_margin_percent
+
 
 class PurchaseOrder(Timestampable, CompanyOwnedModel):
     number = models.CharField(
@@ -104,6 +191,16 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         null=True,
         blank=True,
         verbose_name=_("Approved At")
+    )
+    approved_automatically = models.BooleanField(
+        default=False,
+        verbose_name=_("Approved Automatically"),
+    )
+    automatic_approval_due_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        verbose_name=_("Automatic Approval Due At"),
     )
     rejected_by = models.ForeignKey(
         'auth.User',
@@ -218,6 +315,10 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
         self.save(update_fields=["total_amount"])
 
     @property
+    def is_immediate_bank_transfer(self):
+        return self.payment_method == PaymentMethod.TRANSFER and self.payment_terms_days == 0
+
+    @property
     def total_amount_with_tax(self):
         """total_amount plus any taxes configured on each line's inventory item, if any."""
         from djmoney.money import Money
@@ -227,6 +328,31 @@ class PurchaseOrder(Timestampable, CompanyOwnedModel):
             for tax in item.inventory_item.get_taxes():
                 total_tax += tax.calculate(item.line_total.amount)["tax_amount"]
         return self.total_amount + Money(total_tax, self.total_amount.currency)
+
+    @property
+    def projected_margin_after(self):
+        """Estimated project margin after committing this order."""
+        if not self.project_file_id:
+            return None
+        project = self.project_file
+        if (
+            project.company_id != self.company_id
+            or project.total_amount.currency != project.total_purchased.currency
+            or project.total_amount.currency != project.total_costs.currency
+            or project.total_amount.currency != self.total_amount.currency
+        ):
+            return None
+        margin = project.estimated_margin
+        if self.status in (PurchaseOrderStatus.DRAFT, PurchaseOrderStatus.PENDING_APPROVAL):
+            margin -= self.total_amount
+        return margin
+
+    @property
+    def projected_margin_percent(self):
+        margin = self.projected_margin_after
+        if margin is None or self.project_file.total_amount.amount <= 0:
+            return None
+        return margin.amount / self.project_file.total_amount.amount * Decimal("100")
 
     @property
     def billing_status(self):

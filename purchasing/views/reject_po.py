@@ -7,6 +7,7 @@ from django.utils.translation import gettext_lazy as _
 from django.views.generic import FormView
 from unfold.views import UnfoldModelAdminViewMixin
 
+from core.admin.company_admin import CompanyRestrictedAdmin
 from purchasing.forms import RejectPurchaseOrderForm
 from purchasing.models import PurchaseOrder, PurchaseOrderStatus
 
@@ -18,7 +19,9 @@ class RejectPurchaseOrderView(UnfoldModelAdminViewMixin, FormView):
     permission_required = ("purchasing.can_approve_purchase_order",)
 
     def get_po(self):
-        return get_object_or_404(PurchaseOrder, pk=self.kwargs["po_id"])
+        return get_object_or_404(
+            self.model_admin.get_queryset(self.request), pk=self.kwargs["po_id"]
+        )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -29,20 +32,29 @@ class RejectPurchaseOrderView(UnfoldModelAdminViewMixin, FormView):
     def form_valid(self, form):
         from purchasing.tasks import send_purchase_order_decision_notification
 
-        po = self.get_po()
-        if po.status != PurchaseOrderStatus.PENDING_APPROVAL:
-            messages.error(self.request, _("Only Pending POs can be rejected."))
-            return redirect(reverse("admin:purchasing_purchaseorder_change", args=[po.pk]))
+        with transaction.atomic():
+            po = get_object_or_404(
+                CompanyRestrictedAdmin.get_queryset(
+                    self.model_admin, self.request
+                ).select_for_update(),
+                pk=self.kwargs["po_id"],
+            )
+            if po.status != PurchaseOrderStatus.PENDING_APPROVAL:
+                messages.error(self.request, _("Only Pending POs can be rejected."))
+                return redirect(reverse("admin:purchasing_purchaseorder_change", args=[po.pk]))
 
-        po.status = PurchaseOrderStatus.REJECTED
-        po.rejected_by = self.request.user
-        po.rejected_at = timezone.now()
-        po.rejection_reason = form.cleaned_data["reason"]
-        po.save()
+            po.status = PurchaseOrderStatus.REJECTED
+            po.rejected_by = self.request.user
+            po.rejected_at = timezone.now()
+            po.rejection_reason = form.cleaned_data["reason"]
+            po.automatic_approval_due_at = None
+            po.save(update_fields=[
+                "status", "rejected_by", "rejected_at", "rejection_reason", "automatic_approval_due_at"
+            ])
 
-        transaction.on_commit(
-            lambda: send_purchase_order_decision_notification.delay(po.pk, "rejected")
-        )
+            transaction.on_commit(
+                lambda: send_purchase_order_decision_notification.delay(po.pk, "rejected")
+            )
 
         messages.success(self.request, _("Purchase Order rejected."))
         return redirect(reverse("admin:purchasing_purchaseorder_change", args=[po.pk]))

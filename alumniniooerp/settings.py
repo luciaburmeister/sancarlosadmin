@@ -392,6 +392,10 @@ CACHES = {
 }
 
 CELERY_BEAT_SCHEDULE = {
+    "process-due-purchase-order-approvals": {
+        "task": "purchasing.tasks.process_due_purchase_order_approvals",
+        "schedule": crontab(minute="*"),
+    },
     "sync-bank-transactions": {
         "task": "banking.tasks.sync_bank_transactions",
         "schedule": crontab(minute=0, hour="*/6"),  # every 6 hours

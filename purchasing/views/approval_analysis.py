@@ -64,8 +64,10 @@ class POApprovalAnalysisView(UnfoldModelAdminViewMixin, FormView):
         project_file = po.project_file
         if project_file is not None:
             projected_purchased = project_file.total_purchased + po.total_amount
-            margin_before = project_file.total_amount - project_file.total_purchased
-            margin_after = project_file.total_amount - projected_purchased
+            margin_before = project_file.estimated_margin
+            margin_after = po.projected_margin_after
+            if margin_after is None:
+                margin_after = margin_before - po.total_amount
 
             invoiceable_amount = project_file.total_amount.amount
             primary_quote = self._primary_quote(project_file)

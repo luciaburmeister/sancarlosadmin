@@ -1,3 +1,4 @@
+{% load i18n %}
 <!DOCTYPE html>
 <html>
 <head>
@@ -19,6 +20,9 @@
         <h2>Orden de Compra pendiente de aprobación</h2>
         <p>Hola,</p>
         <p>La siguiente orden de compra de <strong>{{ company_name }}</strong>{% if requester_name %}, solicitada por <strong>{{ requester_name }}</strong>,{% endif %} se ha enviado a aprobación y requiere su revisión:</p>
+        {% if is_immediate_bank_transfer %}
+        <p><strong>{% translate "Immediate bank transfer (0-day payment terms): review before approval." %}</strong></p>
+        {% endif %}
 
         <table>
             <tbody>

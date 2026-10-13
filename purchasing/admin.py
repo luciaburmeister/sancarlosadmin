@@ -4,26 +4,29 @@ from django.forms import MultipleChoiceField
 from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 from django.contrib import admin
-from decimal import Decimal
 from django.db import transaction
-from django.db.models import Sum, Exists, OuterRef
+from django.db.models import Sum
 from django.utils.formats import date_format
 from django.utils.html import format_html_join, format_html
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone, translation
 from django.core.exceptions import ValidationError
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
 from unfold.admin import ModelAdmin, StackedInline, TabularInline
 from unfold.decorators import action, display
 from unfold.sections import TemplateSection
 from core.admin.company_admin import CompanyRestrictedAdmin
 from django.urls import path, reverse
 from copy import deepcopy
+from datetime import timedelta
 from urllib.parse import urlparse
 from import_export.admin import ExportActionModelAdmin
 from unfold.contrib.import_export.forms import SelectableFieldsExportForm
 from core.admin.xlsx_export import FormattedXlsxExportMixin
 from .models import (
     PurchaseOrder, PurchaseOrderItem, PurchaseOrderMessage, PurchaseOrderStatus, PurchaseOrderType,
+    ProjectPurchaseApprovalRule,
     PurchaseOrderReceipt, PurchaseOrderReceiptItem,
     QuoteRequest, QuoteRequestItem, QuoteRequestStatus,
     ProviderQuote, ProviderQuoteItem, ProviderQuoteStatus,
@@ -109,6 +112,17 @@ class PurchaseOrderItemInline(StackedInline):
             return False
         return super().has_delete_permission(request, obj)
 
+
+@admin.register(ProjectPurchaseApprovalRule)
+class ProjectPurchaseApprovalRuleAdmin(CompanyRestrictedAdmin, ModelAdmin):
+    list_display = (
+        "company", "maximum_amount", "minimum_margin_percent",
+        "require_manual_approval_for_immediate_transfer", "automatic_approval_delay_minutes", "is_active",
+    )
+    list_filter = ("company", "is_active")
+    search_fields = ("company__name",)
+
+
 def _user_display_name(user):
     if user is None:
         return None
@@ -143,6 +157,7 @@ class PurchaseOrderDetailsSection(TemplateSection):
             "payment_method": instance.get_payment_method_display(),
             "payment_terms_days": instance.payment_terms_days,
             "approved_by_name": _user_display_name(instance.approved_by),
+            "approved_automatically": instance.approved_automatically,
             "approved_at": instance.approved_at,
             "rejected_by_name": _user_display_name(instance.rejected_by),
             "rejected_at": instance.rejected_at,
@@ -197,7 +212,7 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
     list_filter = [("status",MultipleChoicesDropdownFilter), ("po_type",MultipleChoicesDropdownFilter), ("date_ordered",RangeDateFilter), ("company",AutocompleteSelectMultipleFilter), ("cost_center",AutocompleteSelectMultipleFilter), ("project_file",AutocompleteSelectMultipleFilter)]
     search_fields = ["number", "external_reference","provider__name", "requested_by__username", "requested_by__first_name", "requested_by__last_name", "project_file__reference", "project_file__name", "cost_center__code", "cost_center__name"]
     autocomplete_fields = ["provider", "company", "approved_by", "requested_by", "project_file", "cost_center"]
-    readonly_fields = ["number", "total_amount_display", "total_amount_with_tax_display", "approved_at", "approved_by", "rejected_at", "rejected_by", "rejection_reason", "requested_by", "status", "linked_invoices_display"]
+    readonly_fields = ["number", "total_amount_display", "total_amount_with_tax_display", "approved_at", "approved_by", "approved_automatically", "automatic_approval_due_at", "rejected_at", "rejected_by", "rejection_reason", "requested_by", "status", "linked_invoices_display"]
     list_select_related = ["provider", "company", "requested_by", "project_file", "cost_center", "approved_by", "rejected_by"]
     list_filter_submit = True
     fieldsets = (
@@ -219,7 +234,8 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
         (_("Financials & Approval"), {
             "fields": (
                 ("total_amount_display", "total_amount_with_tax_display"),
-                ("approved_by", "approved_at"),
+                ("approved_by", "approved_at", "approved_automatically"),
+                "automatic_approval_due_at",
                 ("rejected_by", "rejected_at"),
                 "rejection_reason",
                 "linked_invoices_display",
@@ -302,33 +318,17 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
         return date_format(obj.date_ordered, "SHORT_DATE_FORMAT") if obj.date_ordered else ""
 
     def get_queryset(self, request):
-        from sales.models import Quote, QuoteStatus
-        accepted_quotes = Quote.objects.filter(
-            project_file=OuterRef("project_file"),
-            status=QuoteStatus.ACCEPTED,
-        )
         return super().get_queryset(request).annotate(
             _total_qty=Sum("items__quantity"),
             _total_invoiced=Sum("items__invoiced_quantity"),
-            _has_accepted_quote=Exists(accepted_quotes),
         )
 
     @display(description=_("Margin"))
     def get_projected_margin(self, obj):
-        project_file = obj.project_file
-        if project_file is None or not getattr(obj, "_has_accepted_quote", False):
+        margin_pct = obj.projected_margin_percent
+        if margin_pct is None:
             return "-"
-        if obj.status in (PurchaseOrderStatus.DRAFT, PurchaseOrderStatus.PENDING_APPROVAL):
-            projected_purchased = project_file.total_purchased + obj.total_amount
-        else:
-            projected_purchased = project_file.total_purchased
-        margin_after = project_file.total_amount - projected_purchased
-        revenue = project_file.total_amount.amount
-        if revenue:
-            margin_pct = (margin_after.amount / revenue) * 100
-        else:
-            margin_pct = Decimal("0")
-        color = "#22c55e" if margin_after.amount >= 0 else "#ef4444"
+        color = "#22c55e" if margin_pct >= 0 else "#ef4444"
         return format_html('<span style="color:{}">{}%</span>', color, round(margin_pct, 1))
 
     @display(
@@ -448,29 +448,90 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
         return redirect(changelist_url)
 
     def _send_to_approval(self, request, po):
-        from purchasing.tasks import send_purchase_order_pending_approval_notification
+        from purchasing.tasks import (
+            send_purchase_order_decision_notification,
+            send_purchase_order_pending_approval_notification,
+        )
 
-        if po.status == PurchaseOrderStatus.DRAFT:
-            po.status = PurchaseOrderStatus.PENDING_APPROVAL
-            po.save()
-            transaction.on_commit(
-                lambda: send_purchase_order_pending_approval_notification.delay(po.pk)
-            )
-            self.message_user(request, _("Purchase Order sent for approval."))
-        else:
-            self.message_user(request, _("Only Draft POs can be sent for approval."), level="error")
+        with transaction.atomic():
+            po = CompanyRestrictedAdmin.get_queryset(self, request).select_for_update().get(pk=po.pk)
+            if po.status != PurchaseOrderStatus.DRAFT:
+                self.message_user(request, _("Only Draft POs can be sent for approval."), level="error")
+                return
 
-    @action(description=_("Send to Approval"))
-    def send_to_approval(self, request, object_id: int):
-        po = PurchaseOrder.objects.get(pk=object_id)
+            rule = ProjectPurchaseApprovalRule.objects.filter(company_id=po.company_id, is_active=True).first()
+            if rule and po.project_file_id:
+                from management.models import ProjectFile
+
+                projects = ProjectFile.objects.filter(pk=po.project_file_id, company_id=po.company_id)
+                if rule.minimum_margin_percent is not None:
+                    projects = projects.select_for_update()
+                project = projects.first()
+                if project is None:
+                    rule = None
+                else:
+                    po.project_file = project
+            eligible = rule is not None and rule.approves(po)
+            if eligible and rule.automatic_approval_delay_minutes:
+                po.status = PurchaseOrderStatus.PENDING_APPROVAL
+                po.automatic_approval_due_at = timezone.now() + timedelta(
+                    minutes=rule.automatic_approval_delay_minutes
+                )
+                po.save(update_fields=["status", "automatic_approval_due_at"])
+                transaction.on_commit(
+                    lambda: send_purchase_order_pending_approval_notification.delay(po.pk)
+                )
+                self.message_user(request, _("Purchase Order sent for approval."))
+            elif eligible:
+                po.status = PurchaseOrderStatus.APPROVED
+                po.approved_at = timezone.now()
+                po.approved_automatically = True
+                po.save(update_fields=["status", "approved_at", "approved_automatically"])
+                transaction.on_commit(
+                    lambda: send_purchase_order_decision_notification.delay(po.pk, "approved")
+                )
+                self.message_user(request, _("Purchase Order approved automatically."))
+            else:
+                po.status = PurchaseOrderStatus.PENDING_APPROVAL
+                po.save(update_fields=["status"])
+                transaction.on_commit(
+                    lambda: send_purchase_order_pending_approval_notification.delay(po.pk)
+                )
+                self.message_user(request, _("Purchase Order sent for approval."))
+
+    @action(
+        description=_("Send to Approval"),
+        permissions=["change"],
+        dialog={
+            "title": _("Send Purchase Order to Approval"),
+            "description": _("This order may be approved automatically if it meets the company's approval rule."),
+            "form_submit_text": _("Send to Approval"),
+        },
+    )
+    def send_to_approval(self, request, _form, object_id: int):
+        po = get_object_or_404(self.get_queryset(request), pk=object_id)
         self._send_to_approval(request, po)
-        return self._redirect_to_changelist_preserving_filters(request)
+        response = self._redirect_to_changelist_preserving_filters(request)
+        if request.headers.get("HX-Request") == "true":
+            return HttpResponse(headers={"HX-Redirect": response.url})
+        return response
 
-    @action(description=_("Send to Approval"), permissions=["po_is_draft"])
-    def send_to_approval_detail_action(self, request, object_id: int):
-        po = PurchaseOrder.objects.get(pk=object_id)
+    @action(
+        description=_("Send to Approval"),
+        permissions=["change", "po_is_draft"],
+        dialog={
+            "title": _("Send Purchase Order to Approval"),
+            "description": _("This order may be approved automatically if it meets the company's approval rule."),
+            "form_submit_text": _("Send to Approval"),
+        },
+    )
+    def send_to_approval_detail_action(self, request, _form, object_id: int):
+        po = get_object_or_404(self.get_queryset(request), pk=object_id)
         self._send_to_approval(request, po)
-        return redirect(reverse("admin:purchasing_purchaseorder_change", args=[object_id]))
+        change_url = reverse("admin:purchasing_purchaseorder_change", args=[object_id])
+        if request.headers.get("HX-Request") == "true":
+            return HttpResponse(headers={"HX-Redirect": change_url})
+        return redirect(change_url)
 
     def has_po_is_draft_permission(self, request, object_id=None):
         if not object_id:
@@ -480,27 +541,32 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
     def _approve_po(self, request, po):
         from purchasing.tasks import send_purchase_order_decision_notification
 
-        if po.status == PurchaseOrderStatus.PENDING_APPROVAL:
-            po.status = PurchaseOrderStatus.APPROVED
-            po.approved_by = request.user
-            po.approved_at = timezone.now()
-            po.save()
-            transaction.on_commit(
-                lambda: send_purchase_order_decision_notification.delay(po.pk, "approved")
+        with transaction.atomic():
+            po = get_object_or_404(
+                CompanyRestrictedAdmin.get_queryset(self, request).select_for_update(), pk=po.pk
             )
-            self.message_user(request, _("Purchase Order approved successfully."))
-        else:
-            self.message_user(request, _("Only Pending POs can be approved."), level="error")
+            if po.status == PurchaseOrderStatus.PENDING_APPROVAL:
+                po.status = PurchaseOrderStatus.APPROVED
+                po.approved_by = request.user
+                po.approved_at = timezone.now()
+                po.automatic_approval_due_at = None
+                po.save(update_fields=["status", "approved_by", "approved_at", "automatic_approval_due_at"])
+                transaction.on_commit(
+                    lambda: send_purchase_order_decision_notification.delay(po.pk, "approved")
+                )
+                self.message_user(request, _("Purchase Order approved successfully."))
+            else:
+                self.message_user(request, _("Only Pending POs can be approved."), level="error")
 
     @action(description=_("Approve PO"), permissions=["can_approve_purchase_order"])
     def approve_po(self, request, object_id: int):
-        po = PurchaseOrder.objects.get(pk=object_id)
+        po = get_object_or_404(self.get_queryset(request), pk=object_id)
         self._approve_po(request, po)
         return self._redirect_to_changelist_preserving_filters(request)
 
     @action(description=_("Approve PO"), permissions=["can_approve_purchase_order", "po_is_pending_approval"])
     def approve_po_detail_action(self, request, object_id: int):
-        po = PurchaseOrder.objects.get(pk=object_id)
+        po = get_object_or_404(self.get_queryset(request), pk=object_id)
         self._approve_po(request, po)
         return redirect(reverse("admin:purchasing_purchaseorder_change", args=[object_id]))
 

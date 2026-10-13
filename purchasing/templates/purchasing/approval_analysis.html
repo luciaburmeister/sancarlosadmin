@@ -189,7 +189,7 @@
 
             <div>
                 <p class="text-xs font-semibold uppercase tracking-wide text-font-subtle-light dark:text-font-subtle-dark mb-3">
-                    {% trans "Cost (Purchasing)" %}
+                    {% trans "Project Costs" %}
                 </p>
                 <div class="flex justify-between items-baseline mb-2">
                     <span class="text-sm text-font-subtle-light dark:text-font-subtle-dark">{% trans "Already Committed (Approved POs)" %}</span>
@@ -199,8 +199,12 @@
                     <span class="text-sm text-font-subtle-light dark:text-font-subtle-dark">{% trans "This PO" %}</span>
                     <span class="text-sm font-semibold">{{ po.total_amount }}</span>
                 </div>
+                <div class="flex justify-between items-baseline mb-2">
+                    <span class="text-sm text-font-subtle-light dark:text-font-subtle-dark">{% trans "Other Project Costs" %}</span>
+                    <span class="text-sm font-semibold">{{ project_file.total_costs }}</span>
+                </div>
                 <div class="flex justify-between items-baseline pt-2 border-t border-base-100 dark:border-base-800">
-                    <span class="text-sm font-semibold">{% trans "Committed if Approved" %}</span>
+                    <span class="text-sm font-semibold">{% trans "Purchases if Approved" %}</span>
                     <span class="text-sm font-bold">{{ projected_purchased }}</span>
                 </div>
             </div>

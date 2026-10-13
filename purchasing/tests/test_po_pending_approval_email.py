@@ -20,6 +20,7 @@ from company.models import Company
 from materials.models import Provider
 from purchasing.admin import PurchaseOrderAdmin
 from purchasing.models import PurchaseOrder, PurchaseOrderStatus
+from purchasing.tasks import send_purchase_order_pending_approval_notification
 
 User = get_user_model()
 
@@ -73,6 +74,7 @@ class PendingApprovalEmailTests(TestCase):
         self.assertIn("pendiente de aprobación", message.subject)
         self.assertIn(po.number, message.subject)
         self.assertIn("Rita Requester", message.body)
+        self.assertIn("Transferencia inmediata (pago a 0 días)", message.body)
 
     def test_send_to_approval_without_recipients_sends_nothing(self):
         self.company.purchase_order_notification_emails = []
@@ -92,4 +94,12 @@ class PendingApprovalEmailTests(TestCase):
             po_admin._send_to_approval(self._admin_request(), po)
         po.refresh_from_db()
         self.assertEqual(po.status, PurchaseOrderStatus.APPROVED)
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_delayed_pending_email_skips_order_already_approved(self):
+        po = self._make_po(status=PurchaseOrderStatus.APPROVED)
+
+        result = send_purchase_order_pending_approval_notification(po.pk)
+
+        self.assertEqual(result, {"status": "skipped", "reason": "not_pending"})
         self.assertEqual(len(mail.outbox), 0)

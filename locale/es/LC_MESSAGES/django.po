@@ -19390,3 +19390,69 @@ msgstr[1] "%(count)s sesiones más"
 
 msgid "No sessions planned for this week. Choose a day to plan."
 msgstr "No hay sesiones planificadas para esta semana. Elige un día para planificar."
+
+msgid "Project Purchase Approval Rule"
+msgstr "Regla de aprobación de compras de proyecto"
+
+msgid "Project Purchase Approval Rules"
+msgstr "Reglas de aprobación de compras de proyecto"
+
+msgid "Maximum Amount"
+msgstr "Importe máximo"
+
+msgid "Maximum net amount eligible for automatic approval."
+msgstr "Importe máximo sin impuestos que puede optar a la aprobación automática."
+
+msgid "Maximum amount must be greater than zero."
+msgstr "El importe máximo debe ser mayor que cero."
+
+msgid "Approved Automatically"
+msgstr "Aprobada automáticamente"
+
+msgid "Automatic Approval Delay (Minutes)"
+msgstr "Espera para la aprobación automática (minutos)"
+
+msgid "Wait this many minutes after sending the order for approval. Use 0 to approve immediately."
+msgstr "Espere este número de minutos desde el envío de la orden a aprobación. Use 0 para aprobar inmediatamente."
+
+msgid "Automatic Approval Due At"
+msgstr "Aprobación automática prevista para"
+
+msgid "Automatic approval"
+msgstr "Aprobación automática"
+
+msgid "Purchase Order approved automatically."
+msgstr "Orden de compra aprobada automáticamente."
+
+msgid "Approved automatically under the company's purchase approval rule."
+msgstr "Aprobada automáticamente según la regla de aprobación de compras de la empresa."
+
+msgid "Minimum Project Margin (%)"
+msgstr "Margen mínimo del proyecto (%)"
+
+msgid "Minimum project margin after this purchase order. Leave blank to ignore margin."
+msgstr "Margen mínimo del proyecto después de esta orden de compra. Déjelo vacío para no tener en cuenta el margen."
+
+msgid "Review Immediate Bank Transfers"
+msgstr "Revisar transferencias inmediatas"
+
+msgid "Require manual approval when a purchase order uses bank transfer with 0-day payment terms."
+msgstr "Exigir aprobación manual cuando una orden de compra tenga pago por transferencia a 0 días."
+
+msgid "Immediate bank transfer (0-day payment terms): review before approval."
+msgstr "Transferencia inmediata (pago a 0 días): revisar antes de aprobar."
+
+msgid "Send Purchase Order to Approval"
+msgstr "Enviar orden de compra a aprobación"
+
+msgid "This order may be approved automatically if it meets the company's approval rule."
+msgstr "Esta orden puede aprobarse automáticamente si cumple la regla de aprobación de la empresa."
+
+msgid "Project Costs"
+msgstr "Costes del proyecto"
+
+msgid "Other Project Costs"
+msgstr "Otros costes del proyecto"
+
+msgid "Purchases if Approved"
+msgstr "Compras si se aprueba"

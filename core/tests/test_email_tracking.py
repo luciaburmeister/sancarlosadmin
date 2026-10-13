@@ -357,6 +357,25 @@ class SESEventWebhookTests(TestCase):
         self.assertEqual(event.message_id, "m-1")
         self.assertEqual(kwargs, {"provider": "ses", "provider_event_id": "sns-1"})
 
+    @patch("core.tasks.record_email_event_task.delay")
+    @patch("core.services.sns_signature.verify_sns_message")
+    def test_notification_is_queued_without_touching_the_database(self, verify, delay):
+        ses_payload = {"eventType": "Open", "mail": {"messageId": "m-1"}}
+        envelope = {
+            "Type": "Notification",
+            "MessageId": "sns-1",
+            "Message": json.dumps(ses_payload),
+        }
+
+        with self.assertNumQueries(0):
+            response = self.client.post(
+                self.url, data=json.dumps(envelope), content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"status": "queued"})
+        delay.assert_called_once_with("ses", "sns-1", ses_payload)
+
     @patch("core.services.sns_signature.verify_sns_message")
     def test_invalid_signature_is_rejected(self, verify):
         from core.services.sns_signature import InvalidSNSMessage

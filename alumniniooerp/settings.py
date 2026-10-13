@@ -249,7 +249,11 @@ if TESTING:
     SES_ENGAGEMENT_CONFIGURATION_SET = ""
     SES_SNS_TOPIC_ARN = ""
 BACKEND_URL = os.getenv("BACKEND_URL", "https://erp.polipusolutions.com")
-DATA_UPLOAD_MAX_MEMORY_SIZE = 10485760  
+# Request body size, file parts excluded (base64 images in JSON, big forms).
+# Matches nginx's client_max_body_size (deploy/web/.platform/nginx/conf.d/
+# proxy.conf); raise both together. Multipart file uploads aren't capped by
+# Django: past FILE_UPLOAD_MAX_MEMORY_SIZE they spill to a temp file.
+DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024
 
 
 
@@ -297,6 +301,24 @@ if DB_SSLMODE:
 
 if TESTING:
     DATABASES["default"]["TEST"] = {"MIGRATE": os.getenv("TEST_MIGRATE") == "1"}
+
+# psycopg connection pool, one per process. Off unless DB_POOL_MAX_SIZE is
+# set, which only the web role does (deploy/web/.ebextensions/web.config):
+# Celery's prefork workers close the pool around every task, so it would
+# buy them nothing. Never in tests, where pooled connections held open
+# would block dropping the test databases.
+DB_POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX_SIZE", "0"))
+
+if DB_POOL_MAX_SIZE and not TESTING:
+    DATABASES["default"].setdefault("OPTIONS", {})["pool"] = {
+        "min_size": int(os.getenv("DB_POOL_MIN_SIZE", "2")),
+        "max_size": DB_POOL_MAX_SIZE,
+        "timeout": 10,
+    }
+    # With a pool, Django turns this into a ping on checkout, so a connection
+    # dropped by an RDS restart or failover is replaced instead of failing
+    # the request.
+    DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 
 
 
@@ -451,6 +473,12 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:8080",
 ]
 CORS_ALLOW_CREDENTIALS = True
+
+# Django's default ("same-origin") strips the Referer from cross-origin
+# requests, and OpenStreetMap refuses tiles without one ("not following the
+# tile usage policy"). This is the browsers' own default: other sites see
+# only our origin, never the path.
+SECURE_REFERRER_POLICY = "strict-origin-when-cross-origin"
 
 LOCATION_FIELD = {
     'map.provider': 'openstreetmap',

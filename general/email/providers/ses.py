@@ -52,7 +52,6 @@ class SESProvider(EmailProvider):
     # --- incoming -----------------------------------------------------------
 
     def handle_webhook(self, request):
-        from core.services.email_event_service import EmailEventService
         from core.services.sns_signature import (
             InvalidSNSMessage,
             confirm_sns_subscription,
@@ -86,12 +85,14 @@ class SESProvider(EmailProvider):
         except (KeyError, TypeError, json.JSONDecodeError):
             return {"error": "Invalid SES event"}, 400
 
-        result = EmailEventService.record(
-            self.parse(payload),
-            provider=self.key,
-            provider_event_id=envelope["MessageId"],
-        )
-        return result, 200
+        from core.tasks import record_email_event_task
+
+        # Applied by a worker, not here: SNS delivers these in bursts after a
+        # bulk send, and doing the database work in the request took one web
+        # thread and connection per event. If the broker is down this raises,
+        # the request fails, and SNS retries the delivery.
+        record_email_event_task.delay(self.key, envelope["MessageId"], payload)
+        return {"status": "queued"}, 200
 
     def parse(self, payload):
         """Wrap one SES notification in the reader the event service consumes."""

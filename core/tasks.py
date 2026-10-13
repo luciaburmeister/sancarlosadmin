@@ -249,3 +249,32 @@ def generate_work_entries_task(transaction_ids: list[int]):
         "created": total_created,
         "skipped": total_skipped,
     }
+
+
+@shared_task(
+    name="core.tasks.record_email_event_task",
+    # Idempotent (EmailEvent is unique per provider event id), so a redelivery
+    # after a worker dies mid-task, or a retry, is harmless.
+    acks_late=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=5,
+    # Thousands arrive after every bulk send: don't write a TaskResult row each.
+    ignore_result=True,
+)
+def record_email_event_task(provider: str, provider_event_id: str, payload: dict):
+    """
+    Apply one provider email event that the webhook already authenticated.
+
+    Runs here rather than in the request because providers deliver them in
+    bursts after bulk sends: the workers' fixed concurrency is what bounds the
+    database load, instead of one web thread and connection per event.
+    """
+    from core.services.email_event_service import EmailEventService
+    from general.email.providers import get_provider
+
+    EmailEventService.record(
+        get_provider(provider).parse(payload),
+        provider=provider,
+        provider_event_id=provider_event_id,
+    )

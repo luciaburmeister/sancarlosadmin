@@ -109,12 +109,35 @@ SYSTEM_PROMPT_RULES = (
 )
 
 
-def _system_blocks(state: ConversationState) -> list[dict]:
+def _company_scope_text(companies: list) -> str:
+    """Tell the model exactly which active companies (sidebar checkbox,
+    not every company the user merely has access to) it is scoped to."""
+    if not companies:
+        return "No company is active right now; tools will return no rows."
+    if len(companies) == 1:
+        return (
+            f"Only {companies[0].name} is active right now. Every tool call "
+            "and answer is about this single company — speak about it "
+            "directly, don't hedge about other companies."
+        )
+    names = ", ".join(company.name for company in companies)
+    return (
+        f"{len(companies)} companies are active right now: {names}. Tools "
+        "return rows from only these; say which company a figure belongs "
+        "to whenever more than one could apply."
+    )
+
+
+def _system_blocks(state: ConversationState, company_scope_text: str) -> list[dict]:
     return [
         {
             "type": "text",
             "text": SYSTEM_PROMPT_RULES,
             "cache_control": PROMPT_CACHE_CONTROL,
+        },
+        {
+            "type": "text",
+            "text": f"## Company scope\n{company_scope_text}",
         },
         {
             "type": "text",
@@ -351,6 +374,7 @@ class ConversationService:
             raise RuntimeError(
                 _("Set a Claude API key on %(company)s.") % {"company": company.name}
             )
+        self.user = user
         self.company = company
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = getattr(settings, "ANTHROPIC_AGENT_MODEL", "claude-sonnet-5-5")
@@ -375,9 +399,14 @@ class ConversationService:
             display_text=user_message,
         )
 
+        from core.admin.company_access import get_user_companies
+
         tools = _with_prompt_cache(ToolRegistry.get_claude_tool_definitions())
         context = ChatContext(
             user_id=conversation.owner_id, conversation_id=conversation.pk
+        )
+        company_scope_text = _company_scope_text(
+            list(get_user_companies(self.user).order_by("name"))
         )
         tool_calls_log: list[dict] = []
         last_chart = None
@@ -393,7 +422,7 @@ class ConversationService:
                 with self.client.messages.stream(
                     model=self.model,
                     max_tokens=4096,
-                    system=_system_blocks(state),
+                    system=_system_blocks(state, company_scope_text),
                     tools=tools,
                     messages=messages,
                     output_config={"effort": AGENT_EFFORT},

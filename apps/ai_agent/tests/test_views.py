@@ -1,6 +1,6 @@
 import json
 import time
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Permission
@@ -180,6 +180,49 @@ class ChatViewsPermissionTests(TestCase):
         conversation.refresh_from_db()
         self.assertEqual(conversation.claude_company_id, second.pk)
         self.assertNotEqual(conversation.claude_company_id, first.pk)
+
+    @patch("apps.ai_agent.orchestrator.anthropic.Anthropic")
+    def test_send_message_scopes_the_live_stream_to_the_active_companies_only(
+        self, mock_anthropic_cls
+    ):
+        """The sidebar checkbox (session-active companies), not every
+        company the user is allowed to see, must reach the real streaming
+        body — which runs after ActiveCompanyMiddleware's own cleanup."""
+        from contextlib import contextmanager
+
+        active = self._company_with_key("Active Co", "AC1")
+        other = self._company_with_key("Other Co", "OC1")
+        self._activate(active)
+
+        mock_client = mock_anthropic_cls.return_value
+
+        @contextmanager
+        def fake_stream(**kwargs):
+            stream = MagicMock()
+            stream.__iter__.return_value = iter([])
+            stream.get_final_message.return_value = MagicMock(
+                content=[MagicMock(type="text", text="ok")]
+            )
+            self.captured_system = kwargs["system"]
+            yield stream
+
+        mock_client.messages.stream.side_effect = fake_stream
+
+        conversation = AIConversation.objects.create(owner=self.permitted_user)
+        self.client.force_login(self.permitted_user)
+        response = self.client.post(
+            reverse("ai_agent:send_message"),
+            data=json.dumps(
+                {"conversation_id": conversation.pk, "message": "hola"}
+            ),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        b"".join(response.streaming_content)
+
+        scope_text = self.captured_system[1]["text"]
+        self.assertIn("Active Co", scope_text)
+        self.assertNotIn("Other Co", scope_text)
 
     def test_chat_page_defaults_to_the_first_active_company_with_a_key(self):
         no_key = Company.objects.create(name="Alpha Co", tax_identifier="CC4")

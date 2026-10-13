@@ -115,7 +115,32 @@ class ConversationServiceStreamTests(TestCase):
         self.assertEqual(kwargs["cache_control"], PROMPT_CACHE_CONTROL)
         self.assertEqual(kwargs["system"][0]["cache_control"], PROMPT_CACHE_CONTROL)
         self.assertNotIn("cache_control", kwargs["system"][1])
+        self.assertIn("Orchestrator Co", kwargs["system"][1]["text"])
         self.assertEqual(kwargs["tools"][-1]["cache_control"], PROMPT_CACHE_CONTROL)
+
+    @patch("apps.ai_agent.orchestrator.anthropic.Anthropic")
+    def test_system_prompt_names_only_the_active_company_not_every_allowed_one(
+        self, mock_anthropic_cls
+    ):
+        other_company = Company.objects.create(name="Other Co", tax_identifier="OT1")
+        CompanyUser.objects.create(
+            user=self.user, company=other_company, is_active=True
+        )
+        from company.active_company import ActiveCompany
+
+        ActiveCompany.set_current_ids([self.company.pk])
+        self.addCleanup(ActiveCompany.clear_current)
+
+        events = [_text_event("Hola")]
+        final_content = [_text_block("Hola")]
+        self._mock_client(mock_anthropic_cls, _fake_stream(events, final_content))
+
+        list(ConversationService(self.user).stream_turn(self.conversation, "Hola"))
+
+        kwargs = mock_anthropic_cls.return_value.messages.stream.call_args.kwargs
+        scope_text = kwargs["system"][1]["text"]
+        self.assertIn("Orchestrator Co", scope_text)
+        self.assertNotIn("Other Co", scope_text)
 
     @patch("apps.ai_agent.orchestrator.anthropic.Anthropic")
     def test_long_history_is_trimmed_before_the_model_call(self, mock_anthropic_cls):

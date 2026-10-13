@@ -34,6 +34,7 @@ from apps.ai_agent.orchestrator import (
 )
 from apps.ai_agent.save_report import SaveReportError, save_report_from_message
 from apps.reports.constants import ReportVisibility
+from company.active_company import ActiveCompany
 
 logger = logging.getLogger(__name__)
 
@@ -167,35 +168,40 @@ class SendMessageView(AgentRequiredJSONMixin, View):
             )
 
         conversation = _owned_conversation_or_404(request.user, conversation_id)
+        active_company_ids = [c.pk for c in request.active_companies] or None
 
         def events():
+            ActiveCompany.set_current_ids(active_company_ids)
             try:
-                company = resolve_claude_company(
-                    request.user,
-                    body.get("company_id"),
-                    preferred=conversation.claude_company,
-                )
-                service = ConversationService(request.user, company)
-            except RuntimeError as exc:
-                logger.error("ConversationService error: %s", exc)
-                yield _sse({"type": "error", "message": str(exc)})
-                return
-            if conversation.claude_company_id != company.pk:
-                conversation.claude_company = company
-                conversation.save(update_fields=["claude_company"])
-            try:
-                for event in service.stream_turn(conversation, message_text):
-                    yield _sse(event)
-            except Exception:
-                logger.exception("Unexpected agent error")
-                yield _sse(
-                    {
-                        "type": "error",
-                        "message": str(
-                            _("An error occurred processing your request.")
-                        ),
-                    }
-                )
+                try:
+                    company = resolve_claude_company(
+                        request.user,
+                        body.get("company_id"),
+                        preferred=conversation.claude_company,
+                    )
+                    service = ConversationService(request.user, company)
+                except RuntimeError as exc:
+                    logger.error("ConversationService error: %s", exc)
+                    yield _sse({"type": "error", "message": str(exc)})
+                    return
+                if conversation.claude_company_id != company.pk:
+                    conversation.claude_company = company
+                    conversation.save(update_fields=["claude_company"])
+                try:
+                    for event in service.stream_turn(conversation, message_text):
+                        yield _sse(event)
+                except Exception:
+                    logger.exception("Unexpected agent error")
+                    yield _sse(
+                        {
+                            "type": "error",
+                            "message": str(
+                                _("An error occurred processing your request.")
+                            ),
+                        }
+                    )
+            finally:
+                ActiveCompany.clear_current()
 
         response = StreamingHttpResponse(events(), content_type="text/event-stream")
         response["Cache-Control"] = "no-cache"

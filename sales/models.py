@@ -763,6 +763,15 @@ class QuoteProductionStatus(models.TextChoices):
     SCHEDULED = "scheduled", _("Scheduled")
 
 
+class QuoteQuerySet(models.QuerySet):
+    def for_agent(self, agent):
+        """The agent's quotes, plus their clients' quotes left without an agent."""
+        return self.filter(
+            models.Q(agent=agent) | models.Q(agent__isnull=True, client__agent=agent),
+            company_id=agent.company_id,
+        )
+
+
 class Quote(Timestampable, CompanyOwnedModel):
     client = models.ForeignKey(
         Client,
@@ -968,6 +977,8 @@ class Quote(Timestampable, CompanyOwnedModel):
         blank=True,
         verbose_name=_("Estimated delivery date"),
     )
+
+    objects = QuoteQuerySet.as_manager()
 
     class Meta:
         verbose_name = _("Quote")

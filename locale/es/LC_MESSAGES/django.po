@@ -19271,6 +19271,15 @@ msgstr "Las líneas de este artículo no generan comisión a los agentes (p. ej.
 msgid "The percentage of the rule it was calculated with; empty when its parts use different rules."
 msgstr "El porcentaje de la regla con la que se calculó; vacío cuando sus partes usan reglas distintas."
 
+msgid "Agent reports"
+msgstr "Informes de agentes"
+
+msgid "Agent report"
+msgstr "Informe de agente"
+
+msgid "Template not available for this agent"
+msgstr "Plantilla no disponible para este agente"
+
 msgid "Reset stock to 0"
 msgstr "Poner el stock a 0"
 

@@ -15,6 +15,7 @@ from .delivery_order import DeliveryOrderExportStrategy
 from .project_file import ProjectFileExportStrategy
 from .quote_request import QuoteRequestExportStrategy
 from .purchase_order import PurchaseOrderExportStrategy
+from .commissionist_agent import CommissionistAgentExportStrategy
 
 
 def get_strategy_map():
@@ -24,7 +25,7 @@ def get_strategy_map():
     from configurator.models import Configuration, ReceivalSlip
     from production.models import ProductionItem
     from invoices.models import SalesInvoice
-    from sales.models import Quote, DeliveryOrder
+    from sales.models import CommissionistAgent, Quote, DeliveryOrder
     from assets.models import AssetTransaction
     from management.models import ProjectFile
     from purchasing.models import QuoteRequest, PurchaseOrder
@@ -40,4 +41,5 @@ def get_strategy_map():
         ProjectFile:      ProjectFileExportStrategy,
         QuoteRequest:     QuoteRequestExportStrategy,
         PurchaseOrder:    PurchaseOrderExportStrategy,
+        CommissionistAgent: CommissionistAgentExportStrategy,
     }

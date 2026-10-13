@@ -26,6 +26,7 @@ from company.forms import CompanyDocumentForm
 from unfold.contrib.forms.widgets import ArrayWidget, WysiwygWidget
 from unfold.widgets import (
     UnfoldAdminFileFieldWidget,
+    UnfoldAdminPasswordWidget,
     UnfoldAdminSelectWidget,
     UnfoldAdminTimeWidget,
 )
@@ -332,6 +333,15 @@ class CompanyScheduleSlotInline(admin.TabularInline):
 
 
 class CompanyAdminForm(ModelForm):
+    claude_api_key = forms.CharField(
+        required=False,
+        label=_("Claude API key"),
+        widget=UnfoldAdminPasswordWidget(),
+        help_text=_(
+            "Anthropic API key this company uses for natural-language reports "
+            "and the AI assistant. Leave blank to keep the current key."
+        ),
+    )
     terms_md_file = forms.FileField(
         required=False,
         widget=UnfoldAdminFileFieldWidget(attrs={"accept": ".md,.markdown"}),
@@ -344,7 +354,7 @@ class CompanyAdminForm(ModelForm):
 
     class Meta:
         model = Company
-        fields = "__all__"
+        exclude = ("claude_api_key_encrypted",)
 
     def _markdown_to_html(self, markdown_text: str) -> str:
         text = (markdown_text or "").replace("\r\n", "\n").replace("\r", "\n")
@@ -418,6 +428,9 @@ class CompanyAdminForm(ModelForm):
                 raise ValidationError(
                     {"terms_md_file": _("El archivo debe estar codificado en UTF-8.")}
                 ) from exc
+        new_key = (self.cleaned_data.get("claude_api_key") or "").strip()
+        if new_key:
+            instance.set_claude_api_key(new_key)
         if commit:
             instance.save()
             self.save_m2m()
@@ -505,6 +518,7 @@ class CompanyAdmin(ModelAdmin):
                 "require_working_zone_on_project_file",
                 "asset_reception_product",
                 "ideal_daily_work_minutes",
+                "claude_api_key",
             ),
             "classes": ["tab"]
         }),

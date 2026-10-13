@@ -1,0 +1,49 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n unfold %}
+
+{% block content %}
+<div class="px-4 lg:px-8 py-6 max-w-3xl mx-auto flex flex-col gap-6">
+  {% include "unfold/helpers/messages.html" %}
+
+  {% component "unfold/components/card.html" %}
+    <div class="p-2">
+      <h1 class="text-xl font-semibold text-font-important-light dark:text-font-important-dark">
+        {{ report.name }}
+      </h1>
+      <p class="mt-1 text-sm text-font-subtle-light dark:text-font-subtle-dark">
+        {{ report.prompt }}
+      </p>
+
+      {% if can_generate %}
+        <p class="mt-4 text-sm text-font-subtle-light dark:text-font-subtle-dark">
+          {% trans "This report will be created as:" %}
+        </p>
+        <p class="mt-1 text-base text-font-important-light dark:text-font-important-dark">
+          {{ summary }}
+        </p>
+        <form method="post" action="{{ confirm_url }}" class="mt-4">
+          {% csrf_token %}
+          {% component "unfold/components/button.html" with submit=1 %}
+            {% trans "Generate report" %}
+          {% endcomponent %}
+        </form>
+      {% else %}
+        <p class="mt-4 text-sm text-red-600 dark:text-red-400">
+          {{ gap }}
+        </p>
+      {% endif %}
+
+      <div class="mt-4 flex flex-wrap gap-2">
+        {% if can_edit %}
+          {% component "unfold/components/button.html" with href=edit_url variant="default" %}
+            {% trans "Edit" %}
+          {% endcomponent %}
+        {% endif %}
+        {% component "unfold/components/button.html" with href=changelist_url variant="default" %}
+          {% trans "Back to reports" %}
+        {% endcomponent %}
+      </div>
+    </div>
+  {% endcomponent %}
+</div>
+{% endblock %}

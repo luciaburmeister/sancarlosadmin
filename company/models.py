@@ -248,9 +248,37 @@ class Company(models.Model):
         default=480,
         verbose_name=_("Ideal daily work minutes"),
     )
+    claude_api_key_encrypted = models.TextField(
+        blank=True,
+        verbose_name=_("Claude API key"),
+        help_text=_("Stored encrypted. Set it from the company form."),
+    )
 
     def __str__(self):
         return self.name
+
+    def set_claude_api_key(self, plaintext: str) -> None:
+        """Encrypt and store this company's Claude API key. Blank clears it."""
+        from apps.einvoicing.encryption import encrypt_value
+
+        plaintext = (plaintext or "").strip()
+        if not plaintext:
+            self.claude_api_key_encrypted = ""
+            return
+        self.claude_api_key_encrypted = encrypt_value(plaintext)
+
+    def get_claude_api_key(self) -> str:
+        """Return the decrypted Claude API key, or "" when none is stored."""
+        from cryptography.fernet import InvalidToken
+
+        from apps.einvoicing.encryption import decrypt_value
+
+        if not self.claude_api_key_encrypted:
+            return ""
+        try:
+            return decrypt_value(self.claude_api_key_encrypted)
+        except InvalidToken:
+            return ""
 
     def working_windows_for_day(self, day):
         """This weekday's schedule slots (start, end), in order — a weekday can have several (split shifts)."""

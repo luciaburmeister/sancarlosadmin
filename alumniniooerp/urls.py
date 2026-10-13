@@ -6,20 +6,17 @@ from django.conf.urls.i18n import i18n_patterns
 from django.conf.urls.static import static
 from django.views.generic import RedirectView
 from general.password_reset import CustomPasswordResetView, CustomPasswordResetDoneView, CustomPasswordResetCompleteView, CustomPasswordResetConfirmView
-from chatbot.admin import ChatbotAdminSite
 
 def health(request):
     return JsonResponse({"status": "ok"})
 
-
-admin.site.get_urls = lambda original=admin.site.get_urls: ChatbotAdminSite.get_urls() + original()
 
 urlpatterns = [
     path("", RedirectView.as_view(url="/admin/", permanent=False)),
     path("health/", health, name="health"),
     path("i18n/", include("django.conf.urls.i18n")),
     path('hijack/', include('hijack.urls')),
-    path("api/chatbot/", include("chatbot.urls")),
+    path("api/ai-agent/", include("apps.ai_agent.urls")),
     path("api/banking/", include("banking.urls")),  # Arcopay callbacks (no i18n)
     path("api/email-events/", include("core.urls")),  # SES/SNS callbacks (no i18n)
     path("presupuestos/", include("purchasing.urls")),

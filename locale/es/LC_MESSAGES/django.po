@@ -368,9 +368,6 @@ msgstr "Inventario"
 msgid "Items"
 msgstr "Articulos"
 
-msgid "Reports"
-msgstr "Informes"
-
 msgid "Warehouses"
 msgstr "Almacénes"
 
@@ -1183,11 +1180,6 @@ msgstr "Mapa"
 #| msgid "View all"
 msgid "View Map"
 msgstr "Ver todos"
-
-#, fuzzy
-#| msgid "Quotable"
-msgid "Table"
-msgstr "Presupuestable"
 
 #, fuzzy
 #| msgid "View all"
@@ -8173,9 +8165,6 @@ msgstr "Confirmar Transferencia"
 msgid "Download an inventory report."
 msgstr "Descarga un informe de inventario."
 
-msgid "Download Excel"
-msgstr "Descargar Excel"
-
 #, python-format
 msgid "Total reserved: %(qty)s"
 msgstr ""
@@ -8535,11 +8524,6 @@ msgstr "Filtrar"
 
 msgid "Leave empty to include every payment method in the report."
 msgstr ""
-
-#, fuzzy
-#| msgid "Reports"
-msgid "Report"
-msgstr "Informes"
 
 msgid "Payment Reminder Report"
 msgstr "Informe de recordatorios de pago"
@@ -9519,9 +9503,6 @@ msgstr ""
 
 msgid "This delivery order is not linked to a project file."
 msgstr "Esta orden de entrega no está vinculada a ningún expediente."
-
-msgid "A cancelled delivery order cannot be synced."
-msgstr "Una orden de entrega cancelada no se puede sincronizar."
 
 #, python-format
 msgid "Payments Forecast — %(company)s — %(date)s"
@@ -19400,6 +19381,407 @@ msgstr[1] "%(count)s sesiones más"
 msgid "No sessions planned for this week. Choose a day to plan."
 msgstr "No hay sesiones planificadas para esta semana. Elige un día para planificar."
 
+msgid "A cancelled delivery order cannot be synced."
+msgstr "Un albarán cancelado no se puede sincronizar."
+
+msgid "Private"
+msgstr "Privado"
+
+msgid "Sales invoices"
+msgstr "Facturas de venta"
+
+msgid "Production time"
+msgstr "Tiempo de producción"
+
+msgid "Unsupported"
+msgstr "No soportado"
+
+msgid "Count"
+msgstr "Recuento"
+
+msgid "Sum"
+msgstr "Suma"
+
+msgid "Average"
+msgstr "Media"
+
+msgid "Equals"
+msgstr "Igual a"
+
+msgid "Greater than"
+msgstr "Mayor que"
+
+msgid "Greater or equal"
+msgstr "Mayor o igual"
+
+msgid "Less than"
+msgstr "Menor que"
+
+msgid "Less or equal"
+msgstr "Menor o igual"
+
+msgid "In"
+msgstr "Es uno de"
+
+msgid "Contains"
+msgstr "Contiene"
+
+msgctxt "chart type"
+msgid "Bar"
+msgstr "Barras"
+
+msgctxt "chart type"
+msgid "Line"
+msgstr "Línea"
+
+msgctxt "date range"
+msgid "To"
+msgstr "Hasta"
+
+msgid "Owner"
+msgstr "Propietario"
+
+msgid "Original prompt"
+msgstr "Prompt original"
+
+msgid "Domain"
+msgstr "Dominio"
+
+msgid "Report spec"
+msgstr "Especificación del reporte"
+
+msgid "Visibility"
+msgstr "Visibilidad"
+
+msgid "Included companies"
+msgstr "Compañías incluidas"
+
+msgid "Updated at"
+msgstr "Actualizado el"
+
+msgid "Report"
+msgstr "Reporte"
+
+msgid "Reports"
+msgstr "Reportes"
+
+msgid "Can use natural language reports"
+msgstr "Puede usar reportes en lenguaje natural"
+
+msgid "Companies"
+msgstr "Compañías"
+
+msgid "Reports include every company you select here."
+msgstr "El reporte incluye todas las compañías que selecciones aquí."
+
+msgid "Describe the report"
+msgstr "Describe el reporte"
+
+msgid "Example: Total sales invoices by client for the last 90 days as a bar chart."
+msgstr "Ejemplo: total de facturas de venta por cliente de los últimos 90 días, en gráfico de barras."
+
+#, python-format
+msgid "Try something like: %(examples)s"
+msgstr "Prueba algo como: %(examples)s"
+
+msgid "You do not have permission to view this report's data."
+msgstr "No tienes permiso para ver los datos de este reporte."
+
+#, python-format
+msgid "Could not run this report with the saved filters (%(error)s)."
+msgstr "No se ha podido ejecutar este reporte con los filtros guardados (%(error)s)."
+
+#, python-format
+msgid "Report “%(name)s” saved."
+msgstr "Reporte “%(name)s” guardado."
+
+msgid "Create report"
+msgstr "Crear reporte"
+
+#, python-format
+msgid "Report “%(name)s” created."
+msgstr "Reporte “%(name)s” creado."
+
+msgid "Edit report"
+msgstr "Editar reporte"
+
+#, python-format
+msgid "Report “%(name)s” updated."
+msgstr "Reporte “%(name)s” actualizado."
+
+msgid "Select a company for this report."
+msgstr "Selecciona una compañía para este reporte."
+
+msgid "That company is not active for you."
+msgstr "Esa compañía no está activa para ti."
+
+msgid "No active company available."
+msgstr "No hay ninguna compañía activa."
+
+#, python-format
+msgid "Could not classify the report request: %(error)s"
+msgstr "No se ha podido clasificar la petición del reporte: %(error)s"
+
+#, python-format
+msgid "That request is outside the supported reporting domains (%(domains)s)."
+msgstr "Esa petición queda fuera de los dominios de reporte soportados (%(domains)s)."
+
+msgid "The request needs more detail. Try naming the metric, grouping, and date range."
+msgstr "La petición necesita más detalle. Indica la métrica, la agrupación y el rango de fechas."
+
+msgid "Could not confidently classify the report. Try rephrasing with a clearer domain."
+msgstr "No se ha podido clasificar el reporte con seguridad. Reformúlalo con un dominio más claro."
+
+#, python-format
+msgid "You do not have permission to create %(domain)s reports."
+msgstr "No tienes permiso para crear reportes de %(domain)s."
+
+#, python-format
+msgid "Could not generate the report: %(error)s"
+msgstr "No se ha podido generar el reporte: %(error)s"
+
+msgid "Report created."
+msgstr "Reporte creado."
+
+msgid "Describe the report you want to create."
+msgstr "Describe el reporte que quieres crear."
+
+msgid "Report updated."
+msgstr "Reporte actualizado."
+
+#, python-format
+msgid "“%(name)s” was not found among your active companies/clients and was left out of the filters."
+msgstr "“%(name)s” no se ha encontrado entre tus compañías/clientes activos y se ha dejado fuera de los filtros."
+
+#, python-format
+msgid "Client “%(name)s” was not found among your clients and was left out of the filters."
+msgstr "El cliente “%(name)s” no se ha encontrado entre tus clientes y se ha dejado fuera de los filtros."
+
+#, python-format
+msgid "Company “%(name)s” was not found in your active companies and was left out of the filters."
+msgstr "La compañía “%(name)s” no se ha encontrado entre tus compañías activas y se ha dejado fuera de los filtros."
+
+msgid "What you can create reports about"
+msgstr "Sobre qué puedes crear reportes"
+
+msgid "Based on your current permissions:"
+msgstr "Según tus permisos actuales:"
+
+msgid "no access"
+msgstr "sin acceso"
+
+msgid "Download Excel"
+msgstr "Descargar Excel"
+
+msgid "Back to reports"
+msgstr "Volver a los reportes"
+
+msgid "Filters"
+msgstr "Filtros"
+
+msgid "Chart"
+msgstr "Gráfico"
+
+msgid "Table"
+msgstr "Tabla"
+
+msgid "No rows for the current filters."
+msgstr "No hay filas para los filtros actuales."
+
+msgid "Describe the report in natural language. The system will classify it, generate a scoped query, and save it."
+msgstr "Describe el reporte en lenguaje natural. El sistema lo clasificará, generará una consulta acotada y lo guardará."
+
+#, python-format
+msgid "Editing “%(name)s”. Rewrite the prompt below to regenerate this report's query."
+msgstr "Editando “%(name)s”. Reescribe el prompt de abajo para regenerar la consulta de este reporte."
+
+msgid "Save changes"
+msgstr "Guardar cambios"
+
+msgctxt "report prompt"
+msgid "amount"
+msgstr "importe"
+
+msgctxt "report prompt"
+msgid "euros"
+msgstr "euros"
+
+msgctxt "report prompt"
+msgid "invoiced"
+msgstr "facturado"
+
+msgctxt "report prompt"
+msgid "billed"
+msgstr "facturada"
+
+msgctxt "report prompt"
+msgid "billing"
+msgstr "facturación"
+
+msgctxt "report prompt"
+msgid "price"
+msgstr "precio"
+
+msgctxt "report prompt"
+msgid "value"
+msgstr "valor"
+
+msgctxt "report prompt"
+msgid "worth"
+msgstr "vale"
+
+msgctxt "report prompt"
+msgid "hours"
+msgstr "horas"
+
+msgctxt "report prompt"
+msgid "duration"
+msgstr "duración"
+
+#, python-format
+msgid "Top %(count)s"
+msgstr "Los %(count)s principales"
+
+msgid "Try one of these"
+msgstr "Prueba uno de estos"
+
+# apps/ai_agent — AI agent chat UI
+msgid "AI Assistant"
+msgstr "Asistente de IA"
+
+msgid "AI agent access denied."
+msgstr "Acceso al agente de IA denegado."
+
+msgid "AI artifact"
+msgstr "Documento del agente de IA"
+
+msgid "AI artifacts"
+msgstr "Documentos del agente de IA"
+
+msgid "AI conversation"
+msgstr "Conversación con el agente de IA"
+
+msgid "AI conversations"
+msgstr "Conversaciones con el agente de IA"
+
+msgid "AI message"
+msgstr "Mensaje del agente de IA"
+
+msgid "AI messages"
+msgstr "Mensajes del agente de IA"
+
+msgid "An error occurred processing your request."
+msgstr "Ha ocurrido un error al procesar tu solicitud."
+
+msgid "Ask about clients, invoices, production, inventory — anything in the ERP."
+msgstr "Pregunta sobre clientes, facturas, producción, inventario — cualquier cosa del ERP."
+
+msgid "Assistant"
+msgstr "Asistente"
+
+msgid "Can use the ERP AI agent"
+msgstr "Puede usar el agente de IA del ERP"
+
+msgid "Content"
+msgstr "Contenido"
+
+msgid "Conversation #%(pk)s"
+msgstr "Conversación n.º %(pk)s"
+
+msgid "Could not hear you. Please try again."
+msgstr "No se ha podido escuchar. Inténtalo de nuevo."
+
+msgid "Dictate your question"
+msgstr "Dicta tu pregunta"
+
+msgid "Dictation is not available in this browser"
+msgstr "El dictado no está disponible en este navegador"
+
+msgid "Display text"
+msgstr "Texto mostrado"
+
+msgid "Excel"
+msgstr "Excel"
+
+msgid "Invalid JSON"
+msgstr "JSON no válido"
+
+msgid "Listening…"
+msgstr "Escuchando…"
+
+msgid "PowerPoint"
+msgstr "PowerPoint"
+
+msgid "Something went wrong. Please try again."
+msgstr "Ha ocurrido un error. Inténtalo de nuevo."
+
+msgid "State"
+msgstr "Estado"
+
+msgid "Title"
+msgstr "Título"
+
+msgid "Tool calls"
+msgstr "Llamadas a herramientas"
+
+msgid "Write or dictate your question to get started."
+msgstr "Escribe o dicta tu pregunta para empezar."
+
+msgid "Write your question..."
+msgstr "Escribe tu pregunta..."
+
+msgid "conversation_id is required"
+msgstr "conversation_id es obligatorio"
+
+msgid "message is required"
+msgstr "message es obligatorio"
+
+
+# apps/ai_agent — streaming chat status line
+msgid "Thinking"
+msgstr "Pensando"
+
+msgid "Thought for {s} s"
+msgstr "Pensado durante {s} s"
+
+
+# apps/ai_agent — conversation history search
+msgid "Conversation history"
+msgstr "Historial de conversaciones"
+
+msgid "Search conversations..."
+msgstr "Buscar conversaciones..."
+
+msgid "No conversations found."
+msgstr "No se han encontrado conversaciones."
+
+msgid "Save report"
+msgstr "Guardar informe"
+
+msgid "Report name"
+msgstr "Nombre del informe"
+
+msgid "Whole company"
+msgstr "Toda la compañía"
+
+msgid "Report saved"
+msgstr "Informe guardado"
+
+msgid "You cannot save reports."
+msgstr "No puedes guardar informes."
+
+msgid "This reply has no report to save."
+msgstr "Esta respuesta no tiene un informe que guardar."
+
+msgid "Name the report."
+msgstr "Ponle un nombre al informe."
+
+msgid "Choose private or company visibility."
+msgstr "Elige visibilidad privada o de compañía."
+
+msgid "No company in that report matches one of yours."
+msgstr "Ninguna compañía de ese informe coincide con las tuyas."
+
 msgid "Project Purchase Approval Rule"
 msgstr "Regla de aprobación de compras de proyecto"
 
@@ -19465,3 +19847,18 @@ msgstr "Otros costes del proyecto"
 
 msgid "Purchases if Approved"
 msgstr "Compras si se aprueba"
+
+msgid "Claude API key"
+msgstr "Clave de API de Claude"
+
+msgid "Stored encrypted. Set it from the company form."
+msgstr "Se guarda cifrada. Configúrala desde el formulario de la compañía."
+
+msgid "Anthropic API key this company uses for natural-language reports and the AI assistant. Leave blank to keep the current key."
+msgstr "Clave de API de Anthropic que esta compañía usa para los reportes en lenguaje natural y el asistente de IA. Déjala en blanco para conservar la clave actual."
+
+msgid "Set a Claude API key on %(company)s."
+msgstr "Configura una clave de API de Claude en %(company)s."
+
+msgid "Set a Claude API key on the company."
+msgstr "Configura una clave de API de Claude en la compañía."

@@ -12,23 +12,6 @@ from unfold.widgets import (
 )
 
 
-class StaticSelect2MultipleWidget(UnfoldAdminSelect2MultipleWidget):
-    """Select2 multi-select with local options (chips + search), like schedule filters.
-
-    UnfoldAdminSelect2MultipleWidget adds ``admin-autocomplete``, which triggers
-    Django's AJAX autocomplete and breaks static M2M picks in ModelAdmin forms.
-    """
-
-    def __init__(self, attrs=None, choices=()):
-        attrs = attrs or {}
-        attrs["data-theme"] = "admin-autocomplete"
-        attrs["class"] = "unfold-admin-autocomplete"
-        forms.SelectMultiple.__init__(self, attrs, choices)
-
-    class Media(UnfoldAdminSelect2MultipleWidget.Media):
-        pass
-
-
 # Aligns with the schedule's 15-minute slots; covers a normal working day.
 _DURATION_PRESET_MINUTES = (
     15, 30, 45, 60, 75, 90, 105, 120, 150, 180, 240, 300, 360, 480,

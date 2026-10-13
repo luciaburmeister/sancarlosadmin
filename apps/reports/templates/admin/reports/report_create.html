@@ -1,0 +1,19 @@
+{% extends "unfold/layouts/base.html" %}
+{% load i18n unfold %}
+
+{% block extrahead %}
+{{ block.super }}
+{{ form.media }}
+{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl px-6 py-4">
+  <h1 class="text-2xl font-bold tracking-tight">{{ title }}</h1>
+  <p class="mt-1 text-sm text-base-500">
+    {% trans "Describe the report in natural language. A one-line summary appears for you to confirm before the report is created." %}
+  </p>
+
+  {% translate "Create report" as submit_label %}
+  {% include "admin/reports/_prompt_form.html" with submit_label=submit_label %}
+</div>
+{% endblock %}

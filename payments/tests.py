@@ -85,12 +85,24 @@ class RegisterPaymentViewTest(TestCase):
         invoice.refresh_from_db()
         self.assertEqual(invoice.payment_status, InvoicePaymentStatus.PAID)
 
-    def test_purchase_invoices_still_allow_over_allocation(self):
-        # No cap is declared for invoices, unlike expense claims.
+    def test_overpaying_a_purchase_invoice_asks_where_the_surplus_goes(self):
+        # No cap is declared for invoices, unlike expense claims, but the
+        # excess is not saved until the user confirms the distribution step.
         invoice = self._purchase_invoice()
         response = self._post("admin:invoices_invoice_register_payment", invoice.pk, "2000.00")
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, "admin/payments/distribute_surplus.html")
+        self.assertEqual(response.context["surplus"], Money("790.00", "EUR"))
+        self.assertFalse(Payment.objects.exists())
+
+        response = self._post("admin:invoices_invoice_distribute_surplus", invoice.pk, "2000.00")
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(Payment.objects.exists())
+
+        payment = Payment.objects.get()
+        self.assertEqual(payment.amount, Money(Decimal("2000.00"), "EUR"))
+        self.assertEqual(PaymentAllocation.objects.get().amount_applied, Money(Decimal("1210.00"), "EUR"))
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.payment_status, InvoicePaymentStatus.PAID)
 
     # ── Sales invoice: money comes in ────────────────────────────────────────
 
@@ -102,6 +114,7 @@ class RegisterPaymentViewTest(TestCase):
             status=SalesInvoiceStatus.FINAL,
             date_issued=self.today,
             due_date=self.today + timedelta(days=30),
+            total_amount=Money("100.00", "EUR"),
         )
 
     def test_paying_a_sales_invoice_creates_an_inbound_payment(self):

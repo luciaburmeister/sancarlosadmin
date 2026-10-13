@@ -1,7 +1,9 @@
+from collections.abc import Iterable
+
 from django.db import models
 import unicodedata
 from djmoney.models.fields import MoneyField
-from sales.models import Client
+from sales.models import Client, Quote
 from timestamps.models import Timestampable
 from materials.models import Component
 from configurator.utils import (
@@ -605,7 +607,17 @@ class PricingRule(CompanyOwnedModel):
         return f"{self.name} ({self.expression})"
 
 
+class ConfigurationQuerySet(models.QuerySet):
+    def delete(self) -> tuple[int, dict[str, int]]:
+        quote_ids = set(self.values_list("quote_id", flat=True))
+        deleted = super().delete()
+        self.model.recalc_quote_totals(quote_ids)
+        return deleted
+
+
 class Configuration(Timestampable, CompanyOwnedModel):
+    objects = ConfigurationQuerySet.as_manager()
+
     client = models.ForeignKey(
         Client,
         on_delete=models.SET_NULL,
@@ -809,6 +821,39 @@ class Configuration(Timestampable, CompanyOwnedModel):
 
     def __str__(self):
         return f"Config #{self.id} — {self.name or 'Unnamed'}"
+
+    @classmethod
+    def recalc_quote_totals(cls, quote_ids: Iterable[int | None]) -> None:
+        ids = {quote_id for quote_id in quote_ids if quote_id}
+        if not ids:
+            return
+        for quote in Quote.objects.filter(pk__in=ids):
+            quote.recalc_totals()
+
+    def save(self, *args, **kwargs) -> None:
+        update_fields = kwargs.get("update_fields")
+        quote_link_saved = update_fields is None or bool(
+            {"quote", "quote_id"}.intersection(update_fields)
+        )
+        previous_quote_id = None
+        if quote_link_saved and self.pk:
+            previous_quote_id = (
+                Configuration.objects.filter(pk=self.pk)
+                .values_list("quote_id", flat=True)
+                .first()
+            )
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+
+        if is_new or not quote_link_saved or previous_quote_id == self.quote_id:
+            return
+        self.recalc_quote_totals([previous_quote_id, self.quote_id])
+
+    def delete(self, *args, **kwargs) -> tuple[int, dict[str, int]]:
+        quote_id = self.quote_id
+        deleted = super().delete(*args, **kwargs)
+        self.recalc_quote_totals([quote_id])
+        return deleted
 
     @property
     def invoice_quantity(self) -> Decimal:

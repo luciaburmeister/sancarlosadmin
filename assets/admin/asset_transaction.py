@@ -420,46 +420,49 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         url = reverse("admin:assets_assettransaction_export", args=[object_id])
         return redirect(url)
 
-    @action(description=_("Send Email"), icon="mail")
-    def send_email_row_action(self, request, object_id):
-        transaction = AssetTransaction.objects.select_related(
-            "project_file__client", "asset__client"
-        ).get(pk=object_id)
-
+    def _queue_transaction_emails(self, request, transaction):
+        reply_to = sender_reply_to(request.user)
         client = None
         if transaction.project_file and transaction.project_file.client:
             client = transaction.project_file.client
         elif transaction.asset and transaction.asset.client:
             client = transaction.asset.client
 
-        if not client or not client.email:
-            self.message_user(request, _("No client email found (check Expediente or Asset client)."), level="error")
-        else:
-            send_asset_transaction_email_task.delay(
-                transaction.id, reply_to=sender_reply_to(request.user)
+        queued = []
+        if client and client.email:
+            send_asset_transaction_email_task.delay(transaction.id, reply_to=reply_to)
+            queued.append(client.email)
+
+        landfill_email = transaction.landfill_notification_email(require_auto=False)
+        if landfill_email and landfill_email.lower() not in {email.lower() for email in queued}:
+            transaction.queue_landfill_receipt_email(require_auto=False, reply_to=reply_to)
+            queued.append(landfill_email)
+
+        if queued:
+            self.message_user(
+                request, _("Transaction email queued for %s.") % ", ".join(queued),
             )
-            self.message_user(request, _("Transaction email queued for %s.") % client.email)
+        else:
+            self.message_user(
+                request,
+                _("No recipient email found (check the client or the landfill)."),
+                level="error",
+            )
+
+    @action(description=_("Send Email"), icon="mail")
+    def send_email_row_action(self, request, object_id):
+        transaction = AssetTransaction.objects.select_related(
+            "project_file__client", "asset__client",
+        ).get(pk=object_id)
+        self._queue_transaction_emails(request, transaction)
         return redirect(reverse("admin:assets_assettransaction_changelist"))
 
     @action(description=_("Send Email"), icon="mail")
     def send_email_detail_action(self, request, object_id):
         transaction = AssetTransaction.objects.select_related(
-            "project_file__client", "asset__client"
+            "project_file__client", "asset__client",
         ).get(pk=object_id)
-
-        client = None
-        if transaction.project_file and transaction.project_file.client:
-            client = transaction.project_file.client
-        elif transaction.asset and transaction.asset.client:
-            client = transaction.asset.client
-
-        if not client or not client.email:
-            self.message_user(request, _("No client email found (check Expediente or Asset client)."), level="error")
-        else:
-            send_asset_transaction_email_task.delay(
-                transaction.id, reply_to=sender_reply_to(request.user)
-            )
-            self.message_user(request, _("Transaction email queued for %s.") % client.email)
+        self._queue_transaction_emails(request, transaction)
         return redirect(reverse("admin:assets_assettransaction_change", args=[object_id]))
 
     def get_urls(self):

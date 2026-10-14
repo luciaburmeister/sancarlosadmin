@@ -730,6 +730,25 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
             .first()
         )
 
+    def landfill_notification_email(self, *, require_auto=True):
+        if self.transaction_type != TransactionTypeChoices.MOVEMENT:
+            return ""
+        landfill = self.get_landfill()
+        if landfill is None:
+            return ""
+        return landfill.receipt_notification_recipient(require_auto=require_auto)
+
+    def queue_landfill_receipt_email(self, *, require_auto=True, reply_to=None):
+        email = self.landfill_notification_email(require_auto=require_auto)
+        if not email:
+            return ""
+        from core.tasks import send_asset_transaction_email_task
+
+        send_asset_transaction_email_task.delay(
+            self.pk, to_email=email, reply_to=reply_to,
+        )
+        return email
+
     def _sync_zones_on_porte_delivery(self):
         """An own-machine porte delivery means the machine — linked via
         AssetPlanning.machine (separate from this transaction's own asset,

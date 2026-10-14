@@ -61,6 +61,9 @@ class WorkingZoneAdmin(ModelAdmin):
                 "is_active",
             )
         }),
+        (_("Receipt email"), {
+            "fields": ("receipt_notification_email", "auto_send_receipt"),
+        }),
         ("Location", {
             "fields": (
                 "street_address",

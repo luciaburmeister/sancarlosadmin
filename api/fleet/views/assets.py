@@ -510,6 +510,7 @@ class MovementStrategy(BaseTransactionStrategy):
         if not AssetTransaction.payload_is_full(form_data):
             planning.mark_cuba_claimed_by_driver()
         planning.sync_cuba_operation_status()
+        transaction.queue_landfill_receipt_email()
         return JsonResponse({"success": True, "message": "Recogida registrada", "transaction_id": transaction.id, "document_url": transaction.document_url})
 
 

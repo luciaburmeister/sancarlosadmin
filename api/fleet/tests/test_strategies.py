@@ -8,6 +8,8 @@ Run just this file:
 """
 
 import json
+from unittest.mock import patch
+
 from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -128,6 +130,32 @@ class MovementStrategyTests(TestCase):
         self.assertEqual(tx.data.get("tipo_cuba"), "6m3")
         self.assertEqual(tx.data.get("m3"), "6")
         self.assertEqual(tx.data.get("vertedero"), "Vertedero Norte")
+
+    @patch("core.tasks.send_asset_transaction_email_task.delay")
+    def test_movement_emails_the_named_landfill_when_automatic_send_is_on(self, delay):
+        landfill = make_zone(self.company, name="Vertedero Norte")
+        landfill.zone_type = WorkingZone.ZoneType.VERTEDERO
+        landfill.receipt_notification_email = "vertedero@example.com"
+        landfill.auto_send_receipt = True
+        landfill.save()
+
+        self._run_movement()
+
+        delay.assert_called_once()
+        self.assertEqual(delay.call_args.kwargs["to_email"], "vertedero@example.com")
+        pickup = AssetTransaction.objects.get(transaction_type=TransactionTypeChoices.MOVEMENT)
+        self.assertIsNone(pickup.to_zone_id)
+
+    @patch("core.tasks.send_asset_transaction_email_task.delay")
+    def test_movement_does_not_email_when_automatic_send_is_off(self, delay):
+        landfill = make_zone(self.company, name="Vertedero Norte")
+        landfill.zone_type = WorkingZone.ZoneType.VERTEDERO
+        landfill.receipt_notification_email = "vertedero@example.com"
+        landfill.save()
+
+        self._run_movement()
+
+        delay.assert_not_called()
 
     # Test 13
     def test_movement_response_contains_success_and_transaction_id(self):

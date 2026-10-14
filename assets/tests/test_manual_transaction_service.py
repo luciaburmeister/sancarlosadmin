@@ -5,11 +5,14 @@ Covers assets.services.manual_transaction.create_manual_transaction -- the
 admin "Create Transaction" wizard's manual-correction path for when the
 mobile app's automatic flow (MovementStrategy/DeliveryStrategy) never ran.
 """
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from api.fleet.tests.helpers import make_asset, make_asset_type, make_company, make_employee, make_planning, make_user, make_zone
-from assets.models import AssetTransaction, PlanningStatus, PlanningType, TransactionTypeChoices
+from assets.models import AssetTransaction, CubaTransactionKey, PlanningStatus, PlanningType, TransactionTypeChoices
 from assets.services.manual_transaction import create_manual_transaction
+from company.models import WorkingZone
 from management.models import ProjectFile
 from sales.models import Client
 
@@ -44,6 +47,25 @@ class CreateManualTransactionMovementTests(TestCase):
         self.assertEqual(transaction.project_file_id, self.project_file.pk)
         self.assertEqual(transaction.planning_id, self.planning.pk)
         self.assertEqual(transaction.asset_id, self.asset.pk)
+
+    @patch("core.tasks.send_asset_transaction_email_task.delay")
+    def test_movement_emails_the_named_landfill_not_to_zone(self, delay):
+        landfill = make_zone(self.company, name="Vertedero Norte")
+        landfill.zone_type = WorkingZone.ZoneType.VERTEDERO
+        landfill.receipt_notification_email = "vertedero@example.com"
+        landfill.auto_send_receipt = True
+        landfill.save()
+
+        transaction = create_manual_transaction(
+            planning=self.planning,
+            transaction_type=TransactionTypeChoices.MOVEMENT,
+            zone=self.zone,
+            data={CubaTransactionKey.LANDFILL: "Vertedero Norte"},
+        )
+
+        self.assertIsNone(transaction.to_zone_id)
+        delay.assert_called_once()
+        self.assertEqual(delay.call_args.kwargs["to_email"], "vertedero@example.com")
 
     def test_movement_syncs_planning_status(self):
         # sync_cuba_operation_status must be called and not raise -- the

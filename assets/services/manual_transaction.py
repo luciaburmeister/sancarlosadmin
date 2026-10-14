@@ -71,6 +71,7 @@ class MovementStrategy(BaseManualTransactionStrategy):
             asset=asset, from_zone=from_zone, to_zone=None, project_file=project_file,
         )
         self.planning.sync_cuba_operation_status()
+        transaction.queue_landfill_receipt_email()
         return transaction
 
 

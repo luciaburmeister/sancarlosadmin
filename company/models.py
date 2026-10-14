@@ -780,6 +780,19 @@ class WorkingZone(CompanyOwnedModel):
         help_text=_("Set the first time a real-world transaction confirms this zone's GPS location."),
     )
     is_active = models.BooleanField(default=True, verbose_name=_("Active"))
+    receipt_notification_email = models.EmailField(
+        blank=True,
+        verbose_name=_("Receipt notification email"),
+        help_text=_(
+            "Inbox for the pickup document. The manual send action uses it, "
+            "and a pickup that names this landfill is emailed here when automatic send is on."
+        ),
+    )
+    auto_send_receipt = models.BooleanField(
+        default=False,
+        verbose_name=_("Send receipt automatically"),
+        help_text=_("Email the pickup document when a pickup names this landfill."),
+    )
     project_file = models.ForeignKey(
         "management.ProjectFile",
         on_delete=models.SET_NULL,
@@ -804,6 +817,31 @@ class WorkingZone(CompanyOwnedModel):
 
     def __str__(self):
         return f"{self.name} ({self.company})"
+
+    def clean(self):
+        super().clean()
+        if self.zone_type == self.ZoneType.VERTEDERO:
+            if self.auto_send_receipt and not self.receipt_notification_email:
+                raise ValidationError({
+                    "receipt_notification_email": _(
+                        "An email is required to send the receipt automatically."
+                    ),
+                })
+            return
+        if self.receipt_notification_email or self.auto_send_receipt:
+            raise ValidationError({
+                "zone_type": _(
+                    "Receipt email settings are only available for landfills."
+                ),
+            })
+
+    def receipt_notification_recipient(self, *, require_auto=True):
+        if self.zone_type != self.ZoneType.VERTEDERO:
+            return ""
+        email = (self.receipt_notification_email or "").strip()
+        if not email or (require_auto and not self.auto_send_receipt):
+            return ""
+        return email
 
     @property
     def full_address(self) -> str:

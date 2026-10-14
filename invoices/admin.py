@@ -14,6 +14,7 @@ from unfold.decorators import action, display
 from django.urls import path, reverse
 from django import forms
 from django.core.exceptions import ValidationError
+from core.forms.select import StaticSelect2MultipleWidget
 from materials.models import PaymentMethod
 
 logger = logging.getLogger(__name__)
@@ -111,7 +112,7 @@ from unfold.contrib.filters.admin import (
     ChoicesDropdownFilter,
     AutocompleteSelectMultipleFilter
 )
-from unfold.widgets import UnfoldAdminTextareaWidget, SELECT_CLASSES, UnfoldAdminSelect2MultipleWidget
+from unfold.widgets import UnfoldAdminTextareaWidget, SELECT_CLASSES
 from .filters import ItemsMissingAccountFilter, BalanceStatusFilter, IsReconciledFilter, DueDatePassedFilter
 from import_export.admin import  ExportActionModelAdmin
 from unfold.contrib.import_export.forms import  ImportForm, SelectableFieldsExportForm
@@ -121,24 +122,6 @@ from .resources import (
     SalesInvoiceResource,
     SalesInvoiceItemResource
 )
-
-
-class StaticSelect2MultipleWidget(UnfoldAdminSelect2MultipleWidget):
-    """Select2 multi-select with local (non-DB) options, e.g. TextChoices.
-
-    UnfoldAdminSelect2MultipleWidget adds ``admin-autocomplete``, which
-    triggers Django's AJAX autocomplete and breaks static, fixed-choice
-    fields in ModelAdmin forms.
-    """
-
-    def __init__(self, attrs=None, choices=()):
-        attrs = attrs or {}
-        attrs["data-theme"] = "admin-autocomplete"
-        attrs["class"] = "unfold-admin-autocomplete"
-        forms.SelectMultiple.__init__(self, attrs, choices)
-
-    class Media(UnfoldAdminSelect2MultipleWidget.Media):
-        pass
 
 
 @admin.register(TaxType)

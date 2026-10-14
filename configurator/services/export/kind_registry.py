@@ -15,7 +15,7 @@ def _get_kind_model_map():
     from configurator.models import Configuration, ReceivalSlip
     from production.models import ProductionItem
     from invoices.models import SalesInvoice
-    from sales.models import Quote, DeliveryOrder
+    from sales.models import CommissionistAgent, Quote, DeliveryOrder
     from assets.models import AssetTransaction
     from management.models import ProjectFile
     from purchasing.models import QuoteRequest, PurchaseOrder
@@ -32,6 +32,7 @@ def _get_kind_model_map():
         "repair_order":           (ProjectFile,     None),
         "quote_request":          (QuoteRequest,    None),
         "purchase_order":         (PurchaseOrder,   None),
+        "agent_report":           (CommissionistAgent, None),
     }
 
 

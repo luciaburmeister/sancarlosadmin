@@ -1,0 +1,125 @@
+<!doctype html>
+{% load i18n %}
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  @page {
+    size: A4;
+    margin: 2.8cm 2cm 2.2cm;
+    @top-center { content: element(pageheader); }
+    @bottom-center {
+      content: "{% translate "Confidential" %} \B7 " counter(page) " / " counter(pages);
+      font-size: 9px;
+      color: #8a8a84;
+      font-family: "Helvetica Neue", Arial, sans-serif;
+    }
+  }
+  body { font-family: "Helvetica Neue", Arial, sans-serif; color: #1a1a1a; font-size: 11px; }
+  .page-header {
+    position: running(pageheader);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px solid #e4e3dc;
+    padding-bottom: 6px;
+    font-size: 9px;
+    color: #8a8a84;
+  }
+  .page-header strong { color: #1a1a1a; font-size: 10px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .meta { color: #8a8a84; font-size: 10px; margin-bottom: 16px; }
+  .kpis { display: flex; gap: 10px; margin-bottom: 16px; }
+  .kpi { flex: 1; background: #f6f5f2; border-radius: 6px; padding: 10px 12px; }
+  .kpi .label { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.04em; color: #8a8a84; }
+  .kpi .value { font-size: 17px; font-weight: 700; color: #0d9488; margin-top: 3px; }
+  .summary { font-size: 11px; line-height: 1.5; color: #3c3c38; margin-bottom: 14px; }
+  .highlights { margin: 0 0 16px; padding-left: 16px; font-size: 10.5px; line-height: 1.5; color: #3c3c38; }
+  .highlights li { margin-bottom: 3px; }
+  .chart { margin-bottom: 18px; }
+  .chart-row { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  .chart-label {
+    flex: 0 0 32%; width: 32%; font-size: 9.5px; line-height: 1.3; color: #3c3c38;
+  }
+  .chart-track { flex: 1; height: 9px; background: #efeee9; border-radius: 99px; overflow: hidden; }
+  .chart-fill { height: 100%; border-radius: 99px; background: #99d4cd; }
+  .chart-fill.is-last { background: #0d9488; }
+  .chart-value {
+    flex: 0 0 auto; min-width: 48px; text-align: right; font-size: 9.5px;
+    font-weight: 700; color: #1a1a1a;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 10px; }
+  th { text-align: left; padding: 5px 6px; border-bottom: 2px solid #1a1a1a; font-size: 9px; color: #52524d; text-transform: uppercase; letter-spacing: 0.02em; }
+  td { padding: 5px 6px; border-bottom: 1px solid #e4e3dc; }
+  tr:nth-child(even) td { background: #fafafa; }
+  h2 { font-size: 15px; margin: 0 0 10px; color: #1a1a1a; }
+  .section + .section { break-before: page; }
+</style>
+</head>
+<body>
+
+  <div class="page-header">
+    <strong>{{ company_label }}</strong>
+    <span>{{ title }}</span>
+  </div>
+
+  <h1>{{ title }}</h1>
+  <div class="meta">
+    {% translate "Generated" %} {{ generated_at|date:"d/m/Y H:i" }}
+  </div>
+
+  {% if summary %}<p class="summary">{{ summary }}</p>{% endif %}
+
+  {% for section in sections %}
+  <div class="section">
+    <h2>{{ section.title }}</h2>
+    {% if section.filters_summary %}
+    <div class="meta">{% translate "Filters" %}: {{ section.filters_summary|join:" · " }}</div>
+    {% endif %}
+
+    {% if section.kpis %}
+    <div class="kpis">
+      {% for kpi in section.kpis %}
+      <div class="kpi">
+        <div class="label">{{ kpi.label }}</div>
+        <div class="value">{{ kpi.display_value }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if section.highlights %}
+    <ul class="highlights">
+      {% for item in section.highlights %}<li>{{ item }}</li>{% endfor %}
+    </ul>
+    {% endif %}
+
+    {% if section.chart_bars %}
+    <div class="chart">
+      {% for bar in section.chart_bars %}
+      <div class="chart-row">
+        <div class="chart-label">{{ bar.label }}</div>
+        <div class="chart-track">
+          <div class="chart-fill{% if forloop.last %} is-last{% endif %}" style="width:{{ bar.percent }}%;"></div>
+        </div>
+        <div class="chart-value">{{ bar.display_value }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <table>
+      <thead>
+        <tr>{% for column in section.columns %}<th>{{ column }}</th>{% endfor %}</tr>
+      </thead>
+      <tbody>
+        {% for row in section.rows %}
+        <tr>{% for value in row %}<td>{{ value|default_if_none:"" }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endfor %}
+
+</body>
+</html>

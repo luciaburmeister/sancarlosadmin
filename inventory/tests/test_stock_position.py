@@ -13,10 +13,17 @@ from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
 from django.test import TestCase
+from djmoney.money import Money
 
 from company.models import Company
 from inventory.choices import ItemType, MovementType
-from inventory.models import BillOfMaterialsLine, InventoryItem, ItemTransaction, Warehouse
+from inventory.models import (
+    BillOfMaterialsLine,
+    InventoryItem,
+    InventoryItemQuerySet,
+    ItemTransaction,
+    Warehouse,
+)
 from inventory.services.stock_position import (
     find_drift,
     refresh_all,
@@ -679,3 +686,26 @@ class StockPositionCacheTest(_StockPositionTestCase):
             InventoryItem.objects.get(pk=item.pk).incoming_quantity, Decimal("0"),
         )
         self.assertFalse(find_drift().exists())
+
+
+class StockValueTest(_StockPositionTestCase):
+    """InventoryItem.stock_value and its matching queryset expression."""
+
+    def test_property_multiplies_stock_by_cost_price(self):
+        item = self._make_item("VALUE-1", stock=10)
+        item.cost_price = Money("2.50", "EUR")
+        item.save()
+        self.assertEqual(item.stock_value, Money("25.00", "EUR"))
+
+    def test_expression_matches_the_property_in_bulk(self):
+        item = self._make_item("VALUE-2", stock=4)
+        item.cost_price = Money("3.00", "EUR")
+        item.save()
+
+        row = (
+            InventoryItem.objects.filter(pk=item.pk)
+            .annotate(stock_value=InventoryItemQuerySet.stock_value_expression())
+            .values("stock_value")
+            .get()
+        )
+        self.assertEqual(row["stock_value"], Decimal("12.00"))

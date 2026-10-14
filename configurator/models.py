@@ -1839,6 +1839,7 @@ class ExportTemplateKind(models.TextChoices):
     REPAIR_ORDER = "repair_order", _("Repair Order")
     QUOTE_REQUEST = "quote_request", _("Quote Request")
     PURCHASE_ORDER = "purchase_order", _("Purchase Order")
+    AGENT_REPORT = "agent_report", _("Agent report")
 
 
 class ExportTemplateSubtype(models.TextChoices):

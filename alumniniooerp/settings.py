@@ -106,7 +106,7 @@ INSTALLED_APPS = [
     'purchasing',
     "payments",
     'invoices',
-    'chatbot',
+    "apps.ai_agent",
     "feedback",
     'corsheaders',
     "apps.einvoicing",
@@ -114,6 +114,7 @@ INSTALLED_APPS = [
     "finance",
     "payroll",
     "apps.expenses",
+    "apps.reports",
     "loans",
     "djangoql",
 ]
@@ -259,7 +260,9 @@ DATA_UPLOAD_MAX_MEMORY_SIZE = 100 * 1024 * 1024
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_KEY")
+ANTHROPIC_REPORT_MODEL = os.getenv("ANTHROPIC_REPORT_MODEL") or "claude-sonnet-5-5"
+OPENAI_REPORT_MODEL = os.getenv("OPENAI_REPORT_MODEL") or "gpt-6-luna"
+OPENAI_REPORT_REASONING_EFFORT = os.getenv("OPENAI_REPORT_REASONING_EFFORT") or "none"
 
 # Arcopay / Nuek — Bank Aggregation
 NUEK_SERVICE_KEY = os.getenv("NUEK_SERVICE_KEY", "")
@@ -616,11 +619,19 @@ UNFOLD = {
                         ),
                     },
                     {
-                        "title": _("ERP Chatbot"),
-                        "icon": "chat",
-                        "link": reverse_lazy("admin:chatbot_chat"),
+                        "title": _("AI Assistant"),
+                        "icon": "smart_toy",
+                        "link": reverse_lazy("admin:ai_agent_chat"),
                         "permission": lambda request: request.user.has_perm(
-                            "chatbot.use_chatbot"
+                            "ai_agent.use_agent"
+                        ),
+                    },
+                    {
+                        "title": _("Reports"),
+                        "icon": "analytics",
+                        "link": reverse_lazy("admin:reports_report_changelist"),
+                        "permission": lambda request: request.user.has_perm(
+                            "reports.use_reports"
                         ),
                     },
                 ],

@@ -164,6 +164,11 @@ class InventoryItemQuerySet(models.QuerySet):
         )
 
     @classmethod
+    def stock_value_expression(cls):
+        """Stock on hand priced at cost: ``stock_on_hand_expression() × cost_price``."""
+        return cls.stock_on_hand_expression() * models.F("cost_price")
+
+    @classmethod
     def incoming_expression(cls):
         """Ordered from a supplier but not yet received.
 
@@ -608,6 +613,11 @@ class InventoryItem(Timestampable, CompanyOwnedModel):
     def available_quantity(self) -> Decimal:
         """Stock on hand that is not already promised to an accepted quote."""
         return Decimal(self.stock_on_hand) - self.reserved_quantity
+
+    @property
+    def stock_value(self):
+        """Stock on hand priced at cost. See ``stock_on_hand`` for caching."""
+        return self.cost_price * self.stock_on_hand
 
     @property
     def is_low_stock(self) -> bool:

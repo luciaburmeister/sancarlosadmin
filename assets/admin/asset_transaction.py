@@ -279,7 +279,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         ("asset", AutocompleteSelectMultipleFilter),
         ("planning", AutocompleteSelectMultipleFilter)
     )
-    search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes")
+    search_fields = ("asset__name", "from_zone__name", "to_zone__name", "notes", "reference_number")
     autocomplete_fields = ["asset", "from_zone", "to_zone", "project_file", "planning"]
     exclude = ["company", "firma"]
     readonly_fields = [
@@ -308,6 +308,7 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
                 "planning",
                 "date",
                 "performed_by",
+                "reference_number",
                 "material_vertido_display",
                 "notes",
                 "document_qr_preview",
@@ -315,7 +316,6 @@ class AssetTransactionAdmin(ModelAdmin, ImportExportModelAdmin):
         }),
         (_("Type-Specific Data"), {
             "fields": (
-                "reference_number",
                 ("tipo_cuba", "cubaEstado"),
                 ("vasAVerter", "m3"),
                 ("trabajo", "matricula"),

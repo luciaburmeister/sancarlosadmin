@@ -26,12 +26,14 @@ from company.models import ConfigurationList, WorkingZone
 class ConditionalFieldsVisibilityTests(TestCase):
     """TRANSACTION_DATA_CONDITIONAL_FIELDS drives the admin's show/hide JS
     (Unfold's conditional_fields). A field name shared by more than one
-    schema (e.g. "matricula": Cuba+Porte; "reference_number": Cuba+Porte+
-    Receipt) must stay visible for EVERY family that defines it, not just
-    the last one built -- regression test for exactly that: a plain dict
-    comprehension silently let the last schema clobber the others, hiding
-    "reference_number" on every transaction type except receipt (and,
-    pre-existing, "matricula" on cuba movement/delivery)."""
+    schema (e.g. "matricula": Cuba+Porte) must stay visible for EVERY family
+    that defines it, not just the last one built -- regression test for
+    exactly that: a plain dict comprehension silently let the last schema
+    clobber the others, hiding "matricula" on cuba movement/delivery.
+
+    (reference_number used to be one of these shared fields too -- it's a
+    real AssetTransaction model field now, always visible regardless of
+    transaction_type, so it no longer appears in any schema here at all.)"""
 
     def test_every_schema_defining_a_field_keeps_it_visible_for_its_own_types(self):
         """General regression guard, not just the two fields known to have
@@ -48,14 +50,10 @@ class ConditionalFieldsVisibilityTests(TestCase):
                         f"(from {schema.__name__}): {condition!r}",
                     )
 
-    def test_reference_number_is_visible_for_every_family_that_defines_it(self):
-        defining_types = {
-            t for schema in SCHEMAS if "reference_number" in schema.field_names
-            for t in schema.transaction_types
-        }
-        condition = TRANSACTION_DATA_CONDITIONAL_FIELDS["reference_number"]
-        for transaction_type in defining_types:
-            self.assertIn(f"transaction_type == '{transaction_type}'", condition)
+    def test_reference_number_is_no_longer_a_schema_field(self):
+        """It's a real model field now -- always visible, not conditional on
+        transaction_type, so it must not appear in this dict at all."""
+        self.assertNotIn("reference_number", TRANSACTION_DATA_CONDITIONAL_FIELDS)
 
     def test_matricula_is_visible_for_both_cuba_and_porte(self):
         condition = TRANSACTION_DATA_CONDITIONAL_FIELDS["matricula"]

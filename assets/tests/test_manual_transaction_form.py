@@ -81,3 +81,43 @@ class ManualTransactionFormAssetFieldTests(TestCase):
         )
         self.assertFalse(form.is_valid())
         self.assertIn("asset", form.errors)
+
+
+class ManualTransactionFormReferenceNumberFieldTests(TestCase):
+    """reference_number is a plain top-level field (like zone/performed_by/
+    notes), not one of the per-type data_schema_fields -- it applies to
+    every transaction type, not just some."""
+
+    def setUp(self):
+        self.company = make_company()
+        self.user = make_user()
+        self.employee = make_employee(self.company, self.user)
+        self.asset_type = make_asset_type(self.company)
+        self.zone = make_zone(self.company)
+        self.asset = make_asset(self.company, self.asset_type, zone=self.zone)
+
+    def test_optional_and_cleaned(self):
+        planning = make_planning(self.company, asset=self.asset, assigned_to=self.employee)
+        form = ManualTransactionForm(
+            data={"transaction_type": TransactionTypeChoices.MOVEMENT, "reference_number": "REF-1"},
+            planning=planning,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        self.assertEqual(form.cleaned_data["reference_number"], "REF-1")
+
+    def test_blank_is_valid(self):
+        planning = make_planning(self.company, asset=self.asset, assigned_to=self.employee)
+        form = ManualTransactionForm(
+            data={"transaction_type": TransactionTypeChoices.MOVEMENT},
+            planning=planning,
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_present_for_porte_plannings_too(self):
+        porte_asset = make_asset(self.company, self.asset_type, name="Truck")
+        planning = make_planning(
+            self.company, assigned_to=self.employee, planning_type=PlanningType.PORTE,
+            transport_asset=porte_asset,
+        )
+        form = ManualTransactionForm(planning=planning)
+        self.assertIn("reference_number", form.fields)

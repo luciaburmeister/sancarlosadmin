@@ -48,7 +48,16 @@ class AssetTransactionExportStrategy(BaseExportStrategy):
             "to_zone": str(self.transaction.to_zone) if self.transaction.to_zone else None,
             "date": self.transaction.date,
             "notes": self.transaction.notes or "",
-            "data": self.transaction.data or {},
+            # reference_number is now a real model field, not a `data` key --
+            # but every template (including ones already live in production)
+            # reads it as `{{ data.reference_number }}`, so it's spliced back
+            # into the dict handed to templates rather than making every
+            # template change. Falls back to the legacy `data` key for any
+            # row the backfill hasn't reached yet.
+            "data": {
+                **(self.transaction.data or {}),
+                "reference_number": self.transaction.reference_number or (self.transaction.data or {}).get("reference_number", ""),
+            },
             "firma": self.transaction.firma or "",
             "firma_image": (
                 f"data:image/png;base64,{self.transaction.firma}"

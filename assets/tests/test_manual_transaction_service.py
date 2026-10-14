@@ -111,6 +111,20 @@ class CreateManualTransactionMovementTests(TestCase):
         )
         self.assertEqual(transaction.data, {})
 
+    def test_reference_number_is_stored_on_the_model_field_not_data(self):
+        transaction = create_manual_transaction(
+            planning=self.planning, transaction_type=TransactionTypeChoices.MOVEMENT,
+            reference_number="REF-WIZARD-1",
+        )
+        self.assertEqual(transaction.reference_number, "REF-WIZARD-1")
+        self.assertNotIn("reference_number", transaction.data)
+
+    def test_reference_number_defaults_to_empty_string(self):
+        transaction = create_manual_transaction(
+            planning=self.planning, transaction_type=TransactionTypeChoices.MOVEMENT,
+        )
+        self.assertEqual(transaction.reference_number, "")
+
 
 class CreateManualTransactionDeliveryTests(TestCase):
     def setUp(self):

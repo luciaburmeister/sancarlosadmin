@@ -251,7 +251,8 @@ class PorteWithoutAssetTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         tx = AssetTransaction.objects.get(data__planning_id=planning.id)
-        self.assertEqual(tx.data.get("reference_number"), "REF-12345")
+        self.assertEqual(tx.reference_number, "REF-12345")
+        self.assertNotIn("reference_number", tx.data)
 
     def test_submit_without_reference_number_defaults_to_empty(self):
         from assets.models import AssetTransaction
@@ -270,7 +271,7 @@ class PorteWithoutAssetTests(TestCase):
         )
         self.assertEqual(response.status_code, 200)
         tx = AssetTransaction.objects.get(data__planning_id=planning.id)
-        self.assertEqual(tx.data.get("reference_number"), "")
+        self.assertEqual(tx.reference_number, "")
 
 
 class PorteCargaAndMachineTests(TestCase):

@@ -230,7 +230,8 @@ class PorteTransactionDataKey:
     GOODS_TYPE = "goods_type"
     TONNES_TRANSPORTED = "tonnes_transported"
     PACKAGE_COUNT = "package_count"
-    REFERENCE_NUMBER = "reference_number"
+    # reference_number used to live here too -- now a real AssetTransaction
+    # model field (see migration 0078), not a `data` key.
 
 
 class PorteMovementKind:
@@ -638,6 +639,11 @@ class AssetTransaction(CompanyOwnedModel, Timestampable):
     transaction_type = models.CharField(max_length=20, choices=TransactionTypeChoices.choices, verbose_name=_("Transaction Type"))
     date = models.DateTimeField(default=timezone.now, verbose_name=_("Date"))
     data = models.JSONField(default=dict, blank=True, verbose_name=_("Flexible Data"))
+    reference_number = models.CharField(
+        max_length=255, blank=True, default="", db_index=True,
+        verbose_name=_("Reference Number"),
+        help_text=_("Customer/order reference the driver enters, if any. Promoted out of `data` so it's searchable."),
+    )
     notes = models.TextField(blank=True, verbose_name=_("Notes"))
     firma = models.TextField(blank=True, null=True, verbose_name=_("Signature"))
     firma_image = models.ImageField(upload_to="asset_transactions/firmas/", blank=True, null=True, verbose_name=_("Signature Image"))

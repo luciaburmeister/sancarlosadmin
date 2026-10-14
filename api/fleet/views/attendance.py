@@ -426,7 +426,7 @@ class PorteSubmitView(APIView):
             asset=tx_asset, company=planning.company,
             from_zone=planning.origin, to_zone=planning.destination,
             transaction_type=transaction_type, date=timezone.now(), performed_by=employee,
-            planning=planning,
+            planning=planning, reference_number=reference_number,
             notes=f"Porte {action} - Matricula: {matricula}. {notes}",
             data={
                 PorteTransactionDataKey.MOVEMENT_TYPE: PorteMovementKind.PORTE,
@@ -439,7 +439,6 @@ class PorteSubmitView(APIView):
                 PorteTransactionDataKey.GOODS_TYPE: goods_type,
                 PorteTransactionDataKey.TONNES_TRANSPORTED: tonnes_transported,
                 PorteTransactionDataKey.PACKAGE_COUNT: package_count,
-                PorteTransactionDataKey.REFERENCE_NUMBER: reference_number,
             },
         )
         if firma_b64:

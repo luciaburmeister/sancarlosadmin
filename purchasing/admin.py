@@ -454,7 +454,7 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
         )
 
         with transaction.atomic():
-            po = CompanyRestrictedAdmin.get_queryset(self, request).select_for_update().get(pk=po.pk)
+            po = PurchaseOrder.objects.select_for_update().get(pk=po.pk)
             if po.status != PurchaseOrderStatus.DRAFT:
                 self.message_user(request, _("Only Draft POs can be sent for approval."), level="error")
                 return
@@ -542,9 +542,7 @@ class PurchaseOrderAdmin(FormattedXlsxExportMixin, CompanyRestrictedAdmin, Model
         from purchasing.tasks import send_purchase_order_decision_notification
 
         with transaction.atomic():
-            po = get_object_or_404(
-                CompanyRestrictedAdmin.get_queryset(self, request).select_for_update(), pk=po.pk
-            )
+            po = PurchaseOrder.objects.select_for_update().get(pk=po.pk)
             if po.status == PurchaseOrderStatus.PENDING_APPROVAL:
                 po.status = PurchaseOrderStatus.APPROVED
                 po.approved_by = request.user

@@ -140,6 +140,7 @@ class PDFService:
                 kind=template_kind,
                 company=company,
                 subtype=subtype,
+                language=ConfigurationExportService.document_language(obj),
             )
 
         if not template:

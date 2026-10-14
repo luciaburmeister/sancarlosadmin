@@ -19,11 +19,11 @@ from decimal import ROUND_HALF_UP, Decimal
 from django.utils.translation import gettext_lazy as _
 from django.contrib.postgres.fields import ArrayField
 from viewflow.fsm import State
-from company.models import CompanyOwnedModel
+from company.models import CompanyOwnedModel, DocumentLanguage
 from invoices.models import AppliedTax
 from django.contrib.contenttypes.models import ContentType
 from django.db import transaction
-from django.db.models import Q, F
+from django.db.models import Case, F, Q, Value, When
 from django.utils import timezone
 from configurator.commission.models import AgentCommissionRule, CommissionRelease, InvoiceCommission, QuoteCommission
 
@@ -1878,20 +1878,35 @@ class ConfigurationExportTemplate(CompanyOwnedModel):
         blank=True, help_text="CSS styling. Will be injected inside <style>...</style>"
     )
 
+    language = models.CharField(
+        max_length=2,
+        blank=True,
+        default="",
+        choices=DocumentLanguage.choices,
+        verbose_name=_("Language"),
+        help_text=_(
+            "Language this template is written in. Clients with this language get it; "
+            "a template without one serves every client and prints in the client's language."
+        ),
+    )
+
     is_active = models.BooleanField(default=True)
 
     @classmethod
-    def get_default_for_product(cls, product, kind, company=None, subtype=None):
+    def get_default_for_product(cls, product, kind, company=None, subtype=None, language=None):
         """
         Look up the most specific default template for a given product, kind and company.
-        Prioritizes templates explicitly linked to the product and the company.
+        A template in ``language`` (default Spanish) wins, then one in no
+        language; templates in other languages are left out. Then prioritizes
+        templates explicitly linked to the product and the company.
         Pass subtype to distinguish templates that share a kind.
         """
-        
+        language = language or DocumentLanguage.ES
         templates = cls.objects.filter(
             Q(product=product) | Q(product__isnull=True),
             kind=kind,
-            is_active=True
+            is_active=True,
+            language__in=[language, ""],
         )
         if subtype is not None:
             templates = templates.filter(subtype=subtype)
@@ -1901,7 +1916,11 @@ class ConfigurationExportTemplate(CompanyOwnedModel):
         else:
             templates = templates.filter(company__isnull=True)
             
-        return templates.order_by(F('product_id').desc(nulls_last=True), F('company_id').desc(nulls_last=True)).first()
+        return templates.order_by(
+            Case(When(language=language, then=Value(0)), default=Value(1)),
+            F('product_id').desc(nulls_last=True),
+            F('company_id').desc(nulls_last=True),
+        ).first()
 
     def __str__(self):
         return f"{self.name} (Product {self.product_id or 'Any'})"

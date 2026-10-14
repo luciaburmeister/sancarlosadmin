@@ -19868,3 +19868,9 @@ msgstr "Configura una clave de API de Claude en %(company)s."
 
 msgid "Set a Claude API key on the company."
 msgstr "Configura una clave de API de Claude en la compañía."
+
+msgid "Language of this client's documents (invoices, quotes, delivery orders…) and payment reminders. Leave blank for Spanish documents and the company's reminder language."
+msgstr "Idioma de los documentos de este cliente (facturas, presupuestos, albaranes…) y de sus recordatorios de pago. En blanco: documentos en español y recordatorios en el idioma de la empresa."
+
+msgid "Language this template is written in. Clients with this language get it; a template without one serves every client and prints in the client's language."
+msgstr "Idioma en que está escrita esta plantilla. La usan los clientes con este idioma; una plantilla sin idioma sirve a todos los clientes y se imprime en el idioma del cliente."

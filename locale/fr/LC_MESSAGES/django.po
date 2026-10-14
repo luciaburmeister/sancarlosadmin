@@ -1,0 +1,31 @@
+# French labels that reach client documents (export templates rendered for
+# a French client). Strings missing here fall back to Spanish.
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: fr\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+msgid "Bank Transfer"
+msgstr "Virement bancaire"
+
+msgid "Cash"
+msgstr "Espèces"
+
+msgid "Credit/Debit Card"
+msgstr "Carte bancaire"
+
+msgid "Cheque"
+msgstr "Chèque"
+
+msgid "SEPA - Direct debit"
+msgstr "SEPA - Prélèvement"
+
+msgid "Confirming"
+msgstr "Confirming"
+
+msgid "Invoice"
+msgstr "Facture"
+
+msgid "Advance Invoice"
+msgstr "Facture d'acompte"

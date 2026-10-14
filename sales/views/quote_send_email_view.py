@@ -38,6 +38,7 @@ class QuoteSendEmailView(BaseSendDocumentEmailView):
         product = ConfigurationExportService.get_strategy(obj).get_product()
         return ConfigurationExportTemplate.get_default_for_product(
             product=product, kind=ExportTemplateKind.CONSOLIDATED_QUOTATION, company=obj.company,
+            language=ConfigurationExportService.document_language(obj),
         )
 
     def queue_email(self, obj, to_emails, cc_emails, reply_to, template_id=None):

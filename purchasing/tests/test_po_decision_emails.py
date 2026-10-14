@@ -17,6 +17,7 @@ from django.core import mail
 from django.test import RequestFactory, TestCase
 from django.urls import reverse
 
+from company.active_company import ActiveCompany
 from company.models import Company
 from materials.models import Provider
 from purchasing.admin import PurchaseOrderAdmin
@@ -79,6 +80,17 @@ class ApprovePOEmailTests(PODecisionEmailTestBase):
         self.po.refresh_from_db()
         self.assertEqual(self.po.status, PurchaseOrderStatus.APPROVED)
         self.assertEqual(len(mail.outbox), 0)
+
+    def test_approve_with_multiple_active_companies(self):
+        # Several active companies make the admin queryset select_related
+        # the nullable company FK; locking that outer join used to raise
+        # NotSupportedError on PostgreSQL.
+        other = Company.objects.create(name="Other Company", tax_identifier="B87654321")
+        ActiveCompany.set_current_ids([self.company.pk, other.pk])
+        self.addCleanup(ActiveCompany.clear_current)
+        self._approve(self.po)
+        self.po.refresh_from_db()
+        self.assertEqual(self.po.status, PurchaseOrderStatus.APPROVED)
 
     def test_approve_non_pending_po_does_nothing(self):
         self.po.status = PurchaseOrderStatus.DRAFT

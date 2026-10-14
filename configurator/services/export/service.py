@@ -3,6 +3,7 @@ from django.template import engines
 from django.template.loader import get_template
 from django.db.models import Q, QuerySet, Model
 from django.core.serializers.json import DjangoJSONEncoder
+from django.utils import translation
 from decimal import Decimal
 from core.admin.company_access import get_user_companies
 import json
@@ -143,23 +144,37 @@ class ConfigurationExportService:
         return json_str.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
     @staticmethod
+    def document_language(obj: Any) -> str:
+        """The language ``obj``'s documents print in: its client's, else Spanish."""
+        from company.models import DocumentLanguage
+
+        client = getattr(obj, "client", None)
+        return getattr(client, "language", "") or DocumentLanguage.ES
+
+    @staticmethod
     def render_parts(obj: Any, template: "ConfigurationExportTemplate", extra_context=None):
         """
         Renders the template and returns the rendered body, clean CSS, and serialized context.
+
+        It renders in the template's language, else the document's
+        (document_language): dates, numbers and the labels the context
+        carries (payment method, document type…) follow it.
         """
         # Clean HTML & CSS first
         clean_html = strip_wrappers(template.html or "")
         clean_css = strip_css_wrappers(template.css or "")
 
-        strategy = ConfigurationExportService.get_strategy(obj)
-        context = strategy.get_context()
-        if extra_context:
-            context.update(extra_context)
+        language = template.language or ConfigurationExportService.document_language(obj)
+        with translation.override(language):
+            strategy = ConfigurationExportService.get_strategy(obj)
+            context = strategy.get_context()
+            if extra_context:
+                context.update(extra_context)
 
-        django_engine = engines["django"]
+            django_engine = engines["django"]
 
-        user_tpl = django_engine.from_string(clean_html)
-        rendered_body = user_tpl.render(context)
+            user_tpl = django_engine.from_string(clean_html)
+            rendered_body = user_tpl.render(context)
         rendered_body = clean_final_html(rendered_body)
 
         serialized_context = ConfigurationExportService._safe_serialize(context)

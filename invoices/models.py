@@ -2277,9 +2277,10 @@ def resolve_reminder_language(invoice):
     Resolves the effective reminder language for an invoice, following the
     override cascade: client.language -> company's PaymentReminderSettings.language
     -> ES as a last-resort default. Shared by the automatic task and the
-    manual "send now" action so both paths stay in sync.
+    manual "send now" action so both paths stay in sync. A client language
+    reminders are not written in (documents have more) falls through.
     """
-    if invoice.client.language:
+    if invoice.client.language in PaymentReminderLanguage.values:
         return invoice.client.language
     settings_obj = PaymentReminderSettings.objects.filter(company=invoice.company).first()
     if settings_obj:

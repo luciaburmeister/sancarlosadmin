@@ -30,6 +30,15 @@ def validate_work_pin(value):
     raise ValidationError(_("El PIN debe tener exactamente 4 dígitos numéricos."))
 
 
+class DocumentLanguage(models.TextChoices):
+    """Languages a client's documents (invoices, quotes, delivery orders…)
+    can print in. Spanish is the default."""
+
+    ES = "es", "Español"
+    EN = "en", "English"
+    FR = "fr", "Français"
+
+
 class Company(models.Model):
     name = models.CharField(max_length=100,verbose_name=_("Commercial Name"))
     legal_name = models.CharField(max_length=100, blank=True,verbose_name=_("Legal Name"))

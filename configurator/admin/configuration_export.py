@@ -14,8 +14,8 @@ from configurator.services.export.kind_registry import get_queryset_for_kind
 
 @admin.register(ConfigurationExportTemplate)
 class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
-    list_display = ("name", "kind", "subtype", "product", "is_active", "company")
-    list_filter = ("kind", "subtype", "is_active", ("product", AutocompleteSelectMultipleFilter))
+    list_display = ("name", "kind", "subtype", "language", "product", "is_active", "company")
+    list_filter = ("kind", "subtype", "language", "is_active", ("product", AutocompleteSelectMultipleFilter))
     search_fields = ("name", "html")
     readonly_fields = ("visualizar", "contexto_json", "test_object_selector", "ai_assist")
     autocomplete_fields = ["product","company"]
@@ -34,7 +34,7 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
 
     fieldsets = (
         ("Template Info", {
-            "fields": (("name", "kind"), ("subtype",), ("product", "is_active"), "company")
+            "fields": (("name", "kind"), ("subtype", "language"), ("product", "is_active"), "company")
         }),
         (_("AI Assist"), {
             "fields": ("ai_assist",),

@@ -7,7 +7,6 @@ from django.utils.translation import gettext_lazy as _
 from django.views.generic import FormView
 from unfold.views import UnfoldModelAdminViewMixin
 
-from core.admin.company_admin import CompanyRestrictedAdmin
 from purchasing.forms import RejectPurchaseOrderForm
 from purchasing.models import PurchaseOrder, PurchaseOrderStatus
 
@@ -33,12 +32,7 @@ class RejectPurchaseOrderView(UnfoldModelAdminViewMixin, FormView):
         from purchasing.tasks import send_purchase_order_decision_notification
 
         with transaction.atomic():
-            po = get_object_or_404(
-                CompanyRestrictedAdmin.get_queryset(
-                    self.model_admin, self.request
-                ).select_for_update(),
-                pk=self.kwargs["po_id"],
-            )
+            po = PurchaseOrder.objects.select_for_update().get(pk=self.get_po().pk)
             if po.status != PurchaseOrderStatus.PENDING_APPROVAL:
                 messages.error(self.request, _("Only Pending POs can be rejected."))
                 return redirect(reverse("admin:purchasing_purchaseorder_change", args=[po.pk]))

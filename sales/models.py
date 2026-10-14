@@ -17,7 +17,7 @@ from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
 from invoices.models import AppliedTax, PaymentMethod, PinnedLineTotalMixin
-from company.models import Company, CompanyOwnedModel, BaseBankAccount, BankAccount, BaseDocumentType, BaseDocument
+from company.models import Company, CompanyOwnedModel, BaseBankAccount, BankAccount, BaseDocumentType, BaseDocument, DocumentLanguage
 from django_countries.fields import CountryField
 from configurator.utils.evaluator import validate_expression_for_safe_eval
 
@@ -455,9 +455,13 @@ class Client(Timestampable, CompanyOwnedModel):
         max_length=2,
         blank=True,
         default="",
-        choices=[("es", _("Español")), ("en", _("English"))],
-        verbose_name=_("Reminder Language"),
-        help_text=_("Default language for this client's payment reminders. Leave blank to use the company's default language."),
+        choices=DocumentLanguage.choices,
+        verbose_name=_("Language"),
+        help_text=_(
+            "Language of this client's documents (invoices, quotes, delivery orders…) and "
+            "payment reminders. Leave blank for Spanish documents and the company's reminder "
+            "language."
+        ),
     )
     exclude_from_payment_reminders = models.BooleanField(
         default=False,

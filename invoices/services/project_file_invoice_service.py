@@ -11,6 +11,7 @@ from django.utils.translation import gettext_lazy as _
 from invoices.models import (
     AppliedTax,
     InvoicePaymentStatus,
+    PinnedLineTotalMixin,
     SalesInvoice,
     SalesInvoiceDocumentType,
     SalesInvoiceItem,
@@ -644,6 +645,10 @@ class ProjectFileInvoiceService:
                     "quantity": inv_item.quantity,
                     "unit_price": inv_item.unit_price.amount,
                     "discount_percentage": inv_item.discount,
+                    # A total set by hand on the quote is not its rounded %'s
+                    "override_line_total": PinnedLineTotalMixin.pin_for(
+                        inv_item.quantity, inv_item.unit_price, inv_item.discount, line_amt,
+                    ),
                 })
 
         for config_data in summary.get("direct_configurations", []):
@@ -841,7 +846,11 @@ class ProjectFileInvoiceService:
                 target = full_by_source[source] - already
                 if target <= 0:
                     continue
-                lines = [{**line, "quantity": Decimal("1"), "discount_percentage": Decimal("0.00")} for line in lines]
+                lines = [
+                    {**line, "quantity": Decimal("1"), "discount_percentage": Decimal("0.00"),
+                     "override_line_total": None}
+                    for line in lines
+                ]
 
             if len(lines) > 1:
                 items.extend(cls._spread(lines, target))
@@ -948,8 +957,11 @@ class ProjectFileInvoiceService:
 
     @staticmethod
     def line_total(item_data):
-        """A line's total as SalesInvoiceItem.save computes it: unit price ×
-        quantity less its line discount, before the database rounds it."""
+        """A line's total as SalesInvoiceItem.save computes it: its pinned
+        override_line_total, else unit price × quantity less its line
+        discount, before the database rounds it."""
+        if item_data.get('override_line_total') is not None:
+            return item_data['override_line_total']
         unit_price = item_data['unit_price']
         unit_price = getattr(unit_price, 'amount', unit_price)
         gross = unit_price * item_data.get('quantity', Decimal("1"))
@@ -1178,6 +1190,7 @@ class ProjectFileInvoiceService:
                 quantity=item_data.get('quantity', Decimal("1")),
                 unit_price=item_data['unit_price'],
                 discount_percentage=item_data.get('discount_percentage', Decimal("0.00")),
+                override_line_total=item_data.get('override_line_total'),
                 source_id=item_data.get('source_id', ''),
             )
             invoiced_source_ids.append(item_data.get('source_id', ''))

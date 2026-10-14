@@ -16,7 +16,7 @@ from company.models import CompanyOwnedModel
 from decimal import Decimal
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
-from invoices.models import AppliedTax, PaymentMethod
+from invoices.models import AppliedTax, PaymentMethod, PinnedLineTotalMixin
 from company.models import Company, CompanyOwnedModel, BaseBankAccount, BankAccount, BaseDocumentType, BaseDocument
 from django_countries.fields import CountryField
 from configurator.utils.evaluator import validate_expression_for_safe_eval
@@ -2093,7 +2093,7 @@ class DeliveryOrderItemQuerySet(models.QuerySet):
         )
 
 
-class DeliveryOrderItem(Timestampable):
+class DeliveryOrderItem(PinnedLineTotalMixin, Timestampable):
     objects = DeliveryOrderItemQuerySet.as_manager()
 
     delivery_order = models.ForeignKey(
@@ -2236,8 +2236,7 @@ class DeliveryOrderItem(Timestampable):
     def save(self, *args, **kwargs):
         is_new = self.pk is None
         self._fill_from_inventory_item(is_new)
-        self.discount_amount = (self.unit_price * self.quantity) * (self.discount_percentage / Decimal("100"))
-        self.line_total = (self.unit_price * self.quantity) - self.discount_amount
+        self.compute_line_total()
         if not self.item_number and self.delivery_order_id:
             company = self.delivery_order.company
             year = timezone.now().year

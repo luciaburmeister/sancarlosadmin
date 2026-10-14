@@ -15,7 +15,9 @@ from sales.models import (
     QuoteStatus,
 )
 from invoices import line_sources
-from invoices.models import SalesInvoice, SalesInvoiceItem, SalesInvoiceStatus, AppliedTax
+from invoices.models import (
+    AppliedTax, PinnedLineTotalMixin, SalesInvoice, SalesInvoiceItem, SalesInvoiceStatus,
+)
 from invoices.services.sales_invoice_payment import resolve_sales_invoice_payment_method
 
 logger = logging.getLogger(__name__)
@@ -95,6 +97,7 @@ class DeliveryOrderService:
                     unit_price, total_qty, total_value, discount_pct, delivered,
                 ),
                 'discount_percentage': discount_pct,
+                'remaining_value': cls._remaining_value(total_qty, total_value, delivered),
             })
             items.append(entry)
 
@@ -180,6 +183,41 @@ class DeliveryOrderService:
         if remaining == 0:
             return False
         return (remaining > 0) == (total_qty > 0)
+
+    @staticmethod
+    def _remaining_value(total_qty, total_value, delivered):
+        """The line's value (net of its own line discount) not yet carried
+        by delivery orders; legacy net-priced deliveries count at the quote
+        price."""
+        if not total_qty:
+            return total_value
+        legacy_qty = delivered.get("quantity", Decimal("0")) - delivered.get("priced_quantity", Decimal("0"))
+        return (
+            total_value
+            - delivered.get("value", Decimal("0"))
+            - (total_value / total_qty * legacy_qty)
+        )
+
+    @classmethod
+    def pinned_total(cls, source, quantity, unit_price, discount_pct):
+        """override_line_total for a delivery order line of ``quantity`` of
+        ``source`` (a get_deliverable_items() entry) at the price it offers:
+        its share of the source's remaining value — all of it for the rest —
+        when quantity × price less discount would not come to it. None for a
+        line priced otherwise than offered."""
+        if (
+            source is None
+            or Decimal(str(getattr(unit_price, "amount", unit_price))) != source["unit_price"]
+            or Decimal(str(discount_pct or 0)) != source["discount_percentage"]
+            or not source["remaining_quantity"]
+        ):
+            return None
+        remaining_value = source["remaining_value"]
+        if quantity != source["remaining_quantity"]:
+            remaining_value = remaining_value * quantity / source["remaining_quantity"]
+        return PinnedLineTotalMixin.pin_for(
+            quantity, unit_price, discount_pct, remaining_value.quantize(Decimal("0.01")),
+        )
 
     @staticmethod
     def _price_remaining(unit_price, total_qty, total_value, discount_pct, delivered):
@@ -307,13 +345,27 @@ class DeliveryOrderService:
             status=DeliveryOrderStatus.DRAFT,
         )
 
+        sources = {}
+        if any(item_data.get('source_object_id') for item_data in items_data):
+            sources = {
+                (entry['source_content_type_id'], entry['source_object_id']): entry
+                for entry in cls.get_deliverable_items(project_file)
+            }
+
         for item_data in items_data:
+            quantity = item_data.get('quantity', Decimal("1"))
+            unit_price = item_data.get('unit_price', Decimal("0"))
+            discount_pct = item_data.get('discount_percentage', Decimal("0"))
+            source = sources.get(
+                (item_data.get('source_content_type_id'), item_data.get('source_object_id'))
+            )
             DeliveryOrderItem.objects.create(
                 delivery_order=delivery_order,
                 description=item_data['description'],
-                quantity=item_data.get('quantity', Decimal("1")),
-                unit_price=item_data.get('unit_price', Decimal("0")),
-                discount_percentage=item_data.get('discount_percentage', Decimal("0")),
+                quantity=quantity,
+                unit_price=unit_price,
+                discount_percentage=discount_pct,
+                override_line_total=cls.pinned_total(source, quantity, unit_price, discount_pct),
                 source_content_type_id=item_data.get('source_content_type_id'),
                 source_object_id=item_data.get('source_object_id'),
                 reference=item_data.get('reference', ''),
@@ -418,12 +470,16 @@ class DeliveryOrderService:
                 "unit_price": data["unit_price"],
                 "discount_percentage": data["discount_percentage"],
             }
+            pinned = cls.pinned_total(
+                data, line.quantity, data["unit_price"], data["discount_percentage"],
+            )
             if any(
                 (getattr(line, name).amount if name == "unit_price" else getattr(line, name)) != value
                 for name, value in fields.items()
-            ):
+            ) or getattr(line.override_line_total, "amount", None) != pinned:
                 for name, value in fields.items():
                     setattr(line, name, value)
+                line.pin_total(pinned)
                 line.save()
                 counts["updated"] += 1
 
@@ -436,6 +492,9 @@ class DeliveryOrderService:
                 quantity=data["remaining_quantity"],
                 unit_price=data["unit_price"],
                 discount_percentage=data["discount_percentage"],
+                override_line_total=cls.pinned_total(
+                    data, data["remaining_quantity"], data["unit_price"], data["discount_percentage"],
+                ),
                 source_content_type_id=data["source_content_type_id"],
                 source_object_id=data["source_object_id"],
                 reference=data["reference"],
@@ -769,6 +828,7 @@ class DeliveryOrderService:
                     quantity=item.quantity,
                     unit_price=item.unit_price,
                     discount_percentage=item.discount_percentage,
+                    override_line_total=item.override_line_total,
                     source_id=source_id,
                     reference=item.reference,
                 )

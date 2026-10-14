@@ -1552,7 +1552,80 @@ class SalesInvoice(CompanyOwnedModel, Payable):
                     lambda invoice_id=self.pk: _cancel_pending_payment_reminders(invoice_id)
                 )
 
-class SalesInvoiceItem(models.Model):
+class PinnedLineTotalMixin(models.Model):
+    """A line whose total can be pinned to an exact amount carried from its
+    source — a quote line whose total was set by hand, whose discount % is
+    only that total's rounding. The line keeps showing quantity, unit price
+    and discount %, its total is ``override_line_total``. Changing any of
+    the three drops the pin and the line recomputes."""
+
+    override_line_total = MoneyField(
+        max_digits=12,
+        decimal_places=2,
+        default_currency='EUR',
+        null=True,
+        blank=True,
+        verbose_name=_("Line total override"),
+        help_text=_(
+            "Exact line total carried from its source line. Dropped when the "
+            "quantity, unit price or discount change."
+        ),
+    )
+
+    class Meta:
+        abstract = True
+
+    _PRICING_FIELDS = ("quantity", "unit_price", "discount_percentage")
+
+    @classmethod
+    def from_db(cls, db, field_names, values):
+        instance = super().from_db(db, field_names, values)
+        instance._loaded_pricing = instance._pricing()
+        return instance
+
+    def _pricing(self):
+        unit_price = self.__dict__.get("unit_price")
+        return (
+            self.__dict__.get("quantity"),
+            getattr(unit_price, "amount", unit_price),
+            self.__dict__.get("discount_percentage"),
+        )
+
+    @staticmethod
+    def pin_for(quantity, unit_price, discount_percentage, exact_total):
+        """``exact_total`` when a line of ``quantity`` × ``unit_price`` less
+        ``discount_percentage`` would not come to it (to pin it on the line's
+        override_line_total), else None."""
+        unit_price = getattr(unit_price, "amount", unit_price)
+        gross = Decimal(str(unit_price)) * Decimal(str(quantity))
+        computed = gross - gross * Decimal(str(discount_percentage or 0)) / Decimal("100")
+        if computed.quantize(Decimal("0.01")) == exact_total:
+            return None
+        return exact_total
+
+    def pin_total(self, total):
+        """Pin the line's total to ``total`` (None unpins) at its current
+        quantity, unit price and discount."""
+        self.override_line_total = total
+        self._loaded_pricing = self._pricing()
+
+    def compute_line_total(self):
+        """discount_amount and line_total from quantity, unit price and
+        discount %, or from the pinned total while those are unchanged."""
+        loaded = getattr(self, "_loaded_pricing", None)
+        if loaded is not None and loaded != self._pricing():
+            self.override_line_total = None
+        gross = self.unit_price * self.quantity
+        if self.override_line_total is not None:
+            self.line_total = Money(self.override_line_total.amount, gross.currency)
+            self.discount_amount = gross - self.line_total
+        else:
+            self.discount_amount = gross * (self.discount_percentage / Decimal("100"))
+            self.line_total = gross - self.discount_amount
+        self._loaded_pricing = self._pricing()
+
+
+class SalesInvoiceItem(PinnedLineTotalMixin):
     invoice = models.ForeignKey(
         SalesInvoice, 
         on_delete=models.CASCADE, 
@@ -1659,8 +1732,7 @@ class SalesInvoiceItem(models.Model):
             unit_price = Money(unit_price.amount, currency)
         self.unit_price = unit_price
 
-        self.discount_amount = (self.unit_price * self.quantity) * (self.discount_percentage / Decimal("100"))
-        self.line_total = (self.unit_price * self.quantity) - self.discount_amount
+        self.compute_line_total()
 
         # A deduction takes an advance off the invoice, it never adds to it.
         if self.advance_line_id and self.line_total.amount > 0:

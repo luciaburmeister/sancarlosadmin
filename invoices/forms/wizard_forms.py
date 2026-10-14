@@ -164,6 +164,16 @@ class WizardItemForm(forms.Form):
             )
         )
 
+    def clean(self):
+        cleaned_data = super().clean()
+        # The source line's pinned total (offered as an initial value, never
+        # posted) holds while its quantity, price and discount are untouched
+        pinned = self.initial.get("override_line_total")
+        edited = {"quantity", "unit_price", "discount_percentage"} & set(self.changed_data)
+        cleaned_data["override_line_total"] = None if edited else pinned
+        return cleaned_data
+
+
 class WizardTaxFormsetHelper(FormHelper):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -13,7 +13,7 @@ from unfold.views import UnfoldModelAdminViewMixin
 from formtools.wizard.views import SessionWizardView
 
 from invoices import line_sources
-from invoices.models import SalesInvoice, SalesInvoiceItem, AppliedTax
+from invoices.models import AppliedTax, PinnedLineTotalMixin, SalesInvoice, SalesInvoiceItem
 from django.contrib.contenttypes.models import ContentType
 from invoices.forms.wizard_forms import (
     WizardItemForm,
@@ -93,6 +93,7 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                 'quantity': row.get('quantity', Decimal("1")),
                 'unit_price': row.get('unit_price'),
                 'discount_percentage': row.get('discount_percentage', Decimal("0.00")),
+                'override_line_total': row.get('override_line_total'),
             }
             for row in rows
             if row and not row.get('DELETE')
@@ -203,6 +204,9 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
                     'quantity': inv_item.quantity,
                     'unit_price': inv_item.unit_price.amount,
                     'discount_percentage': inv_item.discount,
+                    'override_line_total': PinnedLineTotalMixin.pin_for(
+                        inv_item.quantity, inv_item.unit_price, inv_item.discount, line_amt,
+                    ),
                     '_tax_amount': tax_amt,
                 })
 

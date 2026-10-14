@@ -133,6 +133,7 @@ class BulkProjectFileInvoiceService:
                     quantity=item_data.get("quantity", Decimal("1")),
                     unit_price=item_data["unit_price"],
                     discount_percentage=item_data.get("discount_percentage", Decimal("0.00")),
+                    override_line_total=item_data.get("override_line_total"),
                     source_id=item_data.get("source_id", ""),
                     project_file_id=pf.pk,
                 )

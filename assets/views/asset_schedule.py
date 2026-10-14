@@ -16,7 +16,7 @@ from core.admin.company_access import get_user_companies
 from assets.forms import AssetScheduleFilterForm, _duration_label
 from assets.models import Asset, AssetPlanning, PlanningStatus, PlanningType, SERVICE_TYPE_COLORS, ServiceType
 from assets.services.auto_assigner import URGENCY_ORDER, auto_link_transport
-from assets.services.route_optimizer import GoogleRouteOptimizer
+from assets.services.route_optimizer import DEFAULT_ESTIMATED_DURATION, GoogleRouteOptimizer
 
 DEFAULT_BLOCK_MINUTES = 60
 FILTER_QUERY_KEYS = frozenset({
@@ -341,6 +341,10 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
         pending.sort(key=lambda p: URGENCY_ORDER.get(p.urgency, 2))
 
         optimizer = GoogleRouteOptimizer()
+        durations = optimizer.estimate_durations_bulk(
+            [(p.origin, p.destination) for p in pending if not p.estimated_duration]
+        )
+
         items = []
         for p in pending:
             missing = []
@@ -353,7 +357,7 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
             if p.estimated_duration:
                 minutes = max(int(p.estimated_duration.total_seconds() // 60), 15)
             else:
-                duration = optimizer.estimate_duration(p.origin, p.destination)
+                duration = durations.get((p.origin_id, p.destination_id), DEFAULT_ESTIMATED_DURATION)
                 minutes = max(int(duration.total_seconds() // 60), 15)
             suggested_trucks = [t.name for t in p.suggested_trucks.all()]
             items.append({
@@ -390,8 +394,7 @@ class AssetScheduleView(_CompanyWeekMixin, UnfoldModelAdminViewMixin, TemplateVi
             planning.assigned_to = None
             planning.transport_asset = None
             planning.scheduled_time = None
-            planning.estimated_duration = None
-            planning.save(update_fields=["assigned_to", "transport_asset", "scheduled_time", "estimated_duration"])
+            planning.save(update_fields=["assigned_to", "transport_asset", "scheduled_time"])
             return JsonResponse({"success": True})
 
         if action in ("move", "resize"):

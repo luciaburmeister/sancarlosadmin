@@ -23,6 +23,8 @@ from company.models import WorkingZone
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_ESTIMATED_DURATION = timedelta(hours=1)
+
 
 # ── Abstract base ─────────────────────────────────────────────────────────
 
@@ -50,7 +52,7 @@ class BaseRouteOptimizer(ABC):
         if not zones:
             return
 
-        matrix = self._get_distance_matrix(zones)
+        matrix = self.get_distance_matrix(zones)
         ordered = self._nearest_neighbor(plannings, matrix)
 
         # Persist new order
@@ -62,16 +64,51 @@ class BaseRouteOptimizer(ABC):
         self,
         from_zone: WorkingZone | None,
         to_zone: WorkingZone | None,
-        default: timedelta = timedelta(hours=1),
+        default: timedelta = DEFAULT_ESTIMATED_DURATION,
     ) -> timedelta:
         """Falls back to `default` when zones are missing or have no route data."""
         if not from_zone or not to_zone:
             return default
-        self._get_distance_matrix([from_zone, to_zone])
+        self.get_distance_matrix([from_zone, to_zone])
         cached = ZoneDistanceCache.objects.filter(from_zone=from_zone, to_zone=to_zone).first()
         if not cached or not cached.duration_seconds:
             return default
         return timedelta(seconds=cached.duration_seconds)
+
+    def estimate_durations_bulk(
+        self,
+        pairs: Sequence[tuple[WorkingZone | None, WorkingZone | None]],
+        default: timedelta = DEFAULT_ESTIMATED_DURATION,
+    ) -> dict[tuple[int, int], timedelta]:
+        """Batched form of `estimate_duration` for many (from, to) pairs at once.
+
+        Warms the cache with a single provider call covering every zone
+        involved, instead of one call per pair — use this whenever resolving
+        durations for more than one pair (e.g. a list of plannings).
+        """
+        zones = {}
+        valid_pairs = []
+        for from_zone, to_zone in pairs:
+            if not from_zone or not to_zone:
+                continue
+            valid_pairs.append((from_zone, to_zone))
+            zones.setdefault(from_zone.pk, from_zone)
+            zones.setdefault(to_zone.pk, to_zone)
+        if not zones:
+            return {}
+
+        self.get_distance_matrix(list(zones.values()))
+        cached_seconds = {
+            (row.from_zone_id, row.to_zone_id): row.duration_seconds
+            for row in ZoneDistanceCache.objects.filter(from_zone_id__in=zones, to_zone_id__in=zones)
+        }
+        return {
+            (from_zone.pk, to_zone.pk): (
+                timedelta(seconds=cached_seconds[(from_zone.pk, to_zone.pk)])
+                if cached_seconds.get((from_zone.pk, to_zone.pk)) else default
+            )
+            for from_zone, to_zone in valid_pairs
+        }
 
     # ── Helpers ────────────────────────────────────────────────────────
 
@@ -89,10 +126,15 @@ class BaseRouteOptimizer(ABC):
         return list(seen.values())
 
     @abstractmethod
-    def _get_distance_matrix(
+    def get_distance_matrix(
         self, zones: list[WorkingZone]
     ) -> dict[tuple[int, int], int]:
-        """Return {(from_zone_id, to_zone_id): distance_meters}."""
+        """Return {(from_zone_id, to_zone_id): distance_meters}.
+
+        Batches uncached pairs into a single provider call — callers juggling
+        several zone pairs should collect them all and call this once rather
+        than looping, to avoid one external request per pair.
+        """
 
     @staticmethod
     def _nearest_neighbor(
@@ -153,7 +195,7 @@ class GoogleRouteOptimizer(BaseRouteOptimizer):
 
     API_URL = "https://routes.googleapis.com/routes/v2:computeRouteMatrix"
 
-    def _get_distance_matrix(
+    def get_distance_matrix(
         self, zones: list[WorkingZone]
     ) -> dict[tuple[int, int], int]:
         matrix = {}

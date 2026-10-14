@@ -118,6 +118,8 @@ class PlanningsListView(APIView):
             "asset", "reserved_asset", "reserved_asset__current_working_zone",
             "origin", "destination", "transport_asset",
         ).prefetch_related("stops__zone").order_by("scheduled_time", "route_order", "pk")
+        plannings = list(plannings)
+        AssetPlanning.attach_destination_pickups(plannings)
         return JsonResponse({"plannings": CubaPlanningSerializer(plannings, many=True).data})
 
 

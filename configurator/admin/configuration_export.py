@@ -8,7 +8,7 @@ from unfold.contrib.filters.admin import AutocompleteSelectMultipleFilter
 from django.urls import path
 from django.utils.safestring import mark_safe
 from django.urls import reverse
-from configurator.views import ExportTemplatePreviewView, ExportTemplateAIGenerateView
+from configurator.views import ExportTemplatePreviewView, ExportTemplatePreviewResultView, ExportTemplateAIGenerateView
 from django.utils.translation import gettext_lazy as _
 from configurator.services.export.kind_registry import get_queryset_for_kind
 
@@ -56,12 +56,14 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
     )
 
     def visualizar(self, obj):
-        # No pk-gate: the live preview URL (POST-based) already works from whatever is
-        # currently in the form, saved or not - the iframe just starts blank pre-save
-        # and gets populated by the JS-driven live refresh (on load, on edit, or after
-        # an AI generation completes).
-        preview_url = reverse("admin:configurator_export_template_preview", args=[obj.pk]) if obj and obj.pk else ""
+        # No pk-gate and no src: the live preview (POST-based) works from whatever is
+        # currently in the form, saved or not - the iframe starts blank and is filled
+        # by the JS-driven live refresh (on load, on edit, or after an AI generation
+        # completes). A GET src would render the saved template synchronously inside
+        # the web request on every visit to the change page.
         live_preview_url = reverse("admin:configurator_export_template_preview_live")
+        # Placeholder token, swapped by the JS for the one each POST returns.
+        preview_result_url = reverse("admin:configurator_export_template_preview_result", args=["TOKEN"])
         # Full-width, its own row (below the collapsible Contexto JSON) so the user
         # always sees the rendered document. The frame shows the actual WeasyPrint
         # PDF (browser PDF viewer), not the intermediate HTML, so the preview matches
@@ -69,8 +71,9 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
         # the frame matches the rest of the admin in light and dark mode.
         return mark_safe(
             f'<div class="border border-base-200 rounded-default overflow-hidden dark:border-base-800">'
-            f'<iframe id="export-template-preview" src="{preview_url}" '
+            f'<iframe id="export-template-preview" '
             f'data-live-preview-url="{live_preview_url}" '
+            f'data-preview-result-url="{preview_result_url}" '
             f'style="width: 100%; height: 800px; border: 0; background: white; display: block;"></iframe>'
             f'</div>'
         )
@@ -172,6 +175,11 @@ class ConfigurationExportTemplateAdmin(ModelAdmin,CompanyRestrictedAdmin):
                 "preview/live/",
                 self.admin_site.admin_view(ExportTemplatePreviewView.as_view(model_admin=self)),
                 name="configurator_export_template_preview_live",
+            ),
+            path(
+                "preview/live/<str:token>/",
+                self.admin_site.admin_view(ExportTemplatePreviewResultView.as_view()),
+                name="configurator_export_template_preview_result",
             ),
             path(
                 "ai-generate/",

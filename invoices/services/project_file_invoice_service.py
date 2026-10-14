@@ -19,6 +19,7 @@ from invoices.models import (
 from invoices import line_sources
 from invoices.services.advances import AdvanceDeductionService, AdvanceInvoiceService
 from invoices.services.discounts import (
+    DiscountHistory,
     DiscountResolution,
     QuoteDiscountResolver,
     SourceLine,
@@ -673,6 +674,188 @@ class ProjectFileInvoiceService:
         return items
 
     @classmethod
+    def invoiced_by_source(cls, project_file):
+        """``{source_id: amount}`` already billed as goods for each source of
+        the expediente: the line totals of its non-cancelled goods invoices,
+        its own and bulk ones. Lines with no source_id are left out."""
+        rows = (
+            SalesInvoiceItem.objects.filter(
+                Q(invoice__project_file=project_file)
+                | Q(project_file=project_file, invoice__project_file__isnull=True),
+                advance_line__isnull=True,
+            )
+            .exclude(invoice__status=SalesInvoiceStatus.CANCELLED)
+            .exclude(invoice__document_type=SalesInvoiceDocumentType.ADVANCE)
+            .exclude(source_id="")
+            .values("source_id")
+            .annotate(total=Sum("line_total"))
+        )
+        return {row["source_id"]: row["total"] or Decimal("0.00") for row in rows}
+
+    @classmethod
+    def discount_history(cls, summary):
+        """DiscountHistory of the expediente's goods invoices so far (its own
+        and bulk ones, cancelled and advance ones left out): what each
+        accepted quote's lines billed and the discount each quote gave.
+
+        An invoice's discount entries name their quote; older entries, which
+        do not, are attributed by re-resolving that invoice's lines: a
+        single-expediente invoice spreads what it stored across the quotes
+        that re-resolution finds, a bulk one (whose entries mix expedientes)
+        takes the re-resolved amounts. Legacy discount lines name their quote.
+        """
+        project_file = summary["project_file"]
+        quotes = [quote_data["quote"] for quote_data in summary["quotes"]]
+        quote_ids = {quote.id for quote in quotes}
+        history = DiscountHistory()
+
+        lines = list(
+            SalesInvoiceItem.objects.filter(
+                Q(invoice__project_file=project_file)
+                | Q(project_file=project_file, invoice__project_file__isnull=True),
+                advance_line__isnull=True,
+            )
+            .exclude(invoice__status=SalesInvoiceStatus.CANCELLED)
+            .exclude(invoice__document_type=SalesInvoiceDocumentType.ADVANCE)
+            .select_related("invoice")
+        )
+        quote_of = line_sources.quote_ids_by_source(line.source_id for line in lines)
+        lines_by_invoice = {}
+        for line in lines:
+            lines_by_invoice.setdefault(line.invoice, []).append(line)
+            amount = line.line_total.amount
+            discount_quote = line_sources.pk_of(line.source_id, line_sources.DISCOUNT_QUOTE)
+            if discount_quote in quote_ids:
+                history.taken[discount_quote] = history.taken.get(discount_quote, Decimal("0.00")) - amount
+            elif quote_of.get(line.source_id) in quote_ids and source_kind(line.source_id):
+                quote_id = quote_of[line.source_id]
+                history.billed[quote_id] = history.billed.get(quote_id, Decimal("0.00")) + amount
+
+        for invoice, invoice_lines in lines_by_invoice.items():
+            legacy = Decimal("0.00")
+            for entry in invoice.discount_breakdown or []:
+                if "quote_id" not in entry:
+                    legacy += Decimal(str(entry.get("amount", 0)))
+                elif entry["quote_id"] in quote_ids:
+                    history.taken[entry["quote_id"]] = (
+                        history.taken.get(entry["quote_id"], Decimal("0.00"))
+                        + Decimal(str(entry["amount"]))
+                    )
+            if not legacy:
+                continue
+            resolved = QuoteDiscountResolver().resolve(quotes, [
+                SourceLine(line.source_id, line.line_total.amount, quote_of.get(line.source_id))
+                for line in invoice_lines
+            ])
+            by_quote = {}
+            for entry in resolved.breakdown:
+                by_quote[entry["quote_id"]] = by_quote.get(entry["quote_id"], Decimal("0.00")) + Decimal(entry["amount"])
+            if invoice.project_file_id is not None and by_quote:
+                by_quote = cls._spread_amount(by_quote, legacy)
+            for quote_id, amount in by_quote.items():
+                history.taken[quote_id] = history.taken.get(quote_id, Decimal("0.00")) + amount
+        return history
+
+    @staticmethod
+    def _spread_amount(weights, total):
+        """``total`` split across ``weights``' keys in proportion to them, to
+        the cent, the rounding left on the largest."""
+        weight_sum = sum(weights.values(), Decimal("0.00"))
+        if not weight_sum:
+            return {next(iter(weights)): total}
+        shares = {
+            key: (total * weight / weight_sum).quantize(Decimal("0.01"))
+            for key, weight in weights.items()
+        }
+        largest = max(shares, key=lambda key: weights[key])
+        shares[largest] += total - sum(shares.values(), Decimal("0.00"))
+        return shares
+
+    @classmethod
+    def _source_quantities(cls, summary):
+        """``{source_id: quantity}`` a source's line carries when billed in
+        one go: a configuration's pieces (or units), a work entry's quantity."""
+        quantities = {}
+        for quote_data in summary["quotes"]:
+            for config in quote_data["quote"].configurations.all():
+                quantities[line_sources.source_id(line_sources.CONFIG, config.id)] = config.invoice_quantity
+        for config_data in summary.get("direct_configurations", []):
+            quantities[line_sources.source_id(line_sources.DIRECT, config_data["id"])] = config_data.get("units")
+        for entry_data in summary.get("work_entries", []):
+            quantities[line_sources.source_id(line_sources.WORK_ENTRY, entry_data["id"])] = entry_data.get("quantity")
+        return quantities
+
+    @staticmethod
+    def _spread(lines, target):
+        """``lines`` (one source's) rescaled so their totals add up to exactly
+        ``target``: each rounded to the cent, the rounding left on the largest."""
+        base = sum((line["unit_price"] for line in lines), Decimal("0.00"))
+        if base <= 0:
+            return [{**lines[0], "unit_price": target}]
+        scaled = [
+            {**line, "unit_price": (line["unit_price"] * target / base).quantize(Decimal("0.01"))}
+            for line in lines
+        ]
+        largest = max(scaled, key=lambda line: line["unit_price"])
+        largest["unit_price"] += target - sum(line["unit_price"] for line in scaled)
+        return scaled
+
+    @classmethod
+    def build_items_for_remaining(cls, summary, show_vehicle_name=True, split_configs=True):
+        """
+        Invoice line dicts billing everything still pending, source by
+        source: each source's full amount less what its lines already billed
+        (invoiced_by_source), so the expediente ends at exactly 0 with no
+        ratio and no rounding drift. A source billed for the first time keeps
+        its quantity when its unit price is exact to the cent; inventory
+        items keep their own quantity, price and discount. Sources already
+        fully billed are left out.
+
+        ``split_configs`` as in build_items_for_ratio: a configuration's
+        component lines are rescaled to add up to its pending amount.
+        """
+        invoiced = cls.invoiced_by_source(summary["project_file"])
+        quantities = cls._source_quantities(summary)
+
+        lines_by_source = {}
+        for line in cls.build_items_for_ratio(
+            summary, Decimal("1"), show_vehicle_name=show_vehicle_name, split_configs=split_configs,
+        ):
+            lines_by_source.setdefault(line["source_id"], []).append(line)
+        full_by_source = {
+            line["source_id"]: cls.line_total(line).quantize(Decimal("0.01"))
+            for line in cls.build_items_for_ratio(
+                summary, Decimal("1"), show_vehicle_name=show_vehicle_name, split_configs=False,
+            )
+        }
+
+        items = []
+        for source, lines in lines_by_source.items():
+            already = invoiced.get(source, Decimal("0.00"))
+            if not already:
+                if line_sources.pk_of(source, line_sources.INV_ITEM) is not None:
+                    items.extend(lines)
+                    continue
+                target = full_by_source[source]
+            else:
+                target = full_by_source[source] - already
+                if target <= 0:
+                    continue
+                lines = [{**line, "quantity": Decimal("1"), "discount_percentage": Decimal("0.00")} for line in lines]
+
+            if len(lines) > 1:
+                items.extend(cls._spread(lines, target))
+                continue
+            line = {**lines[0], "quantity": Decimal("1"), "unit_price": target}
+            qty = quantities.get(source)
+            if not already and qty and qty > 1:
+                unit_price = (target / qty).quantize(Decimal("0.01"))
+                if unit_price * qty == target:
+                    line.update(quantity=qty, unit_price=unit_price)
+            items.append(line)
+        return items
+
+    @classmethod
     def get_aggregated_quote_taxes(cls, project_file):
         """
         Retrieves a deduplicated list of AppliedTax entries from all accepted quotes'
@@ -774,7 +957,7 @@ class ProjectFileInvoiceService:
         return gross - discount
 
     @classmethod
-    def price_lines(cls, summary, items_data):
+    def price_lines(cls, summary, items_data, settle_discounts=False):
         """
         Prices invoice lines without writing anything (see PricedLines).
 
@@ -790,6 +973,10 @@ class ProjectFileInvoiceService:
                      accepted quotes own the discounts carried onto the lines
             items_data: List of dicts with description, quantity, unit_price,
                         discount_percentage, and source_id
+            settle_discounts: price a new invoice after the expediente's
+                     earlier ones (discount_history): one that bills the rest
+                     of a quote takes the rest of its discount. Off to
+                     re-price lines already invoiced.
         """
         from configurator.models import Configuration
         from invoices.services.delivery_order_service import DeliveryOrderService
@@ -863,37 +1050,52 @@ class ProjectFileInvoiceService:
         # quotes.
         resolution = QuoteDiscountResolver().resolve(
             [qd['quote'] for qd in summary['quotes']], source_lines,
+            history=cls.discount_history(summary) if settle_discounts else None,
         )
 
         # Taxes apply to the discounted base (the quote's "taxable base"),
         # so reduce each line by its own quote's discount fraction for its
-        # line kind.
+        # line kind. Bases add up unrounded and round once per tax (and per
+        # group): rounding each line's share would drift by up to half a
+        # cent a line from subtotal − discount.
         # Aggregation: (tax_type_id, behavior, percentage) → {tax_type, base, calc}
         tax_agg: dict[tuple, dict] = {}
         groups: dict[frozenset, Decimal] = {}
         for line_total, source_taxes, quote_id, kind in line_taxes:
             frac = resolution.taxable_fraction(quote_id, kind)
-            taxable = (line_total * (Decimal("1") - frac)).quantize(Decimal("0.01"))
+            taxable = line_total * (Decimal("1") - frac)
             signature = set()
             for tax in source_taxes:
                 if tax.selected_percentage <= 0:
                     continue
                 signature.add((tax.tax_type, tax.selected_percentage))
                 key = (tax.tax_type_id, tax.tax_type.behavior, tax.selected_percentage)
-                rate = tax.selected_percentage / Decimal("100")
-                calc = (taxable * rate).quantize(Decimal("0.01"))
-
                 if key not in tax_agg:
                     tax_agg[key] = {
                         "tax_type": tax.tax_type,
                         "selected_percentage": tax.selected_percentage,
                         "base_amount": Decimal("0.00"),
-                        "calculated_amount": Decimal("0.00"),
                     }
                 tax_agg[key]["base_amount"] += taxable
-                tax_agg[key]["calculated_amount"] += calc
             signature = frozenset(signature)
             groups[signature] = groups.get(signature, Decimal("0.00")) + taxable
+
+        # Groups squared with the taxable base, each tax's base their sum
+        groups = cls._reconcile_groups(
+            {signature: base.quantize(Decimal("0.01")) for signature, base in groups.items()},
+            subtotal - resolution.discount_amount,
+        )
+        for entry in tax_agg.values():
+            entry["base_amount"] = sum(
+                (
+                    base for signature, base in groups.items()
+                    if (entry["tax_type"], entry["selected_percentage"]) in signature
+                ),
+                Decimal("0.00"),
+            )
+            entry["calculated_amount"] = (
+                entry["base_amount"] * entry["selected_percentage"] / Decimal("100")
+            ).quantize(Decimal("0.01"))
 
         return PricedLines(subtotal, resolution, tax_agg, groups)
 
@@ -950,7 +1152,7 @@ class ProjectFileInvoiceService:
             explicit=payment_method,
         )
 
-        priced = cls.price_lines(summary, items_data)
+        priced = cls.price_lines(summary, items_data, settle_discounts=True)
         goods_net = priced.subtotal - priced.resolution.discount_amount
         AdvanceDeductionService.check(summary, goods_net)
 

@@ -5,7 +5,7 @@ gates:
 - an expediente whose goods are invoiced (bulk invoices included) is not
   billed again;
 - each expediente is billed what it has pending, built like its own invoices
-  (build_items_for_ratio, each configuration at its subtotal), and the net
+  (build_items_for_remaining, each configuration at what it has pending), and the net
   over-invoicing check runs per expediente;
 - a bulk invoice closes every expediente it bills, so it deducts all their
   advances pending (not those of the expedientes it skips); its deduction
@@ -24,6 +24,7 @@ from inventory.models import InventoryItem
 from invoices.models import SalesInvoice
 from invoices.services.advances import AdvanceDeductionService
 from invoices.services.bulk_invoice_service import BulkProjectFileInvoiceService
+from invoices.services.project_file_invoice_service import ProjectFileInvoiceService
 from invoices.tests.advance_fixtures import AdvanceExpedienteMixin
 from sales.models import QuoteInventoryItem
 
@@ -73,9 +74,8 @@ class BulkInvoiceAdvanceTests(AdvanceExpedienteMixin, TestCase):
         self.assertEqual(bulk.total_amount.amount, Decimal("1210.00"))
         self.assertFalse(self.summary()["can_invoice"])
 
-    def test_net_check_refuses_over_billing(self):
-        # Inventory items are billed in full on any partial invoice, so the
-        # pending ratio would bill this one twice.
+    def test_inventory_item_billed_by_a_partial_invoice_is_not_billed_again(self):
+        # Inventory items are billed in full on any partial invoice
         QuoteInventoryItem.objects.create(
             quote=self.quote,
             inventory_item=InventoryItem.objects.create(name="Tirador", company=self.company),
@@ -83,6 +83,22 @@ class BulkInvoiceAdvanceTests(AdvanceExpedienteMixin, TestCase):
         )
         self.quote.recalc_totals()
         self.invoice_goods(Decimal("0.5"))
+
+        bulk = self._bulk()
+
+        self.assertEqual(
+            [line.source_id for line in bulk.items.all()], [f"config_{self.config.pk}"],
+        )
+        self.assertEqual(self.summary()["goods_remaining_net"], Decimal("0.00"))
+
+    def test_net_check_refuses_over_billing(self):
+        # A line with no source billed part of the expediente: its sources
+        # still have their whole amount pending
+        ProjectFileInvoiceService.create_invoice_from_project_file(
+            project_file=self.project_file, company=self.company, client=self.client_obj,
+            date_issued=date(2026, 9, 1), due_date=None,
+            items_data=[{"source_id": "", "description": "A cuenta", "unit_price": Decimal("600.00")}],
+        )
 
         with self.assertRaises(ValidationError):
             self._bulk()

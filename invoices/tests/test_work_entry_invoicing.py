@@ -104,11 +104,12 @@ class LineBuilderTests(_WorkEntryInvoicingBase):
         self.assertEqual(items[0]["unit_price"], Decimal("50.00"))
 
     def test_bulk_builder_emits_work_entry_line(self):
-        # Built like the expediente's own invoices: one line for the entry's total
+        # Built like the expediente's own invoices: the entry's quantity, its
+        # unit price being exact to the cent
         items = BulkProjectFileInvoiceService._build_items_for_pf(self.project_file, self.summary)
         self.assertEqual([i["source_id"] for i in items], [self.source_id])
-        self.assertEqual(items[0]["quantity"], Decimal("1"))
-        self.assertEqual(items[0]["unit_price"], Decimal("100.00"))
+        self.assertEqual(items[0]["quantity"], Decimal("2"))
+        self.assertEqual(items[0]["unit_price"], Decimal("50.00"))
         self.assertEqual(items[0]["project_file_id"], self.project_file.pk)
 
 

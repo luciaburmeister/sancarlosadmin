@@ -8718,6 +8718,12 @@ msgstr "Configuración de la factura"
 msgid "By Percentage"
 msgstr "Por porcentaje"
 
+msgid "Everything pending"
+msgstr "Todo lo pendiente"
+
+msgid "This project file has nothing left to invoice."
+msgstr "Este expediente no tiene nada pendiente de facturar."
+
 msgid "Custom Amount"
 msgstr "Monto personalizado"
 

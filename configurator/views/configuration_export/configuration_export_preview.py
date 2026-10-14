@@ -1,7 +1,8 @@
-import base64
 import json
 import logging
+import uuid
 
+from django.core.cache import cache
 from django.views import View
 from django.http import HttpResponse, Http404, JsonResponse
 from django.utils.decorators import method_decorator
@@ -24,11 +25,11 @@ class ExportTemplatePreviewView(UnfoldModelAdminViewMixin, View):
 
     The preview is the real WeasyPrint PDF, not the intermediate HTML, so what
     the editor shows is exactly what clients receive by email or download.
-    Pass format=html to inspect the intermediate HTML instead.
 
-    GET  preview/<template_id>/            -> inline PDF (or HTML)
-    POST preview/live/  (html, css, ...)   -> JSON {"pdf": <base64>, "context": {...}}
-                                              or, with format=html, the HTML page
+    GET  preview/<template_id>/            -> inline PDF (format=html: the HTML)
+    POST preview/live/  (html, css, ...)   -> 202 {"token": ...}; the PDF is
+                                              rendered on the pdf Celery queue and
+                                              fetched from ExportTemplatePreviewResultView
     """
 
     def _get_preview_object(self, kind, product_id, company_id, object_id=None):
@@ -47,53 +48,30 @@ class ExportTemplatePreviewView(UnfoldModelAdminViewMixin, View):
         return response
 
     def post(self, request, *args, **kwargs):
-        html_content = request.POST.get("html", "")
-        css_content = request.POST.get("css", "")
-        output_format = request.POST.get("format", "json")
+        """
+        Queue a live render on the pdf worker and return its token at once.
 
-        object_id = request.POST.get("object_id") or request.POST.get("config_id")
-        template_kind = request.POST.get("kind", "quotation")
-        product_id = request.POST.get("product")
-        company_id = request.POST.get("company")
+        Nothing is rendered here: a heavy template used to hold a gunicorn
+        thread and a pooled DB connection for the whole WeasyPrint render.
+        Queuing a new preview supersedes the user's previous one, so a backlog
+        built up while typing collapses to the latest version.
+        """
+        from configurator.tasks import preview_latest_key, render_export_template_preview, PREVIEW_CACHE_TTL
 
-        target_obj = self._get_preview_object(template_kind, product_id, company_id, object_id)
-
-        if not target_obj:
-            return self._error("No suitable object available for preview.", 400, output_format)
-
-        template = ConfigurationExportTemplate(
-            html=html_content,
-            css=css_content,
-            kind=template_kind
+        params = {
+            "html": request.POST.get("html", ""),
+            "css": request.POST.get("css", ""),
+            "kind": request.POST.get("kind", "quotation"),
+            "product": request.POST.get("product") or None,
+            "company": request.POST.get("company") or None,
+            "object_id": request.POST.get("object_id") or request.POST.get("config_id") or None,
+        }
+        token = uuid.uuid4().hex
+        cache.set(preview_latest_key(request.user.pk), token, PREVIEW_CACHE_TTL)
+        render_export_template_preview.apply_async(
+            args=[token, request.user.pk, params], task_id=token,
         )
-
-        try:
-            rendered_body, clean_css, serialized_context = ConfigurationExportService.render_parts(
-                target_obj, template
-            )
-        except Exception as exc:
-            # Template syntax errors are the common case while someone is typing;
-            # surface them in the editor instead of a blank frame.
-            logger.info("Export template preview failed to render: %s", exc)
-            return self._error(f"Template error: {exc}", 400, output_format)
-
-        rendered_html = ConfigurationExportService.wrap_parts(rendered_body, clean_css, serialized_context)
-
-        if output_format == "html":
-            return HttpResponse(rendered_html, content_type="text/html; charset=utf-8")
-
-        try:
-            pdf_bytes = PDFService.html_to_pdf(rendered_html)
-        except RuntimeError as exc:
-            return self._error(str(exc), 503, output_format)
-        except Exception as exc:
-            logger.exception("Export template preview PDF rendering failed")
-            return self._error(f"PDF rendering error: {exc}", 500, output_format)
-
-        return JsonResponse({
-            "pdf": base64.b64encode(pdf_bytes).decode("ascii"),
-            "context": json.loads(serialized_context),
-        })
+        return JsonResponse({"token": token}, status=202)
 
     def get(self, request, *args, **kwargs):
         template_id = kwargs.get("template_id")
@@ -123,8 +101,37 @@ class ExportTemplatePreviewView(UnfoldModelAdminViewMixin, View):
 
         return self._pdf_response(pdf_bytes)
 
-    @staticmethod
-    def _error(message: str, status: int, output_format: str):
-        if output_format == "html":
-            return HttpResponse(message, status=status, content_type="text/plain; charset=utf-8")
-        return JsonResponse({"error": message}, status=status)
+
+class ExportTemplatePreviewResultView(View):
+    """
+    GET preview/live/<token>/ -> {"status": "pending"}
+                                 {"status": "done", "pdf": <base64>, "context": {...}}
+                                 {"status": "error", "error": "..."}  (4xx/5xx)
+                                 {"status": "superseded"}
+
+    Reads the cache only, so polling costs no render and no DB query beyond
+    the admin's session check.
+    """
+
+    def get(self, request, token, *args, **kwargs):
+        from configurator.tasks import preview_result_key
+
+        if not request.user.has_perm("configurator.view_configurationexporttemplate"):
+            return JsonResponse({"error": "Forbidden"}, status=403)
+
+        result = cache.get(preview_result_key(token))
+        if result is None:
+            return JsonResponse({"status": "pending"})
+        if result["user_id"] != request.user.pk:
+            raise Http404("Preview not found")
+
+        status = result["status"]
+        if status == "done":
+            return JsonResponse({
+                "status": "done",
+                "pdf": result["pdf"],
+                "context": json.loads(result["context"]),
+            })
+        if status == "error":
+            return JsonResponse({"status": "error", "error": result["error"]}, status=result["http_status"])
+        return JsonResponse({"status": status})

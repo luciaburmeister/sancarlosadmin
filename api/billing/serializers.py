@@ -91,7 +91,11 @@ def quote_has_content(quote):
 
 
 def build_items_from_summary(summary, invoice_mode, percentage, custom_amount, show_vehicle_name=True):
-    """Invoice line dicts for the API's percentage/custom invoice modes."""
+    """Invoice line dicts for the API's full/percentage/custom invoice modes."""
+    if invoice_mode == "full":
+        return ProjectFileInvoiceService.build_items_for_remaining(
+            summary, show_vehicle_name=show_vehicle_name,
+        )
     ratio = ProjectFileInvoiceService.compute_invoice_line_ratio(
         summary, invoice_mode, percentage, custom_amount
     )
@@ -346,10 +350,11 @@ class BulkEmitCandidateSerializer(serializers.Serializer):
 
 
 class ProjectFileInvoiceCreateSerializer(serializers.Serializer):
+    # "full": everything still pending, each source at its exact remainder.
     # "advance": an advance invoice of ``percentage`` of the expediente's
     # taxable base, or of ``custom_amount`` (its base) when that is given.
     invoice_mode = serializers.ChoiceField(
-        choices=["percentage", "custom", "advance"], default="percentage"
+        choices=["full", "percentage", "custom", "advance"], default="percentage"
     )
     percentage = serializers.DecimalField(max_digits=8, decimal_places=2, default=Decimal("100"))
     custom_amount = serializers.DecimalField(

@@ -52,6 +52,7 @@ class ProjectFileInvoiceSetupFormHelper(FormHelper):
 
 class ProjectFileInvoiceSetupForm(forms.Form):
     INVOICE_MODES = [
+        ('full', _('Everything pending')),
         ('percentage', _('By Percentage')),
         ('custom', _('Custom Amount')),
         ('advance', _('Advance invoice (% of the project file)')),
@@ -75,7 +76,7 @@ class ProjectFileInvoiceSetupForm(forms.Form):
     )
     invoice_mode = forms.ChoiceField(
         choices=INVOICE_MODES,
-        initial='percentage',
+        initial='full',
         widget=UnfoldAdminSelectWidget,
         label=_("Invoice Mode"),
     )
@@ -173,7 +174,12 @@ class ProjectFileInvoiceSetupForm(forms.Form):
 
         remaining_subtotal = self.invoicing_summary['remaining_subtotal']
 
-        if mode == 'percentage':
+        if mode == 'full':
+            if not self.invoicing_summary['can_invoice']:
+                self.add_error('invoice_mode', _("This project file has nothing left to invoice."))
+            cleaned_data['_calculated_subtotal'] = remaining_subtotal
+
+        elif mode == 'percentage':
             if not percentage or percentage <= 0:
                 self.add_error('percentage', _("Please enter a valid percentage."))
             elif percentage > Decimal("100.00"):

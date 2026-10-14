@@ -225,7 +225,7 @@ class AdvanceDeductionService:
         if summary['advances_deductible_net'] <= 0:
             return []
         summary = ProjectFileInvoiceService.get_invoiceable_summary(project_file, with_groups=True)
-        priced = ProjectFileInvoiceService.price_lines(summary, items_data)
+        priced = ProjectFileInvoiceService.price_lines(summary, items_data, settle_discounts=True)
         # As the invoice will store it: lines to the cent
         lines_total = sum(
             (ProjectFileInvoiceService.line_total(item).quantize(CENT, rounding=ROUND_HALF_UP)

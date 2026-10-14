@@ -71,7 +71,20 @@
                 escaped + "</body>";
         }
 
-        function updatePreview() {
+        // Rendering runs on a Celery worker: the POST only queues it and returns a
+        // token, and the result is polled from previewResultUrl. At most one render
+        // is in flight per tab - edits made while it runs just mark the preview
+        // stale, and one fresh render is queued when it finishes - so typing can
+        // never stack renders up the way it did when each pause was a 60s request.
+        const previewResultUrl = previewIframe.dataset.previewResultUrl;
+        const POLL_INTERVAL_MS = 1000;
+        // A little over the task's hard time limit (40s) plus queue wait.
+        const POLL_DEADLINE_MS = 90000;
+        let inFlight = false;
+        let stale = false;
+        let hasPdf = false;
+
+        function buildPreviewForm() {
             const formData = new FormData();
             formData.append("html", htmlInput.value);
             formData.append("css", cssInput.value);
@@ -94,26 +107,68 @@
             if (testObjectSelector && testObjectSelector.value) {
                 formData.append("object_id", testObjectSelector.value);
             }
+            return formData;
+        }
+
+        function pollResult(token, deadline) {
+            const url = previewResultUrl.replace("TOKEN", encodeURIComponent(token));
+            return fetch(url, { headers: { "Accept": "application/json" } })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === "pending") {
+                        if (Date.now() > deadline) {
+                            throw new Error("the preview took too long to render.");
+                        }
+                        return new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS))
+                            .then(() => pollResult(token, deadline));
+                    }
+                    return data;
+                });
+        }
+
+        function updatePreview() {
+            if (inFlight) {
+                stale = true;
+                return;
+            }
+            inFlight = true;
+            stale = false;
+            if (!hasPdf) {
+                previewIframe.srcdoc =
+                    '<body style="font-family: system-ui, sans-serif; font-size: 13px; ' +
+                    'color: #6b7280; padding: 24px;">Rendering preview...</body>';
+            }
 
             fetch(livePreviewUrl, {
                 method: "POST",
-                body: formData,
+                body: buildPreviewForm(),
                 headers: {
                     "X-CSRFToken": getCookie("csrftoken")
                 }
             })
-                .then(response => response.json().then(data => ({ ok: response.ok, data })))
-                .then(({ ok, data }) => {
-                    if (!ok || !data.pdf) {
+                .then(response => response.json())
+                .then(({ token }) => pollResult(token, Date.now() + POLL_DEADLINE_MS))
+                .then(data => {
+                    // Superseded by a render from another tab; this tab's stale flag
+                    // (or the next edit) asks for a fresh one.
+                    if (data.status === "superseded") return;
+                    if (data.status !== "done") {
                         showPreviewError(data.error || "Preview failed.");
+                        hasPdf = false;
                         return;
                     }
                     showPdf(data.pdf);
+                    hasPdf = true;
                     updateContextJson(data.context);
                 })
                 .catch(error => {
                     console.error("Error updating preview:", error);
-                    showPreviewError("Preview failed: " + error);
+                    showPreviewError("Preview failed: " + (error.message || error));
+                    hasPdf = false;
+                })
+                .finally(() => {
+                    inFlight = false;
+                    if (stale) updatePreview();
                 });
         }
 
@@ -138,10 +193,8 @@
             cssInput.addEventListener("input", debouncedUpdate);
         }
 
-        // The per-pk GET src (saved templates only) just paints something while the
-        // first live render is in flight; every later refresh, including a change
-        // of test object, goes through the live POST so it reflects the form's
-        // current html/css rather than the saved version.
+        // Every refresh, including a change of test object, goes through the live
+        // POST so it reflects the form's current html/css, not the saved version.
         const testObjectSelector = document.getElementById("test-object-selector");
         if (testObjectSelector) {
             testObjectSelector.addEventListener("change", updatePreview);

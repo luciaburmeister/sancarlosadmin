@@ -88,7 +88,7 @@ class BulkProjectFileInvoiceService:
             if not items:
                 continue
             # Each PF's quotes carry their own discounts onto its lines
-            priced = ProjectFileInvoiceService.price_lines(summary, items)
+            priced = ProjectFileInvoiceService.price_lines(summary, items, settle_discounts=True)
             # The same net over-invoicing check as a single expediente's invoice
             AdvanceDeductionService.check(
                 summary, priced.subtotal - priced.resolution.discount_amount,
@@ -201,16 +201,13 @@ class BulkProjectFileInvoiceService:
     @classmethod
     def _build_items_for_pf(cls, project_file, summary):
         """
-        Build item dicts for 100% of remaining on a single ProjectFile, as
-        the expediente's own invoices build them (build_items_for_ratio),
-        each configuration one line at its subtotal. Each description is
-        prefixed with the PF reference.
+        Build item dicts for everything pending on a single ProjectFile, as
+        the expediente's own invoices build them (build_items_for_remaining),
+        each configuration one line at its pending amount. Each description
+        is prefixed with the PF reference.
         """
         pf_ref = project_file.reference or f"PF#{project_file.pk}"
-        ratio = ProjectFileInvoiceService.compute_invoice_line_ratio(
-            summary, "percentage", Decimal("100"),
-        )
-        items = ProjectFileInvoiceService.build_items_for_ratio(summary, ratio, split_configs=False)
+        items = ProjectFileInvoiceService.build_items_for_remaining(summary, split_configs=False)
         for item in items:
             item["description"] = f"[{pf_ref}] {item['description']}"
             item["project_file_id"] = project_file.pk

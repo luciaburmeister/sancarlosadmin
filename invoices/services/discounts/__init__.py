@@ -11,12 +11,13 @@ from .base import (
     source_kind,
 )
 from .registry import InvoiceDiscountStrategyRegistry
-from .resolver import QuoteDiscountResolver, DiscountResolution, SourceLine
+from .resolver import QuoteDiscountResolver, DiscountHistory, DiscountResolution, SourceLine
 
 __all__ = [
     "InvoiceDiscountStrategy",
     "InvoiceDiscountStrategyRegistry",
     "QuoteDiscountResolver",
+    "DiscountHistory",
     "DiscountResolution",
     "SourceLine",
     "source_kind",

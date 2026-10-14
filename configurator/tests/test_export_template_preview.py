@@ -1,9 +1,10 @@
-"""The admin template preview shows the real PDF, and reports template errors instead of 500s."""
+"""The admin template preview shows the real PDF, rendered on Celery, and reports template errors instead of 500s."""
 import base64
 import json
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.test import TestCase
 from django.urls import reverse
 
@@ -30,6 +31,7 @@ class ExportTemplatePreviewViewTest(TestCase):
         )
 
     def setUp(self):
+        cache.clear()
         self.client.force_login(self.admin)
 
     def test_get_returns_inline_pdf(self):
@@ -52,10 +54,16 @@ class ExportTemplatePreviewViewTest(TestCase):
         self.assertTrue(resp["Content-Type"].startswith("text/html"))
         self.assertIn("Preview quote", resp.content.decode())
 
+    def _live_preview(self, data):
+        """POST a live preview (the task runs eagerly in tests) and poll its result."""
+        resp = self.client.post(reverse("admin:configurator_export_template_preview_live"), data)
+        self.assertEqual(resp.status_code, 202)
+        token = json.loads(resp.content)["token"]
+        return self.client.get(reverse("admin:configurator_export_template_preview_result", args=[token]))
+
     def test_live_post_returns_pdf_and_context_as_json(self):
-        url = reverse("admin:configurator_export_template_preview_live")
         with patch("core.services.pdf_service.PDFService.html_to_pdf", return_value=FAKE_PDF):
-            resp = self.client.post(url, {
+            resp = self._live_preview({
                 "html": "<div><h1>{{ quote.project_name }}</h1></div>",
                 "css": "h1 { color: blue; }",
                 "kind": "consolidated_quotation",
@@ -65,13 +73,54 @@ class ExportTemplatePreviewViewTest(TestCase):
 
         self.assertEqual(resp.status_code, 200)
         data = json.loads(resp.content)
+        self.assertEqual(data["status"], "done")
         self.assertEqual(base64.b64decode(data["pdf"]), FAKE_PDF)
         self.assertIsInstance(data["context"], dict)
         self.assertIn("quote", data["context"])
 
-    def test_live_post_reports_template_errors(self):
+    def test_live_post_does_not_render_in_the_request(self):
         url = reverse("admin:configurator_export_template_preview_live")
-        resp = self.client.post(url, {
+        with patch("configurator.tasks.render_export_template_preview.apply_async") as apply_async, \
+                patch("core.services.pdf_service.PDFService.html_to_pdf") as to_pdf:
+            resp = self.client.post(url, {"html": "<p>x</p>", "kind": "consolidated_quotation"})
+
+        self.assertEqual(resp.status_code, 202)
+        to_pdf.assert_not_called()
+        token = json.loads(resp.content)["token"]
+        self.assertEqual(apply_async.call_args.kwargs["task_id"], token)
+
+        result_url = reverse("admin:configurator_export_template_preview_result", args=[token])
+        self.assertEqual(json.loads(self.client.get(result_url).content), {"status": "pending"})
+
+    def test_superseded_preview_is_not_rendered(self):
+        from configurator.tasks import preview_latest_key, render_export_template_preview
+
+        cache.set(preview_latest_key(self.admin.pk), "newer")
+        with patch("core.services.pdf_service.PDFService.html_to_pdf") as to_pdf:
+            render_export_template_preview("older", self.admin.pk, {"html": "<p>x</p>"})
+
+        to_pdf.assert_not_called()
+        url = reverse("admin:configurator_export_template_preview_result", args=["older"])
+        self.assertEqual(json.loads(self.client.get(url).content), {"status": "superseded"})
+
+    def test_result_is_private_to_its_user(self):
+        User = get_user_model()
+        other = User.objects.create_superuser(username="other_admin", email="o@p.com", password="x")
+        with patch("core.services.pdf_service.PDFService.html_to_pdf", return_value=FAKE_PDF):
+            resp = self.client.post(reverse("admin:configurator_export_template_preview_live"), {
+                "html": "<p>x</p>",
+                "kind": "consolidated_quotation",
+                "company": self.company.pk,
+                "object_id": self.quote.pk,
+            })
+        token = json.loads(resp.content)["token"]
+
+        self.client.force_login(other)
+        resp = self.client.get(reverse("admin:configurator_export_template_preview_result", args=[token]))
+        self.assertEqual(resp.status_code, 404)
+
+    def test_live_post_reports_template_errors(self):
+        resp = self._live_preview({
             "html": "{% if %}broken",
             "css": "",
             "kind": "consolidated_quotation",
@@ -84,12 +133,11 @@ class ExportTemplatePreviewViewTest(TestCase):
         self.assertIn("Template error", data["error"])
 
     def test_live_post_reports_missing_weasyprint(self):
-        url = reverse("admin:configurator_export_template_preview_live")
         with patch(
             "core.services.pdf_service.PDFService.html_to_pdf",
             side_effect=RuntimeError("PDF generation is unavailable"),
         ):
-            resp = self.client.post(url, {
+            resp = self._live_preview({
                 "html": "<p>x</p>",
                 "kind": "consolidated_quotation",
                 "company": self.company.pk,

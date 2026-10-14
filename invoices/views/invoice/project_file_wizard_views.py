@@ -116,8 +116,9 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
     def _build_items_initial(self):
         """
         Builds the initial items list from the accepted quotes' configurations,
-        direct configurations and work entries, scaled by the selected
-        percentage/amount. Each source becomes a separate line item on the invoice.
+        direct configurations and work entries: in full mode each source's
+        exact pending amount (build_items_for_remaining), else scaled by the
+        selected percentage/amount. Each source becomes a separate line item on the invoice.
         Items use subtotal (pre-tax). Each item carries a unique source_id
         and its per-config tax amount for reliable lookup.
         """
@@ -126,7 +127,11 @@ class ProjectFileInvoiceWizardView(UnfoldModelAdminViewMixin, SessionWizardView)
             return []
 
         mode = setup_data.get('invoice_mode', 'percentage')
-        percentage = setup_data.get('percentage', Decimal("100"))
+        if mode == 'full':
+            # Each source's exact pending amount: no ratio to round
+            return ProjectFileInvoiceService.build_items_for_remaining(
+                self.invoicing_summary, split_configs=False,
+            )
         calculated_subtotal = setup_data.get('_calculated_subtotal', Decimal("0.00"))
 
         items_initial = []

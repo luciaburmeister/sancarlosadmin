@@ -454,6 +454,31 @@ class ScheduleContextTest(TestCase):
         self.assertTrue(all(block.height_pct == 100.0 for block in row.blocks))
         self.assertTrue(all(block.show_label for block in row.blocks))
 
+    def test_stage_blocks_show_ticket_id_instead_of_project_file(self):
+        client = Client.objects.create(company=self.company, name="Test client")
+        project = ProjectFile.objects.create(
+            company=self.company,
+            client=client,
+            name="Test project",
+            reference="EXP-TEST",
+        )
+        self.ticket.project_file = project
+        self.ticket.save(update_fields=["project_file"])
+        make_session(
+            self.ticket,
+            start=self.at(9),
+            end=self.at(10),
+            resources=[self.operator],
+        )
+
+        data = self.context().build()
+        block = self.rows_by_label(data)["Ana Ruiz"].blocks[0]
+
+        self.assertEqual(block.ticket_label, f"OP-{self.ticket.pk}")
+        self.assertIn(f"OP-{self.ticket.pk}", block.title)
+        self.assertNotIn("EXP-TEST", block.title)
+        self.assertIn("EXP-TEST", data.ticket_rows[0].sublabel)
+
     def test_ticket_rows_keep_the_ticket_colour(self):
         make_session(
             self.ticket,

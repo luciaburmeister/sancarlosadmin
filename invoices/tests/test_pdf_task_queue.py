@@ -14,6 +14,12 @@ from invoices import tasks as invoice_tasks
 
 
 class PdfTaskQueueTests(SimpleTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        # Register every app's tasks, as the worker's autodiscovery does
+        app.loader.import_default_modules()
+
     def _queue_for(self, task_name):
         return app.amqp.router.route({}, task_name)["queue"].name
 
@@ -32,6 +38,7 @@ class PdfTaskQueueTests(SimpleTestCase):
             "invoices.tasks.build_invoice_pdf_zip",
             "invoices.tasks.send_payment_reminder_email",
             "invoices.tasks.send_consolidated_payment_reminder_email",
+            "configurator.tasks.render_export_template_preview",
         }
         self.assertEqual(set(settings.CELERY_PDF_TASKS), expected)
 

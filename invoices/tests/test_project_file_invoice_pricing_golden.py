@@ -270,7 +270,8 @@ class GoldenFullInvoiceTests(_GoldenExpedienteBase):
             ]),
             "subtotal": Decimal("2133.05"),
             "discount": Decimal("107.75"),
-            "discount_breakdown": FULL_BREAKDOWN,
+            # each entry tagged with the quote it comes from
+            "discount_breakdown": [{**entry, "quote_id": quote_id} for entry in FULL_BREAKDOWN],
             "taxes": [
                 # 1172.83 (config) + 185.98 (inv 21 %) + 150.00 (direct) + 91.00 (work entry)
                 ("IVA", Decimal("21.00"), Decimal("1599.81"), Decimal("335.96"), 0),
@@ -317,10 +318,10 @@ class GoldenPartialInvoiceTests(_GoldenExpedienteBase):
             "discount_breakdown": [
                 {"amount": "12.10", "base": "605.19", "kind": "financing",
                  "level": "line_items_basket", "mode": "accumulated",
-                 "percentage": "2.00", "rule_name": "Financiación 2%"},
+                 "percentage": "2.00", "rule_name": "Financiación 2%", "quote_id": quote_id},
                 {"amount": "54.95", "base": "1099.01", "kind": "standard",
                  "level": "basket", "mode": "net",
-                 "percentage": "5.00", "rule_name": "Descuento 5%"},
+                 "percentage": "5.00", "rule_name": "Descuento 5%", "quote_id": quote_id},
             ],
             "taxes": [
                 ("IVA", Decimal("21.00"), Decimal("751.51"), Decimal("157.82"), 0),

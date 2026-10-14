@@ -135,7 +135,9 @@ class UserExpedienteRestInvoiceTests(UserExpedienteMixin, TestCase):
         self.assertIn("03/09/2026", deduction.description)
 
         # The quote's discount lands complete and unchanged
-        self.assertEqual(rest.discount_breakdown, self.quote.discount_breakdown)
+        self.assertEqual(rest.discount_breakdown, [
+            {**entry, "quote_id": self.quote.pk} for entry in self.quote.discount_breakdown
+        ])
         [entry] = rest.discount_breakdown
         self.assertEqual(
             (Decimal(str(entry["base"])), Decimal(str(entry["amount"]))),
